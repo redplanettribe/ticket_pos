@@ -42,7 +42,13 @@ type CorrectSaleResult struct {
 // imported Ticket Sale and records a replacement in the same transaction, each
 // pointing at the other. Never an edit — the mistaken sale keeps every field it
 // was recorded with and reads "corrected"; the replacement is a fresh sale with
-// fresh `unassigned` Tickets, a new Sale Confirmation reference and no batch.
+// fresh Tickets, a new Sale Confirmation reference and no batch.
+//
+// THE REPLACEMENT RE-SEATS THE BUYER. ADR 0050 said its Tickets all start
+// `unassigned`; ADR 0055 amends that for Ticket 1, which the buyer holds as a
+// Self-held Ticket exactly as they would on any imported Sale. Correcting a
+// typo therefore keeps the buyer on the roster instead of dropping them off it
+// — the behaviour 0050 would have chosen had a Self-held Ticket existed then.
 //
 // THE REPLACEMENT IS AN IMPORT ROW. It is judged by the same validator the Sale
 // Import preview and file commit use, against a catalog snapshot with the old
@@ -52,11 +58,14 @@ type CorrectSaleResult struct {
 // the row's verdict with nothing written and the original sale still active;
 // the transaction's own capacity check under lock is the last word on a race.
 //
-// WHO IS TOLD. Every accepted Holder on the old sale, unconditionally, through
-// the displaced-Holder mail every reversal route shares (#327). The buyer gets
-// NO voided mail, ever, and the replacement's Sale Confirmation only when the
-// form asked for it — with the outstanding-answers line, because fresh Tickets
-// owe every answer (#315).
+// WHO IS TOLD. Every Holder who accepted an Assignment Link on the old sale,
+// unconditionally, through the displaced-Holder mail every reversal route
+// shares (#327) — but a buyer holding by presumption follows the buyer's own
+// notification policy, which on this path is the Sale Confirmation checkbox
+// (#392, ADR 0055); see the call below. The buyer gets NO voided mail, ever,
+// and the replacement's Sale Confirmation only when the form asked for it —
+// with the outstanding-answers line, because fresh Tickets owe every answer
+// (#315).
 func (s *Service) CorrectImportedSale(ctx context.Context, actor ActorContext, eventID, saleID string, in CorrectSaleInput) (*CorrectSaleResult, *importfile.ValidateResult, error) {
 	event, types, loc, err := s.loadImportContext(ctx, actor.OrganizationID, eventID)
 	if err != nil {
@@ -89,6 +98,12 @@ func (s *Service) CorrectImportedSale(ctx context.Context, actor ActorContext, e
 		SaleID:         saleID,
 		Now:            now,
 		UpsertCustomer: s.customers.UpsertForSale,
+		// The replacement's buyer holds its Ticket 1 (ADR 0055), so a
+		// correction re-seats them on the roster in the same act that took the
+		// mistaken sale off it. Left false this would be a correction that
+		// costs the buyer their place — which is what #392's notice policy is
+		// written against.
+		SelfHeld: s.ticketAssignmentEnabled,
 		Replacement: repository.CommitSale{
 			Customer: platform.SaleCustomer{
 				Email:     row.CustomerEmail,

@@ -16,6 +16,9 @@ type RecordBatchlessImportSaleInput struct {
 	Sale           CommitSale
 	Now            time.Time
 	UpsertCustomer UpsertCustomer
+	// SelfHeld makes the buyer the Holder of the sale's Ticket 1 (ADR 0055),
+	// set from TICKET_ASSIGNMENT_ENABLED by the service.
+	SelfHeld bool
 }
 
 // RecordBatchlessImportSale records ONE Manually Recorded Sale in a transaction
@@ -51,6 +54,7 @@ func (r *Repository) RecordBatchlessImportSale(ctx context.Context, in RecordBat
 		Sale:           in.Sale,
 		Now:            in.Now,
 		UpsertCustomer: in.UpsertCustomer,
+		SelfHeld:       in.SelfHeld,
 	})
 	if err != nil {
 		return nil, err
@@ -70,6 +74,11 @@ type batchlessImportSale struct {
 	Sale           CommitSale
 	Now            time.Time
 	UpsertCustomer UpsertCustomer
+	// SelfHeld makes the buyer the Holder of the sale's Ticket 1 (ADR 0055).
+	// BOTH CALLERS PASS IT AND NEITHER MAY DEFAULT: a Sale Correction whose
+	// replacement forgot it would drop the buyer off the roster in the act of
+	// correcting their details, which is the bug ADR 0055 named.
+	SelfHeld bool
 }
 
 // commitBatchlessImportSaleTx records one imported Ticket Sale that belongs to
@@ -91,8 +100,9 @@ type batchlessImportSale struct {
 // spreadsheet.
 //
 // Everything else is the channel-agnostic sale-commit spine's, unvaried: the
-// under-lock capacity check that is the last word on a race, Tickets minted one
-// per unit and all `unassigned` with none self-held, no fee snapshot, and a NULL
+// under-lock capacity check that is the last word on a race, one Ticket minted
+// per unit with Ticket 1 held by the buyer and the rest `unassigned` (ADR 0055,
+// and only while TICKET_ASSIGNMENT_ENABLED is open), no fee snapshot, and a NULL
 // Sale Locale so the buyer's mail falls to their remembered language.
 func (r *Repository) commitBatchlessImportSaleTx(ctx context.Context, tx *sql.Tx, in batchlessImportSale) (*RecordedSale, error) {
 	recorded, err := r.CommitSales(ctx, tx, CommitSalesInput{
@@ -103,6 +113,7 @@ func (r *Repository) commitBatchlessImportSaleTx(ctx context.Context, tx *sql.Tx
 		Sales:          []CommitSale{in.Sale},
 		Now:            in.Now,
 		UpsertCustomer: in.UpsertCustomer,
+		SelfHeld:       in.SelfHeld,
 	})
 	if err != nil {
 		return nil, err

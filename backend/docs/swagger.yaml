@@ -9119,7 +9119,16 @@ paths:
         so every form of this call — both Sales Sources, file and JSON alike — is
         refused with EVENT_IS_EXTERNAL_REGISTRATION before the body is judged and
         before any Ticket Type is resolved: the refusal names the mode rather than
-        a Ticket Type that does not exist and never will (ADR 0028).'
+        a Ticket Type that does not exist and never will (ADR 0028). Each row''s Tickets
+        are minted one per unit and the row''s BUYER holds the first of them as a
+        Self-held Ticket — assigned to them and `accepted` in the same transaction,
+        so the Holder List names them (ADR 0055). The warrant is the transcription
+        rather than a proof: a Sale Import records a transaction that already happened,
+        so the email column is the person who bought, and the buyer is PRESUMED to
+        attend. It makes nobody Verified, sends no Assignment mail, and the buyer''s
+        remedy for a wrong presumption is reassignment, exactly as an online buyer''s
+        is. There is deliberately NO opt-out column on the template. Nothing is written
+        while TICKET_ASSIGNMENT_ENABLED is off.'
       parameters:
       - description: Event ID
         in: path
@@ -9567,11 +9576,15 @@ paths:
         on the `import` channel with source `direct` and NO Sale Import batch: it
         never appears in the Import history, and recording one never stops an earlier
         upload being the latest batch, so an existing batch stays undoable. Tickets
-        are minted one per unit, all `unassigned` and none self-held; no fee snapshot
-        is written, so the sale contributes its full price to Takings and nothing
-        to Net Proceeds. The buyer is ALWAYS mailed their Sale Confirmation, in their
-        own remembered language; confirmation_sent reports whether that mail went
-        out and a failure does not undo the sale. Refused with 409 EVENT_IS_EXTERNAL_REGISTRATION
+        are minted one per unit and the BUYER holds the first of them as a Self-held
+        Ticket — assigned to them and `accepted` in the same transaction, so the Holder
+        List names them (ADR 0055) — with the rest `unassigned`; the presumption makes
+        nobody Verified, sends no Assignment mail, has deliberately NO checkbox to
+        opt out of, and is not written at all while TICKET_ASSIGNMENT_ENABLED is off.
+        No fee snapshot is written, so the sale contributes its full price to Takings
+        and nothing to Net Proceeds. The buyer is ALWAYS mailed their Sale Confirmation,
+        in their own remembered language; confirmation_sent reports whether that mail
+        went out and a failure does not undo the sale. Refused with 409 EVENT_IS_EXTERNAL_REGISTRATION
         before any field is judged on an Event that registers externally, 404 EVENT_NOT_FOUND
         when the Event is not this Organization''s, and 409 IMPORT_BATCH_FAILED if
         capacity was lost to a race between validation and commit. Gated by the same
@@ -9655,16 +9668,19 @@ paths:
         and writes nothing — the original sale stays active. The replacement is a
         fresh sale: channel `import`, source `direct`, no Sale Import batch (so a
         later batch undo never sweeps it), a new Sale Confirmation reference, and
-        fresh Tickets all `unassigned` — no Ticket Assignment or Answer is carried
-        over. Every accepted Holder on the old sale is told; the buyer is mailed NOTHING
-        unless send_confirmation is true, in which case the replacement''s Sale Confirmation
-        (with the outstanding-answers line) goes to the replacement''s email — never
-        a voided mail. Works before, during and after the Event. Refused with 409
-        SALE_NOT_IMPORTED on an Online or In-Person Sale, 409 SALE_ALREADY_REVERSED
-        on a reversed (or already corrected) sale, 404 TICKET_SALE_NOT_FOUND when
-        the sale is not on this Event, and 409 IMPORT_BATCH_FAILED if capacity was
-        lost to a race between validation and commit. Gated by the same permission
-        as Sale Import.'
+        fresh Tickets — no Ticket Assignment or Answer is carried over, though the
+        replacement''s BUYER holds its first Ticket as a Self-held Ticket exactly
+        as on any imported Sale (ADR 0055), so a correction re-seats the buyer on
+        the Holder List instead of dropping them off it; the rest start `unassigned`,
+        and nothing is written while TICKET_ASSIGNMENT_ENABLED is off. Every accepted
+        Holder on the old sale is told; the buyer is mailed NOTHING unless send_confirmation
+        is true, in which case the replacement''s Sale Confirmation (with the outstanding-answers
+        line) goes to the replacement''s email — never a voided mail. Works before,
+        during and after the Event. Refused with 409 SALE_NOT_IMPORTED on an Online
+        or In-Person Sale, 409 SALE_ALREADY_REVERSED on a reversed (or already corrected)
+        sale, 404 TICKET_SALE_NOT_FOUND when the sale is not on this Event, and 409
+        IMPORT_BATCH_FAILED if capacity was lost to a race between validation and
+        commit. Gated by the same permission as Sale Import.'
       parameters:
       - description: Event ID
         in: path

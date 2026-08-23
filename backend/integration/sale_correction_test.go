@@ -514,14 +514,19 @@ func TestCorrectionTellsHoldersAndMailsTheBuyerOnlyWhenAsked(t *testing.T) {
 	if n := len(env.email.Voided()); n != 0 {
 		t.Errorf("Sale Voided mails = %d, want 0", n)
 	}
-	// Nothing carried over: the replacement's Tickets are all unassigned.
-	var assigned int
-	if err := env.db.QueryRow(`SELECT COUNT(*) FROM tickets tk JOIN ticket_sale_lines l ON l.id = tk.ticket_sale_line_id WHERE l.ticket_sale_id = $1 AND tk.holder_email IS NOT NULL`, result.ReplacementSaleID).Scan(&assigned); err != nil {
+	// NOTHING CARRIED OVER, AND THE BUYER RE-SEATED. Carla's acceptance does not
+	// follow the correction onto the replacement — its Tickets are fresh — but
+	// the buyer holds its Ticket 1 as a Self-held Ticket, which ADR 0055 added to
+	// ADR 0050's "all unassigned" so that a correction stops costing the buyer
+	// their place on the roster. Carla is on neither Ticket.
+	var carlas int
+	if err := env.db.QueryRow(`SELECT COUNT(*) FROM tickets tk JOIN ticket_sale_lines l ON l.id = tk.ticket_sale_line_id WHERE l.ticket_sale_id = $1 AND tk.holder_email = 'carla@example.com'`, result.ReplacementSaleID).Scan(&carlas); err != nil {
 		t.Fatalf("read replacement tickets: %v", err)
 	}
-	if assigned != 0 {
-		t.Errorf("%d replacement Tickets are assigned, want 0", assigned)
+	if carlas != 0 {
+		t.Errorf("%d replacement Tickets are still Carla's; a replacement's Tickets are fresh", carlas)
 	}
+	assertBuyerHoldsTicketOneAlone(t, env, result.ReplacementSaleID, "anna@example.com", 2)
 }
 
 // WORKS AFTER THE EVENT HAS ENDED.

@@ -15,6 +15,12 @@ type CorrectImportedSaleInput struct {
 	Replacement    CommitSale
 	Now            time.Time
 	UpsertCustomer UpsertCustomer
+	// SelfHeld makes the buyer the Holder of the replacement's Ticket 1
+	// (ADR 0055), set from TICKET_ASSIGNMENT_ENABLED by the service. It is what
+	// makes a correction RE-SEAT the buyer on the roster instead of dropping
+	// them off it — the amendment to ADR 0050's "the replacement's Tickets all
+	// start `unassigned`".
+	SelfHeld bool
 }
 
 // CorrectedSale is the outcome of a Sale Correction: the sale that was reversed
@@ -62,6 +68,7 @@ func (r *Repository) CorrectImportedSale(ctx context.Context, in CorrectImported
 		Sale:           in.Replacement,
 		Now:            in.Now,
 		UpsertCustomer: in.UpsertCustomer,
+		SelfHeld:       in.SelfHeld,
 	})
 	if err != nil {
 		return nil, err

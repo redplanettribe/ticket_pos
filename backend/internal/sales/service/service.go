@@ -313,9 +313,12 @@ type Service struct {
 	// off means a checkout identical to the one before this ticket.
 	ticketQuestionsEnabled bool
 	// ticketAssignmentEnabled decides whether the Sales Export's per-Ticket
-	// sheet carries the four Holder columns (#330, ADR 0047). It is the SAME
-	// TICKET_ASSIGNMENT_ENABLED the catalog service is handed and a SEPARATE
-	// flag from ticketQuestionsEnabled above — see WithTicketAssignment.
+	// sheet carries the four Holder columns (#330, ADR 0047), and whether a
+	// Sale this module records seats its buyer on Ticket 1 as a Self-held
+	// Ticket — at the online checkout (ADR 0048) and on all three routes onto
+	// the `import` channel (ADR 0055). It is the SAME TICKET_ASSIGNMENT_ENABLED
+	// the catalog service is handed and a SEPARATE flag from
+	// ticketQuestionsEnabled above — see WithTicketAssignment.
 	ticketAssignmentEnabled bool
 	logger                  platform.Logger
 	now                     func() time.Time
@@ -393,7 +396,8 @@ func (s *Service) WithTicketQuestions(enabled bool) *Service {
 	return s
 }
 
-// WithTicketAssignment opens the Sales Export's Holder columns, from the same
+// WithTicketAssignment opens the Sales Export's Holder columns and the Self-held
+// Ticket every Sale this module records writes, from the same
 // TICKET_ASSIGNMENT_ENABLED the catalog service is handed (#330, parent #322,
 // ADR 0047).
 //
@@ -406,9 +410,10 @@ func (s *Service) WithTicketQuestions(enabled bool) *Service {
 // not a dependency of it.
 //
 // Off — which is how it ships — the per-Ticket sheet is exactly the sheet #314
-// built, column for column. An address disclosed before the Privacy Policy
-// describes the disclosure must not leave the building in a file (ADR 0045), and
-// with this closed there is no column for one to leave in.
+// built, column for column, and no Sale writes a Holder on any channel. An
+// address disclosed before the Privacy Policy describes the disclosure must not
+// leave the building in a file (ADR 0045), and with this closed there is no
+// column for one to leave in and nobody's address on a Ticket to put in it.
 func (s *Service) WithTicketAssignment(enabled bool) *Service {
 	s.ticketAssignmentEnabled = enabled
 	return s
@@ -723,6 +728,12 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string
 		Sales:             commitSales,
 		Now:               s.now(),
 		UpsertCustomer:    s.customers.UpsertForSale,
+		// Each row's buyer holds that row's Ticket 1 (ADR 0055): a Sale Import
+		// transcribes a transaction the buyer made themself, so the email
+		// column is the person who bought and not a clerk's guess. Gated on the
+		// same flag the checkout reads, so TICKET_ASSIGNMENT_ENABLED means one
+		// thing on every channel.
+		SelfHeld: s.ticketAssignmentEnabled,
 	})
 	if err != nil {
 		return nil, mapCommitError(err)

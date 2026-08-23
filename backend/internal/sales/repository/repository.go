@@ -126,9 +126,16 @@ type CommitSalesInput struct {
 	// SelfHeld makes one Ticket of each sale the buyer's own: the first Ticket
 	// of the line whose Ticket Type sorts first in the catalog is assigned to
 	// the buyer and accepted in the same transaction that mints it (ADR 0048).
-	// Set by the online checkout while TICKET_ASSIGNMENT_ENABLED is on, and by
-	// nothing else: a door sale's or an import's buyer is a name somebody else
-	// typed.
+	//
+	// Set by the online checkout and by all three import routes while
+	// TICKET_ASSIGNMENT_ENABLED is on (ADR 0055), and by nothing else: an
+	// In-Person Sale's buyer has no surface to reassign from, so a Holder
+	// written onto a door sale could be removed by nobody.
+	//
+	// THE FLAG IS THE WHOLE OF THE CHANNEL RULE. Nothing below reads
+	// in.Channel to decide this and nothing should: the spine mints Tickets
+	// the same way for every channel, and the decision about which channels
+	// presume a Holder belongs to the services that know the flag.
 	SelfHeld bool
 }
 
@@ -144,6 +151,10 @@ type CommitInput struct {
 	// UpsertCustomer resolves each sale's Customer within the batch transaction.
 	// Required: every Ticket Sale must reference a Customer.
 	UpsertCustomer UpsertCustomer
+	// SelfHeld makes each row's buyer the Holder of that row's Ticket 1, on the
+	// spine's terms (ADR 0055). Set from TICKET_ASSIGNMENT_ENABLED by the
+	// service, which is the only layer that knows it.
+	SelfHeld bool
 }
 
 // RecordedSale is one Ticket Sale as actually written: its database id — which
@@ -712,14 +723,22 @@ func mintTickets(ctx context.Context, tx *sql.Tx, ticketSaleLineID string, quant
 // Ticket: assigned to the buyer's address and accepted at once, in the caller's
 // transaction (ADR 0048).
 //
-// ACCEPTED BY PURCHASE, NOT BY LINK. Checking out is the buyer's own act, so
-// "who is this one for" needs no asking and no Assignment mail. It writes
+// ACCEPTED BY PURCHASE OR BY TRANSCRIPTION, NEVER BY LINK. Checking out is the
+// buyer's own act, and an imported Sale transcribes a transaction the buyer
+// already made somewhere else (ADR 0055), so on neither route does "who is this
+// one for" need asking and on neither is an Assignment mail written. It writes
 // holder_customer_id and accepted_at together, as migration 080's CHECK
-// requires, and touches nothing on the customers row — a payment is not Proof
-// of Email Ownership, and whether the buyer is Verified stays the sign-in
-// module's authority. The Organization sees an ordinary accepted Ticket under
-// the name and address the Sale was made with, which it already sees on the
-// Sale.
+// requires, and touches nothing on the customers row — neither a payment nor a
+// transcription is Proof of Email Ownership, and whether the buyer is Verified
+// stays the sign-in module's authority. The Organization sees an ordinary
+// accepted Ticket under the name and address the Sale was made with, which it
+// already sees on the Sale.
+//
+// THE WARRANT DIFFERS BY CHANNEL AND THE WRITE DOES NOT. A payment is a proof
+// and a transcription is a presumption, which ADR 0055 states plainly rather
+// than dressing up; what it refused was a fourth assignment state saying "we
+// think so", because the roster's question is who is coming and not how they
+// came to hold the Ticket. So there is one row shape here and one only.
 //
 // Like mintTickets it takes a transaction and not a pool: a Ticket that is
 // the buyer's own from the start must be so in the commit that minted it, or
@@ -780,6 +799,7 @@ func (r *Repository) CommitImport(ctx context.Context, in CommitInput) (*Committ
 		Sales:          in.Sales,
 		Now:            in.Now,
 		UpsertCustomer: in.UpsertCustomer,
+		SelfHeld:       in.SelfHeld,
 	})
 	if err != nil {
 		return nil, err

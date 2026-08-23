@@ -162,10 +162,15 @@ func TestTheHolderListOpensOnAssignmentAlone(t *testing.T) {
 		t.Fatalf("tickets = %d (total %d), want the Event's two — the roster is every Ticket",
 			len(page.Data), page.Pagination.Total)
 	}
-	for _, ticketID := range ticketIDs {
-		if got := guestRow(t, page, ticketID); got.state != "unassigned" {
-			t.Errorf("Ticket %s reads state=%q, want `unassigned` with the roster visible", ticketID, got.state)
-		}
+	// The fixture's Sale is an import recorded with assignment already open, so
+	// its buyer holds Ticket 1 by presumption (ADR 0055) and Ticket 2 is nobody's
+	// yet. Both are on the roster, which is what this test is about.
+	if got := guestRow(t, page, ticketIDs[0]); got.state != "accepted" || got.email != "ana@example.com" {
+		t.Errorf("Ticket 1 reads state=%q holder=%q, want the imported buyer holding their own",
+			got.state, got.email)
+	}
+	if got := guestRow(t, page, ticketIDs[1]); got.state != "unassigned" {
+		t.Errorf("Ticket 2 reads state=%q, want `unassigned` with the roster visible", got.state)
 	}
 	if strings.Contains(string(body.Data), "outstanding") {
 		t.Error("the response speaks of `outstanding` while TICKET_QUESTIONS_ENABLED is closed.\n" +
