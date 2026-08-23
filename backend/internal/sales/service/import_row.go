@@ -58,7 +58,19 @@ func (in ImportRowInput) rawRow() importfile.RawRow {
 		SoldAt:              in.SoldAt,
 	}
 	if in.AmountCents != nil {
-		raw.Amount = fmt.Sprintf("%d.%02d", *in.AmountCents/100, *in.AmountCents%100)
+		// The sign is carried separately because Go truncates division toward
+		// zero: -50 cents would otherwise render as the nonsense "0.-50".
+		// Today that is invisible — the amount rule has ONE complaint, "must be
+		// a non-negative amount", and both "-0.50" and "0.-50" earn it — so
+		// this is a latent bug, not a live one. It goes live the day that rule
+		// tells a negative amount and an unreadable one apart, and by then the
+		// two typed routes that share this line would both be blaming the wrong
+		// rule for a sub-cent refund. Rendered honestly here instead (#367).
+		cents, sign := *in.AmountCents, ""
+		if cents < 0 {
+			cents, sign = -cents, "-"
+		}
+		raw.Amount = fmt.Sprintf("%s%d.%02d", sign, cents/100, cents%100)
 	}
 	return raw
 }
