@@ -350,7 +350,7 @@ _Avoid_: Guest list, attendee list, invitees, RSVP list, outstanding answers (as
 
 **Sale Reversal**:
 The voiding of a recorded Ticket Sale: its tickets cease to exist, its capacity returns to the Ticket Type, and any money collected is returned to the Customer.
-Reachable by three routes, and the sale records which one voided it: the Customer on their own Online Sale within the Reversal Window, staff through a Sale Import undo, and a Platform Operator through an Operator Reversal. Always whole-Sale — no part of a Ticket Sale can be reversed on its own.
+Reachable by four routes, and the sale records which one voided it: the Customer on their own Online Sale within the Reversal Window, staff through a Sale Import undo, staff on a single imported Ticket Sale — on its own, or as the first half of a Sale Correction — and a Platform Operator through an Operator Reversal. Always whole-Sale — no part of a Ticket Sale can be reversed on its own.
 An outcome, not an ask. The Customer's route passes through a Reversal Request, and becomes a Sale Reversal only once the Payment Provider has confirmed the money went back; a Reversal Request that is refused never becomes one.
 A reversed Ticket Sale is never deleted: it keeps its Sale Confirmation reference and stays visible to both the Customer and the Organization, and it stops counting toward Net Proceeds, the Withdrawable Balance, and platform revenue — except for a Platform Fee an Operator Reversal said the platform kept.
 _Avoid_: Refund, cancellation, void, chargeback
@@ -483,7 +483,14 @@ _Avoid_: Manual sale, offline sale, cash sale
 
 **Sale Import**:
 A batch upload of Ticket Sales, performed by a Member who can manage the Event's sales and counted against Ticket Type capacity. Each batch carries a Sales Source: `external_platform` sales made in a third-party service, or `direct` sales the Organization made itself. Recorded as a batch so the most recent import to an Event can be reversed. At launch the `direct` source ships first.
+Undone whole-batch and latest-batch only; a single sale of any batch, however old, is instead reversed or corrected on its own, which leaves the batch itself still undoable for the sales it has left.
 _Avoid_: Manual sale entry, external sale upload
+
+**Sale Correction**:
+The fixing of a mistaken imported Ticket Sale — a wrong email, name, Tax ID, Ticket Type, quantity, Payment Method, sold-at or amount — by a Member who can manage the Event's sales. Never an edit: the mistaken Ticket Sale is reversed and a replacement is recorded in the same act, each pointing at the other, so the record of what was transacted stays immutable and the old Sale Confirmation reference stays findable as "corrected".
+The replacement is a fresh Ticket Sale in every respect: it belongs to no Sale Import batch, is held to every rule an import row is held to (capacity, Purchase Limit, Tax ID), carries a new Sale Confirmation reference, and its Tickets all start `unassigned` — nothing is carried over, because a Ticket's identity never survives its Ticket Sale. Holders on the reversed sale are told, always; the buyer is told nothing unless the correcting Member chooses to send the new Sale Confirmation, since an imported buyer's relationship is with the Organization's sales rep and not with this platform's inbox. Allowed at any time, before or after the Event, and refused whole when the replacement cannot be recorded — the old sale is never reversed on its own by a correction that failed.
+Confined to the `import` Sales Channel: an Online Sale involves the platform's money and is reversed only by the Customer or a Platform Operator.
+_Avoid_: Edit, amend, update, modify, transfer, fix (as the term), sale adjustment
 
 **Sales list**:
 The staff surface for exploring an Event's individual Ticket Sales — one row per Ticket Sale, filterable, sortable, and paginated. Visible to every Member of the Event (Org Admins, Event Owners, and Event Staff), unlike the owner-only Sale Import tool it shares a page with. It defaults to active sales and carries the Event's count of reversed ones, so a Sale Reversal is stated rather than a row that silently left the view; the count is the whole Event's, unmoved by the filters, and the reversed sales themselves are reached through the status filter. Distinct from the Import history, which lists Sale Import batches rather than individual sales, and from a Storefront listing, which lists Events to the public rather than sales to staff.
