@@ -22,6 +22,7 @@ import { formatEventDateTime } from "@/lib/format";
 import { localizedPath, toAppLocale } from "@/lib/locale";
 import { markdownSummary } from "@/lib/markdown-summary";
 import { isExternallyRegistered } from "@/lib/registration";
+import { restoreSelectionFromParam } from "@/lib/selection-url";
 import { storefrontBaseUrl } from "@/lib/site";
 import { toTagTranslator } from "@/lib/tag-name";
 import { whatsappLink } from "@/lib/whatsapp";
@@ -30,8 +31,14 @@ export const dynamic = "force-dynamic";
 
 type EventPageProps = {
   params: Promise<{ locale: string; orgSlug: string; eventSlug: string }>;
-  /** `?ref=CODE` — the Affiliate Link this page was reached through, if any. */
-  searchParams: Promise<{ ref?: string | string[] }>;
+  /**
+   * `?ref=CODE` — the Affiliate Link this page was reached through, if any.
+   *
+   * `?sel=…` — the ticket selection the buyer had chosen before being sent to
+   * sign in, if any (ADR 0054, lib/selection-url.ts). It is a suggestion and
+   * nothing more: it is re-judged below against the Event as it is now.
+   */
+  searchParams: Promise<{ ref?: string | string[]; sel?: string | string[] }>;
 };
 
 export async function generateMetadata({ params }: EventPageProps): Promise<Metadata> {
@@ -143,10 +150,23 @@ export default async function EventPage({ params, searchParams }: EventPageProps
   //
   // The Locale the visitor is reading in is not part of it: a click is a click,
   // and the two slugs name the Event in every language.
-  const code = affiliateCodeFromRef((await searchParams).ref);
+  const query = await searchParams;
+  const code = affiliateCodeFromRef(query.ref);
   if (code) {
     after(() => recordAffiliateClick(orgSlug, eventSlug, code));
   }
+
+  // The selection this visitor arrived with, re-judged against the Ticket Types
+  // that were just read — the same read that decided what the steppers may
+  // offer, so the restored quantities and their bounds cannot disagree
+  // (ADR 0054, ADR 0025, ADR 0021).
+  //
+  // Judged HERE rather than in the client component because it is a pure
+  // function of data the server already holds: doing it on this side means the
+  // first paint is the restored basket rather than an empty one that fills in a
+  // moment later. With no `sel` at all it produces an empty selection and an
+  // empty report, which is exactly the page as it was before this existed.
+  const restoredSelection = restoreSelectionFromParam(event.ticket_types, query.sel);
 
   // The words are the visitor's language; the clock stays the Event's own.
   const dateLabel = formatEventDateTime(event.starts_at, event.timezone, await getFormatLocale());
@@ -297,6 +317,9 @@ export default async function EventPage({ params, searchParams }: EventPageProps
                 eventSlug={event.slug}
                 eventName={event.name}
                 ticketTypes={event.ticket_types}
+                // The basket the buyer arrived with, already re-judged. Empty
+                // for everyone who arrived without one (ADR 0054).
+                restoredSelection={restoredSelection}
                 buyerHoldsFirstTicket={event.buyer_holds_first_ticket}
                 priceIncludesFee={event.price_includes_fee}
                 timezone={event.timezone}

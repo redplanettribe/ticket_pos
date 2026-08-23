@@ -222,6 +222,14 @@
     "capacityTitle": "Not enough tickets left",
     "purchaseLimitTitle": "More than your limit",
     "backToSelection": "Back to ticket selection",
+    "restored": {
+      "title": "We couldn't restore everything",
+      "soldOut": "{ticketType} sold out while you were away, so it's no longer in your selection.",
+      "unavailable": "{ticketType} is no longer available, so it's no longer in your selection.",
+      "capacityReduced": "Only {restored, plural, one {# ticket} other {# tickets}} left for {ticketType}, not the {requested} you had chosen.",
+      "limitReached": "You've already reached your limit for {ticketType}, so it's no longer in your selection.",
+      "limitReduced": "You can take {restored, plural, one {# more ticket} other {# more tickets}} for {ticketType}, not the {requested} you had chosen."
+    },
     "startFailed": "The checkout could not be started. Please try again.",
     "networkFailed": "The checkout could not be started. Please check your connection and try again.",
     "emailLabel": "Email",

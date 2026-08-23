@@ -222,6 +222,14 @@
     "capacityTitle": "No quedan suficientes entradas",
     "purchaseLimitTitle": "Más de su límite",
     "backToSelection": "Volver a la selección de entradas",
+    "restored": {
+      "title": "No pudimos restaurar todo",
+      "soldOut": "{ticketType} se agotó mientras no estabas, así que ya no está en tu selección.",
+      "unavailable": "{ticketType} ya no está disponible, así que ya no está en tu selección.",
+      "capacityReduced": "Solo {restored, plural, one {queda # entrada} other {quedan # entradas}} de {ticketType}, no las {requested} que habías elegido.",
+      "limitReached": "Ya alcanzaste tu límite de {ticketType}, así que ya no está en tu selección.",
+      "limitReduced": "Puedes llevar {restored, plural, one {# entrada más} other {# entradas más}} de {ticketType}, no las {requested} que habías elegido."
+    },
     "startFailed": "No se pudo iniciar la compra. Inténtelo de nuevo.",
     "networkFailed": "No se pudo iniciar la compra. Revise su conexión e inténtelo de nuevo.",
     "emailLabel": "Correo electrónico",
