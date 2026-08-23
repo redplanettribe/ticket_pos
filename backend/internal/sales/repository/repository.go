@@ -1284,6 +1284,16 @@ type SaleRow struct {
 	// sale reversed before either was recorded (#117).
 	ReversedAt *time.Time
 	ReversedBy *string
+	// ReplacedBySaleID/ReplacesSaleID are the Sale Correction linkage (#350,
+	// ADR 0050): on a reversed sale, the replacement that corrected it; on the
+	// replacement, the sale it stands in for. Nil on every sale until a
+	// correction writes them; a plain single-sale reversal sets neither.
+	ReplacedBySaleID *string
+	ReplacesSaleID   *string
+	// HeldTicketCount is how many of the sale's Tickets have an accepted
+	// Holder — the people a Sale Reversal would tell (#327). Read off
+	// accepted_at, the one fact that makes somebody a Holder.
+	HeldTicketCount int
 }
 
 // ListSalesQuery selects a page of an Event's Ticket Sales for the Sales list.
@@ -1482,6 +1492,13 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			ts.customer_tax_id_number,
 			ts.reversed_at,
 			ts.reversed_by,
+			ts.replaced_by_sale_id,
+			ts.replaces_sale_id,
+			(
+				SELECT COUNT(*) FROM tickets tk
+				JOIN ticket_sale_lines tkl ON tkl.id = tk.ticket_sale_line_id
+				WHERE tkl.ticket_sale_id = ts.id AND tk.accepted_at IS NOT NULL
+			) AS held_ticket_count,
 			COUNT(*) OVER() AS total
 		FROM ticket_sales ts
 		JOIN organizations org ON org.id = ts.organization_id
@@ -1517,6 +1534,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 		var s SaleRow
 		var typesJSON []byte
 		var source, paymentMethod, taxIDType, taxIDNumber, reversedBy sql.NullString
+		var replacedBy, replaces sql.NullString
 		var reversedAt sql.NullTime
 		if err := rows.Scan(
 			&s.ID,
@@ -1538,9 +1556,18 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			&taxIDNumber,
 			&reversedAt,
 			&reversedBy,
+			&replacedBy,
+			&replaces,
+			&s.HeldTicketCount,
 			&total,
 		); err != nil {
 			return nil, 0, err
+		}
+		if replacedBy.Valid {
+			s.ReplacedBySaleID = &replacedBy.String
+		}
+		if replaces.Valid {
+			s.ReplacesSaleID = &replaces.String
 		}
 		if err := json.Unmarshal(typesJSON, &s.TicketTypes); err != nil {
 			return nil, 0, err

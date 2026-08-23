@@ -36,6 +36,15 @@ export type SaleListRow = {
   // sale reversed before either was recorded (#117, ADR 0018).
   reversed_at: string | null;
   reversed_by: string | null;
+  // The Sale Correction linkage (#350, ADR 0050): on a reversed sale, the
+  // replacement that corrected it; on the replacement, the sale it stands in
+  // for. Both null until a correction is recorded — a sale reversed on its own
+  // sets neither and reads "Reversed by staff" off reversed_by alone.
+  replaced_by_sale_id: string | null;
+  replaces_sale_id: string | null;
+  // How many of the sale's Tickets have an accepted Holder: the people a
+  // reversal tells. Stated on the row so the confirm dialog can say so first.
+  held_ticket_count: number;
 };
 
 export type SalesPagination = {
@@ -207,6 +216,41 @@ export async function fetchSalesList(
   appendSalesFilters(params, filters);
   appendSalesSort(params, sort, dir);
   return fetchEventsJSON<SalesListResponse>(`/api/events/${eventId}/sales?${params.toString()}`);
+}
+
+// ReverseSaleResult mirrors POST /api/v1/staff/events/{id}/sales/{saleId}/reverse.
+export type ReverseSaleResult = {
+  sale_id: string;
+  confirmation_ref: string;
+  status: string;
+  reversed_at: string;
+  reversed_by: string;
+};
+
+/**
+ * Whether a Sales list row offers Reverse (#350, ADR 0050).
+ *
+ * Three facts, all of which must hold: the viewer may manage the Event's sales
+ * (the Sale Import's own gate — Event Staff see the state and no lever), the
+ * sale is on the `import` channel (an Online Sale is the buyer's or the
+ * platform's to reverse, and an In-Person Sale has no route yet), and it is
+ * still active. The API refuses each of these too; this decides whether to show
+ * a button, not whether the press would succeed.
+ */
+export function canReverseSale(
+  canManageSales: boolean,
+  sale: Pick<SaleListRow, "channel" | "status">,
+): boolean {
+  return canManageSales && sale.channel === "import" && sale.status === "active";
+}
+
+// reverseSale reverses one imported Ticket Sale via the BFF. Surfaces the API's
+// refusal (SALE_NOT_IMPORTED, SALE_ALREADY_REVERSED, TICKET_SALE_NOT_FOUND) as
+// ApiError for the catalog to word.
+export async function reverseSale(eventId: string, saleId: string): Promise<ReverseSaleResult> {
+  return fetchEventsJSON<ReverseSaleResult>(`/api/events/${eventId}/sales/${saleId}/reverse`, {
+    method: "POST",
+  });
 }
 
 // salesExportPath is the BFF path for the Sales Export under the given filters

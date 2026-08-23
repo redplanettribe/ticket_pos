@@ -5936,7 +5936,7 @@ export interface paths {
         };
         /**
          * List an Event's Ticket Sales
-         * @description Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), the Sale Reversal provenance on a reversed row (reversed_at and reversed_by, which is `customer` when the buyer reversed their own Online Sale, `staff` when a Sale Import undo did, and `operator` when the platform reversed it after refunding the buyer off-platform at the Organization's request; both null on an active sale and on a sale reversed before either was recorded — the Operator Reversal's money memo is operator-facing only and never appears here), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by `sort` (sold_at, recorded_at, customer, amount) and `dir` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination, reversed_count } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. `reversed_count` is how many of the Event's Ticket Sales are reversed, across the whole Event and independent of every filter on the request (including status), so a Sale Reversal is visible rather than a row that silently left the default view; it is 0 on an Event that has never had one. Visible to any Member of the Event.
+         * @description Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), the Sale Reversal provenance on a reversed row (reversed_at and reversed_by, which is `customer` when the buyer reversed their own Online Sale, `staff` when a Sale Import undo or a single-sale staff reversal did, and `operator` when the platform reversed it after refunding the buyer off-platform at the Organization's request; both null on an active sale and on a sale reversed before either was recorded — the Operator Reversal's money memo is operator-facing only and never appears here), the Sale Correction linkage (replaced_by_sale_id on a corrected sale and replaces_sale_id on its replacement, both null until a correction is recorded — ADR 0050), held_ticket_count (how many of the sale's Tickets have an accepted Holder, the people a reversal would tell), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by `sort` (sold_at, recorded_at, customer, amount) and `dir` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination, reversed_count } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. `reversed_count` is how many of the Event's Ticket Sales are reversed, across the whole Event and independent of every filter on the request (including status), so a Sale Reversal is visible rather than a row that silently left the default view; it is 0 on an Event that has never had one. Visible to any Member of the Event.
          */
         get: {
             parameters: {
@@ -6024,6 +6024,95 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/staff/events/{id}/sales/{saleId}/reverse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reverse one imported Ticket Sale
+         * @description Reverses a single active `import`-channel Ticket Sale from any Sale Import batch, however old (ADR 0050): the sale is marked reversed by staff, each Ticket Type's sold_count is restored, every accepted Holder on it is told, and the buyer is mailed nothing. The batch is not touched and stays undoable for its remaining active sales. Refused with 409 SALE_NOT_IMPORTED on an Online or In-Person Sale, 409 SALE_ALREADY_REVERSED on a reversed sale, and 404 TICKET_SALE_NOT_FOUND when the sale is not on this Event. Gated by the same permission as Sale Import.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Ticket Sale ID */
+                    saleId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -10052,25 +10141,24 @@ export interface components {
              */
             failed?: number;
             /**
-             * @description Sent is reminders the provider accepted and the ledger recorded, to buyers
-             *     and Holders alike. On a platform where the feature ships dark and the job
-             *     ships paused, zero is the only answer.
+             * @description Sent is reminders the provider accepted and the ledger recorded. On a
+             *     platform where the feature ships dark and the job ships paused, zero is
+             *     the only answer.
              *
-             *     IT DOES NOT SAY WHICH KIND, and adding a breakdown was considered and
-             *     refused: on a platform with one Organization, "two of today's reminders
-             *     went to Holders" is close enough to naming somebody, and an operator
-             *     diagnosing this job needs to know that mail moved rather than who read it.
+             *     IT DOES NOT SAY WHO, and adding a breakdown was considered and refused:
+             *     on a platform with one Organization, "two of today's reminders went to
+             *     buyers" is close enough to naming somebody, and an operator diagnosing
+             *     this job needs to know that mail moved rather than who read it.
              */
             sent?: number;
             /**
-             * @description Skipped is candidates this run deliberately did not mail: a link that could
-             *     not be signed, or an address the row does not carry. NOTHING WAS SENT and
-             *     nothing was recorded, so they are due again on the next tick — which is
-             *     right, because the fault is the deployment's rather than the reader's.
+             * @description Skipped is candidates this run deliberately did not mail: a deployment
+             *     with no Storefront origin to point at, or an address the row does not
+             *     carry. NOTHING WAS SENT and nothing was recorded, so they are due again on
+             *     the next tick — which is right, because the fault is the deployment's
+             *     rather than the reader's.
              *
-             *     A number that stays high is a misconfiguration, not a backlog: the only way
-             *     to fail to sign a Confirmation Link or an Assignment Link is to have no
-             *     link secret.
+             *     A number that stays high is a misconfiguration, not a backlog.
              */
             skipped?: number;
             /**

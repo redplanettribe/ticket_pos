@@ -135,6 +135,7 @@ export default async function EventSalesPage({ params, searchParams }: EventSale
           dir={parseSaleDir(resolvedSearchParams.dir)}
           timezone={timezone}
           canExport={isOwner}
+          canManageSales={isOwner}
           ticketQuestionsEnabled={facts.ticketQuestionsEnabled}
         />
         {/* The Event's timezone reaches the import history for the same reason

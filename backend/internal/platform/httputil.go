@@ -334,7 +334,7 @@ func domainHTTPStatus(code string) int {
 	// but the Ticket Sale is not in a state that admits an undo — already
 	// reversed, never reversible, or past its Reversal Window. Retrying changes
 	// nothing, which is what separates them from a 400 the caller could fix.
-	case "SALE_ALREADY_REVERSED", "SALE_NOT_REVERSIBLE", "REVERSAL_WINDOW_CLOSED":
+	case "SALE_ALREADY_REVERSED", "SALE_NOT_REVERSIBLE", "SALE_NOT_IMPORTED", "REVERSAL_WINDOW_CLOSED":
 		return http.StatusConflict
 	// A Customer pressing Undo on a sale whose reversal became an Unresolved
 	// Reversal (ADR 0024). A fourth 409 for the same reason as the three above —

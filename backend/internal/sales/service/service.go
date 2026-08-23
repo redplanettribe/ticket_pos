@@ -837,6 +837,16 @@ type SaleListItem struct {
 	TaxIDNumber       *string    `json:"tax_id_number"`
 	ReversedAt        *time.Time `json:"reversed_at"`
 	ReversedBy        *string    `json:"reversed_by"`
+	// ReplacedBySaleID/ReplacesSaleID are the Sale Correction linkage (#350,
+	// ADR 0050), so a row can read "Corrected → …" / "Corrects …". Both null
+	// until a correction is recorded; a plain single-sale reversal sets
+	// neither and reads "Reversed by staff" off reversed_by alone.
+	ReplacedBySaleID *string `json:"replaced_by_sale_id"`
+	ReplacesSaleID   *string `json:"replaces_sale_id"`
+	// HeldTicketCount is how many of the sale's Tickets have an accepted
+	// Holder: the people a reversal would tell, stated on the row so the
+	// confirm dialog can say so before anybody is told.
+	HeldTicketCount int `json:"held_ticket_count"`
 }
 
 // Pagination is the ADR-0006 nested pagination object: the current page and
@@ -959,6 +969,9 @@ func (s *Service) ListSales(ctx context.Context, actor ActorContext, eventID str
 			TaxIDNumber:       row.CustomerTaxIDNumber,
 			ReversedAt:        row.ReversedAt,
 			ReversedBy:        row.ReversedBy,
+			ReplacedBySaleID:  row.ReplacedBySaleID,
+			ReplacesSaleID:    row.ReplacesSaleID,
+			HeldTicketCount:   row.HeldTicketCount,
 		})
 	}
 

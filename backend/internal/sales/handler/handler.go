@@ -247,7 +247,7 @@ var (
 // filters.
 //
 // @Summary      List an Event's Ticket Sales
-// @Description  Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), the Sale Reversal provenance on a reversed row (reversed_at and reversed_by, which is `customer` when the buyer reversed their own Online Sale, `staff` when a Sale Import undo did, and `operator` when the platform reversed it after refunding the buyer off-platform at the Organization's request; both null on an active sale and on a sale reversed before either was recorded — the Operator Reversal's money memo is operator-facing only and never appears here), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by `sort` (sold_at, recorded_at, customer, amount) and `dir` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination, reversed_count } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. `reversed_count` is how many of the Event's Ticket Sales are reversed, across the whole Event and independent of every filter on the request (including status), so a Sale Reversal is visible rather than a row that silently left the default view; it is 0 on an Event that has never had one. Visible to any Member of the Event.
+// @Description  Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), the Sale Reversal provenance on a reversed row (reversed_at and reversed_by, which is `customer` when the buyer reversed their own Online Sale, `staff` when a Sale Import undo or a single-sale staff reversal did, and `operator` when the platform reversed it after refunding the buyer off-platform at the Organization's request; both null on an active sale and on a sale reversed before either was recorded — the Operator Reversal's money memo is operator-facing only and never appears here), the Sale Correction linkage (replaced_by_sale_id on a corrected sale and replaces_sale_id on its replacement, both null until a correction is recorded — ADR 0050), held_ticket_count (how many of the sale's Tickets have an accepted Holder, the people a reversal would tell), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by `sort` (sold_at, recorded_at, customer, amount) and `dir` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination, reversed_count } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. `reversed_count` is how many of the Event's Ticket Sales are reversed, across the whole Event and independent of every filter on the request (including status), so a Sale Reversal is visible rather than a row that silently left the default view; it is 0 on an Event that has never had one. Visible to any Member of the Event.
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth
@@ -880,4 +880,51 @@ func validateImport(source string, body commitImportBody) ([]platform.FieldError
 	}
 
 	return fields, rows
+}
+
+// ReverseSale reverses one imported Ticket Sale from the Sales list.
+//
+// @Summary      Reverse one imported Ticket Sale
+// @Description  Reverses a single active `import`-channel Ticket Sale from any Sale Import batch, however old (ADR 0050): the sale is marked reversed by staff, each Ticket Type's sold_count is restored, every accepted Holder on it is told, and the buyer is mailed nothing. The batch is not touched and stays undoable for its remaining active sales. Refused with 409 SALE_NOT_IMPORTED on an Online or In-Person Sale, 409 SALE_ALREADY_REVERSED on a reversed sale, and 404 TICKET_SALE_NOT_FOUND when the sale is not on this Event. Gated by the same permission as Sale Import.
+// @Tags         staff
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id      path      string  true  "Event ID"
+// @Param        saleId  path      string  true  "Ticket Sale ID"
+// @Success      200     {object}  platform.Envelope
+// @Failure      400     {object}  platform.Envelope
+// @Failure      401     {object}  platform.Envelope
+// @Failure      403     {object}  platform.Envelope
+// @Failure      404     {object}  platform.Envelope
+// @Failure      409     {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/sales/{saleId}/reverse [post]
+func (h *Handler) ReverseSale(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	eventID := strings.TrimSpace(r.PathValue("id"))
+	saleID := strings.TrimSpace(r.PathValue("saleId"))
+	var fields []platform.FieldError
+	if eventID == "" {
+		fields = append(fields, platform.FieldError{Field: "id", Code: platform.CodeRequired, Message: "is required"})
+	}
+	if saleID == "" {
+		fields = append(fields, platform.FieldError{Field: "saleId", Code: platform.CodeRequired, Message: "is required"})
+	}
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+	if _, err := uuid.Parse(saleID); err != nil {
+		// A malformed id names no sale: the same answer as an unknown one, and
+		// the same answer a probe gets.
+		_ = platform.WriteDomainError(w, reqID, sales.ErrTicketSaleIDNotFound(saleID))
+		return
+	}
+
+	result, err := h.svc.ReverseImportedSale(r.Context(), actorFromRequest(r), eventID, saleID)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
 }

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  canReverseSale,
   exportFieldMessage,
   paymentMethodToken,
   reversalProvenance,
@@ -154,4 +155,16 @@ test("exportFieldMessage answers null when the refusal carried no field sentence
   // A field error with a blank message is the same as none to a reader: the
   // caller falls through to the catalog rather than showing an empty alert.
   assert.equal(exportFieldMessage({ fields: [{ field: "filters", message: "   " }] }), null);
+});
+
+test("canReverseSale offers Reverse only to a sales manager, on an active imported sale", () => {
+  const active = { channel: "import", status: "active" };
+  assert.equal(canReverseSale(true, active), true);
+  // Event Staff see the state and no lever.
+  assert.equal(canReverseSale(false, active), false);
+  // An Online Sale is the buyer's or the platform's to reverse; a door sale has no route.
+  assert.equal(canReverseSale(true, { channel: "online", status: "active" }), false);
+  assert.equal(canReverseSale(true, { channel: "in_person", status: "active" }), false);
+  // A second press on a reversed sale is refused; the button goes first.
+  assert.equal(canReverseSale(true, { channel: "import", status: "reversed" }), false);
 });

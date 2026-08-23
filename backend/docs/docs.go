@@ -2310,11 +2310,11 @@ const docTemplate = `{
                         "type": "integer"
                     },
                     "sent": {
-                        "description": "Sent is reminders the provider accepted and the ledger recorded, to buyers\nand Holders alike. On a platform where the feature ships dark and the job\nships paused, zero is the only answer.\n\nIT DOES NOT SAY WHICH KIND, and adding a breakdown was considered and\nrefused: on a platform with one Organization, \"two of today's reminders\nwent to Holders\" is close enough to naming somebody, and an operator\ndiagnosing this job needs to know that mail moved rather than who read it.",
+                        "description": "Sent is reminders the provider accepted and the ledger recorded. On a\nplatform where the feature ships dark and the job ships paused, zero is\nthe only answer.\n\nIT DOES NOT SAY WHO, and adding a breakdown was considered and refused:\non a platform with one Organization, \"two of today's reminders went to\nbuyers\" is close enough to naming somebody, and an operator diagnosing\nthis job needs to know that mail moved rather than who read it.",
                         "type": "integer"
                     },
                     "skipped": {
-                        "description": "Skipped is candidates this run deliberately did not mail: a link that could\nnot be signed, or an address the row does not carry. NOTHING WAS SENT and\nnothing was recorded, so they are due again on the next tick — which is\nright, because the fault is the deployment's rather than the reader's.\n\nA number that stays high is a misconfiguration, not a backlog: the only way\nto fail to sign a Confirmation Link or an Assignment Link is to have no\nlink secret.",
+                        "description": "Skipped is candidates this run deliberately did not mail: a deployment\nwith no Storefront origin to point at, or an address the row does not\ncarry. NOTHING WAS SENT and nothing was recorded, so they are due again on\nthe next tick — which is right, because the fault is the deployment's\nrather than the reader's.\n\nA number that stays high is a misconfiguration, not a backlog.",
                         "type": "integer"
                     },
                     "unrecorded": {
@@ -11067,7 +11067,7 @@ const docTemplate = `{
         },
         "/api/v1/staff/events/{id}/sales": {
             "get": {
-                "description": "Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), the Sale Reversal provenance on a reversed row (reversed_at and reversed_by, which is ` + "`" + `customer` + "`" + ` when the buyer reversed their own Online Sale, ` + "`" + `staff` + "`" + ` when a Sale Import undo did, and ` + "`" + `operator` + "`" + ` when the platform reversed it after refunding the buyer off-platform at the Organization's request; both null on an active sale and on a sale reversed before either was recorded — the Operator Reversal's money memo is operator-facing only and never appears here), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by ` + "`" + `sort` + "`" + ` (sold_at, recorded_at, customer, amount) and ` + "`" + `dir` + "`" + ` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination, reversed_count } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. ` + "`" + `reversed_count` + "`" + ` is how many of the Event's Ticket Sales are reversed, across the whole Event and independent of every filter on the request (including status), so a Sale Reversal is visible rather than a row that silently left the default view; it is 0 on an Event that has never had one. Visible to any Member of the Event.",
+                "description": "Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), the Sale Reversal provenance on a reversed row (reversed_at and reversed_by, which is ` + "`" + `customer` + "`" + ` when the buyer reversed their own Online Sale, ` + "`" + `staff` + "`" + ` when a Sale Import undo or a single-sale staff reversal did, and ` + "`" + `operator` + "`" + ` when the platform reversed it after refunding the buyer off-platform at the Organization's request; both null on an active sale and on a sale reversed before either was recorded — the Operator Reversal's money memo is operator-facing only and never appears here), the Sale Correction linkage (replaced_by_sale_id on a corrected sale and replaces_sale_id on its replacement, both null until a correction is recorded — ADR 0050), held_ticket_count (how many of the sale's Tickets have an accepted Holder, the people a reversal would tell), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by ` + "`" + `sort` + "`" + ` (sold_at, recorded_at, customer, amount) and ` + "`" + `dir` + "`" + ` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination, reversed_count } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. ` + "`" + `reversed_count` + "`" + ` is how many of the Event's Ticket Sales are reversed, across the whole Event and independent of every filter on the request (including status), so a Sale Reversal is visible rather than a row that silently left the default view; it is 0 on an Event that has never had one. Visible to any Member of the Event.",
                 "parameters": [
                     {
                         "description": "Event ID",
@@ -11603,6 +11603,102 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Get an Event's Sales Trends",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/events/{id}/sales/{saleId}/reverse": {
+            "post": {
+                "description": "Reverses a single active ` + "`" + `import` + "`" + `-channel Ticket Sale from any Sale Import batch, however old (ADR 0050): the sale is marked reversed by staff, each Ticket Type's sold_count is restored, every accepted Holder on it is told, and the buyer is mailed nothing. The batch is not touched and stays undoable for its remaining active sales. Refused with 409 SALE_NOT_IMPORTED on an Online or In-Person Sale, 409 SALE_ALREADY_REVERSED on a reversed sale, and 404 TICKET_SALE_NOT_FOUND when the sale is not on this Event. Gated by the same permission as Sale Import.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Ticket Sale ID",
+                        "in": "path",
+                        "name": "saleId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Reverse one imported Ticket Sale",
                 "tags": [
                     "staff"
                 ]
