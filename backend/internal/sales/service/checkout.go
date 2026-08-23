@@ -246,6 +246,24 @@ type BeginCheckoutResult struct {
 	ConfirmationRef string `json:"confirmation_ref,omitempty"`
 	AmountCents     int    `json:"amount_cents"`
 	Currency        string `json:"currency"`
+	// AddressedTo is the address this checkout's Ticket Sale was addressed to, as
+	// the API resolved it — on the session-gated route (ADR 0054), the address the
+	// Customer Session proved.
+	//
+	// It is reported back because the Storefront's return leg needs it and has no
+	// other authoritative source for it (#387). The buyer leaves this origin for
+	// the Payment Provider, possibly for minutes, and a session can end while they
+	// are away: a cleared jar, a provider webview that drops cookies, a revoked
+	// session, a return in another browser. The person who comes back has ALREADY
+	// PAID, and the address they bought under is what turns "sign in" from a dead
+	// end into a door — a purchase made under one address and a session held under
+	// another are different Customers (ADR 0011).
+	//
+	// It grants nothing and proves nothing. Sign-in still costs a passcode or a
+	// Google round trip; this only spares the buyer typing what they already told
+	// us. It is reported to the caller that supplied or proved it and to nobody
+	// else, so no address is disclosed that the request did not already name.
+	AddressedTo string `json:"addressed_to"`
 }
 
 // owedConsentAnswers narrows a checkout body's three answers to the boxes this
@@ -513,7 +531,7 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 	s.holdCheckoutAnswers(ctx, paymentID, requested, in.Answers, now)
 
 	if free {
-		return s.settleFreeCheckout(ctx, event, clientTransactionID, now)
+		return s.settleFreeCheckout(ctx, event, clientTransactionID, customer.Email, now)
 	}
 
 	initiation, err := s.provider.Initiate(ctx, platform.PaymentInitiateInput{
@@ -558,6 +576,10 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		RedirectURL:         initiation.RedirectURL,
 		AmountCents:         amountCents,
 		Currency:            event.Currency,
+		// The address the sale was addressed to, taken from the same trimmed copy
+		// the Payment snapshot was built from, so what is reported back and what
+		// was recorded cannot disagree.
+		AddressedTo: customer.Email,
 	}, nil
 }
 
@@ -812,7 +834,7 @@ func (s *Service) holdCheckoutAnswers(
 // No Payment Provider is asked, no redirect is handed out, and no confirm leg
 // ever arrives — the buyer has their tickets by the time the response is
 // written.
-func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.CheckoutEvent, clientTransactionID string, now time.Time) (*BeginCheckoutResult, error) {
+func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.CheckoutEvent, clientTransactionID, addressedTo string, now time.Time) (*BeginCheckoutResult, error) {
 	ref, err := generateConfirmationRef()
 	if err != nil {
 		return nil, err
@@ -867,6 +889,11 @@ func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.Chec
 		ConfirmationRef:     approved.Sale.ConfirmationRef,
 		AmountCents:         approved.Sale.AmountCents,
 		Currency:            event.Currency,
+		// Reported on the free settlement too, even though this buyer never leaves
+		// the origin and so never risks the round trip: the two outcomes of one
+		// call describe themselves the same way, and a caller that has to ask which
+		// branch it took before reading a field is a caller that will forget.
+		AddressedTo: addressedTo,
 	}, nil
 }
 

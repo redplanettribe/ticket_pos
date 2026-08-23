@@ -3,7 +3,7 @@
  * sends somebody who wants to.
  *
  * Three surfaces now say it: the Customer Area's cards, the checkout success
- * page a guest lands on seconds after paying, and the Confirmation Link page
+ * page a buyer lands on seconds after paying, and the Confirmation Link page
  * they come back to when they reconsider (#121). Only the first of the three can
  * actually undo anything — reversal requires a Customer Session, because a
  * Confirmation Link travels by email and gets forwarded (ADR 0018) — so the
@@ -22,7 +22,7 @@ import { DEFAULT_LOCALE, formatReversalDeadline, type IntlLocale } from "./forma
 
 /**
  * What the API says about undoing one Ticket Sale. The Customer Area's cards and
- * the guest checkout read return these fields, computed by one rule on the API
+ * the checkout success page's read return these fields, computed by one rule on the API
  * side — which is what makes the deadline drawn from either of them the same
  * instant for the same sale.
  *
@@ -30,7 +30,7 @@ import { DEFAULT_LOCALE, formatReversalDeadline, type IntlLocale } from "./forma
  * the Reversal Window: a sale whose payment cannot be reversed has an open
  * Window and no offer, and reports null here.
  *
- * `ticket_sale_id` is present only on the guest checkout read, where it is the
+ * `ticket_sale_id` is present only on the checkout read, where it is the
  * one way that page learns which sale it is talking about — a Customer Area card
  * already knows, from its own `id`.
  */
@@ -85,6 +85,11 @@ export function undoDeadline(
  * proved, so nothing is granted by putting an address in a field. It is omitted
  * entirely when this app does not know one, rather than sent blank, so a visitor
  * whose checkout context has expired gets an empty field instead of a wrong one.
+ *
+ * Since ADR 0054 the reader with no session here is not a guest — there are none
+ * — but a buyer whose own session did not survive the round trip through the
+ * Payment Provider (#387). The offer is unchanged and the reason it exists is
+ * not: the money has already moved by the time this link is drawn.
  *
  * A purchase made under one address and a session held under another are
  * different Customers (ADR 0011), which is exactly why the address travels: a

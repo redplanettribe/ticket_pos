@@ -318,22 +318,22 @@ export async function POST(request: Request) {
     // Remembered only once the API accepted the checkout: the slugs were just
     // validated against SLUG_PATTERN, so the path is safe to become an href on
     // the terminal pages.
-    // The buyer's address does NOT ride along any more, and there is no longer
-    // anything here that knows it: the address lives on the Customer Session and
-    // this hop forwards that session without reading it. What it fed was the
-    // success page's "sign in, prefilled" offer for a guest (#121), and there
-    // are no guests here since ADR 0054 — somebody who has just bought is
-    // signed in, so that page offers them their Customer Area instead. The one
-    // thing lost is the prefill for a buyer whose session expired while they
-    // were on the Payment Provider's page, who now meets an empty sign-in field.
-    // Cheaper than a second session read on the checkout's hot path to fill in a
-    // box.
-    // The language they were reading in still does ride along, as the Event page
-    // that called this route states it: this is the last moment anything knows
-    // it. The
-    // Payment Provider's return URL is a locale-free constant, so without this
-    // the handler behind it can only guess (T5). Null when neither the body nor
-    // the Referer says, which leaves that handler exactly the guess it had
+    //
+    // WRITTEN IN FULL, BECAUSE A SESSION CAN END BETWEEN PAYING AND RETURNING
+    // (#387). The buyer is about to leave this origin for the Payment Provider,
+    // possibly for minutes; a cleared jar, a provider webview that keeps its own
+    // cookies, a session revoked from another device or a return in a different
+    // browser each land somebody who HAS ALREADY PAID on a terminal page with no
+    // session at all. "Checkout requires a session, therefore the buyer will have
+    // one when they come back" is the one inference this route may not make: it
+    // is true of the request being handled here and says nothing about the one
+    // that follows it.
+    //
+    // The language they were reading in rides along because the Event page that
+    // called this route states it and this is the last moment anything knows it:
+    // the Payment Provider's return URL is a locale-free constant, so without
+    // this the handler behind it can only guess (T5). Null when neither the body
+    // nor the Referer says, which leaves that handler exactly the guess it had
     // before — the same browser asks both times, so nothing is lost by not
     // writing one down here.
     await rememberCheckoutContext({
@@ -348,10 +348,25 @@ export async function POST(request: Request) {
       selection: encodeSelection(
         Object.fromEntries(lines.map((line) => [line.ticket_type_id, line.quantity])),
       ),
-      // Empty by construction now, and kept in the cookie's shape rather than
-      // removed from it: parseCheckoutContext already reads a blank one as "no
-      // prefill", and a cookie minted before this deploy is still readable.
-      customerEmail: "",
+      // The address this Ticket Sale was addressed to, AS THE API JUST REPORTED
+      // IT — the address it read off the Customer Session, echoed back in the
+      // begin-checkout response (#387). It is what lets a buyer whose session
+      // died at the provider sign back into the Customer Area their new tickets
+      // are actually in: a purchase made under one address and a session held
+      // under another are different Customers (ADR 0011).
+      //
+      // TAKEN FROM THE API AND FROM NOTHING THE BROWSER SAID. This hop has no
+      // other honest source: it forwards a session token it never reads, and an
+      // address out of the request body would be `customer_email` back from the
+      // dead, pointed the other way down the wire. It is a prefill either way —
+      // the passcode still has to be proved — but a prefill this app invented
+      // would be this app asserting who the buyer is.
+      //
+      // Blank only when the API said nothing, which is a Storefront running ahead
+      // of an API that predates the field. parseCheckoutContext reads a blank one
+      // as "no prefill" and the sign-in field simply arrives empty, exactly as it
+      // does for a cookie minted by an older release.
+      customerEmail: result.addressed_to ?? "",
       locale,
     });
 

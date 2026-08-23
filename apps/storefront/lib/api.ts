@@ -675,6 +675,23 @@ export type BeginCheckoutResult = {
   confirmation_ref?: string;
   amount_cents: number;
   currency: string;
+  /**
+   * The address the API addressed this Ticket Sale to (#387). On the
+   * session-gated route that is the address the Customer Session proved, read
+   * server-side and reported back — this app never told the API which address to
+   * use, and it must not learn one from anywhere else either.
+   *
+   * It exists so the return leg keeps working for a buyer whose session did not
+   * survive the trip to the Payment Provider. It is written into the checkout
+   * context cookie and used as a sign-in prefill, and it grants nothing: the
+   * passcode or the Google round trip is still the whole of the proof.
+   *
+   * Optional on this type, and the reason is a deploy: a Storefront running
+   * against an API that predates the field reads undefined, and the cookie then
+   * carries no address exactly as an older cookie does — an empty sign-in field
+   * rather than a wrong one.
+   */
+  addressed_to?: string;
 };
 
 /** The settled outcome of a Payment, as confirm reports it. */

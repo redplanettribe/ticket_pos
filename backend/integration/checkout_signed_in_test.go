@@ -56,13 +56,25 @@ func beginSignedInCheckout(t *testing.T, env *testEnv, orgSlug, eventSlug, token
 	return env.post(t, signedInCheckoutPath(orgSlug, eventSlug), body, headers)
 }
 
-func beginSignedInCheckoutOK(t *testing.T, env *testEnv, orgSlug, eventSlug, token string, body map[string]any) freeCheckoutResult {
+// signedInCheckoutResult is the begin-checkout result as this route reports it:
+// the ordinary one, plus the address the Ticket Sale was addressed to (#387).
+//
+// The address is echoed because the Storefront's return leg has no other
+// authoritative source for it — the buyer is off at the Payment Provider when
+// their session may end — and because the only alternative would be trusting a
+// browser to say who it was buying as, which is the field ADR 0054 deleted.
+type signedInCheckoutResult struct {
+	freeCheckoutResult
+	AddressedTo string `json:"addressed_to"`
+}
+
+func beginSignedInCheckoutOK(t *testing.T, env *testEnv, orgSlug, eventSlug, token string, body map[string]any) signedInCheckoutResult {
 	t.Helper()
 	resp, envBody := beginSignedInCheckout(t, env, orgSlug, eventSlug, token, body)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("begin signed-in checkout status=%d error=%+v, want 201", resp.StatusCode, envBody.Error)
 	}
-	var result freeCheckoutResult
+	var result signedInCheckoutResult
 	if err := json.Unmarshal(envBody.Data, &result); err != nil {
 		t.Fatalf("decode begin checkout result: %v", err)
 	}
@@ -204,6 +216,51 @@ func TestSignedInCheckoutAddressesTheSaleToTheSession(t *testing.T) {
 	}
 }
 
+// TestSignedInCheckoutReportsTheAddressItWasAddressedTo: the return leg's half
+// of ADR 0054 (#387).
+//
+// A buyer who has begun a checkout is about to leave this origin for the Payment
+// Provider, and their Customer Session may not survive the trip — a cleared jar,
+// a provider webview that drops cookies, a revoked session, a return in another
+// browser. The person who comes back has already paid, and the address they
+// bought under is the one thing that turns the terminal page from a dead end into
+// a door.
+//
+// So the response states it, and states it FROM THE SESSION: the body's smuggled
+// address changes the answer no more here than it changes the sale. Anything the
+// Storefront wrote down instead would be a browser reporting who it was buying
+// as, which is the field this whole ADR deleted, pointed the other way.
+func TestSignedInCheckoutReportsTheAddressItWasAddressedTo(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	_, gaID := publishCheckoutEvent(t, env, sessionID, "Session Fest", "session-fest", 1000, 10)
+	_, freeID := publishCheckoutEvent(t, env, sessionID, "Free Fest", "free-fest", 0, 10)
+
+	token := customerSignIn(t, env, "ana@example.com")
+
+	body := signedInCheckoutBody("Ana", "Lopez", cartLine(gaID, 1))
+	body["customer_email"] = "stranger@example.com"
+
+	begin := beginSignedInCheckoutOK(t, env, "test-org", "session-fest", token, body)
+	if begin.Status != "pending" {
+		t.Fatalf("begin = %+v, want a pending provider checkout", begin)
+	}
+	if begin.AddressedTo != "ana@example.com" {
+		t.Fatalf("addressed_to = %q, want the address the session proved", begin.AddressedTo)
+	}
+
+	// The free settlement says the same thing about itself, so a caller never has
+	// to know which branch it took before reading the field.
+	free := beginSignedInCheckoutOK(t, env, "test-org", "free-fest", token,
+		signedInCheckoutBody("Ana", "Lopez", cartLine(freeID, 1)))
+	if free.Status != "approved" {
+		t.Fatalf("free begin = %+v, want an approved free claim", free)
+	}
+	if free.AddressedTo != "ana@example.com" {
+		t.Fatalf("addressed_to = %q on a free claim, want the address the session proved", free.AddressedTo)
+	}
+}
+
 // TestSignedInCheckoutComputesSelfAssertedFromTheSession: the flag is constant
 // true on this route, and it is constant because the predicate is evaluated,
 // not because it was hardcoded. What is asserted here is the value it takes for
@@ -304,7 +361,7 @@ func TestSignedInFreeCheckoutObeysTheSameRule(t *testing.T) {
 	token := customerSignIn(t, env, "ana@example.com")
 	result := beginSignedInCheckoutOK(t, env, "test-org", "free-fest", token,
 		signedInCheckoutBody("Ana", "Lopez", cartLine(freeID, 1)))
-	ref := approvedRef(t, result)
+	ref := approvedRef(t, result.freeCheckoutResult)
 	if ref == "" {
 		t.Fatal("free claim settled without a Sale Confirmation reference")
 	}

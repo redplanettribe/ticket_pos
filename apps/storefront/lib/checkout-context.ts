@@ -13,6 +13,15 @@
  * gracefully: the pages still render, just without the event-specific link, and
  * the language falls back to the chain in redirect-locale.ts.
  *
+ * IT IS NOT A SUBSTITUTE FOR A SESSION, AND IT IS NOT LEFTOVER FROM WHEN THERE
+ * WAS NONE. Checkout requires a Customer Session since ADR 0054, and this cookie
+ * survived that change because the two answer different questions: a session
+ * says who is here NOW, and this says what was happening when the buyer left for
+ * the Payment Provider. The gap between those two moments is minutes long, spans
+ * another origin, and is the one place in the Storefront where a session can end
+ * after the money has already moved (#387). Everything in here is what the
+ * terminal pages have left when it does.
+ *
  * This module owns the cookie; checkout-context-cookie.ts owns what is written
  * into it, framework-free so the parsing can be unit tested.
  */
