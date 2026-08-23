@@ -183,6 +183,43 @@ func TestDirectSaleImportRecordsSalesAndDecrementsCapacity(t *testing.T) {
 	}
 }
 
+// THE AMOUNT ON A COMMITTED ROW IS THE PRICE OF ONE TICKET, not the row's
+// total: 6 at 3000 is an 18000 sale, not six tickets at 500.
+//
+// This is the JSON commit's share of the decision on #379. The column was read
+// as a unit price on every path, but the spreadsheet template said "total paid",
+// and an Organizer who believed it recorded 6 tickets at 180.00 as 1080.00 and
+// undid it by hand. #379 settled the meaning as per-ticket and corrected the
+// template's prose; the existing coverage here could not tell the two readings
+// apart, because its only explicit amount was a comp at zero, and 6 × 0 is 0
+// whichever way the cell is read. A quantity of 1 pins nothing either.
+func TestDirectSaleImportAmountIsThePricePerTicket(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Per Ticket Fest", "per-ticket-fest")
+	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "Community Senior", 18000, 50)
+
+	commitBatch(t, env, sessionID, eventID, "per-ticket-1", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": ttID, "quantity": 6, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z", "amount_cents": 3000},
+	})
+
+	row := saleRowByEmail(t, env, sessionID, eventID, "ana@example.com", "active")
+	if row.AmountCents != 18000 {
+		t.Errorf("sale amount = %d, want 6 × the per-ticket 3000 (#379)", row.AmountCents)
+	}
+	var unit int
+	if err := env.db.QueryRow(`
+		SELECT unit_price_cents FROM ticket_sale_lines
+		JOIN ticket_sales ON ticket_sales.id = ticket_sale_lines.ticket_sale_id
+		WHERE ticket_sales.event_id = $1
+	`, eventID).Scan(&unit); err != nil {
+		t.Fatalf("query line: %v", err)
+	}
+	if unit != 3000 {
+		t.Errorf("unit_price_cents = %d, want the 3000 as typed — the cell is never divided", unit)
+	}
+}
+
 func TestDirectSaleImportOversellRollsBackWholeBatch(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)

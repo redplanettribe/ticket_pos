@@ -545,9 +545,17 @@ func TestTemplateRoundTrip(t *testing.T) {
 			t.Fatalf("%s (%s): missing input-message tooltip", name, sqref)
 		}
 	}
-	// The amount tooltip must disclose the otherwise-invisible blank→price rule.
+	// The amount tooltip must disclose the otherwise-invisible blank→price rule,
+	// and say the cell is the price of ONE ticket rather than the row's total.
+	// The column is a unit price on every path that records it (#379), and the
+	// prose that called it "total paid" cost one Organizer a hand-repaired sale.
 	if p := byRange["H2:H10001"].Prompt; p == nil || !strings.Contains(*p, "price") {
 		t.Fatalf("amount tooltip = %v, want it to mention using the Ticket Type's price when blank", p)
+	} else if !strings.Contains(*p, "one ticket") || !strings.Contains(*p, "not the row's total") {
+		t.Fatalf("amount tooltip = %q, want it to say the amount is the price of one ticket, not the row's total", *p)
+	}
+	if c := templateHeaderComments[colAmount]; !strings.Contains(c, "3 at 25.00") || !strings.Contains(c, "75.00") {
+		t.Fatalf("amount header comment = %q, want it to work the multiplication through for the organizer", c)
 	}
 
 	// Header-row notes describe each of the eight visible columns.
