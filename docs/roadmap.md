@@ -339,10 +339,10 @@ channel, and the in-person POS on the `in_person` channel remains unstarted.
 | G8  | Undo latest batch: reverse sales, restore capacity, opt-in void email          | Done        |
 | G9  | Staff UI: Event "Import sales" flow + per-event history; `/imports` → picker    | Done        |
 | G10 | Sale import integration tests (+ repository concurrency exception)             | Done        |
-| G11 | Staff API: record one sale + preview (batchless, Purchase Limit enforced)      | Not started |
-| G12 | Staff UI: record-a-sale modal with a Keep adding session + receipt             | Not started |
-| G13 | Sale origin derived (batch / typed / correction) on the Sales list and Export  | Not started |
-| G14 | Manually Recorded Sale integration tests                                        | Not started |
+| G11 | Staff API: record one sale + preview (batchless, Purchase Limit enforced)      | Done        |
+| G12 | Staff UI: record-a-sale modal with a Keep adding session + receipt             | Done        |
+| G13 | Sale origin derived (batch / typed / correction) on the Sales list and Export  | Done        |
+| G14 | Manually Recorded Sale integration tests                                        | Done        |
 
 
 ---
