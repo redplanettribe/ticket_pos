@@ -100,6 +100,15 @@ const (
 	// StatePendingConfirmation is a tick from somebody who had not proven the
 	// address: denied for sending, unanswered for prompting, never expiring
 	// (ADR 0035).
+	//
+	// NOTHING PRODUCES ONE ANY MORE (ADR 0054, #386): its only producer was the
+	// guest checkout, and that route is deleted. The state is not, and neither is
+	// a single row in it. Every resolver stays wired — the Consent Confirmation
+	// Links already sitting in people's inboxes, and the proven owner answering at
+	// their next capture moment — because the alternative to leaving a Pending
+	// Confirmation alone is either manufacturing consent or destroying evidence,
+	// and ADR 0035 refuses to read an answer out of silence. No expiry job, no
+	// migration.
 	StatePendingConfirmation State = "pending_confirmation"
 )
 
@@ -172,10 +181,13 @@ type Capture struct {
 	Channel Channel
 	// EmailProven is whether this act was behind Proof of Email Ownership, and
 	// it is AN EXPLICIT INPUT rather than something inferred from the Channel.
-	// Today `signin` is always proven and `checkout` may be either, but a
-	// surface's name is not a security property: an inference would keep
-	// returning the old answer on the day a surface changes. It is what decides
-	// whether an optional tick becomes granted or Pending Confirmation.
+	// Every surface passes true today — since ADR 0054 a checkout cannot be begun
+	// for an address nobody proved — but a surface's name is not a security
+	// property, and an inference would keep returning the old answer on the day a
+	// surface changes. It is what decides whether an optional tick becomes granted
+	// or Pending Confirmation, and it is still read from the snapshot a Payment
+	// took at begin, so a checkout begun under the old rules settles as what it
+	// was.
 	EmailProven bool
 	// Answers is what the person did with the boxes they were shown.
 	Answers Answers

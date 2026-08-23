@@ -438,9 +438,11 @@ func TestCheckoutPhoneLandsOnTheCustomerProfile(t *testing.T) {
 	begin := beginCheckoutOK(t, env, "test-org", "dial-fest",
 		phoneCheckoutBody("ana@example.com", ecuadorMobileTyped, line))
 
-	// Begun, not committed: nothing about this buyer exists yet.
-	if n := customerCountByEmail(t, env, "ana@example.com"); n != 0 {
-		t.Fatalf("customers before the confirm = %d, want 0 — a begun checkout writes no Customer", n)
+	// Begun, not committed: nothing this checkout said about the buyer exists yet.
+	// The Customer herself does — she signed in to reach the dialog (ADR 0054) —
+	// and carries no phone, which is the half that lands at COMMIT.
+	if got := readCustomerPhone(t, env, "ana@example.com"); got != nil {
+		t.Fatalf("customer phone before the confirm = %s, want none — a begun checkout writes none", phoneString(got))
 	}
 
 	confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
@@ -503,43 +505,51 @@ func TestUnverifiedCustomerPhoneRefreshedByAnyCheckout(t *testing.T) {
 	}
 }
 
-// TestGuestCheckoutNeverOverwritesVerifiedPhone is the adversarial case the
-// guard exists for, and it is the same attack the Tax ID's guard turns away:
-// anyone can type a known email address into a guest checkout. A phone number is
-// if anything more dangerous to leave open, because it is the kind of detail a
-// support agent later reads back as an identity check — so an unproven visitor
-// must not be able to make one appear on somebody else's profile.
+// TestAPhoneCannotBeMadeToAppearOnSomebodyElsesProfile is what the adversarial
+// case became (ADR 0054, #386).
 //
-// The sale itself is untouched by any of this: it records what was transacted,
-// and it never recorded a phone in the first place.
-func TestGuestCheckoutNeverOverwritesVerifiedPhone(t *testing.T) {
+// It used to read: anyone can type a known email address into a guest checkout,
+// so the profile guard has to withhold the write-back. A phone number is if
+// anything more dangerous to leave open than a Tax ID, because it is the kind of
+// detail a support agent later reads back as an identity check.
+//
+// Nobody can type an address any more, so the guard is not what stands between a
+// stranger and Ana's profile — the missing field is. What is still worth firing
+// at it is a BODY: one naming her address, sent verbatim from a real session,
+// which is all a stale or hostile client has left. It lands on the sender, whose
+// own number it is, and nowhere near her.
+func TestAPhoneCannotBeMadeToAppearOnSomebodyElsesProfile(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Guarded Dial Fest", "guarded-dial-fest", 1000, 10)
 	line := map[string]any{"ticket_type_id": gaID, "quantity": 1}
 
-	// She buys once, supplying her number, then claims the record by signing in.
+	// She buys once, supplying her number.
 	own := beginCheckoutOK(t, env, "test-org", "guarded-dial-fest",
 		phoneCheckoutBody("ana@example.com", ecuadorMobile, line))
 	confirmCheckoutOK(t, env, own.ClientTransactionID, "approved")
-	customerSignIn(t, env, "ana@example.com")
 
-	// A stranger checks out under her address with a number of their choosing.
-	stranger := beginCheckoutOK(t, env, "test-org", "guarded-dial-fest",
+	// Bruno checks out under his own session, with a body naming her address and
+	// a number of his choosing.
+	stranger := beginCheckoutSmugglingOK(t, env, "test-org", "guarded-dial-fest",
+		buyerSession(t, env, "bruno@example.com"),
 		phoneCheckoutBody("ana@example.com", foreignMobile, line))
 	strangerSale := confirmCheckoutOK(t, env, stranger.ClientTransactionID, "approved")
 
 	if got := readCustomerPhone(t, env, "ana@example.com"); got == nil || *got != ecuadorMobile {
 		t.Fatalf("customer phone = %s, want the person-owned %s", phoneString(got), ecuadorMobile)
 	}
-	// The stranger's checkout was not rejected — only their write-back was. The
-	// number they typed is on their own Payment, where the per-attempt record
-	// belongs, and nowhere near her profile.
+	// His checkout was not rejected — there is nothing wrong with it. The number
+	// he typed is on his own Payment and on his own profile, because on this route
+	// a buyer can only ever be speaking about themselves.
 	if got := readPaymentPhone(t, env, stranger.ClientTransactionID); got == nil || *got != foreignMobile {
-		t.Fatalf("stranger's payment phone = %s, want the typed %s", phoneString(got), foreignMobile)
+		t.Fatalf("his payment phone = %s, want the typed %s", phoneString(got), foreignMobile)
+	}
+	if got := readCustomerPhone(t, env, "bruno@example.com"); got == nil || *got != foreignMobile {
+		t.Fatalf("his profile phone = %s, want the number he typed about himself", phoneString(got))
 	}
 	if strangerSale.ConfirmationRef == "" {
-		t.Fatal("stranger's sale has no confirmation ref, want a recorded sale")
+		t.Fatal("his sale has no confirmation ref, want a recorded sale")
 	}
 }
 

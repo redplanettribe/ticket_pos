@@ -236,10 +236,13 @@ func TestGuestCheckoutRecordsThePriorStateItSaw(t *testing.T) {
 	// A standing, proven denial for the later guest to fail to overwrite.
 	signInAnswering(t, env, "ana@example.com", true, false, false)
 
+	// A guest's Payment, begun before ADR 0054 closed that door (#386) and
+	// settling here: the prior-state pair has to keep working for the Payments
+	// that were already in flight, which is the only place an unproven answer can
+	// still arrive.
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Prior Fest", "prior-fest", 1000, 10)
-	begin := beginCheckoutWithEvidenceOK(t, env, testOrgSlug, "prior-fest", "",
-		consentCheckoutBody("ana@example.com", "Ana", "Lopez",
-			boolPtr(true), nil, boolPtr(true), cartLine(gaID, 1)))
+	begin := beginLegacyGuestCheckout(t, env, "prior-fest", "ana@example.com", "Ana", "Lopez",
+		boolPtr(true), nil, boolPtr(true), cartLine(gaID, 1))
 	confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
 
 	record := onlyRecordOn(t, env, "ana@example.com", "checkout")

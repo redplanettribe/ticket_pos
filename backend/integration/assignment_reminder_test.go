@@ -344,6 +344,9 @@ func TestAssignmentReminderSendsNothingWhileTicketAssignmentIsOff(t *testing.T) 
 // reminder arrives anyway, on the Sale Confirmation's footing (ADR 0034).
 func TestAssignmentReminderIsSentRegardlessOfMarketingConsent(t *testing.T) {
 	env := setupTest(t)
+	// Declining at the door, which is where consent is asked since ADR 0054: the
+	// buyer this reminder must reach is one who granted nothing.
+	buyerDecliningMarketing(t, env, "ana@example.com")
 	newAssignmentReminderFixture(t, env)
 
 	var marketing int

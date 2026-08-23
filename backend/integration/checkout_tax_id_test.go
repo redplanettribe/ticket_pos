@@ -40,16 +40,21 @@ func taxIDCheckoutBody(email, firstName, lastName, taxIDType, taxIDNumber string
 	return body
 }
 
-// beginCheckoutAs begins a checkout carrying a Customer Session token, the way
-// the Storefront BFF does for a signed-in buyer. An empty token is an anonymous
-// guest checkout.
+// beginCheckoutAs begins a checkout carrying A PARTICULAR Customer Session, the
+// way the Storefront BFF does — for the tests that care WHOSE session it is
+// rather than merely that there is one.
+//
+// An empty token no longer means a guest checkout, because there is no such
+// thing (ADR 0054, #386): it means the ordinary helper's behaviour, which is to
+// sign the body's buyer in. The tests that read the refusal of an anonymous
+// request post one deliberately, with no buyer to sign in.
 func beginCheckoutAs(t *testing.T, env *testEnv, orgSlug, eventSlug, token string, body map[string]any) (*http.Response, envelope) {
 	t.Helper()
 	var headers map[string]string
 	if token != "" {
 		headers = authHeader(token)
 	}
-	return env.post(t, "/api/v1/public/organizations/"+orgSlug+"/events/"+eventSlug+"/checkout", body, headers)
+	return beginCheckoutWithHeaders(t, env, orgSlug, eventSlug, body, headers)
 }
 
 func beginCheckoutAsOK(t *testing.T, env *testEnv, orgSlug, eventSlug, token string, body map[string]any) beginCheckoutResult {
@@ -305,34 +310,59 @@ func TestUnverifiedCustomerTaxIDRefreshedByLaterSale(t *testing.T) {
 	}
 }
 
-// TestAnonymousCheckoutNeverOverwritesVerifiedTaxID is the adversarial case: an
-// unproven visitor types a Verified Customer's email and a Tax ID of their
-// choosing. The sale records what was typed — it is what the Organization
-// declares — while the person's own stored assertion is untouched.
-func TestAnonymousCheckoutNeverOverwritesVerifiedTaxID(t *testing.T) {
+// TestABodyNamingAnotherAddressReachesNobody is what the adversarial case became
+// (ADR 0054, #386).
+//
+// It used to read: an unproven visitor types a Verified Customer's email and a
+// Tax ID of their choosing, the sale records what was typed, and the person's
+// own stored assertion is untouched — the profile guard turning the write away.
+// That visitor cannot begin a checkout at all now, so the guard is no longer
+// what stands between a stranger and Ana's profile. THE ABSENCE OF THE FIELD IS.
+//
+// What is left to attack with is a body: a signed-in buyer, or a stale client on
+// their behalf, still naming an address in one. This is that request, sent
+// verbatim from a real session, and it reaches Ana in no way at all — the sale
+// is the sender's, the write-back lands on the sender, and her row does not move.
+func TestABodyNamingAnotherAddressReachesNobody(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Guarded Fest", "guarded-fest", 1000, 10)
 	line := map[string]any{"ticket_type_id": gaID, "quantity": 1}
 
-	// She buys once (filling her Tax ID), then claims the record by signing in.
+	// Ana buys, which fills her Tax ID: the buyer speaking about themselves.
 	own := beginCheckoutOK(t, env, "test-org", "guarded-fest",
 		taxIDCheckoutBody("ana@example.com", "Ana", "Lopez", "cedula", validCedula, line))
 	ownSale := confirmCheckoutOK(t, env, own.ClientTransactionID, "approved")
-	customerSignIn(t, env, "ana@example.com")
 
-	// A stranger checks out under her address with a different number.
-	stranger := beginCheckoutOK(t, env, "test-org", "guarded-fest",
-		taxIDCheckoutBody("ana@example.com", "Ana", "Lopez", "cedula", otherCedula, line))
+	// Bruno checks out under HIS session, with a body naming HER address and a
+	// number of his choosing.
+	body := taxIDCheckoutBody("ana@example.com", "Ana", "Lopez", "cedula", otherCedula, line)
+	stranger := beginCheckoutSmugglingOK(t, env, "test-org", "guarded-fest",
+		buyerSession(t, env, "bruno@example.com"), body)
 	strangerSale := confirmCheckoutOK(t, env, stranger.ClientTransactionID, "approved")
 
 	if got := readCustomerTaxID(t, env, "ana@example.com"); !got.is("cedula", validCedula) {
 		t.Fatalf("customer tax id = %s, want the person-owned cedula:%s", got, validCedula)
 	}
-	// The sale still says what it was transacted under — history is honest even
-	// when the profile is protected.
+	// The sale is his, addressed to the address his session proved.
+	var soldTo string
+	if err := env.db.QueryRow(`
+		SELECT c.email FROM ticket_sales ts JOIN customers c ON c.id = ts.customer_id
+		WHERE ts.confirmation_ref = $1
+	`, strangerSale.ConfirmationRef).Scan(&soldTo); err != nil {
+		t.Fatalf("read sale customer: %v", err)
+	}
+	if soldTo != "bruno@example.com" {
+		t.Fatalf("the sale went to %q, want the address the session proved", soldTo)
+	}
+	// And the Tax ID he typed is his own assertion about himself, so it lands on
+	// him — which is exactly the write the guard used to have to withhold, now
+	// unconditionally safe because there is no way to be typing about anybody else.
+	if got := readCustomerTaxID(t, env, "bruno@example.com"); !got.is("cedula", otherCedula) {
+		t.Fatalf("his tax id = %s, want the cedula he typed", got)
+	}
 	if got := readSaleTaxID(t, env, strangerSale.ConfirmationRef); !got.is("cedula", otherCedula) {
-		t.Fatalf("stranger's sale tax id = %s, want the typed cedula:%s", got, otherCedula)
+		t.Fatalf("his sale tax id = %s, want the typed cedula:%s", got, otherCedula)
 	}
 	if got := readSaleTaxID(t, env, ownSale.ConfirmationRef); !got.is("cedula", validCedula) {
 		t.Fatalf("earlier sale tax id = %s, want the immutable cedula:%s", got, validCedula)
@@ -366,17 +396,27 @@ func TestSessionCheckoutOverrideBecomesStoredTaxID(t *testing.T) {
 		t.Fatalf("sale tax id = %s, want ruc:%s", got, companyRUC)
 	}
 
-	// The session belongs to an email, not to the keyboard: signed in as Ana but
-	// buying for someone else, the Tax ID she types is that person's, and Ana's
-	// own stored assertion must not move.
-	forFriend := beginCheckoutAsOK(t, env, "test-org", "override-fest", token,
+	// THE EXCEPTION IS NOW THE RULE, which is worth pinning because it is the
+	// consequence of ADR 0054 people will be surprised by. There is no "buying for
+	// a friend" on this route: a body naming somebody else's address, name and Tax
+	// ID is still Ana buying, so what it types is still Ana speaking about herself
+	// and still lands on her. She cannot address a Sale elsewhere; she can only
+	// mislabel her own.
+	forFriend := beginCheckoutSmugglingOK(t, env, "test-org", "override-fest", token,
 		taxIDCheckoutBody("bob@example.com", "Bob", "Ng", "cedula", otherCedula, line))
 	friendSale := confirmCheckoutOK(t, env, forFriend.ClientTransactionID, "approved")
-	if got := readCustomerTaxID(t, env, "ana@example.com"); !got.is("ruc", companyRUC) {
-		t.Fatalf("customer tax id after buying for a friend = %s, want the unchanged ruc:%s", got, companyRUC)
+	if got := readCustomerTaxID(t, env, "ana@example.com"); !got.is("cedula", otherCedula) {
+		t.Fatalf("customer tax id = %s, want the cedula the same buyer typed on her own checkout", got)
 	}
 	if got := readSaleTaxID(t, env, friendSale.ConfirmationRef); !got.is("cedula", otherCedula) {
-		t.Fatalf("friend's sale tax id = %s, want cedula:%s", got, otherCedula)
+		t.Fatalf("sale tax id = %s, want cedula:%s", got, otherCedula)
+	}
+	var bobs int
+	if err := env.db.QueryRow(`SELECT COUNT(*) FROM customers WHERE email = $1`, "bob@example.com").Scan(&bobs); err != nil {
+		t.Fatalf("count bobs: %v", err)
+	}
+	if bobs != 0 {
+		t.Fatal("a customer_email in the body minted a Customer; the route has no such field")
 	}
 }
 
@@ -449,12 +489,19 @@ func TestDeclinedCheckoutRecordsNoTaxID(t *testing.T) {
 		t.Fatalf("confirm status = %q, want failed", declined.Status)
 	}
 
-	var customers int
-	if err := env.db.QueryRow(`SELECT COUNT(*) FROM customers WHERE email = $1`, "ana@example.com").Scan(&customers); err != nil {
-		t.Fatalf("count customers: %v", err)
+	// The Customer exists — she signed in to reach the dialog at all (ADR 0054) —
+	// and carries NOTHING the declined checkout said about her. The write-back is
+	// a property of a recorded sale, and the assertion moved from "no Customer" to
+	// "no Tax ID" for that reason alone.
+	if got := readCustomerTaxID(t, env, "ana@example.com"); got.Type != nil || got.Number != nil {
+		t.Fatalf("customer tax id after a declined Payment = %s, want none written at all", got)
 	}
-	if customers != 0 {
-		t.Fatalf("customers after a declined Payment = %d, want 0", customers)
+	var sales int
+	if err := env.db.QueryRow(`SELECT COUNT(*) FROM ticket_sales`).Scan(&sales); err != nil {
+		t.Fatalf("count ticket sales: %v", err)
+	}
+	if sales != 0 {
+		t.Fatalf("ticket sales after a declined Payment = %d, want 0", sales)
 	}
 }
 

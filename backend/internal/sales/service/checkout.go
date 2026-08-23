@@ -190,13 +190,13 @@ type BeginCheckoutInput struct {
 	// The two travel together because they are one fact — "the person at the
 	// keyboard is provably this Customer" — and the same fact decides both what a
 	// buyer may overwrite on their own profile and which consent boxes they were
-	// owed. A signed-in Customer buying for a friend supplies the friend's
-	// details and the friend's consent: nothing is self-asserted, no id is set,
-	// and the checkout is captured exactly as a guest's is.
+	// owed.
 	//
-	// Empty on every guest checkout, on a Confirmation Link session (which proves
-	// nothing about who holds it), and on the box office and import channels,
-	// which never build one of these.
+	// REQUIRED SINCE ADR 0054, #386. There is one begin-checkout, it is gated on a
+	// Customer Session, and it takes the address from that session — so this is
+	// always set on the online channel and BeginCheckout refuses the input if it
+	// is not. It stays a field rather than becoming an argument because the box
+	// office and import channels never build one of these at all.
 	SessionCustomerID string
 	// Answers are what the buyer typed into the checkout's answer section: one
 	// entry per (Ticket Type, ticket index, Ticket Question) they filled in
@@ -252,13 +252,25 @@ type BeginCheckoutResult struct {
 // buyer was actually OWED, and refuses the checkout when the one that gates it
 // was owed and not given.
 //
-// WHO IS OWED WHAT. A guest is owed all three: nothing is known about who typed
-// that address, so the dialog draws every box and every answer counts as given.
-// A signed-in Customer buying under their own address is owed only what the
-// consent module says they have not answered — which is what lets a Customer
-// who accepted the current Policy Version and answered both optional boxes check
-// out with no consent UI at all, exactly as they did before this feature existed
-// (#254, parent spec user story 10).
+// WHO IS OWED WHAT, AND THERE IS ONLY ONE ANSWER NOW (ADR 0054, #386). Every
+// online checkout runs under the buyer's own Customer Session for the very
+// address being bought under, so the owed set is always what the consent module
+// says that Customer has not answered. Ordinarily that is nothing at all: a
+// first-time buyer met the boxes at the sign-in that let them reach the dialog,
+// so they check out with no consent UI and no Consent Record, exactly as they did
+// before this feature existed (#254, parent spec user story 10). The one buyer
+// who is still owed something is one holding a live session when a new Policy
+// Version is published under their feet — the sign-in gate cannot re-run on a
+// session already minted, so the checkout is where they are caught.
+//
+// THE GUEST BRANCH IS GONE, and its absence is load-bearing rather than tidy.
+// "Owed all three because nothing is known about who typed that address" was the
+// email-divergence branch: it fired for a visitor with no session and for a
+// signed-in Customer typing somebody else's address, and it is what made a tick
+// here a claim rather than a consent — a Pending Confirmation (ADR 0035). With no
+// route that can express either case, the branch has no way to fire, so it is
+// deleted instead of left as an unreachable statement about a system that no
+// longer exists. What replaces it is a refusal: no session, no owed set, no sale.
 //
 // POLICY ACCEPTANCE GATES BEGIN, NOT CONFIRM, and the choice is the whole point
 // of putting it here (#253, parent spec user story 8).
@@ -291,14 +303,18 @@ type BeginCheckoutResult struct {
 // writes no Consent Record at all (repository.ApprovePaymentAndCommitSale):
 // evidence exists where a capture act happened, and no box was shown here.
 func (s *Service) owedConsentAnswers(ctx context.Context, in BeginCheckoutInput) (consent.Answers, error) {
-	// A guest owes every box, without asking anything: there is no Customer this
-	// request has proven itself to be, and the address in the form is a claim.
-	owed := consent.Outstanding{PolicyAcceptance: true, MarketingConsent: true, NetworkingConsent: true}
-	if in.SessionCustomerID != "" {
-		var err error
-		if owed, err = s.consent.Outstanding(ctx, in.SessionCustomerID); err != nil {
-			return consent.Answers{}, err
-		}
+	// No proven buyer, no checkout. This is unreachable through the one
+	// begin-checkout route — the handler takes the address from the session that
+	// route is gated on — and it fails CLOSED rather than falling back to the
+	// guest reading, because the guest reading is what recorded an unproven tick
+	// as evidence of a consent nobody gave.
+	if in.SessionCustomerID == "" {
+		return consent.Answers{}, fmt.Errorf(
+			"sales: online checkout with no proven buyer; refusing to capture consent for an unproven address")
+	}
+	owed, err := s.consent.Outstanding(ctx, in.SessionCustomerID)
+	if err != nil {
+		return consent.Answers{}, err
 	}
 
 	var answers consent.Answers

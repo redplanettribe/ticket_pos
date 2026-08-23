@@ -588,14 +588,21 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	// "Was the email proven?" is the same flag that decides whether this buyer may
 	// overwrite a Verified Customer's Tax ID — the checkout ran under that
 	// Customer's own Customer Session — because it is the same question, asked
-	// once at begin-checkout and snapshotted here. A guest's answer is therefore
-	// unproven, and an optional tick from one becomes Pending Confirmation rather
-	// than a lawful basis for sending anything.
+	// once at begin-checkout and snapshotted here.
+	//
+	// IT IS READ RATHER THAN ASSUMED, and that survives ADR 0054 deliberately.
+	// Every checkout begun since #386 snapshots it true, so nothing produces a
+	// Pending Confirmation any more; but this is the return leg, and the Payments
+	// it settles include ones begun before that route existed. Hardcoding a `true`
+	// here would rewrite what was true of those checkouts at the moment they
+	// happened, which is the one thing an evidence log may not do.
 	if in.CaptureConsent != nil && (consentPolicy.Valid || consentMarketing.Valid || consentNetworking.Valid) {
 		if err := in.CaptureConsent(ctx, tx, consent.Capture{
 			CustomerID: recorded[0].CustomerID,
 			// The address AS ASSERTED on the checkout form, which is not necessarily
-			// the Customer's stored one: a guest may have typed a stranger's.
+			// the Customer's stored one on a Payment begun before ADR 0054, where a
+			// guest may have typed a stranger's. On anything begun since, the form
+			// had no address to assert and this is the session's own.
 			Email:       email,
 			Channel:     consent.ChannelCheckout,
 			EmailProven: sessionAuthorized,

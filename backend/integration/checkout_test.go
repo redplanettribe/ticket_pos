@@ -9,11 +9,18 @@ import (
 	"time"
 )
 
-// Online checkout through the public API with the stub Payment Provider
-// (issue #83): a guest begins a checkout on a published Event and settles it
-// via the same begin → redirect → confirm legs the real provider drives. The
-// harness sets no PAYPHONE_* credentials, so the stub is selected exactly as it
-// is in local development (ADR 0009/0012).
+// Online checkout through the API with the stub Payment Provider (issue #83): a
+// buyer begins a checkout on a published Event and settles it via the same
+// begin → redirect → confirm legs the real provider drives. The harness sets no
+// PAYPHONE_* credentials, so the stub is selected exactly as it is in local
+// development (ADR 0009/0012).
+//
+// THE BUYER IS SIGNED IN, ALWAYS (ADR 0054, #386). There is one begin-checkout,
+// it is gated on a Customer Session, and it has no address field — so the whole
+// suite's notion of "somebody buys a ticket" now goes through a sign-in first.
+// That is what beginCheckout below does, and it is why this file's helpers still
+// name a buyer by their email: the address says WHO is buying, and the platform
+// is made to prove it rather than asked to believe it.
 
 // publishCheckoutEvent creates and publishes an Event with one Ticket Type,
 // returning both ids. The event gets a future start so it is publishable.
@@ -38,21 +45,33 @@ func publishCheckoutEvent(t *testing.T, env *testEnv, sessionID, name, slug stri
 	return eventID, ticketTypeID
 }
 
-// checkoutBody builds a begin-checkout request body for a guest.
+// buyerEmailKey is where these helpers keep WHO is buying.
 //
-// The Tax ID is as required as the email (#98, ADR 0016), so it carries a valid
-// cédula by default: a checkout without one is rejected, and the tests that care
-// which Tax ID was typed override it (checkout_tax_id_test.go).
+// It is not a wire field and it never reaches the API. `customer_email` was
+// deleted from begin-checkout by ADR 0054, so the address can no longer travel
+// in a body; beginCheckout takes it out of the map, proves it by signing that
+// buyer in, and posts what is left. Naming it once here is what stops a future
+// reader mistaking it for a request field somebody forgot to remove.
+const buyerEmailKey = "customer_email"
+
+// checkoutBody builds a begin-checkout request body for the buyer at `email`.
 //
-// Policy Acceptance is here for the same reason and on the same terms (#253): a
-// checkout without it is refused outright, so every journey in this package that
-// is about something else has to carry it. It is the ONLY box set by default —
-// the two optional consents are absent, which is how a dialog nobody touched
-// reports itself and is deliberately not the same as a `false`. The tests about
-// consent itself (checkout_consent_test.go) set all three explicitly.
+// The Tax ID is required on this native Sales Channel (#98, ADR 0016), so it
+// carries a valid cédula by default: a checkout without one is rejected, and the
+// tests that care which Tax ID was typed override it (checkout_tax_id_test.go).
+//
+// Policy Acceptance is set by default for a different reason than it once was.
+// It used to be the box every guest was owed and had to tick; now the buyer has
+// already accepted at sign-in, so the API recomputes it as NOT OWED and drops it.
+// It stays because it costs nothing, it is exactly what a dialog would send if a
+// Policy Version were published mid-session, and dropping an unowed answer is
+// itself a property worth exercising on every journey in the package. The two
+// optional consents are absent, which is how a dialog nobody touched reports
+// itself and is deliberately not the same as a `false`. The tests about consent
+// itself (checkout_consent_test.go) set all three explicitly.
 func checkoutBody(email, firstName, lastName string, lines ...map[string]any) map[string]any {
 	return map[string]any{
-		"customer_email":         email,
+		buyerEmailKey:            email,
 		"customer_first_name":    firstName,
 		"customer_last_name":     lastName,
 		"customer_tax_id_type":   "cedula",
@@ -62,9 +81,130 @@ func checkoutBody(email, firstName, lastName string, lines ...map[string]any) ma
 	}
 }
 
+// beginCheckout begins an online checkout for the buyer the body names.
+//
+// IT SIGNS THEM IN FIRST, because that is what buying a ticket now costs
+// (ADR 0054, #386): there is one begin-checkout, it is a session-gated Customer
+// route, and it reads the address off the session. So the address comes out of
+// the body — where the API would not read it anyway — and becomes a Proof of
+// Email Ownership instead.
+//
+// This is the seam where the whole suite's guest premise lived, and moving it
+// here rather than into two hundred call sites is deliberate: every test that
+// says "Ana buys a ticket" still says exactly that, and the handful whose
+// subject IS the buyer's provenness — the consent files, the Tax ID write-back,
+// checkout_signed_in_test.go — say it themselves, in their own words, with their
+// own session.
+//
+// The session is minted with the suite's ordinary customerSignIn, which accepts
+// the Policy and grants both optional consents. That makes every buyer here a
+// fully-answered Customer who is owed no boxes, which is the ordinary case since
+// ADR 0054 and is why so few checkouts in this package write a Consent Record.
 func beginCheckout(t *testing.T, env *testEnv, orgSlug, eventSlug string, body map[string]any) (*http.Response, envelope) {
 	t.Helper()
-	return env.post(t, "/api/v1/public/organizations/"+orgSlug+"/events/"+eventSlug+"/checkout", body, nil)
+	return beginCheckoutWithHeaders(t, env, orgSlug, eventSlug, body, nil)
+}
+
+// beginCheckoutSmuggling posts a body VERBATIM — `customer_email` and all —
+// under somebody else's Customer Session.
+//
+// It is the shape of the only attack ADR 0054 leaves available: a stale client,
+// or a hostile one, still naming an address in a body, hoping the API reads it.
+// The helpers everywhere else strip that key because it is a test-side marker
+// for who is buying; here it is deliberately left in, because the assertion is
+// that the API does nothing with it.
+func beginCheckoutSmuggling(
+	t *testing.T, env *testEnv, orgSlug, eventSlug, token string, body map[string]any,
+) (*http.Response, envelope) {
+	t.Helper()
+	return env.post(t, "/api/v1/customer/organizations/"+orgSlug+"/events/"+eventSlug+"/checkout",
+		body, authHeader(token))
+}
+
+func beginCheckoutSmugglingOK(
+	t *testing.T, env *testEnv, orgSlug, eventSlug, token string, body map[string]any,
+) beginCheckoutResult {
+	t.Helper()
+	resp, envBody := beginCheckoutSmuggling(t, env, orgSlug, eventSlug, token, body)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("begin checkout status=%d error=%+v", resp.StatusCode, envBody.Error)
+	}
+	var result beginCheckoutResult
+	if err := json.Unmarshal(envBody.Data, &result); err != nil {
+		t.Fatalf("decode begin checkout result: %v", err)
+	}
+	return result
+}
+
+// buyerSessions caches one Customer Session per address for the life of one
+// test, and setupTest empties it.
+//
+// It exists because a passcode is rate limited per address and these helpers now
+// sign a buyer in per checkout: a test that buys four times as the same person
+// would otherwise be refused a passcode rather than a purchase. Reusing one
+// session across a person's purchases is also what actually happens — a Customer
+// Session outlives a checkout by months (ADR 0054) — so the cache is the honest
+// shape as well as the working one.
+var buyerSessions = map[string]string{}
+
+// buyerDecliningMarketing signs a buyer in DECLINING both optional consents and
+// caches that session, so the checkouts that follow are made by somebody who
+// granted nothing.
+//
+// It exists because the ordinary sign-in grants everything, and since ADR 0054
+// every buyer arrives through a sign-in: a test whose subject is "this mail
+// reaches somebody with no Marketing Consent" would otherwise be asserting it
+// about somebody who has one.
+func buyerDecliningMarketing(t *testing.T, env *testEnv, email string) string {
+	t.Helper()
+	token := signInAnswering(t, env, email, true, false, false)
+	buyerSessions[email] = token
+	return token
+}
+
+func buyerSession(t *testing.T, env *testEnv, email string) string {
+	t.Helper()
+	if token, ok := buyerSessions[email]; ok {
+		return token
+	}
+	token := customerSignIn(t, env, email)
+	buyerSessions[email] = token
+	return token
+}
+
+// beginCheckoutWithHeaders is beginCheckout with the request's circumstances
+// spelled out — the client IP as the BFF derived it, the browser's user agent,
+// the page the dialog was open on. The Authorization header is NOT among them:
+// it is minted here from the buyer the body names, so no caller can post a
+// checkout under one identity and a body about another.
+func beginCheckoutWithHeaders(
+	t *testing.T, env *testEnv, orgSlug, eventSlug string, body map[string]any, headers map[string]string,
+) (*http.Response, envelope) {
+	t.Helper()
+
+	sent := make(map[string]any, len(body))
+	for k, v := range body {
+		if k == buyerEmailKey {
+			continue
+		}
+		sent[k] = v
+	}
+
+	all := map[string]string{}
+	for k, v := range headers {
+		all[k] = v
+	}
+	// A caller that brought its own session is buying as whoever holds it, and the
+	// body's buyer is then only a name (beginCheckoutAs). Otherwise the buyer the
+	// body names is signed in here. A body naming nobody posts no session at all,
+	// and the API answers 401 — which is what the tests about the wall are reading.
+	if _, brought := all["Authorization"]; !brought {
+		if email, ok := body[buyerEmailKey].(string); ok && email != "" {
+			all["Authorization"] = "Bearer " + buyerSession(t, env, email)
+		}
+	}
+
+	return env.post(t, "/api/v1/customer/organizations/"+orgSlug+"/events/"+eventSlug+"/checkout", sent, all)
 }
 
 type beginCheckoutResult struct {
@@ -190,8 +330,15 @@ func TestBeginCheckoutValidationErrors(t *testing.T) {
 		{"negative quantity", checkoutBody("ana@example.com", "Ana", "Lopez", map[string]any{"ticket_type_id": gaID, "quantity": -3})},
 		{"no lines", checkoutBody("ana@example.com", "Ana", "Lopez")},
 		{"malformed ticket type id", checkoutBody("ana@example.com", "Ana", "Lopez", map[string]any{"ticket_type_id": "not-a-uuid", "quantity": 1})},
-		{"invalid email", checkoutBody("not-an-email", "Ana", "Lopez", map[string]any{"ticket_type_id": gaID, "quantity": 1})},
 		{"missing name", checkoutBody("ana@example.com", "", "", map[string]any{"ticket_type_id": gaID, "quantity": 1})},
+		// THERE IS NO "invalid email" CASE ANY MORE, and its absence is the point
+		// of ADR 0054 (#386). A malformed address used to be a field error on
+		// customer_email; there is no such field to malform, because the address
+		// comes off a Customer Session and a session is only ever minted for an
+		// address the platform itself proved. The refusal that replaced it — a
+		// checkout with no session at all — is asserted in
+		// checkout_signed_in_test.go, where it is a 401 rather than a 400: not a
+		// form to correct, but a door.
 	}
 	for _, tc := range cases {
 		resp, body := beginCheckout(t, env, "test-org", "valid-fest", tc.body)

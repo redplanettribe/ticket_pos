@@ -55,7 +55,13 @@ func TestCheckoutValidationCarriesCodeAndMessage(t *testing.T) {
 	soon := env.fixedClock.Add(10 * 24 * time.Hour)
 	publishEvent(t, env, sessionID, "Code Fest", "code-fest", soon, true, 2500, 100)
 
-	body := taxIDCheckoutBody("not-an-email", "", "Buyer", "cedula", "1712345670",
+	// THE EMAIL IS NOT AMONG THEM ANY MORE (ADR 0054, #386). `customer_email` was
+	// the first field this walk asserted a code for; there is no such field on the
+	// wire now, so a malformed address is not a form error the Storefront can mark
+	// but a request with no session, refused 401. The field-code contract for
+	// everything a buyer can still get wrong is unchanged, which is what this
+	// test is for.
+	body := taxIDCheckoutBody("ana@example.com", "", "Buyer", "cedula", "1712345670",
 		map[string]any{"ticket_type_id": "not-a-uuid", "quantity": 0})
 	body["customer_phone"] = "+593223456789"
 
@@ -66,7 +72,6 @@ func TestCheckoutValidationCarriesCodeAndMessage(t *testing.T) {
 	fields := fieldErrorsByName(t, envBody)
 
 	want := []fieldError{
-		{Field: "customer_email", Code: "INVALID_EMAIL", Message: "must be a valid email"},
 		{Field: "customer_first_name", Code: "REQUIRED", Message: "is required"},
 		{Field: "customer_tax_id_number", Code: "INVALID_CEDULA", Message: "must be a valid 10-digit cédula"},
 		{Field: "customer_phone", Code: "INVALID_PHONE_EC", Message: "must be an Ecuadorian mobile: 9 digits starting with 9"},
