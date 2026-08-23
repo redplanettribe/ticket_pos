@@ -337,7 +337,7 @@
     "upcomingHeading": "Upcoming",
     "pastHeading": "Past",
     "nothingUpcomingTitle": "Nothing coming up",
-    "nothingUpcomingDescription": "Your past tickets are below, and there's always something new to find.",
+    "nothingUpcomingDescription": "There's always something new to find.",
     "discoverEvents": "Discover events",
     "emptyTitle": "No tickets yet",
     "emptyDescription": "When you buy tickets, they'll show up here — from every organizer you buy from.",
@@ -412,7 +412,11 @@
       "rowAssigned": "For {email}",
       "rowAccepted": "{email} has it",
       "giveAway": "Give this ticket to someone else"
-    }
+    },
+    "tabsLabel": "Your tickets by status",
+    "reversedHeading": "Reversed",
+    "tabCount": "{label} ({count})",
+    "reversedTabDescription": "Purchases that were undone. These tickets were released and are no longer valid for entry."
   },
   "myInfo": {
     "heading": "My info",

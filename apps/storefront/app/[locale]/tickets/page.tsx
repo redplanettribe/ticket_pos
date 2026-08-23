@@ -24,14 +24,19 @@ import { StorefrontShell } from "@/components/storefront-shell";
 import { Link, redirect } from "@/i18n/navigation";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { BRAND_NAME } from "@/lib/brand";
-import { groupSales } from "@/lib/customer-area-tabs";
+import {
+  availableTabs,
+  countFor,
+  groupsFor,
+  tabForLinkedSale,
+  tabOf,
+  type CustomerAreaTab,
+} from "@/lib/customer-area-tabs";
 import {
   customerSessionToken,
   getCustomerArea,
   getCustomerSession,
   type CustomerArea as CustomerAreaData,
-  type HeldTicket,
-  type TicketSale,
 } from "@/lib/customer-session";
 
 // Same posture as every other Storefront page: rendered per request with
@@ -61,6 +66,8 @@ export async function generateMetadata({
 
 type CustomerAreaPageProps = {
   params: Promise<{ locale: string }>;
+  /** `?tab=` names the tab to open (#355); anything else falls back to Upcoming. */
+  searchParams: Promise<{ tab?: string | string[] }>;
 };
 
 /**
@@ -73,8 +80,9 @@ type CustomerAreaPageProps = {
  */
 export default async function CustomerAreaPage({
   params,
+  searchParams,
 }: CustomerAreaPageProps) {
-  const { locale } = await params;
+  const [{ locale }, { tab: rawTab }] = await Promise.all([params, searchParams]);
   // Every page declares its own locale; see the note in app/[locale]/layout.tsx.
   setRequestLocale(locale);
   const [area, session] = await Promise.all([
@@ -88,6 +96,15 @@ export default async function CustomerAreaPage({
   // page believes.
   const fromConfirmationLink =
     session.status === "ok" && session.data.ticket_sale_id !== null;
+
+  // The tab this page opens on. The URL names it so that a tab is a link that
+  // can be sent, except for a Confirmation Link session: that shows one Sale,
+  // so there is nothing to choose between and the Sale decides — a reversed
+  // one opens on Reversed, where it is, rather than on an empty Upcoming.
+  const tab: CustomerAreaTab =
+    fromConfirmationLink && area.status === "ok"
+      ? tabForLinkedSale(area.data)
+      : tabOf(rawTab);
 
   if (area.status === "signed-out") {
     // A session that ran out or was signed out elsewhere sends the visitor to
@@ -153,12 +170,8 @@ export default async function CustomerAreaPage({
           </>
         ) : (
           <CustomerArea
-            upcoming={area.data.upcoming}
-            past={area.data.past}
-            // The Tickets somebody gave this Customer and they accepted (#325).
-            // Empty for almost everybody, and empty for a Confirmation Link
-            // session by construction.
-            holding={area.data.holding ?? []}
+            area={area.data}
+            tab={tab}
             // A Confirmation Link arrival reads their purchase and acts on
             // nothing (#121): the cards state the Reversal Window and offer the
             // way to sign in, never the undo itself. The email travels with it
@@ -238,26 +251,41 @@ async function ConfirmationLinkNotice() {
 }
 
 async function CustomerArea({
-  upcoming,
-  past,
-  holding,
+  area,
+  tab: requested,
   viaConfirmationLink,
   customerEmail,
 }: {
-  upcoming: TicketSale[];
-  past: TicketSale[];
-  holding: HeldTicket[];
+  area: CustomerAreaData;
+  tab: CustomerAreaTab;
   viaConfirmationLink: boolean;
   customerEmail: string | null;
 }) {
+  // The Tickets somebody gave this Customer and they accepted (#325). Empty
+  // for almost everybody, and empty for a Confirmation Link session by
+  // construction.
+  const holding = area.holding ?? [];
   // Somebody who has bought nothing may still HOLD something: a friend bought
   // them a ticket and they accepted it (#325). Showing them the "you have no
   // purchases" page while they hold a ticket would be the platform denying the
   // thing it just mailed them.
-  if (upcoming.length === 0 && past.length === 0 && holding.length === 0) {
+  if (
+    area.upcoming.length === 0 &&
+    area.past.length === 0 &&
+    holding.length === 0
+  ) {
     return <NoPurchases />;
   }
   const t = await getTranslations("customerArea");
+  // One instant for the whole render, so a held Ticket is filed under the same
+  // tab the count on the tab bar promised.
+  const now = new Date();
+  const tabs = availableTabs(area, now);
+  // A URL can name a tab the bar does not draw — a Past link sent before the
+  // last past Sale was reversed, say. It opens on Upcoming, like any other
+  // name this page has nothing for, rather than on a heading over nothing.
+  const tab = tabs.includes(requested) ? requested : "upcoming";
+  const groups = groupsFor(area, tab, now);
 
   return (
     <>
@@ -265,13 +293,36 @@ async function CustomerArea({
           the URL's fragment is opened by the client piece below, since a
           fragment alone cannot open a `<details>`. Mounted once for the page. */}
       <OpenSaleFromHash />
-      <section className="space-y-4">
-        <h2 className="text-lg font-semibold tracking-tight">
-          {t("upcomingHeading")}
+
+      {/* A Confirmation Link session shows one Sale, so a bar of tabs would be
+          a choice between one thing and nothing; the page has already opened
+          on the tab that Sale lives in. */}
+      {viaConfirmationLink ? null : (
+        <TabBar tabs={tabs} current={tab} area={area} now={now} />
+      )}
+
+      <section className="space-y-4" aria-labelledby="customer-area-tab-heading">
+        <h2
+          id="customer-area-tab-heading"
+          className="text-lg font-semibold tracking-tight"
+        >
+          {t(TAB_HEADING[tab])}
         </h2>
-        {upcoming.length > 0 ? (
+
+        {/* Reversed is the one tab whose contents are not tickets to anything,
+            so it says so once, above the cards, rather than leaving the badge
+            on every row to explain the whole tab. */}
+        {tab === "reversed" ? (
+          <p className="text-sm text-muted-foreground">
+            {t("reversedTabDescription")}
+          </p>
+        ) : null}
+
+        {/* Only Upcoming can be empty: the other two are not drawn when there
+            is nothing behind them, and a URL naming one fell back above. */}
+        {groups.length > 0 ? (
           <ul className="space-y-4">
-            {groupSales(upcoming).map((group) => (
+            {groups.map((group) => (
               <EventGroup
                 key={group.event.id}
                 group={group}
@@ -295,29 +346,74 @@ async function CustomerArea({
 
       {/* The Tickets somebody gave this Customer, with their questions: a
           client component, because the questions are fetched and answered
-          from the browser (#345). See components/held-tickets.tsx. */}
-      {holding.length > 0 ? <HeldTickets holding={holding} /> : null}
-
-      {past.length > 0 ? (
-        <section className="space-y-4">
-          <h2 className="text-lg font-semibold tracking-tight">
-            {t("pastHeading")}
-          </h2>
-          <ul className="space-y-4">
-            {groupSales(past).map((group) => (
-              <EventGroup
-                key={group.event.id}
-                group={group}
-                viaConfirmationLink={viaConfirmationLink}
-                customerEmail={customerEmail}
-              />
-            ))}
-          </ul>
-        </section>
+          from the browser (#345). See components/held-tickets.tsx. Still its
+          own section under Upcoming for now; #356 folds held Tickets into the
+          Event groups above, which is why groupsFor's `held` is not drawn yet. */}
+      {tab === "upcoming" && holding.length > 0 ? (
+        <HeldTickets holding={holding} />
       ) : null}
     </>
   );
 }
+
+const TAB_HEADING = {
+  upcoming: "upcomingHeading",
+  past: "pastHeading",
+  reversed: "reversedHeading",
+} as const;
+
+/**
+ * The tab bar: plain links to `?tab=`, so a tab is an address — sendable,
+ * bookmarkable, and back-button-able — rather than client state that a reload
+ * forgets. The current one is marked as the page it is, which is also what
+ * draws it selected. Each label carries its count so the reader knows what a
+ * tab holds before opening it.
+ *
+ * The bar scrolls sideways on its own when three labelled tabs outgrow a
+ * narrow phone; the page itself never widens (#353).
+ */
+async function TabBar({
+  tabs,
+  current,
+  area,
+  now,
+}: {
+  tabs: CustomerAreaTab[];
+  current: CustomerAreaTab;
+  area: CustomerAreaData;
+  now: Date;
+}) {
+  const t = await getTranslations("customerArea");
+  return (
+    <nav aria-label={t("tabsLabel")} className="-mx-4 overflow-x-auto px-4">
+      <ul className="flex min-w-max gap-1 border-b">
+        {tabs.map((tab) => {
+          const selected = tab === current;
+          return (
+            <li key={tab}>
+              <Link
+                href={{ pathname: "/tickets", query: { tab } }}
+                aria-current={selected ? "page" : undefined}
+                className={
+                  "-mb-px inline-flex items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors " +
+                  (selected
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:border-border hover:text-foreground")
+                }
+              >
+                {t("tabCount", {
+                  label: t(TAB_HEADING[tab]),
+                  count: countFor(area, tab, now),
+                })}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
+
 /**
  * The empty state points at the explorer rather than dead-ending. A Customer can
  * reach this legitimately: signing in creates the record if a Ticket Sale never

@@ -337,7 +337,7 @@
     "upcomingHeading": "Próximos",
     "pastHeading": "Pasados",
     "nothingUpcomingTitle": "No hay nada próximo",
-    "nothingUpcomingDescription": "Sus entradas pasadas están más abajo, y siempre hay algo nuevo por descubrir.",
+    "nothingUpcomingDescription": "Siempre hay algo nuevo por descubrir.",
     "discoverEvents": "Descubrir eventos",
     "emptyTitle": "Todavía no tiene entradas",
     "emptyDescription": "Cuando compre entradas, aparecerán aquí, de todos los organizadores a los que les compre.",
@@ -412,7 +412,11 @@
       "rowAssigned": "Para {email}",
       "rowAccepted": "{email} la tiene",
       "giveAway": "Dar esta entrada a otra persona"
-    }
+    },
+    "tabsLabel": "Sus entradas por estado",
+    "reversedHeading": "Revertidas",
+    "tabCount": "{label} ({count})",
+    "reversedTabDescription": "Compras que se deshicieron. Estas entradas se liberaron y ya no sirven para el ingreso."
   },
   "myInfo": {
     "heading": "Mis datos",
