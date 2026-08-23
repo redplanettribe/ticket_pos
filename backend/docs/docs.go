@@ -106,68 +106,6 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
-            "handler.beginCheckoutBody": {
-                "properties": {
-                    "affiliate_codes": {
-                        "description": "AffiliateCodes are the Affiliate Link codes the Storefront remembered from\nthe buyer's recent clicks on this Event, NEWEST FIRST, OPTIONAL and never\nvalidated as a field: the service credits the first that resolves to a live\nlink and records the sale unattributed when none does. A checkout is never\nrefused over a ref (#146).\n\nA list rather than one code because liveness is unknowable at click time\n(ADR 0022): a click on a since-deactivated code must not erase the live\nclick before it. Anything past maxAffiliateCodes is dropped unread — a\nbrowser sends at most three.",
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
-                    },
-                    "answers": {
-                        "description": "Answers are what the buyer filled in on the checkout's answer section\n(#311, ADR 0044).\n\nTHE ONLY FIELD ON THIS BODY THAT CANNOT PRODUCE A FIELD ERROR, and the\nasymmetry with everything above it is the point. A malformed email is a\nform the buyer must fix; a malformed answer is a t-shirt size, and refusing\na purchase over one is the thing ADR 0044 exists to forbid. Anything\nunusable here is DROPPED — quietly, by the service — and the Ticket carries\nan Outstanding Answer instead.\n\nOPTIONAL AND USUALLY ABSENT. A cart whose Ticket Types ask nothing sends no\nsuch key, and neither does a buyer who skipped the whole section, which is\nexplicitly a supported way to check out.",
-                        "items": {
-                            "$ref": "#/components/schemas/handler.checkoutAnswerBody"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
-                    },
-                    "customer_email": {
-                        "type": "string"
-                    },
-                    "customer_first_name": {
-                        "type": "string"
-                    },
-                    "customer_last_name": {
-                        "type": "string"
-                    },
-                    "customer_phone": {
-                        "description": "The buyer's phone number, OPTIONAL and never fabricated (#106). It exists\nto be handed to the Payment Provider so its hosted card form arrives with\nnothing left to type but the card; a buyer who omits it checks out exactly\nas they did before the field existed. Absent, empty, or whitespace all mean\nthe same thing — no phone — and are not validation failures.",
-                        "type": "string"
-                    },
-                    "customer_tax_id_number": {
-                        "type": "string"
-                    },
-                    "customer_tax_id_type": {
-                        "description": "The buyer's Tax ID: a Tax ID Type ('cedula' | 'ruc' | 'passport') and its\nnumber. Both are required — an Online Sale is a native Sales Channel and\nmust be declarable (ADR 0016).",
-                        "type": "string"
-                    },
-                    "lines": {
-                        "items": {
-                            "$ref": "#/components/schemas/handler.checkoutLineBody"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
-                    },
-                    "locale": {
-                        "description": "Locale is the language of the Storefront page this checkout was completed\non, recorded as the sale's Sale Locale and read back whenever mail about\nthis sale is written (ADR 0033).\n\nIt is a fact the page reports about itself — its language is in its own\naddress — and not a preference being negotiated: no read path takes an\nAccept-Language and none is added here (ADR 0027).\n\nOPTIONAL AND NEVER A REASON TO REFUSE. A caller with no page to name one\nomits it, and a language this platform does not serve is dropped. Either\nway the sale records no language and the receipt falls back to what the\nCustomer's record remembers, then to English. A locale must never fail a\npurchase — the money is the point of this request and the words are not.",
-                        "type": "string"
-                    },
-                    "marketing_consent": {
-                        "type": "boolean"
-                    },
-                    "networking_consent": {
-                        "type": "boolean"
-                    },
-                    "policy_acceptance": {
-                        "description": "The three consent boxes on the checkout dialog (#253, parent #249), named\nidentically to the sign-in consent submission's: one vocabulary for one set\nof answers, so a client that learned the shape on one surface knows it on\nthe other.\n\nPOINTERS, AND THE NIL IS LOAD-BEARING. Absent means THE BOX WAS NOT SHOWN,\nwhich is a different fact from ` + "`" + `false` + "`" + `; false means it was shown and left\nunticked, which is an explicit No and is recorded as ` + "`" + `denied` + "`" + ` (ADR 0034).\nA guest checkout always shows all three and therefore always sends all\nthree; a signed-in Customer is shown only what they have not answered\n(#254), and reading their absent boxes as refusals would turn their\npurchase into a marketing opt-out.\n\nPolicyAcceptance is REQUIRED to be present and true of everybody who is\nstill owed it — every guest, and every signed-in Customer without an\nacceptance of the current Policy Version. It is not a field error but a\ndomain refusal — POLICY_ACCEPTANCE_REQUIRED from the service — because what\nis wrong is not the shape of the request but that the platform may not act\non it (ADR 0035, consent.ErrPolicyAcceptanceRequired).\n\nWHICH BOXES WERE OWED IS THE SERVICE'S FINDING, not this body's assertion:\nan answer for a box the buyer was not owed is dropped rather than applied\n(service.owedConsentAnswers).",
-                        "type": "boolean"
-                    }
-                },
-                "type": "object"
-            },
             "handler.beginCustomerCheckoutBody": {
                 "properties": {
                     "affiliate_codes": {
@@ -2556,6 +2494,10 @@ const docTemplate = `{
             },
             "service.BeginCheckoutResult": {
                 "properties": {
+                    "addressed_to": {
+                        "description": "AddressedTo is the address this checkout's Ticket Sale was addressed to, as\nthe API resolved it — on the session-gated route (ADR 0054), the address the\nCustomer Session proved.\n\nIt is reported back because the Storefront's return leg needs it and has no\nother authoritative source for it (#387). The buyer leaves this origin for\nthe Payment Provider, possibly for minutes, and a session can end while they\nare away: a cleared jar, a provider webview that drops cookies, a revoked\nsession, a return in another browser. The person who comes back has ALREADY\nPAID, and the address they bought under is what turns \"sign in\" from a dead\nend into a door — a purchase made under one address and a session held under\nanother are different Customers (ADR 0011).\n\nIt grants nothing and proves nothing. Sign-in still costs a passcode or a\nGoogle round trip; this only spares the buyer typing what they already told\nus. It is reported to the caller that supplied or proved it and to nobody\nelse, so no address is disclosed that the request did not already name.",
+                        "type": "string"
+                    },
                     "amount_cents": {
                         "type": "integer"
                     },
@@ -6517,7 +6459,7 @@ const docTemplate = `{
         },
         "/api/v1/customer/organizations/{slug}/events/{eventSlug}/checkout": {
             "post": {
-                "description": "The session-gated begin-checkout (ADR 0054). It does the same work as the public begin-checkout — validates ticket types, quantities, remaining capacity and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left — and differs from it in exactly one way: THE BUYER'S EMAIL IS READ FROM THE CUSTOMER SESSION AND IS NOT A REQUEST FIELD. There is no ` + "`" + `customer_email` + "`" + ` on this body and nothing here reads one, so a Ticket Sale begun on this route can only ever be addressed to an address the platform has proof of ownership for. A request with no Customer Session is refused 401. A request carrying a CONFIRMATION LINK session is refused 403 CUSTOMER_SESSION_SCOPE_INSUFFICIENT: that credential is minted from a token which travelled in an email and may have been forwarded, so it is not Proof of Email Ownership and cannot buy. A checkout with money to collect comes back status \"pending\" with the Payment Provider's redirect_url; a checkout whose cart totals zero — Free Ticket Types only — is settled here and now, comes back status \"approved\" with confirmation_ref and no redirect_url, and is gated by the session identically, because a free Ticket is still a Ticket that needs a reachable inbox (ADR 0017). Because the buyer is proven, the details they give here are their own assertion about themselves: first and last name, the Tax ID (required, ADR 0016) and the optional phone are written back onto the Customer as well as snapshotted onto the sale. Consent given here is recorded as ANSWERED and never as a Pending Confirmation, and which boxes the buyer was owed is recomputed server-side from the Customer on the session and never taken from this body — a Customer who has already accepted the current Policy Version and answered both optional boxes sends no consent fields at all, is owed nothing, writes no Consent Record, and is not asked again; one who still owes Policy Acceptance must send it present and true or the checkout is refused 400 POLICY_ACCEPTANCE_REQUIRED with no Payment created. An answer for a box the buyer was not owed is dropped rather than applied. Purchase Limits, Affiliate Link attribution, ` + "`" + `locale` + "`" + `, and the skippable ` + "`" + `answers` + "`" + ` section all behave exactly as they do on the public route, including that nothing about an answer can ever refuse or delay a checkout (ADR 0044). The technical proof stored with a consent record (IP, user agent, origin URL) is taken from the request and never from this body, and the Policy Version accepted is resolved server-side. Confirming this checkout uses the same public confirm route, which stays public and idempotent: it is the Payment Provider's return leg and must work for a browser that has lost everything.",
+                "description": "The session-gated begin-checkout (ADR 0054). It does the same work as the public begin-checkout — validates ticket types, quantities, remaining capacity and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left — and differs from it in exactly one way: THE BUYER'S EMAIL IS READ FROM THE CUSTOMER SESSION AND IS NOT A REQUEST FIELD. There is no ` + "`" + `customer_email` + "`" + ` on this body and nothing here reads one, so a Ticket Sale begun on this route can only ever be addressed to an address the platform has proof of ownership for. A request with no Customer Session is refused 401. A request carrying a CONFIRMATION LINK session is refused 403 CUSTOMER_SESSION_SCOPE_INSUFFICIENT: that credential is minted from a token which travelled in an email and may have been forwarded, so it is not Proof of Email Ownership and cannot buy. A checkout with money to collect comes back status \"pending\" with the Payment Provider's redirect_url; a checkout whose cart totals zero — Free Ticket Types only — is settled here and now, comes back status \"approved\" with confirmation_ref and no redirect_url, and is gated by the session identically, because a free Ticket is still a Ticket that needs a reachable inbox (ADR 0017). Because the buyer is proven, the details they give here are their own assertion about themselves: first and last name, the Tax ID (required, ADR 0016) and the optional phone are written back onto the Customer as well as snapshotted onto the sale. Consent given here is recorded as ANSWERED and never as a Pending Confirmation, and which boxes the buyer was owed is recomputed server-side from the Customer on the session and never taken from this body — a Customer who has already accepted the current Policy Version and answered both optional boxes sends no consent fields at all, is owed nothing, writes no Consent Record, and is not asked again; one who still owes Policy Acceptance must send it present and true or the checkout is refused 400 POLICY_ACCEPTANCE_REQUIRED with no Payment created. An answer for a box the buyer was not owed is dropped rather than applied. Purchase Limits, Affiliate Link attribution, ` + "`" + `locale` + "`" + `, and the skippable ` + "`" + `answers` + "`" + ` section all behave exactly as they do on the public route, including that nothing about an answer can ever refuse or delay a checkout (ADR 0044). The technical proof stored with a consent record (IP, user agent, origin URL) is taken from the request and never from this body, and the Policy Version accepted is resolved server-side. The response REPORTS THE ADDRESS THE SALE WAS ADDRESSED TO in ` + "`" + `addressed_to` + "`" + ` (#387): the address read off the session, echoed back so the caller learns it from this API rather than inferring it from a browser. That is what lets the Storefront's return leg still recognise a buyer whose Customer Session did not survive the trip to the Payment Provider — a cleared cookie jar, a provider webview, a revoked session, a different browser — and it grants nothing, because signing in still costs a passcode or a Google round trip. Confirming this checkout uses the same public confirm route, which stays public and idempotent: it is the Payment Provider's return leg and must work for a browser that has lost everything, which is the same fact ` + "`" + `addressed_to` + "`" + ` exists to survive.",
                 "parameters": [
                     {
                         "description": "Organization slug",
@@ -9512,97 +9454,6 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Record affiliate link click",
-                "tags": [
-                    "public"
-                ]
-            }
-        },
-        "/api/v1/public/organizations/{slug}/events/{eventSlug}/checkout": {
-            "post": {
-                "description": "Starts a guest checkout on a published event: validates ticket types, quantities, remaining capacity (check-only, no hold) and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status \"pending\" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status \"approved\" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Refused with 409 PURCHASE_LIMIT_EXCEEDED when a requested Ticket Type carries a Purchase Limit and this buyer would end up holding more than it allows — details carry ticket_type_id, limit, already_held and requested. The allowance counts that Customer's active Ticket Sales plus their live Capacity Holds, so an abandoned checkout releases it and a Sale Reversal returns it; it is keyed on the Customer, and checked here only and never again when the sale commits, so a Payment the provider approved is never refused over it (ADR 0025). A cart breaching both its Purchase Limit and remaining capacity reports PURCHASE_LIMIT_EXCEEDED, because that refusal is terminal for this buyer while CAPACITY_EXCEEDED would invite a smaller retry the limit refuses just the same. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. affiliate_codes is optional and carries the Affiliate Link codes the buyer's recent clicks on this Event left behind, newest first: the first that matches one of this Event's live links credits the Ticket Sale, and a history of unknown, mistyped or deactivated codes simply records the sale unattributed — it never refuses a checkout. At most 5 codes are read; anything beyond is ignored. locale is optional and names the language of the Storefront page the checkout was completed on: it is recorded on the Ticket Sale and decides the language of the Sale Confirmation and of every later mail about that sale (ADR 0033). A checkout naming no locale, or one the platform does not serve, records none and still completes — the receipt then falls back to the Customer's remembered language, and to English. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer. Consent is captured here and refused here: policy_acceptance must be present and true from everybody who is still owed it — every guest, and every signed-in Customer with no acceptance of the current Policy Version — or the checkout is refused with 400 POLICY_ACCEPTANCE_REQUIRED and no Payment is created; the disabled button on the dialog is a courtesy, this is the guarantee. WHICH BOXES A BUYER WAS OWED IS RECOMPUTED HERE and never taken from the body: a guest is owed all three, and a checkout carrying the buyer's own Customer Session for the very address being bought under is owed only what that Customer has not answered (the same set the session read publishes as consent_boxes). An answer for a box that was not owed is DROPPED — so a signed-in Customer who has accepted the current edition and answered both optional boxes checks out with no consent fields at all and writes no Consent Record, and no crafted body can churn a standing Marketing or Networking Consent. It is enforced at BEGIN and never at confirm, so nobody is ever handed to a Payment Provider under a Privacy Policy they have not accepted, and no Payment the provider approved is ever refused over a checkbox. marketing_consent and networking_consent are optional and never blocking: sent true they are a grant, sent false they are an explicit No (which switches the weekly Follow Digest off, ADR 0034), and OMITTED means the box was not shown — which is not a No, and leaves any standing answer untouched. The answers are held on the Payment across the Payment Provider redirect, exactly as the Tax ID, phone and locale are, and the immutable Consent Record plus the consent state are written only when the sale commits: an abandoned, declined or expired Payment records no consent at all, just as it records no Customer. A guest has not proven the address they typed, so an optional tick from one enters Pending Confirmation — recorded as evidence, denied for sending, and never overwriting an answer given under a proven Customer Session (ADR 0035). The technical proof stored with the record (IP, user agent, origin URL) is taken from the request, never from this body. The Policy Version accepted is resolved server-side and is never accepted from a client. answers is optional and carries what the buyer filled in on the checkout's skippable Ticket Question section: one entry per (ticket_type_id, ticket_index, ticket_question_id), where ticket_index is ONE-BASED and names one of that Ticket Type's tickets, 1..quantity counted across the whole cart's holding of it. Exactly one reply slot is filled per entry and WHICH one is decided by the question's kind: text for short_text and long_text, number (a STRING, so the digits reach a NUMERIC column exactly as typed) for number, date for date, checked for checkbox, option_ids for single_choice and multi_choice. ` + "`" + `checked: false` + "`" + ` is an answer — somebody read the box and left it unticked — while an absent checked is somebody who was never asked. NOTHING ABOUT AN ANSWER CAN EVER REFUSE OR DELAY A CHECKOUT (ADR 0044): it is the only field on this body that produces no field error and no refusal of any kind. An entry naming a Ticket Type not in the cart, a question that Ticket Type does not ask, an index past its quantity, a reply of the wrong shape for the kind, or an Option the question does not currently offer is DROPPED SILENTLY, and the Ticket it was meant for simply carries an Outstanding Answer — which is the whole of what ` + "`" + `required` + "`" + ` means on a Ticket Question. A choice answer is kept whole or not at all, because dropping one unresolvable Option would rewrite what somebody said. At most 500 entries are read. The answers are held on the Payment keyed by (payment line, index) across the Payment Provider redirect, exactly as the Tax ID, phone, locale and consent answers are, and are written onto the minted Tickets in order — index n becomes ordinal n — only when the sale commits: a Payment that fails or expires produces no Tickets and no Answers on any Ticket. A free checkout, which settles inside this request, carries them through by the same path. The whole section is behind the Ticket Question feature flag: with it closed the field is ignored entirely and nothing is captured, and the public Event page carries no ticket_questions for a client to draw a form from (ADR 0045).",
-                "parameters": [
-                    {
-                        "description": "Organization slug",
-                        "in": "path",
-                        "name": "slug",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "description": "Event slug",
-                        "in": "path",
-                        "name": "eventSlug",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "oneOf": [
-                                    {
-                                        "type": "object"
-                                    },
-                                    {
-                                        "$ref": "#/components/schemas/handler.beginCheckoutBody",
-                                        "summary": "body",
-                                        "description": "Checkout lines, customer identity, Tax ID and optional phone"
-                                    }
-                                ]
-                            }
-                        }
-                    },
-                    "description": "Checkout lines, customer identity, Tax ID and optional phone",
-                    "required": true
-                },
-                "responses": {
-                    "201": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeBeginCheckout"
-                                }
-                            }
-                        },
-                        "description": "Created"
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Bad Request"
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Not Found"
-                    },
-                    "409": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Conflict"
-                    }
-                },
-                "summary": "Begin an online checkout",
                 "tags": [
                     "public"
                 ]
