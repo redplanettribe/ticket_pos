@@ -164,3 +164,52 @@ func TestAssignmentReminderOmitsTheDateItCannotPlace(t *testing.T) {
 		t.Fatalf("text = %q, want the Event and the link regardless", text)
 	}
 }
+
+// THE GO-LIVE SENTENCE (ADR 0051, #364). The fixture's Sale is from after
+// TicketAssignmentWentLiveAt, so its mail carries nothing about the feature
+// being new: the ordinary reminder, unchanged. A Sale from before it reads one
+// extra sentence, in both languages, between the tally and the action.
+const (
+	assignmentReminderGoLiveEN = "When you bought, tickets could not yet be assigned; now they can."
+	assignmentReminderGoLiveES = "Cuando compró, las entradas aún no se podían asignar; ahora sí."
+)
+
+func TestAssignmentReminderTellsAPreFeatureBuyerThatAssigningIsNew(t *testing.T) {
+	reminder := assignmentReminder()
+	reminder.SaleCreatedAt = TicketAssignmentWentLiveAt.Add(-time.Second)
+
+	text := reminder.Text()
+	if !strings.Contains(text, assignmentReminderGoLiveEN) {
+		t.Fatalf("text = %q, want the English go-live sentence", text)
+	}
+	tally := strings.Index(text, "have no address yet")
+	sentence := strings.Index(text, assignmentReminderGoLiveEN)
+	action := strings.Index(text, "Assign them from your tickets page")
+	if !(tally < sentence && sentence < action) {
+		t.Fatalf("text = %q, want the go-live sentence between the tally and the action", text)
+	}
+
+	reminder.Locale = LocaleES
+	text = reminder.Text()
+	if !strings.Contains(text, assignmentReminderGoLiveES) {
+		t.Fatalf("text = %q, want the Spanish go-live sentence", text)
+	}
+	if strings.Contains(text, "could not yet be assigned") {
+		t.Fatalf("text = %q, want no English left in it", text)
+	}
+}
+
+func TestAssignmentReminderSaysNothingAboutGoLiveToANewerBuyer(t *testing.T) {
+	for _, locale := range []Locale{LocaleEN, LocaleES} {
+		reminder := assignmentReminder()
+		reminder.Locale = locale
+		reminder.SaleCreatedAt = TicketAssignmentWentLiveAt // the moment itself is "after"
+		text := reminder.Text()
+		if strings.Contains(text, assignmentReminderGoLiveEN) || strings.Contains(text, assignmentReminderGoLiveES) {
+			t.Fatalf("text (%s) = %q, want no go-live sentence for a Sale made once the feature existed", locale, text)
+		}
+		if strings.Contains(text, "could not yet") || strings.Contains(text, "no se podían") {
+			t.Fatalf("text (%s) = %q, want no trace of the go-live sentence", locale, text)
+		}
+	}
+}

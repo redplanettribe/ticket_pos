@@ -313,12 +313,10 @@ type AssignmentReminder struct {
 	// IS THE WHOLE MESSAGE: a reminder with nowhere to go is an instruction its
 	// reader cannot follow, so the sweep refuses to compose one without it.
 	ConfirmationLink string
-	// SaleCreatedAt is when the Ticket Sale was recorded. IT IS NOT RENDERED
-	// YET. It travels so that #364 can add ADR 0051's one extra sentence for a
-	// Sale made before Ticket Assignment went live — "when you bought, tickets
-	// could not yet be assigned; now they can" — by comparing it against the
-	// go-live constant that ticket introduces beside this type. Until then it
-	// is carried and ignored.
+	// SaleCreatedAt is when the Ticket Sale was recorded. It is never printed;
+	// Text() compares it against TicketAssignmentWentLiveAt and, for a Sale
+	// older than that, adds ADR 0051's one extra sentence — "when you bought,
+	// tickets could not yet be assigned; now they can" (#364).
 	SaleCreatedAt time.Time
 	// Locale is the language the mail is written in: the Sale Locale first,
 	// because this is the buyer's own purchase, then their remembered Mail

@@ -717,10 +717,12 @@ func (r HolderAnswerReminder) Text() string {
 // Link already opens the Sale, and the mail around it should give away
 // nothing more.
 //
-// THE GO-LIVE SENTENCE IS NOT HERE YET. ADR 0051 adds one sentence for a Sale
-// made before Ticket Assignment existed; #364 adds it, keyed on
-// AssignmentReminder.SaleCreatedAt against a constant it introduces. Text()
-// below is where it will be rendered, between the tally and the action.
+// THE GO-LIVE SENTENCE IS CONDITIONAL ON THE SALE'S AGE (ADR 0051, #364). A
+// buyer whose Sale predates TicketAssignmentWentLiveAt bought when no such
+// page existed, and a mail that told them to "assign" without saying the
+// feature is new would read as an accusation of having forgotten. One
+// sentence, between the tally and the action, says so. A newer Sale renders
+// without it, byte for byte the mail it got before the sentence existed.
 //
 // The Spanish is usted throughout and takes "entrada" for the thing, matching
 // the receipt.
@@ -760,6 +762,12 @@ var (
 		"%d of your %d tickets has no address yet. You can give it to the person who will use it.",
 		"%d de sus %d entradas aún no tiene dirección. Puede asignarla a la persona que la usará.",
 	)
+	// The go-live sentence, for a Sale older than TicketAssignmentWentLiveAt
+	// only. It keeps the tally's voice: plain, usted, no apology and no date.
+	assignmentReminderGoLiveCopy = translated(
+		"When you bought, tickets could not yet be assigned; now they can.",
+		"Cuando compró, las entradas aún no se podían asignar; ahora sí.",
+	)
 	// The instruction and the address, which are the whole point of the
 	// message. No sign-in is needed: the Confirmation Link opens the Sale.
 	assignmentReminderActionCopy = translated(
@@ -777,6 +785,19 @@ var (
 		"Asignar es opcional y sus entradas son válidas igualmente. Enviaremos como máximo un recordatorio más al respecto.",
 	)
 )
+
+// TicketAssignmentWentLiveAt is the moment Ticket Assignment first existed in
+// production: the deploy of commit 5c567c9, in which ticket_assignment_enabled
+// first became true there. A Sale created before it was made when no buyer
+// could assign anything, and its Assignment Reminder says so (ADR 0051, #364).
+//
+// THIS IS A HISTORICAL FACT, NOT A SETTING. It is not read from configuration,
+// is the same in every environment, and must never be moved: changing it would
+// not change when the feature went live, only which buyers are told the truth
+// about it. It is also TEMPORARY. Once no upcoming Event has a Sale older than
+// this moment the comparison selects nothing, and the constant, the sentence
+// and the branch in Text() may be deleted together.
+var TicketAssignmentWentLiveAt = time.Date(2026, 8, 22, 16, 33, 38, 0, time.UTC)
 
 // Subject is the Assignment Reminder's subject line: the tally and the Event,
 // in the singular when one Ticket is left.
@@ -804,8 +825,9 @@ func (r AssignmentReminder) Text() string {
 		tally = assignmentReminderTallyOneCopy
 	}
 	text += "\n\n" + fmt.Sprintf(tally.in(r.Locale), r.UnassignedTickets, r.TotalTickets)
-	// #364: the go-live sentence for a Sale created before Ticket Assignment
-	// existed renders here, keyed on r.SaleCreatedAt.
+	if r.SaleCreatedAt.Before(TicketAssignmentWentLiveAt) {
+		text += "\n\n" + assignmentReminderGoLiveCopy.in(r.Locale)
+	}
 	text += "\n\n" + fmt.Sprintf(assignmentReminderActionCopy.in(r.Locale), r.ConfirmationLink)
 	text += "\n\n" + assignmentReminderDisclosureCopy.in(r.Locale)
 	text += "\n\n" + assignmentReminderClosingCopy.in(r.Locale)
