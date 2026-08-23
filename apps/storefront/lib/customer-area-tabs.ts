@@ -90,9 +90,16 @@ export function countFor(area: CustomerArea, tab: CustomerAreaTab, now: Date): n
  * latest-first, and this keeps that.
  */
 export function groupsFor(area: CustomerArea, tab: CustomerAreaTab, now: Date): EventGroup[] {
-  const sales = salesFor(area, tab);
-  const held = heldFor(area.holding ?? [], tab, now);
+  return groupSales(salesFor(area, tab), heldFor(area.holding ?? [], tab, now));
+}
 
+/**
+ * The same grouping over a list already chosen — the page's Upcoming and Past
+ * sections, until the tabs above take over (#355). It filters nothing: a
+ * reversed Sale passed in stays in its Event's group, wearing its badge,
+ * because until the Reversed tab exists there is nowhere else for it to be.
+ */
+export function groupSales(sales: TicketSale[], held: HeldTicket[] = []): EventGroup[] {
   const groups = new Map<string, EventGroup>();
   const groupFor = (event: EventSummary, organization: OrganizationSummary): EventGroup => {
     let group = groups.get(event.id);

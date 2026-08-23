@@ -13,16 +13,18 @@ import {
   PageHeader,
 } from "@ticket-pos/ui";
 
+import { EventGroup } from "@/components/event-group";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { HeldTickets } from "@/components/held-tickets";
 import { MyInfo } from "@/components/my-info";
+import { OpenSaleFromHash } from "@/components/open-sale-from-hash";
 import { RetryFailedRead } from "@/components/reversal-watch";
 import { SignInOtherAddressButton } from "@/components/sign-in-other-address-button";
 import { StorefrontShell } from "@/components/storefront-shell";
-import { TicketSaleCard } from "@/components/ticket-sale-card";
 import { Link, redirect } from "@/i18n/navigation";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { BRAND_NAME } from "@/lib/brand";
+import { groupSales } from "@/lib/customer-area-tabs";
 import {
   customerSessionToken,
   getCustomerArea,
@@ -259,16 +261,20 @@ async function CustomerArea({
 
   return (
     <>
+      {/* One card per Event, the Sales as rows inside it (#354); a row named by
+          the URL's fragment is opened by the client piece below, since a
+          fragment alone cannot open a `<details>`. Mounted once for the page. */}
+      <OpenSaleFromHash />
       <section className="space-y-4">
         <h2 className="text-lg font-semibold tracking-tight">
           {t("upcomingHeading")}
         </h2>
         {upcoming.length > 0 ? (
           <ul className="space-y-4">
-            {upcoming.map((sale) => (
-              <TicketSaleCard
-                key={sale.id}
-                sale={sale}
+            {groupSales(upcoming).map((group) => (
+              <EventGroup
+                key={group.event.id}
+                group={group}
                 viaConfirmationLink={viaConfirmationLink}
                 customerEmail={customerEmail}
               />
@@ -298,10 +304,10 @@ async function CustomerArea({
             {t("pastHeading")}
           </h2>
           <ul className="space-y-4">
-            {past.map((sale) => (
-              <TicketSaleCard
-                key={sale.id}
-                sale={sale}
+            {groupSales(past).map((group) => (
+              <EventGroup
+                key={group.event.id}
+                group={group}
                 viaConfirmationLink={viaConfirmationLink}
                 customerEmail={customerEmail}
               />

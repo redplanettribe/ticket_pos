@@ -7,6 +7,7 @@ import {
   formatEventDateTime,
   formatEventTime,
   formatPrice,
+  formatPurchaseDate,
   formatReversalDeadline,
   priceFrom,
 } from "./format.ts";
@@ -120,4 +121,11 @@ test("an Event's time stays in the Event's own timezone in every language", () =
     formatEventDateTime(SUNDAY_EVENING, "Europe/Madrid", "es-EC"),
     "lunes, 13 de julio de 2026 · 1:00 a.\u00a0m.",
   );
+});
+
+test("a purchase date is the day alone, on Ecuador's clock, in the reader's language", () => {
+  // 01:00Z on the 8th is still the evening of the 7th in Guayaquil.
+  assert.equal(formatPurchaseDate(REVERSAL_CUTOFF), "Jul 7, 2026");
+  assert.equal(formatPurchaseDate(REVERSAL_CUTOFF, "es-EC"), "7 jul 2026");
+  assert.equal(formatPurchaseDate("not a date"), null);
 });

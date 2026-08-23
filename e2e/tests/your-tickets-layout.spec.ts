@@ -60,8 +60,18 @@ test("the Customer Area never scrolls sideways with a Holder List row expanded",
   await page.goto(`/${LOCALE}/tickets`);
   await page.waitForLoadState("networkidle");
 
-  // Expanding the first row puts the assign form on screen, which is where the
-  // second overflow lived; the summary row itself is the first.
+  // Since #354 a Sale is a collapsed row inside its Event's card, shut whenever
+  // the Event has more than one Sale — and this buyer has several. Open the
+  // first one so its Holder List is on screen; a row already open (a
+  // single-Sale Event) is left alone, since clicking it would shut it.
+  const firstSale = page.locator("details[id^='sale-']").first();
+  await expect(firstSale).toBeVisible();
+  if (!(await firstSale.evaluate((el) => (el as HTMLDetailsElement).open))) {
+    await firstSale.locator("summary").first().click();
+  }
+
+  // Expanding the first Holder row puts the assign form on screen, which is
+  // where the second overflow lived; the summary row itself is the first.
   const firstRow = page.locator("summary", { hasText: /^.*Ticket 1 of/ }).first();
   await expect(firstRow).toBeVisible();
   await firstRow.click();

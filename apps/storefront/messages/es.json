@@ -351,6 +351,7 @@
     "confirmation": "Confirmación <value>{reference}</value>",
     "taxId": "Documento <value>{taxId}</value>",
     "reversedBadge": "Anulada",
+    "boughtOn": "Comprado el {date}",
     "ticketsTotal": "{count, plural, one {# entrada} other {# entradas}} · {total}",
     "undo": "Deshacer esta compra",
     "undoTitle": "¿Deshacer esta compra?",

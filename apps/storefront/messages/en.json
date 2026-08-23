@@ -351,6 +351,7 @@
     "confirmation": "Confirmation <value>{reference}</value>",
     "taxId": "Tax ID <value>{taxId}</value>",
     "reversedBadge": "Reversed",
+    "boughtOn": "Bought {date}",
     "ticketsTotal": "{count, plural, one {# ticket} other {# tickets}} · {total}",
     "undo": "Undo this purchase",
     "undoTitle": "Undo this purchase?",
