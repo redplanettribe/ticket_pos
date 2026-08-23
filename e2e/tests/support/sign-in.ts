@@ -56,4 +56,15 @@ export async function signInAsCustomer(
     await consentBox.check();
     await page.getByRole("button", { name: "Agree and sign in" }).click();
   }
+
+  // Return only once the Customer Session actually exists, which is what every
+  // caller is really asking for — none of them wants a form filled in, they want
+  // to BE somebody.
+  //
+  // Waiting is not a tidiness: the consent branch above ends on a click, and a
+  // caller that navigates on the next line races the cookie that click is still
+  // setting. The page it lands on renders signed out, and the failure surfaces
+  // far away and much later — as a Buy control that is a link rather than a
+  // button, on a journey whose sign-in appeared to succeed.
+  await page.waitForURL(`**${next.split("?")[0]}*`);
 }
