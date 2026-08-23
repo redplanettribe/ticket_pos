@@ -23,6 +23,15 @@ export const dynamic = "force-dynamic";
  * (keyed by our client transaction id), so re-hitting this URL re-reads the
  * recorded outcome and lands on the same terminal page. It never duplicates a
  * sale.
+ *
+ * IT ASKS FOR NO SESSION, AND ADR 0054 DID NOT CHANGE THAT (#387). Checkout now
+ * stands behind a Customer Session, but this leg does not, and confirm stays
+ * public for the same reason it always was: it runs after the money has moved,
+ * on a request the Payment Provider built, in a browser that may have lost
+ * everything in between. Requiring a session here would mean a cleared cookie
+ * jar or a provider webview could leave a paid-for Payment unconfirmed — which
+ * is the one failure this system must not be able to produce. What the buyer
+ * lost is answered on the terminal page, not on this hop.
  */
 export async function GET(request: Request) {
   // The Payment Provider built this URL from a constant it was handed when the

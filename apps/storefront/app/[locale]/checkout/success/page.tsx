@@ -10,6 +10,7 @@ import { getFormatLocale } from "@/i18n/format-locale.server";
 import { Link, redirect } from "@/i18n/navigation";
 import { getCheckoutReversal } from "@/lib/api";
 import { readCheckoutContext } from "@/lib/checkout-context";
+import { signInToTicketsHref } from "@/lib/checkout-return";
 import { getCustomerSession } from "@/lib/customer-session";
 import { undoDeadline } from "@/lib/undo-window";
 
@@ -39,6 +40,23 @@ export async function generateMetadata({ params }: SuccessPageProps): Promise<Me
  * reference arrives as a query param from the return handler, so refreshing
  * this page re-renders the same confirmation — and re-walking the return leg
  * lands here again without touching the sale (confirm is idempotent).
+ *
+ * IT LEADS WITH THE CUSTOMER AREA, AND IT STILL WORKS SIGNED OUT (#387).
+ * Checkout requires a Customer Session since ADR 0054, so the ordinary arrival
+ * here is a signed-in buyer, and the first thing offered is their tickets rather
+ * than an invitation to sign in for them.
+ *
+ * The signed-out branch stays, and it is not guest-checkout residue. The buyer
+ * held a session when they pressed pay and then spent minutes off this origin at
+ * the Payment Provider: a cleared jar, a provider webview that keeps its own
+ * cookies, a session revoked from another device, a return in a different
+ * browser. Any of those lands somebody who HAS ALREADY PAID on this page with
+ * nothing, and this is the most consequential page in the Storefront precisely
+ * because the money moved before it rendered. So a visitor with no session is
+ * shown their confirmation and handed the way in: sign in with the address the
+ * purchase was made under, which the checkout context remembers because the API
+ * reported it (lib/checkout-return.ts). The Sale Confirmation in their inbox is
+ * the other door, and the copy says so.
  */
 export default async function CheckoutSuccessPage({ params, searchParams }: SuccessPageProps) {
   const { locale } = await params;
@@ -69,12 +87,13 @@ export default async function CheckoutSuccessPage({ params, searchParams }: Succ
 
   // The Reversal Window, if this purchase has one on offer (#121, ADR 0018).
   //
-  // Checkout is guest-facing — nobody has to sign in to buy — so the buyer most
-  // likely to change their mind is the one least equipped to act on it: undoing
-  // requires a Customer Session. Saying nothing here is what sends them to email
-  // the Organization instead, which is the outcome self-service was meant to
-  // remove. So this page states the deadline and hands them the sign-in in one
-  // click; the undo itself happens in the Customer Area, never here.
+  // Undoing requires a Customer Session, and the buyer reading this may no
+  // longer hold one — not because checkout was guest-facing, which it no longer
+  // is, but because theirs may not have survived the round trip through the
+  // Payment Provider (#387). Saying nothing here is what sends them to email the
+  // Organization instead, which is the outcome self-service was meant to remove.
+  // So this page states the deadline and hands them the sign-in in one click;
+  // the undo itself happens in the Customer Area, never here.
   //
   // Keyed on the checkout this browser began, out of the httpOnly context
   // cookie. Lose that cookie — another browser, a cleared jar — and the page
@@ -123,6 +142,15 @@ export default async function CheckoutSuccessPage({ params, searchParams }: Succ
 
           <p className="text-sm text-muted-foreground">{t("emailed")}</p>
 
+          {/* Said only to the buyer who came back without a session, because it
+              is the only one for whom reaching their tickets is not one click.
+              It names both doors — signing in again, and the Sale Confirmation
+              already in their inbox — since whichever failed them is exactly the
+              one they cannot use. */}
+          {signedIn ? null : (
+            <p className="text-sm text-muted-foreground">{t("signedOutHint")}</p>
+          )}
+
           {/* Changed your mind? Nothing here undoes anything — it names the
               deadline and offers the sign-in that leads to the purchase in the
               Customer Area, where the undo lives. Someone already signed in
@@ -138,13 +166,23 @@ export default async function CheckoutSuccessPage({ params, searchParams }: Succ
           ) : null}
 
           <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
-            {signedIn ? (
-              <Button asChild className="h-11">
+            {/* The tickets lead, always. A signed-in buyer — the ordinary case
+                since ADR 0054 — goes straight to their Customer Area; one whose
+                session did not survive the Payment Provider goes there through
+                the sign-in, with the address the purchase was made under already
+                in the field. It is the same offer either way, and the difference
+                is a door rather than a dead end. */}
+            <Button asChild className="h-11">
+              {signedIn ? (
                 <Link href="/tickets">{t("seeTickets")}</Link>
-              </Button>
-            ) : null}
+              ) : (
+                <Link href={signInToTicketsHref(context?.customerEmail)}>
+                  {t("signInToSeeTickets")}
+                </Link>
+              )}
+            </Button>
             {context ? (
-              <Button asChild variant={signedIn ? "secondary" : "default"} className="h-11">
+              <Button asChild variant="secondary" className="h-11">
                 <Link href={context.eventPath}>{t("backToEvent")}</Link>
               </Button>
             ) : null}

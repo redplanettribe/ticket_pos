@@ -270,6 +270,8 @@
       "referenceLabel": "Confirmation reference",
       "emailed": "We've emailed your Sale Confirmation with a link to your tickets. Quote the reference above at the door if you need to.",
       "seeTickets": "See your tickets",
+      "signedOutHint": "You're signed out on this device, so your tickets are one step away: sign back in with the address you bought under, or open the link in the email we've just sent you.",
+      "signInToSeeTickets": "Sign in to see your tickets",
       "backToEvent": "Back to the event",
       "discoverMore": "Discover more events"
     },

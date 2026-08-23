@@ -270,6 +270,8 @@
       "referenceLabel": "Referencia de confirmación",
       "emailed": "Le enviamos por correo su confirmación de compra con un enlace a sus entradas. Si hace falta, mencione en la puerta la referencia de arriba.",
       "seeTickets": "Ver sus entradas",
+      "signedOutHint": "En este dispositivo su sesión está cerrada, así que sus entradas están a un paso: vuelva a iniciar sesión con el correo con el que compró, o abra el enlace del correo que acabamos de enviarle.",
+      "signInToSeeTickets": "Iniciar sesión para ver sus entradas",
       "backToEvent": "Volver al evento",
       "discoverMore": "Descubrir más eventos"
     },

@@ -50,6 +50,43 @@ test("a cookie written before checkouts remembered a language states none", () =
   assert.deepEqual(parseCheckoutContext(older), { ...context, selection: "", locale: null });
 });
 
+test("the address the checkout was made under comes back, or nothing does", () => {
+  // Kept in full because a session can END BETWEEN PAYING AND RETURNING (#387):
+  // the buyer is off at the Payment Provider, and a cleared jar, a provider
+  // webview, a revoked session or a return in another browser each land somebody
+  // who has already paid on the terminal page with nothing. The address is what
+  // turns that page from a dead end into a door — and it is a prefill, so it
+  // grants nobody anything.
+  assert.equal(parseCheckoutContext(serializeCheckoutContext(context))?.customerEmail,
+    "buyer@example.com");
+
+  // Guarded on the way out like everything else here, because it becomes a query
+  // parameter on a sign-in page. Anything that is not plausibly an address reads
+  // as no address, and the field simply arrives empty.
+  for (const customerEmail of ["", "   ", "not an address", "a@b", 42, null, { at: "x" }]) {
+    const stored = JSON.stringify({ ...context, customerEmail });
+    assert.equal(parseCheckoutContext(stored)?.customerEmail, "");
+  }
+});
+
+test("a cookie minted by the release that wrote no address is still a context", () => {
+  // Verbatim the shape #385 shipped, which wrote customerEmail: "" on the
+  // reasoning that a buyer is signed in by construction — the very inference
+  // #387 refuses. A buyer mid-checkout across this deploy comes back holding
+  // exactly this, and everything except the address must still work for them.
+  const previous = JSON.stringify({
+    clientTransactionId: "ctid-1",
+    eventPath: "/demo-venue/events/midnight",
+    eventName: "Midnight Set",
+    customerEmail: "",
+    selection: "ga:2",
+    locale: "es",
+  });
+
+  assert.deepEqual(parseCheckoutContext(previous), { ...context, customerEmail: "" });
+  assert.equal(checkoutContextLocale(previous), "es");
+});
+
 test("a remembered basket comes back canonical, or not at all", () => {
   // Guarded on the way out by the selection format's own decoder, because a
   // cookie is caller-controlled storage however httpOnly it is. Anything it

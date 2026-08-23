@@ -24,9 +24,10 @@ export type CheckoutContext = {
    * Our id for the Payment attempt this context belongs to.
    *
    * Since #121 it is also the key the success page reads the Reversal Window
-   * with. A guest who has just bought holds no Customer Session — checkout never
-   * required one — so this id is the only thing that names their purchase, and
-   * keeping it httpOnly means it stays with the browser that did the buying.
+   * with, and it is the only thing that names the purchase to a browser holding
+   * no session — which since ADR 0054 means a buyer whose session did not
+   * survive the trip to the Payment Provider rather than a guest (#387). Keeping
+   * it httpOnly means it stays with the browser that did the buying.
    */
   clientTransactionId: string;
   /** The event page the checkout began on, e.g. "/demo-venue/events/x". */
@@ -34,8 +35,23 @@ export type CheckoutContext = {
   /** The Event's name, for copy on the terminal pages. */
   eventName: string;
   /**
-   * The address the checkout was made under, so the success page can offer
+   * The address the checkout was made under, so the terminal pages can offer
    * sign-in already filled in (#121).
+   *
+   * ITS RATIONALE CHANGED WITH ADR 0054 AND ITS JOB DID NOT (#387). It used to
+   * be here because the buyer never had a session — checkout was guest-facing,
+   * and this was the only thing that named them. It is here now because THE
+   * BUYER'S SESSION MAY NOT HAVE SURVIVED THE ROUND TRIP: they left this origin
+   * for the Payment Provider, possibly for minutes, and a cleared jar, a provider
+   * webview that drops cookies, a session revoked elsewhere or a return in a
+   * different browser each land somebody who has already paid on a page with no
+   * session. Neither reading makes it optional.
+   *
+   * SINCE #387 IT IS THE API'S ANSWER AND NOT THE BROWSER'S. The session-gated
+   * begin-checkout reports the address it addressed the Ticket Sale to, and the
+   * BFF writes that down; nothing a page could say about who was buying reaches
+   * here, because a browser-supplied address is the field ADR 0054 deleted
+   * wearing a different name.
    *
    * It is a prefill and nothing else: the passcode still has to be proved, so
    * carrying it grants nobody anything. It matters because a purchase made under
@@ -43,8 +59,10 @@ export type CheckoutContext = {
    * (ADR 0011) — a buyer sent to sign in with their everyday email would land in
    * a Customer Area their new tickets are not in.
    *
-   * Empty when the cookie predates this field or the buyer typed nothing usable;
-   * the sign-in link then simply arrives blank.
+   * Empty when the cookie predates this field, or was written by the one release
+   * that wrote none, or holds nothing usable; the sign-in link then simply
+   * arrives blank, which is a buyer typing their own address rather than a buyer
+   * shown a wrong one.
    */
   customerEmail: string;
   /**
