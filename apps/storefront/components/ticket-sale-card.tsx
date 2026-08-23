@@ -117,7 +117,11 @@ export async function TicketSaleCard({
     <details
       id={ticketSaleAnchorId(sale.id)}
       open={defaultOpen || undefined}
-      className="group scroll-mt-6"
+      // A NAMED group, because the Holder List rows nested inside are
+      // `<details>` with chevrons of their own: Tailwind's bare `group-open:`
+      // matches any open `.group` ancestor, so an open Sale row would turn
+      // every chevron inside it without opening anything.
+      className="group/sale scroll-mt-6"
     >
       {/* THE WHOLE ROW IS THE TAP TARGET, at least 44px tall; the chevron is a
           hint, not the handle. The facts wrap rather than truncate: at 360px
@@ -126,7 +130,7 @@ export async function TicketSaleCard({
       <summary className="flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 py-3 text-sm [&::-webkit-details-marker]:hidden">
         <span
           aria-hidden
-          className="text-muted-foreground transition-transform group-open:rotate-90"
+          className="text-muted-foreground transition-transform group-open/sale:rotate-90"
         >
           ▸
         </span>

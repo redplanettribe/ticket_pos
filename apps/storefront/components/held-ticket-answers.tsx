@@ -134,7 +134,7 @@ export function HeldTicketAnswers({ ticket, header, children, onAnswered }: Held
     // who clicks the header, and the save that folds it — and `onToggle` is
     // how the reader's clicks are heard.
     <details
-      className="group"
+      className="group/ticket"
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
       data-testid={`held-ticket-${ticket.ticket_id}`}
@@ -142,7 +142,7 @@ export function HeldTicketAnswers({ ticket, header, children, onAnswered }: Held
       {/* The same row as the Holder List rows below it: at least 44px tall, the
           whole row the tap target, so a phone buyer need not aim at the chevron. */}
       <summary className="flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm [&::-webkit-details-marker]:hidden">
-        <span aria-hidden className="text-muted-foreground transition-transform group-open:rotate-90">
+        <span aria-hidden className="text-muted-foreground transition-transform group-open/ticket:rotate-90">
           ▸
         </span>
         <span className="font-medium">{header}</span>

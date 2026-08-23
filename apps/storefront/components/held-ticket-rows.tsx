@@ -103,7 +103,7 @@ export function HeldTicketRows({
                 shut. It starts open while an Answer is owed, so what the
                 Organization is waiting on is not hidden behind a click. */}
             <details
-              className="group"
+              className="group/ticket"
               open={defaultOpen || row.outstanding_count > 0 || undefined}
             >
               {/* The whole row is the tap target, at least 44px tall; the
@@ -111,7 +111,7 @@ export function HeldTicketRows({
               <summary className="flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 py-3 text-sm [&::-webkit-details-marker]:hidden">
                 <span
                   aria-hidden
-                  className="text-muted-foreground transition-transform group-open:rotate-90"
+                  className="text-muted-foreground transition-transform group-open/ticket:rotate-90"
                 >
                   ▸
                 </span>

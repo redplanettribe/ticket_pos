@@ -349,7 +349,7 @@ function TicketBlock({
   return (
     // `open` is left UNDEFINED: a `false` here would be re-applied by React on
     // every redraw, snapping a row shut the moment a save inside it came back.
-    <details className="group">
+    <details className="group/ticket">
       {/* THE WHOLE ROW IS THE TAP TARGET, at least 44px tall: the chevron is a
           hint, not the handle. Below `sm` the row is two lines — position and
           Ticket Type, then the address — because a phone is narrower than a
@@ -358,7 +358,7 @@ function TicketBlock({
       <summary className="flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm [&::-webkit-details-marker]:hidden">
         <span
           aria-hidden
-          className="text-muted-foreground transition-transform group-open:rotate-90"
+          className="text-muted-foreground transition-transform group-open/ticket:rotate-90"
         >
           ▸
         </span>
