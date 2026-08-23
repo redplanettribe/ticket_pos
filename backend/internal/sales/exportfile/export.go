@@ -62,6 +62,8 @@ const (
 	colStatus            = "status"
 	colReversedAt        = "reversed_at"
 	colReversedBy        = "reversed_by"
+	colCorrectedBy       = "corrected_by"
+	colCorrects          = "corrects"
 )
 
 // The whole value set of the reversed_by column: the ROUTE a Sale Reversal
@@ -85,6 +87,14 @@ const (
 	// because the actor is the reader's own Organization and what they need to
 	// know is which lever was pulled.
 	ReversedByImportUndo = "import_undo"
+	// ReversedByStaffReversal: staff reversed this one imported sale on its own,
+	// from its row on the Sales list, with no replacement (#350). The same
+	// stored actor as the batch undo; a different lever.
+	ReversedByStaffReversal = "staff_reversal"
+	// ReversedByCorrection: a Sale Correction (#351, ADR 0050) — staff reversed
+	// this one imported sale and recorded a replacement in the same act. The
+	// replacement's reference sits in corrected_by on the same row.
+	ReversedByCorrection = "correction"
 )
 
 // fixedColumns are the columns every export has, in order, left to right. The
@@ -108,6 +118,11 @@ const (
 // majority of rows it says nothing at all, and a reader scanning left to right
 // should reach the whole of the sale before reaching the two columns that only
 // speak when it was undone.
+//
+// The Sale Correction linkage comes after even those: corrected_by names the
+// replacement on a corrected row and corrects names the mistaken sale on its
+// replacement, each by Sale Confirmation reference so a reader can follow the
+// trail in either direction with a lookup on the file's own first column.
 var fixedColumns = []string{
 	colConfirmationRef,
 	colSoldAt,
@@ -126,6 +141,8 @@ var fixedColumns = []string{
 	colStatus,
 	colReversedAt,
 	colReversedBy,
+	colCorrectedBy,
+	colCorrects,
 }
 
 // TicketTypeColumn is one Ticket Type of the Event's catalog, and one column of
@@ -271,6 +288,12 @@ type Sale struct {
 	//
 	// nil leaves the cell blank, for the same rows ReversedAt does.
 	ReversedBy *string
+	// CorrectedByRef is, on a sale a Sale Correction reversed, the Confirmation
+	// reference of the replacement that stands in for it; CorrectsRef is, on
+	// that replacement, the reference of the sale it corrects (ADR 0050). Each
+	// is nil — a blank cell — on every other row.
+	CorrectedByRef *string
+	CorrectsRef    *string
 }
 
 // Info is what the Info sheet says about the file: the facts a reader needs to
@@ -663,6 +686,8 @@ func Build(sales []Sale, types []TicketTypeColumn, answers Answers, loc *time.Lo
 			colSource:        sale.Source,
 			colPaymentMethod: sale.PaymentMethod,
 			colReversedBy:    sale.ReversedBy,
+			colCorrectedBy:   sale.CorrectedByRef,
+			colCorrects:      sale.CorrectsRef,
 		} {
 			if value == nil {
 				continue

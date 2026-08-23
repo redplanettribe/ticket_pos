@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xuri/excelize/v2"
 
@@ -367,8 +368,9 @@ func TestSalesExportWorkbookShape(t *testing.T) {
 		"GA", "total_quantity",
 		"amount", "net_proceeds", "currency",
 		"channel", "source", "payment_method", "status",
-		// The reversal pair last, after the status it elaborates.
-		"reversed_at", "reversed_by",
+		// The reversal pair after the status it elaborates, then the Sale
+		// Correction linkage, last.
+		"reversed_at", "reversed_by", "corrected_by", "corrects",
 	}
 	if len(rows) < 1 || !equalStrings(rows[0], want) {
 		t.Fatalf("header = %v, want %v", rows[0], want)
@@ -1176,9 +1178,9 @@ func TestSalesExportReversalColumnsAreLastAndBlankOnAnActiveSale(t *testing.T) {
 
 	// Last, and in this order: the sale's status, then when it was undone and by
 	// which route.
-	tail := sheet.header[len(sheet.header)-3:]
-	if !equalStrings(tail, []string{"status", "reversed_at", "reversed_by"}) {
-		t.Fatalf("header tail = %v, want status, reversed_at, reversed_by last", tail)
+	tail := sheet.header[len(sheet.header)-5:]
+	if !equalStrings(tail, []string{"status", "reversed_at", "reversed_by", "corrected_by", "corrects"}) {
+		t.Fatalf("header tail = %v, want status, reversed_at, reversed_by, corrected_by, corrects last", tail)
 	}
 
 	row := sheet.rowOf(t, "ana@example.com")
@@ -1187,6 +1189,8 @@ func TestSalesExportReversalColumnsAreLastAndBlankOnAnActiveSale(t *testing.T) {
 	}
 	sheet.blank(t, row, "reversed_at")
 	sheet.blank(t, row, "reversed_by")
+	sheet.blank(t, row, "corrected_by")
+	sheet.blank(t, row, "corrects")
 }
 
 // TestSalesExportNamesTheReversalRoute: all three routes into a Sale Reversal,
@@ -2017,4 +2021,81 @@ func TestSalesExportLogsWhoTookWhatAndNeverTheSearchTerm(t *testing.T) {
 	if got := logs.only(t, "sales export").arg(t, "search"); got != false {
 		t.Fatalf("unsearched export logged search = %v, want false", got)
 	}
+}
+
+// THE SALE CORRECTION LINKAGE (#352, ADR 0050). A corrected sale is a reversed
+// row that says which sale replaced it, and the replacement says which sale it
+// corrects — each by the other's Sale Confirmation reference, the value an
+// accountant can follow in either direction within the same file. The route
+// column tells the three staff levers apart: `import_undo` for a whole batch,
+// `staff_reversal` for one sale voided on its own, `correction` for one sale
+// replaced — all of them `staff` in the database, which tells the reader only
+// that their own Organization acted.
+func TestSalesExportCarriesTheCorrectionLinkage(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Linkage Fest", "linkage-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
+	first := commitBatch(t, env, sessionID, eventID, "linkage-1", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": gaID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "bob@example.com", "customer_first_name": "Bob", "customer_last_name": "Ng", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "cai@example.com", "customer_first_name": "Cai", "customer_last_name": "Wu", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+	})
+	ana := saleRowByEmail(t, env, sessionID, eventID, "ana@example.com", "active")
+	bob := saleRowByEmail(t, env, sessionID, eventID, "bob@example.com", "active")
+
+	// Ana's is corrected (to a new email), Bob's is reversed on its own, and
+	// then the whole batch is undone — which sweeps Cai's and leaves the other
+	// two exactly as their own routes left them.
+	corrected := correctImportedSaleOK(t, env, sessionID, eventID, ana.ID,
+		correctionBody("anna@example.com", "Anna", "Lopez", gaID, 2, "cash", "2026-07-01T10:00:00Z"))
+	reverseImportedSaleOK(t, env, sessionID, eventID, bob.ID)
+	// The undo comes later, as it would: on the fixed clock it would share
+	// Bob's instant, and the instant is what tells the two levers apart.
+	later := env.fixedClock.Add(time.Hour)
+	sharedApp.SalesService.WithClock(func() time.Time { return later })
+	undoBatch(t, env, sessionID, eventID, first)
+	sharedApp.SalesService.WithClock(func() time.Time { return fixedClock })
+
+	reversed := reversedSalesExport(t, env, sessionID, eventID)
+	if reversed.dataRows != 3 {
+		t.Fatalf("reversed rows = %d, want Ana, Bob and Cai", reversed.dataRows)
+	}
+	anaRow := reversed.rowOf(t, "ana@example.com")
+	if got := reversed.value(t, anaRow, "reversed_by"); got != "correction" {
+		t.Errorf("corrected sale reversed_by = %q, want correction", got)
+	}
+	if got := reversed.value(t, anaRow, "corrected_by"); got != corrected.ReplacementConfirmationRef {
+		t.Errorf("corrected_by = %q, want the replacement's reference %s", got, corrected.ReplacementConfirmationRef)
+	}
+	reversed.blank(t, anaRow, "corrects")
+
+	bobRow := reversed.rowOf(t, "bob@example.com")
+	if got := reversed.value(t, bobRow, "reversed_by"); got != "staff_reversal" {
+		t.Errorf("singly reversed sale reversed_by = %q, want staff_reversal — even though its batch was undone later", got)
+	}
+	reversed.blank(t, bobRow, "corrected_by")
+	reversed.blank(t, bobRow, "corrects")
+
+	caiRow := reversed.rowOf(t, "cai@example.com")
+	if got := reversed.value(t, caiRow, "reversed_by"); got != "import_undo" {
+		t.Errorf("batch-undone sale reversed_by = %q, want import_undo", got)
+	}
+	reversed.blank(t, caiRow, "corrected_by")
+
+	// The replacement is active, and points back.
+	resp, data := downloadSalesExport(t, env, sessionID, eventID, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("active export status=%d body=%s", resp.StatusCode, string(data))
+	}
+	active := openSalesExport(t, data)
+	if active.dataRows != 1 {
+		t.Fatalf("active rows = %d, want only the replacement", active.dataRows)
+	}
+	annaRow := active.rowOf(t, "anna@example.com")
+	if got := active.value(t, annaRow, "corrects"); got != corrected.ReversedConfirmationRef {
+		t.Errorf("corrects = %q, want the corrected sale's reference %s", got, corrected.ReversedConfirmationRef)
+	}
+	active.blank(t, annaRow, "corrected_by")
+	active.blank(t, annaRow, "reversed_by")
 }

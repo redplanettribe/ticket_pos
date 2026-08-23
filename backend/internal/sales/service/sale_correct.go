@@ -76,7 +76,7 @@ func (s *Service) CorrectImportedSale(ctx context.Context, actor ActorContext, e
 	}
 	types = netOfSale(types, oldLines)
 
-	validated, err := s.validateCorrection(ctx, eventID, saleID, types, loc, in)
+	validated, err := s.validateCorrection(ctx, actor.OrganizationID, eventID, saleID, types, loc, in)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -147,15 +147,35 @@ func (s *Service) CorrectImportedSale(ctx context.Context, actor ActorContext, e
 	}, nil, nil
 }
 
+// PreviewCorrection is the Correct form's live verdict (#352): the replacement
+// judged exactly as CorrectImportedSale would judge it — the import row rules,
+// capacity and the Purchase Limit net of the sale being corrected, the
+// duplicate-of-an-active-sale warning — in the import preview's own shape, and
+// nothing written. The same refusals as the commit stand in front of it: a
+// sale that is not an imported one, or is already reversed, has no correction
+// to preview.
+func (s *Service) PreviewCorrection(ctx context.Context, actor ActorContext, eventID, saleID string, in CorrectSaleInput) (*importfile.ValidateResult, error) {
+	_, types, loc, err := s.loadImportContext(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, err
+	}
+	oldLines, err := s.repo.ImportedSaleLines(ctx, actor.OrganizationID, eventID, saleID)
+	if err != nil {
+		return nil, mapReverseSaleError(err)
+	}
+	return s.validateCorrection(ctx, actor.OrganizationID, eventID, saleID, netOfSale(types, oldLines), loc, in)
+}
+
 // validateCorrection judges the replacement exactly as the import preview
-// judges a row — field rules, Ticket Type, Tax ID, Purchase Limit net of the
-// sale being reversed — and then holds it to capacity, which the import leaves
-// to the batch commit: a correction is one row, so its one overage is a
+// judges a row — field rules, Ticket Type, Tax ID, the duplicate warning
+// against every active sale but the one being reversed, Purchase Limit net of
+// the sale being reversed — and then holds it to capacity, which the import
+// leaves to the batch commit: a correction is one row, so its one overage is a
 // complaint on the quantity cell rather than a batch failure.
 //
-// It is the whole of the verdict, kept apart so a preview endpoint can return
-// the same ValidateResult the commit decides on (#352).
-func (s *Service) validateCorrection(ctx context.Context, eventID, saleID string, types []importfile.TicketTypeRef, loc *time.Location, in CorrectSaleInput) (*importfile.ValidateResult, error) {
+// It is the whole of the verdict, shared by the commit and the preview so the
+// two can never disagree (#352).
+func (s *Service) validateCorrection(ctx context.Context, orgID, eventID, saleID string, types []importfile.TicketTypeRef, loc *time.Location, in CorrectSaleInput) (*importfile.ValidateResult, error) {
 	raw := importfile.RawRow{
 		Line:                1,
 		CustomerEmail:       in.CustomerEmail,
@@ -177,6 +197,13 @@ func (s *Service) validateCorrection(ctx context.Context, eventID, saleID string
 		Now:      s.now(),
 		Location: loc,
 	})
+	// The sale being corrected is left out: it is about to be reversed, and the
+	// replacement would otherwise always read as a duplicate of itself.
+	existing, err := s.repo.ListActiveSaleKeys(ctx, orgID, eventID, saleID)
+	if err != nil {
+		return nil, err
+	}
+	flagDuplicates(&validated, existing, loc)
 	if err := s.refuseImportRowsOverPurchaseLimit(ctx, eventID, types, &validated, saleID); err != nil {
 		return nil, err
 	}

@@ -6,6 +6,7 @@ import {
   canReverseSale,
   correctionFieldErrors,
   correctionPrefill,
+  correctionVerdict,
   exportFieldMessage,
   paymentMethodToken,
   reversalProvenance,
@@ -234,4 +235,69 @@ test("correctionFieldErrors keys the refusal's complaints by column, first compl
   );
   assert.deepEqual(correctionFieldErrors(undefined), {});
   assert.deepEqual(correctionFieldErrors({ channel: "online" }), {});
+});
+
+// --- the live verdict (#352) ----------------------------------------------
+
+test("correctionVerdict: a refusing verdict blocks with its complaints by column; a duplicate is a warning that does not", () => {
+  const refused = correctionVerdict({
+    rows: [
+      {
+        row: 1,
+        customer_email: "ana@example.com",
+        customer_first_name: "Ana",
+        customer_last_name: "Lopez",
+        ticket_type: "x",
+        quantity: 3,
+        payment_method: "cash",
+        valid: false,
+        errors: [
+          { field: "quantity", message: "exceeds the 2 remaining" },
+          { field: "quantity", message: "second" },
+          { field: "ticket_type", message: "does not match" },
+        ],
+      },
+    ],
+    capacity_impact: [],
+    valid_rows: 0,
+    total_rows: 1,
+    committable: false,
+  });
+  assert.equal(refused.blocks, true);
+  assert.deepEqual(refused.fieldErrors, { quantity: "exceeds the 2 remaining", ticket_type: "does not match" });
+  assert.equal(refused.duplicateOfDate, null);
+
+  const warned = correctionVerdict({
+    rows: [
+      {
+        row: 1,
+        customer_email: "bob@example.com",
+        customer_first_name: "Bob",
+        customer_last_name: "Ng",
+        ticket_type: "x",
+        quantity: 1,
+        payment_method: "cash",
+        valid: true,
+        possible_duplicate: true,
+        duplicate_of_date: "2026-07-02",
+      },
+    ],
+    capacity_impact: [
+      { ticket_type_id: "x", ticket_type_name: "GA", requested: 1, sold_count: 4, capacity: 5, remaining: 1, overage: 0, oversold: false },
+    ],
+    valid_rows: 1,
+    total_rows: 1,
+    committable: true,
+  });
+  assert.equal(warned.blocks, false);
+  assert.deepEqual(warned.fieldErrors, {});
+  assert.equal(warned.duplicateOfDate, "2026-07-02");
+  assert.deepEqual(warned.remaining, { ticketTypeName: "GA", remaining: 0 });
+
+  // A verdict the commit would refuse for capacity even with a valid row
+  // (the oversold flag) blocks too; and no rows at all is no verdict.
+  assert.equal(
+    correctionVerdict({ rows: [], capacity_impact: [], valid_rows: 0, total_rows: 0, committable: false }).blocks,
+    true,
+  );
 });

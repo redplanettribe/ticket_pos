@@ -125,7 +125,7 @@ func TestDataSheetIsUnchangedByTheAnswersSheet(t *testing.T) {
 			"GA", "total_quantity",
 			"amount", "net_proceeds", "currency",
 			"channel", "source", "payment_method", "status",
-			"reversed_at", "reversed_by",
+			"reversed_at", "reversed_by", "corrected_by", "corrects",
 		},
 		{
 			"ABC123", "2026-07-01 10:00", "Ana", "Lopez", "ana@example.com",

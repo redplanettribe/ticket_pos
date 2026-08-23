@@ -1166,6 +1166,8 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 			Status:            row.Status,
 			ReversedAt:        row.ReversedAt,
 			ReversedBy:        exportedReversalRoute(row),
+			CorrectedByRef:    row.ReplacedByConfirmationRef,
+			CorrectsRef:       row.ReplacesConfirmationRef,
 		})
 	}
 
@@ -1341,10 +1343,13 @@ func exportedNetProceeds(row repository.SaleRow) *int {
 //     invisible to the Organization beyond the sale showing as reversed by the
 //     platform. The Organization is told an institution acted; which person, on
 //     whose say-so, and with what note are operator-facing and stop here.
-//   - `staff` becomes `import_undo`. On this side of the boundary "staff" is the
-//     reader's own Organization, which tells them nothing; the Sale Import undo
-//     is the lever that was actually pulled, and the only route that value has
-//     ever been written by.
+//   - `staff` becomes one of three, because on this side of the boundary
+//     "staff" is the reader's own Organization, which tells them nothing, and
+//     three different levers write it (#352): `correction` when the sale was
+//     replaced by a Sale Correction (it carries the linkage), `import_undo`
+//     when it went with its whole Sale Import batch (its reversed_at is the
+//     batch's undone_at), and `staff_reversal` when one sale was voided on its
+//     own from the Sales list.
 //
 // Anything else is dropped to nil rather than emitted. A value added to the
 // stored set later — a new reversal route, and the column's constraint is
@@ -1362,12 +1367,22 @@ func exportedReversalRoute(row repository.SaleRow) *string {
 	if row.ReversedBy == nil {
 		return nil
 	}
-	route, ok := map[string]string{
-		sales.ReversalActorCustomer: exportfile.ReversedByCustomer,
-		sales.ReversalActorOperator: exportfile.ReversedByPlatform,
-		sales.ReversalActorStaff:    exportfile.ReversedByImportUndo,
-	}[*row.ReversedBy]
-	if !ok {
+	var route string
+	switch *row.ReversedBy {
+	case sales.ReversalActorCustomer:
+		route = exportfile.ReversedByCustomer
+	case sales.ReversalActorOperator:
+		route = exportfile.ReversedByPlatform
+	case sales.ReversalActorStaff:
+		switch {
+		case row.ReplacedBySaleID != nil:
+			route = exportfile.ReversedByCorrection
+		case row.ReversedByBatchUndo:
+			route = exportfile.ReversedByImportUndo
+		default:
+			route = exportfile.ReversedByStaffReversal
+		}
+	default:
 		return nil
 	}
 	return &route
@@ -1562,7 +1577,7 @@ func (s *Service) PreviewImport(ctx context.Context, actor ActorContext, eventID
 		Location: loc,
 	})
 
-	existing, err := s.repo.ListActiveSaleKeys(ctx, actor.OrganizationID, eventID)
+	existing, err := s.repo.ListActiveSaleKeys(ctx, actor.OrganizationID, eventID, "")
 	if err != nil {
 		return nil, err
 	}

@@ -1,6 +1,7 @@
 // Relative (not "@/lib") so the module graph resolves under `node --test` as
 // well as the bundler — the unit tests import this file directly.
 import { ApiError, fetchEventsJSON } from "./events-api.ts";
+import type { ImportPreviewResult } from "./imports-api.ts";
 
 // Types mirror the Go Sales list response (internal/sales). Field names match
 // the JSON the API emits so rows render verbatim.
@@ -331,6 +332,67 @@ export async function correctSale(
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+/**
+ * previewSaleCorrection asks for the Correct form's live verdict (#352): the
+ * same judgement the commit makes — the import row rules, capacity and the
+ * Purchase Limit net of the sale being corrected, the duplicate warning — in
+ * the Sale Import preview's shape, writing nothing. The commit's refusals
+ * (SALE_NOT_IMPORTED, SALE_ALREADY_REVERSED, TICKET_SALE_NOT_FOUND) arrive as
+ * ApiError.
+ */
+export async function previewSaleCorrection(
+  eventId: string,
+  saleId: string,
+  input: CorrectSaleInput,
+): Promise<ImportPreviewResult> {
+  return fetchEventsJSON<ImportPreviewResult>(
+    `/api/events/${eventId}/sales/${saleId}/correct/preview`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+/** What the Correct form shows of a preview verdict, and whether it may commit. */
+export type CorrectionVerdict = {
+  // True when the commit would refuse: the row is invalid, a Ticket Type is
+  // oversold, or the preview returned no row to judge.
+  blocks: boolean;
+  // The row's complaints by template column, first complaint per column.
+  fieldErrors: Record<string, string>;
+  // The sold-at date of another active sale the replacement matches, or null.
+  // A warning: it never blocks.
+  duplicateOfDate: string | null;
+  // What the chosen Ticket Type has left once the old sale is reversed and the
+  // replacement recorded, or null when the preview named no Ticket Type.
+  remaining: { ticketTypeName: string; remaining: number } | null;
+};
+
+/**
+ * correctionVerdict reads a preview into what the form needs to decide: the
+ * commit is blocked on exactly what the commit would refuse (an invalid row or
+ * an oversell), never on the duplicate warning, which is the organizer's call.
+ */
+export function correctionVerdict(result: ImportPreviewResult): CorrectionVerdict {
+  const row = result.rows[0];
+  if (!row) {
+    return { blocks: true, fieldErrors: {}, duplicateOfDate: null, remaining: null };
+  }
+  const fieldErrors: Record<string, string> = {};
+  for (const e of row.errors ?? []) {
+    if (!(e.field in fieldErrors)) {
+      fieldErrors[e.field] = e.message;
+    }
+  }
+  const impact = result.capacity_impact[0];
+  return {
+    blocks: !row.valid || !result.committable,
+    fieldErrors,
+    duplicateOfDate: row.possible_duplicate && row.duplicate_of_date ? row.duplicate_of_date : null,
+    remaining: impact
+      ? { ticketTypeName: impact.ticket_type_name, remaining: impact.remaining - impact.requested }
+      : null,
+  };
 }
 
 /**

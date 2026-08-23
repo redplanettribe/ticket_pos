@@ -571,3 +571,207 @@ func TestCorrectingAnImportedSaleIsRefusedWhereItMustBe(t *testing.T) {
 		t.Errorf("Ana's active sales = %d, want 0", n)
 	}
 }
+
+// THE PREVIEW (#352). The Correct form asks, as the Member edits, what the
+// commit would say: the same single-row verdict the Sale Import preview gives a
+// row, computed net of the sale being corrected, plus the duplicate-of-an-active
+// sale warning with the sale being corrected left out of the comparison. It
+// writes nothing and is gated like the commit.
+
+// previewResult mirrors the import preview's ValidateResult, which the
+// correction preview reuses whole: one row, its verdict, the capacity impact.
+type previewResult struct {
+	Rows []struct {
+		Valid             bool   `json:"valid"`
+		PossibleDuplicate bool   `json:"possible_duplicate"`
+		DuplicateOfDate   string `json:"duplicate_of_date"`
+		TicketTypeName    string `json:"ticket_type_name"`
+		Errors            []struct {
+			Field   string `json:"field"`
+			Message string `json:"message"`
+		} `json:"errors"`
+	} `json:"rows"`
+	CapacityImpact []struct {
+		TicketTypeID string `json:"ticket_type_id"`
+		Requested    int    `json:"requested"`
+		Remaining    int    `json:"remaining"`
+		Oversold     bool   `json:"oversold"`
+	} `json:"capacity_impact"`
+	Committable bool `json:"committable"`
+}
+
+func previewCorrection(t *testing.T, env *testEnv, sessionID, eventID, saleID string, body map[string]any) (*http.Response, envelope) {
+	t.Helper()
+	return env.post(t, "/api/v1/staff/events/"+eventID+"/sales/"+saleID+"/correct/preview", body, authHeader(sessionID))
+}
+
+func previewCorrectionOK(t *testing.T, env *testEnv, sessionID, eventID, saleID string, body map[string]any) previewResult {
+	t.Helper()
+	resp, env2 := previewCorrection(t, env, sessionID, eventID, saleID, body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("preview status=%d error=%+v", resp.StatusCode, env2.Error)
+	}
+	var out previewResult
+	if err := json.Unmarshal(env2.Data, &out); err != nil {
+		t.Fatalf("decode preview: %v", err)
+	}
+	if len(out.Rows) != 1 {
+		t.Fatalf("preview rows = %d, want exactly one", len(out.Rows))
+	}
+	return out
+}
+
+func (p previewResult) errorOn(field string) string {
+	for _, e := range p.Rows[0].Errors {
+		if e.Field == field {
+			return e.Message
+		}
+	}
+	return ""
+}
+
+// THE PREVIEW'S VERDICTS ARE THE COMMIT'S, NET OF THE SALE BEING CORRECTED: the
+// same quantity on a full Ticket Type is not an oversell, one more is; the
+// Ticket Type, Tax ID and Purchase Limit rules speak through the row's errors;
+// and nothing is written by any of it.
+func TestCorrectionPreviewJudgesTheReplacementNetOfTheSale(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Preview Fest", "preview-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 5)
+	commitBatch(t, env, sessionID, eventID, "preview", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": gaID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "bob@example.com", "customer_first_name": "Bob", "customer_last_name": "Ng", "ticket_type_id": gaID, "quantity": 3, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+	})
+	ana := saleRowByEmail(t, env, sessionID, eventID, "ana@example.com", "active")
+
+	// Her own two, re-submitted: they fit because they are hers.
+	same := previewCorrectionOK(t, env, sessionID, eventID, ana.ID,
+		correctionBody("ana@example.com", "Ana", "Lopez", gaID, 2, "cash", "2026-07-01T10:00:00Z"))
+	if !same.Rows[0].Valid || !same.Committable {
+		t.Errorf("same quantity: valid=%v committable=%v errors=%v, want a clean verdict", same.Rows[0].Valid, same.Committable, same.Rows[0].Errors)
+	}
+	if len(same.CapacityImpact) != 1 || same.CapacityImpact[0].Remaining != 2 || same.CapacityImpact[0].Oversold {
+		t.Errorf("capacity impact = %+v, want 2 remaining once her sale is reversed, not oversold", same.CapacityImpact)
+	}
+
+	// Three is one more than the Event has left once hers come back.
+	over := previewCorrectionOK(t, env, sessionID, eventID, ana.ID,
+		correctionBody("ana@example.com", "Ana", "Lopez", gaID, 3, "cash", "2026-07-01T10:00:00Z"))
+	if over.Rows[0].Valid || over.Committable || over.errorOn("quantity") == "" {
+		t.Errorf("over capacity: valid=%v committable=%v errors=%v, want a refusal on quantity", over.Rows[0].Valid, over.Committable, over.Rows[0].Errors)
+	}
+
+	// An unknown Ticket Type and a malformed Tax ID are named by column.
+	bad := correctionBody("ana@example.com", "Ana", "Lopez", unownedSaleID, 1, "cash", "2026-07-01T10:00:00Z")
+	bad["customer_tax_id_type"] = "cedula"
+	bad["customer_tax_id_number"] = "12"
+	verdict := previewCorrectionOK(t, env, sessionID, eventID, ana.ID, bad)
+	if verdict.Rows[0].Valid || verdict.errorOn("ticket_type") == "" || verdict.errorOn("customer_tax_id_number") == "" {
+		t.Errorf("bad row: valid=%v errors=%v, want complaints on ticket_type and customer_tax_id_number", verdict.Rows[0].Valid, verdict.Rows[0].Errors)
+	}
+
+	// Nothing moved.
+	if got := soldCount(t, env, sessionID, eventID, gaID); got != 5 {
+		t.Errorf("sold_count = %d after three previews, want 5", got)
+	}
+	if status, _, _ := saleProvenance(t, env, ana.ConfirmationRef); status != "active" {
+		t.Errorf("Ana's sale is %q after the previews, want active", status)
+	}
+	if n := salesCountByEmail(t, env, eventID, "ana@example.com"); n != 1 {
+		t.Errorf("Ana's active sales = %d, want 1", n)
+	}
+}
+
+// THE PURCHASE LIMIT SPEAKS THROUGH THE PREVIEW TOO, net of the sale's own
+// holding.
+func TestCorrectionPreviewCountsThePurchaseLimitNetOfTheSale(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishRationedEvent(t, env, sessionID, "Limit Preview", "limit-preview-fest", 0, 50, 1)
+	commitImportFileOK(t, env, sessionID, eventID, "limit-preview",
+		rationedImportFile(rationedImportRow("ana@example.com", "Ana", 1), rationedImportRow("bob@example.com", "Bob", 1)))
+	ana := saleRowByEmail(t, env, sessionID, eventID, "ana@example.com", "active")
+
+	own := previewCorrectionOK(t, env, sessionID, eventID, ana.ID,
+		correctionBody("ana@example.com", "Ana", "Lopez", gaID, 1, "transfer", "2026-07-01T10:00:00Z"))
+	if !own.Rows[0].Valid {
+		t.Errorf("her own one: errors=%v, want valid — the reversed one no longer counts", own.Rows[0].Errors)
+	}
+	toBob := previewCorrectionOK(t, env, sessionID, eventID, ana.ID,
+		correctionBody("bob@example.com", "Bob", "Ng", gaID, 1, "cash", "2026-07-01T10:00:00Z"))
+	if toBob.Rows[0].Valid || !strings.Contains(toBob.errorOn("quantity"), "already hold") {
+		t.Errorf("to Bob: valid=%v errors=%v, want a Purchase Limit complaint on quantity", toBob.Rows[0].Valid, toBob.Rows[0].Errors)
+	}
+}
+
+// THE DUPLICATE WARNING names another active sale the replacement would match
+// on (email, Ticket Type, sold-at date) — never the sale being corrected, which
+// is about to be reversed, and never as a refusal.
+func TestCorrectionPreviewWarnsOfADuplicateButNotOfItself(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Dup Fest", "dup-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
+	commitBatch(t, env, sessionID, eventID, "dup", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": gaID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "bob@example.com", "customer_first_name": "Bob", "customer_last_name": "Ng", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-02T10:00:00Z"},
+	})
+	ana := saleRowByEmail(t, env, sessionID, eventID, "ana@example.com", "active")
+
+	// Re-submitting her own row, unchanged, matches only herself: no warning.
+	self := previewCorrectionOK(t, env, sessionID, eventID, ana.ID,
+		correctionBody("ana@example.com", "Ana", "Lopez", gaID, 2, "cash", "2026-07-01T10:00:00Z"))
+	if self.Rows[0].PossibleDuplicate {
+		t.Errorf("her own row reads as a duplicate of itself (of %s)", self.Rows[0].DuplicateOfDate)
+	}
+
+	// Moving it onto Bob's email, type and day matches his active sale.
+	dup := previewCorrectionOK(t, env, sessionID, eventID, ana.ID,
+		correctionBody("BOB@example.com", "Bob", "Ng", gaID, 2, "cash", "2026-07-02T15:00:00Z"))
+	if !dup.Rows[0].PossibleDuplicate || dup.Rows[0].DuplicateOfDate != "2026-07-02" {
+		t.Errorf("Bob's row: possible_duplicate=%v of %q, want a warning naming 2026-07-02", dup.Rows[0].PossibleDuplicate, dup.Rows[0].DuplicateOfDate)
+	}
+	if !dup.Rows[0].Valid || !dup.Committable {
+		t.Errorf("a duplicate is a warning, not a refusal: valid=%v committable=%v", dup.Rows[0].Valid, dup.Committable)
+	}
+
+	// And the commit itself is not blocked by the warning.
+	correctImportedSaleOK(t, env, sessionID, eventID, ana.ID,
+		correctionBody("bob@example.com", "Bob", "Ng", gaID, 2, "cash", "2026-07-02T15:00:00Z"))
+	if n := salesCountByEmail(t, env, eventID, "bob@example.com"); n != 2 {
+		t.Errorf("Bob's active sales = %d, want 2", n)
+	}
+}
+
+// THE PREVIEW IS GATED AND REFUSED EXACTLY LIKE THE COMMIT.
+func TestCorrectionPreviewIsRefusedWhereTheCommitIs(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Preview Refuse", "preview-refuse-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
+	commitBatch(t, env, sessionID, eventID, "preview-refuse", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": gaID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+	})
+	ana := saleRowByEmail(t, env, sessionID, eventID, "ana@example.com", "active")
+	good := correctionBody("ana@example.com", "Ana", "Lopez", gaID, 1, "cash", "2026-07-01T10:00:00Z")
+
+	resp, body := env.post(t, "/api/v1/staff/members", map[string]string{"email": "staff@example.com", "role": "event_staff"}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("add member status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	staffSession := verifyOTP(t, env, "staff@example.com")
+	resp, body = previewCorrection(t, env, staffSession, eventID, ana.ID, good)
+	if resp.StatusCode != http.StatusForbidden || body.Error == nil || body.Error.Code != "FORBIDDEN" {
+		t.Errorf("event staff: status=%d error=%+v, want 403 FORBIDDEN", resp.StatusCode, body.Error)
+	}
+	resp, body = previewCorrection(t, env, sessionID, eventID, unownedSaleID, good)
+	if resp.StatusCode != http.StatusNotFound || body.Error == nil || body.Error.Code != "TICKET_SALE_NOT_FOUND" {
+		t.Errorf("unknown sale: status=%d error=%+v, want 404 TICKET_SALE_NOT_FOUND", resp.StatusCode, body.Error)
+	}
+	reverseImportedSaleOK(t, env, sessionID, eventID, ana.ID)
+	resp, body = previewCorrection(t, env, sessionID, eventID, ana.ID, good)
+	if resp.StatusCode != http.StatusConflict || body.Error == nil || body.Error.Code != "SALE_ALREADY_REVERSED" {
+		t.Errorf("already reversed: status=%d error=%+v, want 409 SALE_ALREADY_REVERSED", resp.StatusCode, body.Error)
+	}
+}

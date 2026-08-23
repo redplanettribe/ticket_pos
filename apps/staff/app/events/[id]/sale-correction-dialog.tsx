@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   Button,
@@ -14,17 +14,21 @@ import {
   Label,
   toast,
 } from "@ticket-pos/ui";
-import { useMessages, useTranslations } from "next-intl";
+import { toAppLocale } from "@ticket-pos/locale";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError, dateTimeLocalToISO, isoToDateTimeLocal } from "@/lib/events-api";
-import { PLATFORM_TIME_ZONE } from "@/lib/format";
+import { PLATFORM_TIME_ZONE, formatCalendarDay } from "@/lib/format";
 import {
   TAX_ID_TYPES,
   correctSale,
   correctionFieldErrors,
   correctionPrefill,
+  correctionVerdict,
+  previewSaleCorrection,
   type CorrectSaleInput,
+  type CorrectionVerdict,
   type SaleListRow,
 } from "@/lib/sales-api";
 
@@ -73,6 +77,34 @@ function formFrom(sale: SaleListRow, zone: string): CorrectionForm {
     sendConfirmation: false,
   };
 }
+
+/**
+ * toInput is the one reading of the form the API sees — the preview and the
+ * commit send exactly the same body, so the verdict shown is the verdict
+ * committed on (#352).
+ */
+function toInput(form: CorrectionForm, zone: string): CorrectSaleInput {
+  const quantity = Number.parseInt(form.quantity, 10);
+  const price = form.unitPrice.trim() === "" ? null : Number.parseFloat(form.unitPrice);
+  return {
+    customer_email: form.customerEmail.trim(),
+    customer_first_name: form.customerFirstName.trim(),
+    customer_last_name: form.customerLastName.trim(),
+    customer_tax_id_type: form.taxIdType,
+    customer_tax_id_number: form.taxIdNumber.trim(),
+    ticket_type_id: form.ticketTypeId,
+    quantity: Number.isFinite(quantity) ? quantity : 0,
+    payment_method: form.paymentMethod,
+    sold_at: dateTimeLocalToISO(form.soldAtLocal, zone) ?? "",
+    amount_cents: price !== null && Number.isFinite(price) ? Math.round(price * 100) : null,
+    send_confirmation: form.sendConfirmation,
+  };
+}
+
+// How long the form waits after the last keystroke before asking for a
+// verdict: long enough not to judge every character of an email, short
+// enough that the answer is there by the time the eye reaches the footer.
+const PREVIEW_DEBOUNCE_MS = 400;
 
 /** The template column a field error arrives under, per form field. */
 const FIELD_COLUMNS = {
@@ -124,13 +156,60 @@ export function SaleCorrectionDialog({
   const [form, setForm] = useState<CorrectionForm | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  // The live verdict (#352): null until the first answer arrives, and
+  // `checking` while an edit's answer is on its way. A verdict that refuses
+  // disables the commit; a duplicate warning only says so.
+  const [verdict, setVerdict] = useState<CorrectionVerdict | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [previewFailed, setPreviewFailed] = useState(false);
+  // Which preview request is the latest, so a slow earlier answer cannot
+  // overwrite the verdict on what the Member has since typed.
+  const previewSeq = useRef(0);
 
   // Re-seed from the row every time a sale is chosen, and forget the last
-  // attempt's complaints with it.
+  // attempt's complaints and verdict with it.
   useEffect(() => {
     setForm(sale ? formFrom(sale, zone) : null);
     setFieldErrors({});
+    setVerdict(null);
+    setPreviewFailed(false);
   }, [sale, zone]);
+
+  // Ask for the verdict as the Member edits, debounced, on exactly the body
+  // the commit would send. The preview's complaints take the field slots the
+  // commit's refusal would, so the form reads the same before and after.
+  useEffect(() => {
+    if (!sale || !form) {
+      return;
+    }
+    const seq = ++previewSeq.current;
+    setChecking(true);
+    const timer = setTimeout(async () => {
+      try {
+        const result = await previewSaleCorrection(eventId, sale.id, toInput(form, zone));
+        if (seq !== previewSeq.current) {
+          return;
+        }
+        const next = correctionVerdict(result);
+        setVerdict(next);
+        setFieldErrors(next.fieldErrors);
+        setPreviewFailed(false);
+      } catch {
+        if (seq !== previewSeq.current) {
+          return;
+        }
+        // The commit will say what is wrong; the form only stops claiming to
+        // know the verdict ahead of it.
+        setVerdict(null);
+        setPreviewFailed(true);
+      } finally {
+        if (seq === previewSeq.current) {
+          setChecking(false);
+        }
+      }
+    }, PREVIEW_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [eventId, sale, form, zone]);
 
   function set<K extends keyof CorrectionForm>(key: K, value: CorrectionForm[K]) {
     setForm((current) => (current ? { ...current, [key]: value } : current));
@@ -141,24 +220,10 @@ export function SaleCorrectionDialog({
   }
 
   async function submit() {
-    if (!sale || !form) {
+    if (!sale || !form || verdict?.blocks) {
       return;
     }
-    const quantity = Number.parseInt(form.quantity, 10);
-    const price = form.unitPrice.trim() === "" ? null : Number.parseFloat(form.unitPrice);
-    const input: CorrectSaleInput = {
-      customer_email: form.customerEmail.trim(),
-      customer_first_name: form.customerFirstName.trim(),
-      customer_last_name: form.customerLastName.trim(),
-      customer_tax_id_type: form.taxIdType,
-      customer_tax_id_number: form.taxIdNumber.trim(),
-      ticket_type_id: form.ticketTypeId,
-      quantity: Number.isFinite(quantity) ? quantity : 0,
-      payment_method: form.paymentMethod,
-      sold_at: dateTimeLocalToISO(form.soldAtLocal, zone) ?? "",
-      amount_cents: price !== null && Number.isFinite(price) ? Math.round(price * 100) : null,
-      send_confirmation: form.sendConfirmation,
-    };
+    const input = toInput(form, zone);
     setSubmitting(true);
     setFieldErrors({});
     try {
@@ -366,11 +431,13 @@ export function SaleCorrectionDialog({
               </label>
             </div>
 
+            <VerdictLine verdict={verdict} checking={checking} failed={previewFailed} />
+
             <DialogFooter>
               <Button type="button" variant="outline" disabled={submitting} onClick={onClose}>
                 {t("correctCancel")}
               </Button>
-              <Button type="submit" disabled={submitting}>
+              <Button type="submit" disabled={submitting || checking || verdict?.blocks === true}>
                 {submitting ? t("correcting") : t("correctConfirm")}
               </Button>
             </DialogFooter>
@@ -378,6 +445,72 @@ export function SaleCorrectionDialog({
         ) : null}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * What the verdict says beneath the form (#352): that it is being checked,
+ * that the replacement would be refused (the complaints sit on the fields),
+ * that it looks like another active sale (a warning, the Member's call), or
+ * that it fits and what the Ticket Type has left afterwards.
+ */
+function VerdictLine({
+  verdict,
+  checking,
+  failed,
+}: {
+  verdict: CorrectionVerdict | null;
+  checking: boolean;
+  failed: boolean;
+}) {
+  const t = useTranslations("sales");
+  const locale = toAppLocale(useLocale());
+  if (checking) {
+    return (
+      <p className="text-sm text-muted-foreground" aria-live="polite">
+        {t("correctVerdictChecking")}
+      </p>
+    );
+  }
+  if (failed) {
+    return (
+      <p className="text-sm text-muted-foreground" aria-live="polite">
+        {t("correctVerdictUnavailable")}
+      </p>
+    );
+  }
+  if (!verdict) {
+    return null;
+  }
+  if (verdict.blocks) {
+    return (
+      <p className="text-sm text-destructive" role="alert">
+        {t("correctVerdictRefused")}
+      </p>
+    );
+  }
+  // A calendar day in the Event's zone, never an instant: the API names the
+  // other sale's sold-at DATE, and reading it as UTC midnight would show the
+  // day before everywhere this platform sells.
+  const duplicateDate = verdict.duplicateOfDate
+    ? formatCalendarDay(verdict.duplicateOfDate, locale)
+    : null;
+  return (
+    <div className="grid gap-1 text-sm" aria-live="polite">
+      {duplicateDate ? (
+        <p className="text-amber-700 dark:text-amber-400" role="status">
+          {t("correctVerdictDuplicate", { date: duplicateDate })}
+        </p>
+      ) : null}
+      <p className="text-muted-foreground">
+        {verdict.remaining
+          ? t("correctVerdictFits", {
+              remaining: verdict.remaining.remaining,
+              ticketType: verdict.remaining.ticketTypeName,
+            })
+          : t("correctVerdictFitsPlain")}
+      </p>
+    </div>
   );
 }
 
