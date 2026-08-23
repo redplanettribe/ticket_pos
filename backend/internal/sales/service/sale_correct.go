@@ -91,19 +91,17 @@ func (s *Service) CorrectImportedSale(ctx context.Context, actor ActorContext, e
 	if err != nil {
 		return nil, nil, err
 	}
-	now := s.now()
+	terms := s.commitTerms(s.now())
 	corrected, err := s.repo.CorrectImportedSale(ctx, repository.CorrectImportedSaleInput{
 		EventID:        eventID,
 		OrganizationID: actor.OrganizationID,
 		SaleID:         saleID,
-		Now:            now,
-		UpsertCustomer: s.customers.UpsertForSale,
-		// The replacement's buyer holds its Ticket 1 (ADR 0055), so a
-		// correction re-seats them on the roster in the same act that took the
-		// mistaken sale off it. Left false this would be a correction that
-		// costs the buyer their place — which is what #392's notice policy is
-		// written against.
-		SelfHeld: s.ticketAssignmentEnabled,
+		// The replacement's buyer holds its Ticket 1 (ADR 0055), so a correction
+		// re-seats them on the roster in the same act that took the mistaken sale
+		// off it. Were the record path's terms not applied here, this would be a
+		// correction that costs the buyer their place — which is what #392's
+		// notice policy is written against.
+		Terms: terms,
 		Replacement: repository.CommitSale{
 			Customer: platform.SaleCustomer{
 				Email:     row.CustomerEmail,
@@ -136,7 +134,7 @@ func (s *Service) CorrectImportedSale(ctx context.Context, actor ActorContext, e
 	//
 	// THE MEMBER'S CHOICE AND NOT THE DELIVERY. `sent` below can still be false if
 	// the provider was unwell; what decides this is what the Member asked for.
-	s.tellDisplacedHolders(ctx, []string{corrected.Reversed.ID}, platform.BuyerNoticePolicy(in.SendConfirmation))
+	s.tellDisplacedHolders(ctx, []string{corrected.Reversed.ID}, platform.BuyerNoticeFromSaleCorrectionConfirmation(in.SendConfirmation))
 
 	rs := corrected.Replacement
 	sent := false

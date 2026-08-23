@@ -51,6 +51,16 @@ func enableTicketAssignment(t *testing.T) {
 	sharedApp.SalesService.WithTicketAssignment(true)
 }
 
+// closeTicketAssignment darkens Ticket Assignment mid-test, the exact inverse of
+// enableTicketAssignment and both services for its reason: one deployment flag
+// reaches both, and closing half of it would put the suite in a state no
+// deployment can be in.
+func closeTicketAssignment(t *testing.T) {
+	t.Helper()
+	sharedApp.CatalogService.WithTicketAssignment(false)
+	sharedApp.SalesService.WithTicketAssignment(false)
+}
+
 // assignTicket puts one address on one Ticket and returns the whole response,
 // refusal and all — the callers that expect success check the status themselves.
 func assignTicket(

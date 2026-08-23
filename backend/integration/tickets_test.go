@@ -185,8 +185,14 @@ func TestInPersonSaleMintsOneTicketPerTicketSold(t *testing.T) {
 		EventID:        eventID,
 		OrganizationID: orgID,
 		Channel:        "in_person",
-		Now:            env.fixedClock,
-		UpsertCustomer: sharedApp.CustomersService.UpsertForSale,
+		// The same two terms this call always passed, now bundled (#396). SelfHeld
+		// is left at its zero value exactly as it was before the bundling: an
+		// In-Person Sale seats no buyer on Ticket 1, because the door has no buyer
+		// surface to reassign from (ADR 0055).
+		Terms: salesrepo.CommitTerms{
+			Now:            env.fixedClock,
+			UpsertCustomer: sharedApp.CustomersService.UpsertForSale,
+		},
 		Sales: []salesrepo.CommitSale{{
 			Customer: platform.SaleCustomer{
 				Email:     "door@example.com",

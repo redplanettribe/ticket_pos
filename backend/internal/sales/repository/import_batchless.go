@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"time"
 )
 
 // RecordBatchlessImportSaleInput is ONE Manually Recorded Sale to write: the
@@ -14,11 +13,10 @@ type RecordBatchlessImportSaleInput struct {
 	EventID        string
 	OrganizationID string
 	Sale           CommitSale
-	Now            time.Time
-	UpsertCustomer UpsertCustomer
-	// SelfHeld makes the buyer the Holder of the sale's Ticket 1 (ADR 0055),
-	// set from TICKET_ASSIGNMENT_ENABLED by the service.
-	SelfHeld bool
+	// Terms are the Sale Commit Terms this sale is recorded on, the service's
+	// to state: a typed sale is committed on exactly the terms an uploaded one
+	// is.
+	Terms CommitTerms
 }
 
 // RecordBatchlessImportSale records ONE Manually Recorded Sale in a transaction
@@ -52,9 +50,7 @@ func (r *Repository) RecordBatchlessImportSale(ctx context.Context, in RecordBat
 		EventID:        in.EventID,
 		OrganizationID: in.OrganizationID,
 		Sale:           in.Sale,
-		Now:            in.Now,
-		UpsertCustomer: in.UpsertCustomer,
-		SelfHeld:       in.SelfHeld,
+		Terms:          in.Terms,
 	})
 	if err != nil {
 		return nil, err
@@ -72,13 +68,10 @@ type batchlessImportSale struct {
 	EventID        string
 	OrganizationID string
 	Sale           CommitSale
-	Now            time.Time
-	UpsertCustomer UpsertCustomer
-	// SelfHeld makes the buyer the Holder of the sale's Ticket 1 (ADR 0055).
-	// BOTH CALLERS PASS IT AND NEITHER MAY DEFAULT: a Sale Correction whose
-	// replacement forgot it would drop the buyer off the roster in the act of
-	// correcting their details, which is the bug ADR 0055 named.
-	SelfHeld bool
+	// Terms are the Sale Commit Terms, which BOTH CALLERS SUPPLY WHOLE. See
+	// CommitTerms.SelfHeld for what a Sale Correction that let one default
+	// would cost the buyer.
+	Terms CommitTerms
 }
 
 // commitBatchlessImportSaleTx records one imported Ticket Sale that belongs to
@@ -111,9 +104,7 @@ func (r *Repository) commitBatchlessImportSaleTx(ctx context.Context, tx *sql.Tx
 		Channel:        "import",
 		Source:         "direct",
 		Sales:          []CommitSale{in.Sale},
-		Now:            in.Now,
-		UpsertCustomer: in.UpsertCustomer,
-		SelfHeld:       in.SelfHeld,
+		Terms:          in.Terms,
 	})
 	if err != nil {
 		return nil, err

@@ -103,14 +103,12 @@ func (s *Service) RecordManualSale(ctx context.Context, actor ActorContext, even
 	recorded, err := s.repo.RecordBatchlessImportSale(ctx, repository.RecordBatchlessImportSaleInput{
 		EventID:        eventID,
 		OrganizationID: actor.OrganizationID,
-		Now:            s.now(),
-		UpsertCustomer: s.customers.UpsertForSale,
-		// The buyer holds Ticket 1 (ADR 0055). A typed row is a transcription
-		// exactly as a file row is — the Member is recording a sale that already
-		// happened — and there is deliberately no checkbox to opt out of it:
-		// a Holder differing from the buyer must be written `assigned`, which
-		// ADR 0047 shows no name for.
-		SelfHeld: s.ticketAssignmentEnabled,
+		// A typed row is a transcription exactly as a file row is — the Member is
+		// recording a sale that already happened — so it commits on the record
+		// path's own terms, buyer seated on Ticket 1 and all (ADR 0055). There is
+		// deliberately no checkbox to opt out of that: a Holder differing from
+		// the buyer must be written `assigned`, which ADR 0047 shows no name for.
+		Terms: s.commitTerms(s.now()),
 		Sale: repository.CommitSale{
 			// No phone and no self-assertion, exactly as a file import records
 			// none: an Organization's account of a sale it took off-platform

@@ -593,6 +593,63 @@ func TestABatchUndoWithTheToggleOnTellsTheSelfHeldImportBuyerOnce(t *testing.T) 
 	assertMailGivesNoCauseAndNamesNoBuyer(t, theOneNoLongerHoldingMailTo(t, env, "ana@example.com"), f.anaRef)
 }
 
+// THE NOTICE'S THREE INVARIANTS, RE-ASSERTED ON A PRESUMED HOLDER (#400).
+//
+// EVERYTHING ABOVE INHERITS THEM FROM THE `online` TESTS, and inheritance is
+// exactly what #392 was written to stop relying on. The presumed Holder is where
+// the notice's warrant is weakest — this person clicked nothing, proved nothing
+// and asked for nothing — and they are also the person most likely to be named
+// by accident, because on an imported Sale the Holder and the buyer are the SAME
+// PERSON. A composer reaching for "a friendlier message for somebody we know
+// bought this" would widen the disclosure here and nowhere else, and every
+// assertion in this file would still pass.
+//
+// STAGED WITH THE TOGGLE ON, because two of the three invariants are about words
+// that only exist if a mail is sent: sparing the buyer proves nothing about what
+// the buyer would have read.
+//
+// AND WITH DIEGO BESIDE HER, who was named and never clicked. He is the third
+// invariant, on the path that had never asserted it: the `import` channel, where
+// the presence of a presumed Holder on the same Sale makes "somebody accepted, so
+// tell the assigned addresses too" a mistake a build could plausibly make.
+func TestThePresumedHoldersNoticeGivesNoCauseNamesNoBuyerAndSparesWhoNeverAccepted(t *testing.T) {
+	env := setupTest(t)
+	f := newAssignmentFixture(t, env)
+
+	// Ana bought the imported Sale and is presumed to hold Ticket 1. Diego is
+	// named for Ticket 2, is mailed a link, and ignores it — which IS how
+	// somebody declines (ADR 0046).
+	seatSelfHeldImportHolder(t, env, f.anaSaleID, f.anaTicketIDs[0])
+	assignTicketOK(t, env, f.ana, f.anaSaleID, f.anaTicketIDs[1], "diego@example.com")
+	assignmentMailFor(t, env, "diego@example.com") // the one word the platform ever said to him
+	env.email.Reset()
+
+	resp, body := env.post(t, "/api/v1/staff/events/"+f.eventID+"/sale-imports/"+f.anaBatchID+"/undo",
+		map[string]any{"notify_buyers": true}, authHeader(f.staffSession))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("undo batch status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	// THE THIRD INVARIANT: an address that was typed and ignored is told nothing,
+	// on the import path as on every other. Telling Diego now would be the
+	// platform's first and only word to him about a ticket he never claimed.
+	assertToldExactly(t, env, map[string]int{
+		"ana@example.com":   1,
+		"diego@example.com": 0,
+	})
+	// And no Customer was minted for him either, so there is nobody there to tell.
+	if _, exists := readHolderCustomer(t, env, "diego@example.com"); exists {
+		t.Error("a Customer exists for an address that never accepted")
+	}
+
+	// THE FIRST TWO: the notice the PRESUMED HOLDER reads gives no cause and names
+	// no buyer — not even when the buyer is the reader, and not even though the
+	// platform knows perfectly well who she is. One message must be true of both
+	// a reassignment and a Sale Reversal, and what the buyer decided is a fact
+	// about somebody's purchase that this mail does not exist to relay.
+	assertMailGivesNoCauseAndNamesNoBuyer(t, theOneNoLongerHoldingMailTo(t, env, "ana@example.com"), f.anaRef)
+}
+
 // A SALE CORRECTION TELLS THE SELF-HELD IMPORT BUYER ONLY WHEN THE MEMBER SENDS
 // THE NEW SALE CONFIRMATION.
 //

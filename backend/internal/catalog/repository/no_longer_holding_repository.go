@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"database/sql"
+
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // The read behind the No Longer Holding mail's second cause (#327, parent #322,
@@ -114,13 +116,14 @@ func (r *Repository) ListDisplacedHoldersForSales(ctx context.Context, ticketSal
 
 	// THE BUYER IS COMPARED, NEVER SELECTED. The fourth column answers "is this
 	// Holder the buyer?" and no column of this query can answer "who is the
-	// buyer?" — see DisplacedHolder.IsTheBuyer. It folds case and trims, which is
-	// how every other comparison of these two addresses is written (migration 084,
-	// platform.NormalizeEmail), so a Holder seated from a file with a capitalised
-	// address is still recognised as the person who bought.
+	// buyer?" — see DisplacedHolder.IsTheBuyer. It folds case and trims through
+	// platform.NormalizeEmailSQL, the one SQL shadow of platform.NormalizeEmail
+	// (#398), so a Holder seated from a file with a capitalised address is still
+	// recognised as the person who bought — and so a change to the identity rule
+	// cannot leave this comparison behind.
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT tk.id, tk.holder_email, e.name, s.locale,
-		       lower(btrim(tk.holder_email)) = lower(btrim(s.customer_email))
+		       `+platform.NormalizeEmailSQL("tk.holder_email")+` = `+platform.NormalizeEmailSQL("s.customer_email")+`
 		`+answerableTicketFrom+`
 		WHERE l.ticket_sale_id = ANY($1)
 		  AND tk.accepted_at IS NOT NULL

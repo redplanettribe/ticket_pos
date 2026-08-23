@@ -243,6 +243,12 @@ _Avoid_: Sales (as a word for tickets), attendees, headcount, seats, admissions.
 The medium through which a Ticket Sale is recorded: `online`, `in_person`, or `import`. Distinct from Sales Source, which further qualifies where an imported sale originated.
 _Avoid_: Sale type, payment method
 
+**Sale Commit Terms**:
+The terms a Ticket Sale is recorded on, the same on every Sales Channel: the instant the whole write happens at, how the buyer's Customer is resolved as it happens, and whether the buyer is seated on the Sale's first Ticket as a Self-held Ticket while it is minted.
+One value rather than three facts travelling side by side, because none of them varies without the others and none of them varies by route. What is sold, to whom, on which Sales Channel and against which Sale Import batch differ between a checkout, an upload, a Manually Recorded Sale and a Sale Correction; these are the same question asked of all four, and the answer to the third is the same on all three record routes because it is the Ticket Assignment feature's answer and not a route's.
+Says nothing about mail, money or refusals: a commit's terms end where the transaction does.
+_Avoid_: Commit options, write options, sale context, sale config, commit flags
+
 **Storefront**:
 The public-facing channel through which a Customer completes an Online Sale.
 _Avoid_: Shop, web store, e-commerce site
@@ -334,6 +340,13 @@ The person a Ticket was assigned to. Capitalised as a role, and the same word AD
 Named by the buyer and made real by accepting: an address that was typed and never accepted has no Holder behind it, only an assignment waiting, and that address is shown to nobody and purged when the Event starts.
 Holds the ticket and nothing else. Not the party of record — they see the Event, the Ticket Type and their own questions, never the buyer, the price, the Tax ID or the Sale's other Tickets — and they are never asked for a Tax ID, which is a fact about the sale's buyer. May stop being one without warning, since the buyer may reassign and a Sale Reversal takes every Holder on the Sale with it; they are told when it happens, and stay a Customer with what they gave. A Holder who accepted — by link or by paying — is told unconditionally. The one exception is a buyer holding an imported sale's Self-held Ticket, who never claimed it and is told on the same terms as any other mail about that sale, since the toggle deciding whether an import writes to its buyers exists for exactly that person.
 _Avoid_: Attendee, guest, recipient, assignee, bearer, ticket owner, invitee, user
+
+**Buyer Notification Policy**:
+Whether an act on a Ticket Sale is one the platform is writing to the BUYER about — one fact about the act, decided where the act is chosen and read where a message is composed.
+Not an instruction to send anything. It says what is true of the act, not what should happen to a mail, so that the surface deciding whether to write to buyers never has to know which Tickets have Holders, and the surface composing a Holder's notice never learns why a Sale was reversed. Only the buyer's own reach travels; nothing about Holders travels back.
+What decides it is the route: an Online Sale's reversal, an Operator Reversal and a Customer's own undo all write to the buyer unconditionally, a Sale Import undo puts it in the Member's hands as a toggle, a Sale Correction as an off-by-default Sale Confirmation checkbox, and a single imported Sale reversed from the Sales list writes nothing at all. False is therefore only ever true of the `import` channel, whose buyers dealt with the Organization's sales rep and may not know this platform exists.
+Reaches exactly one reader: a Holder who is also the buyer — the Self-held Ticket's presumed Holder on an imported Sale, and the buyer who paid on an Online one. A Holder who accepted by Assignment Link is told unconditionally on every route, and the policy never touches them.
+_Avoid_: Notify flag, send toggle, notification setting, email preference, opt-in
 
 **Assignment Link**:
 The signed link mailed to an assigned address, whose click accepts the Ticket Assignment.

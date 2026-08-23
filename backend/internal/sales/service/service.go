@@ -522,6 +522,37 @@ func (s *Service) WithDisplacedHolders(notifier DisplacedHolderNotifier) *Servic
 	return s
 }
 
+// commitTerms is the Sale Commit Terms this service records a Ticket Sale on,
+// whichever channel is asking: the Customer upsert bound to the customers
+// module, the buyer seated on Ticket 1 while Ticket Assignment is open, and the
+// instant the caller has already decided the whole act happens at.
+//
+// ONE ACCESSOR FOR EVERY COMMIT ROUTE — the online checkout's two legs, the Sale
+// Import batch, the Manually Recorded Sale and the Sale Correction's replacement
+// (#396). "The buyer is seated when assignment is open" is ONE rule, and it was
+// said five times: five copies of `SelfHeld: s.ticketAssignmentEnabled` are five
+// chances for a route to drift, and a route that drifted would drop its buyers
+// off the roster without failing anything.
+//
+// AN ONLINE SALE'S WARRANT IS THE PAYMENT AND AN IMPORT'S IS THE TRANSCRIPTION,
+// and the flag is deliberately blind to the difference: a transcription records
+// a transaction the buyer made themself, so the email column is the person who
+// bought and not a clerk's guess (ADR 0055). One flag, one meaning, every
+// channel. What no route may do is seat a buyer at the door, and no door route
+// calls this.
+//
+// NOW IS THE CALLER'S because a commit is one moment and the caller often needs
+// that moment for something beside the commit — a Sale Correction stamps its
+// reversal with it, the confirm leg its Payment. Passing it in is what keeps the
+// two from being two different instants.
+func (s *Service) commitTerms(now time.Time) repository.CommitTerms {
+	return repository.CommitTerms{
+		Now:            now,
+		UpsertCustomer: s.customers.UpsertForSale,
+		SelfHeld:       s.ticketAssignmentEnabled,
+	}
+}
+
 // tellDisplacedHolders tells everybody who was holding a Ticket on these
 // just-reversed Ticket Sales that they are not holding it any more.
 //
@@ -726,14 +757,7 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string
 		CreatedByMemberID: actor.MemberID,
 		IdempotencyKey:    idempotencyKey,
 		Sales:             commitSales,
-		Now:               s.now(),
-		UpsertCustomer:    s.customers.UpsertForSale,
-		// Each row's buyer holds that row's Ticket 1 (ADR 0055): a Sale Import
-		// transcribes a transaction the buyer made themself, so the email
-		// column is the person who bought and not a clerk's guess. Gated on the
-		// same flag the checkout reads, so TICKET_ASSIGNMENT_ENABLED means one
-		// thing on every channel.
-		SelfHeld: s.ticketAssignmentEnabled,
+		Terms:             s.commitTerms(s.now()),
 	})
 	if err != nil {
 		return nil, mapCommitError(err)
@@ -1630,7 +1654,7 @@ func (s *Service) UndoImport(ctx context.Context, actor ActorContext, eventID, b
 	for _, rs := range reversed.Sales {
 		reversedIDs = append(reversedIDs, rs.ID)
 	}
-	s.tellDisplacedHolders(ctx, reversedIDs, platform.BuyerNoticePolicy(notifyBuyers))
+	s.tellDisplacedHolders(ctx, reversedIDs, platform.BuyerNoticeFromImportUndoToggle(notifyBuyers))
 
 	return &UndoResult{
 		BatchID:   reversed.ID,

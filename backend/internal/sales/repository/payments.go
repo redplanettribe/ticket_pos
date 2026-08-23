@@ -356,9 +356,11 @@ type ApprovePaymentInput struct {
 	// collected the money, e.g. 'payphone').
 	PaymentMethod   string
 	ConfirmationRef string
-	Now             time.Time
-	// UpsertCustomer resolves the sale's Customer within the transaction.
-	UpsertCustomer UpsertCustomer
+	// Terms are the Sale Commit Terms this checkout's Ticket Sale is recorded
+	// on, exactly as every other channel states them. The Payment's own approval
+	// is stamped with Terms.Now too: approving the Payment and recording its sale
+	// are one act, and a second clock read here would let them disagree.
+	Terms CommitTerms
 	// CaptureConsent writes the Consent Record for the answers this Payment has
 	// been holding since begin-checkout, inside the same transaction (#253).
 	//
@@ -366,10 +368,12 @@ type ApprovePaymentInput struct {
 	// import paths — which settle no checkout dialog — would pass, and what a
 	// Payment begun before migration 064 amounts to anyway, since a Payment
 	// holding three NULL answers has no capture act to evidence and is skipped.
+	//
+	// IT IS NOT ONE OF THE COMMIT TERMS, and that is why this struct carries a
+	// fourth field beside them rather than a fifth inside CommitTerms: capturing
+	// consent is the online checkout's alone. No other channel opens a dialog, so
+	// no other channel has an act of consent to evidence.
 	CaptureConsent CaptureConsent
-	// SelfHeld makes one Ticket of the sale the buyer's own (ADR 0048); see
-	// CommitSalesInput.SelfHeld. On while TICKET_ASSIGNMENT_ENABLED is.
-	SelfHeld bool
 }
 
 // CaptureConsent records the Consent Record and applies the consent state for a
@@ -543,7 +547,7 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 		// This Payment's own hold must convert into sold_count, not count
 		// against itself (ADR 0013).
 		ExcludePaymentID: paymentID,
-		SelfHeld:         in.SelfHeld,
+		Terms:            in.Terms,
 		Sales: []CommitSale{{
 			// The buyer is rebuilt from the Payment verbatim: the sale records
 			// what they supplied at begin-checkout, whatever their profile says
@@ -567,14 +571,12 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 				SelfAsserted: sessionAuthorized,
 			},
 			PaymentMethod:   in.PaymentMethod,
-			SoldAt:          in.Now,
+			SoldAt:          in.Terms.Now,
 			ConfirmationRef: in.ConfirmationRef,
 			AffiliateLinkID: affiliateLinkID.String,
 			Locale:          locale.String,
 			Lines:           lines,
 		}},
-		Now:            in.Now,
-		UpsertCustomer: in.UpsertCustomer,
 	})
 	if err != nil {
 		return nil, err
@@ -629,7 +631,7 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 		    instrument = COALESCE(NULLIF($4, ''), instrument),
 		    updated_at = $5
 		WHERE id = $1
-	`, paymentID, recorded[0].ID, in.ProviderTransactionID, in.Instrument, in.Now); err != nil {
+	`, paymentID, recorded[0].ID, in.ProviderTransactionID, in.Instrument, in.Terms.Now); err != nil {
 		return nil, err
 	}
 

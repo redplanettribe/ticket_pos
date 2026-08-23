@@ -3,6 +3,8 @@ package sales
 import (
 	"database/sql"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // Capacity Holds are derived from pending Payments, not stored (ADR 0013): a
@@ -66,10 +68,9 @@ type HoldsFilter struct {
 	// BuyerEmailExpr narrows to the holds of ONE buyer, for the Purchase Limit's
 	// hold arm (ADR 0025): a pending Payment carries only the email typed at
 	// checkout, recorded verbatim, because the Customer record is not upserted
-	// until the sale commits. The column is therefore folded to compare — with
-	// the same lower/trim platform.NormalizeEmail applies, which is the one rule
-	// a Customer's identity rests on, and the only SQL restatement of it. Whoever
-	// changes that rule must change this fold with it.
+	// until the sale commits. The column is therefore folded to compare, through
+	// platform.NormalizeEmailSQL — the one SQL shadow of platform.NormalizeEmail,
+	// which is the one rule a Customer's identity rests on.
 	//
 	// The expression must supply an ALREADY NORMALISED email; this side folds only
 	// the stored snapshot. Empty omits the condition, which is every capacity
@@ -92,7 +93,7 @@ func LiveHoldsSQL(f HoldsFilter) string {
 		extra += "\n\t\t  AND p.id <> " + f.ExcludePaymentExpr
 	}
 	if f.BuyerEmailExpr != "" {
-		extra += "\n\t\t  AND lower(btrim(p.customer_email)) = " + f.BuyerEmailExpr
+		extra += "\n\t\t  AND " + platform.NormalizeEmailSQL("p.customer_email") + " = " + f.BuyerEmailExpr
 	}
 	return `
 		SELECT pl.ticket_type_id, SUM(pl.quantity)::int AS held

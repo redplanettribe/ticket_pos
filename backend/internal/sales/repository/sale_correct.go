@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"time"
 )
 
 // CorrectImportedSaleInput names one imported Ticket Sale to reverse and the
@@ -13,14 +12,12 @@ type CorrectImportedSaleInput struct {
 	OrganizationID string
 	SaleID         string
 	Replacement    CommitSale
-	Now            time.Time
-	UpsertCustomer UpsertCustomer
-	// SelfHeld makes the buyer the Holder of the replacement's Ticket 1
-	// (ADR 0055), set from TICKET_ASSIGNMENT_ENABLED by the service. It is what
-	// makes a correction RE-SEAT the buyer on the roster instead of dropping
-	// them off it — the amendment to ADR 0050's "the replacement's Tickets all
-	// start `unassigned`".
-	SelfHeld bool
+	// Terms are the Sale Commit Terms the REPLACEMENT is recorded on, and the
+	// instant the reversal beside it is written at. Their SelfHeld is what makes
+	// a correction RE-SEAT the buyer on the roster instead of dropping them off
+	// it — the amendment to ADR 0050's "the replacement's Tickets all start
+	// `unassigned`".
+	Terms CommitTerms
 }
 
 // CorrectedSale is the outcome of a Sale Correction: the sale that was reversed
@@ -57,7 +54,7 @@ func (r *Repository) CorrectImportedSale(ctx context.Context, in CorrectImported
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	reversed, err := reverseOneImportedSaleTx(ctx, tx, in.OrganizationID, in.EventID, in.SaleID, in.Now)
+	reversed, err := reverseOneImportedSaleTx(ctx, tx, in.OrganizationID, in.EventID, in.SaleID, in.Terms.Now)
 	if err != nil {
 		return nil, err
 	}
@@ -66,9 +63,7 @@ func (r *Repository) CorrectImportedSale(ctx context.Context, in CorrectImported
 		EventID:        in.EventID,
 		OrganizationID: in.OrganizationID,
 		Sale:           in.Replacement,
-		Now:            in.Now,
-		UpsertCustomer: in.UpsertCustomer,
-		SelfHeld:       in.SelfHeld,
+		Terms:          in.Terms,
 	})
 	if err != nil {
 		return nil, err

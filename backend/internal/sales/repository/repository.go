@@ -113,30 +113,14 @@ type CommitSalesInput struct {
 	Channel        string
 	Source         string
 	Sales          []CommitSale
-	Now            time.Time
-	// UpsertCustomer resolves each sale's Customer within the transaction.
-	// Required: every Ticket Sale must reference a Customer.
-	UpsertCustomer UpsertCustomer
+	// Terms are the Sale Commit Terms every channel's commit shares.
+	Terms CommitTerms
 	// ExcludePaymentID names the Payment whose own commit this is, so its live
 	// Capacity Hold is not counted against it — the hold converts into
 	// sold_count instead of double-counting (ADR 0013). Empty for channels that
 	// commit without a Payment (import, and in-person later), which must
 	// respect every live hold.
 	ExcludePaymentID string
-	// SelfHeld makes one Ticket of each sale the buyer's own: the first Ticket
-	// of the line whose Ticket Type sorts first in the catalog is assigned to
-	// the buyer and accepted in the same transaction that mints it (ADR 0048).
-	//
-	// Set by the online checkout and by all three import routes while
-	// TICKET_ASSIGNMENT_ENABLED is on (ADR 0055), and by nothing else: an
-	// In-Person Sale's buyer has no surface to reassign from, so a Holder
-	// written onto a door sale could be removed by nobody.
-	//
-	// THE FLAG IS THE WHOLE OF THE CHANNEL RULE. Nothing below reads
-	// in.Channel to decide this and nothing should: the spine mints Tickets
-	// the same way for every channel, and the decision about which channels
-	// presume a Holder belongs to the services that know the flag.
-	SelfHeld bool
 }
 
 // CommitInput is a fully-prepared Direct Sale Import to record atomically.
@@ -147,14 +131,10 @@ type CommitInput struct {
 	CreatedByMemberID string
 	IdempotencyKey    string
 	Sales             []CommitSale
-	Now               time.Time
-	// UpsertCustomer resolves each sale's Customer within the batch transaction.
-	// Required: every Ticket Sale must reference a Customer.
-	UpsertCustomer UpsertCustomer
-	// SelfHeld makes each row's buyer the Holder of that row's Ticket 1, on the
-	// spine's terms (ADR 0055). Set from TICKET_ASSIGNMENT_ENABLED by the
-	// service, which is the only layer that knows it.
-	SelfHeld bool
+	// Terms are the Sale Commit Terms this batch is recorded on. Every row of
+	// the batch is committed on the same ones — one upload is one moment, and
+	// each row's buyer is seated on that row's Ticket 1 or none of them is.
+	Terms CommitTerms
 }
 
 // RecordedSale is one Ticket Sale as actually written: its database id — which
@@ -453,7 +433,7 @@ type lockedType struct {
 // capacity check, so concurrent sales cannot oversell. All-or-nothing: any
 // oversell fails the whole call with a *CapacityError.
 func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSalesInput) ([]RecordedSale, error) {
-	if in.UpsertCustomer == nil {
+	if in.Terms.UpsertCustomer == nil {
 		return nil, errors.New("sales: UpsertCustomer is required — every Ticket Sale must reference a Customer")
 	}
 	// Native channels never record a sale without its Tax ID (ADR 0016). The
@@ -509,7 +489,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 	// (its sold_count increment is visible, its Payment no longer pending) or
 	// has not started converting (its hold is still visible): never both,
 	// never neither.
-	held, err := r.liveHoldsForUpdate(ctx, tx, in.EventID, sales.HoldCutoff(in.Now), in.ExcludePaymentID)
+	held, err := r.liveHoldsForUpdate(ctx, tx, in.EventID, sales.HoldCutoff(in.Terms.Now), in.ExcludePaymentID)
 	if err != nil {
 		return nil, err
 	}
@@ -535,7 +515,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		// record — the phone, and the flag saying they proved the email is theirs
 		// — go through here and stop: the INSERT below has no column for either,
 		// deliberately (see CommitSale.Customer).
-		customerID, err := in.UpsertCustomer(ctx, tx, s.Customer, in.Now)
+		customerID, err := in.Terms.UpsertCustomer(ctx, tx, s.Customer, in.Terms.Now)
 		if err != nil {
 			return nil, err
 		}
@@ -552,7 +532,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $13, $14, $10, $11, 'active', $15, $16, $12)
 			RETURNING id
 		`, in.EventID, in.OrganizationID, in.Channel, nullString(in.Source), nullString(s.PaymentMethod),
-			customerID, s.Customer.Email, s.Customer.FirstName, s.Customer.LastName, s.SoldAt, s.ConfirmationRef, in.Now,
+			customerID, s.Customer.Email, s.Customer.FirstName, s.Customer.LastName, s.SoldAt, s.ConfirmationRef, in.Terms.Now,
 			nullString(s.Customer.TaxID.Type), nullString(s.Customer.TaxID.Number),
 			nullString(s.AffiliateLinkID), nullString(s.Locale)).Scan(&saleID)
 		if err != nil {
@@ -588,18 +568,18 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 				RETURNING id
 			`, saleID, line.TicketTypeID, line.Quantity, unitPrice,
 				fee.BasePriceCents, fee.FeeCents, fee.FeeIVACents,
-				fee.FeeBasisPoints, fee.FeeIVABasisPoints, in.Now).Scan(&lineID); err != nil {
+				fee.FeeBasisPoints, fee.FeeIVABasisPoints, in.Terms.Now).Scan(&lineID); err != nil {
 				return nil, err
 			}
 			// The line's Tickets, minted in the same breath as the line itself.
 			// Nothing between these two statements may fail without both rolling
 			// back together: that is the whole of how "one Ticket per ticket sold"
 			// is kept true (ADR 0043).
-			ticketIDs, err := mintTickets(ctx, tx, lineID, line.Quantity, in.Now)
+			ticketIDs, err := mintTickets(ctx, tx, lineID, line.Quantity, in.Terms.Now)
 			if err != nil {
 				return nil, err
 			}
-			if lt := locked[line.TicketTypeID]; in.SelfHeld && (selfHeldTicketID == "" ||
+			if lt := locked[line.TicketTypeID]; in.Terms.SelfHeld && (selfHeldTicketID == "" ||
 				lt.sortOrder < selfHeldType.sortOrder ||
 				(lt.sortOrder == selfHeldType.sortOrder && lt.name < selfHeldType.name)) {
 				selfHeldTicketID = ticketIDs[1]
@@ -632,7 +612,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			if _, err := tx.ExecContext(ctx, `SAVEPOINT ticket_answers`); err != nil {
 				return nil, err
 			}
-			if err := writeTicketAnswers(ctx, tx, ticketIDs, line.Answers, in.Now); err != nil {
+			if err := writeTicketAnswers(ctx, tx, ticketIDs, line.Answers, in.Terms.Now); err != nil {
 				if _, rbErr := tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT ticket_answers`); rbErr != nil {
 					return nil, rbErr
 				}
@@ -642,7 +622,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		}
 
 		if selfHeldTicketID != "" {
-			if err := holdOwnTicket(ctx, tx, selfHeldTicketID, customerID, s.Customer.Email, in.Now); err != nil {
+			if err := holdOwnTicket(ctx, tx, selfHeldTicketID, customerID, s.Customer.Email, in.Terms.Now); err != nil {
 				return nil, err
 			}
 		}
@@ -664,7 +644,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE ticket_types SET sold_count = sold_count + $1, updated_at = $2
 			WHERE id = $3
-		`, requested[id], in.Now, id); err != nil {
+		`, requested[id], in.Terms.Now, id); err != nil {
 			return nil, err
 		}
 	}
@@ -797,9 +777,7 @@ func (r *Repository) CommitImport(ctx context.Context, in CommitInput) (*Committ
 		Channel:        "import",
 		Source:         in.Source,
 		Sales:          in.Sales,
-		Now:            in.Now,
-		UpsertCustomer: in.UpsertCustomer,
-		SelfHeld:       in.SelfHeld,
+		Terms:          in.Terms,
 	})
 	if err != nil {
 		return nil, err
@@ -814,7 +792,7 @@ func (r *Repository) CommitImport(ctx context.Context, in CommitInput) (*Committ
 		VALUES ($1, $2, $3, $4, $5, $6, 'committed', $7)
 		RETURNING id
 	`, in.EventID, in.OrganizationID, in.Source, nullString(in.CreatedByMemberID),
-		in.IdempotencyKey, len(in.Sales), in.Now).Scan(&batchID)
+		in.IdempotencyKey, len(in.Sales), in.Terms.Now).Scan(&batchID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			// A concurrent request committed the same idempotency key first.
