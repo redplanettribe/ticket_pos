@@ -184,13 +184,14 @@ test("a buyer of two tickets gives one away, and the Holder answers its question
 
     // Step 3b — the Holder corrects themself from their OWN Customer Area
     // (#345, ADR 0049), with no link and no buyer involved. The ticket is
-    // there because they hold it; its panel is the same one the buyer has.
-    // It owes nothing (the question was answered from the link), so it sits
+    // there because they hold it, as a row in its Event's group (#356); its
+    // panel is the same one the buyer has. The row is the Event's only one,
+    // so it starts open. It owes nothing (the question was answered from the link), so it sits
     // folded behind "Review or edit"; opened, the field holds what they said
     // and saves on blur with no button to press. A save from a panel that
     // owed nothing does NOT fold it — only the last owed Answer does.
     await signInFromPasscode(holderPage, holder);
-    await expect(holderPage.getByText("Tickets someone gave you")).toBeVisible();
+    await expect(holderPage.getByText("Someone gave you this ticket", { exact: false })).toBeVisible();
     const reviewOrEdit = holderPage.getByText("Answered · Review or edit", { exact: true });
     await expect(reviewOrEdit).toBeVisible();
     await reviewOrEdit.click();

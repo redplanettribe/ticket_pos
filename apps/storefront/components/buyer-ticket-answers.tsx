@@ -1,5 +1,6 @@
 "use client";
 
+import { Skeleton } from "@ticket-pos/ui";
 import { useMessages, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 
@@ -10,6 +11,7 @@ import { apiErrorMessage } from "@/lib/api-errors";
 import {
   hasAnythingToShow,
   heldRowFor,
+  placeholderRowCount,
   saleOutstandingCount,
   withHeldRow,
   type BuyerTicket,
@@ -60,9 +62,19 @@ import {
  * this component draws nothing at all, which is exactly what a build without
  * the feature does (ADR 0045).
  *
- * NOTHING RENDERS UNTIL THERE IS SOMETHING TO SAY. No heading, no spinner, no
- * empty state — a sale whose Ticket Types ask nothing and whose Tickets cannot
- * be assigned looks precisely as it did before either feature existed.
+ * SPACE IS RESERVED FOR WHAT IS PROBABLY COMING, AND GIVEN BACK WHEN IT IS NOT
+ * (#357). While the two fetches are in flight the card draws the section's
+ * outline — a heading's worth, a tally line's worth, and one row per Ticket at
+ * the real row's minimum height, the count taken from the Sale's own lines,
+ * which the card knew before either list was asked for. When the lists land
+ * the rows are replaced in place at the same height, so an expanded Sale does
+ * not grow under the reader's finger once the page hydrates. When they land
+ * with nothing to say — the feature dark, the read failed, a Sale that asks
+ * nothing and assigns nothing — the outline goes and the card is precisely the
+ * card it was before either feature existed. That is a shift too, but a
+ * shrink after a pause on the uncommon card rather than a growth on every
+ * common one. The fetch itself stays client-side (#345): the page must never
+ * wait on the questions.
  *
  * THE TWO FEATURES HAVE SEPARATE FLAGS AND ARE READ SEPARATELY. Either half is
  * reason enough to draw the section and neither is reason to draw the other.
@@ -81,9 +93,13 @@ import {
  */
 type BuyerTicketAnswersProps = {
   ticketSaleId: string;
+  /** Tickets on the Sale, summed from its lines by the card: how many rows to
+   * reserve before the lists arrive. Not trusted for anything else — the
+   * fetched list decides what is actually drawn. */
+  ticketCount: number;
 };
 
-export function BuyerTicketAnswers({ ticketSaleId }: BuyerTicketAnswersProps) {
+export function BuyerTicketAnswers({ ticketSaleId, ticketCount }: BuyerTicketAnswersProps) {
   const t = useTranslations("customerArea");
   const [tickets, setTickets] = useState<BuyerTicket[] | null>(null);
   const [held, setHeld] = useState<HeldTicket[] | null>(null);
@@ -127,11 +143,11 @@ export function BuyerTicketAnswers({ ticketSaleId }: BuyerTicketAnswersProps) {
     };
   }, [ticketSaleId]);
 
-  // Both fetches must land before anything is drawn: a section that appeared
-  // without its question half and then grew one would move the page under the
-  // reader's finger.
+  // Both fetches must land before anything real is drawn: a section that
+  // appeared without its question half and then grew one would move the page
+  // under the reader's finger. Until then, the outline holds the room.
   if (tickets === null || held === null) {
-    return null;
+    return <BuyerTicketAnswersSkeleton rows={placeholderRowCount(ticketCount)} />;
   }
 
   // TWO FEATURES, TWO FLAGS, ONE SECTION. Either half is reason enough to draw
@@ -190,6 +206,40 @@ export function BuyerTicketAnswers({ ticketSaleId }: BuyerTicketAnswersProps) {
             onAssigned={setTickets}
             onAnswered={(updated) => setHeld((rows) => withHeldRow(rows ?? [], updated))}
           />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * The section's outline while its two lists are in flight. The same outer
+ * spacing as the real section (`mt-6 border-t pt-6`, a heading, a tally line,
+ * a bordered `divide-y` list) so the card is already the height it is about
+ * to be, and each row the real summary row's box — `min-h-11 px-3 py-2.5` —
+ * so the swap is invisible. Hidden from assistive tech: there is nothing to
+ * read in it, and `aria-busy` on the wrapper says what it is.
+ */
+function BuyerTicketAnswersSkeleton({ rows }: { rows: number }) {
+  return (
+    <section aria-busy className="mt-6 space-y-3 border-t pt-6">
+      <div aria-hidden className="space-y-1">
+        {/* A `font-medium` heading line is 24px tall at the base size and the
+            tally line 20px at `text-sm`; the bars sit inside those line boxes
+            so the two blocks measure what the text will. */}
+        <div className="flex h-6 items-center">
+          <Skeleton className="h-4 w-48" />
+        </div>
+        <div className="flex h-5 items-center">
+          <Skeleton className="h-3 w-32" />
+        </div>
+      </div>
+      <div aria-hidden className="divide-y rounded-md border">
+        {Array.from({ length: rows }, (_, index) => (
+          <div key={index} className="flex min-h-11 items-center gap-x-3 px-3 py-2.5 text-sm">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-4 w-28" />
+          </div>
         ))}
       </div>
     </section>
@@ -299,18 +349,26 @@ function TicketBlock({
   return (
     // `open` is left UNDEFINED: a `false` here would be re-applied by React on
     // every redraw, snapping a row shut the moment a save inside it came back.
-    <details className="group">
-      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm [&::-webkit-details-marker]:hidden">
+    <details className="group/ticket">
+      {/* THE WHOLE ROW IS THE TAP TARGET, at least 44px tall: the chevron is a
+          hint, not the handle. Below `sm` the row is two lines — position and
+          Ticket Type, then the address — because a phone is narrower than a
+          full address and the page must never be wider than the phone (#353).
+          At `sm` and above it is one line again, the address taking the rest. */}
+      <summary className="flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm [&::-webkit-details-marker]:hidden">
         <span
           aria-hidden
-          className="text-muted-foreground transition-transform group-open:rotate-90"
+          className="text-muted-foreground transition-transform group-open/ticket:rotate-90"
         >
           ▸
         </span>
         <span className="font-medium">{t("answers.ticketHeading", { position, total })}</span>
         <span className="text-muted-foreground">{ticket.ticket_type_name}</span>
-        {/* The state, in the buyer's words: "accepted", never "claimed". */}
-        <span className="text-muted-foreground min-w-0 flex-1 whitespace-nowrap">
+        {/* The state, in the buyer's words: "accepted", never "claimed". The
+            address truncates with an ellipsis rather than overflow: `basis-full`
+            gives it its own line on a phone, `sm:basis-0` puts it back beside
+            the Ticket Type, and `min-w-0` lets the flex item shrink at all. */}
+        <span className="text-muted-foreground min-w-0 basis-full flex-1 truncate sm:basis-0">
           {state === "accepted" ?
             t("assignment.rowAccepted", { email: holder })
           : state === "assigned" ?

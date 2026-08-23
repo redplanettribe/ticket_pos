@@ -337,7 +337,7 @@
     "upcomingHeading": "Upcoming",
     "pastHeading": "Past",
     "nothingUpcomingTitle": "Nothing coming up",
-    "nothingUpcomingDescription": "Your past tickets are below, and there's always something new to find.",
+    "nothingUpcomingDescription": "There's always something new to find.",
     "discoverEvents": "Discover events",
     "emptyTitle": "No tickets yet",
     "emptyDescription": "When you buy tickets, they'll show up here — from every organizer you buy from.",
@@ -351,6 +351,7 @@
     "confirmation": "Confirmation <value>{reference}</value>",
     "taxId": "Tax ID <value>{taxId}</value>",
     "reversedBadge": "Reversed",
+    "boughtOn": "Bought {date}",
     "ticketsTotal": "{count, plural, one {# ticket} other {# tickets}} · {total}",
     "undo": "Undo this purchase",
     "undoTitle": "Undo this purchase?",
@@ -385,8 +386,7 @@
       "closedReversed": "This purchase was undone, so answers are closed. What was said is kept as it was.",
       "closedUnknown": "Answers are closed for this ticket. What was said is kept as it was."
     },
-    "holdingHeading": "Tickets someone gave you",
-    "holdingDescription": "Someone bought these and gave them to you. The event is theirs to change: if they hand a ticket to someone else, it leaves this list.",
+    "heldRow": "Someone gave you this ticket · {ticketType}",
     "assignment": {
       "title": "Who these tickets are for",
       "tally": "{assigned} of {total} tickets have an address.",
@@ -411,7 +411,11 @@
       "rowAssigned": "For {email}",
       "rowAccepted": "{email} has it",
       "giveAway": "Give this ticket to someone else"
-    }
+    },
+    "tabsLabel": "Your tickets by status",
+    "reversedHeading": "Reversed",
+    "tabCount": "{label} ({count})",
+    "reversedTabDescription": "Purchases that were undone. These tickets were released and are no longer valid for entry."
   },
   "myInfo": {
     "heading": "My info",

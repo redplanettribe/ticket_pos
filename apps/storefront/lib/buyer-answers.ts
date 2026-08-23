@@ -177,3 +177,17 @@ export function withHeldRow(held: HeldTicket[], updated: HeldTicket): HeldTicket
   if (index === -1) return [...held, updated];
   return held.map((row, i) => (i === index ? updated : row));
 }
+
+/**
+ * How many placeholder rows to reserve while the two fetches are in flight
+ * (#357). One per Ticket on the Sale — the count the Sale's own lines already
+ * know, so the space is held before either list has arrived — and never fewer
+ * than one: a Sale with no countable lines (a malformed or zero-quantity
+ * payload) still deserves a row's worth of room rather than a heading over
+ * nothing. Never more than a dozen: past that the skeleton is a wall of grey
+ * and the reader gains nothing from its exactness.
+ */
+export function placeholderRowCount(ticketCount: number): number {
+  if (!Number.isFinite(ticketCount)) return 1;
+  return Math.min(12, Math.max(1, Math.floor(ticketCount)));
+}

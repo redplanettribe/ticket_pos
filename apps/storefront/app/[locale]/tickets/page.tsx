@@ -13,23 +13,29 @@ import {
   PageHeader,
 } from "@ticket-pos/ui";
 
+import { EventGroup } from "@/components/event-group";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
-import { HeldTickets } from "@/components/held-tickets";
 import { MyInfo } from "@/components/my-info";
+import { OpenSaleFromHash } from "@/components/open-sale-from-hash";
 import { RetryFailedRead } from "@/components/reversal-watch";
 import { SignInOtherAddressButton } from "@/components/sign-in-other-address-button";
 import { StorefrontShell } from "@/components/storefront-shell";
-import { TicketSaleCard } from "@/components/ticket-sale-card";
 import { Link, redirect } from "@/i18n/navigation";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { BRAND_NAME } from "@/lib/brand";
+import {
+  availableTabs,
+  type TabCount,
+  groupsFor,
+  tabForLinkedSale,
+  tabOf,
+  type CustomerAreaTab,
+} from "@/lib/customer-area-tabs";
 import {
   customerSessionToken,
   getCustomerArea,
   getCustomerSession,
   type CustomerArea as CustomerAreaData,
-  type HeldTicket,
-  type TicketSale,
 } from "@/lib/customer-session";
 
 // Same posture as every other Storefront page: rendered per request with
@@ -59,6 +65,8 @@ export async function generateMetadata({
 
 type CustomerAreaPageProps = {
   params: Promise<{ locale: string }>;
+  /** `?tab=` names the tab to open (#355); anything else falls back to Upcoming. */
+  searchParams: Promise<{ tab?: string | string[] }>;
 };
 
 /**
@@ -71,8 +79,9 @@ type CustomerAreaPageProps = {
  */
 export default async function CustomerAreaPage({
   params,
+  searchParams,
 }: CustomerAreaPageProps) {
-  const { locale } = await params;
+  const [{ locale }, { tab: rawTab }] = await Promise.all([params, searchParams]);
   // Every page declares its own locale; see the note in app/[locale]/layout.tsx.
   setRequestLocale(locale);
   const [area, session] = await Promise.all([
@@ -86,6 +95,15 @@ export default async function CustomerAreaPage({
   // page believes.
   const fromConfirmationLink =
     session.status === "ok" && session.data.ticket_sale_id !== null;
+
+  // The tab this page opens on. The URL names it so that a tab is a link that
+  // can be sent, except for a Confirmation Link session: that shows one Sale,
+  // so there is nothing to choose between and the Sale decides — a reversed
+  // one opens on Reversed, where it is, rather than on an empty Upcoming.
+  const tab: CustomerAreaTab =
+    fromConfirmationLink && area.status === "ok"
+      ? tabForLinkedSale(area.data)
+      : tabOf(rawTab);
 
   if (area.status === "signed-out") {
     // A session that ran out or was signed out elsewhere sends the visitor to
@@ -115,66 +133,87 @@ export default async function CustomerAreaPage({
         t("loadNetworkFailed"))
       : null;
 
+  // Whether "My info" is on the page at all decides the shape of the page (#358).
+  // With it, a laptop gets two columns: tickets left, the panel in a sticky
+  // sidebar on the right. Without it — a Confirmation Link arrival, or a read
+  // that came back without a session — the one column stays centred and
+  // narrow, rather than leaving an empty lane where a sidebar would have been.
+  const showMyInfo = session.status === "ok" && !fromConfirmationLink;
+
   return (
     <StorefrontShell customerNav={<HeaderCustomerNav />}>
-      <div className="mx-auto w-full max-w-3xl space-y-8 px-4 py-10 sm:py-12">
-        <PageHeader
-          title={fromConfirmationLink ? t("linkedTitle") : t("title")}
-          description={
-            fromConfirmationLink ? t("linkedDescription") : t("description")
-          }
-        />
-
-        {fromConfirmationLink &&
-        area.status === "ok" &&
-        linkedSaleReversed(area.data) ? (
-          <ReversedSaleNotice />
-        ) : null}
-
-        {fromConfirmationLink ? <ConfirmationLinkNotice /> : null}
-
-        {area.status === "error" ? (
-          <>
-            <Alert variant="destructive">
-              <AlertTitle>{t("loadFailedTitle")}</AlertTitle>
-              {/* Which failure it was stays the API's to say; only the words are
-                  this page's. There is always a sentence: a failure that named
-                  nothing at all is still a failure the reader is owed an
-                  explanation for. */}
-              <AlertDescription>{loadFailure}</AlertDescription>
-            </Alert>
-            {/* The error replaces the cards, and with them anything watching a
-                Reversal Request resolve — so a failed read is what would
-                otherwise end the watch for good. A few silent retries make one
-                blip survivable; see RetryFailedRead. */}
-            <RetryFailedRead />
-          </>
-        ) : (
-          <CustomerArea
-            upcoming={area.data.upcoming}
-            past={area.data.past}
-            // The Tickets somebody gave this Customer and they accepted (#325).
-            // Empty for almost everybody, and empty for a Confirmation Link
-            // session by construction.
-            holding={area.data.holding ?? []}
-            // A Confirmation Link arrival reads their purchase and acts on
-            // nothing (#121): the cards state the Reversal Window and offer the
-            // way to sign in, never the undo itself. The email travels with it
-            // so that one click is the whole of the sign-in, and it is the
-            // session's own address rather than anything from the URL.
-            viaConfirmationLink={fromConfirmationLink}
-            customerEmail={session.status === "ok" ? session.data.email : null}
+      {/* The grid only exists from `lg` up; below it, the two children stack in
+          DOM order, which is the order they have always had — tickets first,
+          My info last — so the phone layout and the keyboard order are
+          untouched by the laptop one. */}
+      <div
+        className={
+          showMyInfo
+            ? "mx-auto w-full max-w-6xl px-4 py-10 sm:py-12 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start lg:gap-8"
+            : "mx-auto w-full max-w-3xl px-4 py-10 sm:py-12"
+        }
+      >
+        <div className="space-y-8">
+          <PageHeader
+            title={fromConfirmationLink ? t("linkedTitle") : t("title")}
+            description={
+              fromConfirmationLink ? t("linkedDescription") : t("description")
+            }
           />
-        )}
 
+          {fromConfirmationLink &&
+          area.status === "ok" &&
+          linkedSaleReversed(area.data) ? (
+            <ReversedSaleNotice />
+          ) : null}
+
+          {fromConfirmationLink ? <ConfirmationLinkNotice /> : null}
+
+          {area.status === "error" ? (
+            <>
+              <Alert variant="destructive">
+                <AlertTitle>{t("loadFailedTitle")}</AlertTitle>
+                {/* Which failure it was stays the API's to say; only the words are
+                    this page's. There is always a sentence: a failure that named
+                    nothing at all is still a failure the reader is owed an
+                    explanation for. */}
+                <AlertDescription>{loadFailure}</AlertDescription>
+              </Alert>
+              {/* The error replaces the cards, and with them anything watching a
+                  Reversal Request resolve — so a failed read is what would
+                  otherwise end the watch for good. A few silent retries make one
+                  blip survivable; see RetryFailedRead. */}
+              <RetryFailedRead />
+            </>
+          ) : (
+            <CustomerArea
+              area={area.data}
+              tab={tab}
+              // A Confirmation Link arrival reads their purchase and acts on
+              // nothing (#121): the cards state the Reversal Window and offer the
+              // way to sign in, never the undo itself. The email travels with it
+              // so that one click is the whole of the sign-in, and it is the
+              // session's own address rather than anything from the URL.
+              viaConfirmationLink={fromConfirmationLink}
+              customerEmail={session.status === "ok" ? session.data.email : null}
+            />
+          )}
+        </div>
         {/* "My info" is the Customer Area's only write, and it belongs to the
             full session alone. A Confirmation Link arrival is not shown it: that
             session proves possession of a forwarded email rather than ownership
             of the address, and the API refuses the edit behind it (#102). It
-            sits below the tickets because the tickets are what someone came
-            for. */}
-        {session.status === "ok" && !fromConfirmationLink ? (
-          <MyInfo profile={session.data} />
+            comes after the tickets because the tickets are what someone came
+            for — under them on a phone, beside them on a laptop, sticky so the
+            panel rides along while a long list of Event groups scrolls
+            (top-24 clears the sticky header). */}
+        {/* The second test repeats the first's, for the type checker alone:
+            `showMyInfo` is a boolean and cannot narrow `session` to the
+            shape `MyInfo` wants. */}
+        {showMyInfo && session.status === "ok" ? (
+          <aside className="mt-8 lg:sticky lg:top-24 lg:mt-0">
+            <MyInfo profile={session.data} />
+          </aside>
         ) : null}
       </div>
     </StorefrontShell>
@@ -236,39 +275,83 @@ async function ConfirmationLinkNotice() {
 }
 
 async function CustomerArea({
-  upcoming,
-  past,
-  holding,
+  area,
+  tab: requested,
   viaConfirmationLink,
   customerEmail,
 }: {
-  upcoming: TicketSale[];
-  past: TicketSale[];
-  holding: HeldTicket[];
+  area: CustomerAreaData;
+  tab: CustomerAreaTab;
   viaConfirmationLink: boolean;
   customerEmail: string | null;
 }) {
+  // The Tickets somebody gave this Customer and they accepted (#325). Empty
+  // for almost everybody, and empty for a Confirmation Link session by
+  // construction. They are drawn inside their Event's group, by groupsFor.
+  const holding = area.holding ?? [];
   // Somebody who has bought nothing may still HOLD something: a friend bought
   // them a ticket and they accepted it (#325). Showing them the "you have no
   // purchases" page while they hold a ticket would be the platform denying the
   // thing it just mailed them.
-  if (upcoming.length === 0 && past.length === 0 && holding.length === 0) {
+  if (
+    area.upcoming.length === 0 &&
+    area.past.length === 0 &&
+    holding.length === 0
+  ) {
     return <NoPurchases />;
   }
   const t = await getTranslations("customerArea");
+  // One instant for the whole render, so a held Ticket is filed under the same
+  // tab the count on the tab bar promised.
+  const now = new Date();
+  const tabs = availableTabs(area, now);
+  // A URL can name a tab the bar does not draw — a Past link sent before the
+  // last past Sale was reversed, say. It opens on Upcoming, like any other
+  // name this page has nothing for, rather than on a heading over nothing.
+  const tab = tabs.some((entry) => entry.tab === requested) ? requested : "upcoming";
+  const groups = groupsFor(area, tab, now);
 
   return (
     <>
-      <section className="space-y-4">
-        <h2 className="text-lg font-semibold tracking-tight">
-          {t("upcomingHeading")}
+      {/* One card per Event, the Sales as rows inside it (#354) and after them
+          the Tickets somebody gave this Customer (#356); a row named by
+          the URL's fragment is opened by the client piece below, since a
+          fragment alone cannot open a `<details>`. Mounted once for the page. */}
+      <OpenSaleFromHash />
+
+      {/* A Confirmation Link session shows one Sale, so a bar of tabs would be
+          a choice between one thing and nothing; the page has already opened
+          on the tab that Sale lives in. */}
+      {viaConfirmationLink ? null : (
+        <TabBar tabs={tabs} current={tab} />
+      )}
+
+      <section className="space-y-4" aria-labelledby="customer-area-tab-heading">
+        <h2
+          id="customer-area-tab-heading"
+          className="text-lg font-semibold tracking-tight"
+        >
+          {t(TAB_HEADING[tab])}
         </h2>
-        {upcoming.length > 0 ? (
+
+        {/* Reversed is the one tab whose contents are not tickets to anything,
+            so it says so once, above the cards, rather than leaving the badge
+            on every row to explain the whole tab. */}
+        {tab === "reversed" ? (
+          <p className="text-sm text-muted-foreground">
+            {t("reversedTabDescription")}
+          </p>
+        ) : null}
+
+        {/* Only Upcoming can be empty: the other two are not drawn when there
+            is nothing behind them, and a URL naming one fell back above. */}
+        {groups.length > 0 ? (
           <ul className="space-y-4">
-            {upcoming.map((sale) => (
-              <TicketSaleCard
-                key={sale.id}
-                sale={sale}
+            {groups.map((group) => (
+              <EventGroup
+                key={group.event.id}
+                group={group}
+                badgeReversed={tab !== "reversed"}
                 viaConfirmationLink={viaConfirmationLink}
                 customerEmail={customerEmail}
               />
@@ -286,32 +369,64 @@ async function CustomerArea({
           </div>
         )}
       </section>
-
-      {/* The Tickets somebody gave this Customer, with their questions: a
-          client component, because the questions are fetched and answered
-          from the browser (#345). See components/held-tickets.tsx. */}
-      {holding.length > 0 ? <HeldTickets holding={holding} /> : null}
-
-      {past.length > 0 ? (
-        <section className="space-y-4">
-          <h2 className="text-lg font-semibold tracking-tight">
-            {t("pastHeading")}
-          </h2>
-          <ul className="space-y-4">
-            {past.map((sale) => (
-              <TicketSaleCard
-                key={sale.id}
-                sale={sale}
-                viaConfirmationLink={viaConfirmationLink}
-                customerEmail={customerEmail}
-              />
-            ))}
-          </ul>
-        </section>
-      ) : null}
     </>
   );
 }
+
+const TAB_HEADING = {
+  upcoming: "upcomingHeading",
+  past: "pastHeading",
+  reversed: "reversedHeading",
+} as const;
+
+/**
+ * The tab bar: plain links to `?tab=`, so a tab is an address — sendable,
+ * bookmarkable, and back-button-able — rather than client state that a reload
+ * forgets. The current one is marked as the page it is, which is also what
+ * draws it selected. Each label carries its count so the reader knows what a
+ * tab holds before opening it.
+ *
+ * The bar scrolls sideways on its own when three labelled tabs outgrow a
+ * narrow phone; the page itself never widens (#353).
+ */
+async function TabBar({
+  tabs,
+  current,
+}: {
+  tabs: TabCount[];
+  current: CustomerAreaTab;
+}) {
+  const t = await getTranslations("customerArea");
+  return (
+    <nav aria-label={t("tabsLabel")} className="-mx-4 overflow-x-auto px-4">
+      <ul className="flex min-w-max gap-1 border-b">
+        {tabs.map(({ tab, count }) => {
+          const selected = tab === current;
+          return (
+            <li key={tab}>
+              <Link
+                href={{ pathname: "/tickets", query: { tab } }}
+                aria-current={selected ? "page" : undefined}
+                className={
+                  "-mb-px inline-flex items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors " +
+                  (selected
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:border-border hover:text-foreground")
+                }
+              >
+                {t("tabCount", {
+                  label: t(TAB_HEADING[tab]),
+                  count,
+                })}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
+
 /**
  * The empty state points at the explorer rather than dead-ending. A Customer can
  * reach this legitimately: signing in creates the record if a Ticket Sale never

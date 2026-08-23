@@ -7,24 +7,46 @@ import { ReversalWatch } from "@/components/reversal-watch";
 import { UndoPurchase } from "@/components/undo-purchase";
 import { SignInToUndo, UndoWindowNotice } from "@/components/undo-window-notice";
 import { getFormatLocale } from "@/i18n/format-locale.server";
-import { Link } from "@/i18n/navigation";
 import type { TicketSale } from "@/lib/customer-session";
 import { ticketSaleAnchorId } from "@/lib/destination";
-import { formatEventDateTime, formatPrice } from "@/lib/format";
+import { formatPrice, formatPurchaseDate } from "@/lib/format";
 import { formatTaxId } from "@/lib/tax-id";
 import { undoDeadline } from "@/lib/undo-window";
 
 /**
- * One entry in the Customer Area: a Ticket Sale shown by the thing the Customer
- * actually cares about — the Event — with the Organization behind it, what was
- * bought, and the Sale Confirmation reference they can quote to a promoter.
+ * One Ticket Sale, as a row inside its Event's card (components/event-group.tsx).
+ *
+ * Shut, the row is the one line a buyer scans a list by — how many tickets,
+ * for how much, bought when — and the Reversed or Refund-in-progress badge,
+ * which must be readable without opening anything: a reversed purchase that
+ * looks like any other until clicked is the list lying. Open, it is
+ * everything the old full card showed: the Ticket Sale Lines, the Sale
+ * Confirmation reference a buyer quotes to a promoter, the Tax ID, the undo
+ * offer or the state of the refund, and the Holder List with its questions.
+ *
+ * A native `<details>`, not a client component: the page is a server render,
+ * the state is the browser's own, and a row opens before any script runs.
  */
 export async function TicketSaleCard({
   sale,
+  defaultOpen = false,
+  badgeReversed = true,
   viaConfirmationLink = false,
   customerEmail = null,
 }: {
   sale: TicketSale;
+  /**
+   * Whether a reversed Sale wears its badge on the row. True everywhere but
+   * the Reversed tab, whose heading and description already say it of every
+   * row there: a badge repeated down a list that is nothing else stops being
+   * a warning and becomes wallpaper.
+   */
+  badgeReversed?: boolean;
+  /**
+   * True when the row should start open — the Event has only this one Sale,
+   * so there is nothing to choose between and nothing to hide.
+   */
+  defaultOpen?: boolean;
   /**
    * True when this card is being drawn for someone who arrived by a Confirmation
    * Link rather than by signing in.
@@ -44,15 +66,10 @@ export async function TicketSaleCard({
   customerEmail?: string | null;
 }) {
   const t = await getTranslations("customerArea");
-  // The Event page's own words for the Organization behind an Event, read from
-  // where they are written rather than restated here: a purchase and the Event
-  // it is for must not credit the same Organization two different ways.
-  const eventCopy = await getTranslations("event");
   const formatLocale = await getFormatLocale();
-  // The words of a date are the Customer's language; the clock behind them
-  // stays the Event's own timezone, which is a fact about the Event.
-  const dateLabel = formatEventDateTime(sale.event.starts_at, sale.event.timezone, formatLocale);
-  const when = dateLabel ?? t("dateTbd");
+  // The day this was bought, in the Customer's language; null only for a
+  // sold_at the API never sends, in which case the row simply omits it.
+  const boughtOn = formatPurchaseDate(sale.sold_at, formatLocale);
   const reversed = sale.status === "reversed";
   // A Reversal Request in flight: the Customer asked to undo this, the Payment
   // Provider has not said what it did, and the platform is finding out (ADR
@@ -66,7 +83,6 @@ export async function TicketSaleCard({
   // resolved request leaves the sale reversed and the pending flag false, and if
   // a read ever showed both, "Reversed" is the one that has actually happened.
   const refundPending = sale.reversal_pending && !reversed;
-  const eventHref = `/${sale.organization.slug}/events/${sale.event.slug}`;
   const totalTickets = sale.lines.reduce((sum, line) => sum + line.quantity, 0);
   // The Tax ID this sale was transacted under, so a Customer can tell a personal
   // purchase from one made under a company RUC (#99). Sales recorded before the
@@ -88,38 +104,61 @@ export async function TicketSaleCard({
   const reversalDeadline = undoDeadline(sale, formatLocale);
 
   return (
-    // The card is addressable (#121). The Customer Area is one page listing every
+    // The row is addressable (#121). The Customer Area is one page listing every
     // purchase and has no per-sale route, so this anchor is what lets the guest
     // surfaces — and the sign-in they lead through — land a buyer on the sale
     // they came about rather than on a list to scan. The id spelling lives in
     // lib/destination beside the links that use it, so the two cannot drift.
-    <li id={ticketSaleAnchorId(sale.id)} className="scroll-mt-6 rounded-lg border bg-card p-5 sm:p-6">
-      <div className="flex flex-col gap-1">
-        <h3 className="text-lg font-semibold tracking-tight">
-          <Link href={eventHref} className="hover:text-primary hover:underline">
-            {sale.event.name}
-          </Link>
-        </h3>
-        <p className="text-sm text-muted-foreground">
-          {/* Two facts joined by a separator we chose, so the join is a message:
-              a language that wants a comma, or the venue first, can have it. */}
-          {sale.event.venue_name
-            ? t("eventWhenWhere", { when, venue: sale.event.venue_name })
-            : when}
-        </p>
-        <p className="text-sm text-muted-foreground">
-          {eventCopy.rich("presentedBy", {
-            organization: sale.organization.name,
-            organizer: (chunks) => (
-              <Link href={`/${sale.organization.slug}`} className="hover:text-foreground hover:underline">
-                {chunks}
-              </Link>
-            ),
+    // Arriving by the anchor also OPENS the row: components/open-sale-from-hash.
+    //
+    // `open` is the attribute or nothing, never `false`: React re-applies a
+    // `false` on every redraw, and a save inside the row (a Holder's answer)
+    // would snap it shut on the way back.
+    <details
+      id={ticketSaleAnchorId(sale.id)}
+      open={defaultOpen || undefined}
+      // A NAMED group, because the Holder List rows nested inside are
+      // `<details>` with chevrons of their own: Tailwind's bare `group-open:`
+      // matches any open `.group` ancestor, so an open Sale row would turn
+      // every chevron inside it without opening anything.
+      className="group/sale scroll-mt-6"
+    >
+      {/* THE WHOLE ROW IS THE TAP TARGET, at least 44px tall; the chevron is a
+          hint, not the handle. The facts wrap rather than truncate: at 360px
+          "3 tickets · $45.00" and "Bought Jul 5, 2026" take a line each and
+          the badge a third, and the page is never wider than the phone (#353). */}
+      <summary className="flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 py-3 text-sm [&::-webkit-details-marker]:hidden">
+        <span
+          aria-hidden
+          className="text-muted-foreground transition-transform group-open/sale:rotate-90"
+        >
+          ▸
+        </span>
+        <span className="font-medium">
+          {/* One message, so the count's plural and the total it sits beside
+              cannot be assembled in an order English happens to like. */}
+          {t("ticketsTotal", {
+            count: totalTickets,
+            total: formatPrice(sale.amount_cents, sale.currency, formatLocale),
           })}
-        </p>
-      </div>
+        </span>
+        {boughtOn ? (
+          <span className="text-muted-foreground">{t("boughtOn", { date: boughtOn })}</span>
+        ) : null}
+        {/* A reversed sale must say so plainly rather than sit in the list
+            looking like tickets the Customer still holds — and on the shut
+            row, where the list is read. */}
+        {reversed && badgeReversed ? (
+          <Badge variant="destructive">{t("reversedBadge")}</Badge>
+        ) : null}
+        {/* Not destructive, and deliberately: a destructive badge beside
+            tickets that are still good would say the purchase is gone. This
+            is work in progress on the money and nothing else. */}
+        {refundPending ? <Badge variant="warning">{t("refundPendingBadge")}</Badge> : null}
+      </summary>
 
-      <ul className="mt-4 space-y-1 text-sm">
+      <div className="pb-4">
+      <ul className="space-y-1 text-sm">
         {sale.lines.map((line, index) => (
           <li key={`${line.ticket_type_name}-${index}`} className="flex justify-between gap-4">
             <span>
@@ -132,8 +171,7 @@ export async function TicketSaleCard({
         ))}
       </ul>
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t pt-4 text-sm">
-        <div className="space-y-1 text-muted-foreground">
+      <div className="mt-4 space-y-1 border-t pt-4 text-sm text-muted-foreground">
           {/* The value is emphasised inside the sentence rather than after it,
               so a language that leads with the reference still can. */}
           <p>
@@ -153,24 +191,6 @@ export async function TicketSaleCard({
               value: (chunks) => <span className="font-medium text-foreground">{chunks}</span>,
             })}
           </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {/* A reversed sale must say so plainly rather than sit in the list
-              looking like tickets the Customer still holds. */}
-          {reversed ? <Badge variant="destructive">{t("reversedBadge")}</Badge> : null}
-          {/* Not destructive, and deliberately: a destructive badge beside
-              tickets that are still good would say the purchase is gone. This
-              is work in progress on the money and nothing else. */}
-          {refundPending ? <Badge variant="warning">{t("refundPendingBadge")}</Badge> : null}
-          <p className="font-medium">
-            {/* One message, so the count's plural and the total it sits beside
-                cannot be assembled in an order English happens to like. */}
-            {t("ticketsTotal", {
-              count: totalTickets,
-              total: formatPrice(sale.amount_cents, sale.currency, formatLocale),
-            })}
-          </p>
-        </div>
       </div>
 
       {/* The sentence, its Ecuador-time qualifier and the word "undo" all live in
@@ -252,8 +272,11 @@ export async function TicketSaleCard({
 
           It draws NOTHING at all unless this sale's Ticket Types ask something,
           which most do not, and nothing while the feature is dark. So the great
-          majority of these cards are exactly the card they were before. */}
-      <BuyerTicketAnswers ticketSaleId={sale.id} />
-    </li>
+          majority of these cards are exactly the card they were before — once
+          the lists have landed. Until then it holds one row per Ticket, and
+          the count is this card's to give: the lines know it (#357). */}
+      <BuyerTicketAnswers ticketSaleId={sale.id} ticketCount={totalTickets} />
+      </div>
+    </details>
   );
 }

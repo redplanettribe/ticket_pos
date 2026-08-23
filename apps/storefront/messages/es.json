@@ -337,7 +337,7 @@
     "upcomingHeading": "Próximos",
     "pastHeading": "Pasados",
     "nothingUpcomingTitle": "No hay nada próximo",
-    "nothingUpcomingDescription": "Sus entradas pasadas están más abajo, y siempre hay algo nuevo por descubrir.",
+    "nothingUpcomingDescription": "Siempre hay algo nuevo por descubrir.",
     "discoverEvents": "Descubrir eventos",
     "emptyTitle": "Todavía no tiene entradas",
     "emptyDescription": "Cuando compre entradas, aparecerán aquí, de todos los organizadores a los que les compre.",
@@ -351,6 +351,7 @@
     "confirmation": "Confirmación <value>{reference}</value>",
     "taxId": "Documento <value>{taxId}</value>",
     "reversedBadge": "Anulada",
+    "boughtOn": "Comprado el {date}",
     "ticketsTotal": "{count, plural, one {# entrada} other {# entradas}} · {total}",
     "undo": "Deshacer esta compra",
     "undoTitle": "¿Deshacer esta compra?",
@@ -385,8 +386,7 @@
       "closedReversed": "Esta compra se deshizo, así que las respuestas están cerradas. Lo que se respondió se conserva tal como estaba.",
       "closedUnknown": "Las respuestas están cerradas para esta entrada. Lo que se respondió se conserva tal como estaba."
     },
-    "holdingHeading": "Entradas que le dieron",
-    "holdingDescription": "Alguien compró estas entradas y se las dio. Quien las compró puede cambiarlas: si le da una entrada a otra persona, desaparece de esta lista.",
+    "heldRow": "Alguien le dio esta entrada · {ticketType}",
     "assignment": {
       "title": "Para quién son estas entradas",
       "tally": "{assigned} de {total} entradas tienen una dirección.",
@@ -411,7 +411,11 @@
       "rowAssigned": "Para {email}",
       "rowAccepted": "{email} la tiene",
       "giveAway": "Dar esta entrada a otra persona"
-    }
+    },
+    "tabsLabel": "Sus entradas por estado",
+    "reversedHeading": "Anuladas",
+    "tabCount": "{label} ({count})",
+    "reversedTabDescription": "Compras que se deshicieron. Estas entradas se liberaron y ya no sirven para el ingreso."
   },
   "myInfo": {
     "heading": "Mis datos",

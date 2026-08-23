@@ -253,3 +253,28 @@ export function formatEventDateShort(
   const day = [slots.weekday, slots.date].filter(Boolean).join(" ");
   return normalizeDayPeriodSpaces([day, slots.time].filter(Boolean).join(", "));
 }
+
+/**
+ * The day a Ticket Sale was made: "Jul 5, 2026".
+ *
+ * A date and no hour, because what a collapsed Sale row in the Customer Area
+ * answers is "which of my purchases is this?", and for that the day is plenty:
+ * two Sales on the same day are told apart by their count and total, and the
+ * Sale Confirmation reference is a click away. Ecuador's clock, like the
+ * Reversal Window's, because the purchase happened under the platform's own
+ * day and not under the Event's — a Sale for an Event abroad was still made
+ * here. The year is kept: Past keeps Sales for years.
+ */
+export function formatPurchaseDate(
+  soldAt: string,
+  locale: IntlLocale = DEFAULT_LOCALE,
+): string | null {
+  const date = new Date(soldAt);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    timeZone: ECUADOR_TIME_ZONE,
+  }).format(date);
+}

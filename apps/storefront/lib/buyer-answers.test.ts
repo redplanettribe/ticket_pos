@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   hasAnythingToShow,
   heldRowFor,
+  placeholderRowCount,
   saleOutstandingCount,
   withHeldRow,
   type BuyerTicket,
@@ -124,4 +125,13 @@ test("a written held ticket replaces its row and never duplicates it", () => {
   assert.equal(after[0]?.outstanding_count, 0);
   assert.equal(after[1], before[1]);
   assert.equal(withHeldRow([], held({ ticket_id: "c" })).length, 1);
+});
+
+test("the skeleton reserves one row per ticket, at least one and at most twelve", () => {
+  assert.equal(placeholderRowCount(4), 4);
+  assert.equal(placeholderRowCount(0), 1);
+  assert.equal(placeholderRowCount(-3), 1);
+  assert.equal(placeholderRowCount(2.7), 2);
+  assert.equal(placeholderRowCount(40), 12);
+  assert.equal(placeholderRowCount(Number.NaN), 1);
 });
