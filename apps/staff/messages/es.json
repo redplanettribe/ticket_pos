@@ -475,6 +475,25 @@
     "deletedToast": "Enlace de afiliado eliminado",
     "deleteFailed": "No se pudo eliminar el enlace de afiliado."
   },
+  "affiliateTrends": {
+    "title": "Tendencias de los enlaces",
+    "description": "Cómo se ha llegado a la página de este Evento, hora a hora, en la zona horaria del propio Evento. Los clics de cada Enlace de Afiliado se dibujan junto a todas las vistas de página, para leer cada enlace frente a la página en su conjunto.",
+    "loadFailedTitle": "No se pudieron cargar las tendencias de los enlaces",
+    "loadFailed": "No se pudieron cargar las tendencias de los enlaces.",
+    "chipsLabel": "Series dibujadas en el gráfico",
+    "allPageViews": "Todas las vistas de página",
+    "rangeLabel": "Cuánto tiempo atrás mira el gráfico",
+    "range_24h": "24 h",
+    "range_7d": "7 días",
+    "range_30d": "30 días",
+    "range_all": "Todo",
+    "chartLabelHourly": "Clics por Enlace de Afiliado junto a todas las vistas de página, un grupo de barras por hora",
+    "chartLabelDaily": "Clics por Enlace de Afiliado junto a todas las vistas de página, un grupo de barras por día",
+    "scrollLabel": "Gráfico de tendencias de los enlaces: desplácese de lado para recorrer el periodo",
+    "floorNote": "Los conteos son cargas de página, no personas: las recargas y los robots también cuentan, y las llegadas por un enlace desactivado cuentan solo como vistas de página. Lea cada cifra como un piso de lo que un enlace trajo, nunca como una medición de su público.",
+    "emptyTitle": "Todavía no hay vistas de página que graficar",
+    "emptyBody": "Todavía no se ha contado nada para este Evento. El conteo empieza en cuanto se carga una página, y comenzó cuando se estrenó este gráfico: los clics anteriores viven en la cifra de por vida de cada enlace, arriba, no aquí."
+  },
   "pos": {
     "title": "Punto de venta",
     "description": "Ventas presenciales, en la puerta.",

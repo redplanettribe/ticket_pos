@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { loadSession } from "../../../staff-page-shell";
 import { AffiliateLinksSection } from "../affiliate-links-section";
+import { AffiliateTrendsSection } from "../affiliate-trends-section";
 
 type AffiliateLinksPageProps = {
   params: Promise<{ id: string }>;
@@ -19,5 +20,12 @@ export default async function AffiliateLinksPage({ params }: AffiliateLinksPageP
     redirect(`/events/${id}/ticket-types`);
   }
 
-  return <AffiliateLinksSection eventId={id} />;
+  // The management list first — creating a link is the tab's first job — and
+  // the trends chart beneath it, reading what the links above have done.
+  return (
+    <div className="space-y-6">
+      <AffiliateLinksSection eventId={id} />
+      <AffiliateTrendsSection eventId={id} />
+    </div>
+  );
 }

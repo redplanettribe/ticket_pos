@@ -475,6 +475,25 @@
     "deletedToast": "Affiliate link deleted",
     "deleteFailed": "Could not delete the affiliate link."
   },
+  "affiliateTrends": {
+    "title": "Link trends",
+    "description": "How this Event's page has been reached, hour by hour, in the Event's own timezone. Each Affiliate Link's clicks are drawn against all page views, so a link can be read against the page as a whole.",
+    "loadFailedTitle": "Could not load the link trends",
+    "loadFailed": "Could not load the link trends.",
+    "chipsLabel": "Series drawn on the chart",
+    "allPageViews": "All page views",
+    "rangeLabel": "How far back the chart looks",
+    "range_24h": "24 h",
+    "range_7d": "7 days",
+    "range_30d": "30 days",
+    "range_all": "All",
+    "chartLabelHourly": "Clicks per Affiliate Link against all page views, one group of bars per hour",
+    "chartLabelDaily": "Clicks per Affiliate Link against all page views, one group of bars per day",
+    "scrollLabel": "Link trends chart — scroll sideways to move through the period",
+    "floorNote": "Counts are page loads, not people: refreshes and robots count too, and a deactivated link's arrivals count as page views only. Read every figure as a floor on what a link drove, never as a measurement of your audience.",
+    "emptyTitle": "No page views to chart yet",
+    "emptyBody": "Nothing has been counted for this Event yet. Counting starts the moment a page is loaded, and it began when this chart shipped — clicks from before then live in each link's lifetime figure above, not here."
+  },
   "pos": {
     "title": "Point of sale",
     "description": "In-person sales, at the door.",

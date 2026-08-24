@@ -25,6 +25,11 @@ export {
   StackedBarChart,
   type StackedBarChartProps,
 } from "./components/charts/stacked-bar-chart";
+export {
+  MultiSeriesBarChart,
+  type MultiSeriesBarChartProps,
+  type MultiSeriesDatum,
+} from "./components/charts/multi-series-bar-chart";
 export { EventShell, type EventShellLabels } from "./components/event-shell";
 export { InProgressPanel } from "./components/in-progress-panel";
 export { FormField } from "./components/form-field";
