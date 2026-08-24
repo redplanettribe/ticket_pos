@@ -353,6 +353,11 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// seam, the operator allowlist, and the Staff Locale reader — so who is
 	// told and in what language come from the same place they do there.
 	catalogService = catalogService.WithQuestionReviewNotices(emailSender, identityService, identityService)
+	// The Revocation notice (#410, ADR 0056): every Org Admin of the
+	// Organization, each in their Mail Locale, on the channel ADR 0026 opened.
+	// Identity satisfies the recipients seam — who the Org Admins are and what
+	// language each reads — so catalog never learns how staff identity works.
+	catalogService = catalogService.WithRevocationMail(emailSender, identityService)
 	catalogHandler := cataloghandler.New(catalogService)
 
 	// The Sale Confirmation's one conditional sentence (#315, ADR 0044), tied on

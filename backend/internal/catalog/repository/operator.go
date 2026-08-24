@@ -76,3 +76,24 @@ func (r *Repository) CountEventsByOrganizationIDs(ctx context.Context, orgIDs []
 	}
 	return counts, rows.Err()
 }
+
+// GetEventByIDForOperator returns one Event whatever Organization it belongs
+// to, or nil for none, for the Platform Operator's view of its Ticket
+// Questions (#410).
+func (r *Repository) GetEventByIDForOperator(ctx context.Context, eventID string) (*OperatorEventRow, error) {
+	row := r.db.Pool.QueryRowContext(ctx, `
+		SELECT id, name, status, starts_at, discoverable
+		FROM events
+		WHERE id = $1
+	`, eventID)
+	var e OperatorEventRow
+	var status string
+	if err := row.Scan(&e.ID, &e.Name, &status, &e.StartsAt, &e.Discoverable); err != nil {
+		if isNoRows(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	e.Status = EventStatus(status)
+	return &e, nil
+}

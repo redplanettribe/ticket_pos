@@ -683,6 +683,14 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.revokeTicketQuestionBody": {
+                "properties": {
+                    "reason": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.selectOrganizationBody": {
                 "properties": {
                     "member_id": {
@@ -1821,6 +1829,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeOperatorRevokedTicketQuestion": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.RevokedTicketQuestion"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeOperatorSaleLookup": {
                 "properties": {
                     "data": {
@@ -1839,6 +1861,24 @@ const docTemplate = `{
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/service.SaleReversal"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeOperatorTicketQuestions": {
+                "properties": {
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.TicketQuestion"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -4499,6 +4539,65 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.RevokedTicketQuestion": {
+                "properties": {
+                    "approved_by": {
+                        "description": "ApprovedBy names who approved it — a Platform Operator, or the\ngrandfathering migration — and is absent until somebody has.",
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "options": {
+                        "description": "Options is empty for the five kinds that are not answered by choosing.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.TicketQuestionOptionView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "refusal_reason": {
+                        "description": "RefusalReason is the Operator's reason on a refused question.",
+                        "type": "string"
+                    },
+                    "required": {
+                        "description": "Required produces an Outstanding Answer and nothing else. It is not a\nconstraint, and no surface may treat it as one.",
+                        "type": "boolean"
+                    },
+                    "retired": {
+                        "description": "Retired is true for a question kept only so that what has already been\nanswered still reads. Retired questions are returned so the authoring\nsurface can show them rather than appearing to have lost them.",
+                        "type": "boolean"
+                    },
+                    "review_status": {
+                        "description": "ReviewStatus is where the question stands with the Platform Operator\n(ADR 0056): ` + "`" + `draft` + "`" + `, ` + "`" + `under_review` + "`" + `, ` + "`" + `approved` + "`" + ` or ` + "`" + `refused` + "`" + `. Only an\napproved question is asked of anybody. Read-only on this surface: the\nverdicts are the Operator's and the submission is a Question Review's.",
+                        "type": "string"
+                    },
+                    "revocation_reason": {
+                        "description": "RevocationReason is the Operator's reason on a Revocation, which is why\na question that reads retired here stopped being asked.",
+                        "type": "string"
+                    },
+                    "sort_order": {
+                        "type": "integer"
+                    },
+                    "timing": {
+                        "description": "Timing is 'at_checkout' on every row written so far; the field is here so\nthe Organization's choice can be honoured later without migrating Answers.",
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.Sale": {
                 "properties": {
                     "amount_cents": {
@@ -4846,6 +4945,71 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "ticket_type_name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.TicketQuestion": {
+                "properties": {
+                    "approved_by": {
+                        "description": "ApprovedBy names who approved it — a Platform Operator, or the\ngrandfathering migration — and is absent until somebody has.",
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "options": {
+                        "description": "Options is empty for the five kinds that are not answered by choosing.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.TicketQuestionOptionView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "refusal_reason": {
+                        "description": "RefusalReason is the Operator's reason on a refused question.",
+                        "type": "string"
+                    },
+                    "required": {
+                        "description": "Required produces an Outstanding Answer and nothing else. It is not a\nconstraint, and no surface may treat it as one.",
+                        "type": "boolean"
+                    },
+                    "retired": {
+                        "description": "Retired is true for a question kept only so that what has already been\nanswered still reads. Retired questions are returned so the authoring\nsurface can show them rather than appearing to have lost them.",
+                        "type": "boolean"
+                    },
+                    "review_status": {
+                        "description": "ReviewStatus is where the question stands with the Platform Operator\n(ADR 0056): ` + "`" + `draft` + "`" + `, ` + "`" + `under_review` + "`" + `, ` + "`" + `approved` + "`" + ` or ` + "`" + `refused` + "`" + `. Only an\napproved question is asked of anybody. Read-only on this surface: the\nverdicts are the Operator's and the submission is a Question Review's.",
+                        "type": "string"
+                    },
+                    "revocation_reason": {
+                        "description": "RevocationReason is the Operator's reason on a Revocation, which is why\na question that reads retired here stopped being asked.",
+                        "type": "string"
+                    },
+                    "sort_order": {
+                        "type": "integer"
+                    },
+                    "ticket_type_id": {
+                        "type": "string"
+                    },
+                    "ticket_type_name": {
+                        "type": "string"
+                    },
+                    "timing": {
+                        "description": "Timing is 'at_checkout' on every row written so far; the field is here so\nthe Organization's choice can be honoured later without migrating Answers.",
+                        "type": "string"
+                    },
+                    "updated_at": {
                         "type": "string"
                     }
                 },
@@ -7904,6 +8068,73 @@ const docTemplate = `{
                 ]
             }
         },
+        "/api/v1/operator/events/{eventID}/ticket-questions": {
+            "get": {
+                "description": "Returns every Ticket Question of the Event across its Ticket Types, in every review state and retired ones included, each with its Options and its review columns (` + "`" + `review_status` + "`" + `, ` + "`" + `approved_by` + "`" + `, ` + "`" + `refusal_reason` + "`" + `, ` + "`" + `revocation_reason` + "`" + `) and the Ticket Type it hangs off. This is where the Operator sees what an Organization is asking and takes an approval back (ADR 0056). Not scoped to an Organization: the operator allowlist is the whole of the gate. 404 EVENT_NOT_FOUND for an unknown or malformed id; 404 TICKET_QUESTIONS_UNAVAILABLE while the feature is dark (ADR 0045). Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "eventID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorTicketQuestions"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List an Event's Ticket Questions for the Platform Operator",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
         "/api/v1/operator/organizations": {
             "get": {
                 "description": "Returns a page of every Organization on the platform — name, slug, currency, Event count across all statuses, and withdrawable_balance_cents, which is SIGNED (negative when the Organization owes the platform after a sale was reversed post-settlement). Sorted by name ascending with an id tiebreaker so equal names keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100) and page floors at 1. Platform Operator only.",
@@ -8961,6 +9192,113 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Get platform revenue and what the platform owes",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/ticket-questions/{questionID}/revoke": {
+            "post": {
+                "description": "A Revocation (ADR 0056): retires the question and records who revoked it (taken from the Staff Session, never from the body), when, and why. ` + "`" + `review_status` + "`" + ` stays ` + "`" + `approved` + "`" + ` because the approval was real; ` + "`" + `retired` + "`" + ` becomes true and ` + "`" + `revocation_reason` + "`" + ` carries the reason. From that moment the question is asked of nobody — gone from the checkout, the public Event page, the Customer Area, the Holder List's Outstanding Answers and the Answer Reminder — while every Answer already given stays on its Ticket, on the staff answer view and in the Sales Export. Every Org Admin of the Organization is mailed the reason in their own language. THE REASON IS REQUIRED — blank or whitespace-only is refused with a field error — and bounded at 500 characters. Only an approved, live question can be revoked: a draft, under-review or refused one is 409 TICKET_QUESTION_NOT_APPROVED, and one already retired is 409 TICKET_QUESTION_RETIRED. 404 TICKET_QUESTION_NOT_FOUND for an unknown or malformed id. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Ticket Question ID",
+                        "in": "path",
+                        "name": "questionID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.revokeTicketQuestionBody",
+                                        "summary": "body",
+                                        "description": "Why the approval is taken back"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Why the approval is taken back",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorRevokedTicketQuestion"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Revoke an approved Ticket Question, with a reason the Organization reads",
                 "tags": [
                     "operator"
                 ]

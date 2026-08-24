@@ -278,6 +278,19 @@ func (s *ResendEmailSender) SendNoLongerHolding(ctx context.Context, n NoLongerH
 	return nil
 }
 
+// SendTicketQuestionRevoked delivers one Org Admin's notice that an approved
+// Ticket Question was revoked (#410, ADR 0056). Best-effort like the Payout
+// Request notices beside it: the question is retired whether or not anybody
+// was told, and the staff editor carries the same reason. The reason itself is
+// not logged.
+func (s *ResendEmailSender) SendTicketQuestionRevoked(ctx context.Context, r TicketQuestionRevoked) error {
+	if err := s.send(ctx, r.To, r.Subject(), r.Text()); err != nil {
+		s.logger.Error("resend send ticket question revoked failed", "organization", r.OrganizationName, "error", err)
+		return err
+	}
+	return nil
+}
+
 // SendPayoutRequestSubmitted delivers one Platform Operator's notice that an
 // Organization asked to be paid. Best-effort: the request is recorded whether or
 // not anybody was told, and the pending count on the operator navigation is the

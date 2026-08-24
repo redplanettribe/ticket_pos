@@ -197,6 +197,14 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// discriminator is how two answers quietly become one (ADR 0026 amendment).
 	mux.Handle("POST /api/v1/operator/payout-requests/{requestID}/failed", operator(http.HandlerFunc(h.MarkPayoutRequestFailed)))
 	mux.Handle("POST /api/v1/operator/payout-requests/{requestID}/decline", operator(http.HandlerFunc(h.DeclinePayoutRequest)))
+	// The Operator's view of an Event's Ticket Questions, and the Revocation
+	// (#410, ADR 0056). Keyed on the Event and on the question rather than
+	// nested under an Organization, on the terms the Payout Request routes
+	// set: the question is what is being answered, and which Organization it
+	// belongs to is one of the answers. The revoke path is a verb because the
+	// act has one, and it can only ever take an approval away.
+	mux.Handle("GET /api/v1/operator/events/{eventID}/ticket-questions", operator(http.HandlerFunc(h.ListEventTicketQuestions)))
+	mux.Handle("POST /api/v1/operator/ticket-questions/{questionID}/revoke", operator(http.HandlerFunc(h.RevokeTicketQuestion)))
 	// The Consent Withdrawal an Operator records on somebody's behalf (#271,
 	// parent #265): a form that arrived by post, or an email to the
 	// data-protection address.

@@ -341,6 +341,18 @@ func ErrTicketQuestionUnderReview() apperror.DomainError {
 	)
 }
 
+// ErrTicketQuestionNotApproved is returned when a Revocation reaches a Ticket
+// Question that is not approved (#410, ADR 0056). A Revocation takes an
+// approval back, and a draft, under-review or refused question has none to
+// take: it was never asked of anybody.
+func ErrTicketQuestionNotApproved() apperror.DomainError {
+	return apperror.New(
+		"TICKET_QUESTION_NOT_APPROVED",
+		"This question is not approved, so there is no approval to revoke.",
+		nil,
+	)
+}
+
 // ErrTicketQuestionOptionRetired is the same refusal about an Option rather than
 // the question it belongs to.
 //

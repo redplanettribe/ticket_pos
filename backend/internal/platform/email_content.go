@@ -1687,3 +1687,29 @@ func formatMoney(cents int, currency string) string {
 	}
 	return fmt.Sprintf("%s%d.%02d %s", sign, cents/100, cents%100, currency)
 }
+
+var (
+	questionRevokedSubjectCopy = translated(
+		`A ticket question for "%s" was revoked`,
+		`Se revocó una pregunta de entrada de "%s"`,
+	)
+	// One block in both languages: what was revoked, on which Event, why, and
+	// what stays. The closing line is the half an organizer who does not read
+	// it will write to ask about — the Answers already given are not lost.
+	questionRevokedTextCopy = translated(
+		"A Platform Operator has revoked the approval of the ticket question \"%s\" on the event \"%s\" run by %s.\n\nReason: %s\n\nFrom now on the question is no longer asked at checkout or anywhere else. The answers already given to it stay on the tickets that gave them and in your sales export. To ask something in its place, add a new question and submit it for review.",
+		"Un Operador de la Plataforma revocó la aprobación de la pregunta de entrada \"%s\" del evento \"%s\" organizado por %s.\n\nMotivo: %s\n\nDesde este momento la pregunta ya no se hace en el checkout ni en ningún otro lugar. Las respuestas ya dadas se conservan en las entradas que las dieron y en su exportación de ventas. Para preguntar algo en su lugar, agregue una nueva pregunta y envíela a revisión.",
+	)
+)
+
+// Subject is the Revocation notice's subject line, naming the Event: an Org
+// Admin of several Events reads which one from the mailbox list.
+func (r TicketQuestionRevoked) Subject() string {
+	return fmt.Sprintf(questionRevokedSubjectCopy.in(r.Locale), r.EventName)
+}
+
+// Text is the Revocation notice's body. The reason is quoted whole and
+// unedited: it is the Operator's message to this Organization.
+func (r TicketQuestionRevoked) Text() string {
+	return fmt.Sprintf(questionRevokedTextCopy.in(r.Locale), r.QuestionLabel, r.EventName, r.OrganizationName, r.Reason)
+}

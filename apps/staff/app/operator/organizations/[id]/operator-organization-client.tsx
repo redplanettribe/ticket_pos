@@ -388,6 +388,7 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
                     <th className="py-2 pr-4 font-medium">{t("colStatus")}</th>
                     <th className="py-2 pr-4 font-medium">{t("colStarts")}</th>
                     <th className="py-2 pr-4 font-medium">{t("colDiscoverable")}</th>
+                    <th className="py-2 pr-4 font-medium">{t("colTicketQuestions")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -417,6 +418,16 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
                         </td>
                         <td className="py-3 pr-4 text-muted-foreground">
                           {event.discoverable ? t("yes") : t("no")}
+                        </td>
+                        {/* Where the Operator reads what this Event asks and
+                            takes an approval back (#410, ADR 0056). */}
+                        <td className="py-3 pr-4">
+                          <Link
+                            className="text-primary underline-offset-4 hover:underline"
+                            href={`/operator/organizations/${organizationId}/events/${event.id}/ticket-questions`}
+                          >
+                            {t("viewTicketQuestions")}
+                          </Link>
                         </td>
                       </tr>
                     );

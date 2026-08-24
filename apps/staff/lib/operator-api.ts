@@ -7,6 +7,7 @@
 // UI merely declines to show the surface at all.
 
 import { fetchEventsJSON } from "./events-api";
+import type { TicketQuestion } from "./ticket-questions";
 
 /**
  * Platform revenue for one currency. No FX conversion exists anywhere, so the
@@ -726,5 +727,45 @@ export async function recordOperatorConsentWithdrawal(
   return fetchEventsJSON<OperatorCustomerConsent>(
     `/api/operator/customers/${encodeURIComponent(email)}/consent/withdrawal`,
     { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+/**
+ * One Ticket Question on the Operator's view of an Event (#410, ADR 0056): the
+ * staff payload — review columns included — plus the Ticket Type it hangs off,
+ * because the Operator arrives by Event and the questions are the Ticket
+ * Type's.
+ */
+export type OperatorTicketQuestionRow = TicketQuestion & {
+  ticket_type_id: string;
+  ticket_type_name: string;
+};
+
+/**
+ * Every Ticket Question of one Event, in every review state and retired ones
+ * included, so a revoked question stays visible where it was revoked.
+ */
+export async function fetchOperatorEventTicketQuestions(
+  eventId: string,
+): Promise<OperatorTicketQuestionRow[]> {
+  return fetchEventsJSON<OperatorTicketQuestionRow[]>(
+    `/api/operator/events/${encodeURIComponent(eventId)}/ticket-questions`,
+  );
+}
+
+/**
+ * A Revocation: takes an approval back with a reason the Organization is told
+ * (ADR 0056). The reason is required by the API and bounded at 500 characters.
+ * The question is retired and stops being asked; its Answers stay, and
+ * `review_status` stays `approved` because the approval was real. Only an
+ * approved, live question can be revoked.
+ */
+export async function revokeOperatorTicketQuestion(
+  questionId: string,
+  reason: string,
+): Promise<TicketQuestion> {
+  return fetchEventsJSON<TicketQuestion>(
+    `/api/operator/ticket-questions/${encodeURIComponent(questionId)}/revoke`,
+    { method: "POST", body: JSON.stringify({ reason }) },
   );
 }

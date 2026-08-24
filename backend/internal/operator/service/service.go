@@ -35,6 +35,16 @@ type Organizations interface {
 type Events interface {
 	ListOrganizationEventsForOperator(ctx context.Context, orgID string) ([]catalogsvc.OperatorEvent, error)
 	CountEventsByOrganization(ctx context.Context, orgIDs []string) (map[string]int, error)
+	// ListEventTicketQuestionsForOperator is every Ticket Question of one
+	// Event, every review state and retired ones included (#410, ADR 0056).
+	// EVENT_NOT_FOUND for an unknown or malformed id.
+	ListEventTicketQuestionsForOperator(ctx context.Context, eventID string) ([]catalogsvc.OperatorTicketQuestion, error)
+	// RevokeTicketQuestion is the Revocation: retires an approved question with
+	// the reason the Organization is told, and mails its Org Admins. It answers
+	// TICKET_QUESTION_NOT_FOUND, TICKET_QUESTION_NOT_APPROVED for a question
+	// with no approval to take back, and TICKET_QUESTION_RETIRED for one
+	// already retired.
+	RevokeTicketQuestion(ctx context.Context, questionID string, input catalogsvc.RevokeTicketQuestionInput) (*catalogsvc.TicketQuestionView, error)
 }
 
 // Money is what the operator surface needs from sales: the Withdrawable
