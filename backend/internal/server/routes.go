@@ -925,6 +925,10 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// write and see no nav entry (#145).
 	ah := app.AffiliatesHandler
 	mux.Handle("GET /api/v1/staff/events/{id}/affiliate-links", eventOwnerOrAdmin(http.HandlerFunc(ah.ListAffiliateLinks)))
+	// The trends payload behind the tab's graphs (#413, ADR 0057). Same guard as
+	// everything else here: the graphs draw the Event's money as well as its
+	// traffic, and neither is for hired door staff.
+	mux.Handle("GET /api/v1/staff/events/{id}/affiliate-links/trends", eventOwnerOrAdmin(http.HandlerFunc(ah.GetAffiliateTrends)))
 	mux.Handle("POST /api/v1/staff/events/{id}/affiliate-links", eventOwnerOrAdmin(http.HandlerFunc(ah.CreateAffiliateLink)))
 	// The lifecycle: rename and the activate/deactivate toggle share one PATCH,
 	// and DELETE removes a link that never did anything (#148). Same gate as the

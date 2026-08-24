@@ -46,6 +46,13 @@ type LinkTarget struct {
 	// zero (#213). Kept raw here and interpreted by the service, which owns what
 	// an unrecognised value means.
 	RegistrationMode string
+	// Timezone is the Event's own zone name, "" when it carries none. The trends
+	// payload buckets sales hours in it; the service resolves it (defaulting to
+	// UTC) exactly as the sales surfaces do.
+	Timezone string
+	// Currency is the Organization's currency, which every money figure a link
+	// reports is denominated in.
+	Currency string
 }
 
 // Repository provides SQL access for Affiliate Links.
@@ -75,18 +82,23 @@ func prefixedColumns(alias string) string {
 // the Event existence check every Affiliate Link operation starts from.
 func (r *Repository) GetLinkTarget(ctx context.Context, organizationID, eventID string) (*LinkTarget, error) {
 	var target LinkTarget
+	var tz sql.NullString
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT o.slug, e.slug, e.registration_mode
+		SELECT o.slug, e.slug, e.registration_mode, e.timezone, o.currency
 		FROM events e
 		JOIN organizations o ON o.id = e.organization_id
 		WHERE e.id = $1 AND e.organization_id = $2
-	`, eventID, organizationID).Scan(&target.OrganizationSlug, &target.EventSlug, &target.RegistrationMode)
+	`, eventID, organizationID).Scan(
+		&target.OrganizationSlug, &target.EventSlug, &target.RegistrationMode,
+		&tz, &target.Currency,
+	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	target.Timezone = tz.String
 	return &target, nil
 }
 

@@ -226,6 +226,38 @@ func lifecyclePathValues(w http.ResponseWriter, r *http.Request, reqID string) (
 	return eventID, linkID, true
 }
 
+// GetAffiliateTrends returns the affiliate tab's whole trends payload.
+//
+// @Summary      Get an Event's Affiliate Link trends
+// @Description  Returns everything the affiliate tab's graphs draw, in one request: `timezone` (the Event's own zone, UTC where it carries none) and `currency`; `links`, the Event's whole Affiliate Link set including deactivated ones, so a legend built from it is stable; `view_buckets`, the stored anonymous hourly counters of ADR 0057 exactly as stored — UTC hours, sparse (a silent hour has no row), where a null `link_id` is the Event's whole-page Page View bucket that EVERY load counts into and a link's bucket counts the subset that arrived through it, so organic traffic is the gap between the two; and `sales_buckets`, the per-hour Attributed Sales figures — attributed ACTIVE Online Sales, the tickets they moved, and the Net Proceeds they left the Organization — derived at read time, so a Sale Reversal retroactively edits past buckets exactly as it edits every other aggregate. Sales hours are civil hours in the Event's timezone (YYYY-MM-DDTHH:00), bucketing `sold_at` so the graph agrees with Sales Trends about when a sale happened, while view buckets stay UTC. On an Event that registers externally `sales_buckets` is null rather than empty — a link there can never attribute a sale, so its success is not measured in sales at all (#213). Counts are loads, never people: no dedup and no visitor identity exist (ADR 0057), so every figure is a floor on what a link drove, not a measurement (ADR 0022). Bounded and unpaginated; there are no query parameters, and the client windows and aggregates client-side. Org Admin and Event Owner only.
+// @Tags         staff
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path      string  true  "Event ID"
+// @Success      200  {object}  openapi.EnvelopeAffiliateTrends
+// @Failure      400  {object}  platform.Envelope
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/affiliate-links/trends [get]
+func (h *Handler) GetAffiliateTrends(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+	eventID := strings.TrimSpace(r.PathValue("id"))
+	if eventID == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
+			{Field: "id", Message: "is required"},
+		})
+		return
+	}
+
+	trends, err := h.svc.EventAffiliateTrends(r.Context(), actorFromRequest(r), eventID)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, trends)
+}
+
 // recordPageViewBody is the optional payload: the Affiliate Link code the page
 // load carried, when it carried one. Absent, empty, dead and mistyped codes are
 // all fine — the page view counts either way.

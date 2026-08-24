@@ -1168,6 +1168,20 @@
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeAffiliateTrends": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.AffiliateTrends"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeAnswerPurge": {
                 "properties": {
                     "data": {
@@ -2463,6 +2477,91 @@
                     "url": {
                         "description": "URL is the whole thing an organizer copies: the Storefront Event page with\nthe code as its ref. Derived at read time from the Storefront origin this\nprocess is configured with, never stored, so moving the Storefront moves\nevery link with it.",
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.AffiliateTrends": {
+                "properties": {
+                    "currency": {
+                        "description": "Currency is the Organization's currency, which net_proceeds_cents is\ndenominated in.",
+                        "type": "string"
+                    },
+                    "links": {
+                        "description": "Links is the Event's WHOLE set of Affiliate Links, newest first,\ndeactivated ones included, so a legend built from it is stable and a\nlink's series never vanishes just because it was taken out of\ncirculation.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.AffiliateTrendsLink"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "sales_buckets": {
+                        "description": "SalesBuckets is the per-hour Attributed Sales history, derived at read\ntime so a Sale Reversal retroactively edits it. Null — absent, not empty —\non an Event that registers externally: such a link can never attribute a\nsale, so its success is not measured in sales at all, exactly as the\ntab's own columns already say (#213). Empty means measured and nothing\nsold; null means not measured here.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.AffiliateTrendsSalesBucket"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "timezone": {
+                        "description": "Timezone is the Event's own zone (UTC where it carries none), the one the\nsales hours below are bucketed in and the one every axis label should\nspeak.",
+                        "type": "string"
+                    },
+                    "view_buckets": {
+                        "description": "ViewBuckets are the stored rows of ADR 0057, exactly as stored: UTC\nhours, each carrying a count and nothing else. A nil link_id is the\nEvent's whole-page bucket — every load counts there — and a link's bucket\ncounts the subset that arrived through it, so \"all Page Views\" needs no\nseries of its own and organic traffic is the visible gap between the two.\nSparse: an hour nothing happened in has no row, and the client zero-fills.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.AffiliateTrendsViewBucket"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "service.AffiliateTrendsLink": {
+                "properties": {
+                    "active": {
+                        "type": "boolean"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.AffiliateTrendsSalesBucket": {
+                "properties": {
+                    "hour": {
+                        "type": "string"
+                    },
+                    "link_id": {
+                        "type": "string"
+                    },
+                    "net_proceeds_cents": {
+                        "type": "integer"
+                    },
+                    "sales": {
+                        "type": "integer"
+                    },
+                    "tickets": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.AffiliateTrendsViewBucket": {
+                "properties": {
+                    "hour": {
+                        "type": "string"
+                    },
+                    "link_id": {
+                        "type": "string"
+                    },
+                    "views": {
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -11167,6 +11266,83 @@
                     }
                 ],
                 "summary": "Create affiliate link",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/events/{id}/affiliate-links/trends": {
+            "get": {
+                "description": "Returns everything the affiliate tab's graphs draw, in one request: `timezone` (the Event's own zone, UTC where it carries none) and `currency`; `links`, the Event's whole Affiliate Link set including deactivated ones, so a legend built from it is stable; `view_buckets`, the stored anonymous hourly counters of ADR 0057 exactly as stored — UTC hours, sparse (a silent hour has no row), where a null `link_id` is the Event's whole-page Page View bucket that EVERY load counts into and a link's bucket counts the subset that arrived through it, so organic traffic is the gap between the two; and `sales_buckets`, the per-hour Attributed Sales figures — attributed ACTIVE Online Sales, the tickets they moved, and the Net Proceeds they left the Organization — derived at read time, so a Sale Reversal retroactively edits past buckets exactly as it edits every other aggregate. Sales hours are civil hours in the Event's timezone (YYYY-MM-DDTHH:00), bucketing `sold_at` so the graph agrees with Sales Trends about when a sale happened, while view buckets stay UTC. On an Event that registers externally `sales_buckets` is null rather than empty — a link there can never attribute a sale, so its success is not measured in sales at all (#213). Counts are loads, never people: no dedup and no visitor identity exist (ADR 0057), so every figure is a floor on what a link drove, not a measurement (ADR 0022). Bounded and unpaginated; there are no query parameters, and the client windows and aggregates client-side. Org Admin and Event Owner only.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeAffiliateTrends"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Get an Event's Affiliate Link trends",
                 "tags": [
                     "staff"
                 ]

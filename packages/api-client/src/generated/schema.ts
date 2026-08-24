@@ -5637,6 +5637,84 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/v1/staff/events/{id}/affiliate-links/trends": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an Event's Affiliate Link trends
+         * @description Returns everything the affiliate tab's graphs draw, in one request: `timezone` (the Event's own zone, UTC where it carries none) and `currency`; `links`, the Event's whole Affiliate Link set including deactivated ones, so a legend built from it is stable; `view_buckets`, the stored anonymous hourly counters of ADR 0057 exactly as stored — UTC hours, sparse (a silent hour has no row), where a null `link_id` is the Event's whole-page Page View bucket that EVERY load counts into and a link's bucket counts the subset that arrived through it, so organic traffic is the gap between the two; and `sales_buckets`, the per-hour Attributed Sales figures — attributed ACTIVE Online Sales, the tickets they moved, and the Net Proceeds they left the Organization — derived at read time, so a Sale Reversal retroactively edits past buckets exactly as it edits every other aggregate. Sales hours are civil hours in the Event's timezone (YYYY-MM-DDTHH:00), bucketing `sold_at` so the graph agrees with Sales Trends about when a sale happened, while view buckets stay UTC. On an Event that registers externally `sales_buckets` is null rather than empty — a link there can never attribute a sale, so its success is not measured in sales at all (#213). Counts are loads, never people: no dedup and no visitor identity exist (ADR 0057), so every figure is a floor on what a link drove, not a measurement (ADR 0022). Bounded and unpaginated; there are no query parameters, and the client windows and aggregates client-side. Org Admin and Event Owner only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeAffiliateTrends"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/events/{id}/cancel": {
         parameters: {
             query?: never;
@@ -10725,6 +10803,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeAffiliateTrends": {
+            data?: components["schemas"]["service.AffiliateTrends"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeAnswerPurge": {
             data?: components["schemas"]["service.AnswerPurgeResult"];
             error?: components["schemas"]["platform.APIError"];
@@ -11213,6 +11296,61 @@ export interface components {
              *     every link with it.
              */
             url?: string;
+        };
+        "service.AffiliateTrends": {
+            /**
+             * @description Currency is the Organization's currency, which net_proceeds_cents is
+             *     denominated in.
+             */
+            currency?: string;
+            /**
+             * @description Links is the Event's WHOLE set of Affiliate Links, newest first,
+             *     deactivated ones included, so a legend built from it is stable and a
+             *     link's series never vanishes just because it was taken out of
+             *     circulation.
+             */
+            links?: components["schemas"]["service.AffiliateTrendsLink"][];
+            /**
+             * @description SalesBuckets is the per-hour Attributed Sales history, derived at read
+             *     time so a Sale Reversal retroactively edits it. Null — absent, not empty —
+             *     on an Event that registers externally: such a link can never attribute a
+             *     sale, so its success is not measured in sales at all, exactly as the
+             *     tab's own columns already say (#213). Empty means measured and nothing
+             *     sold; null means not measured here.
+             */
+            sales_buckets?: components["schemas"]["service.AffiliateTrendsSalesBucket"][];
+            /**
+             * @description Timezone is the Event's own zone (UTC where it carries none), the one the
+             *     sales hours below are bucketed in and the one every axis label should
+             *     speak.
+             */
+            timezone?: string;
+            /**
+             * @description ViewBuckets are the stored rows of ADR 0057, exactly as stored: UTC
+             *     hours, each carrying a count and nothing else. A nil link_id is the
+             *     Event's whole-page bucket — every load counts there — and a link's bucket
+             *     counts the subset that arrived through it, so "all Page Views" needs no
+             *     series of its own and organic traffic is the visible gap between the two.
+             *     Sparse: an hour nothing happened in has no row, and the client zero-fills.
+             */
+            view_buckets?: components["schemas"]["service.AffiliateTrendsViewBucket"][];
+        };
+        "service.AffiliateTrendsLink": {
+            active?: boolean;
+            id?: string;
+            name?: string;
+        };
+        "service.AffiliateTrendsSalesBucket": {
+            hour?: string;
+            link_id?: string;
+            net_proceeds_cents?: number;
+            sales?: number;
+            tickets?: number;
+        };
+        "service.AffiliateTrendsViewBucket": {
+            hour?: string;
+            link_id?: string;
+            views?: number;
         };
         "service.AnswerOptionView": {
             /**
