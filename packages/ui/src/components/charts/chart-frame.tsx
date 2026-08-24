@@ -4,6 +4,20 @@ import * as React from "react";
 import { Bar, BarChart, XAxis, YAxis } from "recharts";
 
 import { cn } from "../../lib/utils";
+import {
+  AXIS_TICK,
+  CHART_MARGIN,
+  CHART_SCROLL_AREA_ATTRIBUTE,
+  TOOLTIP_CHROME_HEIGHT,
+  TOOLTIP_CURSOR_GAP,
+  TOOLTIP_DETAIL_ROW_HEIGHT,
+  TOOLTIP_FOOTER_HEIGHT,
+  TOOLTIP_ROW_HEIGHT,
+  X_AXIS_HEIGHT,
+  Y_AXIS_WIDTH,
+  scrollWindowShift,
+  tooltipColumnLayout,
+} from "./chart-geometry";
 
 /**
  * The geometry, the axis and the hover card every stacked chart on a surface
@@ -105,65 +119,21 @@ export type StackedChartProps = {
 };
 
 /**
- * The width the Y axis always takes, whatever it is labelled with.
- *
- * Deliberately a constant rather than a prop, and deliberately not left to
- * recharts to measure. Two charts stacked one above the other only line up if
- * their plot areas start at the same x, and a measured axis width is decided by
- * the widest tick label — so a chart of tickets ("8") and a chart of money
- * ("$1.3K") would size their axes differently and slide the same day to two
- * different horizontal positions. Alignment is the whole point of a stacked
- * pair, so the width that guarantees it is not something a caller can vary.
- *
- * Callers whose labels would not fit shorten the label (`formatTickValue`)
- * rather than widening the axis.
- *
- * It is now load-bearing three times over: it is also the width of the strip the
- * axis is pinned in while the plot scrolls, and it is what keeps a surface's two
- * shapes — bars and an area — starting at the same x when the view is switched.
+ * The geometry lives in `chart-geometry.ts`, where a test can reach it without
+ * a DOM; it is re-exported here under the names every surface imports.
  */
-export const Y_AXIS_WIDTH = 64;
-
-/**
- * The space around the plot area, shared by every drawn chart and by the pinned
- * copy of its Y axis so they cannot drift apart vertically.
- *
- * `left` is zero on purpose: the Y axis is the only thing between the plot area
- * and the chart's left edge, so the pinned copy is exactly `Y_AXIS_WIDTH` wide
- * and covers exactly what it should. A left margin would have to be added to
- * that width in two places and would eventually be added to one.
- */
-export const CHART_MARGIN = { top: 8, right: 8, bottom: 8, left: 0 } as const;
-
-/**
- * The height the X axis always takes. Recharts defaults to this; stating it
- * makes the drawn chart and the pinned axis agree by construction rather than
- * by both happening to inherit the same default.
- */
-export const X_AXIS_HEIGHT = 30;
-
-/**
- * How much horizontal room a chart spends on what is not the plot: the Y axis on
- * the left, and the margin on the right.
- *
- * Exported so a caller sizing its plot to the room available can subtract it.
- * Without it the caller would have to guess, and a guess that is too small draws
- * a chart narrower than the space it was given — which reads, correctly, as the
- * chart being shoved to one side of its card.
- */
-export const CHART_PLOT_INSET = Y_AXIS_WIDTH + CHART_MARGIN.right;
-
-export const AXIS_TICK = { fontSize: 12 } as const;
-
-/**
- * The roughest spacing an X tick label is allowed, in pixels.
- *
- * Ticks are thinned by a plain numeric interval rather than by recharts'
- * `preserveStartEnd`, which measures every label to find collisions — a
- * per-render DOM measurement per bucket, which is what turns a chart of several
- * hundred days from slow-to-draw into slow-to-scroll.
- */
-const X_TICK_MIN_GAP = 72;
+export {
+  AXIS_TICK,
+  CHART_MARGIN,
+  CHART_PLOT_INSET,
+  CHART_SCROLL_AREA_ATTRIBUTE,
+  X_AXIS_HEIGHT,
+  Y_AXIS_WIDTH,
+  xAxisEdgePadding,
+  xAxisProps,
+  xTickInterval,
+  xTickLabels,
+} from "./chart-geometry";
 
 /**
  * The Y axis, spelled once and rendered wherever an axis is drawn: in the chart,
@@ -179,20 +149,6 @@ export const Y_AXIS_PROPS = {
   width: Y_AXIS_WIDTH,
   tick: AXIS_TICK,
 } as const;
-
-/**
- * How many buckets to skip between X tick labels, so labels stay about
- * `X_TICK_MIN_GAP` apart whatever the bucket count is.
- *
- * Recharts counts an interval of 0 as "label every bucket".
- */
-export function xTickInterval(bucketCount: number, plotWidth: number): number {
-  if (bucketCount <= 0 || plotWidth <= 0) {
-    return 0;
-  }
-  const bucketWidth = plotWidth / bucketCount;
-  return Math.max(0, Math.ceil(X_TICK_MIN_GAP / bucketWidth) - 1);
-}
 
 /**
  * The shell every stacked chart is drawn in: the pinned Y axis on the left, and
@@ -340,10 +296,157 @@ function PinnedYAxis({
 /** One nameless, valueless bucket, so the pinned axis has a chart to be an axis of. */
 const PINNED_AXIS_DATA = [{ label: "", value: 0 }];
 
+/**
+ * One row of a hover card: a series' swatch and name, its figure as the caller
+ * spells it, and — for the views that state the division or the money behind
+ * a figure — a muted line under it.
+ */
+export type ChartTooltipRow = {
+  id: string;
+  name: string;
+  color: string;
+  value: string;
+  detail?: string | null;
+};
+
+/**
+ * The hover card every chart on a surface draws: the bucket's label, a row per
+ * series in the caller's order, and whatever footer the chart's shape calls
+ * for. Shared so switching view changes what the numbers count and never how
+ * they are read.
+ *
+ * It does two things a plain list would not, both because it lives inside a
+ * horizontally scrolling element. It deals its rows into columns sized to the
+ * chart's height, so a surface with many series cannot make a card taller than
+ * its chart — an overhang there becomes a vertical scrollbar over the plot
+ * (see `tooltipColumnLayout`). And once recharts has placed it, it checks
+ * where it landed against the part of the scroll area a reader can see and
+ * moves itself back inside (see `scrollWindowShift`): recharts keeps it in the
+ * chart, and the chart is mostly off screen.
+ */
+export function ChartTooltipCard({
+  label,
+  rows,
+  chartHeight,
+  footer,
+}: {
+  label: string;
+  rows: ChartTooltipRow[];
+  /** The chart's height, which is all the room the card may take. */
+  chartHeight: number;
+  footer?: React.ReactNode;
+}) {
+  const hasDetail = rows.some((row) => row.detail != null);
+  const available =
+    chartHeight -
+    2 * CHART_MARGIN.top -
+    TOOLTIP_CHROME_HEIGHT -
+    (footer === undefined ? 0 : TOOLTIP_FOOTER_HEIGHT);
+  const { rowsPerColumn } = tooltipColumnLayout(
+    rows.length,
+    hasDetail ? TOOLTIP_DETAIL_ROW_HEIGHT : TOOLTIP_ROW_HEIGHT,
+    available,
+  );
+  const { ref, shift } = useKeptInScrollWindow();
+  return (
+    <div
+      ref={ref}
+      className="rounded-md border bg-popover px-3 py-2 text-popover-foreground shadow-md"
+      style={{ transform: `translate(${shift.x}px, ${shift.y}px)` }}
+    >
+      <p className="mb-1 text-xs font-medium">{label}</p>
+      <ul
+        className="grid grid-flow-col gap-x-4 gap-y-0.5"
+        style={{ gridTemplateRows: `repeat(${rowsPerColumn}, auto)` }}
+      >
+        {rows.map((row) => (
+          <li key={row.id} className="text-xs">
+            <div className="flex items-center gap-2">
+              <span
+                aria-hidden
+                className="size-2 shrink-0 rounded-[2px]"
+                style={{ backgroundColor: row.color }}
+              />
+              <span className="text-muted-foreground">{row.name}</span>
+              <span className="ml-auto pl-2 tabular-nums">{row.value}</span>
+            </div>
+            {row.detail == null ? null : (
+              <p className="pl-4 text-[11px] text-muted-foreground tabular-nums">{row.detail}</p>
+            )}
+          </li>
+        ))}
+      </ul>
+      {footer}
+    </div>
+  );
+}
+
+/**
+ * Where a card must move to be inside the visible part of the scroll area it
+ * was drawn in, measured after each placement.
+ *
+ * Measured rather than computed, because the card does not know the scroll
+ * offset and recharts does not either: it positions the card in the chart's
+ * own coordinates, and where the chart is relative to the window is the scroll
+ * area's business. A layout effect reads both boxes after the placement and
+ * before paint, so the card is never seen in the wrong place first. The window
+ * it keeps to starts after the pinned Y axis, which sits over the plot and
+ * would otherwise sit over the card.
+ *
+ * The measured position has the current shift subtracted, so the effect asks
+ * "where would recharts have put this" and settles rather than chasing itself.
+ * Recharts must not animate the card's wrapper (see `TOOLTIP_PROPS`): a box
+ * mid-transition measures as wherever it happens to be that frame.
+ */
+function useKeptInScrollWindow() {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [shift, setShift] = React.useState({ x: 0, y: 0 });
+  React.useLayoutEffect(() => {
+    const card = ref.current;
+    const area = card?.closest<HTMLElement>(`[${CHART_SCROLL_AREA_ATTRIBUTE}]`);
+    if (!card || !area) {
+      return;
+    }
+    const box = card.getBoundingClientRect();
+    const seen = area.getBoundingClientRect();
+    const next = {
+      x: scrollWindowShift(
+        { start: box.left - shift.x, size: box.width },
+        { start: seen.left + Y_AXIS_WIDTH, end: seen.left + area.clientWidth },
+        TOOLTIP_CURSOR_GAP,
+      ),
+      y: scrollWindowShift(
+        { start: box.top - shift.y, size: box.height },
+        { start: seen.top, end: seen.top + area.clientHeight },
+      ),
+    };
+    if (next.x !== shift.x || next.y !== shift.y) {
+      setShift(next);
+    }
+  });
+  return { ref, shift };
+}
+
+/**
+ * What a chart's `Tooltip` is told beyond its content, spelled once. No
+ * animation, because the card measures where it landed (see
+ * `useKeptInScrollWindow`) and a card sliding into place measures as wherever
+ * it is mid-slide. A z-index above the pinned axis strip's, so a card wider
+ * than the window — pinned to its start, over the axis — is drawn over the
+ * axis rather than under it. The offset is the gap the card mirrors itself by.
+ */
+export const TOOLTIP_PROPS = {
+  isAnimationActive: false,
+  offset: TOOLTIP_CURSOR_GAP,
+  wrapperStyle: { zIndex: 20 },
+} as const;
+
 type StackedChartTooltipProps = {
   series: StackedSeries[];
   formatValue: (value: number) => string;
   totalLabel: string;
+  /** The chart's height, handed on so the card can fit itself to it. */
+  chartHeight: number;
   /** Injected by recharts when it clones this element. */
   active?: boolean;
   payload?: { payload?: StackedDatum }[];
@@ -357,14 +460,12 @@ type StackedChartTooltipProps = {
  * the rows stay in the caller's series order and a series that contributed
  * nothing to this bucket is still stated as zero — the reader asked about the
  * day, and "GA sold none" is an answer.
- *
- * Shared by every shape on a surface, so switching view changes what the numbers
- * count and never how they are read.
  */
 export function StackedChartTooltip({
   series,
   formatValue,
   totalLabel,
+  chartHeight,
   active,
   payload,
 }: StackedChartTooltipProps) {
@@ -373,25 +474,21 @@ export function StackedChartTooltip({
     return null;
   }
   return (
-    <div className="rounded-md border bg-popover px-3 py-2 text-popover-foreground shadow-md">
-      <p className="mb-1 text-xs font-medium">{datum.label}</p>
-      <ul className="space-y-0.5">
-        {series.map((entry) => (
-          <li key={entry.id} className="flex items-center gap-2 text-xs">
-            <span
-              aria-hidden
-              className="size-2 shrink-0 rounded-[2px]"
-              style={{ backgroundColor: entry.color }}
-            />
-            <span className="text-muted-foreground">{entry.name}</span>
-            <span className="ml-auto tabular-nums">{formatValue(datum.values[entry.id] ?? 0)}</span>
-          </li>
-        ))}
-      </ul>
-      <p className="mt-1 flex items-center gap-4 border-t pt-1 text-xs font-medium">
-        <span>{totalLabel}</span>
-        <span className="ml-auto tabular-nums">{formatValue(datum.total)}</span>
-      </p>
-    </div>
+    <ChartTooltipCard
+      label={datum.label}
+      chartHeight={chartHeight}
+      rows={series.map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        color: entry.color,
+        value: formatValue(datum.values[entry.id] ?? 0),
+      }))}
+      footer={
+        <p className="mt-1 flex items-center gap-4 border-t pt-1 text-xs font-medium">
+          <span>{totalLabel}</span>
+          <span className="ml-auto tabular-nums">{formatValue(datum.total)}</span>
+        </p>
+      }
+    />
   );
 }

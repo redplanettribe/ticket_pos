@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  AFFILIATE_TRENDS_BUCKET_WIDTH,
   AFFILIATE_TRENDS_MIN_PLOT_WIDTH,
   ALL_PAGE_VIEWS_ID,
   affiliateTrendsPlotWidth,
   bucketDay,
+  countYTicks,
   hasPageViews,
   multiSeriesYMax,
   rangeGranularity,
@@ -205,21 +207,70 @@ test("the last drawn series cannot be deselected", () => {
 
 // --- axis scale and plot width --------------------------------------------
 
-test("the axis tops the tallest single bar, rounded to a readable tick", () => {
+test("the axis tops the tallest single value, rounded to a readable tick", () => {
   const datum = (values: Record<string, number>) => ({ key: "k", label: "l", values });
-  assert.equal(multiSeriesYMax([datum({ a: 7, b: 3 })]), 10);
+  // Separate lines never reach a stack's height: 7 and 3 top out at 8, not 10.
+  assert.equal(multiSeriesYMax([datum({ a: 7, b: 3 })]), 8);
   assert.equal(multiSeriesYMax([datum({ a: 43 })]), 50);
-  // Grouped bars never reach a stack's height: 7 and 3 top out at 10, not 20.
   assert.equal(multiSeriesYMax([datum({ a: 0 })]), 1);
   assert.equal(multiSeriesYMax([]), 1);
 });
 
-test("the plot grows with the span and with the drawn series", () => {
-  const week = affiliateTrendsPlotWidth(168, 3);
-  assert.equal(week, 168 * 30);
-  assert.ok(affiliateTrendsPlotWidth(168, 1) < week);
-  assert.equal(affiliateTrendsPlotWidth(0, 3), AFFILIATE_TRENDS_MIN_PLOT_WIDTH);
-  assert.equal(affiliateTrendsPlotWidth(4, 1, 900), 900);
+test("the axis leaves little headroom: a day of 56 is drawn under 60, not 100", () => {
+  const datum = (a: number) => ({ key: "k", label: "l", values: { a } });
+  assert.equal(multiSeriesYMax([datum(56)]), 60);
+  assert.equal(multiSeriesYMax([datum(39)]), 40);
+  assert.equal(multiSeriesYMax([datum(17)]), 20);
+  assert.equal(multiSeriesYMax([datum(7)]), 8);
+  assert.equal(multiSeriesYMax([datum(1)]), 1);
+  assert.equal(multiSeriesYMax([datum(61)]), 80);
+  assert.equal(multiSeriesYMax([datum(81)]), 100);
+  assert.equal(multiSeriesYMax([datum(250)]), 300);
+});
+
+test("every top the ladder can produce divides into whole, evenly spaced ticks", () => {
+  const datum = (a: number) => ({ key: "k", label: "l", values: { a } });
+  for (let tallest = 1; tallest <= 1200; tallest += 1) {
+    const yMax = multiSeriesYMax([datum(tallest)]);
+    assert.ok(yMax >= tallest, `${tallest} fits under ${yMax}`);
+    // The old ladder drew a 56 under a 100; nothing is ever dwarfed like that now.
+    assert.ok(yMax < 2 * tallest, `${tallest} is not dwarfed by ${yMax}`);
+    const ticks = countYTicks(yMax);
+    assert.equal(ticks[0], 0);
+    assert.equal(ticks[ticks.length - 1], yMax);
+    const step = ticks[1]! - ticks[0]!;
+    for (const [index, tick] of ticks.entries()) {
+      assert.ok(Number.isInteger(tick), `tick ${tick} under ${yMax} is whole`);
+      assert.equal(tick, index * step, `ticks under ${yMax} are evenly spaced`);
+    }
+  }
+});
+
+test("the counting axis is divided in steps a reader counts in", () => {
+  // Sales Trends' rule would label 80 in sixteens and 40 in eights; here the
+  // division whose step starts with a 1, 2 or 5 wins.
+  assert.deepEqual(countYTicks(80), [0, 20, 40, 60, 80]);
+  assert.deepEqual(countYTicks(60), [0, 20, 40, 60]);
+  assert.deepEqual(countYTicks(40), [0, 10, 20, 30, 40]);
+  assert.deepEqual(countYTicks(30), [0, 10, 20, 30]);
+  assert.deepEqual(countYTicks(20), [0, 5, 10, 15, 20]);
+  assert.deepEqual(countYTicks(10), [0, 2, 4, 6, 8, 10]);
+  assert.deepEqual(countYTicks(8), [0, 2, 4, 6, 8]);
+  assert.deepEqual(countYTicks(6), [0, 2, 4, 6]);
+  assert.deepEqual(countYTicks(3), [0, 1, 2, 3]);
+  assert.deepEqual(countYTicks(1), [0, 1]);
+  assert.deepEqual(countYTicks(0), [0]);
+});
+
+test("the plot grows with the span and never with the drawn series", () => {
+  const week = affiliateTrendsPlotWidth(168);
+  assert.equal(week, 168 * AFFILIATE_TRENDS_BUCKET_WIDTH);
+  // A line is one point per series per bucket: a day of hours is the same
+  // width with one link drawn as with seventeen.
+  assert.equal(affiliateTrendsPlotWidth(24), 24 * AFFILIATE_TRENDS_BUCKET_WIDTH);
+  assert.equal(affiliateTrendsPlotWidth(0), AFFILIATE_TRENDS_MIN_PLOT_WIDTH);
+  assert.equal(affiliateTrendsPlotWidth(4, 900), 900);
+  assert.equal(affiliateTrendsPlotWidth(4, 200), AFFILIATE_TRENDS_MIN_PLOT_WIDTH);
 });
 
 // --- the empty state ------------------------------------------------------
@@ -540,13 +591,27 @@ test("the rate axis rounds up to a readable fraction and never collapses", () =>
     values: { [LINK_A]: value },
     details: { [LINK_A]: { sales: 0, denominator: 0 } },
   });
-  assert.equal(rateYMax([datum(0.034)]), 0.05);
+  assert.equal(rateYMax([datum(0.034)]), 0.04);
+  // 5.2% climbs to 6%, not 10%: the same headroom rule as the counting views.
+  assert.equal(rateYMax([datum(0.052)]), 0.06);
+  assert.equal(rateYMax([datum(0.05)]), 0.05);
+  // 3 × 0.1 is not 0.3 in floating point; the top is settled to basis points.
+  assert.equal(rateYMax([datum(0.25)]), 0.3);
   assert.equal(rateYMax([datum(null)]), 0.05);
   assert.equal(rateYMax([]), 0.05);
   const ticks = rateYTicks(0.05);
   assert.equal(ticks[0], 0);
   assert.equal(ticks[ticks.length - 1], 0.05);
   assert.equal(ticks.length, 6);
+});
+
+test("the rate axis is divided in whole tenths of a percent, the finest label it draws", () => {
+  assert.deepEqual(rateYTicks(0.06), [0, 0.02, 0.04, 0.06]);
+  // 0.6% in five is 0.12% a step, which would be labelled 0.1%: in three instead.
+  assert.deepEqual(rateYTicks(0.006), [0, 0.002, 0.004, 0.006]);
+  assert.deepEqual(rateYTicks(0.002), [0, 0.001, 0.002]);
+  // Too small to divide into tenths at all: the ends alone.
+  assert.deepEqual(rateYTicks(0.001), [0, 0.001]);
 });
 
 test("a bucket on a civil day after the reader's own moves no rate — skew waits for its day", () => {

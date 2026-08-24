@@ -19,3 +19,7 @@ The affiliate tab gains time-series graphs: per-link Clicks, Attributed Sales, A
 - **Hourly buckets are the floor forever.** Minute-level trends, uniques, and sessions are permanently out of reach of this data — reopening any of them means reopening this ADR.
 - **Deactivated links count nothing**, matching the existing click rule: their series shows zeros while their arrivals still count as Page Views. No active-period history is kept to shade the chart.
 - **External Registration events get views-only graphs**: Sales and Rate are hidden, not zeroed, mirroring how the tab already nulls their sales figures.
+
+## Amendment: the counting views are drawn as lines
+
+Recorded after the original decision shipped, and amending it rather than superseding it. The Clicks and Attributed Sales views are drawn as one line per series, not as grouped bars, matching the Attribution Rate view. Reason: with the seventeen-odd series an Event can carry, a grouped bar per bucket is an unreadable sliver, while a line per series reads at any series count. A bucket with nothing counted is still drawn as a zero, not a gap — an hour with no clicks is a measurement, unlike a rate with no denominator.

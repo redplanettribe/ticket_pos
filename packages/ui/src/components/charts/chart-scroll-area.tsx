@@ -3,6 +3,7 @@
 import * as React from "react";
 
 import { cn } from "../../lib/utils";
+import { CHART_SCROLL_AREA_ATTRIBUTE } from "./chart-geometry";
 
 export type ChartScrollAreaProps = {
   /**
@@ -40,12 +41,15 @@ export type ChartScrollAreaProps = {
  * it can be focused at all. Trackpads and shift-wheel scroll it natively.
  *
  * Charts inside pin their axes to this element with `position: sticky`, so this
- * must be the scrolling ancestor rather than something further out.
+ * must be the scrolling ancestor rather than something further out. Their
+ * hover cards find it by `CHART_SCROLL_AREA_ATTRIBUTE` to learn how much of
+ * the chart is actually on screen.
  */
 export function ChartScrollArea({ ariaLabel, children, className, ref }: ChartScrollAreaProps) {
   return (
     <div
       ref={ref}
+      {...{ [CHART_SCROLL_AREA_ATTRIBUTE]: "" }}
       role="group"
       aria-label={ariaLabel}
       tabIndex={0}

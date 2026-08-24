@@ -4,12 +4,12 @@ import * as React from "react";
 import { CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 
 import {
-  AXIS_TICK,
   CHART_MARGIN,
+  ChartTooltipCard,
   StackedChartShell,
-  X_AXIS_HEIGHT,
+  TOOLTIP_PROPS,
   Y_AXIS_PROPS,
-  xTickInterval,
+  xAxisProps,
   type StackedSeries,
 } from "./chart-frame";
 
@@ -79,6 +79,7 @@ export function MultiSeriesLineChart({
   className,
 }: MultiSeriesLineChartProps) {
   const formatTick = formatTickValue ?? formatValue;
+  const labels = data.map((datum) => datum.label);
   return (
     <StackedChartShell
       plotWidth={plotWidth}
@@ -92,16 +93,10 @@ export function MultiSeriesLineChart({
       {(width) => (
         <LineChart width={width} height={height} data={data} syncId={syncId} margin={CHART_MARGIN}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
-          <XAxis
-            dataKey="label"
-            tickLine={false}
-            axisLine={false}
-            height={X_AXIS_HEIGHT}
-            interval={xTickInterval(data.length, plotWidth)}
-            tick={AXIS_TICK}
-          />
+          <XAxis {...xAxisProps(labels, plotWidth)} />
           <YAxis {...Y_AXIS_PROPS} domain={[0, yMax]} ticks={yTicks} tickFormatter={formatTick} />
           <Tooltip
+            {...TOOLTIP_PROPS}
             cursor={{
               className: "stroke-muted-foreground",
               strokeDasharray: "3 3",
@@ -111,6 +106,7 @@ export function MultiSeriesLineChart({
                 series={series}
                 formatValue={formatValue}
                 formatSeriesDetail={formatSeriesDetail}
+                chartHeight={height}
               />
             }
           />
@@ -126,6 +122,9 @@ export function MultiSeriesLineChart({
               strokeWidth={2}
               connectNulls={false}
               dot={isolatedPointDot}
+              // Recharts draws no active dot on a point whose value is null,
+              // so hovering a gap highlights the lines that have a value there
+              // and quietly skips the ones that do not.
               activeDot={{ r: 3 }}
               isAnimationActive={false}
             />
@@ -187,6 +186,8 @@ type MultiSeriesLineTooltipProps = {
   series: StackedSeries[];
   formatValue: (value: number) => string;
   formatSeriesDetail?: (seriesId: string, datum: MultiSeriesLineDatum) => string | null;
+  /** The chart's height, handed on so the card can fit itself to it. */
+  chartHeight: number;
   /** Injected by recharts when it clones this element. */
   active?: boolean;
   payload?: { payload?: MultiSeriesLineDatum }[];
@@ -195,12 +196,14 @@ type MultiSeriesLineTooltipProps = {
 /**
  * The hover card for one bucket: every drawn series in the caller's order. A
  * null value is stated as an em dash — the gap in the line, said out loud —
- * rather than formatted as the zero it is not.
+ * rather than formatted as the zero it is not, and carries no detail line: the
+ * detail states a division, and there was none.
  */
 export function MultiSeriesLineTooltip({
   series,
   formatValue,
   formatSeriesDetail,
+  chartHeight,
   active,
   payload,
 }: MultiSeriesLineTooltipProps) {
@@ -209,32 +212,19 @@ export function MultiSeriesLineTooltip({
     return null;
   }
   return (
-    <div className="rounded-md border bg-popover px-3 py-2 text-popover-foreground shadow-md">
-      <p className="mb-1 text-xs font-medium">{datum.label}</p>
-      <ul className="space-y-0.5">
-        {series.map((entry) => {
-          const value = datum.values[entry.id] ?? null;
-          const detail = value === null ? null : (formatSeriesDetail?.(entry.id, datum) ?? null);
-          return (
-            <li key={entry.id} className="text-xs">
-              <div className="flex items-center gap-2">
-                <span
-                  aria-hidden
-                  className="size-2 shrink-0 rounded-[2px]"
-                  style={{ backgroundColor: entry.color }}
-                />
-                <span className="text-muted-foreground">{entry.name}</span>
-                <span className="ml-auto tabular-nums">
-                  {value === null ? "—" : formatValue(value)}
-                </span>
-              </div>
-              {detail === null ? null : (
-                <p className="pl-4 text-[11px] text-muted-foreground tabular-nums">{detail}</p>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </div>
+    <ChartTooltipCard
+      label={datum.label}
+      chartHeight={chartHeight}
+      rows={series.map((entry) => {
+        const value = datum.values[entry.id] ?? null;
+        return {
+          id: entry.id,
+          name: entry.name,
+          color: entry.color,
+          value: value === null ? "—" : formatValue(value),
+          detail: value === null ? null : (formatSeriesDetail?.(entry.id, datum) ?? null),
+        };
+      })}
+    />
   );
 }
