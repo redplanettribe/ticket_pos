@@ -294,6 +294,17 @@ func (s *ResendEmailSender) SendPayoutRequestSubmitted(ctx context.Context, p Pa
 	return nil
 }
 
+// SendQuestionReviewSubmitted delivers one Platform Operator's notice that an
+// Event's questions are waiting for review (#406, ADR 0056). Best-effort: the
+// Review is recorded whether or not anybody was told.
+func (s *ResendEmailSender) SendQuestionReviewSubmitted(ctx context.Context, q QuestionReviewSubmitted) error {
+	if err := s.send(ctx, q.To, q.Subject(), q.Text()); err != nil {
+		s.logger.Error("resend send question review submitted failed", "organization", q.OrganizationName, "error", err)
+		return err
+	}
+	return nil
+}
+
 // SendPayoutRequestPaid delivers the asker's notice that the transfer was made.
 // Best-effort: the Payout is the fact, and a failure here leaves an organizer
 // who finds out from their bank instead.

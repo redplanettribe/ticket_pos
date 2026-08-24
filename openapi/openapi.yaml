@@ -542,6 +542,13 @@ components:
         starts_at:
           type: string
       type: object
+    handler.questionReviewBody:
+      properties:
+        acknowledged:
+          type: boolean
+        note:
+          type: string
+      type: object
     handler.recordConsentWithdrawalBody:
       properties:
         marketing_consent:
@@ -1481,6 +1488,15 @@ components:
       properties:
         data:
           $ref: '#/components/schemas/service.PublicOrganizationEvents'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
+    openapi.EnvelopeQuestionReview:
+      properties:
+        data:
+          $ref: '#/components/schemas/service.QuestionReviewView'
         error:
           $ref: '#/components/schemas/platform.APIError'
         request_id:
@@ -3914,6 +3930,58 @@ components:
             $ref: '#/components/schemas/service.PublicTicketQuestion'
           type: array
           uniqueItems: false
+      type: object
+    service.QuestionReviewItemView:
+      properties:
+        id:
+          type: string
+        reason:
+          type: string
+        ticket_question_id:
+          type: string
+        ticket_question_option_id:
+          type: string
+        verdict:
+          description: |-
+            Verdict is `approved` or `refused` once the Operator has answered, with
+            the reason on a refusal; both absent until then.
+          type: string
+      type: object
+    service.QuestionReviewView:
+      properties:
+        acknowledged_at:
+          description: |-
+            AcknowledgedAt is when the submitter affirmed what the Organization was
+            choosing to collect: the record ADR 0056 says the acknowledgement is.
+          type: string
+        answered_at:
+          type: string
+        answered_by:
+          description: |-
+            AnsweredBy and AnsweredAt are how the Review ended, whichever way it did:
+            the Operator's verdict, a withdrawal, or the lapse.
+          type: string
+        event_id:
+          type: string
+        id:
+          type: string
+        items:
+          items:
+            $ref: '#/components/schemas/service.QuestionReviewItemView'
+          type: array
+          uniqueItems: false
+        note:
+          type: string
+        status:
+          description: Status is outstanding, answered, withdrawn or lapsed.
+          type: string
+        submitted_at:
+          type: string
+        submitted_by:
+          description: |-
+            SubmittedBy is the submitter's email, so the record outlives their
+            Membership.
+          type: string
       type: object
     service.ReversalDrainResult:
       properties:
@@ -9090,6 +9158,185 @@ paths:
       security:
       - BearerAuth: []
       summary: Publish event
+      tags:
+      - staff
+  /api/v1/staff/events/{id}/question-reviews:
+    post:
+      description: 'Submits the Event''s draft and refused Ticket Questions — and
+        their draft Options — as one Question Review for a Platform Operator to answer
+        (ADR 0056). Moves every carried row to `under_review`; approved questions
+        keep collecting meanwhile. Requires `acknowledged: true`, the Organization''s
+        recorded affirmation of what it is choosing to collect (400 QUESTION_REVIEW_ACKNOWLEDGEMENT_REQUIRED
+        without it). Refused with 409 QUESTION_REVIEW_OUTSTANDING while the Event
+        already has one waiting, 409 QUESTION_REVIEW_EVENT_STARTED once the Event
+        has started, and 409 QUESTION_REVIEW_NOTHING_TO_REVIEW when no draft exists.
+        Every allowlisted Platform Operator is mailed in their Staff Locale. Org Admin
+        or Event Owner; answers 404 while the Ticket Question feature flag is off.'
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/handler.questionReviewBody'
+                description: Note and acknowledgement
+                summary: body
+        description: Note and acknowledgement
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeQuestionReview'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Conflict
+      security:
+      - BearerAuth: []
+      summary: Submit a Question Review
+      tags:
+      - staff
+  /api/v1/staff/events/{id}/question-reviews/{reviewId}/withdraw:
+    post:
+      description: 'Withdraws the Event''s outstanding Question Review (ADR 0056):
+        the Review moves to `withdrawn`, stamped with the withdrawing Member''s email
+        and the instant, and every question and Option it carried returns to `draft`.
+        A compare-and-swap on the outstanding state: a Review already answered, withdrawn
+        or lapsed is refused with 409 QUESTION_REVIEW_NOT_OUTSTANDING naming the state
+        it reached, and one that is not this Event''s is 404 QUESTION_REVIEW_NOT_FOUND.
+        Org Admin or Event Owner.'
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - description: Question Review ID
+        in: path
+        name: reviewId
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeQuestionReview'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Conflict
+      security:
+      - BearerAuth: []
+      summary: Withdraw a Question Review
+      tags:
+      - staff
+  /api/v1/staff/events/{id}/question-reviews/current:
+    get:
+      description: Returns the Event's outstanding Question Review with its items,
+        or — when none is outstanding — the last one submitted, for the staff editor's
+        banner (ADR 0056). 404 QUESTION_REVIEW_NOT_FOUND when the Event has never
+        had one. Org Admin or Event Owner.
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeQuestionReview'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
+      security:
+      - BearerAuth: []
+      summary: Get the Event's current Question Review
       tags:
       - staff
   /api/v1/staff/events/{id}/sale-imports:

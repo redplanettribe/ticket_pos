@@ -289,6 +289,13 @@ type Service struct {
 	// would silently disable a feature somebody did decide to open, which a flag
 	// already has a proper way to say.
 	assignmentMailLimits catalog.AssignmentMailLimits
+	// questionReviewMail, operators and staffLocales serve the one notice a
+	// Question Review submission sends (#406, ADR 0056); see
+	// WithQuestionReviewNotices. All optional, all nil by default: unset, a
+	// submission is recorded and nobody is mailed.
+	questionReviewMail QuestionReviewMail
+	operators          PlatformOperators
+	staffLocales       StaffLocales
 }
 
 // New returns a catalog service. The fee rates are the platform's configured

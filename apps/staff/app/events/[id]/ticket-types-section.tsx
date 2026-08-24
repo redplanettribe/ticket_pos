@@ -42,6 +42,7 @@ import {
   purchaseLimitWireValue,
 } from "@/lib/purchase-limit";
 
+import { QuestionReviewSection } from "./question-review-section";
 import { TicketQuestionsDialog } from "./ticket-questions-dialog";
 import { TicketTypeCard } from "./ticket-type-card";
 
@@ -60,6 +61,8 @@ type TicketTypesSectionProps = {
    * differs from before the feature landed.
    */
   ticketQuestionsEnabled: boolean;
+  /** The Event's start: no Question Review is accepted after it (ADR 0056). */
+  eventStartsAt: string | null;
   onTicketTypeCountChange?: (count: number) => void;
   missingWarning?: boolean;
 };
@@ -108,6 +111,7 @@ export function TicketTypesSection({
   feeRates,
   eventTimezone,
   ticketQuestionsEnabled,
+  eventStartsAt,
   onTicketTypeCountChange,
   missingWarning,
 }: TicketTypesSectionProps) {
@@ -662,6 +666,18 @@ export function TicketTypesSection({
             ))}
           </ul>
         )}
+        {/* The Event's Question Review (#406, ADR 0056): the drafts on every
+            Ticket Type above, submitted as one ask. Mounted only while the flag
+            is on and there is a Ticket Type to carry questions. */}
+        {ticketQuestionsEnabled && !loading && ticketTypes.length > 0 ? (
+          <div className="mt-4">
+            <QuestionReviewSection
+              eventId={eventId}
+              eventStartsAt={eventStartsAt}
+              ticketTypeIds={ticketTypes.map((ticketType) => ticketType.id)}
+            />
+          </div>
+        ) : null}
         {/* Ticket Question authoring (#309). Mounted only once a Ticket Type has
             been chosen AND the flag is on, so a build with the flag off never
             renders this subtree at all (ADR 0045). */}

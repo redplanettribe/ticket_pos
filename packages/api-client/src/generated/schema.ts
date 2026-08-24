@@ -5582,6 +5582,256 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/staff/events/{id}/question-reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit a Question Review
+         * @description Submits the Event's draft and refused Ticket Questions — and their draft Options — as one Question Review for a Platform Operator to answer (ADR 0056). Moves every carried row to `under_review`; approved questions keep collecting meanwhile. Requires `acknowledged: true`, the Organization's recorded affirmation of what it is choosing to collect (400 QUESTION_REVIEW_ACKNOWLEDGEMENT_REQUIRED without it). Refused with 409 QUESTION_REVIEW_OUTSTANDING while the Event already has one waiting, 409 QUESTION_REVIEW_EVENT_STARTED once the Event has started, and 409 QUESTION_REVIEW_NOTHING_TO_REVIEW when no draft exists. Every allowlisted Platform Operator is mailed in their Staff Locale. Org Admin or Event Owner; answers 404 while the Ticket Question feature flag is off.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Note and acknowledgement */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.questionReviewBody"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeQuestionReview"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/staff/events/{id}/question-reviews/{reviewId}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Withdraw a Question Review
+         * @description Withdraws the Event's outstanding Question Review (ADR 0056): the Review moves to `withdrawn`, stamped with the withdrawing Member's email and the instant, and every question and Option it carried returns to `draft`. A compare-and-swap on the outstanding state: a Review already answered, withdrawn or lapsed is refused with 409 QUESTION_REVIEW_NOT_OUTSTANDING naming the state it reached, and one that is not this Event's is 404 QUESTION_REVIEW_NOT_FOUND. Org Admin or Event Owner.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Question Review ID */
+                    reviewId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeQuestionReview"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/staff/events/{id}/question-reviews/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the Event's current Question Review
+         * @description Returns the Event's outstanding Question Review with its items, or — when none is outstanding — the last one submitted, for the staff editor's banner (ADR 0056). 404 QUESTION_REVIEW_NOT_FOUND when the Event has never had one. Org Admin or Event Owner.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeQuestionReview"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/events/{id}/sale-imports": {
         parameters: {
             query?: never;
@@ -9728,6 +9978,10 @@ export interface components {
             promotional_price_cents?: number;
             starts_at?: string;
         };
+        "handler.questionReviewBody": {
+            acknowledged?: boolean;
+            note?: string;
+        };
         "handler.recordConsentWithdrawalBody": {
             marketing_consent?: boolean;
             networking_consent?: boolean;
@@ -10287,6 +10541,11 @@ export interface components {
         };
         "openapi.EnvelopePublicOrganizationEvents": {
             data?: components["schemas"]["service.PublicOrganizationEvents"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeQuestionReview": {
+            data?: components["schemas"]["service.QuestionReviewView"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -12154,6 +12413,42 @@ export interface components {
              *     read wrong.
              */
             ticket_questions?: components["schemas"]["service.PublicTicketQuestion"][];
+        };
+        "service.QuestionReviewItemView": {
+            id?: string;
+            reason?: string;
+            ticket_question_id?: string;
+            ticket_question_option_id?: string;
+            /**
+             * @description Verdict is `approved` or `refused` once the Operator has answered, with
+             *     the reason on a refusal; both absent until then.
+             */
+            verdict?: string;
+        };
+        "service.QuestionReviewView": {
+            /**
+             * @description AcknowledgedAt is when the submitter affirmed what the Organization was
+             *     choosing to collect: the record ADR 0056 says the acknowledgement is.
+             */
+            acknowledged_at?: string;
+            answered_at?: string;
+            /**
+             * @description AnsweredBy and AnsweredAt are how the Review ended, whichever way it did:
+             *     the Operator's verdict, a withdrawal, or the lapse.
+             */
+            answered_by?: string;
+            event_id?: string;
+            id?: string;
+            items?: components["schemas"]["service.QuestionReviewItemView"][];
+            note?: string;
+            /** @description Status is outstanding, answered, withdrawn or lapsed. */
+            status?: string;
+            submitted_at?: string;
+            /**
+             * @description SubmittedBy is the submitter's email, so the record outlives their
+             *     Membership.
+             */
+            submitted_by?: string;
         };
         "service.ReversalDrainResult": {
             /**

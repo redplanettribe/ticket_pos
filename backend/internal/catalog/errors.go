@@ -613,3 +613,65 @@ func ErrAssignmentLinkUnavailable() apperror.DomainError {
 // Ticket, so there is no id an early 400 could leak — unlike the Holder EMAIL,
 // whose ErrInvalidHolderEmail stays a domain error above precisely because
 // there is one. See catalog.ParseHolderName for the domain's definition.
+
+// The Question Review's refusals (#406, parent #404, ADR 0056).
+
+// ErrQuestionReviewAcknowledgementRequired is returned when a submission
+// arrives without the Organization affirming what it is choosing to collect.
+// The acknowledgement is a record, kept with who affirmed it and when, and a
+// Review without one was never accepted.
+func ErrQuestionReviewAcknowledgementRequired() apperror.DomainError {
+	return apperror.New(
+		"QUESTION_REVIEW_ACKNOWLEDGEMENT_REQUIRED",
+		"Confirm that you are choosing what to collect before submitting the questions for review.",
+		nil,
+	)
+}
+
+// ErrQuestionReviewOutstanding is returned when a submission reaches an Event
+// that already has a Review waiting on the Operator. Withdraw it to ask again.
+func ErrQuestionReviewOutstanding() apperror.DomainError {
+	return apperror.New(
+		"QUESTION_REVIEW_OUTSTANDING",
+		"This event already has a question review waiting on the platform operator. Withdraw it to submit again.",
+		nil,
+	)
+}
+
+// ErrQuestionReviewEventStarted is returned when a submission reaches an Event
+// that has started, in its own timezone: the moment Answers stop being
+// changeable is the moment there is nothing left to approve (ADR 0056).
+func ErrQuestionReviewEventStarted() apperror.DomainError {
+	return apperror.New(
+		"QUESTION_REVIEW_EVENT_STARTED",
+		"This event has started, so its questions can no longer be submitted for review.",
+		nil,
+	)
+}
+
+// ErrQuestionReviewNothingToReview is returned when the Event has no draft or
+// refused question or Option to carry: a Review with no items is not an ask.
+func ErrQuestionReviewNothingToReview() apperror.DomainError {
+	return apperror.New(
+		"QUESTION_REVIEW_NOTHING_TO_REVIEW",
+		"There are no draft questions to submit for review.",
+		nil,
+	)
+}
+
+// ErrQuestionReviewNotFound is returned when the Event has no such Review, or
+// none at all.
+func ErrQuestionReviewNotFound() apperror.DomainError {
+	return apperror.New("QUESTION_REVIEW_NOT_FOUND", "Question review not found.", nil)
+}
+
+// ErrQuestionReviewNotOutstanding is returned when a withdrawal reaches a
+// Review that is no longer waiting: answered, withdrawn already, or lapsed. The
+// state it actually reached travels in the details.
+func ErrQuestionReviewNotOutstanding(status string) apperror.DomainError {
+	return apperror.New(
+		"QUESTION_REVIEW_NOT_OUTSTANDING",
+		"This question review is no longer outstanding.",
+		map[string]any{"status": status},
+	)
+}

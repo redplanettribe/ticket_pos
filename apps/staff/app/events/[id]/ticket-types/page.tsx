@@ -17,6 +17,7 @@ type TicketTypesPageProps = {
 type EventSummary = {
   id: string;
   status: string;
+  starts_at: string | null;
   timezone: string | null;
   fee_handling: FeeHandling;
   fee_basis_points: number;
@@ -62,6 +63,7 @@ export default async function TicketTypesPage({ params }: TicketTypesPageProps) 
       eventId={id}
       eventStatus={event.status}
       eventTimezone={event.timezone}
+      eventStartsAt={event.starts_at}
       ticketQuestionsEnabled={event.ticket_questions_enabled}
       feeHandling={event.fee_handling}
       feeRates={{

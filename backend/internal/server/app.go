@@ -347,6 +347,12 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// and goes to a stranger, this one carries no link at all and goes to
 	// somebody who proved their address.
 	catalogService = catalogService.WithNoLongerHoldingMail(emailSender)
+	// The Question Review's submission notice (#406, ADR 0056): the second use
+	// of the organizer-facing channel ADR 0026 opened, handed the same three
+	// things the Payout Request's is — the split sender through a one-method
+	// seam, the operator allowlist, and the Staff Locale reader — so who is
+	// told and in what language come from the same place they do there.
+	catalogService = catalogService.WithQuestionReviewNotices(emailSender, identityService, identityService)
 	catalogHandler := cataloghandler.New(catalogService)
 
 	// The Sale Confirmation's one conditional sentence (#315, ADR 0044), tied on

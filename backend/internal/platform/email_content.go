@@ -96,6 +96,57 @@ func (p PayoutRequestSubmitted) Text() string {
 	return text
 }
 
+// The Question Review's submission notice (#406, ADR 0056): the Operator
+// learns an Event's questions are waiting, on the channel ADR 0026 opened.
+var (
+	questionReviewSubmittedSubjectCopy = translated(
+		"%s submitted %s for review: %s",
+		"%s envió %s a revisión: %s",
+	)
+	questionReviewSubmittedOpeningCopy = translated(
+		"%s has submitted %s on %s for your review, sent by %s.",
+		"%s envió %s de %s para su revisión, enviadas por %s.",
+	)
+	questionReviewSubmittedNoteCopy = translated(
+		"\nNote: %s",
+		"\nNota: %s",
+	)
+	questionReviewSubmittedActionCopy = translated(
+		"\n\nReview the questions on the Operator Dashboard. Nothing is asked of a buyer until you approve it.",
+		"\n\nRevise las preguntas en el Panel de Operador. No se le pregunta nada a un comprador hasta que usted la apruebe.",
+	)
+	questionReviewOneQuestionCopy   = translated("1 question", "1 pregunta")
+	questionReviewManyQuestionsCopy = translated("%d questions", "%d preguntas")
+)
+
+// questionCount is "3 questions" in the Locale, or "1 question".
+func (q QuestionReviewSubmitted) questionCount() string {
+	if q.QuestionCount == 1 {
+		return questionReviewOneQuestionCopy.in(q.Locale)
+	}
+	return fmt.Sprintf(questionReviewManyQuestionsCopy.in(q.Locale), q.QuestionCount)
+}
+
+// Subject names the Organization, the count and the Event: the whole of what an
+// Operator sees in a mailbox list, and what decides whether they open the
+// dashboard tonight.
+func (q QuestionReviewSubmitted) Subject() string {
+	return fmt.Sprintf(questionReviewSubmittedSubjectCopy.in(q.Locale), q.OrganizationName, q.questionCount(), q.EventName)
+}
+
+// Text is the body: the ask, who made it, their note if any, and what to do.
+// No question text travels here; the dashboard is where it is read and ruled
+// on, and a notice is not the place to start reading personal-data questions.
+func (q QuestionReviewSubmitted) Text() string {
+	text := fmt.Sprintf(questionReviewSubmittedOpeningCopy.in(q.Locale),
+		q.OrganizationName, q.questionCount(), q.EventName, q.SubmittedBy)
+	if q.Note != "" {
+		text += fmt.Sprintf(questionReviewSubmittedNoteCopy.in(q.Locale), q.Note)
+	}
+	text += questionReviewSubmittedActionCopy.in(q.Locale)
+	return text
+}
+
 var (
 	payoutPaidSubjectCopy = translated(
 		"Your payout of %s has been sent",

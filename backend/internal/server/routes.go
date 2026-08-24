@@ -780,6 +780,16 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("POST /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions/{questionId}/options", orgAdmin(http.HandlerFunc(ch.AddTicketQuestionOption)))
 	mux.Handle("PATCH /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions/{questionId}/options/{optionId}", orgAdmin(http.HandlerFunc(ch.RenameTicketQuestionOption)))
 	mux.Handle("DELETE /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions/{questionId}/options/{optionId}", orgAdmin(http.HandlerFunc(ch.RetireTicketQuestionOption)))
+	// The Question Review (#406, ADR 0056): the Event's drafts submitted as one
+	// ask to the Platform Operator, and taken back while outstanding. Gated
+	// `eventOwnerOrAdmin` and not `orgAdmin` like the authoring routes above,
+	// because ADR 0056 names both as the people who may ask — and Event Staff
+	// are refused, which is the "by Event Staff" refusal the ticket asks for.
+	// The 404-while-dark rule is the catalog service's, as it is for every
+	// question route.
+	mux.Handle("POST /api/v1/staff/events/{id}/question-reviews", eventOwnerOrAdmin(http.HandlerFunc(ch.SubmitQuestionReview)))
+	mux.Handle("GET /api/v1/staff/events/{id}/question-reviews/current", eventOwnerOrAdmin(http.HandlerFunc(ch.GetCurrentQuestionReview)))
+	mux.Handle("POST /api/v1/staff/events/{id}/question-reviews/{reviewId}/withdraw", eventOwnerOrAdmin(http.HandlerFunc(ch.WithdrawQuestionReview)))
 	// The Answer: what one Ticket says in reply to one Ticket Question (#310).
 	//
 	// GATED `orgAdmin`, EXACTLY AS THE QUESTION-AUTHORING ROUTES ABOVE ARE, and

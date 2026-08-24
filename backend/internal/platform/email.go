@@ -521,6 +521,31 @@ type ConsentWithdrawalConfirmation struct {
 // It exists because the pending-count badge on the operator navigation only
 // works for somebody who already decided to look, and a Friday-evening request
 // otherwise waits until Monday.
+// QuestionReviewSubmitted tells one Platform Operator that an Organization has
+// submitted an Event's Ticket Questions for review (#406, ADR 0056). One is
+// sent per address on the operator allowlist, on the terms the Payout Request's
+// submission notice is: the allowlist is the whole of operator authority, and
+// each address is written to in its own Staff Locale.
+//
+// It carries no question text. What was asked is read on the Operator
+// Dashboard, where the verdict is given; the notice's job is to say that
+// something is waiting, whose it is, and how much of it there is.
+type QuestionReviewSubmitted struct {
+	To               string
+	Locale           Locale
+	OrganizationName string
+	EventName        string
+	// SubmittedBy is the submitting Member's email, recorded on the Review so
+	// it outlives their Membership, and in the notice so an Operator can reply
+	// to a person.
+	SubmittedBy string
+	// QuestionCount is how many questions the Review carries; Options are not
+	// counted, because "3 questions" is what an Operator budgets time for.
+	QuestionCount int
+	// Note is the Organization's own words, empty when they wrote none.
+	Note string
+}
+
 type PayoutRequestSubmitted struct {
 	To string
 	// Locale is the language this operator reads, resolved from the Staff Locale
@@ -904,6 +929,9 @@ type EmailSender interface {
 	// cannot tell which happened.
 	SendNoLongerHolding(ctx context.Context, notice NoLongerHolding) error
 	SendPayoutRequestSubmitted(ctx context.Context, submitted PayoutRequestSubmitted) error
+	// SendQuestionReviewSubmitted tells one Platform Operator that an Event's
+	// questions are waiting for review (#406, ADR 0056).
+	SendQuestionReviewSubmitted(ctx context.Context, submitted QuestionReviewSubmitted) error
 	SendPayoutRequestPaid(ctx context.Context, paid PayoutRequestPaid) error
 	SendPayoutRequestDeclined(ctx context.Context, declined PayoutRequestDeclined) error
 	SendPayoutRequestTransferSent(ctx context.Context, sent PayoutRequestTransferSent) error
@@ -1004,6 +1032,13 @@ func (s *LoggingEmailSender) SendPayoutRequestSubmitted(_ context.Context, p Pay
 	return nil
 }
 
+// SendQuestionReviewSubmitted logs the Operator's notice that an Event's
+// questions are waiting for review. The count is logged; no question is.
+func (s *LoggingEmailSender) SendQuestionReviewSubmitted(_ context.Context, q QuestionReviewSubmitted) error {
+	s.Logger.Info("question review submitted notice sent", "email", q.To, "organization", q.OrganizationName, "event", q.EventName, "question_count", q.QuestionCount, "submitted_by", q.SubmittedBy)
+	return nil
+}
+
 // SendPayoutRequestPaid logs the asker's notice that the transfer was made.
 func (s *LoggingEmailSender) SendPayoutRequestPaid(_ context.Context, p PayoutRequestPaid) error {
 	s.Logger.Info("payout request paid notice sent", "email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents, "requested_cents", p.RequestedCents)
@@ -1095,6 +1130,11 @@ func (NoopEmailSender) SendPayoutRequestSubmitted(_ context.Context, _ PayoutReq
 	return nil
 }
 
+// SendQuestionReviewSubmitted discards the Operator's review notice.
+func (NoopEmailSender) SendQuestionReviewSubmitted(_ context.Context, _ QuestionReviewSubmitted) error {
+	return nil
+}
+
 // SendPayoutRequestPaid discards the asker's paid notice.
 func (NoopEmailSender) SendPayoutRequestPaid(_ context.Context, _ PayoutRequestPaid) error {
 	return nil
@@ -1180,7 +1220,11 @@ type CaptureEmailSender struct {
 	// neither is visible in any message's words.
 	NoLongerHoldings []NoLongerHolding
 	// The five Payout Request notices (#179, #188).
-	SubmittedPayoutRequests    []PayoutRequestSubmitted
+	SubmittedPayoutRequests []PayoutRequestSubmitted
+	// The Question Review submission notices (#406, ADR 0056), one per
+	// allowlisted Operator, kept whole so a test can render each in its
+	// recipient's Mail Locale.
+	SubmittedQuestionReviews   []QuestionReviewSubmitted
 	PaidPayoutRequests         []PayoutRequestPaid
 	DeclinedPayoutRequests     []PayoutRequestDeclined
 	TransferSentPayoutRequests []PayoutRequestTransferSent
@@ -1501,6 +1545,27 @@ func (s *CaptureEmailSender) PayoutRequestsSubmitted() []PayoutRequestSubmitted 
 	return out
 }
 
+// QuestionReviewsSubmitted returns a copy of the captured Question Review
+// submission notices, in the order they were sent.
+func (s *CaptureEmailSender) QuestionReviewsSubmitted() []QuestionReviewSubmitted {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]QuestionReviewSubmitted, len(s.SubmittedQuestionReviews))
+	copy(out, s.SubmittedQuestionReviews)
+	return out
+}
+
+// SendQuestionReviewSubmitted records a delivered Question Review notice.
+func (s *CaptureEmailSender) SendQuestionReviewSubmitted(_ context.Context, q QuestionReviewSubmitted) error {
+	if err := s.failed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.SubmittedQuestionReviews = append(s.SubmittedQuestionReviews, q)
+	return nil
+}
+
 // PayoutRequestsPaid returns a copy of the captured paid notices.
 func (s *CaptureEmailSender) PayoutRequestsPaid() []PayoutRequestPaid {
 	s.mu.Lock()
@@ -1592,6 +1657,7 @@ func (s *CaptureEmailSender) Reset() {
 	s.AssignmentReminders = nil
 	s.NoLongerHoldings = nil
 	s.SubmittedPayoutRequests = nil
+	s.SubmittedQuestionReviews = nil
 	s.PaidPayoutRequests = nil
 	s.DeclinedPayoutRequests = nil
 	s.TransferSentPayoutRequests = nil

@@ -167,7 +167,7 @@ func domainHTTPStatus(code string) int {
 		return http.StatusNotFound
 	case "ORGANIZATION_SLUG_TAKEN", "EVENT_SLUG_TAKEN", "MEMBER_ALREADY_EXISTS", "LAST_ORG_ADMIN", "CANNOT_REMOVE_SELF", "CAPACITY_EXCEEDED", "PURCHASE_LIMIT_EXCEEDED", "IMPORT_BATCH_FAILED", "IMPORT_NOT_LATEST_BATCH", "IMPORT_ALREADY_REVERSED", "EVENT_NOT_DRAFT", "EVENT_DELETE_FORBIDDEN", "EVENT_PUBLISH_REQUIREMENTS_NOT_MET", "EVENT_ALREADY_PUBLISHED", "EVENT_ALREADY_CANCELLED", "EVENT_NOT_PUBLISHED", "TICKET_TYPE_DELETE_FORBIDDEN", "CURRENCY_LOCKED":
 		return http.StatusConflict
-	case "ASSIGNMENT_NOT_FOUND", "TICKET_TYPE_NOT_FOUND", "IMPORT_BATCH_NOT_FOUND", "PAYMENT_NOT_FOUND", "TICKET_SALE_NOT_FOUND", "PROMOTION_NOT_FOUND", "AFFILIATE_LINK_NOT_FOUND", "PAYOUT_REQUEST_NOT_FOUND", "TAG_NOT_FOUND", "TICKET_QUESTION_NOT_FOUND", "TICKET_QUESTION_OPTION_NOT_FOUND":
+	case "ASSIGNMENT_NOT_FOUND", "TICKET_TYPE_NOT_FOUND", "IMPORT_BATCH_NOT_FOUND", "PAYMENT_NOT_FOUND", "TICKET_SALE_NOT_FOUND", "PROMOTION_NOT_FOUND", "AFFILIATE_LINK_NOT_FOUND", "PAYOUT_REQUEST_NOT_FOUND", "TAG_NOT_FOUND", "TICKET_QUESTION_NOT_FOUND", "TICKET_QUESTION_OPTION_NOT_FOUND", "QUESTION_REVIEW_NOT_FOUND":
 		return http.StatusNotFound
 	// Ticket Question authoring asked for while the feature flag is off (#309,
 	// ADR 0045). 404 and pointedly not 403: while the flag is off there is
@@ -227,6 +227,15 @@ func domainHTTPStatus(code string) int {
 	// about the Ticket — its Sale was reversed, or the doors have opened.
 	// Neither becomes the answer by being retried with the same body, and both
 	// leave everything already answered readable.
+	// The Question Review's refusals (#406, ADR 0056). The acknowledgement is a
+	// missing part of the body, so 400 beside INVALID_HOLDER_EMAIL; the other
+	// three are facts about the Event or the Review that no retry with the same
+	// body changes, so 409 beside their Ticket Question neighbours.
+	case "QUESTION_REVIEW_ACKNOWLEDGEMENT_REQUIRED":
+		return http.StatusBadRequest
+	case "QUESTION_REVIEW_OUTSTANDING", "QUESTION_REVIEW_EVENT_STARTED",
+		"QUESTION_REVIEW_NOTHING_TO_REVIEW", "QUESTION_REVIEW_NOT_OUTSTANDING":
+		return http.StatusConflict
 	case "TICKET_SALE_REVERSED", "EVENT_STARTED_ANSWERS_CLOSED":
 		return http.StatusConflict
 	// An Answer that does not fit its Ticket Question (#310). 400 and not 409,

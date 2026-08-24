@@ -149,14 +149,14 @@ type EnvelopeBuyerTicketAnswers struct {
 // Storefront anything about the purchase to render.
 type EnvelopeHeldTickets struct {
 	Data      []service.HeldTicketAnswersView `json:"data"`
-	Error     *platform.APIError       `json:"error"`
-	RequestID string                   `json:"request_id"`
+	Error     *platform.APIError              `json:"error"`
+	RequestID string                          `json:"request_id"`
 }
 
 type EnvelopeHeldTicket struct {
 	Data      service.HeldTicketAnswersView `json:"data"`
-	Error     *platform.APIError     `json:"error"`
-	RequestID string                 `json:"request_id"`
+	Error     *platform.APIError            `json:"error"`
+	RequestID string                        `json:"request_id"`
 }
 
 // EnvelopeTagList documents tag list success responses (search and event tags).
@@ -198,4 +198,12 @@ type EnvelopeHolderAddressPurge struct {
 	Data      service.HolderAddressPurgeResult `json:"data"`
 	Error     *platform.APIError               `json:"error"`
 	RequestID string                           `json:"request_id"`
+}
+
+// EnvelopeQuestionReview documents the Question Review responses (#406,
+// ADR 0056): the submission, the withdrawal, and the editor's current read.
+type EnvelopeQuestionReview struct {
+	Data      service.QuestionReviewView `json:"data"`
+	Error     *platform.APIError         `json:"error"`
+	RequestID string                     `json:"request_id"`
 }
