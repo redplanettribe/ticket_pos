@@ -289,6 +289,13 @@ type Service struct {
 	// would silently disable a feature somebody did decide to open, which a flag
 	// already has a proper way to say.
 	assignmentMailLimits catalog.AssignmentMailLimits
+	// revocationMailer and revocationRecipients deliver the one mail an
+	// Organization gets when a Platform Operator revokes an approved Ticket
+	// Question (#410, ADR 0056): every Org Admin, each in their Mail Locale.
+	// Nil leaves the service silent — the question is retired and the reason
+	// readable in the staff editor either way, and only the telling is missing.
+	revocationMailer     RevocationMailer
+	revocationRecipients RevocationRecipients
 }
 
 // New returns a catalog service. The fee rates are the platform's configured
@@ -424,6 +431,14 @@ func (s *Service) WithAssignmentMail(mailer AssignmentMailer) *Service {
 // is missing — visible in the log rather than in a failed request.
 func (s *Service) WithNoLongerHoldingMail(mailer NoLongerHoldingMailer) *Service {
 	s.noLongerHoldingMailer = mailer
+	return s
+}
+
+// WithRevocationMail supplies the sender and the identity reads the Revocation
+// notice needs (#410, ADR 0056). Nil for either leaves the service silent.
+func (s *Service) WithRevocationMail(mailer RevocationMailer, recipients RevocationRecipients) *Service {
+	s.revocationMailer = mailer
+	s.revocationRecipients = recipients
 	return s
 }
 

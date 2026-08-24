@@ -2825,6 +2825,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/events/{eventID}/ticket-questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List an Event's Ticket Questions for the Platform Operator
+         * @description Returns every Ticket Question of the Event across its Ticket Types, in every review state and retired ones included, each with its Options and its review columns (`review_status`, `approved_by`, `refusal_reason`, `revocation_reason`) and the Ticket Type it hangs off. This is where the Operator sees what an Organization is asking and takes an approval back (ADR 0056). Not scoped to an Organization: the operator allowlist is the whole of the gate. 404 EVENT_NOT_FOUND for an unknown or malformed id; 404 TICKET_QUESTIONS_UNAVAILABLE while the feature is dark (ADR 0045). Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    eventID: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorTicketQuestions"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/organizations": {
         parameters: {
             query?: never;
@@ -3816,6 +3885,98 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/ticket-questions/{questionID}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke an approved Ticket Question, with a reason the Organization reads
+         * @description A Revocation (ADR 0056): retires the question and records who revoked it (taken from the Staff Session, never from the body), when, and why. `review_status` stays `approved` because the approval was real; `retired` becomes true and `revocation_reason` carries the reason. From that moment the question is asked of nobody — gone from the checkout, the public Event page, the Customer Area, the Holder List's Outstanding Answers and the Answer Reminder — while every Answer already given stays on its Ticket, on the staff answer view and in the Sales Export. Every Org Admin of the Organization is mailed the reason in their own language. THE REASON IS REQUIRED — blank or whitespace-only is refused with a field error — and bounded at 500 characters. Only an approved, live question can be revoked: a draft, under-review or refused one is 409 TICKET_QUESTION_NOT_APPROVED, and one already retired is 409 TICKET_QUESTION_RETIRED. 404 TICKET_QUESTION_NOT_FOUND for an unknown or malformed id. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Ticket Question ID */
+                    questionID: string;
+                };
+                cookie?: never;
+            };
+            /** @description Why the approval is taken back */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.revokeTicketQuestionBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorRevokedTicketQuestion"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -9746,6 +9907,9 @@ export interface components {
             platform_fee_kept?: boolean;
             refunded_amount_cents?: number;
         };
+        "handler.revokeTicketQuestionBody": {
+            reason?: string;
+        };
         "handler.selectOrganizationBody": {
             member_id?: string;
         };
@@ -10235,6 +10399,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeOperatorRevokedTicketQuestion": {
+            data?: components["schemas"]["service.RevokedTicketQuestion"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeOperatorSaleLookup": {
             data?: components["schemas"]["service.SaleLookup"];
             error?: components["schemas"]["platform.APIError"];
@@ -10242,6 +10411,11 @@ export interface components {
         };
         "openapi.EnvelopeOperatorSaleReversal": {
             data?: components["schemas"]["service.SaleReversal"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeOperatorTicketQuestions": {
+            data?: components["schemas"]["service.TicketQuestion"][];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -12234,6 +12408,51 @@ export interface components {
              */
             ticket_sale_id?: string;
         };
+        "service.RevokedTicketQuestion": {
+            /**
+             * @description ApprovedBy names who approved it — a Platform Operator, or the
+             *     grandfathering migration — and is absent until somebody has.
+             */
+            approved_by?: string;
+            created_at?: string;
+            id?: string;
+            kind?: string;
+            label?: string;
+            /** @description Options is empty for the five kinds that are not answered by choosing. */
+            options?: components["schemas"]["service.TicketQuestionOptionView"][];
+            /** @description RefusalReason is the Operator's reason on a refused question. */
+            refusal_reason?: string;
+            /**
+             * @description Required produces an Outstanding Answer and nothing else. It is not a
+             *     constraint, and no surface may treat it as one.
+             */
+            required?: boolean;
+            /**
+             * @description Retired is true for a question kept only so that what has already been
+             *     answered still reads. Retired questions are returned so the authoring
+             *     surface can show them rather than appearing to have lost them.
+             */
+            retired?: boolean;
+            /**
+             * @description ReviewStatus is where the question stands with the Platform Operator
+             *     (ADR 0056): `draft`, `under_review`, `approved` or `refused`. Only an
+             *     approved question is asked of anybody. Read-only on this surface: the
+             *     verdicts are the Operator's and the submission is a Question Review's.
+             */
+            review_status?: string;
+            /**
+             * @description RevocationReason is the Operator's reason on a Revocation, which is why
+             *     a question that reads retired here stopped being asked.
+             */
+            revocation_reason?: string;
+            sort_order?: number;
+            /**
+             * @description Timing is 'at_checkout' on every row written so far; the field is here so
+             *     the Organization's choice can be honoured later without migrating Answers.
+             */
+            timing?: string;
+            updated_at?: string;
+        };
         "service.Sale": {
             amount_cents?: number;
             /** @description Channel is the Sales Channel: 'online', 'in_person' or 'import'. */
@@ -12470,6 +12689,53 @@ export interface components {
             ticket_sale_id?: string;
             ticket_type_id?: string;
             ticket_type_name?: string;
+        };
+        "service.TicketQuestion": {
+            /**
+             * @description ApprovedBy names who approved it — a Platform Operator, or the
+             *     grandfathering migration — and is absent until somebody has.
+             */
+            approved_by?: string;
+            created_at?: string;
+            id?: string;
+            kind?: string;
+            label?: string;
+            /** @description Options is empty for the five kinds that are not answered by choosing. */
+            options?: components["schemas"]["service.TicketQuestionOptionView"][];
+            /** @description RefusalReason is the Operator's reason on a refused question. */
+            refusal_reason?: string;
+            /**
+             * @description Required produces an Outstanding Answer and nothing else. It is not a
+             *     constraint, and no surface may treat it as one.
+             */
+            required?: boolean;
+            /**
+             * @description Retired is true for a question kept only so that what has already been
+             *     answered still reads. Retired questions are returned so the authoring
+             *     surface can show them rather than appearing to have lost them.
+             */
+            retired?: boolean;
+            /**
+             * @description ReviewStatus is where the question stands with the Platform Operator
+             *     (ADR 0056): `draft`, `under_review`, `approved` or `refused`. Only an
+             *     approved question is asked of anybody. Read-only on this surface: the
+             *     verdicts are the Operator's and the submission is a Question Review's.
+             */
+            review_status?: string;
+            /**
+             * @description RevocationReason is the Operator's reason on a Revocation, which is why
+             *     a question that reads retired here stopped being asked.
+             */
+            revocation_reason?: string;
+            sort_order?: number;
+            ticket_type_id?: string;
+            ticket_type_name?: string;
+            /**
+             * @description Timing is 'at_checkout' on every row written so far; the field is here so
+             *     the Organization's choice can be honoured later without migrating Answers.
+             */
+            timing?: string;
+            updated_at?: string;
         };
         "service.TicketQuestionAnswerView": {
             answer?: components["schemas"]["service.AnswerView"];

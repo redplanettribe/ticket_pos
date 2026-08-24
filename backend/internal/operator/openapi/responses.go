@@ -90,3 +90,20 @@ type EnvelopeOperatorSaleReversal struct {
 	Error     *platform.APIError   `json:"error"`
 	RequestID string               `json:"request_id"`
 }
+
+// EnvelopeOperatorTicketQuestions documents GET
+// /operator/events/{eventID}/ticket-questions success responses (#410).
+type EnvelopeOperatorTicketQuestions struct {
+	Data      []service.TicketQuestion `json:"data"`
+	Error     *platform.APIError       `json:"error"`
+	RequestID string                   `json:"request_id"`
+}
+
+// EnvelopeOperatorRevokedTicketQuestion documents POST
+// /operator/ticket-questions/{questionID}/revoke success responses: the
+// question as it now stands, retired and carrying the reason (#410).
+type EnvelopeOperatorRevokedTicketQuestion struct {
+	Data      service.RevokedTicketQuestion `json:"data"`
+	Error     *platform.APIError            `json:"error"`
+	RequestID string                        `json:"request_id"`
+}

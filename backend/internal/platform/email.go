@@ -610,6 +610,27 @@ type PayoutRequestTransferSent struct {
 	SubmittedAt time.Time
 }
 
+// TicketQuestionRevoked tells one Org Admin that a Platform Operator has
+// revoked an approved Ticket Question, and why (#410, ADR 0056).
+//
+// The second use of the organizer-facing channel ADR 0026 opened, which
+// ADR 0056 named as a decision. One notice per Org Admin of the Organization,
+// each in their own Mail Locale, because a Revocation has no single asker the
+// way a Payout Request has: the question was the Organization's, and every
+// person accountable for the Organization is told.
+//
+// THE REASON IS NEVER TRANSLATED. It is the Operator's own sentence to this
+// Organization, quoted verbatim in either language. The question's label and
+// the Event's name are data too, and read as coined.
+type TicketQuestionRevoked struct {
+	To               string
+	Locale           Locale
+	OrganizationName string
+	EventName        string
+	QuestionLabel    string
+	Reason           string
+}
+
 // PayoutRequestTransferFailed tells the asking Member that the bank sent the
 // transfer back, and why (#188, ADR 0026 amendment).
 //
@@ -903,6 +924,10 @@ type EmailSender interface {
 	// places for the copy to drift apart, and the whole point is that the reader
 	// cannot tell which happened.
 	SendNoLongerHolding(ctx context.Context, notice NoLongerHolding) error
+	// SendTicketQuestionRevoked tells one Org Admin that an approved Ticket
+	// Question was revoked, and why (#410, ADR 0056). Transactional, on the
+	// staff-to-organizer channel beside the Payout Request notices.
+	SendTicketQuestionRevoked(ctx context.Context, revoked TicketQuestionRevoked) error
 	SendPayoutRequestSubmitted(ctx context.Context, submitted PayoutRequestSubmitted) error
 	SendPayoutRequestPaid(ctx context.Context, paid PayoutRequestPaid) error
 	SendPayoutRequestDeclined(ctx context.Context, declined PayoutRequestDeclined) error
@@ -993,6 +1018,13 @@ func (s *LoggingEmailSender) SendTicketAssignment(_ context.Context, a TicketAss
 // to log: it carries no link, no cause and nothing about the buyer.
 func (s *LoggingEmailSender) SendNoLongerHolding(_ context.Context, n NoLongerHolding) error {
 	s.Logger.Info("no longer holding notice sent", "email", n.To, "event", n.EventName, "locale", string(n.Locale))
+	return nil
+}
+
+// SendTicketQuestionRevoked logs the Revocation notice. The reason is not
+// logged: it is the Operator's message to one Organization.
+func (s *LoggingEmailSender) SendTicketQuestionRevoked(_ context.Context, r TicketQuestionRevoked) error {
+	s.Logger.Info("ticket question revoked notice sent", "email", r.To, "organization", r.OrganizationName)
 	return nil
 }
 
@@ -1090,6 +1122,11 @@ func (NoopEmailSender) SendNoLongerHolding(_ context.Context, _ NoLongerHolding)
 	return nil
 }
 
+// SendTicketQuestionRevoked discards the Revocation notice.
+func (NoopEmailSender) SendTicketQuestionRevoked(_ context.Context, _ TicketQuestionRevoked) error {
+	return nil
+}
+
 // SendPayoutRequestSubmitted discards the operator's submission notice.
 func (NoopEmailSender) SendPayoutRequestSubmitted(_ context.Context, _ PayoutRequestSubmitted) error {
 	return nil
@@ -1179,6 +1216,11 @@ type CaptureEmailSender struct {
 	// told exactly once" are both facts about how many of these exist, and
 	// neither is visible in any message's words.
 	NoLongerHoldings []NoLongerHolding
+	// The Revocation notices delivered (#410, ADR 0056). Kept whole so a test
+	// can render Subject() and Text() itself, which is the only way the Mail
+	// Locale is visible; asserted on by LENGTH as much as by contents, since
+	// "every Org Admin and nobody else" is a fact about how many there are.
+	RevokedTicketQuestions []TicketQuestionRevoked
 	// The five Payout Request notices (#179, #188).
 	SubmittedPayoutRequests    []PayoutRequestSubmitted
 	PaidPayoutRequests         []PayoutRequestPaid
@@ -1346,6 +1388,17 @@ func (s *CaptureEmailSender) SendPayoutRequestPaid(_ context.Context, p PayoutRe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.PaidPayoutRequests = append(s.PaidPayoutRequests, p)
+	return nil
+}
+
+// SendTicketQuestionRevoked records a delivered Revocation notice.
+func (s *CaptureEmailSender) SendTicketQuestionRevoked(_ context.Context, r TicketQuestionRevoked) error {
+	if err := s.failed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.RevokedTicketQuestions = append(s.RevokedTicketQuestions, r)
 	return nil
 }
 
@@ -1594,6 +1647,7 @@ func (s *CaptureEmailSender) Reset() {
 	s.SubmittedPayoutRequests = nil
 	s.PaidPayoutRequests = nil
 	s.DeclinedPayoutRequests = nil
+	s.RevokedTicketQuestions = nil
 	s.TransferSentPayoutRequests = nil
 	s.FailedPayoutRequests = nil
 	s.FollowDigests = nil

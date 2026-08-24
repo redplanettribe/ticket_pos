@@ -347,6 +347,11 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// and goes to a stranger, this one carries no link at all and goes to
 	// somebody who proved their address.
 	catalogService = catalogService.WithNoLongerHoldingMail(emailSender)
+	// The Revocation notice (#410, ADR 0056): every Org Admin of the
+	// Organization, each in their Mail Locale, on the channel ADR 0026 opened.
+	// Identity satisfies the recipients seam — who the Org Admins are and what
+	// language each reads — so catalog never learns how staff identity works.
+	catalogService = catalogService.WithRevocationMail(emailSender, identityService)
 	catalogHandler := cataloghandler.New(catalogService)
 
 	// The Sale Confirmation's one conditional sentence (#315, ADR 0044), tied on

@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/peter/ticket_pos/backend/internal/identity"
+	"github.com/peter/ticket_pos/backend/internal/identity/repository"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
@@ -40,6 +41,25 @@ func (s *Service) IsPlatformOperator(ctx context.Context, email string) (bool, e
 // concept (ADR 0015).
 func (s *Service) PlatformOperatorEmails(ctx context.Context) ([]string, error) {
 	return s.repo.ListPlatformOperatorEmails(ctx)
+}
+
+// OrgAdminEmails returns the address of every Org Admin of one Organization,
+// for the one notice that has no single asker to answer: a Revocation of a
+// Ticket Question is told to everybody accountable for the Organization
+// (#410, ADR 0056). Answered from the same table Membership is, so who is told
+// and who could have submitted the question can never be two different sets.
+func (s *Service) OrgAdminEmails(ctx context.Context, orgID string) ([]string, error) {
+	members, err := s.repo.ListMembersByOrganizationID(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	emails := make([]string, 0, len(members))
+	for _, m := range members {
+		if m.Role == repository.RoleOrgAdmin {
+			emails = append(emails, m.Email)
+		}
+	}
+	return emails, nil
 }
 
 // ListOrganizationsForOperator returns one page of every Organization on the
