@@ -14,7 +14,7 @@ import { TicketSelection } from "@/components/ticket-selection";
 import { TicketTypeCard } from "@/components/ticket-type-card";
 import { getFormatLocale } from "@/i18n/format-locale.server";
 import { Link } from "@/i18n/navigation";
-import { affiliateCodeFromRef, recordAffiliateClick } from "@/lib/affiliate-click";
+import { affiliateCodeFromRef, recordEventPageView } from "@/lib/affiliate-click";
 import { localeAlternates } from "@/lib/alternates";
 import { getPrivacyPolicy, getPublicEvent } from "@/lib/api";
 import { checkoutIdentity } from "@/lib/checkout-identity";
@@ -154,19 +154,20 @@ export default async function EventPage({ params, searchParams }: EventPageProps
     notFound();
   }
 
-  // The Affiliate Link this visitor arrived through, counted after the response
-  // is on its way: the click is display-only stats for an organizer, so it may
-  // never sit between a buyer and the page. The code is not checked first — the
-  // API accepts and ignores a dead one, and asking would be a round trip spent
-  // on nothing.
+  // This load of the page, counted after the response is on its way — EVERY
+  // render, ref or no ref, because the whole page's Page Views are the baseline
+  // an Affiliate Link's Clicks are read against (ADR 0057) — carrying the
+  // Affiliate Link code the visitor arrived through when there was one. The
+  // counters are display-only stats for an organizer, so the call may never sit
+  // between a buyer and the page, and the code is not checked first: the API
+  // accepts and ignores a dead one, and asking would be a round trip spent on
+  // nothing.
   //
-  // The Locale the visitor is reading in is not part of it: a click is a click,
+  // The Locale the visitor is reading in is not part of it: a load is a load,
   // and the two slugs name the Event in every language.
   const query = await searchParams;
   const code = affiliateCodeFromRef(query.ref);
-  if (code) {
-    after(() => recordAffiliateClick(orgSlug, eventSlug, code));
-  }
+  after(() => recordEventPageView(orgSlug, eventSlug, code));
 
   // The selection this visitor arrived with, re-judged against the Ticket Types
   // that were just read — the same read that decided what the steppers may

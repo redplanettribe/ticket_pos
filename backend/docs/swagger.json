@@ -662,6 +662,14 @@
                 },
                 "type": "object"
             },
+            "handler.recordPageViewBody": {
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.recordPayoutBody": {
                 "properties": {
                     "amount_cents": {
@@ -10437,9 +10445,9 @@
                 ]
             }
         },
-        "/api/v1/public/organizations/{slug}/events/{eventSlug}/affiliate-links/{code}/click": {
+        "/api/v1/public/organizations/{slug}/events/{eventSlug}/page-views": {
             "post": {
-                "description": "Counts one visit to an Event page reached through an Affiliate Link's code (?ref=CODE). Public and unauthenticated: the Storefront calls it fire-and-forget while rendering the page. Raw counting — repeat visits count again, with no dedup and no visitor identification. A code that matches nothing live (unknown, mistyped, belonging to another Event, or deactivated) is accepted and counts nothing, so a dead ref in a URL never becomes an error a buyer can see.",
+                "description": "Counts one load of an Event's storefront page into an anonymous hourly bucket, and — when the optional body carries the Affiliate Link code the visitor arrived through and that code is live — counts that link's Click as well. Public and unauthenticated: the Storefront calls it fire-and-forget on every render of the page. Raw counting — repeat loads count again, with no dedup, no visitor identification, and nothing about the visitor stored. A code that matches nothing live (unknown, mistyped, belonging to another Event, or deactivated) is accepted and moves nothing on the link, and slugs that name no Event count nothing at all, so a dead ref in a URL never becomes an error a buyer can see.",
                 "parameters": [
                     {
                         "description": "Organization slug",
@@ -10458,17 +10466,27 @@
                         "schema": {
                             "type": "string"
                         }
-                    },
-                    {
-                        "description": "Affiliate link code",
-                        "in": "path",
-                        "name": "code",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.recordPageViewBody",
+                                        "summary": "body",
+                                        "description": "Affiliate link code the load carried, if any"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Affiliate link code the load carried, if any"
+                },
                 "responses": {
                     "202": {
                         "content": {
@@ -10481,7 +10499,7 @@
                         "description": "Accepted"
                     }
                 },
-                "summary": "Record affiliate link click",
+                "summary": "Record event page view",
                 "tags": [
                     "public"
                 ]

@@ -226,29 +226,42 @@ func lifecyclePathValues(w http.ResponseWriter, r *http.Request, reqID string) (
 	return eventID, linkID, true
 }
 
-// RecordAffiliateLinkClick counts one visit to an Event page reached through an
-// Affiliate Link.
+// recordPageViewBody is the optional payload: the Affiliate Link code the page
+// load carried, when it carried one. Absent, empty, dead and mistyped codes are
+// all fine — the page view counts either way.
+type recordPageViewBody struct {
+	Code string `json:"code"`
+}
+
+// RecordEventPageView counts one load of an Event's storefront page, and the
+// Affiliate Link Click it carried when its code was live.
 //
-// @Summary      Record affiliate link click
-// @Description  Counts one visit to an Event page reached through an Affiliate Link's code (?ref=CODE). Public and unauthenticated: the Storefront calls it fire-and-forget while rendering the page. Raw counting — repeat visits count again, with no dedup and no visitor identification. A code that matches nothing live (unknown, mistyped, belonging to another Event, or deactivated) is accepted and counts nothing, so a dead ref in a URL never becomes an error a buyer can see.
+// @Summary      Record event page view
+// @Description  Counts one load of an Event's storefront page into an anonymous hourly bucket, and — when the optional body carries the Affiliate Link code the visitor arrived through and that code is live — counts that link's Click as well. Public and unauthenticated: the Storefront calls it fire-and-forget on every render of the page. Raw counting — repeat loads count again, with no dedup, no visitor identification, and nothing about the visitor stored. A code that matches nothing live (unknown, mistyped, belonging to another Event, or deactivated) is accepted and moves nothing on the link, and slugs that name no Event count nothing at all, so a dead ref in a URL never becomes an error a buyer can see.
 // @Tags         public
+// @Accept       json
 // @Produce      json
-// @Param        slug       path      string  true  "Organization slug"
-// @Param        eventSlug  path      string  true  "Event slug"
-// @Param        code       path      string  true  "Affiliate link code"
+// @Param        slug       path      string              true   "Organization slug"
+// @Param        eventSlug  path      string              true   "Event slug"
+// @Param        body       body      recordPageViewBody  false  "Affiliate link code the load carried, if any"
 // @Success      202  {object}  platform.Envelope
-// @Router       /api/v1/public/organizations/{slug}/events/{eventSlug}/affiliate-links/{code}/click [post]
-func (h *Handler) RecordAffiliateLinkClick(w http.ResponseWriter, r *http.Request) {
+// @Router       /api/v1/public/organizations/{slug}/events/{eventSlug}/page-views [post]
+func (h *Handler) RecordEventPageView(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
+	// The body is optional and forgiving: a missing or malformed one is a page
+	// view with no code, because nothing about a buyer's page load may become an
+	// error over display-only stats.
+	var body recordPageViewBody
+	_ = json.NewDecoder(r.Body).Decode(&body)
 	// Every outcome is 202: recorded, and accepted-but-ignored, are the same
 	// answer to a page load that has nothing to do with the result. A storage
 	// failure is logged inside the service and swallowed here for the same
 	// reason — a display-only counter must never cost a buyer a page.
-	_ = h.svc.RecordClick(
+	_ = h.svc.RecordPageView(
 		r.Context(),
 		strings.TrimSpace(r.PathValue("slug")),
 		strings.TrimSpace(r.PathValue("eventSlug")),
-		strings.TrimSpace(r.PathValue("code")),
+		strings.TrimSpace(body.Code),
 	)
 	_ = platform.WriteSuccess(w, reqID, http.StatusAccepted, nil)
 }

@@ -285,27 +285,81 @@ func (r *Repository) DeleteIfNoHistory(ctx context.Context, eventID, linkID stri
 	return affected > 0, nil
 }
 
-// RecordClick counts one visit to an Event page reached through the given code,
-// resolved by the two Storefront slugs the visitor's URL carries.
+// RecordPageView counts one load of an Event's storefront page into the
+// Event's anonymous hourly buckets, and — when the load arrived through a live
+// Affiliate Link's code — counts that link's Click as well (ADR 0057, #412).
 //
-// One statement, no read first: clicks arrive concurrently from every visitor a
-// promoter reaches, and a read-modify-write would lose them. A code that matches
-// nothing live — unknown, mistyped, on the wrong Event, or deactivated — updates
-// no row and is not an error; the caller has nothing to tell the buyer either
-// way.
-func (r *Repository) RecordClick(ctx context.Context, organizationSlug, eventSlug, code string) error {
-	_, err := r.db.Pool.ExecContext(ctx, `
-		UPDATE affiliate_links al
-		SET click_count = al.click_count + 1, updated_at = NOW()
+// One transaction, three statements at most, no read-modify-write anywhere:
+// loads arrive concurrently from every visitor an Event has, and each write is
+// a single atomic upsert or increment. The Event's own bucket (affiliate_link_id
+// IS NULL) is incremented on EVERY load; the link's bucket and its lifetime
+// click_count move together (dual-write) only when the code names one of this
+// Event's ACTIVE links, so the counter and the graph can never disagree about
+// whether a visit was a Click. A code that matches nothing live — unknown,
+// mistyped, on the wrong Event, or deactivated — leaves the link side untouched
+// and is not an error: the page view still counts, because a buyer landed on
+// the page whatever their URL carried.
+//
+// Slugs that name no Event count nothing at all: there was no Event page to
+// view. Not an error either, for the caller's usual reason — the caller is a
+// page load, and there is nothing a buyer could do about it.
+//
+// The hour is the caller's truncated UTC hour, passed in rather than read from
+// the database clock so the service owns time (and tests can move it).
+func (r *Repository) RecordPageView(ctx context.Context, organizationSlug, eventSlug, code string, hour time.Time) error {
+	tx, err := r.db.Pool.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var eventID string
+	err = tx.QueryRowContext(ctx, `
+		SELECT e.id
 		FROM events e
 		JOIN organizations o ON o.id = e.organization_id
-		WHERE al.event_id = e.id
-		  AND al.active
-		  AND al.code = $3
-		  AND e.slug = $2
-		  AND o.slug = $1
-	`, organizationSlug, eventSlug, code)
-	return err
+		WHERE e.slug = $2 AND o.slug = $1
+	`, organizationSlug, eventSlug).Scan(&eventID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO event_page_views (event_id, affiliate_link_id, hour, view_count)
+		VALUES ($1, NULL, $2, 1)
+		ON CONFLICT ON CONSTRAINT event_page_views_bucket_key
+		DO UPDATE SET view_count = event_page_views.view_count + 1
+	`, eventID, hour); err != nil {
+		return err
+	}
+
+	if code != "" {
+		var linkID string
+		err := tx.QueryRowContext(ctx, `
+			UPDATE affiliate_links
+			SET click_count = click_count + 1, updated_at = NOW()
+			WHERE event_id = $1 AND code = $2 AND active
+			RETURNING id
+		`, eventID, code).Scan(&linkID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err == nil {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO event_page_views (event_id, affiliate_link_id, hour, view_count)
+				VALUES ($1, $2, $3, 1)
+				ON CONFLICT ON CONSTRAINT event_page_views_bucket_key
+				DO UPDATE SET view_count = event_page_views.view_count + 1
+			`, eventID, linkID, hour); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
 }
 
 func isUniqueViolation(err error) bool {

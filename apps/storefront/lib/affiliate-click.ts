@@ -1,11 +1,11 @@
 /**
- * Counting a visit to an Event page that was reached through an Affiliate Link.
+ * Counting a load of an Event page, and the Affiliate Link it arrived through.
  *
  * The whole feature on this side is one line in the page: read the ref, report
- * it, render as if neither had happened. Nothing here may change what a buyer
- * sees — a dead code, an unknown one, a mistyped one, and an API that is down
- * all look identical from the page, because the counter is display-only stats
- * for an organizer and never a step in buying a ticket.
+ * the load, render as if neither had happened. Nothing here may change what a
+ * buyer sees — a dead code, an unknown one, a mistyped one, and an API that is
+ * down all look identical from the page, because the counters are display-only
+ * stats for an organizer and never a step in buying a ticket.
  */
 
 // Extensioned so the node:test runner, which loads this module for the pure
@@ -30,8 +30,10 @@ export function affiliateCodeFromRef(ref: string | string[] | undefined): string
 }
 
 /**
- * recordAffiliateClick reports one visit to an Event page reached through an
- * Affiliate Link, fire-and-forget.
+ * recordEventPageView reports one load of an Event page, fire-and-forget,
+ * carrying the Affiliate Link code the visitor arrived through when there was
+ * one (ADR 0057). Every render reports — ref or no ref — because the whole
+ * page's traffic is the baseline every link is compared against.
  *
  * Call it without awaiting: the returned promise resolves whatever happens, so
  * a caller that does await it still cannot be made to fail, and a caller that
@@ -39,20 +41,20 @@ export function affiliateCodeFromRef(ref: string | string[] | undefined): string
  * (accepted and ignored by the API), a network error, an API outage — is
  * swallowed on purpose.
  */
-export async function recordAffiliateClick(
+export async function recordEventPageView(
   orgSlug: string,
   eventSlug: string,
-  code: string,
+  code: string | null,
 ): Promise<void> {
   try {
     await callBackend(
       `/api/v1/public/organizations/${encodeURIComponent(orgSlug)}/events/${encodeURIComponent(
         eventSlug,
-      )}/affiliate-links/${encodeURIComponent(code)}/click`,
-      { method: "POST" },
+      )}/page-views`,
+      { method: "POST", body: JSON.stringify(code ? { code } : {}) },
     );
   } catch {
-    // Display-only stats. A click that goes uncounted costs an organizer one
-    // number; a click that throws would cost a buyer their page.
+    // Display-only stats. A view that goes uncounted costs an organizer one
+    // number; a view that throws would cost a buyer their page.
   }
 }

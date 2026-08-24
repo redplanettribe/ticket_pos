@@ -447,6 +447,11 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// do: the copyable URL is derived at read time, never stored.
 	affiliatesRepo := affiliatesrepo.New(db)
 	affiliatesService := affiliatessvc.New(affiliatesRepo, cfg.StorefrontBaseURL, platformLogger)
+	if options.clock != nil {
+		// Page View buckets are stamped by this clock: the hour a load lands in
+		// must be the hour the rest of the suite believes it is.
+		affiliatesService = affiliatesService.WithClock(options.clock)
+	}
 	affiliatesHandler := affiliateshandler.New(affiliatesService)
 	// Affiliate Attribution's one crossing between the two modules: sales hands
 	// the code a checkout arrived with to affiliates and stores the link id it

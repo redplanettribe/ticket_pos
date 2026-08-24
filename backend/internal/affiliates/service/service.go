@@ -83,6 +83,8 @@ type Service struct {
 	// the same value Confirmation Links are built on.
 	storefrontBaseURL string
 	logger            platform.Logger
+	// now is the clock Page View buckets are stamped by (WithClock in tests).
+	now func() time.Time
 }
 
 // New returns an Affiliate Links service.
@@ -91,6 +93,7 @@ func New(repo *repository.Repository, storefrontBaseURL string, logger platform.
 		repo:              repo,
 		storefrontBaseURL: strings.TrimRight(storefrontBaseURL, "/"),
 		logger:            logger,
+		now:               time.Now,
 	}
 }
 
@@ -272,29 +275,42 @@ func (s *Service) ResolveLiveCode(ctx context.Context, eventID, code string) (st
 	return s.repo.FindActiveLinkIDByCode(ctx, eventID, code)
 }
 
-// RecordClick counts one visit to an Event page reached through an Affiliate
-// Link's code. Repeat visits count again: this is a raw click counter, with no
-// dedup and no visitor identification.
+// RecordPageView counts one load of an Event's storefront page into its
+// anonymous hourly bucket, and — when the load carried a live Affiliate Link's
+// code — counts that link's Click as well, moving its bucket and its lifetime
+// click_count together (ADR 0057, #412). Repeat loads count again: raw
+// counting, no dedup and no visitor identification, so every figure downstream
+// is a floor, not a measurement.
 //
-// A code that matches nothing live is a no-op, not an error. The caller is a
-// buyer's page load, and there is nothing a buyer could do about a dead code in
-// a URL somebody else published — the page renders and nothing is counted. A
-// database failure is returned so it can be logged, never shown.
+// The code is optional now — this is the whole-page counter, not just the
+// ref's — and a code that matches nothing live is a no-op on the link side, not
+// an error. The caller is a buyer's page load, and there is nothing a buyer
+// could do about a dead code in a URL somebody else published — the page
+// renders, the page view counts, and nothing else moves. A database failure is
+// returned so it can be logged, never shown.
 //
 // The code is normalized exactly as ResolveLiveCode normalizes it, and for the
 // same reason: one visit through one ref must count a click on the link it
 // later attributes the sale to. A ref retyped in lower case is a real visit
 // through a real link, and the two verdicts may never disagree about it.
-func (s *Service) RecordClick(ctx context.Context, organizationSlug, eventSlug, code string) error {
+func (s *Service) RecordPageView(ctx context.Context, organizationSlug, eventSlug, code string) error {
 	code = strings.ToUpper(strings.TrimSpace(code))
-	if organizationSlug == "" || eventSlug == "" || code == "" {
+	if organizationSlug == "" || eventSlug == "" {
 		return nil
 	}
-	if err := s.repo.RecordClick(ctx, organizationSlug, eventSlug, code); err != nil {
-		s.logger.Error("affiliate link click not recorded", "code", code, "error", err)
+	hour := s.now().UTC().Truncate(time.Hour)
+	if err := s.repo.RecordPageView(ctx, organizationSlug, eventSlug, code, hour); err != nil {
+		s.logger.Error("event page view not recorded", "error", err)
 		return err
 	}
 	return nil
+}
+
+// WithClock overrides the clock (tests): the hour a Page View lands in is the
+// only thing this module reads time for.
+func (s *Service) WithClock(now func() time.Time) *Service {
+	s.now = now
+	return s
 }
 
 // NormalizeName trims an Affiliate Link's display name and reports whether what

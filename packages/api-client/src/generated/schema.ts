@@ -4823,7 +4823,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/public/organizations/{slug}/events/{eventSlug}/affiliate-links/{code}/click": {
+    "/api/v1/public/organizations/{slug}/events/{eventSlug}/page-views": {
         parameters: {
             query?: never;
             header?: never;
@@ -4833,8 +4833,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Record affiliate link click
-         * @description Counts one visit to an Event page reached through an Affiliate Link's code (?ref=CODE). Public and unauthenticated: the Storefront calls it fire-and-forget while rendering the page. Raw counting — repeat visits count again, with no dedup and no visitor identification. A code that matches nothing live (unknown, mistyped, belonging to another Event, or deactivated) is accepted and counts nothing, so a dead ref in a URL never becomes an error a buyer can see.
+         * Record event page view
+         * @description Counts one load of an Event's storefront page into an anonymous hourly bucket, and — when the optional body carries the Affiliate Link code the visitor arrived through and that code is live — counts that link's Click as well. Public and unauthenticated: the Storefront calls it fire-and-forget on every render of the page. Raw counting — repeat loads count again, with no dedup, no visitor identification, and nothing about the visitor stored. A code that matches nothing live (unknown, mistyped, belonging to another Event, or deactivated) is accepted and moves nothing on the link, and slugs that name no Event count nothing at all, so a dead ref in a URL never becomes an error a buyer can see.
          */
         post: {
             parameters: {
@@ -4845,12 +4845,15 @@ export interface paths {
                     slug: string;
                     /** @description Event slug */
                     eventSlug: string;
-                    /** @description Affiliate link code */
-                    code: string;
                 };
                 cookie?: never;
             };
-            requestBody?: never;
+            /** @description Affiliate link code the load carried, if any */
+            requestBody?: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.recordPageViewBody"];
+                };
+            };
             responses: {
                 /** @description Accepted */
                 202: {
@@ -10453,6 +10456,9 @@ export interface components {
             marketing_consent?: boolean;
             networking_consent?: boolean;
             request_reference?: string;
+        };
+        "handler.recordPageViewBody": {
+            code?: string;
         };
         "handler.recordPayoutBody": {
             amount_cents?: number;

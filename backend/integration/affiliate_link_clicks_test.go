@@ -7,11 +7,13 @@ import (
 )
 
 // clickAffiliateLink is the buyer's side of an Affiliate Link: the Storefront
-// reports, fire-and-forget, that an Event page was reached through a ref. It
-// carries no body and no credential — anyone landing on the page can reach it.
+// reports, fire-and-forget, that an Event page was loaded, carrying the ref the
+// visitor arrived through. Since ADR 0057 the click route IS the Page View
+// route — one call per render, code in the body — and it still carries no
+// credential: anyone landing on the page can reach it.
 func clickAffiliateLink(t *testing.T, env *testEnv, orgSlug, eventSlug, code string) (*http.Response, envelope) {
 	t.Helper()
-	return env.post(t, "/api/v1/public/organizations/"+orgSlug+"/events/"+eventSlug+"/affiliate-links/"+code+"/click", nil, nil)
+	return env.post(t, "/api/v1/public/organizations/"+orgSlug+"/events/"+eventSlug+"/page-views", map[string]any{"code": code}, nil)
 }
 
 // affiliateLinkClicks reads one link's clicks off the staff list, which is the

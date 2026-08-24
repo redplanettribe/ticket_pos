@@ -575,13 +575,16 @@ func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	// email and gets forwarded; this route reveals a deadline and never an
 	// action, so nothing here is triggerable by whoever ends up holding the URL.
 	mux.HandleFunc("GET /api/v1/public/checkout/{clientTransactionId}/reversal", app.CustomersHandler.GetCheckoutReversal)
-	// The Affiliate Link click counter, reported by the Storefront while it
-	// renders an Event page carrying a ref. Public and unauthenticated because
-	// the caller is a page load by whoever followed the link, and shaped like the
-	// checkout route above because it identifies the same thing: an Event by its
-	// two Storefront slugs. It answers 202 to everything — see the handler.
-	mux.HandleFunc("POST /api/v1/public/organizations/{slug}/events/{eventSlug}/affiliate-links/{code}/click",
-		app.AffiliatesHandler.RecordAffiliateLinkClick)
+	// The Event Page View counter (ADR 0057), reported by the Storefront on
+	// EVERY render of an Event page, carrying the Affiliate Link code the
+	// visitor arrived through when there was one — this one route is the whole
+	// write path for both the hourly buckets and the lifetime click counter.
+	// Public and unauthenticated because the caller is a page load by whoever
+	// reached the page, and shaped like the checkout route above because it
+	// identifies the same thing: an Event by its two Storefront slugs. It
+	// answers 202 to everything — see the handler.
+	mux.HandleFunc("POST /api/v1/public/organizations/{slug}/events/{eventSlug}/page-views",
+		app.AffiliatesHandler.RecordEventPageView)
 	// The Registration Link hand-off counter (#210), reported by the Storefront
 	// redirect route a Customer passes through on their way to the registration
 	// site. Public and unauthenticated, and shaped like the two routes above

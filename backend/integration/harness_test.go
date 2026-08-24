@@ -206,6 +206,9 @@ func setupTest(t *testing.T) *testEnv {
 	// which week a Customer is owed a Digest for, and when a failed one comes due
 	// again (#220, ADR 0030). Its tests move time further than any other.
 	sharedApp.DigestService.WithClock(func() time.Time { return fixedClock })
+	// Page View buckets are stamped by the affiliates clock: the hour-boundary
+	// tests move it, so every other test must get it back.
+	sharedApp.AffiliatesService.WithClock(func() time.Time { return fixedClock })
 	// No provider spacing between sends. The drain paces itself to the email
 	// provider's rate limit in production, which is real time and not the fixed
 	// clock, so a suite that drives whole weeks through it would spend that
@@ -223,7 +226,7 @@ func setupTest(t *testing.T) *testEnv {
 func resetDatabase(ctx context.Context, db *sql.DB) error {
 	// Update this list when new application tables are added via migrations.
 	if _, err := db.ExecContext(ctx, `
-		TRUNCATE TABLE assignment_reminders, follow_digests, follow_digest_sent_events, affiliate_links, platform_operators, payout_requests, payouts, organization_payout_profiles, payment_lines, payments, customer_organization_follows, customer_tag_follows, consent_records, pending_consents, customer_sessions, sale_reversals, tickets, ticket_sale_lines, ticket_sales, customers, sale_import_batches, event_tags, event_assignments, ticket_question_options, ticket_questions, ticket_type_promotions, ticket_types, events, otp_challenges, staff_locales, sessions, members, organizations RESTART IDENTITY CASCADE
+		TRUNCATE TABLE event_page_views, assignment_reminders, follow_digests, follow_digest_sent_events, affiliate_links, platform_operators, payout_requests, payouts, organization_payout_profiles, payment_lines, payments, customer_organization_follows, customer_tag_follows, consent_records, pending_consents, customer_sessions, sale_reversals, tickets, ticket_sale_lines, ticket_sales, customers, sale_import_batches, event_tags, event_assignments, ticket_question_options, ticket_questions, ticket_type_promotions, ticket_types, events, otp_challenges, staff_locales, sessions, members, organizations RESTART IDENTITY CASCADE
 	`); err != nil {
 		return fmt.Errorf("truncate tables: %w", err)
 	}
