@@ -348,7 +348,7 @@ test("an externally registered Event has no sales series at all", () => {
 
 test("the metrics on offer follow the payload: no sales figures, no sales view", () => {
   assert.deepEqual(availableTrendsMetrics(fullTrends([], null)), ["clicks"]);
-  assert.deepEqual(availableTrendsMetrics(fullTrends([], [])), ["clicks", "sales"]);
+  assert.deepEqual(availableTrendsMetrics(fullTrends([], [])), ["clicks", "sales", "rate"]);
 });
 
 test("sales alone are enough to draw the surface", () => {
@@ -359,4 +359,192 @@ test("sales alone are enough to draw the surface", () => {
     hasTrendsData(fullTrends([{ hour: "2026-08-24T14:00:00Z", link_id: null, views: 1 }], null)),
     true,
   );
+});
+
+// --- Attribution Rate ------------------------------------------------------
+
+// The Rate view divides two floors, so its tests speak in exact fractions: a
+// quarter is 0.25, and a day with no clicks is null — a gap, never a zero and
+// never an infinity.
+
+import {
+  RATE_TRENDS_RANGES,
+  rateRange,
+  rateSeries,
+  rateYMax,
+  rateYTicks,
+} from "./affiliate-trends.ts";
+
+test("the switcher offers the rate only where sales figures exist at all", () => {
+  assert.deepEqual(availableTrendsMetrics({ sales_buckets: [] }), ["clicks", "sales", "rate"]);
+  assert.deepEqual(availableTrendsMetrics({ sales_buckets: null }), ["clicks"]);
+});
+
+test("the rate view never offers 24h — its shortest honest range is a week", () => {
+  assert.deepEqual([...RATE_TRENDS_RANGES], ["7d", "30d", "all"]);
+  assert.equal(rateRange("24h"), "7d");
+  assert.equal(rateRange("30d"), "30d");
+});
+
+test("the rate is drawn at days regardless of the range's own granularity", () => {
+  const data = rateSeries(
+    fullTrends(
+      [{ hour: "2026-08-24T14:00:00Z", link_id: LINK_A, views: 4 }],
+      [{ hour: "2026-08-24T09:00", link_id: LINK_A, sales: 1, tickets: 1, net_proceeds_cents: 100 }],
+    ),
+    ORDER,
+    "7d",
+    NOW,
+    "en",
+    "daily",
+  );
+  assert.ok(data.length > 0);
+  // Every key is a civil day, though "7d" draws the other views hourly.
+  assert.ok(data.every((datum) => /^\d{4}-\d{2}-\d{2}$/.test(datum.key)));
+  assert.equal(data[data.length - 1].key, "2026-08-24");
+});
+
+test("a day's rate is that day's sales over that day's clicks", () => {
+  const data = rateSeries(
+    fullTrends(
+      [{ hour: "2026-08-24T14:00:00Z", link_id: LINK_A, views: 4 }],
+      [{ hour: "2026-08-24T09:00", link_id: LINK_A, sales: 1, tickets: 1, net_proceeds_cents: 100 }],
+    ),
+    [LINK_A],
+    "7d",
+    NOW,
+    "en",
+    "daily",
+  );
+  const today = data[data.length - 1];
+  assert.equal(today.values[LINK_A], 0.25);
+  assert.deepEqual(today.details[LINK_A], { sales: 1, denominator: 4 });
+});
+
+test("a zero-click day yields no point — null, not zero and not Infinity", () => {
+  const data = rateSeries(
+    fullTrends(
+      [{ hour: "2026-08-24T14:00:00Z", link_id: LINK_A, views: 4 }],
+      // A sale with no clicks that day — the attribution window at work.
+      [{ hour: "2026-08-23T09:00", link_id: LINK_A, sales: 1, tickets: 1, net_proceeds_cents: 100 }],
+    ),
+    [LINK_A, LINK_B],
+    "7d",
+    NOW,
+    "en",
+    "daily",
+  );
+  const yesterday = data.find((datum) => datum.key === "2026-08-23");
+  assert.ok(yesterday);
+  assert.equal(yesterday.values[LINK_A], null);
+  // A link with no history at all is a row of gaps, not a zero line.
+  assert.ok(data.every((datum) => datum.values[LINK_B] === null));
+});
+
+test("the overall line divides every attributed sale by every page view", () => {
+  const data = rateSeries(
+    fullTrends(
+      [
+        { hour: "2026-08-24T14:00:00Z", link_id: null, views: 10 },
+        { hour: "2026-08-24T14:00:00Z", link_id: LINK_A, views: 4 },
+      ],
+      [
+        { hour: "2026-08-24T09:00", link_id: LINK_A, sales: 1, tickets: 1, net_proceeds_cents: 100 },
+        { hour: "2026-08-24T10:00", link_id: LINK_B, sales: 1, tickets: 2, net_proceeds_cents: 200 },
+      ],
+    ),
+    ORDER,
+    "7d",
+    NOW,
+    "en",
+    "daily",
+  );
+  const today = data[data.length - 1];
+  assert.equal(today.values[ALL_PAGE_VIEWS_ID], 0.2);
+  assert.deepEqual(today.details[ALL_PAGE_VIEWS_ID], { sales: 2, denominator: 10 });
+});
+
+test("the cumulative rate is all sales to date over all clicks to date, even from before the window", () => {
+  const data = rateSeries(
+    fullTrends(
+      // Both the clicks and the sale predate a 7-day window ending at NOW.
+      [{ hour: "2026-08-10T14:00:00Z", link_id: LINK_A, views: 4 }],
+      [{ hour: "2026-08-10T09:00", link_id: LINK_A, sales: 1, tickets: 1, net_proceeds_cents: 100 }],
+    ),
+    [LINK_A],
+    "7d",
+    NOW,
+    "en",
+    "cumulative",
+  );
+  // Every window day carries the history: a quiet week is a flat line at 25%.
+  assert.ok(data.length > 0);
+  assert.ok(data.every((datum) => datum.values[LINK_A] === 0.25));
+  assert.deepEqual(data[data.length - 1].details[LINK_A], { sales: 1, denominator: 4 });
+});
+
+test("the cumulative line starts at the first click, not before it", () => {
+  const data = rateSeries(
+    fullTrends(
+      [{ hour: "2026-08-24T14:00:00Z", link_id: LINK_A, views: 2 }],
+      [{ hour: "2026-08-24T09:00", link_id: LINK_A, sales: 1, tickets: 1, net_proceeds_cents: 100 }],
+    ),
+    [LINK_A],
+    "7d",
+    NOW,
+    "en",
+    "cumulative",
+  );
+  const before = data.filter((datum) => datum.key < "2026-08-24");
+  assert.ok(before.length > 0);
+  assert.ok(before.every((datum) => datum.values[LINK_A] === null));
+  assert.equal(data[data.length - 1].values[LINK_A], 0.5);
+});
+
+test("a Reversal that left the payload lowers the past points", () => {
+  const clicks: AffiliateViewBucket[] = [
+    { hour: "2026-08-20T14:00:00Z", link_id: LINK_A, views: 4 },
+  ];
+  const before = rateSeries(
+    fullTrends(clicks, [
+      { hour: "2026-08-20T09:00", link_id: LINK_A, sales: 2, tickets: 2, net_proceeds_cents: 200 },
+    ]),
+    [LINK_A],
+    "7d",
+    NOW,
+    "en",
+    "cumulative",
+  );
+  const after = rateSeries(
+    fullTrends(clicks, [
+      { hour: "2026-08-20T09:00", link_id: LINK_A, sales: 1, tickets: 1, net_proceeds_cents: 100 },
+    ]),
+    [LINK_A],
+    "7d",
+    NOW,
+    "en",
+    "cumulative",
+  );
+  assert.equal(before[before.length - 1].values[LINK_A], 0.5);
+  assert.equal(after[after.length - 1].values[LINK_A], 0.25);
+});
+
+test("an externally registered Event has no rate to draw", () => {
+  assert.deepEqual(rateSeries(fullTrends([], null), ORDER, "7d", NOW, "en", "cumulative"), []);
+});
+
+test("the rate axis rounds up to a readable fraction and never collapses", () => {
+  const datum = (value: number | null) => ({
+    key: "2026-08-24",
+    label: "Aug 24",
+    values: { [LINK_A]: value },
+    details: { [LINK_A]: { sales: 0, denominator: 0 } },
+  });
+  assert.equal(rateYMax([datum(0.034)]), 0.05);
+  assert.equal(rateYMax([datum(null)]), 0.05);
+  assert.equal(rateYMax([]), 0.05);
+  const ticks = rateYTicks(0.05);
+  assert.equal(ticks[0], 0);
+  assert.equal(ticks[ticks.length - 1], 0.05);
+  assert.equal(ticks.length, 6);
 });

@@ -17,6 +17,7 @@ import {
   ChartScrollArea,
   ChartViewToggle,
   MultiSeriesBarChart,
+  MultiSeriesLineChart,
   Skeleton,
   chartSeriesColor,
   type ChartLegendChip,
@@ -28,16 +29,24 @@ import { useLocale, useMessages, useTranslations } from "next-intl";
 import {
   AFFILIATE_TRENDS_RANGES,
   ALL_PAGE_VIEWS_ID,
+  DEFAULT_AFFILIATE_RATE_VIEW,
   DEFAULT_AFFILIATE_TRENDS_RANGE,
+  RATE_TRENDS_RANGES,
   affiliateTrendsPlotWidth,
   availableTrendsMetrics,
   fetchAffiliateTrends,
   hasTrendsData,
   multiSeriesYMax,
   rangeGranularity,
+  rateRange,
+  rateSeries,
+  rateYMax,
+  rateYTicks,
   salesSeries,
   toggleSeriesSelection,
   viewsSeries,
+  type AffiliateRateDatum,
+  type AffiliateRateView,
   type AffiliateSalesDatum,
   type AffiliateTrends,
   type AffiliateTrendsMetric,
@@ -45,8 +54,8 @@ import {
 } from "@/lib/affiliate-trends";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
-import { formatMoney, formatNumber } from "@/lib/format";
-import { trendsYTicks } from "@/lib/sales-trends";
+import { formatMoney, formatNumber, formatPercent } from "@/lib/format";
+import { cumulativePlotWidth, trendsYTicks } from "@/lib/sales-trends";
 
 type AffiliateTrendsSectionProps = {
   eventId: string;
@@ -83,6 +92,10 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
   // Which measure the one chart draws. Clicks first — traffic is the tab's
   // first question, and the only one an externally registered Event can answer.
   const [metric, setMetric] = useState<AffiliateTrendsMetric>("clicks");
+  // How the Rate view counts. Cumulative by default: the seven-day Attribution
+  // Window makes a day's sales answer an earlier day's clicks, and the running
+  // division is the reading that absorbs that lag (ADR 0057).
+  const [rateView, setRateView] = useState<AffiliateRateView>(DEFAULT_AFFILIATE_RATE_VIEW);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,21 +141,27 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
     () => [ALL_PAGE_VIEWS_ID, ...(trends?.links.map((link) => link.id) ?? [])],
     [trends],
   );
+  // The whole-page chip is one series wearing two names: counting loads it is
+  // "All page views"; on the Rate view it is the page's own rate — every
+  // attributed sale over every load.
   const nameOf = useCallback(
     (id: string) =>
       id === ALL_PAGE_VIEWS_ID
-        ? t("allPageViews")
+        ? metric === "rate"
+          ? t("overallRate")
+          : t("allPageViews")
         : (trends?.links.find((link) => link.id === id)?.name ?? id),
-    [trends, t],
+    [trends, t, metric],
   );
   const colorOf = useCallback((id: string) => chartSeriesColor(order.indexOf(id)), [order]);
 
   // The sales view draws links only: the whole-page series is a views concept,
   // so its chip leaves the legend rather than sitting beside bars it can never
-  // have. The selection itself is shared — chips chosen on one view hold on the
-  // other, and the whole-page chip's state simply waits for the Clicks view.
+  // have. The Clicks and Rate views keep it — as the page's views, and as the
+  // page's own rate. The selection itself is shared: chips chosen on one view
+  // hold on the others.
   const chartOrder = useMemo(
-    () => (metric === "clicks" ? order : order.filter((id) => id !== ALL_PAGE_VIEWS_ID)),
+    () => (metric === "sales" ? order.filter((id) => id !== ALL_PAGE_VIEWS_ID) : order),
     [order, metric],
   );
 
@@ -151,8 +170,26 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
     [chartOrder, nameOf, colorOf],
   );
 
+  // The Rate view's range ladder starts at the week: a rate is never hourly
+  // (ADR 0057), and a "24 hours" of daily points is one point. The chosen range
+  // itself is shared — a reader on 24h sees the week while on the Rate view and
+  // has their day back on return.
   const rangeOptions: ChartViewOption<AffiliateTrendsRange>[] = useMemo(
-    () => AFFILIATE_TRENDS_RANGES.map((id) => ({ id, label: t(`range_${id}`) })),
+    () =>
+      (metric === "rate" ? RATE_TRENDS_RANGES : AFFILIATE_TRENDS_RANGES).map((id) => ({
+        id,
+        label: t(`range_${id}`),
+      })),
+    [metric, t],
+  );
+
+  // Daily or Cumulative, the Rate view's own toggle — Sales Trends' pair of
+  // countings, worded with the same words.
+  const rateViewOptions: ChartViewOption<AffiliateRateView>[] = useMemo(
+    () => [
+      { id: "daily", label: t("rateViewDaily") },
+      { id: "cumulative", label: t("rateViewCumulative") },
+    ],
     [t],
   );
 
@@ -224,15 +261,32 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
                     ariaLabel={t("metricLabel")}
                   />
                 ) : null}
+                {metric === "rate" ? (
+                  <ChartViewToggle
+                    options={rateViewOptions}
+                    value={rateView}
+                    onChange={setRateView}
+                    ariaLabel={t("rateViewLabel")}
+                  />
+                ) : null}
                 <ChartViewToggle
                   options={rangeOptions}
-                  value={range}
+                  value={metric === "rate" ? rateRange(range) : range}
                   onChange={setRange}
                   ariaLabel={t("rangeLabel")}
                 />
               </div>
             </div>
-            {metric === "sales" ? (
+            {metric === "rate" ? (
+              <RateChart
+                trends={trends}
+                series={series}
+                selected={selected}
+                range={range}
+                now={now}
+                view={rateView}
+              />
+            ) : metric === "sales" ? (
               <SalesChart
                 trends={trends}
                 series={series}
@@ -253,6 +307,9 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
                 It restates ADR 0022's caveat because these are the numbers most
                 tempting to read as people: they are loads, and a floor. */}
             <p className="text-xs text-muted-foreground">{t("floorNote")}</p>
+            {metric === "rate" ? (
+              <p className="text-xs text-muted-foreground">{t("rateNote")}</p>
+            ) : null}
           </>
         ) : (
           <EmptyState />
@@ -377,6 +434,76 @@ function SalesChart({
         formatValue={(value) => formatNumber(value, locale)}
         formatSeriesDetail={formatSeriesDetail}
         ariaLabel={hourly ? t("salesChartLabelHourly") : t("salesChartLabelDaily")}
+      />
+    </ChartScrollArea>
+  );
+}
+
+/**
+ * The Attribution Rate view: per link, Attributed Sales over Clicks, and one
+ * overall line dividing every attributed sale by every page view. Lines, never
+ * bars, and never hourly — daily points at most, Cumulative by default
+ * (ADR 0057). A span with no clicks draws a gap, not a zero; the tooltip
+ * states the division behind each point, because a bare percentage built on
+ * two floors invites more belief than it earned.
+ */
+function RateChart({
+  trends,
+  series,
+  selected,
+  range,
+  now,
+  view,
+}: {
+  trends: AffiliateTrends;
+  series: StackedSeries[];
+  selected: readonly string[];
+  range: AffiliateTrendsRange;
+  now: Date;
+  view: AffiliateRateView;
+}) {
+  const t = useTranslations("affiliateTrends");
+  const locale = toAppLocale(useLocale());
+  const [scrollArea, setScrollArea] = useState<HTMLDivElement | null>(null);
+  const availableWidth = useElementWidth(scrollArea);
+  const plotShare = availableWidth > 0 ? availableWidth - CHART_PLOT_INSET : 0;
+
+  const data = useMemo(
+    () => rateSeries(trends, selected, range, now, locale, view),
+    [trends, selected, range, now, locale, view],
+  );
+  const yMax = useMemo(() => rateYMax(data), [data]);
+  const yTicks = useMemo(() => rateYTicks(yMax), [yMax]);
+  // A rate is read as a shape, not a point at a time, so it fits the card the
+  // way Sales Trends' Cumulative view does rather than scrolling.
+  const plotWidth = cumulativePlotWidth(plotShare);
+
+  // The division under a point: what was divided by what. The overall line
+  // divides by page views and says so; a link's line divides by its clicks.
+  const formatSeriesDetail = useCallback(
+    (seriesId: string, datum: { key: string; label: string }) => {
+      const figures = (datum as AffiliateRateDatum).details?.[seriesId];
+      if (!figures) {
+        return null;
+      }
+      return seriesId === ALL_PAGE_VIEWS_ID
+        ? t("rateDetailOverall", { sales: figures.sales, views: figures.denominator })
+        : t("rateDetail", { sales: figures.sales, clicks: figures.denominator });
+    },
+    [t],
+  );
+
+  return (
+    <ChartScrollArea ref={setScrollArea} ariaLabel={t("rateScrollLabel")}>
+      <MultiSeriesLineChart
+        data={data}
+        series={series}
+        yMax={yMax}
+        yTicks={yTicks}
+        plotWidth={plotWidth}
+        formatValue={(value) => formatPercent(value, locale)}
+        formatSeriesDetail={formatSeriesDetail}
+        ariaLabel={view === "cumulative" ? t("rateChartLabelCumulative") : t("rateChartLabelDaily")}
       />
     </ChartScrollArea>
   );

@@ -498,7 +498,18 @@
     "metric_sales": "Attributed sales",
     "salesChartLabelHourly": "Attributed sales per Affiliate Link, one group of bars per hour",
     "salesChartLabelDaily": "Attributed sales per Affiliate Link, one group of bars per day",
-    "salesDetail": "{tickets, plural, one {# ticket} other {# tickets}} · {amount}"
+    "salesDetail": "{tickets, plural, one {# ticket} other {# tickets}} · {amount}",
+    "metric_rate": "Attribution rate",
+    "overallRate": "Whole page",
+    "rateViewLabel": "How the rate is counted",
+    "rateViewDaily": "Daily",
+    "rateViewCumulative": "Cumulative",
+    "rateScrollLabel": "Attribution rate chart — the whole period at once",
+    "rateChartLabelCumulative": "Attribution rate per Affiliate Link, all attributed sales to date against all clicks to date, one point per day",
+    "rateChartLabelDaily": "Attribution rate per Affiliate Link, each day's attributed sales against that day's clicks, one point per day",
+    "rateDetail": "{sales, plural, one {# attributed sale} other {# attributed sales}} ÷ {clicks, plural, one {# click} other {# clicks}}",
+    "rateDetailOverall": "{sales, plural, one {# attributed sale} other {# attributed sales}} ÷ {views, plural, one {# page view} other {# page views}}",
+    "rateNote": "The rate divides attributed sales by clicks, and both counts are floors. Attribution follows a link for up to seven days, so a sale can land days after the click that drove it — and a span with no clicks draws a gap rather than a made-up figure."
   },
   "pos": {
     "title": "Point of sale",

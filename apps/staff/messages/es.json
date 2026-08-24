@@ -498,7 +498,18 @@
     "metric_sales": "Ventas atribuidas",
     "salesChartLabelHourly": "Ventas atribuidas por Enlace de Afiliado, un grupo de barras por hora",
     "salesChartLabelDaily": "Ventas atribuidas por Enlace de Afiliado, un grupo de barras por día",
-    "salesDetail": "{tickets, plural, one {# entrada} other {# entradas}} · {amount}"
+    "salesDetail": "{tickets, plural, one {# entrada} other {# entradas}} · {amount}",
+    "metric_rate": "Tasa de atribución",
+    "overallRate": "Página completa",
+    "rateViewLabel": "Cómo se cuenta la tasa",
+    "rateViewDaily": "Diario",
+    "rateViewCumulative": "Acumulado",
+    "rateScrollLabel": "Gráfico de tasa de atribución: todo el periodo de una vez",
+    "rateChartLabelCumulative": "Tasa de atribución por Enlace de Afiliado, todas las ventas atribuidas hasta la fecha frente a todos los clics hasta la fecha, un punto por día",
+    "rateChartLabelDaily": "Tasa de atribución por Enlace de Afiliado, las ventas atribuidas de cada día frente a los clics de ese día, un punto por día",
+    "rateDetail": "{sales, plural, one {# venta atribuida} other {# ventas atribuidas}} ÷ {clicks, plural, one {# clic} other {# clics}}",
+    "rateDetailOverall": "{sales, plural, one {# venta atribuida} other {# ventas atribuidas}} ÷ {views, plural, one {# vista de página} other {# vistas de página}}",
+    "rateNote": "La tasa divide las ventas atribuidas entre los clics, y ambos conteos son pisos. La atribución sigue a un enlace hasta siete días, así que una venta puede llegar días después del clic que la trajo; un tramo sin clics dibuja un hueco en lugar de inventar una cifra."
   },
   "pos": {
     "title": "Punto de venta",

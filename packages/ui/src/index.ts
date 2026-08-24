@@ -30,6 +30,11 @@ export {
   type MultiSeriesBarChartProps,
   type MultiSeriesDatum,
 } from "./components/charts/multi-series-bar-chart";
+export {
+  MultiSeriesLineChart,
+  type MultiSeriesLineChartProps,
+  type MultiSeriesLineDatum,
+} from "./components/charts/multi-series-line-chart";
 export { EventShell, type EventShellLabels } from "./components/event-shell";
 export { InProgressPanel } from "./components/in-progress-panel";
 export { FormField } from "./components/form-field";

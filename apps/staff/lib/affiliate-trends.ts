@@ -419,12 +419,12 @@ export function hasPageViews(trends: Pick<AffiliateTrends, "view_buckets">): boo
  * than sit disabled over a view with nothing behind it (#415). The list is
  * ordered as the switcher reads.
  */
-export type AffiliateTrendsMetric = "clicks" | "sales";
+export type AffiliateTrendsMetric = "clicks" | "sales" | "rate";
 
 export function availableTrendsMetrics(
   trends: Pick<AffiliateTrends, "sales_buckets">,
 ): AffiliateTrendsMetric[] {
-  return trends.sales_buckets === null ? ["clicks"] : ["clicks", "sales"];
+  return trends.sales_buckets === null ? ["clicks"] : ["clicks", "sales", "rate"];
 }
 
 /**
@@ -595,4 +595,233 @@ export function salesSeries(
   }
 
   return data;
+}
+
+/**
+ * The Attribution Rate view's own counting: `cumulative` divides everything to
+ * date, `daily` divides each day by itself — Sales Trends' pair of views, worn
+ * by a division instead of a sum.
+ *
+ * Cumulative is the default because it is the honest first look: last-click
+ * attribution follows a link for up to seven days (ADR 0022), so a day's sales
+ * routinely answer an earlier day's clicks, and the daily quotient swings hard
+ * on small numbers. The running division absorbs the lag; the Daily view is
+ * offered for the reader who wants the swings, knowing what they are.
+ */
+export type AffiliateRateView = "cumulative" | "daily";
+
+export const DEFAULT_AFFILIATE_RATE_VIEW: AffiliateRateView = "cumulative";
+
+/**
+ * The ranges the Rate view offers: the shared ladder minus 24h. A rate is never
+ * drawn hourly (ADR 0057) — with a seven-day window between click and sale, an
+ * hourly division manufactures rates over 100% and divisions by zero — and a
+ * "24 hours" of daily points is one point pretending to be a range. The reader
+ * arriving on 24h is shown the week instead.
+ */
+export const RATE_TRENDS_RANGES: readonly AffiliateTrendsRange[] = ["7d", "30d", "all"];
+
+/** rateRange is the range the Rate view actually draws for a chosen one:
+ * itself, except 24h, which honesty widens to the week. */
+export function rateRange(range: AffiliateTrendsRange): AffiliateTrendsRange {
+  return range === "24h" ? "7d" : range;
+}
+
+/** The two counts a rate point divides — kept beside the quotient so the
+ * tooltip states the division rather than a bare percentage. */
+export type AffiliateRateFigures = {
+  sales: number;
+  denominator: number;
+};
+
+/**
+ * A Rate-view datum. `values` admits null where the other views' cannot: a
+ * span with no clicks has no rate — not a zero (which would say "clicks came
+ * and nobody bought") and not an infinity — and the chart draws a gap there.
+ */
+export type AffiliateRateDatum = {
+  key: string;
+  label: string;
+  values: Record<string, number | null>;
+  details: Record<string, AffiliateRateFigures>;
+};
+
+/**
+ * rateSeries draws the Attribution Rate: per link, Attributed Sales over
+ * Clicks; and under `ALL_PAGE_VIEWS_ID`, every attributed sale over every page
+ * view — the page's own rate, which is what the whole-page chip means on this
+ * view.
+ *
+ * Always daily points, whatever the range's own granularity (`rateRange` has
+ * already widened 24h away). Cumulative divides everything to date INCLUDING
+ * history before the window — the window chooses which days are shown, never
+ * which sales count — so a quiet week is a flat line, not a cliff. Daily
+ * divides each day by itself. Either way a zero-denominator span yields null:
+ * no clicks, no rate, no point.
+ *
+ * A Reversal is already out of the payload, so every past point it touched has
+ * already moved.
+ */
+export function rateSeries(
+  trends: Pick<AffiliateTrends, "timezone" | "view_buckets" | "sales_buckets">,
+  selected: readonly string[],
+  range: AffiliateTrendsRange,
+  now: Date,
+  locale: AppLocale,
+  view: AffiliateRateView,
+): AffiliateRateDatum[] {
+  const salesBuckets = trends.sales_buckets;
+  if (salesBuckets === null) {
+    return [];
+  }
+  const effective = rateRange(range);
+  const end = truncateToUTCHour(now);
+  const drawn = [...selected];
+
+  // Whole-history day tallies, whatever the window: the cumulative view needs
+  // every day there ever was, and the daily view simply reads fewer of them.
+  // A link's clicks and sales tally under its id; the page's views and ALL
+  // attributed sales tally under ALL_PAGE_VIEWS_ID — numerator and denominator
+  // of the overall line.
+  const clicksByDay = new Map<string, Map<string, number>>();
+  const salesByDay = new Map<string, Map<string, number>>();
+  const tally = (store: Map<string, Map<string, number>>, day: string, id: string, n: number) => {
+    const forDay = store.get(day) ?? new Map<string, number>();
+    forDay.set(id, (forDay.get(id) ?? 0) + n);
+    store.set(day, forDay);
+  };
+  for (const bucket of trends.view_buckets) {
+    if (Number.isNaN(new Date(bucket.hour).getTime())) {
+      continue;
+    }
+    const day = bucketDay(bucket.hour, trends.timezone);
+    tally(clicksByDay, day, bucket.link_id ?? ALL_PAGE_VIEWS_ID, bucket.views);
+  }
+  for (const bucket of salesBuckets) {
+    const day = bucket.hour.slice(0, 10);
+    tally(salesByDay, day, bucket.link_id, bucket.sales);
+    tally(salesByDay, day, ALL_PAGE_VIEWS_ID, bucket.sales);
+  }
+
+  // The window's day slots, walked the same way the sales view walks its own:
+  // hour by hour through the same day-mapping the data took.
+  let earliestDay: string | null = null;
+  let start: Date;
+  if (effective !== "all") {
+    start = new Date(end.getTime() - (RANGE_HOURS[effective] - 1) * HOUR_MS);
+  } else {
+    for (const day of [...clicksByDay.keys(), ...salesByDay.keys()]) {
+      if (earliestDay === null || day < earliestDay) {
+        earliestDay = day;
+      }
+    }
+    if (earliestDay === null) {
+      return [];
+    }
+    const dayStart = new Date(`${earliestDay}T00:00:00Z`);
+    if (Number.isNaN(dayStart.getTime())) {
+      return [];
+    }
+    start = new Date(Math.min(dayStart.getTime() - 14 * HOUR_MS, end.getTime()));
+  }
+
+  const slotDays: string[] = [];
+  const seen = new Set<string>();
+  for (let at = start.getTime(); at <= end.getTime(); at += HOUR_MS) {
+    const day = bucketDay(new Date(at).toISOString(), trends.timezone);
+    if (seen.has(day) || (earliestDay !== null && day < earliestDay)) {
+      continue;
+    }
+    seen.add(day);
+    slotDays.push(day);
+  }
+
+  // Cumulative running sums start from the beginning of history, so by the
+  // time the first shown day is reached they already carry everything before
+  // the window. The days are walked in order; slot days emit a datum.
+  const running = { clicks: new Map<string, number>(), sales: new Map<string, number>() };
+  if (view === "cumulative") {
+    const allDays = [...new Set([...clicksByDay.keys(), ...salesByDay.keys()])]
+      .filter((day) => slotDays.length > 0 && day < slotDays[0])
+      .sort();
+    for (const day of allDays) {
+      accumulateDay(running, clicksByDay, salesByDay, day);
+    }
+  }
+
+  return slotDays.map((day) => {
+    if (view === "cumulative") {
+      accumulateDay(running, clicksByDay, salesByDay, day);
+    }
+    const values: Record<string, number | null> = {};
+    const details: Record<string, AffiliateRateFigures> = {};
+    for (const id of drawn) {
+      const denominator =
+        view === "cumulative"
+          ? (running.clicks.get(id) ?? 0)
+          : (clicksByDay.get(day)?.get(id) ?? 0);
+      const sales =
+        view === "cumulative" ? (running.sales.get(id) ?? 0) : (salesByDay.get(day)?.get(id) ?? 0);
+      values[id] = denominator > 0 ? sales / denominator : null;
+      details[id] = { sales, denominator };
+    }
+    return { key: day, label: formatTrendsDayLabel(day, locale), values, details };
+  });
+}
+
+function accumulateDay(
+  running: { clicks: Map<string, number>; sales: Map<string, number> },
+  clicksByDay: Map<string, Map<string, number>>,
+  salesByDay: Map<string, Map<string, number>>,
+  day: string,
+): void {
+  for (const [id, n] of clicksByDay.get(day) ?? []) {
+    running.clicks.set(id, (running.clicks.get(id) ?? 0) + n);
+  }
+  for (const [id, n] of salesByDay.get(day) ?? []) {
+    running.sales.set(id, (running.sales.get(id) ?? 0) + n);
+  }
+}
+
+/**
+ * rateYMax is the top of the Rate view's axis: the highest drawn point,
+ * rounded up the same NICE ladder the counting views climb — the ladder works
+ * below 1 because the decade arithmetic does. An empty or all-gap view keeps a
+ * 5% axis, so the chart shows a scale rather than collapsing.
+ */
+export function rateYMax(data: readonly AffiliateRateDatum[]): number {
+  let tallest = 0;
+  for (const datum of data) {
+    for (const value of Object.values(datum.values)) {
+      if (value !== null) {
+        tallest = Math.max(tallest, value);
+      }
+    }
+  }
+  if (tallest <= 0) {
+    return 0.05;
+  }
+  const decade = 10 ** Math.floor(Math.log10(tallest));
+  for (const step of NICE_STEPS) {
+    const candidate = step * decade;
+    if (tallest <= candidate + Number.EPSILON) {
+      return candidate;
+    }
+  }
+  return 10 * decade;
+}
+
+/**
+ * rateYTicks divides the rate axis the way `trendsYTicks` divides a counting
+ * one, computed in whole basis points so the fractions come out exact — five
+ * equal steps of floating-point 0.01 would land a tick at 0.030000000000000002
+ * and label it 3%.
+ */
+export function rateYTicks(yMax: number): number[] {
+  if (!Number.isFinite(yMax) || yMax <= 0) {
+    return [0];
+  }
+  const scaled = Math.round(yMax * 10000);
+  const divisions = [5, 4, 2].find((count) => scaled % count === 0) ?? 1;
+  return Array.from({ length: divisions + 1 }, (_, index) => (scaled / divisions) * index / 10000);
 }

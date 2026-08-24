@@ -226,3 +226,20 @@ export function formatCalendarDay(day: string, locale: AppLocale): string {
  * fallback here would make it silently easy to draw them in Guayaquil.
  */
 export const PLATFORM_TIME_ZONE = "America/Guayaquil";
+
+/**
+ * A proportion written as a percentage: 0.034 becomes "3.4%" in English and
+ * "3,4 %" in Spanish.
+ *
+ * The argument is the ratio itself, never a pre-multiplied "3.4" — the ×100 is
+ * spelling, so it belongs to the formatter, beside the reader's decimal mark.
+ * One decimal at most: the figures this writes are floors built on floors
+ * (ADR 0022), and a second decimal would claim a precision the counting never
+ * had.
+ */
+export function formatPercent(ratio: number, locale: AppLocale): string {
+  return new Intl.NumberFormat(staffIntlLocale(locale), {
+    style: "percent",
+    maximumFractionDigits: 1,
+  }).format(ratio);
+}
