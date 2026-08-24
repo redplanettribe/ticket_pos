@@ -221,6 +221,21 @@ func (s *Service) UpdateTicketQuestion(
 		return nil, catalog.ErrInvalidTicketQuestionLabel("label", catalog.MaxTicketQuestionLabelLength)
 	}
 
+	// What the Operator read holds (ADR 0056, #408): an approved question takes
+	// only a narrowing, and one under review takes nothing else either.
+	if err := catalog.TicketQuestionEditRefusal(
+		catalog.TicketQuestionReviewStatus(existing.ReviewStatus),
+		catalog.TicketQuestionShape{
+			Label:    existing.Label,
+			Kind:     catalog.TicketQuestionKind(existing.Kind),
+			Required: existing.Required,
+			Timing:   catalog.TicketQuestionTiming(existing.Timing),
+		},
+		catalog.TicketQuestionShape{Label: label, Kind: input.Kind, Required: input.Required, Timing: input.Timing},
+	); err != nil {
+		return nil, err
+	}
+
 	answersExist, err := s.repo.TicketQuestionHasAnswers(ctx, questionID)
 	if err != nil {
 		return nil, err
@@ -366,6 +381,13 @@ func (s *Service) AddTicketQuestionOption(
 	if !catalog.TicketQuestionKind(question.Kind).OffersOptions() {
 		return nil, catalog.ErrTicketQuestionKindTakesNoOptions()
 	}
+	// Nothing on a question under review moves (#408). An approved question
+	// takes the add: the new Option is born a draft and offered to nobody.
+	if err := catalog.TicketQuestionOptionEditRefusal(
+		catalog.TicketQuestionReviewStatus(question.ReviewStatus), "",
+	); err != nil {
+		return nil, err
+	}
 
 	optionLabel, ok := catalog.NormalizeTicketQuestionOptionLabel(label)
 	if !ok {
@@ -401,7 +423,8 @@ func (s *Service) RenameTicketQuestionOption(
 	actor ActorContext,
 	eventID, ticketTypeID, questionID, optionID, label string,
 ) (*TicketQuestionView, error) {
-	if _, err := s.liveTicketQuestion(ctx, actor, eventID, ticketTypeID, questionID); err != nil {
+	question, err := s.liveTicketQuestion(ctx, actor, eventID, ticketTypeID, questionID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -414,6 +437,12 @@ func (s *Service) RenameTicketQuestionOption(
 	}
 	if existing.RetiredAt.Valid {
 		return nil, catalog.ErrTicketQuestionOptionRetired()
+	}
+	if err := catalog.TicketQuestionOptionEditRefusal(
+		catalog.TicketQuestionReviewStatus(question.ReviewStatus),
+		catalog.TicketQuestionReviewStatus(existing.ReviewStatus),
+	); err != nil {
+		return nil, err
 	}
 
 	optionLabel, ok := catalog.NormalizeTicketQuestionOptionLabel(label)

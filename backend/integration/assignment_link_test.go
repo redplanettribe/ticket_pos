@@ -1088,13 +1088,10 @@ func TestAHolderChoiceAnswerRecordsTheOptionAndTheWordsItShowed(t *testing.T) {
 		t.Fatalf("snapshot=%q, want the words the Holder read", chosen.Options[0].Label)
 	}
 
-	// The Organization corrects the wording months later. The Holder chose from
-	// a menu that said "Chicken", and no later edit may rewrite what they read.
-	resp, body := env.patch(t, optionPath(f.eventID, f.ticketTypeID, question.ID, chickenID),
-		map[string]any{"label": "Chicken (halal)"}, authHeader(f.staffSession))
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("rename status=%d error=%+v", resp.StatusCode, body.Error)
-	}
+	// The wording is corrected months later (by SQL: no route renames an
+	// approved Option since #408). The Holder chose from a menu that said
+	// "Chicken", and no later edit may rewrite what they read.
+	correctOptionLabel(t, env, chickenID, "Chicken (halal)")
 
 	after := holderAnswerFor(t, acceptAssignmentOK(t, env, token), question.ID)
 	if len(after.Options) != 1 || after.Options[0].OptionID != chickenID {

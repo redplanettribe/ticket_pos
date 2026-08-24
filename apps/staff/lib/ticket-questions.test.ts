@@ -6,8 +6,11 @@ import {
   MAX_TICKET_QUESTION_OPTIONS,
   TICKET_QUESTION_KINDS,
   TICKET_QUESTION_KIND_KEYS,
+  allowedEdits,
   canAddOption,
+  canRenameOption,
   canRetireOption,
+  showsRetireAndReAskHint,
   isAsked,
   isValidLabel,
   liveOptions,
@@ -17,6 +20,7 @@ import {
   retiredOptions,
   retiredQuestions,
   reviewReason,
+  type Reviewed,
   type TicketQuestion,
   type TicketQuestionKind,
   type TicketQuestionOption,
@@ -197,4 +201,37 @@ test("the reason shown is the Revocation's, else a refusal's, else nothing", () 
   // Edited back into a draft: the old refusal no longer describes the row.
   assert.equal(reviewReason({ review_status: "draft", refusal_reason: "Say why" }), null);
   assert.equal(reviewReason({ review_status: "approved", approved_by: "ops@example.com" }), null);
+});
+
+// ADR 0056's immutability rule (#408), as the editor reads it: an approved
+// question keeps only the moves that collect less.
+test("an approved question can be neither reworded nor made required, but takes a new draft Option", () => {
+  assert.deepEqual(allowedEdits("approved"), { reword: false, require: false, addOption: true });
+});
+
+test("a question under review holds still until the review is withdrawn", () => {
+  assert.deepEqual(allowedEdits("under_review"), { reword: false, require: false, addOption: false });
+});
+
+test("a draft or refused question is freely edited", () => {
+  assert.deepEqual(allowedEdits("draft"), { reword: true, require: true, addOption: true });
+  assert.deepEqual(allowedEdits("refused"), { reword: true, require: true, addOption: true });
+});
+
+test("an approved Option is renamed by retire-and-add, a draft one on an approved question by typing", () => {
+  const approved: Reviewed = { review_status: "approved" };
+  const draft: Reviewed = { review_status: "draft" };
+  const underReview: Reviewed = { review_status: "under_review" };
+  assert.equal(canRenameOption(approved, approved), false);
+  assert.equal(canRenameOption(approved, draft), true);
+  assert.equal(canRenameOption(draft, draft), true);
+  // Under review, nothing on the question moves — not even a draft Option.
+  assert.equal(canRenameOption(underReview, draft), false);
+});
+
+test("the retire-and-re-ask hint is shown on an approved question only", () => {
+  assert.equal(showsRetireAndReAskHint("approved"), true);
+  assert.equal(showsRetireAndReAskHint("under_review"), false);
+  assert.equal(showsRetireAndReAskHint("draft"), false);
+  assert.equal(showsRetireAndReAskHint("refused"), false);
 });

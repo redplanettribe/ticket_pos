@@ -335,6 +335,7 @@
     "questionReviewRefusalReason": "Rechazada: {reason}",
     "questionReviewRevocationReason": "Revocada: {reason}",
     "questionReviewNotAsked": "No se pregunta hasta que un operador de la plataforma la apruebe.",
+    "questionApprovedImmutableHint": "Aprobada tal como está escrita: para cambiar el texto, el tipo o las opciones, retírela y agregue una pregunta nueva para revisión.",
     "questionOptionsRequired": "Una pregunta de opciones necesita al menos una opción.",
     "questionOptionTooLong": "Una opción puede tener como máximo {max} caracteres.",
     "questionOptionCapReached": "Puede tener como máximo {max} opciones. Retire una para hacer sitio."
@@ -1266,6 +1267,9 @@
       "TICKET_QUESTION_OPTION_NOT_FOUND": "Esa opción ya no existe.",
       "TICKET_QUESTION_KIND_FROZEN": "Alguien ya respondió esta pregunta, así que su tipo de respuesta no puede cambiar. Retírela y agregue una nueva.",
       "TICKET_QUESTION_RETIRED": "Esa pregunta fue retirada y ya no se puede editar.",
+      "TICKET_QUESTION_APPROVED_IMMUTABLE": "Esta pregunta fue aprobada tal como está escrita, así que solo se puede hacer opcional. Retírela y agregue una pregunta nueva.",
+      "TICKET_QUESTION_OPTION_APPROVED_IMMUTABLE": "Esta opción fue aprobada tal como está escrita y no se puede renombrar. Retírela y agregue una opción nueva.",
+      "TICKET_QUESTION_UNDER_REVIEW": "Esta pregunta está en revisión y no se puede editar hasta retirar la revisión.",
       "TICKET_QUESTION_OPTION_RETIRED": "Esa opción fue retirada y ya no se puede editar.",
       "TICKET_QUESTION_KIND_TAKES_NO_OPTIONS": "Solo las preguntas de opción única y opción múltiple tienen opciones.",
       "TICKET_QUESTION_OPTIONS_REQUIRED": "Una pregunta de opciones necesita al menos una opción. Retira la pregunta completa en su lugar.",

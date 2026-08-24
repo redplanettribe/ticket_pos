@@ -307,6 +307,40 @@ func ErrTicketQuestionRetired() apperror.DomainError {
 	)
 }
 
+// ErrTicketQuestionApprovedImmutable is returned when a PATCH would change
+// what the Platform Operator read on an approved Ticket Question — its
+// wording, kind, timing or a widening to required (ADR 0056, #408). The
+// message names the way out, as the kind-frozen one does: retire and re-ask.
+func ErrTicketQuestionApprovedImmutable() apperror.DomainError {
+	return apperror.New(
+		"TICKET_QUESTION_APPROVED_IMMUTABLE",
+		"This question has been approved as written, so only making it optional is allowed. To change it, retire it and add a new question for review.",
+		nil,
+	)
+}
+
+// ErrTicketQuestionOptionApprovedImmutable is the same refusal about an
+// approved Option's label: a correction is a retirement and a fresh Option,
+// because a correction and a rewording are the same operation.
+func ErrTicketQuestionOptionApprovedImmutable() apperror.DomainError {
+	return apperror.New(
+		"TICKET_QUESTION_OPTION_APPROVED_IMMUTABLE",
+		"This option has been approved as written and cannot be renamed. Retire it and add a new option instead.",
+		nil,
+	)
+}
+
+// ErrTicketQuestionUnderReview is returned when an edit reaches a question a
+// Question Review is carrying: what the Operator is reading holds still until
+// the Review is withdrawn. Narrowing, reorder and retirement never come here.
+func ErrTicketQuestionUnderReview() apperror.DomainError {
+	return apperror.New(
+		"TICKET_QUESTION_UNDER_REVIEW",
+		"This question is under review and cannot be edited until the review is withdrawn.",
+		nil,
+	)
+}
+
 // ErrTicketQuestionOptionRetired is the same refusal about an Option rather than
 // the question it belongs to.
 //
