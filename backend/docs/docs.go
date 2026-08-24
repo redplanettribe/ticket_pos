@@ -4775,6 +4775,9 @@ const docTemplate = `{
             },
             "service.TicketQuestionOptionView": {
                 "properties": {
+                    "approved_by": {
+                        "type": "string"
+                    },
                     "id": {
                         "description": "ID is the Option's stable identity. A rename changes Label and never this,\nwhich is what keeps the Answers given under the old wording attached.",
                         "type": "string"
@@ -4782,9 +4785,19 @@ const docTemplate = `{
                     "label": {
                         "type": "string"
                     },
+                    "refusal_reason": {
+                        "type": "string"
+                    },
                     "retired": {
                         "description": "Retired means gone from new lists, kept on the Tickets that chose it, and\nstill entitled to its column in the Sales Export.",
                         "type": "boolean"
+                    },
+                    "review_status": {
+                        "description": "The Option's own review state, on the question's terms (ADR 0056): an\nOption added to an approved question is a draft until reviewed.",
+                        "type": "string"
+                    },
+                    "revocation_reason": {
+                        "type": "string"
                     },
                     "sort_order": {
                         "type": "integer"
@@ -4794,6 +4807,10 @@ const docTemplate = `{
             },
             "service.TicketQuestionView": {
                 "properties": {
+                    "approved_by": {
+                        "description": "ApprovedBy names who approved it — a Platform Operator, or the\ngrandfathering migration — and is absent until somebody has.",
+                        "type": "string"
+                    },
                     "created_at": {
                         "type": "string"
                     },
@@ -4814,6 +4831,10 @@ const docTemplate = `{
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "refusal_reason": {
+                        "description": "RefusalReason is the Operator's reason on a refused question.",
+                        "type": "string"
+                    },
                     "required": {
                         "description": "Required produces an Outstanding Answer and nothing else. It is not a\nconstraint, and no surface may treat it as one.",
                         "type": "boolean"
@@ -4821,6 +4842,14 @@ const docTemplate = `{
                     "retired": {
                         "description": "Retired is true for a question kept only so that what has already been\nanswered still reads. Retired questions are returned so the authoring\nsurface can show them rather than appearing to have lost them.",
                         "type": "boolean"
+                    },
+                    "review_status": {
+                        "description": "ReviewStatus is where the question stands with the Platform Operator\n(ADR 0056): ` + "`" + `draft` + "`" + `, ` + "`" + `under_review` + "`" + `, ` + "`" + `approved` + "`" + ` or ` + "`" + `refused` + "`" + `. Only an\napproved question is asked of anybody. Read-only on this surface: the\nverdicts are the Operator's and the submission is a Question Review's.",
+                        "type": "string"
+                    },
+                    "revocation_reason": {
+                        "description": "RevocationReason is the Operator's reason on a Revocation, which is why\na question that reads retired here stopped being asked.",
+                        "type": "string"
                     },
                     "sort_order": {
                         "type": "integer"

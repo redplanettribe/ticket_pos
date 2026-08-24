@@ -26,8 +26,22 @@ type TicketQuestion struct {
 	SortOrder int
 	// RetiredAt is invalid while the question is live. Retired, never deleted.
 	RetiredAt sql.NullTime
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	// ReviewStatus is where the question stands with the Platform Operator
+	// (ADR 0056): draft, under_review, approved or refused. Only `approved`
+	// is asked of anybody, and approval is never a column default — it is
+	// written by a review, or by the grandfathering migration that names
+	// itself in ApprovedBy.
+	ReviewStatus     string
+	ApprovedAt       sql.NullTime
+	ApprovedBy       sql.NullString
+	RefusedAt        sql.NullTime
+	RefusedBy        sql.NullString
+	RefusalReason    sql.NullString
+	RevokedAt        sql.NullTime
+	RevokedBy        sql.NullString
+	RevocationReason sql.NullString
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // TicketQuestionOption is one selectable value of a choice Ticket Question.
@@ -40,17 +54,32 @@ type TicketQuestionOption struct {
 	Label            string
 	SortOrder        int
 	RetiredAt        sql.NullTime
+	// The Option's own review state, on the question's terms: an Option added
+	// to an approved question is a draft until a Question Review approves it.
+	ReviewStatus     string
+	ApprovedAt       sql.NullTime
+	ApprovedBy       sql.NullString
+	RefusedAt        sql.NullTime
+	RefusedBy        sql.NullString
+	RefusalReason    sql.NullString
+	RevokedAt        sql.NullTime
+	RevokedBy        sql.NullString
+	RevocationReason sql.NullString
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }
 
+// reviewColumns are the ADR 0056 review columns, identical on both tables.
+const reviewColumns = `review_status, approved_at, approved_by, refused_at, refused_by, refusal_reason,
+	revoked_at, revoked_by, revocation_reason`
+
 const ticketQuestionColumns = `
 	id, ticket_type_id, label, kind, required, timing, sort_order,
-	retired_at, created_at, updated_at
+	retired_at, ` + reviewColumns + `, created_at, updated_at
 `
 
 const ticketQuestionOptionColumns = `
-	id, ticket_question_id, label, sort_order, retired_at, created_at, updated_at
+	id, ticket_question_id, label, sort_order, retired_at, ` + reviewColumns + `, created_at, updated_at
 `
 
 func scanTicketQuestion(row interface {
@@ -59,7 +88,10 @@ func scanTicketQuestion(row interface {
 	var q TicketQuestion
 	if err := row.Scan(
 		&q.ID, &q.TicketTypeID, &q.Label, &q.Kind, &q.Required, &q.Timing,
-		&q.SortOrder, &q.RetiredAt, &q.CreatedAt, &q.UpdatedAt,
+		&q.SortOrder, &q.RetiredAt,
+		&q.ReviewStatus, &q.ApprovedAt, &q.ApprovedBy, &q.RefusedAt, &q.RefusedBy, &q.RefusalReason,
+		&q.RevokedAt, &q.RevokedBy, &q.RevocationReason,
+		&q.CreatedAt, &q.UpdatedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -74,8 +106,10 @@ func scanTicketQuestionOption(row interface {
 }) (*TicketQuestionOption, error) {
 	var o TicketQuestionOption
 	if err := row.Scan(
-		&o.ID, &o.TicketQuestionID, &o.Label, &o.SortOrder,
-		&o.RetiredAt, &o.CreatedAt, &o.UpdatedAt,
+		&o.ID, &o.TicketQuestionID, &o.Label, &o.SortOrder, &o.RetiredAt,
+		&o.ReviewStatus, &o.ApprovedAt, &o.ApprovedBy, &o.RefusedAt, &o.RefusedBy, &o.RefusalReason,
+		&o.RevokedAt, &o.RevokedBy, &o.RevocationReason,
+		&o.CreatedAt, &o.UpdatedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -122,11 +156,73 @@ func (r *Repository) ListTicketQuestionsByTicketTypeID(ctx context.Context, tick
 // than one per question.
 func (r *Repository) ListTicketQuestionOptionsByTicketTypeID(ctx context.Context, ticketTypeID string) ([]TicketQuestionOption, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `
-		SELECT o.id, o.ticket_question_id, o.label, o.sort_order,
-		       o.retired_at, o.created_at, o.updated_at
+		SELECT o.id, o.ticket_question_id, o.label, o.sort_order, o.retired_at,
+		       o.review_status, o.approved_at, o.approved_by, o.refused_at, o.refused_by, o.refusal_reason,
+		       o.revoked_at, o.revoked_by, o.revocation_reason, o.created_at, o.updated_at
 		FROM ticket_question_options o
 		JOIN ticket_questions q ON q.id = o.ticket_question_id
 		WHERE q.ticket_type_id = $1
+		ORDER BY (o.retired_at IS NOT NULL), o.sort_order ASC, o.created_at ASC
+	`, ticketTypeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	options := make([]TicketQuestionOption, 0)
+	for rows.Next() {
+		option, err := scanTicketQuestionOption(rows)
+		if err != nil {
+			return nil, err
+		}
+		options = append(options, *option)
+	}
+	return options, rows.Err()
+}
+
+// ListApprovedTicketQuestionsByTicketTypeID returns the Ticket Questions of one
+// Ticket Type that were EVER ASKED — catalog.ApprovedQuestionSQL, retired ones
+// included and last — which is what the answer views read (ADR 0056). A draft,
+// under-review or refused question was put to nobody, so there is no Answer to
+// pair it with and no reason to show a Holder a question they were never asked.
+func (r *Repository) ListApprovedTicketQuestionsByTicketTypeID(ctx context.Context, ticketTypeID string) ([]TicketQuestion, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT `+ticketQuestionColumns+`
+		FROM ticket_questions q
+		WHERE q.ticket_type_id = $1
+		  AND `+catalog.ApprovedQuestionSQL+`
+		ORDER BY (q.retired_at IS NOT NULL), q.sort_order ASC, q.created_at ASC
+	`, ticketTypeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	questions := make([]TicketQuestion, 0)
+	for rows.Next() {
+		q, err := scanTicketQuestion(rows)
+		if err != nil {
+			return nil, err
+		}
+		questions = append(questions, *q)
+	}
+	return questions, rows.Err()
+}
+
+// ListApprovedTicketQuestionOptionsByTicketTypeID is the Options counterpart:
+// every approved Option of every approved question on a Ticket Type, retired
+// ones included (catalog.ApprovedOptionSQL), so an Answer against a retired
+// Option still has something to read its snapshot against.
+func (r *Repository) ListApprovedTicketQuestionOptionsByTicketTypeID(ctx context.Context, ticketTypeID string) ([]TicketQuestionOption, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT o.id, o.ticket_question_id, o.label, o.sort_order, o.retired_at,
+		       o.review_status, o.approved_at, o.approved_by, o.refused_at, o.refused_by, o.refusal_reason,
+		       o.revoked_at, o.revoked_by, o.revocation_reason, o.created_at, o.updated_at
+		FROM ticket_question_options o
+		JOIN ticket_questions q ON q.id = o.ticket_question_id
+		WHERE q.ticket_type_id = $1
+		  AND `+catalog.ApprovedQuestionSQL+`
+		  AND `+catalog.ApprovedOptionSQL+`
 		ORDER BY (o.retired_at IS NOT NULL), o.sort_order ASC, o.created_at ASC
 	`, ticketTypeID)
 	if err != nil {

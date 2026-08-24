@@ -75,15 +75,19 @@ type AskedOption struct {
 //
 // THREE FILTERS, AND EACH IS LOAD-BEARING:
 //
-//   - `q.retired_at IS NULL`. A retired question has left every new list; the
-//     Answers already given under it keep reading, and nobody is asked again.
+//   - AskedQuestionSQL: approved by a Platform Operator AND not retired (ADR
+//     0056). A draft, under-review or refused question is asked of nobody; a
+//     retired one has left every new list, and the Answers already given
+//     under it keep reading. The same predicate the Holder List, the export
+//     and the Answer Reminder read, so the five surfaces cannot disagree.
 //   - `q.timing = 'at_checkout'`. v1 only ever writes that value, but it is
 //     HONOURED from the start rather than assumed, so the day an Organization
 //     may choose `after_purchase` this surface already obeys it without an
 //     Answer migration (migration 072).
-//   - `o.retired_at IS NULL`, in the JOIN and not the WHERE — in the WHERE it
-//     would drop the question itself for the non-choice kinds. A retired Option
-//     is gone from new lists, and this is a new list.
+//   - OfferedOptionSQL, in the JOIN and not the WHERE — in the WHERE it would
+//     drop the question itself for the non-choice kinds. A retired Option is
+//     gone from new lists, and this is a new list; a draft Option added to an
+//     approved question is offered to nobody until its own review (ADR 0056).
 //
 // The ordering is the order the questions are asked in, ties broken on
 // created_at exactly as ticket_types are, with each question's Options in their
@@ -93,9 +97,9 @@ const CheckoutQuestionsSQL = `
 	       o.id, o.label
 	FROM ticket_questions q
 	LEFT JOIN ticket_question_options o
-	       ON o.ticket_question_id = q.id AND o.retired_at IS NULL
+	       ON o.ticket_question_id = q.id AND ` + OfferedOptionSQL + `
 	WHERE q.ticket_type_id = ANY($1)
-	  AND q.retired_at IS NULL
+	  AND ` + AskedQuestionSQL + `
 	  AND q.timing = 'at_checkout'
 	ORDER BY q.ticket_type_id, q.sort_order, q.created_at, o.sort_order, o.created_at
 `

@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"github.com/peter/ticket_pos/backend/internal/catalog"
+
 	"context"
 	"database/sql"
 	"time"
@@ -59,7 +61,11 @@ const outstandingAnswerFrom = `
 //   - q.required — the flag's only effect anywhere. An unanswered OPTIONAL
 //     question is not a debt; nobody promised to answer it.
 //
-//   - q.retired_at IS NULL — a RETIRED question owes nothing. Every write path
+//   - catalog.AskedQuestionSQL — approved AND not retired (ADR 0056). A question
+//     the Platform Operator has not approved was put to nobody and is owed by
+//     nobody; the shared predicate is what keeps this list, the checkout, the
+//     export and the Answer Reminder agreeing on which questions exist. And
+//     a RETIRED question owes nothing. Every write path
 //     into an Answer refuses a retired question, so a debt under one could never
 //     be discharged by anybody: a row on the chase list with no working button
 //     behind it. This erases no Answer — a retired question that WAS answered
@@ -90,7 +96,7 @@ const outstandingAnswerFrom = `
 // silence; that is a rule about mailing, not about the debt.
 const outstandingAnswerWhere = `
 	q.required
-	AND q.retired_at IS NULL
+	AND ` + catalog.AskedQuestionSQL + `
 	AND s.status = 'active'
 	AND a.id IS NULL
 `

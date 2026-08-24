@@ -8,6 +8,7 @@ import {
   TICKET_QUESTION_KIND_KEYS,
   canAddOption,
   canRetireOption,
+  isAsked,
   isValidLabel,
   liveOptions,
   liveQuestions,
@@ -15,13 +16,14 @@ import {
   offersOptions,
   retiredOptions,
   retiredQuestions,
+  reviewReason,
   type TicketQuestion,
   type TicketQuestionKind,
   type TicketQuestionOption,
 } from "./ticket-questions.ts";
 
 function option(id: string, label: string, retired = false): TicketQuestionOption {
-  return { id, label, sort_order: 0, retired };
+  return { id, label, sort_order: 0, retired, review_status: "approved" };
 }
 
 function question(
@@ -38,6 +40,7 @@ function question(
     timing: "at_checkout",
     sort_order: 0,
     retired,
+    review_status: "approved",
     options,
   };
 }
@@ -171,4 +174,27 @@ test("the label cap counts characters, so an accent or an emoji is one of them",
   // is not the real one.
   assert.equal(isValidLabel("á".repeat(MAX_TICKET_QUESTION_LABEL_LENGTH), MAX_TICKET_QUESTION_LABEL_LENGTH), true);
   assert.equal(isValidLabel("👕".repeat(MAX_TICKET_QUESTION_LABEL_LENGTH), MAX_TICKET_QUESTION_LABEL_LENGTH), true);
+});
+
+test("a question is asked only while approved and not retired", () => {
+  assert.equal(isAsked(question("q1", "short_text")), true);
+  assert.equal(isAsked({ ...question("q1", "short_text"), review_status: "draft" }), false);
+  assert.equal(isAsked({ ...question("q1", "short_text"), review_status: "under_review" }), false);
+  assert.equal(isAsked({ ...question("q1", "short_text"), review_status: "refused" }), false);
+  assert.equal(isAsked(question("q1", "short_text", [], true)), false);
+  assert.equal(isAsked({ ...option("o1", "S"), review_status: "draft" }), false);
+});
+
+test("the reason shown is the Revocation's, else a refusal's, else nothing", () => {
+  assert.deepEqual(
+    reviewReason({ review_status: "approved", revocation_reason: "Asks for health data" }),
+    { kind: "revocation", reason: "Asks for health data" },
+  );
+  assert.deepEqual(reviewReason({ review_status: "refused", refusal_reason: "Say why" }), {
+    kind: "refusal",
+    reason: "Say why",
+  });
+  // Edited back into a draft: the old refusal no longer describes the row.
+  assert.equal(reviewReason({ review_status: "draft", refusal_reason: "Say why" }), null);
+  assert.equal(reviewReason({ review_status: "approved", approved_by: "ops@example.com" }), null);
 });

@@ -17,7 +17,7 @@ import {
 import type { TicketQuestion, TicketQuestionKind, TicketQuestionOption } from "./ticket-questions.ts";
 
 function option(id: string, label: string, retired = false): TicketQuestionOption {
-  return { id, label, sort_order: 0, retired };
+  return { id, label, sort_order: 0, retired, review_status: "approved" };
 }
 
 function question(kind: TicketQuestionKind, options: TicketQuestionOption[] = []): TicketQuestion {
@@ -28,6 +28,7 @@ function question(kind: TicketQuestionKind, options: TicketQuestionOption[] = []
     required: false,
     timing: "at_checkout",
     sort_order: 0,
+    review_status: "approved",
     retired: false,
     options,
   };

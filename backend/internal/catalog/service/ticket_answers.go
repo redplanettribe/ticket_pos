@@ -219,6 +219,13 @@ func (s *Service) answerTicketQuestion(
 	if question.RetiredAt.Valid {
 		return catalog.ErrTicketQuestionRetired()
 	}
+	// A question the Platform Operator has not approved was asked of nobody
+	// (ADR 0056), and nothing can be said in reply to it — by staff any more
+	// than by a Holder. It reads as not found rather than as a refusal with a
+	// name, because on every surface that answers it does not exist.
+	if question.ReviewStatus != string(catalog.TicketQuestionReviewApproved) {
+		return catalog.ErrTicketQuestionNotFound()
+	}
 
 	kind := catalog.TicketQuestionKind(question.Kind)
 	value, problem := catalog.ParseAnswer(kind, catalog.SubmittedAnswer{
@@ -394,7 +401,11 @@ func (s *Service) resolveAnswerOptions(
 			// somebody else's id exists.
 			return nil, catalog.ErrAnswerOptionNotOffered()
 		}
-		if option.RetiredAt.Valid && !alreadyChosen[id] {
+		// A retired Option, or one the Platform Operator has not approved (ADR
+		// 0056), is offered to nobody; it can only stay chosen, never be chosen.
+		notOffered := option.RetiredAt.Valid ||
+			option.ReviewStatus != string(catalog.TicketQuestionReviewApproved)
+		if notOffered && !alreadyChosen[id] {
 			return nil, catalog.ErrAnswerOptionNotOffered()
 		}
 		chosen = append(chosen, repository.UpsertTicketAnswerOption{
@@ -467,8 +478,13 @@ func (s *Service) ticketAnswersViews(ctx context.Context, tickets []repository.A
 	return views, nil
 }
 
-// ticketQuestionViews reads one Ticket Type's questions with their Options,
-// retired ones included.
+// ticketQuestionViews reads one Ticket Type's APPROVED questions with their
+// approved Options, retired ones included (catalog.ApprovedQuestionSQL).
+//
+// APPROVED ONLY, because a draft, under-review or refused question was asked of
+// nobody (ADR 0056): there is no Answer to pair it with, and showing a Holder a
+// question they were never put would be asking it. The same predicate the
+// checkout, the Holder List, the export and the Answer Reminder read.
 //
 // RETIRED QUESTIONS AND RETIRED OPTIONS ARE BOTH RETURNED, because this surface
 // has to show what a Ticket already answered. An Answer against a retired Option
@@ -476,11 +492,11 @@ func (s *Service) ticketAnswersViews(ctx context.Context, tickets []repository.A
 // would be nothing to read its snapshot against, and a retired question whose
 // Answer disappeared would look like data loss.
 func (s *Service) ticketQuestionViews(ctx context.Context, ticketTypeID string) ([]TicketQuestionView, error) {
-	questions, err := s.repo.ListTicketQuestionsByTicketTypeID(ctx, ticketTypeID)
+	questions, err := s.repo.ListApprovedTicketQuestionsByTicketTypeID(ctx, ticketTypeID)
 	if err != nil {
 		return nil, err
 	}
-	options, err := s.repo.ListTicketQuestionOptionsByTicketTypeID(ctx, ticketTypeID)
+	options, err := s.repo.ListApprovedTicketQuestionOptionsByTicketTypeID(ctx, ticketTypeID)
 	if err != nil {
 		return nil, err
 	}

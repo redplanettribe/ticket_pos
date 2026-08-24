@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
@@ -29,6 +30,19 @@ type TicketQuestionView struct {
 	// answered still reads. Retired questions are returned so the authoring
 	// surface can show them rather than appearing to have lost them.
 	Retired bool `json:"retired"`
+	// ReviewStatus is where the question stands with the Platform Operator
+	// (ADR 0056): `draft`, `under_review`, `approved` or `refused`. Only an
+	// approved question is asked of anybody. Read-only on this surface: the
+	// verdicts are the Operator's and the submission is a Question Review's.
+	ReviewStatus string `json:"review_status"`
+	// ApprovedBy names who approved it — a Platform Operator, or the
+	// grandfathering migration — and is absent until somebody has.
+	ApprovedBy *string `json:"approved_by,omitempty"`
+	// RefusalReason is the Operator's reason on a refused question.
+	RefusalReason *string `json:"refusal_reason,omitempty"`
+	// RevocationReason is the Operator's reason on a Revocation, which is why
+	// a question that reads retired here stopped being asked.
+	RevocationReason *string `json:"revocation_reason,omitempty"`
 	// Options is empty for the five kinds that are not answered by choosing.
 	Options   []TicketQuestionOptionView `json:"options"`
 	CreatedAt time.Time                  `json:"created_at"`
@@ -45,6 +59,12 @@ type TicketQuestionOptionView struct {
 	// Retired means gone from new lists, kept on the Tickets that chose it, and
 	// still entitled to its column in the Sales Export.
 	Retired bool `json:"retired"`
+	// The Option's own review state, on the question's terms (ADR 0056): an
+	// Option added to an approved question is a draft until reviewed.
+	ReviewStatus     string  `json:"review_status"`
+	ApprovedBy       *string `json:"approved_by,omitempty"`
+	RefusalReason    *string `json:"refusal_reason,omitempty"`
+	RevocationReason *string `json:"revocation_reason,omitempty"`
 }
 
 // CreateTicketQuestionInput states a whole new Ticket Question.
@@ -527,22 +547,39 @@ func toTicketQuestionView(question *repository.TicketQuestion, options []reposit
 	views := make([]TicketQuestionOptionView, 0, len(options))
 	for _, option := range options {
 		views = append(views, TicketQuestionOptionView{
-			ID:        option.ID,
-			Label:     option.Label,
-			SortOrder: option.SortOrder,
-			Retired:   option.RetiredAt.Valid,
+			ID:               option.ID,
+			Label:            option.Label,
+			SortOrder:        option.SortOrder,
+			Retired:          option.RetiredAt.Valid,
+			ReviewStatus:     option.ReviewStatus,
+			ApprovedBy:       nullStringOrNil(option.ApprovedBy),
+			RefusalReason:    nullStringOrNil(option.RefusalReason),
+			RevocationReason: nullStringOrNil(option.RevocationReason),
 		})
 	}
 	return TicketQuestionView{
-		ID:        question.ID,
-		Label:     question.Label,
-		Kind:      question.Kind,
-		Required:  question.Required,
-		Timing:    question.Timing,
-		SortOrder: question.SortOrder,
-		Retired:   question.RetiredAt.Valid,
-		Options:   views,
-		CreatedAt: question.CreatedAt,
-		UpdatedAt: question.UpdatedAt,
+		ID:               question.ID,
+		Label:            question.Label,
+		Kind:             question.Kind,
+		Required:         question.Required,
+		Timing:           question.Timing,
+		SortOrder:        question.SortOrder,
+		Retired:          question.RetiredAt.Valid,
+		ReviewStatus:     question.ReviewStatus,
+		ApprovedBy:       nullStringOrNil(question.ApprovedBy),
+		RefusalReason:    nullStringOrNil(question.RefusalReason),
+		RevocationReason: nullStringOrNil(question.RevocationReason),
+		Options:          views,
+		CreatedAt:        question.CreatedAt,
+		UpdatedAt:        question.UpdatedAt,
 	}
+}
+
+// nullStringOrNil reads an optional authorship column: absent is nil, never
+// the empty string, so a payload says nothing about a verdict not reached.
+func nullStringOrNil(value sql.NullString) *string {
+	if !value.Valid {
+		return nil
+	}
+	return &value.String
 }

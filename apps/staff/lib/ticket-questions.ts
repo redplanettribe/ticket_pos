@@ -32,8 +32,34 @@ export type TicketQuestionKind = (typeof TICKET_QUESTION_KINDS)[number];
  */
 export type TicketQuestionTiming = "at_checkout" | "after_purchase";
 
+/**
+ * Where a Ticket Question or an Option stands with the Platform Operator
+ * (ADR 0056). Born `draft` and asked of nobody until `approved`; `refused`
+ * carries the Operator's reason. The glossary's words, exactly: never
+ * "rejected", never "approval_status".
+ */
+export const TICKET_QUESTION_REVIEW_STATUSES = [
+  "draft",
+  "under_review",
+  "approved",
+  "refused",
+] as const;
+
+export type TicketQuestionReviewStatus = (typeof TICKET_QUESTION_REVIEW_STATUSES)[number];
+
+/** The review columns both a question and an Option carry, as the API renders them. */
+export type Reviewed = {
+  review_status: TicketQuestionReviewStatus;
+  /** Who approved it — an Operator, or the grandfathering migration. Absent until somebody has. */
+  approved_by?: string;
+  /** The Operator's reason on a refused row. */
+  refusal_reason?: string;
+  /** The Operator's reason on a Revocation, which is why a retired row stopped being asked. */
+  revocation_reason?: string;
+};
+
 /** One selectable value of a choice Ticket Question, as the staff API renders it. */
-export type TicketQuestionOption = {
+export type TicketQuestionOption = Reviewed & {
   /**
    * The Option's identity, which is not its label. A rename leaves this alone,
    * which is what keeps the Answers given under the old wording attached — so
@@ -47,7 +73,7 @@ export type TicketQuestionOption = {
 };
 
 /** One Ticket Question, as the staff API renders it. */
-export type TicketQuestion = {
+export type TicketQuestion = Reviewed & {
   id: string;
   /**
    * The Organization's own words. Data, never copy: rendered as coined in both
@@ -63,6 +89,41 @@ export type TicketQuestion = {
   /** Empty for the five kinds that are not answered by choosing. */
   options: TicketQuestionOption[];
 };
+
+/**
+ * The `ticketTypes` catalog key a review state is named with, on the terms
+ * TICKET_QUESTION_KIND_KEYS is: one word per state, in one place.
+ */
+export const TICKET_QUESTION_REVIEW_STATUS_KEYS = {
+  draft: "questionReviewDraft",
+  under_review: "questionReviewUnderReview",
+  approved: "questionReviewApproved",
+  refused: "questionReviewRefused",
+} as const satisfies Record<TicketQuestionReviewStatus, string>;
+
+/** Whether the question or Option is being asked of anybody: approved and not retired (ADR 0056). */
+export function isAsked(item: Reviewed & { retired: boolean }): boolean {
+  return item.review_status === "approved" && !item.retired;
+}
+
+/**
+ * The Operator's reason the editor should show beside a row, if there is one:
+ * a refusal's on a refused row, a Revocation's on a revoked one. Null when the
+ * row stands on no verdict worth explaining. A refused row that has since been
+ * edited back into a draft keeps its old reason in the payload but is a draft
+ * now, so the reason is not shown against it.
+ */
+export function reviewReason(
+  item: Reviewed,
+): { kind: "refusal" | "revocation"; reason: string } | null {
+  if (item.revocation_reason) {
+    return { kind: "revocation", reason: item.revocation_reason };
+  }
+  if (item.review_status === "refused" && item.refusal_reason) {
+    return { kind: "refusal", reason: item.refusal_reason };
+  }
+  return null;
+}
 
 /**
  * At most twenty Options per choice question, counting the LIVE ones. Mirrors

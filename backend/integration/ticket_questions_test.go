@@ -17,11 +17,17 @@ type ticketQuestion struct {
 	Timing    string `json:"timing"`
 	SortOrder int    `json:"sort_order"`
 	Retired   bool   `json:"retired"`
-	Options   []struct {
-		ID        string `json:"id"`
-		Label     string `json:"label"`
-		SortOrder int    `json:"sort_order"`
-		Retired   bool   `json:"retired"`
+	// The ADR 0056 review state. ApprovedBy is a pointer so a test can tell
+	// "absent" from "empty": a draft carries no author at all.
+	ReviewStatus string  `json:"review_status"`
+	ApprovedBy   *string `json:"approved_by"`
+	Options      []struct {
+		ID           string  `json:"id"`
+		Label        string  `json:"label"`
+		SortOrder    int     `json:"sort_order"`
+		Retired      bool    `json:"retired"`
+		ReviewStatus string  `json:"review_status"`
+		ApprovedBy   *string `json:"approved_by"`
 	} `json:"options"`
 }
 
@@ -77,15 +83,53 @@ func decodeTicketQuestions(t *testing.T, data json.RawMessage) []ticketQuestion 
 	return questions
 }
 
-// createTicketQuestion adds a question and returns it, failing the test on any
-// refusal — for the tests whose subject is something further along.
-func createTicketQuestion(t *testing.T, env *testEnv, sessionID, eventID, ticketTypeID string, body map[string]any) ticketQuestion {
+// draftTicketQuestion adds a question exactly as an Organization does and
+// returns it as born: a DRAFT, asked of nobody (ADR 0056).
+func draftTicketQuestion(t *testing.T, env *testEnv, sessionID, eventID, ticketTypeID string, body map[string]any) ticketQuestion {
 	t.Helper()
 	resp, envelope := env.post(t, questionsPath(eventID, ticketTypeID), body, authHeader(sessionID))
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create ticket question status=%d error=%+v", resp.StatusCode, envelope.Error)
 	}
 	return decodeTicketQuestion(t, envelope.Data)
+}
+
+// testApprovedBy is what the suite signs its stand-in approvals with, so a
+// row it approved can never be mistaken for one the migration or an Operator
+// did.
+const testApprovedBy = "test:integration"
+
+// approveTicketQuestion stands in for the Platform Operator's verdict until the
+// Question Review (#406-#410) exists to give it: the question and every Option
+// it has at this moment are approved by SQL, signed testApprovedBy. There is
+// deliberately no route for this, and there will not be one that a test could
+// reach without an Operator.
+func approveTicketQuestion(t *testing.T, env *testEnv, questionID string) {
+	t.Helper()
+	for _, table := range []string{"ticket_questions", "ticket_question_options"} {
+		column := "id"
+		if table == "ticket_question_options" {
+			column = "ticket_question_id"
+		}
+		if _, err := env.db.Exec(`
+			UPDATE `+table+`
+			SET review_status = 'approved', approved_at = NOW(), approved_by = $2
+			WHERE `+column+` = $1 AND review_status <> 'approved'
+		`, questionID, testApprovedBy); err != nil {
+			t.Fatalf("approve %s of question %s: %v", table, questionID, err)
+		}
+	}
+}
+
+// createTicketQuestion adds a question AND APPROVES IT, failing the test on any
+// refusal — for the tests whose subject is something further along than the
+// review a question waits for. What it returns is the question as the
+// Organization saw it born (a draft); the row underneath is approved.
+func createTicketQuestion(t *testing.T, env *testEnv, sessionID, eventID, ticketTypeID string, body map[string]any) ticketQuestion {
+	t.Helper()
+	question := draftTicketQuestion(t, env, sessionID, eventID, ticketTypeID, body)
+	approveTicketQuestion(t, env, question.ID)
+	return question
 }
 
 // ticketQuestionFixture is the Ticket Type every test here hangs its questions

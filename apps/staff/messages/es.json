@@ -328,6 +328,13 @@
     "questionOptionAddAction": "Agregar opción",
     "questionOptionRetire": "Retirar",
     "questionOptionRetired": "Retirada",
+    "questionReviewDraft": "Borrador",
+    "questionReviewUnderReview": "En revisión",
+    "questionReviewApproved": "Aprobada",
+    "questionReviewRefused": "Rechazada",
+    "questionReviewRefusalReason": "Rechazada: {reason}",
+    "questionReviewRevocationReason": "Revocada: {reason}",
+    "questionReviewNotAsked": "No se pregunta hasta que un operador de la plataforma la apruebe.",
     "questionOptionsRequired": "Una pregunta de opciones necesita al menos una opción.",
     "questionOptionTooLong": "Una opción puede tener como máximo {max} caracteres.",
     "questionOptionCapReached": "Puede tener como máximo {max} opciones. Retire una para hacer sitio."

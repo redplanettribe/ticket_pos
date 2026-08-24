@@ -4335,6 +4335,8 @@ components:
       type: object
     service.TicketQuestionOptionView:
       properties:
+        approved_by:
+          type: string
         id:
           description: |-
             ID is the Option's stable identity. A rename changes Label and never this,
@@ -4342,16 +4344,30 @@ components:
           type: string
         label:
           type: string
+        refusal_reason:
+          type: string
         retired:
           description: |-
             Retired means gone from new lists, kept on the Tickets that chose it, and
             still entitled to its column in the Sales Export.
           type: boolean
+        review_status:
+          description: |-
+            The Option's own review state, on the question's terms (ADR 0056): an
+            Option added to an approved question is a draft until reviewed.
+          type: string
+        revocation_reason:
+          type: string
         sort_order:
           type: integer
       type: object
     service.TicketQuestionView:
       properties:
+        approved_by:
+          description: |-
+            ApprovedBy names who approved it — a Platform Operator, or the
+            grandfathering migration — and is absent until somebody has.
+          type: string
         created_at:
           type: string
         id:
@@ -4367,6 +4383,9 @@ components:
             $ref: '#/components/schemas/service.TicketQuestionOptionView'
           type: array
           uniqueItems: false
+        refusal_reason:
+          description: RefusalReason is the Operator's reason on a refused question.
+          type: string
         required:
           description: |-
             Required produces an Outstanding Answer and nothing else. It is not a
@@ -4378,6 +4397,18 @@ components:
             answered still reads. Retired questions are returned so the authoring
             surface can show them rather than appearing to have lost them.
           type: boolean
+        review_status:
+          description: |-
+            ReviewStatus is where the question stands with the Platform Operator
+            (ADR 0056): `draft`, `under_review`, `approved` or `refused`. Only an
+            approved question is asked of anybody. Read-only on this surface: the
+            verdicts are the Operator's and the submission is a Question Review's.
+          type: string
+        revocation_reason:
+          description: |-
+            RevocationReason is the Operator's reason on a Revocation, which is why
+            a question that reads retired here stopped being asked.
+          type: string
         sort_order:
           type: integer
         timing:

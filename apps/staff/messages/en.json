@@ -328,6 +328,13 @@
     "questionOptionAddAction": "Add option",
     "questionOptionRetire": "Retire",
     "questionOptionRetired": "Retired",
+    "questionReviewDraft": "Draft",
+    "questionReviewUnderReview": "Under review",
+    "questionReviewApproved": "Approved",
+    "questionReviewRefused": "Refused",
+    "questionReviewRefusalReason": "Refused: {reason}",
+    "questionReviewRevocationReason": "Revoked: {reason}",
+    "questionReviewNotAsked": "Not asked until a platform operator approves it.",
     "questionOptionsRequired": "A choice question needs at least one option.",
     "questionOptionTooLong": "An option can be at most {max} characters.",
     "questionOptionCapReached": "You can have at most {max} options. Retire one to make room."

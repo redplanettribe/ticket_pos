@@ -50,6 +50,11 @@ type EventTicketQuestionOption struct {
 // ListEventTicketQuestions returns every Ticket Question defined on the Event's
 // Ticket Types, in catalog display order, with each question's Options.
 //
+// APPROVED QUESTIONS AND APPROVED OPTIONS ONLY (catalog.ApprovedQuestionSQL,
+// ADR 0056): a draft, under-review or refused question was asked of nobody and
+// earns no column, and since the sheet exists only when this returns something,
+// this is also the export's "has any question" gate.
+//
 // RETIRED QUESTIONS AND RETIRED OPTIONS ARE INCLUDED. Retiring either takes it
 // off the lists new buyers and staff are shown; it does not unsay what has
 // already been answered, and the export is the one surface that reads every
@@ -61,6 +66,7 @@ func (r *Repository) ListEventTicketQuestions(ctx context.Context, orgID, eventI
 		FROM ticket_questions q
 		JOIN ticket_types tt ON tt.id = q.ticket_type_id
 		WHERE tt.event_id = $1 AND tt.organization_id = $2
+		  AND `+catalog.ApprovedQuestionSQL+`
 		ORDER BY tt.sort_order, tt.name, q.sort_order, q.created_at, q.id
 	`, eventID, orgID)
 	if err != nil {
@@ -91,6 +97,7 @@ func (r *Repository) ListEventTicketQuestions(ctx context.Context, orgID, eventI
 		SELECT o.ticket_question_id, o.id, o.label
 		FROM ticket_question_options o
 		WHERE o.ticket_question_id = ANY($1)
+		  AND `+catalog.ApprovedOptionSQL+`
 		ORDER BY o.sort_order, o.created_at, o.id
 	`, ids)
 	if err != nil {

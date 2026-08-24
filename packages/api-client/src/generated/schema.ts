@@ -12476,26 +12476,41 @@ export interface components {
             question?: components["schemas"]["service.TicketQuestionView"];
         };
         "service.TicketQuestionOptionView": {
+            approved_by?: string;
             /**
              * @description ID is the Option's stable identity. A rename changes Label and never this,
              *     which is what keeps the Answers given under the old wording attached.
              */
             id?: string;
             label?: string;
+            refusal_reason?: string;
             /**
              * @description Retired means gone from new lists, kept on the Tickets that chose it, and
              *     still entitled to its column in the Sales Export.
              */
             retired?: boolean;
+            /**
+             * @description The Option's own review state, on the question's terms (ADR 0056): an
+             *     Option added to an approved question is a draft until reviewed.
+             */
+            review_status?: string;
+            revocation_reason?: string;
             sort_order?: number;
         };
         "service.TicketQuestionView": {
+            /**
+             * @description ApprovedBy names who approved it — a Platform Operator, or the
+             *     grandfathering migration — and is absent until somebody has.
+             */
+            approved_by?: string;
             created_at?: string;
             id?: string;
             kind?: string;
             label?: string;
             /** @description Options is empty for the five kinds that are not answered by choosing. */
             options?: components["schemas"]["service.TicketQuestionOptionView"][];
+            /** @description RefusalReason is the Operator's reason on a refused question. */
+            refusal_reason?: string;
             /**
              * @description Required produces an Outstanding Answer and nothing else. It is not a
              *     constraint, and no surface may treat it as one.
@@ -12507,6 +12522,18 @@ export interface components {
              *     surface can show them rather than appearing to have lost them.
              */
             retired?: boolean;
+            /**
+             * @description ReviewStatus is where the question stands with the Platform Operator
+             *     (ADR 0056): `draft`, `under_review`, `approved` or `refused`. Only an
+             *     approved question is asked of anybody. Read-only on this surface: the
+             *     verdicts are the Operator's and the submission is a Question Review's.
+             */
+            review_status?: string;
+            /**
+             * @description RevocationReason is the Operator's reason on a Revocation, which is why
+             *     a question that reads retired here stopped being asked.
+             */
+            revocation_reason?: string;
             sort_order?: number;
             /**
              * @description Timing is 'at_checkout' on every row written so far; the field is here so

@@ -30,6 +30,7 @@ import {
   MAX_TICKET_QUESTION_OPTION_LABEL_LENGTH,
   TICKET_QUESTION_KINDS,
   TICKET_QUESTION_KIND_KEYS,
+  TICKET_QUESTION_REVIEW_STATUS_KEYS,
   canAddOption,
   canRetireOption,
   isValidLabel,
@@ -39,9 +40,35 @@ import {
   offersOptions,
   retiredOptions,
   retiredQuestions,
+  reviewReason,
+  type Reviewed,
   type TicketQuestion,
   type TicketQuestionKind,
 } from "@/lib/ticket-questions";
+
+/**
+ * The row's review state, read-only (ADR 0056, #405): a badge with the state's
+ * word, and the Operator's reason where a verdict carries one. Nothing here
+ * submits or changes a state — that is the Question Review's (#406) and the
+ * Operator's (#407).
+ */
+function ReviewState({ item, t }: { item: Reviewed; t: ReturnType<typeof useTranslations> }) {
+  const reason = reviewReason(item);
+  return (
+    <>
+      <Badge variant={item.review_status === "approved" ? "default" : "outline"}>
+        {t(TICKET_QUESTION_REVIEW_STATUS_KEYS[item.review_status])}
+      </Badge>
+      {reason ? (
+        <span className="text-xs text-muted-foreground">
+          {reason.kind === "revocation"
+            ? t("questionReviewRevocationReason", { reason: reason.reason })
+            : t("questionReviewRefusalReason", { reason: reason.reason })}
+        </span>
+      ) : null}
+    </>
+  );
+}
 
 const SELECT_CLASS = "flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm";
 
@@ -303,6 +330,7 @@ export function TicketQuestionsDialog({
                     />
                     <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                       <Badge variant="secondary">{t(TICKET_QUESTION_KIND_KEYS[question.kind])}</Badge>
+                      <ReviewState item={question} t={t} />
                       <label className="flex items-center gap-1">
                         <input
                           type="checkbox"
@@ -312,6 +340,9 @@ export function TicketQuestionsDialog({
                         {t("questionRequired")}
                       </label>
                     </div>
+                    {question.review_status !== "approved" ? (
+                      <p className="text-xs text-muted-foreground">{t("questionReviewNotAsked")}</p>
+                    ) : null}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     <Button
@@ -357,6 +388,9 @@ export function TicketQuestionsDialog({
                             void renameOption(question, option.id, event.target.value)
                           }
                         />
+                        {option.review_status !== "approved" ? (
+                          <ReviewState item={option} t={t} />
+                        ) : null}
                         <Button
                           type="button"
                           variant="ghost"
@@ -425,6 +459,7 @@ export function TicketQuestionsDialog({
               <li key={question.id} className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
                 <span className="line-through">{question.label}</span>{" "}
                 <Badge variant="secondary">{t("questionRetired")}</Badge>
+                {reviewReason(question) ? <ReviewState item={question} t={t} /> : null}
               </li>
             ))}
           </ul>
