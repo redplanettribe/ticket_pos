@@ -683,6 +683,10 @@ export function rateSeries(
   // A link's clicks and sales tally under its id; the page's views and ALL
   // attributed sales tally under ALL_PAGE_VIEWS_ID — numerator and denominator
   // of the overall line.
+  // A bucket on a civil day after the reader's own — clock skew between the
+  // API and the reader across a midnight — is no more "to date" here than it
+  // is drawable on the other views; it waits for its day to exist.
+  const lastDay = bucketDay(utcHourKey(end), trends.timezone);
   const clicksByDay = new Map<string, Map<string, number>>();
   const salesByDay = new Map<string, Map<string, number>>();
   const tally = (store: Map<string, Map<string, number>>, day: string, id: string, n: number) => {
@@ -695,10 +699,16 @@ export function rateSeries(
       continue;
     }
     const day = bucketDay(bucket.hour, trends.timezone);
+    if (day > lastDay) {
+      continue;
+    }
     tally(clicksByDay, day, bucket.link_id ?? ALL_PAGE_VIEWS_ID, bucket.views);
   }
   for (const bucket of salesBuckets) {
     const day = bucket.hour.slice(0, 10);
+    if (day > lastDay) {
+      continue;
+    }
     tally(salesByDay, day, bucket.link_id, bucket.sales);
     tally(salesByDay, day, ALL_PAGE_VIEWS_ID, bucket.sales);
   }

@@ -548,3 +548,29 @@ test("the rate axis rounds up to a readable fraction and never collapses", () =>
   assert.equal(ticks[ticks.length - 1], 0.05);
   assert.equal(ticks.length, 6);
 });
+
+test("a bucket on a civil day after the reader's own moves no rate — skew waits for its day", () => {
+  const data = rateSeries(
+    fullTrends(
+      [
+        { hour: "2026-08-24T14:00:00Z", link_id: LINK_A, views: 4 },
+        // Clock skew: an API bucket on tomorrow's civil day. The other views
+        // have no slot for it; the cumulative tally must not count it either.
+        { hour: "2026-08-25T06:00:00Z", link_id: LINK_A, views: 100 },
+      ],
+      [
+        SALE("2026-08-24T09:00", LINK_A, 1, 1, 100),
+        SALE("2026-08-25T09:00", LINK_A, 5, 5, 500),
+      ],
+    ),
+    [LINK_A],
+    "7d",
+    NOW,
+    "en",
+    "cumulative",
+  );
+  const today = data[data.length - 1];
+  assert.equal(today.key, "2026-08-24");
+  assert.equal(today.values[LINK_A], 0.25);
+  assert.deepEqual(today.details[LINK_A], { sales: 1, denominator: 4 });
+});
