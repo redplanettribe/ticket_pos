@@ -135,3 +135,34 @@ export function withReason(
   }
   return next;
 }
+
+/**
+ * The items in the order the Operator reads them: each question with its
+ * Option items directly beneath it, and an Option item whose question is not
+ * in the Review — one added to an already approved question (#409) — standing
+ * on its own where the list put it. The API writes every question item before
+ * every Option item, which would draw Chicken six questions below Meal.
+ */
+export function nestedItems<T extends VerdictItem>(items: T[]): T[] {
+  const out: T[] = [];
+  const placed = new Set<string>();
+  for (const item of items) {
+    if (item.ticket_question_option_id || placed.has(item.id)) {
+      continue;
+    }
+    out.push(item);
+    placed.add(item.id);
+    for (const option of items) {
+      if (option.ticket_question_option_id && option.ticket_question_id === item.ticket_question_id) {
+        out.push(option);
+        placed.add(option.id);
+      }
+    }
+  }
+  for (const item of items) {
+    if (!placed.has(item.id)) {
+      out.push(item);
+    }
+  }
+  return out;
+}

@@ -268,9 +268,25 @@ func (r *Repository) AnswerQuestionReview(ctx context.Context, reviewID string, 
 		`, v.ItemID, answeredBy, now, v.Reason); err != nil {
 			return nil, err
 		}
+		// An Option refused on its own — one added to an already approved
+		// question, so the Review carries no item for the question — is
+		// retired on the spot (#409): its question keeps collecting in its
+		// approved shape, and there is nothing to edit and resubmit. An
+		// Option refused beside its question stays with the question, whose
+		// first edit takes them all back to draft.
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE ticket_question_options o
-			SET review_status = 'refused', refused_at = $3, refused_by = $2, refusal_reason = $4, updated_at = $3
+			SET review_status = 'refused', refused_at = $3, refused_by = $2, refusal_reason = $4, updated_at = $3,
+			    retired_at = CASE
+			        WHEN o.retired_at IS NOT NULL THEN o.retired_at
+			        WHEN EXISTS (
+			            SELECT 1 FROM question_review_items p
+			            WHERE p.question_review_id = i.question_review_id
+			              AND p.ticket_question_id = i.ticket_question_id
+			              AND p.ticket_question_option_id IS NULL
+			        ) THEN NULL
+			        ELSE $3
+			    END
 			FROM question_review_items i
 			WHERE i.id = $1 AND o.id = i.ticket_question_option_id AND o.review_status = 'under_review'
 		`, v.ItemID, answeredBy, now, v.Reason); err != nil {

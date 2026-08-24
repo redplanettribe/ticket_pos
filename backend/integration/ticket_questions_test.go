@@ -24,14 +24,17 @@ type ticketQuestion struct {
 	// RefusalReason and RevocationReason are the Operator's reasons (#407, #410).
 	RefusalReason    *string `json:"refusal_reason"`
 	RevocationReason *string `json:"revocation_reason"`
-	Options          []struct {
-		ID           string  `json:"id"`
-		Label        string  `json:"label"`
-		SortOrder    int     `json:"sort_order"`
-		Retired      bool    `json:"retired"`
-		ReviewStatus string  `json:"review_status"`
-		ApprovedBy   *string `json:"approved_by"`
-	} `json:"options"`
+	Options          []ticketQuestionOption `json:"options"`
+}
+
+type ticketQuestionOption struct {
+	ID            string  `json:"id"`
+	Label         string  `json:"label"`
+	SortOrder     int     `json:"sort_order"`
+	Retired       bool    `json:"retired"`
+	ReviewStatus  string  `json:"review_status"`
+	ApprovedBy    *string `json:"approved_by"`
+	RefusalReason *string `json:"refusal_reason"`
 }
 
 func questionsPath(eventID, ticketTypeID string) string {

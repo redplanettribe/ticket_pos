@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   answerBody,
   answerProblem,
+  nestedItems,
   withReason,
   withVerdict,
   type VerdictDraft,
@@ -78,4 +79,14 @@ test("withReason carries a question's reason to Options with no reason of their 
   assert.equal(drafts["i-meal"]?.reason, "say why");
   assert.equal(drafts["i-chicken"]?.reason, "say why");
   assert.equal(drafts["i-veg"]?.reason, "too vague");
+});
+
+test("nestedItems draws each Option item under its question, and a lone Option after the questions", () => {
+  const dietary: VerdictItem = { id: "i-diet", ticket_question_id: "q-diet", ticket_question_option_id: null };
+  const fish: VerdictItem = { id: "i-fish", ticket_question_id: "q-approved", ticket_question_option_id: "o-fish" };
+  const ordered = nestedItems([size, meal, dietary, fish, chicken, veg]);
+  assert.deepEqual(
+    ordered.map((item) => item.id),
+    ["i-size", "i-meal", "i-chicken", "i-veg", "i-diet", "i-fish"],
+  );
 });

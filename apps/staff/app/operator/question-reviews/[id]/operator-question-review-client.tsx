@@ -37,6 +37,7 @@ import {
   type VerdictDraft,
   answerBody,
   answerProblem,
+  nestedItems,
   withReason,
   withVerdict,
 } from "@/lib/operator-question-reviews";
@@ -60,6 +61,8 @@ type Drafts = Record<string, VerdictDraft | undefined>;
  * refusal without a reason. Refusing a question carries the verdict and reason
  * to its Options, which are not offered either way, so the Operator is not
  * asked six times about Chicken; an Option's own verdict moves nothing else.
+ * An Option item is drawn under its question's item; one added to an already
+ * approved question stands alone and, refused, is retired (#409).
  *
  * Once answered, withdrawn or lapsed the page is a record: the verdicts and
  * reasons as given, and no controls. A Review reads lapsed the moment its
@@ -118,7 +121,7 @@ export function OperatorQuestionReviewClient({ reviewId }: OperatorQuestionRevie
     if (!row) {
       return;
     }
-    const items = row.review.items;
+    const items = nestedItems(row.review.items);
     const hole = answerProblem(items, drafts);
     setProblem(hole);
     setSubmitError(null);
@@ -184,7 +187,7 @@ export function OperatorQuestionReviewClient({ reviewId }: OperatorQuestionRevie
   const { review, organization, event: reviewEvent } = row;
   const outstanding = review.status === "outstanding";
   const startsAt = reviewEvent.starts_at;
-  const items = review.items;
+  const items = nestedItems(review.items);
 
   return (
     <div className="space-y-6">
