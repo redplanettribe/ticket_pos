@@ -4,13 +4,12 @@ import * as React from "react";
 import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 
 import {
-  AXIS_TICK,
   CHART_MARGIN,
   StackedChartShell,
   StackedChartTooltip,
-  X_AXIS_HEIGHT,
+  TOOLTIP_PROPS,
   Y_AXIS_PROPS,
-  xTickInterval,
+  xAxisProps,
   type StackedChartProps,
   type StackedDatum,
 } from "./chart-frame";
@@ -62,6 +61,7 @@ export function StackedBarChart({
   className,
 }: StackedBarChartProps) {
   const formatTick = formatTickValue ?? formatValue;
+  const labels = data.map((datum) => datum.label);
   return (
     <StackedChartShell
       plotWidth={plotWidth}
@@ -75,14 +75,7 @@ export function StackedBarChart({
       {(width) => (
         <BarChart width={width} height={height} data={data} syncId={syncId} margin={CHART_MARGIN}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
-          <XAxis
-            dataKey="label"
-            tickLine={false}
-            axisLine={false}
-            height={X_AXIS_HEIGHT}
-            interval={xTickInterval(data.length, plotWidth)}
-            tick={AXIS_TICK}
-          />
+          <XAxis {...xAxisProps(labels, plotWidth)} />
           <YAxis
             // Pinned to the caller's yMax so the axis answers to the current
             // selection rather than to the whole catalog.
@@ -92,12 +85,14 @@ export function StackedBarChart({
             tickFormatter={formatTick}
           />
           <Tooltip
+            {...TOOLTIP_PROPS}
             cursor={{ className: "fill-muted", opacity: 0.4 }}
             content={
               <StackedChartTooltip
                 series={series}
                 formatValue={formatValue}
                 totalLabel={totalLabel}
+                chartHeight={height}
               />
             }
           />

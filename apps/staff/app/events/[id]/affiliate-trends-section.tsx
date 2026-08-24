@@ -17,7 +17,6 @@ import {
   ChartLegendChips,
   ChartScrollArea,
   ChartViewToggle,
-  MultiSeriesBarChart,
   MultiSeriesLineChart,
   Skeleton,
   Y_AXIS_WIDTH,
@@ -37,6 +36,7 @@ import {
   RATE_TRENDS_RANGES,
   affiliateTrendsPlotWidth,
   availableTrendsMetrics,
+  countYTicks,
   fetchAffiliateTrends,
   granularityChoosable,
   hasTrendsData,
@@ -62,7 +62,7 @@ import {
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { formatMoney, formatNumber, formatPercent } from "@/lib/format";
-import { cumulativePlotWidth, trendsYTicks } from "@/lib/sales-trends";
+import { cumulativePlotWidth } from "@/lib/sales-trends";
 
 type AffiliateTrendsSectionProps = {
   eventId: string;
@@ -175,7 +175,7 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
   const colorOf = useCallback((id: string) => chartSeriesColor(order.indexOf(id)), [order]);
 
   // The sales view draws links only: the whole-page series is a views concept,
-  // so its chip leaves the legend rather than sitting beside bars it can never
+  // so its chip leaves the legend rather than sitting beside a line it can never
   // have. The Clicks and Rate views keep it — as the page's views, and as the
   // page's own rate. The selection itself is shared: chips chosen on one view
   // hold on the others.
@@ -203,7 +203,7 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
   );
 
   // Hourly or Daily, the counting views' toggle. Not on the Rate view, which
-  // is never hourly (ADR 0057), and not on 24h, where a day is one bar.
+  // is never hourly (ADR 0057), and not on 24h, where a day is one point.
   const granularityOptions: ChartViewOption<AffiliateTrendsGranularity>[] = useMemo(
     () => AFFILIATE_TRENDS_GRANULARITIES.map((id) => ({ id, label: t(`granularity_${id}`) })),
     [t],
@@ -357,8 +357,11 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
 /**
  * The chart itself, kept apart from the state above it, drawn at a width worked
  * out from the span and read by scrolling when the span outgrows the card —
- * the Sales Trends Daily rule, because an hour here is read one bar at a time
- * just as a day is there.
+ * the Sales Trends Daily rule, because an hour here is read one bucket at a
+ * time just as a day is there. A line per series, not a group of bars: with a
+ * dozen links drawn a bar per link per hour is a sliver nobody can read, while
+ * a line reads at any series count (ADR 0057). A zero-click hour is a zero,
+ * not a gap, so the series stay zero-filled and the lines unbroken.
  */
 function ClicksChart({
   trends,
@@ -388,14 +391,14 @@ function ClicksChart({
     [trends, selected, range, now, locale, granularity],
   );
   const yMax = useMemo(() => multiSeriesYMax(data), [data]);
-  const yTicks = useMemo(() => trendsYTicks(yMax), [yMax]);
-  const plotWidth = affiliateTrendsPlotWidth(data.length, series.length, plotShare);
+  const yTicks = useMemo(() => countYTicks(yMax), [yMax]);
+  const plotWidth = affiliateTrendsPlotWidth(data.length, plotShare);
   useLatestBucketsFirst(scrollArea, `${range}:${granularity}`, plotWidth, data);
 
   const hourly = granularity === "hour";
   return (
     <ChartScrollArea ref={setScrollArea} ariaLabel={t("scrollLabel")}>
-      <MultiSeriesBarChart
+      <MultiSeriesLineChart
         data={data}
         series={series}
         yMax={yMax}
@@ -412,7 +415,7 @@ function ClicksChart({
  * The Attributed Sales view: each link's attributed active sales over the same
  * axis, ranges and legend as the Clicks view, with the bucket's tickets and Net
  * Proceeds stated in the tooltip — so links are weighed by money as well as by
- * count. A Reversal is already out of the payload, so it is out of every bar.
+ * count. A Reversal is already out of the payload, so it is out of every point.
  */
 function SalesChart({
   trends,
@@ -440,15 +443,15 @@ function SalesChart({
     [trends, selected, range, now, locale, granularity],
   );
   const yMax = useMemo(() => multiSeriesYMax(data), [data]);
-  const yTicks = useMemo(() => trendsYTicks(yMax), [yMax]);
-  const plotWidth = affiliateTrendsPlotWidth(data.length, series.length, plotShare);
+  const yTicks = useMemo(() => countYTicks(yMax), [yMax]);
+  const plotWidth = affiliateTrendsPlotWidth(data.length, plotShare);
   useLatestBucketsFirst(scrollArea, `${range}:${granularity}`, plotWidth, data);
 
-  // The money line under a link's tooltip row. The sale count is the bar; the
+  // The money line under a link's tooltip row. The sale count is the point; the
   // tickets and Net Proceeds are what the count was worth, in the
   // Organization's currency however the reader's language spells it.
   const formatSeriesDetail = useCallback(
-    (seriesId: string, datum: { key: string; label: string; values: Record<string, number> }) => {
+    (seriesId: string, datum: { key: string; label: string }) => {
       const figures = (datum as AffiliateSalesDatum).details?.[seriesId];
       if (!figures) {
         return null;
@@ -464,7 +467,7 @@ function SalesChart({
   const hourly = granularity === "hour";
   return (
     <ChartScrollArea ref={setScrollArea} ariaLabel={t("scrollLabel")}>
-      <MultiSeriesBarChart
+      <MultiSeriesLineChart
         data={data}
         series={series}
         yMax={yMax}
@@ -480,8 +483,8 @@ function SalesChart({
 
 /**
  * The Attribution Rate view: per link, Attributed Sales over Clicks, and one
- * overall line dividing every attributed sale by every page view. Lines, never
- * bars, and never hourly — daily points at most, Cumulative by default
+ * overall line dividing every attributed sale by every page view. Lines like
+ * the counting views, but never hourly — daily points at most, Cumulative by default
  * (ADR 0057). A span with no clicks draws a gap, not a zero; the tooltip
  * states the division behind each point, because a bare percentage built on
  * two floors invites more belief than it earned.

@@ -116,7 +116,7 @@ export function rangeGranularity(range: AffiliateTrendsRange): AffiliateTrendsGr
 /**
  * trendsGranularity is the resolution actually drawn for a range and the
  * reader's choice: the choice, except on 24h, which is always hourly — a day of
- * daily bars is one bar, and one bar is not a trend. The toggle is not offered
+ * daily points is one point, and one point is not a trend. The toggle is not offered
  * there (`granularityChoosable`), and this guards the state it would have set.
  */
 export function trendsGranularity(
@@ -127,7 +127,7 @@ export function trendsGranularity(
 }
 
 /** granularityChoosable reports whether the Hourly/Daily toggle has anything
- * to offer on a range — false on 24h, where daily is one bar. */
+ * to offer on a range — false on 24h, where daily is one point. */
 export function granularityChoosable(range: AffiliateTrendsRange): boolean {
   return range !== "24h";
 }
@@ -371,15 +371,28 @@ export function toggleSeriesSelection(
   return order.filter((entry) => next.has(entry));
 }
 
-/** The tick steps a Y axis is allowed to round up to, per decade — the same
- * ladder Sales Trends climbs, so the two surfaces' axes read alike. */
-const NICE_STEPS = [1, 2, 2.5, 5, 10];
+/**
+ * The tick steps a Y axis is allowed to round up to, per decade.
+ *
+ * A finer ladder than Sales Trends' 1, 2, 2.5, 5, 10. A stack of bars is read
+ * against its neighbours, so a coarse top costs it little; a line is read
+ * against the axis, and a week whose busiest day drew 56 views was drawn under
+ * a 100 axis with the whole upper half of the plot empty. This ladder tops
+ * that day at 60, and never draws the tallest point below half the axis.
+ *
+ * Every rung must still divide into whole, even ticks by `trendsYTicks`'
+ * divisions (5, 4, 2): 3 and 6 divide by 2 in the tens and above, and in the
+ * ones decade a top of 3 is labelled at its ends alone, which is what a
+ * three-view day deserves. 2.5 has no place here — it would put a tick at
+ * 0.5 of a page view.
+ */
+const NICE_STEPS = [1, 2, 3, 4, 5, 6, 8, 10];
 
 /**
- * multiSeriesYMax is the top of the Y axis for grouped bars: the tallest SINGLE
- * value, rounded up to a readable tick. The single value and never a sum,
- * because grouped bars stand beside each other — nothing in the chart ever
- * reaches the height a stack would.
+ * multiSeriesYMax is the top of the Y axis for the counting views: the tallest
+ * SINGLE value, rounded up to a readable tick. The single value and never a
+ * sum, because each series is its own line — nothing in the chart ever reaches
+ * the height a stack would.
  */
 export function multiSeriesYMax(data: readonly AffiliateTrendsDatum[]): number {
   let tallest = 0;
@@ -402,14 +415,14 @@ export function multiSeriesYMax(data: readonly AffiliateTrendsDatum[]): number {
 }
 
 /**
- * The horizontal room one bucket is owed: enough for one bar per drawn series
- * plus a gap, and never less than a Sales Trends day, so a single-link Event's
- * chart does not shrivel. More drawn series genuinely need more room — grouped
- * bars sit beside each other — which is why the series count is a parameter
- * rather than a constant.
+ * The horizontal room one bucket is owed: a Sales Trends day's worth, whether
+ * the bucket is an hour or a day. The counting views are drawn as lines, so a
+ * bucket is one point per series wherever it lies, and drawing more series
+ * asks for no more room — the old grouped-bar rule, which widened the bucket
+ * per drawn series, would with a dozen links turn a week of hours into a
+ * plot several screens wider than the reader could follow.
  */
-export const AFFILIATE_TRENDS_MIN_BAR_WIDTH = 10;
-const MIN_BUCKET_WIDTH = 24;
+export const AFFILIATE_TRENDS_BUCKET_WIDTH = 24;
 
 /** The narrowest the plot is ever drawn, shared with Sales Trends' floor. */
 export const AFFILIATE_TRENDS_MIN_PLOT_WIDTH = 360;
@@ -419,18 +432,11 @@ export const AFFILIATE_TRENDS_MIN_PLOT_WIDTH = 360;
  * demands, or the room available, whichever is larger — the Sales Trends Daily
  * rule, and for the same reason. A week of hours cannot fit a card without
  * shaving every bucket to a sliver, so the plot outgrows the card and is read
- * by scrolling; a short span fills the card and the spare room goes to the gaps.
+ * by scrolling; a short span fills the card and the spare room spreads the
+ * points out. The series count has no say: see `AFFILIATE_TRENDS_BUCKET_WIDTH`.
  */
-export function affiliateTrendsPlotWidth(
-  bucketCount: number,
-  drawnSeriesCount: number,
-  availableWidth = 0,
-): number {
-  const bucketWidth = Math.max(
-    MIN_BUCKET_WIDTH,
-    Math.max(1, drawnSeriesCount) * AFFILIATE_TRENDS_MIN_BAR_WIDTH,
-  );
-  const spanWidth = bucketCount <= 0 ? 0 : bucketCount * bucketWidth;
+export function affiliateTrendsPlotWidth(bucketCount: number, availableWidth = 0): number {
+  const spanWidth = bucketCount <= 0 ? 0 : bucketCount * AFFILIATE_TRENDS_BUCKET_WIDTH;
   return Math.max(spanWidth, availableWidth, AFFILIATE_TRENDS_MIN_PLOT_WIDTH);
 }
 
@@ -516,7 +522,7 @@ export function hasTrendsData(
   );
 }
 
-/** What one link earned in one bucket, beyond the sale count the bar shows:
+/** What one link earned in one bucket, beyond the sale count the point shows:
  * the tooltip's money line. Cents, in the Organization's currency. */
 export type AffiliateSalesFigures = {
   tickets: number;
@@ -886,8 +892,9 @@ function accumulateDay(
 /**
  * rateYMax is the top of the Rate view's axis: the highest drawn point,
  * rounded up the same NICE ladder the counting views climb — the ladder works
- * below 1 because the decade arithmetic does. An empty or all-gap view keeps a
- * 5% axis, so the chart shows a scale rather than collapsing.
+ * below 1 because the decade arithmetic does, so a 5.2% peak tops the axis at
+ * 6%, not 10%. An empty or all-gap view keeps a 5% axis, so the chart shows a
+ * scale rather than collapsing.
  */
 export function rateYMax(data: readonly AffiliateRateDatum[]): number {
   let tallest = 0;
@@ -903,12 +910,23 @@ export function rateYMax(data: readonly AffiliateRateDatum[]): number {
   }
   const decade = 10 ** Math.floor(Math.log10(tallest));
   for (const step of NICE_STEPS) {
-    const candidate = step * decade;
+    const candidate = wholeBasisPoints(step * decade);
     if (tallest <= candidate + Number.EPSILON) {
       return candidate;
     }
   }
-  return 10 * decade;
+  return wholeBasisPoints(10 * decade);
+}
+
+/**
+ * A rung of the ladder settled to whole basis points, because 3 × 0.1 is
+ * 0.30000000000000004 in floating point, and an axis topped there draws its
+ * last tick a hair below the top. A rate too small to have a basis point at
+ * all is left alone rather than rounded to nothing.
+ */
+function wholeBasisPoints(rate: number): number {
+  const rounded = Math.round(rate * 10000) / 10000;
+  return rounded > 0 ? rounded : rate;
 }
 
 /**
@@ -916,12 +934,56 @@ export function rateYMax(data: readonly AffiliateRateDatum[]): number {
  * one, computed in whole basis points so the fractions come out exact — five
  * equal steps of floating-point 0.01 would land a tick at 0.030000000000000002
  * and label it 3%.
+ *
+ * A step must also be a whole tenth of a percent, because that is the finest
+ * the axis spells (`formatPercent` keeps one decimal): five steps of 0.12%
+ * would be labelled 0.1%, 0.2%, 0.4%, 0.5% — a scale that lies. A top too
+ * small to divide that finely is labelled at its ends alone.
  */
 export function rateYTicks(yMax: number): number[] {
   if (!Number.isFinite(yMax) || yMax <= 0) {
     return [0];
   }
   const scaled = Math.round(yMax * 10000);
-  const divisions = [5, 4, 2].find((count) => scaled % count === 0) ?? 1;
+  const divisions =
+    Y_DIVISIONS.find((count) => scaled % (count * 10) === 0 && roundStep(scaled / count)) ??
+    Y_DIVISIONS.find((count) => scaled % (count * 10) === 0) ??
+    1;
   return Array.from({ length: divisions + 1 }, (_, index) => (scaled / divisions) * index / 10000);
+}
+
+/**
+ * The divisions a Y axis is tried in, roundest step first. Sales Trends'
+ * `trendsYTicks` settles for the first count that divides evenly, which on the
+ * finer ladder these charts climb (`NICE_STEPS`) labels an axis topping at 80
+ * in sixteens. A reader counts in tens and twenties, so a division is only
+ * taken when its step starts with a 1, 2 or 5 — 80 in twenties, 60 in
+ * twenties, 40 in tens, 30 in tens — and any even division is the fallback.
+ */
+const Y_DIVISIONS = [5, 4, 3, 2];
+
+/** roundStep says whether a step is one a reader counts in: a 1, 2 or 5
+ * followed by zeros. */
+function roundStep(step: number): boolean {
+  const leading = step / 10 ** Math.floor(Math.log10(step));
+  return leading === 1 || leading === 2 || leading === 5;
+}
+
+/**
+ * countYTicks is `trendsYTicks` for the counting views — the same evenly
+ * spaced ticks ending at `yMax`, choosing the division by `Y_DIVISIONS`' rule
+ * rather than the first that happens to be whole.
+ */
+export function countYTicks(yMax: number): number[] {
+  if (!Number.isFinite(yMax) || yMax <= 0) {
+    return [0];
+  }
+  const divisions =
+    Y_DIVISIONS.find((count) => Number.isInteger(yMax / count) && roundStep(yMax / count)) ??
+    Y_DIVISIONS.find((count) => Number.isInteger(yMax / count));
+  if (!divisions) {
+    return [0, yMax];
+  }
+  const step = yMax / divisions;
+  return Array.from({ length: divisions + 1 }, (_, index) => index * step);
 }

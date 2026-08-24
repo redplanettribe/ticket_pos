@@ -4,13 +4,12 @@ import * as React from "react";
 import { Area, AreaChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 
 import {
-  AXIS_TICK,
   CHART_MARGIN,
   StackedChartShell,
   StackedChartTooltip,
-  X_AXIS_HEIGHT,
+  TOOLTIP_PROPS,
   Y_AXIS_PROPS,
-  xTickInterval,
+  xAxisProps,
   type StackedChartProps,
   type StackedDatum,
 } from "./chart-frame";
@@ -48,6 +47,7 @@ export function StackedAreaChart({
   className,
 }: StackedAreaChartProps) {
   const formatTick = formatTickValue ?? formatValue;
+  const labels = data.map((datum) => datum.label);
   return (
     <StackedChartShell
       plotWidth={plotWidth}
@@ -61,16 +61,10 @@ export function StackedAreaChart({
       {(width) => (
         <AreaChart width={width} height={height} data={data} syncId={syncId} margin={CHART_MARGIN}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
-          <XAxis
-            dataKey="label"
-            tickLine={false}
-            axisLine={false}
-            height={X_AXIS_HEIGHT}
-            interval={xTickInterval(data.length, plotWidth)}
-            tick={AXIS_TICK}
-          />
+          <XAxis {...xAxisProps(labels, plotWidth)} />
           <YAxis {...Y_AXIS_PROPS} domain={[0, yMax]} ticks={yTicks} tickFormatter={formatTick} />
           <Tooltip
+            {...TOOLTIP_PROPS}
             cursor={{
               className: "stroke-muted-foreground",
               strokeDasharray: "3 3",
@@ -80,6 +74,7 @@ export function StackedAreaChart({
                 series={series}
                 formatValue={formatValue}
                 totalLabel={totalLabel}
+                chartHeight={height}
               />
             }
           />

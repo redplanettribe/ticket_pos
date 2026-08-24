@@ -4,12 +4,12 @@ import * as React from "react";
 import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 
 import {
-  AXIS_TICK,
   CHART_MARGIN,
+  ChartTooltipCard,
   StackedChartShell,
-  X_AXIS_HEIGHT,
+  TOOLTIP_PROPS,
   Y_AXIS_PROPS,
-  xTickInterval,
+  xAxisProps,
   type StackedSeries,
 } from "./chart-frame";
 
@@ -90,6 +90,7 @@ export function MultiSeriesBarChart({
   className,
 }: MultiSeriesBarChartProps) {
   const formatTick = formatTickValue ?? formatValue;
+  const labels = data.map((datum) => datum.label);
   return (
     <StackedChartShell
       plotWidth={plotWidth}
@@ -103,22 +104,17 @@ export function MultiSeriesBarChart({
       {(width) => (
         <BarChart width={width} height={height} data={data} syncId={syncId} margin={CHART_MARGIN}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
-          <XAxis
-            dataKey="label"
-            tickLine={false}
-            axisLine={false}
-            height={X_AXIS_HEIGHT}
-            interval={xTickInterval(data.length, plotWidth)}
-            tick={AXIS_TICK}
-          />
+          <XAxis {...xAxisProps(labels, plotWidth)} />
           <YAxis {...Y_AXIS_PROPS} domain={[0, yMax]} ticks={yTicks} tickFormatter={formatTick} />
           <Tooltip
+            {...TOOLTIP_PROPS}
             cursor={{ className: "fill-muted", opacity: 0.4 }}
             content={
               <MultiSeriesChartTooltip
                 series={series}
                 formatValue={formatValue}
                 formatSeriesDetail={formatSeriesDetail}
+                chartHeight={height}
               />
             }
           />
@@ -145,6 +141,8 @@ type MultiSeriesChartTooltipProps = {
   series: StackedSeries[];
   formatValue: (value: number) => string;
   formatSeriesDetail?: (seriesId: string, datum: MultiSeriesDatum) => string | null;
+  /** The chart's height, handed on so the card can fit itself to it. */
+  chartHeight: number;
   /** Injected by recharts when it clones this element. */
   active?: boolean;
   payload?: { payload?: MultiSeriesDatum }[];
@@ -159,6 +157,7 @@ export function MultiSeriesChartTooltip({
   series,
   formatValue,
   formatSeriesDetail,
+  chartHeight,
   active,
   payload,
 }: MultiSeriesChartTooltipProps) {
@@ -167,31 +166,16 @@ export function MultiSeriesChartTooltip({
     return null;
   }
   return (
-    <div className="rounded-md border bg-popover px-3 py-2 text-popover-foreground shadow-md">
-      <p className="mb-1 text-xs font-medium">{datum.label}</p>
-      <ul className="space-y-0.5">
-        {series.map((entry) => {
-          const detail = formatSeriesDetail?.(entry.id, datum) ?? null;
-          return (
-            <li key={entry.id} className="text-xs">
-              <div className="flex items-center gap-2">
-                <span
-                  aria-hidden
-                  className="size-2 shrink-0 rounded-[2px]"
-                  style={{ backgroundColor: entry.color }}
-                />
-                <span className="text-muted-foreground">{entry.name}</span>
-                <span className="ml-auto tabular-nums">
-                  {formatValue(datum.values[entry.id] ?? 0)}
-                </span>
-              </div>
-              {detail === null ? null : (
-                <p className="pl-4 text-[11px] text-muted-foreground tabular-nums">{detail}</p>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </div>
+    <ChartTooltipCard
+      label={datum.label}
+      chartHeight={chartHeight}
+      rows={series.map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        color: entry.color,
+        value: formatValue(datum.values[entry.id] ?? 0),
+        detail: formatSeriesDetail?.(entry.id, datum) ?? null,
+      }))}
+    />
   );
 }
