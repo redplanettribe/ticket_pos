@@ -12,7 +12,9 @@ export {
   type ChartViewToggleProps,
 } from "./components/charts/chart-view-toggle";
 export {
+  CHART_MARGIN,
   CHART_PLOT_INSET,
+  Y_AXIS_WIDTH,
   type StackedChartProps,
   type StackedDatum,
   type StackedSeries,

@@ -50,7 +50,9 @@ export type MultiSeriesLineChartProps = {
 
 /**
  * MultiSeriesLineChart draws each series as its own line — never stacked,
- * never filled, and broken where a value is null.
+ * never filled, and broken where a value is null. A value with a gap on both
+ * sides is drawn as a dot, since no segment can reach it (see
+ * `isolatedPointDot`).
  *
  * It exists beside `MultiSeriesBarChart` for the same reason that exists beside
  * `StackedBarChart`: the shape carries the meaning. Bars are for counts that
@@ -123,7 +125,7 @@ export function MultiSeriesLineChart({
               stroke={entry.color}
               strokeWidth={2}
               connectNulls={false}
-              dot={false}
+              dot={isolatedPointDot}
               activeDot={{ r: 3 }}
               isAnimationActive={false}
             />
@@ -132,6 +134,53 @@ export function MultiSeriesLineChart({
       )}
     </StackedChartShell>
   );
+}
+
+/** What recharts hands a custom dot: where the point sits, which index it is,
+ * and the whole series' points beside it. Spelled structurally rather than
+ * imported, so a recharts type rename cannot break the chart. */
+type LinePointDotProps = {
+  cx?: number;
+  cy?: number;
+  index?: number;
+  stroke?: string;
+  points?: readonly { value?: unknown }[];
+};
+
+/**
+ * hasValue reads a point the way the line does: null is a gap, and recharts
+ * carries the gap through as a null (or absent) value on the point.
+ */
+function hasValue(point: { value?: unknown } | undefined): boolean {
+  return point !== undefined && point.value !== null && point.value !== undefined;
+}
+
+/**
+ * The dot drawn on a point with a gap on both sides — and on no other point.
+ *
+ * A line is drawn between consecutive values, so a value with a gap before it
+ * and a gap after it has no segment to be part of; with dots off it is
+ * invisible, and a Daily rate that landed a sale on one day out of seven
+ * would draw nothing at all while the tooltip insisted there was a point. The
+ * dot is the mark that point gets instead of a segment. Points inside a run
+ * keep no dot: the line already states them, and a dot on every point turns a
+ * trajectory into a scatter.
+ */
+function isolatedPointDot({ cx, cy, index, stroke, points }: LinePointDotProps) {
+  if (
+    typeof cx !== "number" ||
+    typeof cy !== "number" ||
+    !Number.isFinite(cx) ||
+    !Number.isFinite(cy) ||
+    index === undefined ||
+    points === undefined
+  ) {
+    return null;
+  }
+  if (!hasValue(points[index]) || hasValue(points[index - 1]) || hasValue(points[index + 1])) {
+    return null;
+  }
+  return <circle cx={cx} cy={cy} r={3} fill={stroke} stroke="none" />;
 }
 
 type MultiSeriesLineTooltipProps = {

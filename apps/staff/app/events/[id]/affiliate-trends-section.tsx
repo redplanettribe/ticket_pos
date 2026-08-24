@@ -12,6 +12,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  CHART_MARGIN,
   CHART_PLOT_INSET,
   ChartLegendChips,
   ChartScrollArea,
@@ -19,6 +20,7 @@ import {
   MultiSeriesBarChart,
   MultiSeriesLineChart,
   Skeleton,
+  Y_AXIS_WIDTH,
   chartSeriesColor,
   type ChartLegendChip,
   type ChartViewOption,
@@ -27,6 +29,7 @@ import {
 import { useLocale, useMessages, useTranslations } from "next-intl";
 
 import {
+  AFFILIATE_TRENDS_GRANULARITIES,
   AFFILIATE_TRENDS_RANGES,
   ALL_PAGE_VIEWS_ID,
   DEFAULT_AFFILIATE_RATE_VIEW,
@@ -35,7 +38,9 @@ import {
   affiliateTrendsPlotWidth,
   availableTrendsMetrics,
   fetchAffiliateTrends,
+  granularityChoosable,
   hasTrendsData,
+  latestBucketsScrollLeft,
   multiSeriesYMax,
   rangeGranularity,
   rateRange,
@@ -44,11 +49,13 @@ import {
   rateYTicks,
   salesSeries,
   toggleSeriesSelection,
+  trendsGranularity,
   viewsSeries,
   type AffiliateRateDatum,
   type AffiliateRateView,
   type AffiliateSalesDatum,
   type AffiliateTrends,
+  type AffiliateTrendsGranularity,
   type AffiliateTrendsMetric,
   type AffiliateTrendsRange,
 } from "@/lib/affiliate-trends";
@@ -89,6 +96,18 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
   // How far back the chart looks. Local, not in the URL, like Sales Trends'
   // view: every visit opens on the default week.
   const [range, setRange] = useState<AffiliateTrendsRange>(DEFAULT_AFFILIATE_TRENDS_RANGE);
+  // How finely the counting views are drawn. Every range opens at its own
+  // default (hourly for the short ones, daily for the long) and the reader
+  // switches from there; a range switch resets it so a month never opens as
+  // seven hundred hourly slivers because the week before was read by the hour.
+  const [chosenGranularity, setChosenGranularity] = useState<AffiliateTrendsGranularity>(
+    rangeGranularity(DEFAULT_AFFILIATE_TRENDS_RANGE),
+  );
+  const granularity = trendsGranularity(range, chosenGranularity);
+  const onRangeChange = useCallback((next: AffiliateTrendsRange) => {
+    setRange(next);
+    setChosenGranularity(rangeGranularity(next));
+  }, []);
   // Which measure the one chart draws. Clicks first — traffic is the tab's
   // first question, and the only one an externally registered Event can answer.
   const [metric, setMetric] = useState<AffiliateTrendsMetric>("clicks");
@@ -183,6 +202,13 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
     [metric, t],
   );
 
+  // Hourly or Daily, the counting views' toggle. Not on the Rate view, which
+  // is never hourly (ADR 0057), and not on 24h, where a day is one bar.
+  const granularityOptions: ChartViewOption<AffiliateTrendsGranularity>[] = useMemo(
+    () => AFFILIATE_TRENDS_GRANULARITIES.map((id) => ({ id, label: t(`granularity_${id}`) })),
+    [t],
+  );
+
   // Daily or Cumulative, the Rate view's own toggle — Sales Trends' pair of
   // countings, worded with the same words.
   const rateViewOptions: ChartViewOption<AffiliateRateView>[] = useMemo(
@@ -268,11 +294,18 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
                     onChange={setRateView}
                     ariaLabel={t("rateViewLabel")}
                   />
+                ) : granularityChoosable(range) ? (
+                  <ChartViewToggle
+                    options={granularityOptions}
+                    value={granularity}
+                    onChange={setChosenGranularity}
+                    ariaLabel={t("granularityLabel")}
+                  />
                 ) : null}
                 <ChartViewToggle
                   options={rangeOptions}
                   value={metric === "rate" ? rateRange(range) : range}
-                  onChange={setRange}
+                  onChange={onRangeChange}
                   ariaLabel={t("rangeLabel")}
                 />
               </div>
@@ -292,6 +325,7 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
                 series={series}
                 selected={selected}
                 range={range}
+                granularity={granularity}
                 now={now}
               />
             ) : (
@@ -300,6 +334,7 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
                 series={series}
                 selected={selected}
                 range={range}
+                granularity={granularity}
                 now={now}
               />
             )}
@@ -330,12 +365,14 @@ function ClicksChart({
   series,
   selected,
   range,
+  granularity,
   now,
 }: {
   trends: AffiliateTrends;
   series: StackedSeries[];
   selected: readonly string[];
   range: AffiliateTrendsRange;
+  granularity: AffiliateTrendsGranularity;
   now: Date;
 }) {
   const t = useTranslations("affiliateTrends");
@@ -344,18 +381,18 @@ function ClicksChart({
   const availableWidth = useElementWidth(scrollArea);
   const plotShare = availableWidth > 0 ? availableWidth - CHART_PLOT_INSET : 0;
 
-  // Recomputed on every chip click and range switch, and on nothing else: the
-  // buckets are already in hand.
+  // Recomputed on every chip click, range switch and granularity switch, and
+  // on nothing else: the buckets are already in hand.
   const data = useMemo(
-    () => viewsSeries(trends, selected, range, now, locale),
-    [trends, selected, range, now, locale],
+    () => viewsSeries(trends, selected, range, now, locale, granularity),
+    [trends, selected, range, now, locale, granularity],
   );
   const yMax = useMemo(() => multiSeriesYMax(data), [data]);
   const yTicks = useMemo(() => trendsYTicks(yMax), [yMax]);
   const plotWidth = affiliateTrendsPlotWidth(data.length, series.length, plotShare);
-  useLatestBucketsFirst(scrollArea, range, plotWidth);
+  useLatestBucketsFirst(scrollArea, `${range}:${granularity}`, plotWidth, data);
 
-  const hourly = rangeGranularity(range) === "hour";
+  const hourly = granularity === "hour";
   return (
     <ChartScrollArea ref={setScrollArea} ariaLabel={t("scrollLabel")}>
       <MultiSeriesBarChart
@@ -382,12 +419,14 @@ function SalesChart({
   series,
   selected,
   range,
+  granularity,
   now,
 }: {
   trends: AffiliateTrends;
   series: StackedSeries[];
   selected: readonly string[];
   range: AffiliateTrendsRange;
+  granularity: AffiliateTrendsGranularity;
   now: Date;
 }) {
   const t = useTranslations("affiliateTrends");
@@ -397,13 +436,13 @@ function SalesChart({
   const plotShare = availableWidth > 0 ? availableWidth - CHART_PLOT_INSET : 0;
 
   const data = useMemo(
-    () => salesSeries(trends, selected, range, now, locale),
-    [trends, selected, range, now, locale],
+    () => salesSeries(trends, selected, range, now, locale, granularity),
+    [trends, selected, range, now, locale, granularity],
   );
   const yMax = useMemo(() => multiSeriesYMax(data), [data]);
   const yTicks = useMemo(() => trendsYTicks(yMax), [yMax]);
   const plotWidth = affiliateTrendsPlotWidth(data.length, series.length, plotShare);
-  useLatestBucketsFirst(scrollArea, range, plotWidth);
+  useLatestBucketsFirst(scrollArea, `${range}:${granularity}`, plotWidth, data);
 
   // The money line under a link's tooltip row. The sale count is the bar; the
   // tickets and Net Proceeds are what the count was worth, in the
@@ -422,7 +461,7 @@ function SalesChart({
     [t, trends.currency, locale],
   );
 
-  const hourly = rangeGranularity(range) === "hour";
+  const hourly = granularity === "hour";
   return (
     <ChartScrollArea ref={setScrollArea} ariaLabel={t("scrollLabel")}>
       <MultiSeriesBarChart
@@ -530,15 +569,19 @@ function useElementWidth(element: HTMLElement | null): number {
 }
 
 /**
- * Opens the scrolling window on the most recent buckets: left is a week ago,
- * right is this hour, and the reader came to see now. Re-anchors when the range
- * changes and otherwise leaves the reader's scrolling alone — the Sales Trends
- * anchor, keyed on the range instead of the view.
+ * Opens the scrolling window on the newest bucket that has anything in it:
+ * the reader came to see what happened last, and on a live hourly range "now"
+ * is routinely a run of still-empty hours — anchored there, the viewport shows
+ * a row of zeros and nothing says the data is off to the left. A window with
+ * nothing in it anchors at the plot's end, as before. Re-anchors when the range
+ * or granularity changes and otherwise leaves the reader's scrolling alone —
+ * the Sales Trends anchor, keyed on the axis instead of the view.
  */
 function useLatestBucketsFirst(
   element: HTMLElement | null,
   anchorKey: string,
   plotWidth: number,
+  data: readonly { values: Record<string, number | null> }[],
 ): void {
   const anchor = useRef({ key: "", taken: false });
   useLayoutEffect(() => {
@@ -552,9 +595,15 @@ function useLatestBucketsFirst(
     if (overflow <= 0) {
       return;
     }
-    element.scrollLeft = overflow;
+    element.scrollLeft = latestBucketsScrollLeft(data, {
+      plotWidth,
+      plotLeft: Y_AXIS_WIDTH,
+      plotRight: CHART_MARGIN.right,
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    });
     anchor.current.taken = true;
-  }, [element, anchorKey, plotWidth]);
+  }, [element, anchorKey, plotWidth, data]);
 }
 
 /**

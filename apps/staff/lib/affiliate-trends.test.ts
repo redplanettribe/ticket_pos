@@ -574,3 +574,156 @@ test("a bucket on a civil day after the reader's own moves no rate — skew wait
   assert.equal(today.values[LINK_A], 0.25);
   assert.deepEqual(today.details[LINK_A], { sales: 1, denominator: 4 });
 });
+
+test("the cumulative rate begins where the page views do — a sale before the first counted view is not divided by launch day's clicks", () => {
+  // The dev event at launch: a lifetime of 840 sales in the ledger, and one
+  // page view counted so far. 840 ÷ 1 is not a rate.
+  const data = rateSeries(
+    fullTrends(
+      [{ hour: "2026-08-24T14:00:00Z", link_id: LINK_A, views: 1 }],
+      [
+        SALE("2026-05-01T09:00", LINK_A, 840, 840, 84000),
+        SALE("2026-08-24T09:00", LINK_A, 1, 1, 100),
+      ],
+    ),
+    [LINK_A, ALL_PAGE_VIEWS_ID],
+    "7d",
+    NOW,
+    "en",
+    "cumulative",
+  );
+  const today = data[data.length - 1];
+  assert.equal(today.values[LINK_A], 1);
+  assert.deepEqual(today.details[LINK_A], { sales: 1, denominator: 1 });
+  // The overall line has no page-view bucket to divide by, so no rate — not
+  // 841 over nothing.
+  assert.equal(today.values[ALL_PAGE_VIEWS_ID], null);
+  assert.deepEqual(today.details[ALL_PAGE_VIEWS_ID], { sales: 1, denominator: 0 });
+});
+
+test("all on the rate view starts at the first counted page view, not at the first sale", () => {
+  const data = rateSeries(
+    fullTrends(
+      [{ hour: "2026-08-20T14:00:00Z", link_id: LINK_A, views: 4 }],
+      [
+        SALE("2026-05-01T09:00", LINK_A, 840, 840, 84000),
+        SALE("2026-08-22T09:00", LINK_A, 1, 1, 100),
+      ],
+    ),
+    [LINK_A],
+    "all",
+    NOW,
+    "en",
+    "cumulative",
+  );
+  assert.equal(data[0].key, "2026-08-20");
+  assert.equal(data[data.length - 1].key, "2026-08-24");
+  assert.equal(data[data.length - 1].values[LINK_A], 0.25);
+});
+
+test("with no page views ever counted, the rate view has nothing to draw on all", () => {
+  const data = rateSeries(
+    fullTrends([], [SALE("2026-08-22T09:00", LINK_A, 1, 1, 100)]),
+    [LINK_A],
+    "all",
+    NOW,
+    "en",
+    "cumulative",
+  );
+  assert.deepEqual(data, []);
+});
+
+// --- the Hourly/Daily toggle -----------------------------------------------
+
+import {
+  AFFILIATE_TRENDS_GRANULARITIES,
+  granularityChoosable,
+  latestBucketWithData,
+  latestBucketsScrollLeft,
+  trendsGranularity,
+} from "./affiliate-trends.ts";
+
+test("the toggle offers hourly and daily, and 24h is always hourly", () => {
+  assert.deepEqual([...AFFILIATE_TRENDS_GRANULARITIES], ["hour", "day"]);
+  assert.equal(trendsGranularity("24h", "day"), "hour");
+  assert.equal(trendsGranularity("7d", "day"), "day");
+  assert.equal(trendsGranularity("30d", "hour"), "hour");
+  assert.equal(granularityChoosable("24h"), false);
+  assert.equal(granularityChoosable("7d"), true);
+  assert.equal(granularityChoosable("all"), true);
+});
+
+test("a week can be read by the day", () => {
+  const data = viewsSeries(
+    trendsWith([
+      { hour: "2026-08-24T14:00:00Z", link_id: null, views: 3 },
+      { hour: "2026-08-24T02:00:00Z", link_id: null, views: 2 },
+    ]),
+    [ALL_PAGE_VIEWS_ID],
+    "7d",
+    NOW,
+    "en",
+    "day",
+  );
+  assert.ok(data.every((datum) => /^\d{4}-\d{2}-\d{2}$/.test(datum.key)));
+  assert.equal(data.length, 8);
+  // 02:00Z is the 23rd in Guayaquil; 14:00Z is the 24th.
+  assert.equal(data[data.length - 1].values[ALL_PAGE_VIEWS_ID], 3);
+  assert.equal(data[data.length - 2].values[ALL_PAGE_VIEWS_ID], 2);
+});
+
+test("a month can be read by the hour, sales included", () => {
+  const views = viewsSeries(
+    trendsWith([{ hour: "2026-08-24T14:00:00Z", link_id: LINK_A, views: 3 }]),
+    [LINK_A],
+    "30d",
+    NOW,
+    "en",
+    "hour",
+  );
+  assert.equal(views.length, 30 * 24);
+  assert.equal(views[views.length - 2].key, "2026-08-24T14:00:00Z");
+  assert.equal(views[views.length - 2].values[LINK_A], 3);
+
+  const sales = salesSeries(
+    fullTrends([], [SALE("2026-08-24T09:00", LINK_A, 2, 2, 200)]),
+    [LINK_A],
+    "30d",
+    NOW,
+    "en",
+    "hour",
+  );
+  assert.equal(sales.length, 30 * 24);
+  assert.equal(sales[sales.length - 2].values[LINK_A], 2);
+});
+
+// --- opening on the newest bucket with data ---------------------------------
+
+test("the newest bucket with data is found from the end, and an empty window has none", () => {
+  const data: { values: Record<string, number | null> }[] = [
+    { values: { a: 0, b: 2 } },
+    { values: { a: 1, b: 0 } },
+    { values: { a: 0, b: 0 } },
+    { values: { a: null } },
+  ];
+  assert.equal(latestBucketWithData(data), 1);
+  assert.equal(latestBucketWithData([{ values: { a: 0 } }, { values: { a: null } }]), -1);
+  assert.equal(latestBucketWithData([]), -1);
+});
+
+test("the window opens with the newest bucket with data at its right edge", () => {
+  // 10 buckets of 100px after a 64px axis: bucket 4's right edge is at 564.
+  const geometry = { plotWidth: 1000, plotLeft: 64, plotRight: 8, clientWidth: 400, scrollWidth: 1072 };
+  const data = Array.from({ length: 10 }, (_, index) => ({ values: { a: index === 4 ? 1 : 0 } }));
+  assert.equal(latestBucketsScrollLeft(data, geometry), 564 + 8 - 400);
+});
+
+test("an empty window opens at the plot's end, and the anchor never overshoots either edge", () => {
+  const geometry = { plotWidth: 1000, plotLeft: 64, plotRight: 8, clientWidth: 400, scrollWidth: 1072 };
+  const empty = Array.from({ length: 10 }, () => ({ values: { a: 0 } }));
+  assert.equal(latestBucketsScrollLeft(empty, geometry), 672);
+  const first = Array.from({ length: 10 }, (_, index) => ({ values: { a: index === 0 ? 1 : 0 } }));
+  assert.equal(latestBucketsScrollLeft(first, geometry), 0);
+  const last = Array.from({ length: 10 }, (_, index) => ({ values: { a: index === 9 ? 1 : 0 } }));
+  assert.equal(latestBucketsScrollLeft(last, geometry), 672);
+});

@@ -77,9 +77,10 @@ export const ALL_PAGE_VIEWS_ID = "all-page-views";
 
 /**
  * The spans a reader can ask for. Not a granularity: each range carries its own
- * (`rangeGranularity`), because "how far back" and "how fine" are one decision —
- * a month of hourly bars would be four thousand slivers nobody can read, and a
- * day of daily bars would be one bar.
+ * default (`rangeGranularity`), because "how far back" and "how fine" arrive
+ * together — a week is read by the hour, a month by the day — though the
+ * reader can overrule the default with the Hourly/Daily toggle
+ * (`trendsGranularity`).
  */
 export type AffiliateTrendsRange = "24h" | "7d" | "30d" | "all";
 
@@ -96,13 +97,39 @@ export const DEFAULT_AFFILIATE_TRENDS_RANGE: AffiliateTrendsRange = "7d";
 
 export type AffiliateTrendsGranularity = "hour" | "day";
 
+export const AFFILIATE_TRENDS_GRANULARITIES: readonly AffiliateTrendsGranularity[] = [
+  "hour",
+  "day",
+] as const;
+
 /**
- * rangeGranularity is the resolution a range is drawn at: hourly on the short
- * ranges, daily on the long ones, with no option to choose otherwise. Hourly is
- * also the permanent floor — the buckets hold nothing finer (ADR 0057).
+ * rangeGranularity is the resolution a range opens at: hourly on the short
+ * ranges, daily on the long ones. A default, not a rule — the reader switches
+ * with the toggle, and a range switch resets to this so a month never opens as
+ * seven hundred hourly slivers unasked. Hourly is the permanent floor — the
+ * buckets hold nothing finer (ADR 0057).
  */
 export function rangeGranularity(range: AffiliateTrendsRange): AffiliateTrendsGranularity {
   return range === "24h" || range === "7d" ? "hour" : "day";
+}
+
+/**
+ * trendsGranularity is the resolution actually drawn for a range and the
+ * reader's choice: the choice, except on 24h, which is always hourly — a day of
+ * daily bars is one bar, and one bar is not a trend. The toggle is not offered
+ * there (`granularityChoosable`), and this guards the state it would have set.
+ */
+export function trendsGranularity(
+  range: AffiliateTrendsRange,
+  chosen: AffiliateTrendsGranularity,
+): AffiliateTrendsGranularity {
+  return range === "24h" ? "hour" : chosen;
+}
+
+/** granularityChoosable reports whether the Hourly/Daily toggle has anything
+ * to offer on a range — false on 24h, where daily is one bar. */
+export function granularityChoosable(range: AffiliateTrendsRange): boolean {
+  return range !== "24h";
 }
 
 /** How many whole hours each fixed range spans. */
@@ -207,8 +234,9 @@ export type AffiliateTrendsDatum = {
 
 /**
  * viewsSeries turns the stored buckets into one datum per axis slot for the
- * chosen range: windowed, re-bucketed to the range's granularity, zero-filled,
- * and carrying only the selected series.
+ * chosen range: windowed, re-bucketed to the granularity asked for (the range's
+ * own default when none is), zero-filled, and carrying only the selected
+ * series.
  *
  * The axis is contiguous from the start of the window to `now` — a quiet
  * afternoon reads as a row of zeros, not as two adjacent bars. On "all" it
@@ -227,8 +255,8 @@ export function viewsSeries(
   range: AffiliateTrendsRange,
   now: Date,
   locale: AppLocale,
+  granularity: AffiliateTrendsGranularity = rangeGranularity(range),
 ): AffiliateTrendsDatum[] {
-  const granularity = rangeGranularity(range);
   const end = truncateToUTCHour(now);
   const start = windowStart(trends.view_buckets, range, end);
   if (start === null) {
@@ -406,6 +434,54 @@ export function affiliateTrendsPlotWidth(
   return Math.max(spanWidth, availableWidth, AFFILIATE_TRENDS_MIN_PLOT_WIDTH);
 }
 
+/**
+ * latestBucketWithData is the index of the newest axis slot any drawn series
+ * has something in, or -1 when the whole window is empty. The scrolling window
+ * opens on this bucket rather than on "now": the newest hours of a live range
+ * are routinely still empty, and a viewport anchored to them shows a reader a
+ * row of zeros beside a chart they cannot tell has data further left.
+ */
+export function latestBucketWithData(
+  data: readonly { values: Record<string, number | null> }[],
+): number {
+  for (let index = data.length - 1; index >= 0; index -= 1) {
+    for (const value of Object.values(data[index].values)) {
+      if (value !== null && value > 0) {
+        return index;
+      }
+    }
+  }
+  return -1;
+}
+
+/**
+ * latestBucketsScrollLeft is the scroll offset that puts the newest bucket with
+ * data at the viewport's right edge — or the plot's end when nothing in the
+ * window has data, which is the old "now" anchor and the only honest place
+ * left. Pure arithmetic over the chart-frame geometry the caller passes in
+ * (the plot starts `plotLeft` in from the content's left edge and is followed
+ * by `plotRight` of margin), so it can be tested without a DOM.
+ */
+export function latestBucketsScrollLeft(
+  data: readonly { values: Record<string, number | null> }[],
+  geometry: {
+    plotWidth: number;
+    plotLeft: number;
+    plotRight: number;
+    clientWidth: number;
+    scrollWidth: number;
+  },
+): number {
+  const overflow = Math.max(0, geometry.scrollWidth - geometry.clientWidth);
+  const index = latestBucketWithData(data);
+  if (index < 0) {
+    return overflow;
+  }
+  const bucketRight = geometry.plotLeft + ((index + 1) / data.length) * geometry.plotWidth;
+  const target = bucketRight + geometry.plotRight - geometry.clientWidth;
+  return Math.min(overflow, Math.max(0, Math.round(target)));
+}
+
 /** hasPageViews reports whether anything has ever been counted — no buckets
  * (or all-zero ones) is the empty state, not an all-zero chart. */
 export function hasPageViews(trends: Pick<AffiliateTrends, "view_buckets">): boolean {
@@ -499,12 +575,12 @@ export function salesSeries(
   range: AffiliateTrendsRange,
   now: Date,
   locale: AppLocale,
+  granularity: AffiliateTrendsGranularity = rangeGranularity(range),
 ): AffiliateSalesDatum[] {
   const salesBuckets = trends.sales_buckets;
   if (salesBuckets === null) {
     return [];
   }
-  const granularity = rangeGranularity(range);
   const end = truncateToUTCHour(now);
   const drawn = selected.filter((id) => id !== ALL_PAGE_VIEWS_ID);
 
@@ -659,6 +735,16 @@ export type AffiliateRateDatum = {
  * divides each day by itself. Either way a zero-denominator span yields null:
  * no clicks, no rate, no point.
  *
+ * "To date" begins on the first day a page view was counted. The sales ledger
+ * predates the buckets' launch (ADR 0057) and the counter does not, so a sale
+ * from before that day has its clicks nowhere in the data — counting it would
+ * divide a lifetime of sales by a launch day's handful of views and draw an
+ * 84,000% rate. Numerator and denominator cover the same span, or the quotient
+ * means nothing. The same floor bounds "all": before the first counted view
+ * there is no rate to draw on either view. One floor for every series rather
+ * than one per link: a link created after launch has buckets from its first
+ * day, so the global floor already covers it.
+ *
  * A Reversal is already out of the payload, so every past point it touched has
  * already moved.
  */
@@ -704,9 +790,17 @@ export function rateSeries(
     }
     tally(clicksByDay, day, bucket.link_id ?? ALL_PAGE_VIEWS_ID, bucket.views);
   }
+  // The first day anything was counted: where "to date" starts, and the
+  // earliest day either view can draw a rate on.
+  let firstViewDay: string | null = null;
+  for (const day of clicksByDay.keys()) {
+    if (firstViewDay === null || day < firstViewDay) {
+      firstViewDay = day;
+    }
+  }
   for (const bucket of salesBuckets) {
     const day = bucket.hour.slice(0, 10);
-    if (day > lastDay) {
+    if (day > lastDay || firstViewDay === null || day < firstViewDay) {
       continue;
     }
     tally(salesByDay, day, bucket.link_id, bucket.sales);
@@ -720,11 +814,7 @@ export function rateSeries(
   if (effective !== "all") {
     start = new Date(end.getTime() - (RANGE_HOURS[effective] - 1) * HOUR_MS);
   } else {
-    for (const day of [...clicksByDay.keys(), ...salesByDay.keys()]) {
-      if (earliestDay === null || day < earliestDay) {
-        earliestDay = day;
-      }
-    }
+    earliestDay = firstViewDay;
     if (earliestDay === null) {
       return [];
     }
