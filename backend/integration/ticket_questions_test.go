@@ -121,6 +121,20 @@ func approveTicketQuestion(t *testing.T, env *testEnv, questionID string) {
 	}
 }
 
+// correctOptionLabel changes an approved Option's wording underneath the API.
+//
+// Since #408 no route renames an approved Option — a correction is
+// retire-and-add (ADR 0056) — so the tests whose subject is what a label
+// change does to what has already been answered (the snapshot on the Answer,
+// the column in the export) make the change by SQL, exactly as the row would
+// read after any future path that moves the label of an Option Tickets chose.
+func correctOptionLabel(t *testing.T, env *testEnv, optionID, label string) {
+	t.Helper()
+	if _, err := env.db.Exec(`UPDATE ticket_question_options SET label = $2 WHERE id = $1`, optionID, label); err != nil {
+		t.Fatalf("correct label of Option %s: %v", optionID, err)
+	}
+}
+
 // createTicketQuestion adds a question AND APPROVES IT, failing the test on any
 // refusal — for the tests whose subject is something further along than the
 // review a question waits for. What it returns is the question as the
@@ -384,7 +398,9 @@ func TestTicketQuestionOptionsAreAddedRenamedAndRetiredButNeverDeleted(t *testin
 	enableTicketQuestions(t)
 	sessionID, eventID, ticketTypeID := ticketQuestionFixture(t, env)
 
-	question := createTicketQuestion(t, env, sessionID, eventID, ticketTypeID, map[string]any{
+	// A draft: an approved Option is immutable (#408), so the rename below is
+	// the draft's to make.
+	question := draftTicketQuestion(t, env, sessionID, eventID, ticketTypeID, map[string]any{
 		"label":         "T-shirt size",
 		"kind":          "single_choice",
 		"option_labels": []string{"S", "Mediun"},
@@ -399,7 +415,7 @@ func TestTicketQuestionOptionsAreAddedRenamedAndRetiredButNeverDeleted(t *testin
 		t.Fatalf("add option status=%d error=%+v", resp.StatusCode, body.Error)
 	}
 
-	// Renamed at any time, and the identity does not move.
+	// Renamed while a draft, and the identity does not move.
 	resp, body = env.patch(t, optionsPath(eventID, ticketTypeID, question.ID)+"/"+typoOptionID, map[string]any{
 		"label": "Medium",
 	}, authHeader(sessionID))
@@ -473,7 +489,8 @@ func TestTicketQuestionIsRenamedAndRetiredNeverDeleted(t *testing.T) {
 	enableTicketQuestions(t)
 	sessionID, eventID, ticketTypeID := ticketQuestionFixture(t, env)
 
-	question := createTicketQuestion(t, env, sessionID, eventID, ticketTypeID, map[string]any{
+	// A draft: once approved, the wording is what the Operator read (#408).
+	question := draftTicketQuestion(t, env, sessionID, eventID, ticketTypeID, map[string]any{
 		"label": "Shirt size",
 		"kind":  "short_text",
 	})
@@ -536,7 +553,8 @@ func TestTicketQuestionKindChangesWhileNothingHasAnswered(t *testing.T) {
 	enableTicketQuestions(t)
 	sessionID, eventID, ticketTypeID := ticketQuestionFixture(t, env)
 
-	question := createTicketQuestion(t, env, sessionID, eventID, ticketTypeID, map[string]any{
+	// A draft: an approved question's kind is what the Operator read (#408).
+	question := draftTicketQuestion(t, env, sessionID, eventID, ticketTypeID, map[string]any{
 		"label": "How many guests?",
 		"kind":  "short_text",
 	})

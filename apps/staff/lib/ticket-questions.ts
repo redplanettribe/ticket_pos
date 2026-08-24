@@ -126,6 +126,55 @@ export function reviewReason(
 }
 
 /**
+ * Which edits a question's review state allows without a review (#408,
+ * ADR 0056) — the API's `TicketQuestionEditRefusal` rule, mirrored so the
+ * editor never offers what the API refuses.
+ *
+ * `reword` covers the label, the kind and the timing: the things the Operator
+ * read. `require` is the widening (optional → required). Narrowing — making it
+ * optional, retiring an Option, retiring the question — and reorder are allowed
+ * in EVERY state and so have no entry here. `addOption` is open on an approved
+ * question (the new Option is born a draft) and closed under review, where
+ * nothing moves until the Review is withdrawn.
+ */
+export type TicketQuestionEdits = {
+  reword: boolean;
+  require: boolean;
+  addOption: boolean;
+};
+
+export function allowedEdits(status: TicketQuestionReviewStatus): TicketQuestionEdits {
+  switch (status) {
+    case "approved":
+      return { reword: false, require: false, addOption: true };
+    case "under_review":
+      return { reword: false, require: false, addOption: false };
+    default:
+      return { reword: true, require: true, addOption: true };
+  }
+}
+
+/**
+ * Whether an Option's label may still be typed over: never on a question under
+ * review, and never once the Option itself is approved — a correction to an
+ * approved Option is retire-and-add, because a correction and a rewording are
+ * the same operation. A draft Option on an approved question is nobody's yet.
+ */
+export function canRenameOption(question: Reviewed, option: Reviewed): boolean {
+  return question.review_status !== "under_review" && option.review_status !== "approved";
+}
+
+/**
+ * Whether the editor should tell the Organization how to change what it can
+ * no longer type over: the retire-and-re-ask hint, shown on an approved
+ * question only. Under review the state badge says enough, and the way out is
+ * withdrawing the Review, not retiring the question.
+ */
+export function showsRetireAndReAskHint(status: TicketQuestionReviewStatus): boolean {
+  return status === "approved";
+}
+
+/**
  * At most twenty Options per choice question, counting the LIVE ones. Mirrors
  * `catalog.MaxTicketQuestionOptions`; the API is what enforces it, and this copy
  * exists so the editor can disable the control rather than let somebody type an

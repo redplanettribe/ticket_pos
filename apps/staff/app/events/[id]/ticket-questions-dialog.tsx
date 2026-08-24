@@ -41,6 +41,9 @@ import {
   retiredOptions,
   retiredQuestions,
   reviewReason,
+  allowedEdits,
+  canRenameOption,
+  showsRetireAndReAskHint,
   type Reviewed,
   type TicketQuestion,
   type TicketQuestionKind,
@@ -318,7 +321,11 @@ export function TicketQuestionsDialog({
           </div>
         ) : (
           <ul className="space-y-3">
-            {live.map((question, index) => (
+            {live.map((question, index) => {
+              // What this review state lets the editor offer (#408, ADR 0056):
+              // the fields go read-only rather than the API refusing them.
+              const edits = allowedEdits(question.review_status);
+              return (
               <li key={question.id} className="rounded-md border p-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0 flex-1 space-y-2">
@@ -326,6 +333,7 @@ export function TicketQuestionsDialog({
                       aria-label={t("questionLabel")}
                       defaultValue={question.label}
                       maxLength={MAX_TICKET_QUESTION_LABEL_LENGTH}
+                      readOnly={!edits.reword}
                       onBlur={(event) => void renameQuestion(question, event.target.value)}
                     />
                     <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
@@ -335,6 +343,9 @@ export function TicketQuestionsDialog({
                         <input
                           type="checkbox"
                           checked={question.required}
+                          // Making it optional is a narrowing and always open;
+                          // making it required again is not.
+                          disabled={!question.required && !edits.require}
                           onChange={() => void toggleRequired(question)}
                         />
                         {t("questionRequired")}
@@ -342,6 +353,9 @@ export function TicketQuestionsDialog({
                     </div>
                     {question.review_status !== "approved" ? (
                       <p className="text-xs text-muted-foreground">{t("questionReviewNotAsked")}</p>
+                    ) : null}
+                    {showsRetireAndReAskHint(question.review_status) ? (
+                      <p className="text-xs text-muted-foreground">{t("questionApprovedImmutableHint")}</p>
                     ) : null}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
@@ -384,6 +398,7 @@ export function TicketQuestionsDialog({
                           aria-label={t("questionOptionLabel")}
                           defaultValue={option.label}
                           maxLength={MAX_TICKET_QUESTION_OPTION_LABEL_LENGTH}
+                          readOnly={!canRenameOption(question, option)}
                           onBlur={(event) =>
                             void renameOption(question, option.id, event.target.value)
                           }
@@ -420,7 +435,7 @@ export function TicketQuestionsDialog({
                         placeholder={t("questionOptionAdd")}
                         maxLength={MAX_TICKET_QUESTION_OPTION_LABEL_LENGTH}
                         value={newOptionLabels[question.id] ?? ""}
-                        disabled={!canAddOption(question)}
+                        disabled={!canAddOption(question) || !edits.addOption}
                         onChange={(event) =>
                           setNewOptionLabels((current) => ({
                             ...current,
@@ -432,7 +447,7 @@ export function TicketQuestionsDialog({
                         type="button"
                         variant="outline"
                         size="sm"
-                        disabled={!canAddOption(question)}
+                        disabled={!canAddOption(question) || !edits.addOption}
                         onClick={() => void addOption(question)}
                       >
                         {t("questionOptionAddAction")}
@@ -446,7 +461,8 @@ export function TicketQuestionsDialog({
                   </div>
                 ) : null}
               </li>
-            ))}
+              );
+            })}
 
             {live.length === 0 ? (
               <li className="text-sm text-muted-foreground">{t("questionsEmpty")}</li>

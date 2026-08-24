@@ -421,11 +421,10 @@ func TestSalesExportAnswersKeepRetiredOptionsAndFollowRenames(t *testing.T) {
 	putAnswer(t, env, sessionID, eventID, ticketIDs[1], question.ID,
 		map[string]any{"option_ids": []string{medium, large}})
 
-	// Then the typo is corrected, and the other Option is retired.
-	if resp, body := env.patch(t, optionPath(eventID, ticketTypeID, question.ID, medium),
-		map[string]any{"label": "Medium"}, authHeader(sessionID)); resp.StatusCode != http.StatusOK {
-		t.Fatalf("rename option status=%d error=%+v", resp.StatusCode, body.Error)
-	}
+	// Then the typo is corrected (by SQL: no route renames an approved Option
+	// since #408, and the subject here is the column), and the other Option is
+	// retired.
+	correctOptionLabel(t, env, medium, "Medium")
 	if resp, body := env.deleteJSON(t, optionPath(eventID, ticketTypeID, question.ID, large),
 		nil, authHeader(sessionID)); resp.StatusCode != http.StatusOK {
 		t.Fatalf("retire option status=%d error=%+v", resp.StatusCode, body.Error)

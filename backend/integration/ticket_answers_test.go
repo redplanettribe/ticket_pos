@@ -398,14 +398,11 @@ func TestRenamingAnOptionLeavesTheAnswersSnapshotIntact(t *testing.T) {
 		t.Fatalf("snapshot=%q, want the words that were shown", answer.Options[0].Label)
 	}
 
-	// The Organization corrects the wording months later.
-	resp, body := env.patch(t, optionPath(eventID, ticketTypeID, question.ID, chickenID),
-		map[string]any{"label": "Chicken (halal)"}, authHeader(sessionID))
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("rename status=%d error=%+v", resp.StatusCode, body.Error)
-	}
+	// The wording is corrected months later (by SQL: no route renames an
+	// approved Option since #408, and the subject here is the snapshot).
+	correctOptionLabel(t, env, chickenID, "Chicken (halal)")
 
-	resp, body = env.get(t, ticketPath(eventID, ticketIDs[0]), authHeader(sessionID))
+	resp, body := env.get(t, ticketPath(eventID, ticketIDs[0]), authHeader(sessionID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("get ticket status=%d error=%+v", resp.StatusCode, body.Error)
 	}
@@ -750,12 +747,17 @@ func TestAnAnswerCanBeRemoved(t *testing.T) {
 // kind changing freely while nothing has answered — is covered by
 // TestTicketQuestionKindChangesWhileNothingHasAnswered, and until this ticket
 // that was the only branch any test could reach.
+//
+// Since #408 (ADR 0056) the approval that lets a question be answered is what
+// the PATCH refuses on first — TICKET_QUESTION_APPROVED_IMMUTABLE — so over
+// HTTP the kind freeze stands behind the immutability rule. What this test
+// keeps is the fact underneath: an answered question's kind does not change.
 func TestTicketQuestionKindIsFrozenOnceATicketHasAnswered(t *testing.T) {
 	env := setupTest(t)
 	enableTicketQuestions(t)
 	sessionID, eventID, ticketTypeID, _, _, ticketIDs := answeredFixture(t, env)
 
-	question := createTicketQuestion(t, env, sessionID, eventID, ticketTypeID, map[string]any{
+	question := draftTicketQuestion(t, env, sessionID, eventID, ticketTypeID, map[string]any{
 		"label": "How many guests?", "kind": "short_text",
 	})
 
@@ -765,6 +767,7 @@ func TestTicketQuestionKindIsFrozenOnceATicketHasAnswered(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d, want the kind free before any Answer; error=%+v", resp.StatusCode, body.Error)
 	}
+	approveTicketQuestion(t, env, question.ID)
 
 	putAnswer(t, env, sessionID, eventID, ticketIDs[0], question.ID, map[string]any{"number": "3"})
 
@@ -773,20 +776,16 @@ func TestTicketQuestionKindIsFrozenOnceATicketHasAnswered(t *testing.T) {
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("status=%d, want 409 once a Ticket has answered; error=%+v", resp.StatusCode, body.Error)
 	}
-	if body.Error == nil || body.Error.Code != "TICKET_QUESTION_KIND_FROZEN" {
-		t.Fatalf("error=%+v, want TICKET_QUESTION_KIND_FROZEN", body.Error)
+	if body.Error == nil || body.Error.Code != "TICKET_QUESTION_APPROVED_IMMUTABLE" {
+		t.Fatalf("error=%+v, want TICKET_QUESTION_APPROVED_IMMUTABLE", body.Error)
 	}
 
-	// Everything else about the question stays editable: the label, whether it
-	// is required, its timing. Only what the stored Answers ARE is frozen, and
-	// restating the same kind is not a change.
+	// Restating the same kind is not a change, and narrowing is always open:
+	// the same body with `required` unchanged is accepted.
 	resp, body = env.patch(t, questionPath(eventID, ticketTypeID, question.ID),
-		map[string]any{"label": "How many guests are coming?", "kind": "number", "required": true}, authHeader(sessionID))
+		map[string]any{"label": "How many guests?", "kind": "number", "required": false}, authHeader(sessionID))
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status=%d, want the label and flags still editable; error=%+v", resp.StatusCode, body.Error)
-	}
-	if updated := decodeTicketQuestion(t, body.Data); updated.Label != "How many guests are coming?" || !updated.Required {
-		t.Fatalf("updated=%+v, want the rename and the flag", updated)
+		t.Fatalf("status=%d, want a no-op restatement accepted; error=%+v", resp.StatusCode, body.Error)
 	}
 
 	// The kind freeze reads Answers on REVERSED Sales too: those Tickets keep

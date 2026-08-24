@@ -55,3 +55,69 @@ const ApprovedOptionSQL = `o.review_status = 'approved'`
 
 // OfferedOptionSQL is the Options a choice question offers to somebody now.
 const OfferedOptionSQL = ApprovedOptionSQL + ` AND o.retired_at IS NULL`
+
+// TicketQuestionShape is what the Platform Operator read when approving a
+// question: everything on it except the running order, which is nobody's
+// concern but the Organization's, and its retirement, which is a narrowing.
+type TicketQuestionShape struct {
+	Label    string
+	Kind     TicketQuestionKind
+	Required bool
+	Timing   TicketQuestionTiming
+}
+
+// TicketQuestionEditRefusal is the ONE statement of which edits a review state
+// allows (#408, ADR 0056), for the question PATCH. Nil means the edit may go
+// ahead.
+//
+//   - A draft or refused question is nobody's yet, or an invitation to change:
+//     freely edited.
+//   - Under review, what the Operator is reading must hold still until the
+//     Review is withdrawn — even a narrowing of the wording — but collecting
+//     LESS is never a change they need to re-read, so required→optional passes.
+//   - Approved, the wording, kind and required-ness are what was read. The
+//     only moves allowed are the ones that collect less: optional, an Option
+//     retired, the question retired. Anything else is a retirement and a fresh
+//     draft, which the error message says.
+//
+// Retire, Option retire and reorder never come here: they are allowed in every
+// state and gated by nothing but the row being live.
+func TicketQuestionEditRefusal(status TicketQuestionReviewStatus, current, proposed TicketQuestionShape) error {
+	narrowsOnly := proposed.Label == current.Label &&
+		proposed.Kind == current.Kind &&
+		proposed.Timing == current.Timing &&
+		(!proposed.Required || current.Required)
+	switch status {
+	case TicketQuestionReviewUnderReview:
+		if narrowsOnly {
+			return nil
+		}
+		return ErrTicketQuestionUnderReview()
+	case TicketQuestionReviewApproved:
+		if narrowsOnly {
+			return nil
+		}
+		return ErrTicketQuestionApprovedImmutable()
+	default:
+		return nil
+	}
+}
+
+// TicketQuestionOptionEditRefusal is the same statement about ADDING or
+// RENAMING an Option, which are the two ways an Option's wording comes into
+// being. Nil means the edit may go ahead.
+//
+// The question's state comes first: nothing on a question under review moves.
+// Then the Option's own: an approved Option's label is what was read, and a
+// correction is retire-and-add; a draft Option on an approved question is not
+// yet anybody's and is still renamed freely. For an add there is no Option
+// yet, so optionStatus is the zero value and only the question gates it.
+func TicketQuestionOptionEditRefusal(questionStatus, optionStatus TicketQuestionReviewStatus) error {
+	if questionStatus == TicketQuestionReviewUnderReview {
+		return ErrTicketQuestionUnderReview()
+	}
+	if optionStatus == TicketQuestionReviewApproved {
+		return ErrTicketQuestionOptionApprovedImmutable()
+	}
+	return nil
+}

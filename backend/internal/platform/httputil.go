@@ -209,8 +209,14 @@ func domainHTTPStatus(code string) int {
 	// — it has been answered, it has been retired, its kind does not take Options,
 	// it would be left with none, or it already has twenty. None becomes the
 	// answer by being retried with the same body.
+	// TICKET_QUESTION_APPROVED_IMMUTABLE, its Option twin and
+	// TICKET_QUESTION_UNDER_REVIEW (#408, ADR 0056) are the same shape: a fact
+	// about where the question stands with the Operator.
 	case "TICKET_QUESTION_KIND_FROZEN",
 		"TICKET_QUESTION_RETIRED",
+		"TICKET_QUESTION_APPROVED_IMMUTABLE",
+		"TICKET_QUESTION_OPTION_APPROVED_IMMUTABLE",
+		"TICKET_QUESTION_UNDER_REVIEW",
 		"TICKET_QUESTION_KIND_TAKES_NO_OPTIONS",
 		"TICKET_QUESTION_OPTIONS_REQUIRED",
 		"TOO_MANY_TICKET_QUESTION_OPTIONS":
