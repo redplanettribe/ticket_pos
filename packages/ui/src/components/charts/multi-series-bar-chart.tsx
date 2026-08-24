@@ -47,6 +47,13 @@ export type MultiSeriesBarChartProps = {
   plotWidth: number;
   formatValue: (value: number) => string;
   formatTickValue?: (value: number) => string;
+  /**
+   * An extra muted line under a series' tooltip row — the Attributed Sales
+   * view states each link's tickets and Net Proceeds there. Null for "this
+   * series has nothing further to say"; omitted when no view on the surface
+   * does.
+   */
+  formatSeriesDetail?: (seriesId: string, datum: MultiSeriesDatum) => string | null;
   syncId?: string;
   height?: number;
   ariaLabel: string;
@@ -76,6 +83,7 @@ export function MultiSeriesBarChart({
   plotWidth,
   formatValue,
   formatTickValue,
+  formatSeriesDetail,
   syncId,
   height = 320,
   ariaLabel,
@@ -106,7 +114,13 @@ export function MultiSeriesBarChart({
           <YAxis {...Y_AXIS_PROPS} domain={[0, yMax]} ticks={yTicks} tickFormatter={formatTick} />
           <Tooltip
             cursor={{ className: "fill-muted", opacity: 0.4 }}
-            content={<MultiSeriesChartTooltip series={series} formatValue={formatValue} />}
+            content={
+              <MultiSeriesChartTooltip
+                series={series}
+                formatValue={formatValue}
+                formatSeriesDetail={formatSeriesDetail}
+              />
+            }
           />
           {series.map((entry) => (
             <Bar
@@ -130,6 +144,7 @@ export function MultiSeriesBarChart({
 type MultiSeriesChartTooltipProps = {
   series: StackedSeries[];
   formatValue: (value: number) => string;
+  formatSeriesDetail?: (seriesId: string, datum: MultiSeriesDatum) => string | null;
   /** Injected by recharts when it clones this element. */
   active?: boolean;
   payload?: { payload?: MultiSeriesDatum }[];
@@ -143,6 +158,7 @@ type MultiSeriesChartTooltipProps = {
 export function MultiSeriesChartTooltip({
   series,
   formatValue,
+  formatSeriesDetail,
   active,
   payload,
 }: MultiSeriesChartTooltipProps) {
@@ -154,17 +170,27 @@ export function MultiSeriesChartTooltip({
     <div className="rounded-md border bg-popover px-3 py-2 text-popover-foreground shadow-md">
       <p className="mb-1 text-xs font-medium">{datum.label}</p>
       <ul className="space-y-0.5">
-        {series.map((entry) => (
-          <li key={entry.id} className="flex items-center gap-2 text-xs">
-            <span
-              aria-hidden
-              className="size-2 shrink-0 rounded-[2px]"
-              style={{ backgroundColor: entry.color }}
-            />
-            <span className="text-muted-foreground">{entry.name}</span>
-            <span className="ml-auto tabular-nums">{formatValue(datum.values[entry.id] ?? 0)}</span>
-          </li>
-        ))}
+        {series.map((entry) => {
+          const detail = formatSeriesDetail?.(entry.id, datum) ?? null;
+          return (
+            <li key={entry.id} className="text-xs">
+              <div className="flex items-center gap-2">
+                <span
+                  aria-hidden
+                  className="size-2 shrink-0 rounded-[2px]"
+                  style={{ backgroundColor: entry.color }}
+                />
+                <span className="text-muted-foreground">{entry.name}</span>
+                <span className="ml-auto tabular-nums">
+                  {formatValue(datum.values[entry.id] ?? 0)}
+                </span>
+              </div>
+              {detail === null ? null : (
+                <p className="pl-4 text-[11px] text-muted-foreground tabular-nums">{detail}</p>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

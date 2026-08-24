@@ -492,7 +492,13 @@
     "scrollLabel": "Link trends chart — scroll sideways to move through the period",
     "floorNote": "Counts are page loads, not people: refreshes and robots count too, and a deactivated link's arrivals count as page views only. Read every figure as a floor on what a link drove, never as a measurement of your audience.",
     "emptyTitle": "No page views to chart yet",
-    "emptyBody": "Nothing has been counted for this Event yet. Counting starts the moment a page is loaded, and it began when this chart shipped — clicks from before then live in each link's lifetime figure above, not here."
+    "emptyBody": "Nothing has been counted for this Event yet. Counting starts the moment a page is loaded, and it began when this chart shipped — clicks from before then live in each link's lifetime figure above, not here.",
+    "metricLabel": "What the chart counts",
+    "metric_clicks": "Clicks",
+    "metric_sales": "Attributed sales",
+    "salesChartLabelHourly": "Attributed sales per Affiliate Link, one group of bars per hour",
+    "salesChartLabelDaily": "Attributed sales per Affiliate Link, one group of bars per day",
+    "salesDetail": "{tickets, plural, one {# ticket} other {# tickets}} · {amount}"
   },
   "pos": {
     "title": "Point of sale",

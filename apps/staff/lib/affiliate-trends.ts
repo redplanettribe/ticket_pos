@@ -411,3 +411,188 @@ export function affiliateTrendsPlotWidth(
 export function hasPageViews(trends: Pick<AffiliateTrends, "view_buckets">): boolean {
   return trends.view_buckets.some((bucket) => bucket.views > 0);
 }
+
+/**
+ * The measures the one chart can be switched between. `clicks` is always on
+ * offer; `sales` only when the payload carries sales figures at all — an Event
+ * that registers externally sends null, and its switcher must not exist rather
+ * than sit disabled over a view with nothing behind it (#415). The list is
+ * ordered as the switcher reads.
+ */
+export type AffiliateTrendsMetric = "clicks" | "sales";
+
+export function availableTrendsMetrics(
+  trends: Pick<AffiliateTrends, "sales_buckets">,
+): AffiliateTrendsMetric[] {
+  return trends.sales_buckets === null ? ["clicks"] : ["clicks", "sales"];
+}
+
+/**
+ * hasTrendsData widens `hasPageViews` for the whole surface: Attributed Sales
+ * derive from the sales ledger, which predates the buckets' launch, so an Event
+ * can have a sales history worth drawing before a single page view is counted.
+ */
+export function hasTrendsData(
+  trends: Pick<AffiliateTrends, "view_buckets" | "sales_buckets">,
+): boolean {
+  return (
+    hasPageViews(trends) || (trends.sales_buckets?.some((bucket) => bucket.sales > 0) ?? false)
+  );
+}
+
+/** What one link earned in one bucket, beyond the sale count the bar shows:
+ * the tooltip's money line. Cents, in the Organization's currency. */
+export type AffiliateSalesFigures = {
+  tickets: number;
+  netProceedsCents: number;
+};
+
+/** A sales-view datum: the drawn sale counts plus, per link, the figures the
+ * tooltip states. Structurally a `MultiSeriesDatum` — the extra field rides
+ * recharts' payload untouched. */
+export type AffiliateSalesDatum = AffiliateTrendsDatum & {
+  details: Record<string, AffiliateSalesFigures>;
+};
+
+/**
+ * civilHourKey renders an instant as the Event-timezone civil hour the sales
+ * buckets are keyed by ("2026-08-24T10:00"). The mapping only ever runs forward — the
+ * civil keys the axis needs are computed FROM its UTC slots, never the reverse,
+ * because a civil hour does not always name one instant (DST).
+ */
+function civilHourKey(instant: Date, timezone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(instant);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((entry) => entry.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:00`;
+}
+
+/**
+ * salesSeries is `viewsSeries` for the Attributed Sales view: one datum per
+ * axis slot, windowed, zero-filled, carrying only the selected links — never
+ * the whole-page series, which is a views concept with no sales to its name.
+ *
+ * Two asymmetries with the views:
+ *
+ * - The stored hours are CIVIL Event-timezone hours (that is how the sales are
+ *   bucketed, ADR 0057), while the hourly axis is UTC slots. Each slot computes
+ *   the civil hour it is, and claims the buckets keyed by it; where DST folds
+ *   two slots onto one civil hour, the first slot claims it and the fold is
+ *   counted once, not twice.
+ *
+ * - "all" reaches back to the EARLIEST of page views and sales, because the
+ *   sales ledger predates the buckets' launch and truncating that history would
+ *   misstate what a link earned.
+ *
+ * A Reversal is already gone from the payload, so it is gone from here.
+ */
+export function salesSeries(
+  trends: Pick<AffiliateTrends, "timezone" | "view_buckets" | "sales_buckets">,
+  selected: readonly string[],
+  range: AffiliateTrendsRange,
+  now: Date,
+  locale: AppLocale,
+): AffiliateSalesDatum[] {
+  const salesBuckets = trends.sales_buckets;
+  if (salesBuckets === null) {
+    return [];
+  }
+  const granularity = rangeGranularity(range);
+  const end = truncateToUTCHour(now);
+  const drawn = selected.filter((id) => id !== ALL_PAGE_VIEWS_ID);
+
+  // The window. Fixed ranges are the views' formula; "all" is the earliest
+  // civil day either store knows, padded a rotation west so the walk below
+  // reaches that day's first hour in any timezone.
+  let earliestDay: string | null = null;
+  let start: Date;
+  if (range !== "all") {
+    start = new Date(end.getTime() - (RANGE_HOURS[range] - 1) * HOUR_MS);
+  } else {
+    for (const bucket of trends.view_buckets) {
+      const day = bucketDay(bucket.hour, trends.timezone);
+      if (!Number.isNaN(new Date(bucket.hour).getTime()) && (earliestDay === null || day < earliestDay)) {
+        earliestDay = day;
+      }
+    }
+    for (const bucket of salesBuckets) {
+      const day = bucket.hour.slice(0, 10);
+      if (earliestDay === null || day < earliestDay) {
+        earliestDay = day;
+      }
+    }
+    if (earliestDay === null) {
+      return [];
+    }
+    const dayStart = new Date(`${earliestDay}T00:00:00Z`);
+    if (Number.isNaN(dayStart.getTime())) {
+      return [];
+    }
+    start = new Date(Math.min(dayStart.getTime() - 14 * HOUR_MS, end.getTime()));
+  }
+
+  const data: AffiliateSalesDatum[] = [];
+  const slots = new Map<string, AffiliateSalesDatum>();
+  const pushSlot = (key: string, label: string) => {
+    if (slots.has(key)) {
+      return;
+    }
+    const values: Record<string, number> = {};
+    const details: Record<string, AffiliateSalesFigures> = {};
+    for (const id of drawn) {
+      values[id] = 0;
+      details[id] = { tickets: 0, netProceedsCents: 0 };
+    }
+    const datum = { key, label, values, details };
+    slots.set(key, datum);
+    data.push(datum);
+  };
+
+  // Which axis slot each civil hour is drawn in — first slot wins a DST fold.
+  const slotOfCivilHour = new Map<string, string>();
+  for (let at = start.getTime(); at <= end.getTime(); at += HOUR_MS) {
+    const hour = new Date(at);
+    if (granularity === "hour") {
+      const key = utcHourKey(hour);
+      pushSlot(key, formatTrendsHour(hour.toISOString(), trends.timezone, locale));
+      const civil = civilHourKey(hour, trends.timezone);
+      if (!slotOfCivilHour.has(civil)) {
+        slotOfCivilHour.set(civil, key);
+      }
+    } else {
+      const day = bucketDay(hour.toISOString(), trends.timezone);
+      if (earliestDay !== null && day < earliestDay) {
+        continue;
+      }
+      pushSlot(day, formatTrendsDayLabel(day, locale));
+    }
+  }
+
+  const drawnSet = new Set(drawn);
+  for (const bucket of salesBuckets) {
+    if (!drawnSet.has(bucket.link_id)) {
+      continue;
+    }
+    const key =
+      granularity === "hour" ? slotOfCivilHour.get(bucket.hour) : bucket.hour.slice(0, 10);
+    const slot = key === undefined ? undefined : slots.get(key);
+    if (!slot) {
+      // Outside the window, or an hour the walk never reached — skipped for the
+      // reason viewsSeries skips: better an undrawn sale than an invented slot.
+      continue;
+    }
+    slot.values[bucket.link_id] += bucket.sales;
+    const figures = slot.details[bucket.link_id];
+    figures.tickets += bucket.tickets;
+    figures.netProceedsCents += bucket.net_proceeds_cents;
+  }
+
+  return data;
+}

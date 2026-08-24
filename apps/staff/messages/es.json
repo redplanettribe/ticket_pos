@@ -492,7 +492,13 @@
     "scrollLabel": "Gráfico de tendencias de los enlaces: desplácese de lado para recorrer el periodo",
     "floorNote": "Los conteos son cargas de página, no personas: las recargas y los robots también cuentan, y las llegadas por un enlace desactivado cuentan solo como vistas de página. Lea cada cifra como un piso de lo que un enlace trajo, nunca como una medición de su público.",
     "emptyTitle": "Todavía no hay vistas de página que graficar",
-    "emptyBody": "Todavía no se ha contado nada para este Evento. El conteo empieza en cuanto se carga una página, y comenzó cuando se estrenó este gráfico: los clics anteriores viven en la cifra de por vida de cada enlace, arriba, no aquí."
+    "emptyBody": "Todavía no se ha contado nada para este Evento. El conteo empieza en cuanto se carga una página, y comenzó cuando se estrenó este gráfico: los clics anteriores viven en la cifra de por vida de cada enlace, arriba, no aquí.",
+    "metricLabel": "Qué cuenta el gráfico",
+    "metric_clicks": "Clics",
+    "metric_sales": "Ventas atribuidas",
+    "salesChartLabelHourly": "Ventas atribuidas por Enlace de Afiliado, un grupo de barras por hora",
+    "salesChartLabelDaily": "Ventas atribuidas por Enlace de Afiliado, un grupo de barras por día",
+    "salesDetail": "{tickets, plural, one {# entrada} other {# entradas}} · {amount}"
   },
   "pos": {
     "title": "Punto de venta",

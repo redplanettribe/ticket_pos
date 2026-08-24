@@ -229,3 +229,134 @@ test("nothing counted yet is the empty state, not an all-zero chart", () => {
   assert.equal(hasPageViews(trendsWith([{ hour: "2026-08-24T14:00:00Z", link_id: null, views: 0 }])), false);
   assert.equal(hasPageViews(trendsWith([{ hour: "2026-08-24T14:00:00Z", link_id: null, views: 1 }])), true);
 });
+
+// --- the Attributed Sales view (#415) ---------------------------------------
+
+import {
+  availableTrendsMetrics,
+  hasTrendsData,
+  salesSeries,
+  type AffiliateSalesBucket,
+} from "./affiliate-trends.ts";
+
+function fullTrends(
+  view_buckets: AffiliateViewBucket[],
+  sales_buckets: AffiliateSalesBucket[] | null,
+) {
+  return { timezone: TZ, view_buckets, sales_buckets };
+}
+
+const SALE = (hour: string, link_id: string, sales: number, tickets: number, cents: number) => ({
+  hour,
+  link_id,
+  sales,
+  tickets,
+  net_proceeds_cents: cents,
+});
+
+test("a civil-hour sales bucket lands in the UTC slot that IS that Event hour", () => {
+  // 10:00 in Guayaquil (UTC-5) is 15:00 UTC — the window's last, still-filling slot.
+  const data = salesSeries(
+    fullTrends([], [SALE("2026-08-24T10:00", LINK_A, 2, 5, 12000)]),
+    ORDER,
+    "24h",
+    NOW,
+    "en",
+  );
+  assert.equal(data.length, 24);
+  const last = data[23];
+  assert.equal(last.key, "2026-08-24T15:00:00Z");
+  assert.equal(last.values[LINK_A], 2);
+  assert.deepEqual(last.details[LINK_A], { tickets: 5, netProceedsCents: 12000 });
+});
+
+test("quiet slots carry zero sales and zero figures for every drawn link", () => {
+  const data = salesSeries(
+    fullTrends([], [SALE("2026-08-24T10:00", LINK_A, 1, 1, 100)]),
+    ORDER,
+    "24h",
+    NOW,
+    "en",
+  );
+  const quiet = data[0];
+  assert.deepEqual(quiet.values, { [LINK_A]: 0, [LINK_B]: 0 });
+  assert.deepEqual(quiet.details[LINK_B], { tickets: 0, netProceedsCents: 0 });
+});
+
+test("the whole-page series has no place in the sales view", () => {
+  const data = salesSeries(fullTrends([], []), ORDER, "24h", NOW, "en");
+  assert.equal(Object.hasOwn(data[0].values, ALL_PAGE_VIEWS_ID), false);
+});
+
+test("a deselected link is absent from the sales datum, not zeroed", () => {
+  const data = salesSeries(
+    fullTrends([], [SALE("2026-08-24T10:00", LINK_A, 1, 2, 300)]),
+    [LINK_B],
+    "24h",
+    NOW,
+    "en",
+  );
+  assert.deepEqual(data[23].values, { [LINK_B]: 0 });
+  assert.equal(Object.hasOwn(data[23].values, LINK_A), false);
+});
+
+test("daily ranges sum a day's sales figures on the Event's own calendar", () => {
+  const data = salesSeries(
+    fullTrends(
+      [],
+      [
+        SALE("2026-08-23T21:00", LINK_A, 1, 2, 5000),
+        SALE("2026-08-23T23:00", LINK_A, 2, 3, 7000),
+        SALE("2026-08-24T09:00", LINK_A, 1, 1, 1000),
+      ],
+    ),
+    ORDER,
+    "30d",
+    NOW,
+    "en",
+  );
+  const byKey = new Map(data.map((datum) => [datum.key, datum]));
+  assert.equal(byKey.get("2026-08-23")?.values[LINK_A], 3);
+  assert.deepEqual(byKey.get("2026-08-23")?.details[LINK_A], {
+    tickets: 5,
+    netProceedsCents: 12000,
+  });
+  assert.equal(byKey.get("2026-08-24")?.values[LINK_A], 1);
+});
+
+test("all reaches back to sales older than any stored page view", () => {
+  // Attributed Sales derive from the sales ledger, which predates the buckets'
+  // launch — the axis must not silently truncate that history.
+  const data = salesSeries(
+    fullTrends(
+      [{ hour: "2026-08-24T14:00:00Z", link_id: null, views: 2 }],
+      [SALE("2026-08-20T12:00", LINK_A, 1, 1, 900)],
+    ),
+    ORDER,
+    "all",
+    NOW,
+    "en",
+  );
+  assert.equal(data[0].key, "2026-08-20");
+  assert.equal(data[0].values[LINK_A], 1);
+  assert.equal(data.at(-1)?.key, "2026-08-24");
+});
+
+test("an externally registered Event has no sales series at all", () => {
+  assert.deepEqual(salesSeries(fullTrends([], null), ORDER, "24h", NOW, "en"), []);
+});
+
+test("the metrics on offer follow the payload: no sales figures, no sales view", () => {
+  assert.deepEqual(availableTrendsMetrics(fullTrends([], null)), ["clicks"]);
+  assert.deepEqual(availableTrendsMetrics(fullTrends([], [])), ["clicks", "sales"]);
+});
+
+test("sales alone are enough to draw the surface", () => {
+  assert.equal(hasTrendsData(fullTrends([], null)), false);
+  assert.equal(hasTrendsData(fullTrends([], [])), false);
+  assert.equal(hasTrendsData(fullTrends([], [SALE("2026-08-20T12:00", LINK_A, 1, 1, 1)])), true);
+  assert.equal(
+    hasTrendsData(fullTrends([{ hour: "2026-08-24T14:00:00Z", link_id: null, views: 1 }], null)),
+    true,
+  );
+});
