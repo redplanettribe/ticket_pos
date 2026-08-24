@@ -393,9 +393,17 @@ export function ChartTooltipCard({
  * it keeps to starts after the pinned Y axis, which sits over the plot and
  * would otherwise sit over the card.
  *
- * The measured position has the current shift subtracted, so the effect asks
- * "where would recharts have put this" and settles rather than chasing itself.
- * Recharts must not animate the card's wrapper (see `TOOLTIP_PROPS`): a box
+ * The position is read off the card's frame — the wrapper recharts positions,
+ * which is exactly where the card sits before any shift — and never off the
+ * shifted card itself. Reading the card and subtracting the shift back out
+ * looks equivalent and is not: Chrome reports a transformed box in single
+ * precision, so `left - shift` misses the frame's position by a few
+ * hundred-thousandths, the next shift differs from the last by that much, and
+ * the effect re-renders itself until React gives up (error #185) — a crash on
+ * hover at any sub-pixel geometry, which a high-DPI screen makes routine.
+ * Measured from the frame, the answer is the same on every pass, so the effect
+ * settles after one. Only the size is the card's own: a transform does not
+ * change it. Recharts must not animate the frame (see `TOOLTIP_PROPS`): a box
  * mid-transition measures as wherever it happens to be that frame.
  */
 function useKeptInScrollWindow() {
@@ -403,20 +411,22 @@ function useKeptInScrollWindow() {
   const [shift, setShift] = React.useState({ x: 0, y: 0 });
   React.useLayoutEffect(() => {
     const card = ref.current;
+    const frame = card?.parentElement;
     const area = card?.closest<HTMLElement>(`[${CHART_SCROLL_AREA_ATTRIBUTE}]`);
-    if (!card || !area) {
+    if (!card || !frame || !area) {
       return;
     }
-    const box = card.getBoundingClientRect();
+    const placed = frame.getBoundingClientRect();
+    const size = card.getBoundingClientRect();
     const seen = area.getBoundingClientRect();
     const next = {
       x: scrollWindowShift(
-        { start: box.left - shift.x, size: box.width },
+        { start: placed.left, size: size.width },
         { start: seen.left + Y_AXIS_WIDTH, end: seen.left + area.clientWidth },
         TOOLTIP_CURSOR_GAP,
       ),
       y: scrollWindowShift(
-        { start: box.top - shift.y, size: box.height },
+        { start: placed.top, size: size.height },
         { start: seen.top, end: seen.top + area.clientHeight },
       ),
     };
