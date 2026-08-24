@@ -139,7 +139,7 @@ func (s *Service) RevokeTicketQuestion(ctx context.Context, questionID string, i
 }
 
 // notifyTicketQuestionRevoked mails every Org Admin of the Organization, each
-// in their Mail Locale, on the terms the Payout Request notices set
+// in their Staff Locale, on the terms the Payout Request notices set
 // (ADR 0026, ADR 0041): every failure is swallowed and logged, because the
 // write has committed and there is nothing a caller could do with a failure
 // except lie about what happened. The reason is read off what was written.

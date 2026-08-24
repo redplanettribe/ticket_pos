@@ -669,7 +669,7 @@ type PayoutRequestTransferSent struct {
 //
 // The second use of the organizer-facing channel ADR 0026 opened, which
 // ADR 0056 named as a decision. One notice per Org Admin of the Organization,
-// each in their own Mail Locale, because a Revocation has no single asker the
+// each in their own Staff Locale, because a Revocation has no single asker the
 // way a Payout Request has: the question was the Organization's, and every
 // person accountable for the Organization is told.
 //
@@ -1309,7 +1309,7 @@ type CaptureEmailSender struct {
 	SubmittedPayoutRequests []PayoutRequestSubmitted
 	// The Question Review submission notices (#406, ADR 0056), one per
 	// allowlisted Operator, kept whole so a test can render each in its
-	// recipient's Mail Locale.
+	// recipient's Staff Locale.
 	SubmittedQuestionReviews []QuestionReviewSubmitted
 	// The Question Review verdict notices (#407, ADR 0056), one per answered
 	// Review, to its submitter.

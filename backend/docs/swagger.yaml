@@ -8190,7 +8190,7 @@ paths:
         on the Holder List, given a column in the Sales Export — and each refused
         one becomes `refused` carrying the reason, shown in the Organization''s editor,
         asked of nobody, and editable: its first edit returns it to `draft`. The submitter
-        is mailed the verdicts, item by item, in their Mail Locale. A Review that
+        is mailed the verdicts, item by item, in their Staff Locale. A Review that
         is no longer outstanding — answered by a colleague, withdrawn by the Organization,
         or lapsed because its Event started (decided on this call, no scheduler) —
         is 409 QUESTION_REVIEW_NOT_OUTSTANDING with the state reached in the details.

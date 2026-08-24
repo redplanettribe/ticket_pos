@@ -16,12 +16,12 @@
 -- after it has run is a draft like any other.
 UPDATE ticket_questions
 SET review_status = 'approved',
-    approved_at = NOW(),
+    approved_at = created_at,
     approved_by = 'migration:090_backfill_ticket_question_approval'
 WHERE review_status = 'draft';
 
 UPDATE ticket_question_options
 SET review_status = 'approved',
-    approved_at = NOW(),
+    approved_at = created_at,
     approved_by = 'migration:090_backfill_ticket_question_approval'
 WHERE review_status = 'draft';

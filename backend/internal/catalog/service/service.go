@@ -298,7 +298,7 @@ type Service struct {
 	staffLocales       StaffLocales
 	// revocationMailer and revocationRecipients deliver the one mail an
 	// Organization gets when a Platform Operator revokes an approved Ticket
-	// Question (#410, ADR 0056): every Org Admin, each in their Mail Locale.
+	// Question (#410, ADR 0056): every Org Admin, each in their Staff Locale.
 	// Nil leaves the service silent — the question is retired and the reason
 	// readable in the staff editor either way, and only the telling is missing.
 	revocationMailer     RevocationMailer
