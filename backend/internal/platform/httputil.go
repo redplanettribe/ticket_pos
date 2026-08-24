@@ -240,6 +240,11 @@ func domainHTTPStatus(code string) int {
 	// body changes, so 409 beside their Ticket Question neighbours.
 	case "QUESTION_REVIEW_ACKNOWLEDGEMENT_REQUIRED":
 		return http.StatusBadRequest
+	// The Operator's answer with a hole in it (#407): an item without a
+	// verdict, a refusal without a reason, an item the Review does not carry.
+	// The body is wrong, so 400 beside the acknowledgement.
+	case "QUESTION_REVIEW_VERDICT_REQUIRED", "QUESTION_REVIEW_REASON_REQUIRED", "QUESTION_REVIEW_UNKNOWN_ITEM":
+		return http.StatusBadRequest
 	case "QUESTION_REVIEW_OUTSTANDING", "QUESTION_REVIEW_EVENT_STARTED",
 		"QUESTION_REVIEW_NOTHING_TO_REVIEW", "QUESTION_REVIEW_NOT_OUTSTANDING":
 		return http.StatusConflict

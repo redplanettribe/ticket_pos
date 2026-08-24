@@ -205,6 +205,15 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// act has one, and it can only ever take an approval away.
 	mux.Handle("GET /api/v1/operator/events/{eventID}/ticket-questions", operator(http.HandlerFunc(h.ListEventTicketQuestions)))
 	mux.Handle("POST /api/v1/operator/ticket-questions/{questionID}/revoke", operator(http.HandlerFunc(h.RevokeTicketQuestion)))
+	// The Question Review queue and the Operator's answer (#407, ADR 0056),
+	// on the Payout Request queue's shape: a cross-Organization list, its
+	// count for the badge, one Review whole, and one verb that answers it.
+	// The static /count path is registered beside the {reviewID} one on the
+	// terms the payout routes are, and the mux prefers it.
+	mux.Handle("GET /api/v1/operator/question-reviews", operator(http.HandlerFunc(h.ListQuestionReviews)))
+	mux.Handle("GET /api/v1/operator/question-reviews/count", operator(http.HandlerFunc(h.CountOutstandingQuestionReviews)))
+	mux.Handle("GET /api/v1/operator/question-reviews/{reviewID}", operator(http.HandlerFunc(h.GetQuestionReview)))
+	mux.Handle("POST /api/v1/operator/question-reviews/{reviewID}/answer", operator(http.HandlerFunc(h.AnswerQuestionReview)))
 	// The Consent Withdrawal an Operator records on somebody's behalf (#271,
 	// parent #265): a form that arrived by post, or an email to the
 	// data-protection address.

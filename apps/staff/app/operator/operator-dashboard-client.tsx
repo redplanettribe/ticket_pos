@@ -25,6 +25,7 @@ import {
   OPERATOR_ORGANIZATIONS_COUNT_PAGE_SIZE,
   type OperatorCurrencyTotals,
   fetchOperatorOrganizations,
+  fetchOperatorOutstandingQuestionReviewCount,
   fetchOperatorPendingPayoutRequestCount,
   fetchOperatorSummary,
 } from "@/lib/operator-api";
@@ -136,6 +137,7 @@ export function OperatorDashboardClient() {
   const [totals, setTotals] = useState<OperatorCurrencyTotals[]>([]);
   const [organizationCount, setOrganizationCount] = useState(0);
   const [pendingPayoutRequests, setPendingPayoutRequests] = useState(0);
+  const [outstandingQuestionReviews, setOutstandingQuestionReviews] = useState(0);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -147,14 +149,19 @@ export function OperatorDashboardClient() {
       // The organizations call is made for its pagination total alone — the roll
       // itself is read on its own page now — so it asks for the smallest slice
       // the listing will return rather than a full page it would discard (#194).
-      const [summary, organizationsPage, payoutRequestCount] = await Promise.all([
+      // The Question Review count is read on its own, because it is 404
+      // TICKET_QUESTIONS_UNAVAILABLE while the feature is dark (ADR 0045) and
+      // a dark feature must not take the whole Overview down with it.
+      const [summary, organizationsPage, payoutRequestCount, questionReviewCount] = await Promise.all([
         fetchOperatorSummary(),
         fetchOperatorOrganizations(1, OPERATOR_ORGANIZATIONS_COUNT_PAGE_SIZE),
         fetchOperatorPendingPayoutRequestCount(),
+        fetchOperatorOutstandingQuestionReviewCount().catch(() => null),
       ]);
       setTotals(summary.totals);
       setOrganizationCount(organizationsPage.pagination.total);
       setPendingPayoutRequests(payoutRequestCount.pending_count);
+      setOutstandingQuestionReviews(questionReviewCount?.outstanding_count ?? 0);
       setForbidden(false);
     } catch (loadError) {
       // The allowlist refusal is its own answer rather than a failure to report,
@@ -216,6 +223,17 @@ export function OperatorDashboardClient() {
           count={formatNumber(pendingPayoutRequests, locale)}
           href="/operator/payout-requests"
           linkLabel={t("openTheQueue")}
+        />
+        {/*
+          Question reviews beside the payout requests: the second thing on
+          this surface that somebody is WAITING on (ADR 0056).
+        */}
+        <CountCard
+          title={t("reviewCardTitle")}
+          description={t("reviewCardDescription")}
+          count={formatNumber(outstandingQuestionReviews, locale)}
+          href="/operator/question-reviews"
+          linkLabel={t("openTheReviews")}
         />
         <CountCard
           title={t("organizationsCardTitle")}

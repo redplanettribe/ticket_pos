@@ -7,7 +7,8 @@
 // UI merely declines to show the surface at all.
 
 import { fetchEventsJSON } from "./events-api";
-import type { TicketQuestion } from "./ticket-questions";
+import type { QuestionReview, QuestionReviewItem } from "./question-reviews";
+import type { TicketQuestion, TicketQuestionOption } from "./ticket-questions";
 
 /**
  * Platform revenue for one currency. No FX conversion exists anywhere, so the
@@ -767,5 +768,90 @@ export async function revokeOperatorTicketQuestion(
   return fetchEventsJSON<TicketQuestion>(
     `/api/operator/ticket-questions/${encodeURIComponent(questionId)}/revoke`,
     { method: "POST", body: JSON.stringify({ reason }) },
+  );
+}
+
+/**
+ * The Question Review queue and the Operator's answer (#407, ADR 0056),
+ * mirroring /api/v1/operator/question-reviews field for field.
+ */
+
+/** One item of a Review on the Operator's detail: the row, and what it names. */
+export type OperatorQuestionReviewItem = QuestionReviewItem & {
+  /** The whole question, every Option included, so an Option item is read under its question's words. */
+  question: OperatorTicketQuestionRow | null;
+  /** The Option itself, for an Option item. */
+  option: TicketQuestionOption | null;
+};
+
+export type OperatorQuestionReviewRow = {
+  review: Omit<QuestionReview, "items"> & {
+    /** How many questions ride it; Options are not counted. */
+    question_count: number;
+    /** Empty on a queue row, full on the detail. */
+    items: OperatorQuestionReviewItem[];
+  };
+  organization: { id: string; name: string; slug: string };
+  event: {
+    id: string;
+    name: string;
+    /** The instant the Review lapses. */
+    starts_at: string | null;
+    timezone: string;
+  };
+};
+
+export type OperatorQuestionReviewQueuePage = {
+  data: OperatorQuestionReviewRow[];
+  pagination: OperatorPagination;
+};
+
+export type OperatorOutstandingQuestionReviewCount = {
+  outstanding_count: number;
+};
+
+export const OPERATOR_QUESTION_REVIEWS_PAGE_SIZE = 50;
+
+/** Every outstanding Question Review across every organization, OLDEST FIRST. */
+export async function fetchOperatorQuestionReviews(
+  page = 1,
+): Promise<OperatorQuestionReviewQueuePage> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(OPERATOR_QUESTION_REVIEWS_PAGE_SIZE),
+  });
+  return fetchEventsJSON<OperatorQuestionReviewQueuePage>(
+    `/api/operator/question-reviews?${params.toString()}`,
+  );
+}
+
+/** How many Question Reviews are waiting, platform-wide: the count on the Overview beside the payout requests'. */
+export async function fetchOperatorOutstandingQuestionReviewCount(): Promise<OperatorOutstandingQuestionReviewCount> {
+  return fetchEventsJSON<OperatorOutstandingQuestionReviewCount>(
+    "/api/operator/question-reviews/count",
+  );
+}
+
+/** One Question Review whole, with every item's question and Option. */
+export async function fetchOperatorQuestionReview(
+  reviewId: string,
+): Promise<OperatorQuestionReviewRow> {
+  return fetchEventsJSON<OperatorQuestionReviewRow>(
+    `/api/operator/question-reviews/${encodeURIComponent(reviewId)}`,
+  );
+}
+
+/**
+ * The answer: one verdict per item, refusals with a reason. The API checks the
+ * body whole and names the item on each refusal; a Review no longer outstanding
+ * is QUESTION_REVIEW_NOT_OUTSTANDING with the state it reached.
+ */
+export async function answerOperatorQuestionReview(
+  reviewId: string,
+  body: { verdicts: { item_id: string; verdict: "approved" | "refused"; reason?: string }[] },
+): Promise<OperatorQuestionReviewRow> {
+  return fetchEventsJSON<OperatorQuestionReviewRow>(
+    `/api/operator/question-reviews/${encodeURIComponent(reviewId)}/answer`,
+    { method: "POST", body: JSON.stringify(body) },
   );
 }

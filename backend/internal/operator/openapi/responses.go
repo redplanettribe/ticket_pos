@@ -107,3 +107,28 @@ type EnvelopeOperatorRevokedTicketQuestion struct {
 	Error     *platform.APIError            `json:"error"`
 	RequestID string                        `json:"request_id"`
 }
+
+// EnvelopeOperatorQuestionReviewQueue documents GET /operator/question-reviews
+// success responses (#407).
+type EnvelopeOperatorQuestionReviewQueue struct {
+	Data      service.QuestionReviewQueue `json:"data"`
+	Error     *platform.APIError          `json:"error"`
+	RequestID string                      `json:"request_id"`
+}
+
+// EnvelopeOperatorOutstandingQuestionReviewCount documents GET
+// /operator/question-reviews/count success responses (#407).
+type EnvelopeOperatorOutstandingQuestionReviewCount struct {
+	Data      service.OutstandingQuestionReviewCount `json:"data"`
+	Error     *platform.APIError                     `json:"error"`
+	RequestID string                                 `json:"request_id"`
+}
+
+// EnvelopeOperatorQuestionReview documents GET /operator/question-reviews/{reviewID}
+// and POST /operator/question-reviews/{reviewID}/answer success responses:
+// one Review whole, with each item's question and Option (#407).
+type EnvelopeOperatorQuestionReview struct {
+	Data      service.QuestionReview `json:"data"`
+	Error     *platform.APIError     `json:"error"`
+	RequestID string                 `json:"request_id"`
+}

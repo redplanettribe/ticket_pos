@@ -72,10 +72,12 @@ type StaffLocales interface {
 	StaffLocale(ctx context.Context, email string) (string, error)
 }
 
-// QuestionReviewMail is the one method of the email sender this flow reaches,
-// so nothing in catalog can send a receipt, a passcode or the Digest.
+// QuestionReviewMail is the two notices of the email sender this flow reaches
+// — the Operator on submission, the submitter on the verdict (#407) — so
+// nothing in catalog can send a receipt, a passcode or the Digest.
 type QuestionReviewMail interface {
 	SendQuestionReviewSubmitted(ctx context.Context, submitted platform.QuestionReviewSubmitted) error
+	SendQuestionReviewAnswered(ctx context.Context, answered platform.QuestionReviewAnswered) error
 }
 
 // WithQuestionReviewNotices supplies what the submission notice needs: the
@@ -147,11 +149,18 @@ func (s *Service) SubmitQuestionReview(ctx context.Context, actor ActorContext, 
 
 // WithdrawQuestionReview takes an outstanding Review back: the Review is
 // marked withdrawn and its items return to draft.
+//
+// The lapse is run first (#407): a Review whose Event has started is no
+// longer the Organization's to take back, and the refusal names that state.
 func (s *Service) WithdrawQuestionReview(ctx context.Context, actor ActorContext, eventID, reviewID, withdrawnBy string) (*QuestionReviewView, error) {
 	if _, err := s.eventForQuestionReview(ctx, actor, eventID); err != nil {
 		return nil, err
 	}
-	row, err := s.repo.WithdrawQuestionReview(ctx, eventID, reviewID, withdrawnBy, s.now())
+	now := s.now()
+	if err := s.repo.LapseStartedQuestionReviews(ctx, now); err != nil {
+		return nil, err
+	}
+	row, err := s.repo.WithdrawQuestionReview(ctx, eventID, reviewID, withdrawnBy, now)
 	if err != nil {
 		return nil, err
 	}
@@ -171,9 +180,14 @@ func (s *Service) WithdrawQuestionReview(ctx context.Context, actor ActorContext
 }
 
 // GetCurrentQuestionReview is the Event's outstanding Review, or the last one
-// submitted, with its items — what the editor's banner is drawn from.
+// submitted, with its items — what the editor's banner is drawn from. The
+// lapse is decided on this read too (#407): once the Event has started the
+// banner reads lapsed, and the questions read draft, without a scheduler.
 func (s *Service) GetCurrentQuestionReview(ctx context.Context, actor ActorContext, eventID string) (*QuestionReviewView, error) {
 	if _, err := s.eventForQuestionReview(ctx, actor, eventID); err != nil {
+		return nil, err
+	}
+	if err := s.repo.LapseStartedQuestionReviews(ctx, s.now()); err != nil {
 		return nil, err
 	}
 	row, err := s.repo.GetCurrentQuestionReview(ctx, eventID)

@@ -147,6 +147,55 @@ func (q QuestionReviewSubmitted) Text() string {
 	return text
 }
 
+// The verdict notice (#407, ADR 0056): what the Operator ruled on each
+// question, sent to the Member who submitted the Review.
+var (
+	questionReviewAnsweredSubjectCopy = translated(
+		"Your questions for %s have been reviewed",
+		"Sus preguntas para %s fueron revisadas",
+	)
+	questionReviewAnsweredOpeningCopy = translated(
+		"A platform operator (%s) has reviewed the questions %s submitted for %s:\n",
+		"Un operador de la plataforma (%s) revisó las preguntas que %s envió para %s:\n",
+	)
+	questionReviewAnsweredApprovedCopy = translated("approved", "aprobada")
+	questionReviewAnsweredRefusedCopy  = translated("refused", "rechazada")
+	questionReviewAnsweredReasonCopy   = translated(" — %s", " — %s")
+	questionReviewAnsweredClosingCopy  = translated(
+		"\nApproved questions are asked from now on. A refused question is not asked; edit it and submit the event's questions for review again.",
+		"\nLas preguntas aprobadas se hacen desde ahora. Una pregunta rechazada no se hace; edítela y envíe de nuevo las preguntas del evento a revisión.",
+	)
+)
+
+// Subject names the Event: the one word the submitter is waiting on.
+func (q QuestionReviewAnswered) Subject() string {
+	return fmt.Sprintf(questionReviewAnsweredSubjectCopy.in(q.Locale), q.EventName)
+}
+
+// Text lists every item with its verdict and, on a refusal, the reason: an
+// Option is listed under its question's words so "Chicken: refused" is never
+// read without knowing which question offered it.
+func (q QuestionReviewAnswered) Text() string {
+	text := fmt.Sprintf(questionReviewAnsweredOpeningCopy.in(q.Locale), q.AnsweredBy, q.OrganizationName, q.EventName)
+	for _, item := range q.Items {
+		verdict := questionReviewAnsweredApprovedCopy.in(q.Locale)
+		if item.Verdict == "refused" {
+			verdict = questionReviewAnsweredRefusedCopy.in(q.Locale)
+		}
+		label := item.QuestionLabel
+		if item.OptionLabel != "" {
+			label = item.QuestionLabel + " / " + item.OptionLabel
+		}
+		line := "\n- " + label + ": " + verdict
+		if item.Reason != "" {
+			line += fmt.Sprintf(questionReviewAnsweredReasonCopy.in(q.Locale), item.Reason)
+		}
+		text += line
+	}
+	text += questionReviewAnsweredClosingCopy.in(q.Locale)
+	return text
+}
+
 var (
 	payoutPaidSubjectCopy = translated(
 		"Your payout of %s has been sent",

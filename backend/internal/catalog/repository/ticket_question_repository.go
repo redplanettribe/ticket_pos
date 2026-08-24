@@ -412,6 +412,11 @@ type UpdateTicketQuestionParams struct {
 // UpdateTicketQuestion writes a Ticket Question's editable fields. Whether the
 // kind among them is allowed to differ is the service's decision, not this
 // one's — see catalog.TicketQuestionKindFrozen.
+//
+// A REFUSED QUESTION'S FIRST EDIT RETURNS IT TO DRAFT (#407, ADR 0056): the
+// refusal was an invitation to change it, and once changed it is a new thing
+// for the next Review to carry. The refusal's reason and author stay on the
+// row as the record of what was said about the earlier wording.
 func (r *Repository) UpdateTicketQuestion(
 	ctx context.Context,
 	ticketTypeID, questionID string,
@@ -420,7 +425,8 @@ func (r *Repository) UpdateTicketQuestion(
 ) (*TicketQuestion, error) {
 	row := r.db.Pool.QueryRowContext(ctx, `
 		UPDATE ticket_questions
-		SET label = $3, kind = $4, required = $5, timing = $6, sort_order = $7, updated_at = $8
+		SET label = $3, kind = $4, required = $5, timing = $6, sort_order = $7, updated_at = $8,
+		    review_status = CASE WHEN review_status = 'refused' THEN 'draft' ELSE review_status END
 		WHERE id = $1 AND ticket_type_id = $2
 		RETURNING `+ticketQuestionColumns+`
 	`, questionID, ticketTypeID, params.Label, params.Kind, params.Required,

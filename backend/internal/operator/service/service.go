@@ -45,6 +45,15 @@ type Events interface {
 	// with no approval to take back, and TICKET_QUESTION_RETIRED for one
 	// already retired.
 	RevokeTicketQuestion(ctx context.Context, questionID string, input catalogsvc.RevokeTicketQuestionInput) (*catalogsvc.TicketQuestionView, error)
+	// The Question Review queue and its answer (#407, ADR 0056). Every read
+	// lapses Reviews whose Event has started first, so none of them ever
+	// lists one. AnswerQuestionReview answers QUESTION_REVIEW_NOT_FOUND,
+	// QUESTION_REVIEW_NOT_OUTSTANDING with the state reached, and the three
+	// body refusals that name an item.
+	ListOutstandingQuestionReviews(ctx context.Context, page, pageSize int) ([]catalogsvc.OperatorQuestionReview, int, error)
+	CountOutstandingQuestionReviews(ctx context.Context) (int, error)
+	GetQuestionReviewForOperator(ctx context.Context, reviewID string) (*catalogsvc.OperatorQuestionReview, error)
+	AnswerQuestionReview(ctx context.Context, reviewID string, input catalogsvc.AnswerQuestionReviewInput) (*catalogsvc.OperatorQuestionReview, error)
 }
 
 // Money is what the operator surface needs from sales: the Withdrawable

@@ -3664,6 +3664,304 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/question-reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List every outstanding Question Review, oldest first
+         * @description Returns a page of every OUTSTANDING Question Review across every Organization on the platform — the Operator's second work queue, beside the Payout Requests (ADR 0056). Ordered OLDEST FIRST, on the Payout Request queue's reasoning: the Review that has waited longest is the one whose Event is nearest. Each row carries the Review (status, note, acknowledgement instant, who submitted it and when, how many questions it carries — Options not counted — and its items without their shapes) with the Organization and the Event, including the Event's start, which is the instant the Review lapses. THE LAPSE IS DECIDED ON THIS READ: a Review whose Event has started is marked `lapsed` and its questions returned to draft before the page is built, so nothing here is ever past answering. Answered, withdrawn and lapsed Reviews are not in the queue; they stay readable by id. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100) and page floors at 1. 404 TICKET_QUESTIONS_UNAVAILABLE while the feature is dark (ADR 0045). Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Page number (1-based; floors at 1) */
+                    page?: number;
+                    /** @description Page size (default 50, max 100) */
+                    page_size?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorQuestionReviewQueue"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/question-reviews/{reviewID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one Question Review with every item's question and Option
+         * @description Returns one Question Review whole, in any state: the Review with its Organization and Event (name, start instant, timezone), and each item carrying the WHOLE question it names — label, kind, required-ness, timing, every Option with its own review columns, and the Ticket Type it hangs off — plus, for an Option item, the Option itself, so a ruling on "Chicken" is read under the question that offers it. Verdicts and reasons are on the items once answered and absent until then. The lapse is decided on this read: a Review whose Event has started reads `lapsed`, with answered_by naming the lapse and its questions back in draft. An unknown or malformed id is 404 QUESTION_REVIEW_NOT_FOUND; 404 TICKET_QUESTIONS_UNAVAILABLE while the feature is dark. Read-only. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Question Review ID */
+                    reviewID: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorQuestionReview"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/question-reviews/{reviewID}/answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer a Question Review: a verdict per item, refusals with a reason
+         * @description Records the Operator's answer to one outstanding Question Review as ONE ACT with a verdict PER ITEM (ADR 0056): every question and Option the Review carries is `approved`, or `refused` with a reason the Organization reads. Who answered is taken from the Staff Session, never from the body. THE BODY IS CHECKED WHOLE BEFORE ANYTHING IS WRITTEN and each refusal names the item in its details: an item without a verdict is 400 QUESTION_REVIEW_VERDICT_REQUIRED, a refusal without a reason is 400 QUESTION_REVIEW_REASON_REQUIRED, and a verdict naming an item the Review does not carry is 400 QUESTION_REVIEW_UNKNOWN_ITEM. Reasons are trimmed and bounded at 500 characters. On success, in one transaction: the Review becomes `answered` with answered_by/answered_at, each item takes its verdict and reason, each approved question and Option becomes `approved` with the Operator's authorship and starts collecting on the spot — asked at checkout and in the Customer Area, chased by the Answer Reminder, counted on the Holder List, given a column in the Sales Export — and each refused one becomes `refused` carrying the reason, shown in the Organization's editor, asked of nobody, and editable: its first edit returns it to `draft`. The submitter is mailed the verdicts, item by item, in their Mail Locale. A Review that is no longer outstanding — answered by a colleague, withdrawn by the Organization, or lapsed because its Event started (decided on this call, no scheduler) — is 409 QUESTION_REVIEW_NOT_OUTSTANDING with the state reached in the details. 404 QUESTION_REVIEW_NOT_FOUND for an unknown or malformed id. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Question Review ID */
+                    reviewID: string;
+                };
+                cookie?: never;
+            };
+            /** @description One verdict per item */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.answerQuestionReviewBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorQuestionReview"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/question-reviews/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count the outstanding Question Reviews
+         * @description Returns outstanding_count: how many Question Reviews are waiting on a Platform Operator across every Organization, the badge the Operator Dashboard wears beside the Payout Requests' (ADR 0056). Reviews whose Event has started are lapsed before counting, so it counts exactly what the queue lists. Zero is an ordinary answer. 404 TICKET_QUESTIONS_UNAVAILABLE while the feature is dark. Read-only. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorOutstandingQuestionReviewCount"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/sales/{confirmationRef}": {
         parameters: {
             query?: never;
@@ -9782,6 +10080,9 @@ export interface components {
             /** @description Text answers short_text and long_text. */
             text?: string;
         };
+        "handler.answerQuestionReviewBody": {
+            verdicts?: components["schemas"]["handler.questionReviewVerdictBody"][];
+        };
         "handler.assignmentLinkAnswerBody": {
             /** @description Checked answers checkbox. */
             checked?: boolean;
@@ -10142,6 +10443,11 @@ export interface components {
         "handler.questionReviewBody": {
             acknowledged?: boolean;
             note?: string;
+        };
+        "handler.questionReviewVerdictBody": {
+            item_id?: string;
+            reason?: string;
+            verdict?: string;
         };
         "handler.recordConsentWithdrawalBody": {
             marketing_consent?: boolean;
@@ -10623,6 +10929,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeOperatorOutstandingQuestionReviewCount": {
+            data?: components["schemas"]["service.OutstandingQuestionReviewCount"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeOperatorPayout": {
             data?: components["schemas"]["service.OperatorPayout"];
             error?: components["schemas"]["platform.APIError"];
@@ -10650,6 +10961,16 @@ export interface components {
         };
         "openapi.EnvelopeOperatorPendingPayoutRequestCount": {
             data?: components["schemas"]["service.PendingPayoutRequestCount"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeOperatorQuestionReview": {
+            data?: components["schemas"]["service.QuestionReview"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeOperatorQuestionReviewQueue": {
+            data?: components["schemas"]["service.QuestionReviewQueue"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -11914,6 +12235,50 @@ export interface components {
              */
             transfer_submitted_by?: string;
         };
+        "service.OperatorQuestionReviewItemView": {
+            id?: string;
+            option?: components["schemas"]["service.TicketQuestionOptionView"];
+            question?: components["schemas"]["service.OperatorTicketQuestion"];
+            reason?: string;
+            ticket_question_id?: string;
+            ticket_question_option_id?: string;
+            /**
+             * @description Verdict is `approved` or `refused` once the Operator has answered, with
+             *     the reason on a refusal; both absent until then.
+             */
+            verdict?: string;
+        };
+        "service.OperatorQuestionReviewView": {
+            /**
+             * @description AcknowledgedAt is when the submitter affirmed what the Organization was
+             *     choosing to collect: the record ADR 0056 says the acknowledgement is.
+             */
+            acknowledged_at?: string;
+            answered_at?: string;
+            /**
+             * @description AnsweredBy and AnsweredAt are how the Review ended, whichever way it did:
+             *     the Operator's verdict, a withdrawal, or the lapse.
+             */
+            answered_by?: string;
+            event_id?: string;
+            id?: string;
+            /**
+             * @description Items REPLACES the embedded payload's items with the same rows carrying
+             *     their question and Option shapes; empty on a queue row, full on the
+             *     detail.
+             */
+            items?: components["schemas"]["service.OperatorQuestionReviewItemView"][];
+            note?: string;
+            question_count?: number;
+            /** @description Status is outstanding, answered, withdrawn or lapsed. */
+            status?: string;
+            submitted_at?: string;
+            /**
+             * @description SubmittedBy is the submitter's email, so the record outlives their
+             *     Membership.
+             */
+            submitted_by?: string;
+        };
         /**
          * @description OperatorReversal is the money memo an Operator Reversal left (#125), and
          *     null on every sale reversed any other way. It is operator-facing only: it
@@ -11952,6 +12317,53 @@ export interface components {
              *     is stated in; the two are never the same thing.
              */
             timezone?: string;
+        };
+        "service.OperatorTicketQuestion": {
+            /**
+             * @description ApprovedBy names who approved it — a Platform Operator, or the
+             *     grandfathering migration — and is absent until somebody has.
+             */
+            approved_by?: string;
+            created_at?: string;
+            id?: string;
+            kind?: string;
+            label?: string;
+            /** @description Options is empty for the five kinds that are not answered by choosing. */
+            options?: components["schemas"]["service.TicketQuestionOptionView"][];
+            /** @description RefusalReason is the Operator's reason on a refused question. */
+            refusal_reason?: string;
+            /**
+             * @description Required produces an Outstanding Answer and nothing else. It is not a
+             *     constraint, and no surface may treat it as one.
+             */
+            required?: boolean;
+            /**
+             * @description Retired is true for a question kept only so that what has already been
+             *     answered still reads. Retired questions are returned so the authoring
+             *     surface can show them rather than appearing to have lost them.
+             */
+            retired?: boolean;
+            /**
+             * @description ReviewStatus is where the question stands with the Platform Operator
+             *     (ADR 0056): `draft`, `under_review`, `approved` or `refused`. Only an
+             *     approved question is asked of anybody. Read-only on this surface: the
+             *     verdicts are the Operator's and the submission is a Question Review's.
+             */
+            review_status?: string;
+            /**
+             * @description RevocationReason is the Operator's reason on a Revocation, which is why
+             *     a question that reads retired here stopped being asked.
+             */
+            revocation_reason?: string;
+            sort_order?: number;
+            ticket_type_id?: string;
+            ticket_type_name?: string;
+            /**
+             * @description Timing is 'at_checkout' on every row written so far; the field is here so
+             *     the Organization's choice can be honoured later without migrating Answers.
+             */
+            timing?: string;
+            updated_at?: string;
         };
         /**
          * @description Withdrew is what the act on this request TOOK AWAY, and is null on the
@@ -12037,6 +12449,9 @@ export interface components {
              */
             total?: number;
             total_pages?: number;
+        };
+        "service.OutstandingQuestionReviewCount": {
+            outstanding_count?: number;
         };
         "service.OutstandingQuestionView": {
             /**
@@ -12588,6 +13003,17 @@ export interface components {
              */
             ticket_questions?: components["schemas"]["service.PublicTicketQuestion"][];
         };
+        "service.QuestionReview": {
+            event?: components["schemas"]["service.QuestionReviewEvent"];
+            organization?: components["schemas"]["service.QuestionReviewOrganization"];
+            review?: components["schemas"]["service.OperatorQuestionReviewView"];
+        };
+        "service.QuestionReviewEvent": {
+            id?: string;
+            name?: string;
+            starts_at?: string;
+            timezone?: string;
+        };
         "service.QuestionReviewItemView": {
             id?: string;
             reason?: string;
@@ -12598,6 +13024,15 @@ export interface components {
              *     the reason on a refusal; both absent until then.
              */
             verdict?: string;
+        };
+        "service.QuestionReviewOrganization": {
+            id?: string;
+            name?: string;
+            slug?: string;
+        };
+        "service.QuestionReviewQueue": {
+            data?: components["schemas"]["service.QuestionReview"][];
+            pagination?: components["schemas"]["service.PageInfo"];
         };
         "service.QuestionReviewView": {
             /**

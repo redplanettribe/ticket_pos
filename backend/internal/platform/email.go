@@ -546,6 +546,35 @@ type QuestionReviewSubmitted struct {
 	Note string
 }
 
+// QuestionReviewAnswered tells the Member who submitted a Question Review
+// what the Platform Operator ruled, item by item (#407, ADR 0056). One is
+// sent, to submitted_by, in their Staff Locale: the record names one person,
+// and the verdict is theirs to act on.
+//
+// Unlike the submission notice this one DOES carry question text: the reader
+// wrote the questions, and a refusal without the words it refused would send
+// them to the editor to guess.
+type QuestionReviewAnswered struct {
+	To               string
+	Locale           Locale
+	OrganizationName string
+	EventName        string
+	// AnsweredBy is the Operator's email, so the Organization can reply to a
+	// person about a refusal.
+	AnsweredBy string
+	Items      []QuestionReviewAnsweredItem
+}
+
+// QuestionReviewAnsweredItem is one ruling: a question, or an Option of one
+// when OptionLabel is set. Verdict is `approved` or `refused`; Reason travels
+// on a refusal and is empty otherwise.
+type QuestionReviewAnsweredItem struct {
+	QuestionLabel string
+	OptionLabel   string
+	Verdict       string
+	Reason        string
+}
+
 type PayoutRequestSubmitted struct {
 	To string
 	// Locale is the language this operator reads, resolved from the Staff Locale
@@ -957,6 +986,9 @@ type EmailSender interface {
 	// SendQuestionReviewSubmitted tells one Platform Operator that an Event's
 	// questions are waiting for review (#406, ADR 0056).
 	SendQuestionReviewSubmitted(ctx context.Context, submitted QuestionReviewSubmitted) error
+	// SendQuestionReviewAnswered tells the submitter of a Question Review the
+	// Operator's verdict on each item (#407, ADR 0056).
+	SendQuestionReviewAnswered(ctx context.Context, answered QuestionReviewAnswered) error
 	SendPayoutRequestPaid(ctx context.Context, paid PayoutRequestPaid) error
 	SendPayoutRequestDeclined(ctx context.Context, declined PayoutRequestDeclined) error
 	SendPayoutRequestTransferSent(ctx context.Context, sent PayoutRequestTransferSent) error
@@ -1071,6 +1103,13 @@ func (s *LoggingEmailSender) SendQuestionReviewSubmitted(_ context.Context, q Qu
 	return nil
 }
 
+// SendQuestionReviewAnswered logs the submitter's notice of the verdicts. The
+// count is logged; no question is.
+func (s *LoggingEmailSender) SendQuestionReviewAnswered(_ context.Context, q QuestionReviewAnswered) error {
+	s.Logger.Info("question review answered notice sent", "email", q.To, "organization", q.OrganizationName, "event", q.EventName, "item_count", len(q.Items), "answered_by", q.AnsweredBy)
+	return nil
+}
+
 // SendPayoutRequestPaid logs the asker's notice that the transfer was made.
 func (s *LoggingEmailSender) SendPayoutRequestPaid(_ context.Context, p PayoutRequestPaid) error {
 	s.Logger.Info("payout request paid notice sent", "email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents, "requested_cents", p.RequestedCents)
@@ -1172,6 +1211,11 @@ func (NoopEmailSender) SendQuestionReviewSubmitted(_ context.Context, _ Question
 	return nil
 }
 
+// SendQuestionReviewAnswered discards the submitter's verdict notice.
+func (NoopEmailSender) SendQuestionReviewAnswered(_ context.Context, _ QuestionReviewAnswered) error {
+	return nil
+}
+
 // SendPayoutRequestPaid discards the asker's paid notice.
 func (NoopEmailSender) SendPayoutRequestPaid(_ context.Context, _ PayoutRequestPaid) error {
 	return nil
@@ -1266,7 +1310,10 @@ type CaptureEmailSender struct {
 	// The Question Review submission notices (#406, ADR 0056), one per
 	// allowlisted Operator, kept whole so a test can render each in its
 	// recipient's Mail Locale.
-	SubmittedQuestionReviews   []QuestionReviewSubmitted
+	SubmittedQuestionReviews []QuestionReviewSubmitted
+	// The Question Review verdict notices (#407, ADR 0056), one per answered
+	// Review, to its submitter.
+	AnsweredQuestionReviews    []QuestionReviewAnswered
 	PaidPayoutRequests         []PayoutRequestPaid
 	DeclinedPayoutRequests     []PayoutRequestDeclined
 	TransferSentPayoutRequests []PayoutRequestTransferSent
@@ -1619,6 +1666,27 @@ func (s *CaptureEmailSender) SendQuestionReviewSubmitted(_ context.Context, q Qu
 	return nil
 }
 
+// QuestionReviewsAnswered returns a copy of the captured Question Review
+// verdict notices, in the order they were sent.
+func (s *CaptureEmailSender) QuestionReviewsAnswered() []QuestionReviewAnswered {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]QuestionReviewAnswered, len(s.AnsweredQuestionReviews))
+	copy(out, s.AnsweredQuestionReviews)
+	return out
+}
+
+// SendQuestionReviewAnswered records a delivered verdict notice.
+func (s *CaptureEmailSender) SendQuestionReviewAnswered(_ context.Context, q QuestionReviewAnswered) error {
+	if err := s.failed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.AnsweredQuestionReviews = append(s.AnsweredQuestionReviews, q)
+	return nil
+}
+
 // PayoutRequestsPaid returns a copy of the captured paid notices.
 func (s *CaptureEmailSender) PayoutRequestsPaid() []PayoutRequestPaid {
 	s.mu.Lock()
@@ -1711,6 +1779,7 @@ func (s *CaptureEmailSender) Reset() {
 	s.NoLongerHoldings = nil
 	s.SubmittedPayoutRequests = nil
 	s.SubmittedQuestionReviews = nil
+	s.AnsweredQuestionReviews = nil
 	s.PaidPayoutRequests = nil
 	s.DeclinedPayoutRequests = nil
 	s.RevokedTicketQuestions = nil

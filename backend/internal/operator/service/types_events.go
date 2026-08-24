@@ -16,3 +16,7 @@ type TicketQuestion = service.OperatorTicketQuestion
 // RevokedTicketQuestion is the question as it stands after a Revocation:
 // retired, still approved, carrying the reason.
 type RevokedTicketQuestion = service.TicketQuestionView
+
+// QuestionReview is one Question Review with its Organization and Event
+// beside it, as the Operator's queue and detail read it (#407, ADR 0056).
+type QuestionReview = service.OperatorQuestionReview

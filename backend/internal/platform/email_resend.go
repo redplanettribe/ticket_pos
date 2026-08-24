@@ -318,6 +318,17 @@ func (s *ResendEmailSender) SendQuestionReviewSubmitted(ctx context.Context, q Q
 	return nil
 }
 
+// SendQuestionReviewAnswered delivers the submitter's notice of the Operator's
+// verdicts (#407, ADR 0056). Best-effort: the verdicts are recorded and read
+// in the editor whether or not anybody was told.
+func (s *ResendEmailSender) SendQuestionReviewAnswered(ctx context.Context, q QuestionReviewAnswered) error {
+	if err := s.send(ctx, q.To, q.Subject(), q.Text()); err != nil {
+		s.logger.Error("resend send question review answered failed", "organization", q.OrganizationName, "error", err)
+		return err
+	}
+	return nil
+}
+
 // SendPayoutRequestPaid delivers the asker's notice that the transfer was made.
 // Best-effort: the Payout is the fact, and a failure here leaves an organizer
 // who finds out from their bank instead.

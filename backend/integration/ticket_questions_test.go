@@ -21,7 +21,8 @@ type ticketQuestion struct {
 	// "absent" from "empty": a draft carries no author at all.
 	ReviewStatus string  `json:"review_status"`
 	ApprovedBy   *string `json:"approved_by"`
-	// RevocationReason is the Operator's reason on a Revocation (#410).
+	// RefusalReason and RevocationReason are the Operator's reasons (#407, #410).
+	RefusalReason    *string `json:"refusal_reason"`
 	RevocationReason *string `json:"revocation_reason"`
 	Options          []struct {
 		ID           string  `json:"id"`

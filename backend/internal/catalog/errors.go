@@ -721,3 +721,38 @@ func ErrQuestionReviewNotOutstanding(status string) apperror.DomainError {
 		map[string]any{"status": status},
 	)
 }
+
+// The Operator's answer (#407, ADR 0056): three refusals of the body, each
+// naming the item in its details so a refusal over one item of six names the
+// one. All three are 400s: the body is wrong, and the same body retried is
+// wrong again.
+
+// ErrQuestionReviewVerdictRequired is returned when an item of the Review was
+// given no verdict. The answer is one act: every item is ruled on, or none is.
+func ErrQuestionReviewVerdictRequired(itemID string) apperror.DomainError {
+	return apperror.New(
+		"QUESTION_REVIEW_VERDICT_REQUIRED",
+		"Every question and option in the review needs a verdict.",
+		map[string]any{"item_id": itemID},
+	)
+}
+
+// ErrQuestionReviewReasonRequired is returned when a refusal carries no
+// reason. A refusal is what the Organization reads to change the question.
+func ErrQuestionReviewReasonRequired(itemID string) apperror.DomainError {
+	return apperror.New(
+		"QUESTION_REVIEW_REASON_REQUIRED",
+		"A refused question or option needs a reason the organization can read.",
+		map[string]any{"item_id": itemID},
+	)
+}
+
+// ErrQuestionReviewUnknownItem is returned when a verdict names an item the
+// Review does not carry.
+func ErrQuestionReviewUnknownItem(itemID string) apperror.DomainError {
+	return apperror.New(
+		"QUESTION_REVIEW_UNKNOWN_ITEM",
+		"The review does not carry that item.",
+		map[string]any{"item_id": itemID},
+	)
+}

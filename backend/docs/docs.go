@@ -37,6 +37,18 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.answerQuestionReviewBody": {
+                "properties": {
+                    "verdicts": {
+                        "items": {
+                            "$ref": "#/components/schemas/handler.questionReviewVerdictBody"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "handler.assignmentLinkAnswerBody": {
                 "properties": {
                     "checked": {
@@ -624,6 +636,20 @@ const docTemplate = `{
                         "type": "boolean"
                     },
                     "note": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.questionReviewVerdictBody": {
+                "properties": {
+                    "item_id": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "verdict": {
                         "type": "string"
                     }
                 },
@@ -1745,6 +1771,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeOperatorOutstandingQuestionReviewCount": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.OutstandingQuestionReviewCount"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeOperatorPayout": {
                 "properties": {
                     "data": {
@@ -1819,6 +1859,34 @@ const docTemplate = `{
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/service.PendingPayoutRequestCount"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeOperatorQuestionReview": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.QuestionReview"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeOperatorQuestionReviewQueue": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.QuestionReviewQueue"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -3496,6 +3564,80 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.OperatorQuestionReviewItemView": {
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "option": {
+                        "$ref": "#/components/schemas/service.TicketQuestionOptionView"
+                    },
+                    "question": {
+                        "$ref": "#/components/schemas/service.OperatorTicketQuestion"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "ticket_question_id": {
+                        "type": "string"
+                    },
+                    "ticket_question_option_id": {
+                        "type": "string"
+                    },
+                    "verdict": {
+                        "description": "Verdict is ` + "`" + `approved` + "`" + ` or ` + "`" + `refused` + "`" + ` once the Operator has answered, with\nthe reason on a refusal; both absent until then.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OperatorQuestionReviewView": {
+                "properties": {
+                    "acknowledged_at": {
+                        "description": "AcknowledgedAt is when the submitter affirmed what the Organization was\nchoosing to collect: the record ADR 0056 says the acknowledgement is.",
+                        "type": "string"
+                    },
+                    "answered_at": {
+                        "type": "string"
+                    },
+                    "answered_by": {
+                        "description": "AnsweredBy and AnsweredAt are how the Review ended, whichever way it did:\nthe Operator's verdict, a withdrawal, or the lapse.",
+                        "type": "string"
+                    },
+                    "event_id": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "items": {
+                        "description": "Items REPLACES the embedded payload's items with the same rows carrying\ntheir question and Option shapes; empty on a queue row, full on the\ndetail.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.OperatorQuestionReviewItemView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "note": {
+                        "type": "string"
+                    },
+                    "question_count": {
+                        "type": "integer"
+                    },
+                    "status": {
+                        "description": "Status is outstanding, answered, withdrawn or lapsed.",
+                        "type": "string"
+                    },
+                    "submitted_at": {
+                        "type": "string"
+                    },
+                    "submitted_by": {
+                        "description": "SubmittedBy is the submitter's email, so the record outlives their\nMembership.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.OperatorReversalMemo": {
                 "description": "OperatorReversal is the money memo an Operator Reversal left (#125), and\nnull on every sale reversed any other way. It is operator-facing only: it\nrides this payload, which nobody but a Platform Operator can reach, and no\nOrganization-facing surface carries it.",
                 "properties": {
@@ -3546,6 +3688,71 @@ const docTemplate = `{
                     },
                     "timezone": {
                         "description": "Timezone is the EVENT's own zone, which interprets its schedule. It is not\nthe platform's Ecuadorian clock, which is what the Reversal Window's cutoff\nis stated in; the two are never the same thing.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OperatorTicketQuestion": {
+                "properties": {
+                    "approved_by": {
+                        "description": "ApprovedBy names who approved it — a Platform Operator, or the\ngrandfathering migration — and is absent until somebody has.",
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "options": {
+                        "description": "Options is empty for the five kinds that are not answered by choosing.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.TicketQuestionOptionView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "refusal_reason": {
+                        "description": "RefusalReason is the Operator's reason on a refused question.",
+                        "type": "string"
+                    },
+                    "required": {
+                        "description": "Required produces an Outstanding Answer and nothing else. It is not a\nconstraint, and no surface may treat it as one.",
+                        "type": "boolean"
+                    },
+                    "retired": {
+                        "description": "Retired is true for a question kept only so that what has already been\nanswered still reads. Retired questions are returned so the authoring\nsurface can show them rather than appearing to have lost them.",
+                        "type": "boolean"
+                    },
+                    "review_status": {
+                        "description": "ReviewStatus is where the question stands with the Platform Operator\n(ADR 0056): ` + "`" + `draft` + "`" + `, ` + "`" + `under_review` + "`" + `, ` + "`" + `approved` + "`" + ` or ` + "`" + `refused` + "`" + `. Only an\napproved question is asked of anybody. Read-only on this surface: the\nverdicts are the Operator's and the submission is a Question Review's.",
+                        "type": "string"
+                    },
+                    "revocation_reason": {
+                        "description": "RevocationReason is the Operator's reason on a Revocation, which is why\na question that reads retired here stopped being asked.",
+                        "type": "string"
+                    },
+                    "sort_order": {
+                        "type": "integer"
+                    },
+                    "ticket_type_id": {
+                        "type": "string"
+                    },
+                    "ticket_type_name": {
+                        "type": "string"
+                    },
+                    "timing": {
+                        "description": "Timing is 'at_checkout' on every row written so far; the field is here so\nthe Organization's choice can be honoured later without migrating Answers.",
+                        "type": "string"
+                    },
+                    "updated_at": {
                         "type": "string"
                     }
                 },
@@ -3687,6 +3894,14 @@ const docTemplate = `{
                         "type": "integer"
                     },
                     "total_pages": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OutstandingQuestionReviewCount": {
+                "properties": {
+                    "outstanding_count": {
                         "type": "integer"
                     }
                 },
@@ -4409,6 +4624,37 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.QuestionReview": {
+                "properties": {
+                    "event": {
+                        "$ref": "#/components/schemas/service.QuestionReviewEvent"
+                    },
+                    "organization": {
+                        "$ref": "#/components/schemas/service.QuestionReviewOrganization"
+                    },
+                    "review": {
+                        "$ref": "#/components/schemas/service.OperatorQuestionReviewView"
+                    }
+                },
+                "type": "object"
+            },
+            "service.QuestionReviewEvent": {
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "starts_at": {
+                        "type": "string"
+                    },
+                    "timezone": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.QuestionReviewItemView": {
                 "properties": {
                     "id": {
@@ -4426,6 +4672,35 @@ const docTemplate = `{
                     "verdict": {
                         "description": "Verdict is ` + "`" + `approved` + "`" + ` or ` + "`" + `refused` + "`" + ` once the Operator has answered, with\nthe reason on a refusal; both absent until then.",
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.QuestionReviewOrganization": {
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "slug": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.QuestionReviewQueue": {
+                "properties": {
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.QuestionReview"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "pagination": {
+                        "$ref": "#/components/schemas/service.PageInfo"
                     }
                 },
                 "type": "object"
@@ -8962,6 +9237,310 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Mark a Payout Request as processing — the transfer is submitted, the bank has not confirmed it",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/question-reviews": {
+            "get": {
+                "description": "Returns a page of every OUTSTANDING Question Review across every Organization on the platform — the Operator's second work queue, beside the Payout Requests (ADR 0056). Ordered OLDEST FIRST, on the Payout Request queue's reasoning: the Review that has waited longest is the one whose Event is nearest. Each row carries the Review (status, note, acknowledgement instant, who submitted it and when, how many questions it carries — Options not counted — and its items without their shapes) with the Organization and the Event, including the Event's start, which is the instant the Review lapses. THE LAPSE IS DECIDED ON THIS READ: a Review whose Event has started is marked ` + "`" + `lapsed` + "`" + ` and its questions returned to draft before the page is built, so nothing here is ever past answering. Answered, withdrawn and lapsed Reviews are not in the queue; they stay readable by id. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100) and page floors at 1. 404 TICKET_QUESTIONS_UNAVAILABLE while the feature is dark (ADR 0045). Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Page number (1-based; floors at 1)",
+                        "in": "query",
+                        "name": "page",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Page size (default 50, max 100)",
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorQuestionReviewQueue"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List every outstanding Question Review, oldest first",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/question-reviews/count": {
+            "get": {
+                "description": "Returns outstanding_count: how many Question Reviews are waiting on a Platform Operator across every Organization, the badge the Operator Dashboard wears beside the Payout Requests' (ADR 0056). Reviews whose Event has started are lapsed before counting, so it counts exactly what the queue lists. Zero is an ordinary answer. 404 TICKET_QUESTIONS_UNAVAILABLE while the feature is dark. Read-only. Platform Operator only.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorOutstandingQuestionReviewCount"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Count the outstanding Question Reviews",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/question-reviews/{reviewID}": {
+            "get": {
+                "description": "Returns one Question Review whole, in any state: the Review with its Organization and Event (name, start instant, timezone), and each item carrying the WHOLE question it names — label, kind, required-ness, timing, every Option with its own review columns, and the Ticket Type it hangs off — plus, for an Option item, the Option itself, so a ruling on \"Chicken\" is read under the question that offers it. Verdicts and reasons are on the items once answered and absent until then. The lapse is decided on this read: a Review whose Event has started reads ` + "`" + `lapsed` + "`" + `, with answered_by naming the lapse and its questions back in draft. An unknown or malformed id is 404 QUESTION_REVIEW_NOT_FOUND; 404 TICKET_QUESTIONS_UNAVAILABLE while the feature is dark. Read-only. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Question Review ID",
+                        "in": "path",
+                        "name": "reviewID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorQuestionReview"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Get one Question Review with every item's question and Option",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/question-reviews/{reviewID}/answer": {
+            "post": {
+                "description": "Records the Operator's answer to one outstanding Question Review as ONE ACT with a verdict PER ITEM (ADR 0056): every question and Option the Review carries is ` + "`" + `approved` + "`" + `, or ` + "`" + `refused` + "`" + ` with a reason the Organization reads. Who answered is taken from the Staff Session, never from the body. THE BODY IS CHECKED WHOLE BEFORE ANYTHING IS WRITTEN and each refusal names the item in its details: an item without a verdict is 400 QUESTION_REVIEW_VERDICT_REQUIRED, a refusal without a reason is 400 QUESTION_REVIEW_REASON_REQUIRED, and a verdict naming an item the Review does not carry is 400 QUESTION_REVIEW_UNKNOWN_ITEM. Reasons are trimmed and bounded at 500 characters. On success, in one transaction: the Review becomes ` + "`" + `answered` + "`" + ` with answered_by/answered_at, each item takes its verdict and reason, each approved question and Option becomes ` + "`" + `approved` + "`" + ` with the Operator's authorship and starts collecting on the spot — asked at checkout and in the Customer Area, chased by the Answer Reminder, counted on the Holder List, given a column in the Sales Export — and each refused one becomes ` + "`" + `refused` + "`" + ` carrying the reason, shown in the Organization's editor, asked of nobody, and editable: its first edit returns it to ` + "`" + `draft` + "`" + `. The submitter is mailed the verdicts, item by item, in their Mail Locale. A Review that is no longer outstanding — answered by a colleague, withdrawn by the Organization, or lapsed because its Event started (decided on this call, no scheduler) — is 409 QUESTION_REVIEW_NOT_OUTSTANDING with the state reached in the details. 404 QUESTION_REVIEW_NOT_FOUND for an unknown or malformed id. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Question Review ID",
+                        "in": "path",
+                        "name": "reviewID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.answerQuestionReviewBody",
+                                        "summary": "body",
+                                        "description": "One verdict per item"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "One verdict per item",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorQuestionReview"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Answer a Question Review: a verdict per item, refusals with a reason",
                 "tags": [
                     "operator"
                 ]
