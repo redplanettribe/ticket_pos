@@ -1,5 +1,7 @@
 # Affiliate Attribution: last click, remembered for seven days, snapshotted at checkout-begin
 
+> Amended by ADR 0057: the rejection of stored view data is partially reopened — affiliate traffic is now counted in anonymous hourly buckets (never per-view rows). The attribution model here is unchanged.
+
 ## Context
 
 An Affiliate Link is a named, trackable link to an Event's page, created so an organizer can see

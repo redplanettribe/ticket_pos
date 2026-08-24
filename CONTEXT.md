@@ -503,6 +503,17 @@ How long a buyer's click on an Affiliate Link is remembered for Affiliate Attrib
 A platform rule chosen for display-only stats — generous enough to credit "clicked on the bus, bought at home", accepted cost that the buyer might have returned anyway.
 _Avoid_: Cookie lifetime, lookback window, click validity period
 
+**Attribution Rate**:
+Attributed Sales divided by Clicks for an Affiliate Link over some span of time.
+Inherits every caveat of Affiliate Attribution: the numerator is a floor on what the link drove, so the rate is a floor too — a low rate says less than it seems, and it never measures buyer behaviour.
+_Avoid_: Conversion rate, conversion (in any form), CTR, effectiveness
+
+**Page View**:
+A single load of an Event's storefront page, counted anonymously into an hourly bucket.
+Counts loads, not people: refreshes, bots, and prefetches all count, and no visitor identity of any kind exists.
+A Page View that arrived through a live Affiliate Link is also counted as that link's Click — a Click is a Page View that carried a live link, and the gap between all Page Views and all Clicks is simply traffic that no link drove.
+_Avoid_: Visitor, unique view, session, impression, traffic (as the counter's name), hit
+
 **External Platform**:
 A third-party ticketing service through which tickets may be sold outside this system.
 Distinct from an Integration Partner, which manages this system programmatically rather than supplying sales to import.
