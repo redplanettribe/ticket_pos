@@ -512,7 +512,14 @@
     "rateChartLabelDaily": "Tasa de atribución por Enlace de Afiliado, las ventas atribuidas de cada día frente a los clics de ese día, un punto por día",
     "rateDetail": "{sales, plural, one {# venta atribuida} other {# ventas atribuidas}} ÷ {clicks, plural, one {# clic} other {# clics}}",
     "rateDetailOverall": "{sales, plural, one {# venta atribuida} other {# ventas atribuidas}} ÷ {views, plural, one {# vista de página} other {# vistas de página}}",
-    "rateNote": "La tasa divide las ventas atribuidas entre los clics, y ambos conteos son pisos. La atribución sigue a un enlace hasta siete días, así que una venta puede llegar días después del clic que la trajo; un tramo sin clics dibuja un hueco en lugar de inventar una cifra."
+    "rateNote": "La tasa divide las ventas atribuidas entre los clics, y ambos conteos son pisos. La atribución sigue a un enlace hasta siete días, así que una venta puede llegar días después del clic que la trajo; un tramo sin clics dibuja un hueco en lugar de inventar una cifra.",
+    "window_24h": "las últimas 24 horas",
+    "window_7d": "los últimos 7 días",
+    "window_30d": "los últimos 30 días",
+    "window_all": "todo el periodo",
+    "emptyWindow_clicks": "Nada contado en {window}. Amplíe el rango para ver clics anteriores: no se ha perdido nada.",
+    "emptyWindow_sales": "Ninguna Venta Atribuida en {window}. Amplíe el rango para ver ventas anteriores.",
+    "emptyWindow_rate": "Ninguna Tasa de Atribución en {window}: no se contaron clics entre los que dividir. Amplíe el rango para ver días anteriores."
   },
   "pos": {
     "title": "Punto de venta",

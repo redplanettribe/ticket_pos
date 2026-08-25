@@ -512,7 +512,14 @@
     "rateChartLabelDaily": "Attribution rate per Affiliate Link, each day's attributed sales against that day's clicks, one point per day",
     "rateDetail": "{sales, plural, one {# attributed sale} other {# attributed sales}} ÷ {clicks, plural, one {# click} other {# clicks}}",
     "rateDetailOverall": "{sales, plural, one {# attributed sale} other {# attributed sales}} ÷ {views, plural, one {# page view} other {# page views}}",
-    "rateNote": "The rate divides attributed sales by clicks, and both counts are floors. Attribution follows a link for up to seven days, so a sale can land days after the click that drove it — and a span with no clicks draws a gap rather than a made-up figure."
+    "rateNote": "The rate divides attributed sales by clicks, and both counts are floors. Attribution follows a link for up to seven days, so a sale can land days after the click that drove it — and a span with no clicks draws a gap rather than a made-up figure.",
+    "window_24h": "the last 24 hours",
+    "window_7d": "the last 7 days",
+    "window_30d": "the last 30 days",
+    "window_all": "the whole period",
+    "emptyWindow_clicks": "Nothing counted in {window}. Widen the range to see earlier clicks — nothing has been lost.",
+    "emptyWindow_sales": "No Attributed Sales in {window}. Widen the range to see earlier sales.",
+    "emptyWindow_rate": "No Attribution Rate in {window}: no clicks were counted to divide by. Widen the range to see earlier days."
   },
   "pos": {
     "title": "Point of sale",

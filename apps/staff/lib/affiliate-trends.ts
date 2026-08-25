@@ -987,3 +987,116 @@ export function countYTicks(yMax: number): number[] {
   const step = yMax / divisions;
   return Array.from({ length: divisions + 1 }, (_, index) => index * step);
 }
+
+/**
+ * What the legend lists for one window and metric, and what the plot draws of
+ * it (#431). `listed` is every series with something to say — busiest first,
+ * the whole page pinned ahead — and is the legend's chips; `drawn` is the
+ * listed series the reader has selected, in the same order, and is the lines.
+ * `empty` says nothing at all was counted for this view in this window,
+ * whatever is selected: the chart gives way to a message naming the window.
+ */
+export type ListedTrendsSeries = {
+  listed: string[];
+  drawn: string[];
+  empty: boolean;
+};
+
+/**
+ * listTrendsSeries is the one derivation the Link Trends legend, lines and
+ * tooltip all read from: which series have something to say in the window
+ * chosen, and in what order. A link with nothing in the span is unlisted —
+ * not removed; widening the range lists it again — so a reader on 24h sees
+ * the links that are moving now and not a wall of chips over flat zero lines.
+ *
+ * "Has a value" is per view, and read off the builders rather than restated:
+ * the counting views list a series with at least one non-zero point in the
+ * window; the Rate view lists one with at least one non-null point in what
+ * `rateSeries` already draws — so a 0% link (clicks, no sales) is listed, a
+ * no-click link is not, and Cumulative's carry-forward lists a link whose
+ * clicks predate the window where Daily does not. The whole page follows the
+ * same rule, and stays off the sales view as it always has.
+ *
+ * Order: the whole page first if listed, then links by descending window total
+ * (their clicks on the Rate view — the division's denominator), ties in the
+ * API's order. Colour is NOT this order's business — it stays keyed on the API
+ * index so a link never recolours as the listing changes shape.
+ *
+ * `selected` is an input and never rewritten: an unlisted link keeps whatever
+ * selected/dimmed state it had for the range that lists it again.
+ */
+export function listTrendsSeries(
+  trends: Pick<AffiliateTrends, "timezone" | "links" | "view_buckets" | "sales_buckets">,
+  selected: readonly string[],
+  metric: AffiliateTrendsMetric,
+  range: AffiliateTrendsRange,
+  granularity: AffiliateTrendsGranularity,
+  rateView: AffiliateRateView,
+  now: Date,
+): ListedTrendsSeries {
+  const order = [ALL_PAGE_VIEWS_ID, ...trends.links.map((link) => link.id)];
+  // The labels are never read here, so the locale is immaterial.
+  const locale: AppLocale = "en";
+
+  // Per series: whether it said anything, and how much — the window total the
+  // order is settled by.
+  const totals = new Map<string, number>();
+  const spoke = new Set<string>();
+  if (metric === "rate") {
+    const data = rateSeries(trends, order, range, now, locale, rateView);
+    for (const datum of data) {
+      for (const [id, value] of Object.entries(datum.values)) {
+        if (value !== null) {
+          spoke.add(id);
+        }
+      }
+    }
+    // The window's clicks, day by day, whichever reading is drawn: Cumulative's
+    // denominators carry history, and a running sum is not a window total.
+    const daily = rateView === "daily" ? data : rateSeries(trends, order, range, now, locale, "daily");
+    for (const datum of daily) {
+      for (const [id, figures] of Object.entries(datum.details)) {
+        totals.set(id, (totals.get(id) ?? 0) + figures.denominator);
+      }
+    }
+  } else {
+    const data =
+      metric === "sales"
+        ? salesSeries(trends, order, range, now, locale, granularity)
+        : viewsSeries(trends, order, range, now, locale, granularity);
+    for (const datum of data) {
+      for (const [id, value] of Object.entries(datum.values)) {
+        if (value > 0) {
+          spoke.add(id);
+          totals.set(id, (totals.get(id) ?? 0) + value);
+        }
+      }
+    }
+  }
+
+  const links = order.slice(1).filter((id) => spoke.has(id));
+  // A stable sort keeps the API order between equal totals.
+  links.sort((a, b) => (totals.get(b) ?? 0) - (totals.get(a) ?? 0));
+  const listed = spoke.has(ALL_PAGE_VIEWS_ID) ? [ALL_PAGE_VIEWS_ID, ...links] : links;
+  const drawn = listed.filter((id) => selected.includes(id));
+  return { listed, drawn, empty: listed.length === 0 };
+}
+
+/**
+ * toggleListedSeries is `toggleSeriesSelection` as the Link Trends legend
+ * needs it: the chip that cannot be deselected is the last LISTED one still
+ * on, not the last selected id — a selected link the window does not list is
+ * not on the chart, and must not count as "something is still drawn".
+ */
+export function toggleListedSeries(
+  order: readonly string[],
+  listed: readonly string[],
+  selected: readonly string[],
+  id: string,
+): string[] {
+  const drawn = selected.filter((entry) => listed.includes(entry));
+  if (drawn.length <= 1 && drawn.includes(id)) {
+    return [...selected];
+  }
+  return toggleSeriesSelection(order, selected, id);
+}
