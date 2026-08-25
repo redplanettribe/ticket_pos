@@ -518,8 +518,8 @@
     "window_30d": "los últimos 30 días",
     "window_all": "todo el periodo",
     "emptyWindow_clicks": "Nada contado en {window}. Amplíe el rango para ver clics anteriores: no se ha perdido nada.",
-    "emptyWindow_sales": "Ninguna Venta Atribuida en {window}. Amplíe el rango para ver ventas anteriores.",
-    "emptyWindow_rate": "Ninguna Tasa de Atribución en {window}: no se contaron clics entre los que dividir. Amplíe el rango para ver días anteriores.",
+    "emptyWindow_sales": "Ninguna venta atribuida en {window}. Amplíe el rango para ver ventas anteriores.",
+    "emptyWindow_rate": "Ninguna tasa de atribución en {window}: no se contaron clics entre los que dividir. Amplíe el rango para ver días anteriores.",
     "tooltipNothingCounted": "Nada contado",
     "showAllChips": "Mostrar los {count}",
     "showFewerChips": "Mostrar menos"

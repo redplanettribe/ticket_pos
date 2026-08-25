@@ -285,7 +285,7 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
                   numerous, and its chips are the reading. */}
               <ChartLegendChips
                 chips={chips}
-                selected={selected}
+                selected={listing.drawn}
                 onToggle={onToggle}
                 ariaLabel={t("chipsLabel")}
                 collapsible={collapseLabels}

@@ -518,8 +518,8 @@
     "window_30d": "the last 30 days",
     "window_all": "the whole period",
     "emptyWindow_clicks": "Nothing counted in {window}. Widen the range to see earlier clicks — nothing has been lost.",
-    "emptyWindow_sales": "No Attributed Sales in {window}. Widen the range to see earlier sales.",
-    "emptyWindow_rate": "No Attribution Rate in {window}: no clicks were counted to divide by. Widen the range to see earlier days.",
+    "emptyWindow_sales": "No attributed sales in {window}. Widen the range to see earlier sales.",
+    "emptyWindow_rate": "No attribution rate in {window}: no clicks were counted to divide by. Widen the range to see earlier days.",
     "tooltipNothingCounted": "Nothing counted",
     "showAllChips": "Show all {count}",
     "showFewerChips": "Show fewer"

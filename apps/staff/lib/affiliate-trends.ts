@@ -16,8 +16,10 @@ import { staffIntlLocale, type AppLocale } from "./format.ts";
  * carried a live link. Copy built over these numbers must say so.
  */
 
-/** An Affiliate Link as the legend reads it: the Event's whole set, newest
- * first, deactivated ones included, so the legend never changes shape. */
+/** An Affiliate Link as the payload lists it: the Event's whole set, newest
+ * first, deactivated ones included. The legend lists only those with
+ * something to say in the window (see `listTrendsSeries`); this order is what
+ * keys their colours, so a link never recolours as the listing changes. */
 export type AffiliateTrendsLink = {
   id: string;
   name: string;
@@ -1023,7 +1025,11 @@ export type ListedTrendsSeries = {
  * index so a link never recolours as the listing changes shape.
  *
  * `selected` is an input and never rewritten: an unlisted link keeps whatever
- * selected/dimmed state it had for the range that lists it again.
+ * selected/dimmed state it had for the range that lists it again. When the
+ * selection meets nothing this window lists — the reader dimmed a link on 7d
+ * and 24h lists only that link — every listed series is drawn rather than
+ * none: something is always on the chart, and the selection still stands for
+ * the window it was made in.
  */
 export function listTrendsSeries(
   trends: Pick<AffiliateTrends, "timezone" | "links" | "view_buckets" | "sales_buckets">,
@@ -1078,7 +1084,8 @@ export function listTrendsSeries(
   // A stable sort keeps the API order between equal totals.
   links.sort((a, b) => (totals.get(b) ?? 0) - (totals.get(a) ?? 0));
   const listed = spoke.has(ALL_PAGE_VIEWS_ID) ? [ALL_PAGE_VIEWS_ID, ...links] : links;
-  const drawn = listed.filter((id) => selected.includes(id));
+  const chosen = listed.filter((id) => selected.includes(id));
+  const drawn = chosen.length > 0 ? chosen : listed;
   return { listed, drawn, empty: listed.length === 0 };
 }
 

@@ -48,9 +48,8 @@ export type MultiSeriesLineChartProps = {
    * is what a counting view means by zero. See `tooltipRows`. */
   zeroIsMeasured?: boolean;
   /** What the hover card says for a bucket in which no drawn series counted
-   * anything. English by default so the chart stands alone; a localised
-   * surface passes its own. */
-  nothingCountedLabel?: string;
+   * anything. Passed in by the surface, which owns its words. */
+  nothingCountedLabel: string;
   syncId?: string;
   height?: number;
   ariaLabel: string;
@@ -83,7 +82,7 @@ export function MultiSeriesLineChart({
   formatTickValue,
   formatSeriesDetail,
   zeroIsMeasured = false,
-  nothingCountedLabel = "Nothing counted",
+  nothingCountedLabel,
   syncId,
   height = 320,
   ariaLabel,

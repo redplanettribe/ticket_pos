@@ -921,9 +921,20 @@ test("a window in which nothing was counted is empty, whichever series are selec
   // The same data is not empty on the week — the window, not the history, is empty.
   const week = listTrendsSeries(trends, ALL_SELECTED, "clicks", "7d", "hour", "cumulative", NOW);
   assert.equal(week.empty, false);
-  // Deselecting everything listed empties the plot, not the window.
-  const dimmed = listTrendsSeries(trends, [LINK_B], "clicks", "7d", "hour", "cumulative", NOW);
-  assert.deepEqual(dimmed, { listed: [ALL_PAGE_VIEWS_ID, LINK_A], drawn: [], empty: false });
+  // A selection that meets nothing listed draws everything listed: the reader
+  // dimmed a link on one window, and this window lists only that link. Nothing
+  // drawn is never the answer, and `selected` is not rewritten for it.
+  const chosen = [LINK_B];
+  const dimmed = listTrendsSeries(trends, chosen, "clicks", "7d", "hour", "cumulative", NOW);
+  assert.deepEqual(dimmed, {
+    listed: [ALL_PAGE_VIEWS_ID, LINK_A],
+    drawn: [ALL_PAGE_VIEWS_ID, LINK_A],
+    empty: false,
+  });
+  assert.deepEqual(chosen, [LINK_B]);
+  // Once one listed series is chosen, only the chosen are drawn.
+  const one = listTrendsSeries(trends, [LINK_A, LINK_B], "clicks", "7d", "hour", "cumulative", NOW);
+  assert.deepEqual(one.drawn, [LINK_A]);
 });
 
 test("the deselect guard refuses only on the last LISTED chip", () => {
