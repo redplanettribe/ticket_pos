@@ -16,6 +16,7 @@ test("the operator sees each job of the dashboard as its own destination, in ord
     "payoutRequests",
     "findSale",
     "customerConsent",
+    "taxInvoicing",
   ]);
 });
 
@@ -28,6 +29,7 @@ test("the entries point at the operator surface", () => {
       "/operator/payout-requests",
       "/operator/sales",
       "/operator/consent",
+      "/operator/invoicing/issuer",
     ],
   );
 });
@@ -60,19 +62,23 @@ test("the consent surface lights Customer consent alone", () => {
   assert.deepEqual(activeKeys("/operator/consent"), ["customerConsent"]);
 });
 
+test("the issuer page lights Tax invoicing alone", () => {
+  assert.deepEqual(activeKeys("/operator/invoicing/issuer"), ["taxInvoicing"]);
+});
+
 // --- the pending count -----------------------------------------------------
 
 test("the pending count is worn by Payout Requests and by nothing else", () => {
   const items = operatorNavItems({ payoutRequestBadge: "3" });
   assert.deepEqual(
     items.map((item) => item.badge ?? null),
-    [null, null, "3", null, null],
+    [null, null, "3", null, null, null],
   );
 });
 
 test("nothing waiting means no entry wears anything", () => {
   assert.deepEqual(
     operatorNavItems({ payoutRequestBadge: null }).map((item) => item.badge ?? null),
-    [null, null, null, null, null],
+    [null, null, null, null, null, null],
   );
 });

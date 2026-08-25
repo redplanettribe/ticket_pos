@@ -173,6 +173,9 @@ func operatorRoutes(orgID string) []struct {
 		{http.MethodGet, "/api/v1/operator/organizations"},
 		{http.MethodGet, "/api/v1/operator/organizations/" + orgID},
 		{http.MethodPost, "/api/v1/operator/organizations/" + orgID + "/payouts"},
+		// The Tax invoicing surface (#451, ADR 0059) is on the same namespace
+		// behind the same gate; its PUT is asserted in invoicing_test.go.
+		{http.MethodGet, "/api/v1/operator/invoicing/issuers/ec"},
 	}
 }
 

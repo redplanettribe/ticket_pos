@@ -467,6 +467,44 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.ecuadorIssuerBody": {
+                "properties": {
+                    "agente_retencion": {
+                        "type": "string"
+                    },
+                    "direccion_establecimiento": {
+                        "type": "string"
+                    },
+                    "direccion_matriz": {
+                        "type": "string"
+                    },
+                    "environment": {
+                        "type": "string"
+                    },
+                    "establecimiento": {
+                        "type": "string"
+                    },
+                    "nombre_comercial": {
+                        "type": "string"
+                    },
+                    "obligado_contabilidad": {
+                        "type": "boolean"
+                    },
+                    "punto_emision": {
+                        "type": "string"
+                    },
+                    "razon_social": {
+                        "type": "string"
+                    },
+                    "regimen": {
+                        "type": "string"
+                    },
+                    "ruc": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.fulfilPayoutRequestBody": {
                 "properties": {
                     "amount_cents": {
@@ -1609,6 +1647,20 @@ const docTemplate = `{
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/service.WithdrawAllView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeEcuadorIssuer": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.EcuadorIssuer"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -3150,6 +3202,56 @@ const docTemplate = `{
                     "skipped": {
                         "description": "Skipped is Digests whose Customer had unsubscribed by the time the drain\nreached them (#224). NOTHING WAS COMPOSED for these, which is what\nseparates them from Empty: an empty Digest was worked out and found to say\nnothing, a skipped one was never worked out at all.\n\nIt is its own number for the reason ` + "`" + `skipped` + "`" + ` is its own status: \"their\nFollows matched nothing\" is a reason to look at the composition, and \"we\ndeliberately did not write to this person\" is the feature working. An\noperator who could not tell the two apart would read a week of unsubscribes\nas the matching having broken.\n\nIt counts only the narrow window the enqueue filter cannot cover — somebody\nwho unsubscribed after their Digest was already queued — so it is\nordinarily zero even in a week with many unsubscribes.",
                         "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.EcuadorIssuer": {
+                "properties": {
+                    "agente_retencion": {
+                        "type": "string"
+                    },
+                    "country": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "direccion_establecimiento": {
+                        "type": "string"
+                    },
+                    "direccion_matriz": {
+                        "type": "string"
+                    },
+                    "environment": {
+                        "type": "string"
+                    },
+                    "establecimiento": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "nombre_comercial": {
+                        "type": "string"
+                    },
+                    "obligado_contabilidad": {
+                        "type": "boolean"
+                    },
+                    "punto_emision": {
+                        "type": "string"
+                    },
+                    "razon_social": {
+                        "type": "string"
+                    },
+                    "regimen": {
+                        "type": "string"
+                    },
+                    "ruc": {
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -8728,6 +8830,126 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "List an Event's Ticket Questions for the Platform Operator",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/issuers/ec": {
+            "get": {
+                "description": "Returns the platform's registration with the SRI (ADR 0059): the environment it points at (` + "`" + `test` + "`" + ` = SRI pruebas, ` + "`" + `production` + "`" + ` = SRI producción) and the details every factura carries — RUC, razón social, nombre comercial, dirección matriz, dirección del establecimiento, establecimiento and punto de emisión codes, obligado a llevar contabilidad, régimen and the optional agente de retención resolution number. The data payload is ` + "`" + `null` + "`" + ` when no Issuer has been recorded, which is an ordinary state rather than an error. Platform Operator only.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeEcuadorIssuer"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Get the platform's Ecuador Issuer",
+                "tags": [
+                    "operator"
+                ]
+            },
+            "put": {
+                "description": "Creates the Ecuador Issuer on the first call and replaces its details on every call after (ADR 0059). ` + "`" + `environment` + "`" + ` is ` + "`" + `test` + "`" + ` (SRI pruebas) or ` + "`" + `production` + "`" + ` (SRI producción) and may be switched freely in either direction. ` + "`" + `ruc` + "`" + ` is validated exactly as the platform validates a ` + "`" + `ruc` + "`" + ` Tax ID; ` + "`" + `establecimiento` + "`" + ` and ` + "`" + `punto_emision` + "`" + ` are three digits each; ` + "`" + `regimen` + "`" + ` is ` + "`" + `general` + "`" + `, ` + "`" + `rimpe_contribuyente` + "`" + ` or ` + "`" + `rimpe_negocio_popular` + "`" + `; ` + "`" + `nombre_comercial` + "`" + ` may be empty and ` + "`" + `agente_retencion` + "`" + ` may be null. Every failing field is named at once under VALIDATION_FAILED and nothing is stored when any fails. Returns the Issuer as stored. Platform Operator only.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.ecuadorIssuerBody",
+                                        "summary": "body",
+                                        "description": "The Issuer's environment and SRI details"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The Issuer's environment and SRI details",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeEcuadorIssuer"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Record the platform's Ecuador Issuer",
                 "tags": [
                     "operator"
                 ]

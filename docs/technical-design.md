@@ -143,6 +143,7 @@ backend/
     identity/      # Organizations, members, roles, Staff Sessions
     customers/     # Customer records, Customer Sessions, Confirmation Links, Customer Area reads
     integrations/  # Partner credentials and integration route wiring
+    invoicing/     # Tax invoicing: the platform's Issuer per country, Tax Invoices, the TaxAuthority seam (sri/ adapter)
     platform/      # DB pool, tx helpers, httputil (envelope + error mapping), tenancy middleware, OTP, Logger
   migrations/      # Plain SQL migration files
 ```
@@ -898,6 +899,42 @@ One file row = one Ticket Sale = one Ticket Sale Line. Grouping lines into one s
 - The **latest** committed batch per Event can be **undone** (reverse sales, restore capacity), sending void emails only when the caller opts in.
 - A reasonable row limit applies (target: 10,000 rows per batch).
 - Async processing and the `external_platform` source are deferred.
+
+## Tax invoicing
+
+The platform issues electronic facturas to Ecuador's SRI for the one taxable service it sells — the Platform Fee with its Fee IVA — by hand, from the Operator Dashboard (#450, ADR 0059; vocabulary in `CONTEXT.md` *Tax invoicing*).
+The platform is the **sole Issuer**: one RUC, one certificate, one set of authorizations per environment. No Organization is an emisor and no Member, Integration Partner or Customer route exists.
+
+### The `invoicing` module
+
+`internal/invoicing/` follows the domain / repository / service / handler split and is served on the operator namespace under `/api/v1/operator/invoicing/*`, behind the operator allowlist middleware and nothing else.
+It owns its own tables and, so far, reads none of anyone else's: no Sale, Payout or Organization is linked.
+
+It is a **thin cross-country core with a country adapter**:
+
+| Where | Owns |
+|-------|------|
+| `internal/invoicing` (core) | `Issuer` (id, country, environment, certificate custody from #452), `Environment` (`test` / `production` — the platform's words, never an authority's codes), the `TaxAuthority` seam, and from #454 the Tax Invoice, its lines and additional fields, and the append-only attempts ledger |
+| `internal/invoicing/sri` (Ecuador adapter) | Everything only the SRI cares about: the clave de acceso, the secuencial, factura XML v1.1.0 building, XAdES-BES signing, the SOAP transport and the SRI's error-code mapping |
+
+The **`TaxAuthority` seam** has two operations — *submit a prepared document* and *query the outcome by the authority's reference* — and the core drives the status machine (pending / authorized / not authorized / rejected) off those two calls.
+The adapter never touches a table; the core never learns SOAP, XML or an authority's error codes.
+A second country is a second adapter, a second Issuer row and a second detail table, never a column on the core.
+
+The country code is **visible in the route path** (`/operator/invoicing/issuers/ec`) so the seam is a fact of the API, not only of the code.
+The Ecuador Issuer's SRI details (`EcuadorIssuerDetails`: RUC, razón social, nombre comercial, both direcciones, establecimiento, punto de emisión, obligado a llevar contabilidad, régimen, optional agente de retención) currently sit in the core package as a self-contained file; they belong to the adapter and may move under `sri` without changing shape once that package exists.
+
+### Storage
+
+Migration 094 lands the Issuer only: `invoicing_issuers` (country unique, environment), `invoicing_issuers_ec` (the SRI details, one-to-one), and `invoicing_sequences_ec` keyed by (issuer, environment, cod_doc, estab, pto_emi), created on first use and bumped with a single `UPDATE … RETURNING` so two concurrent issues get distinct numbers.
+The Tax Invoice tables, the certificate columns and the freezes (RUC once any invoice exists; establecimiento and punto de emisión once a sequence row exists under them) are later migrations in the same series.
+Nothing issued is ever deleted.
+
+### The certificate key
+
+The signing `.p12` and its password are stored AES-256-GCM encrypted in Postgres under `INVOICING_CERTIFICATE_KEY` (32 bytes, base64; Secret Manager → env in production, `.env` locally), the way the Confirmation Link key is delivered.
+The key is absent-safe: the app boots and serves everything else without it, and only certificate upload and signing fail, with a specific error.
+Landing with #452.
 
 ## Local development
 

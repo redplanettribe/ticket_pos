@@ -156,4 +156,9 @@ const (
 	CodeTooManyItems = "TOO_MANY_ITEMS"
 	// CodeTooLong — "must be at most N characters".
 	CodeTooLong = "TOO_LONG"
+
+	// CodeInvalidSRICode — "must be exactly 3 digits": the SRI's establecimiento
+	// and punto de emisión codes on the Ecuador Issuer (#451), which appear as
+	// the first two groups of a número de comprobante (001-001-000000001).
+	CodeInvalidSRICode = "INVALID_SRI_CODE"
 )
