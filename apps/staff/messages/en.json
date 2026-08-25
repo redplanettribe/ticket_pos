@@ -520,7 +520,9 @@
     "emptyWindow_clicks": "Nothing counted in {window}. Widen the range to see earlier clicks — nothing has been lost.",
     "emptyWindow_sales": "No Attributed Sales in {window}. Widen the range to see earlier sales.",
     "emptyWindow_rate": "No Attribution Rate in {window}: no clicks were counted to divide by. Widen the range to see earlier days.",
-    "tooltipNothingCounted": "Nothing counted"
+    "tooltipNothingCounted": "Nothing counted",
+    "showAllChips": "Show all {count}",
+    "showFewerChips": "Show fewer"
   },
   "pos": {
     "title": "Point of sale",

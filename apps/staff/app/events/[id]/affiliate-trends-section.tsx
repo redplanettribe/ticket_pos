@@ -242,6 +242,16 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
     [listing, nameOf, colorOf],
   );
 
+  // The words on the legend's Show-all button, stated here because the UI
+  // package has no i18n and the count's grammar belongs to the locale.
+  const collapseLabels = useMemo(
+    () => ({
+      showAll: (count: number) => t("showAllChips", { count }),
+      showFewer: t("showFewerChips"),
+    }),
+    [t],
+  );
+
   // The last chip THIS window lists cannot be deselected: a still-selected
   // series the window does not list is not on the chart, so it must not count
   // as "something is still drawn".
@@ -269,11 +279,16 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
         ) : !trends ? null : hasTrendsData(trends) ? (
           <>
             <div className="flex flex-wrap items-center justify-between gap-3">
+              {/* Collapsed to three rows on a busy Event (#433): the chart is the
+                  point, and thirty chips would push it below the fold. Sales
+                  Trends' legend is not collapsed — a Ticket Type is never that
+                  numerous, and its chips are the reading. */}
               <ChartLegendChips
                 chips={chips}
                 selected={selected}
                 onToggle={onToggle}
                 ariaLabel={t("chipsLabel")}
+                collapsible={collapseLabels}
               />
               <div className="flex flex-wrap items-center gap-2">
                 {metricOptions.length > 1 ? (

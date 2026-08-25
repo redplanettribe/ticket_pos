@@ -3,6 +3,7 @@ export { Breadcrumb, type BreadcrumbItem } from "./components/breadcrumb";
 export {
   ChartLegendChips,
   type ChartLegendChip,
+  type ChartLegendChipsCollapseLabels,
   type ChartLegendChipsProps,
 } from "./components/charts/chart-legend-chips";
 export { ChartScrollArea, type ChartScrollAreaProps } from "./components/charts/chart-scroll-area";
