@@ -1270,3 +1270,20 @@ export async function previewOperatorInvoiceTotals(
     body: JSON.stringify({ lines }),
   });
 }
+
+// ---- The documents handed over (#456) ----------------------------------
+
+/** Where the browser downloads a Tax Invoice's signed XML from. */
+export function operatorInvoiceSignedXmlUrl(id: string): string {
+  return `${INVOICES_PATH}/${encodeURIComponent(id)}/xml`;
+}
+
+/** Where the browser downloads the SRI's authorization XML from; only an authorized invoice has one. */
+export function operatorInvoiceAuthorizationXmlUrl(id: string): string {
+  return `${INVOICES_PATH}/${encodeURIComponent(id)}/authorization-xml`;
+}
+
+/** The RIDE page: a print-styled rendering of the invoice. */
+export function operatorInvoiceRidePath(id: string): string {
+  return `/operator/invoicing/${encodeURIComponent(id)}/ride`;
+}

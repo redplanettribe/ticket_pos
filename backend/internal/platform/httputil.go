@@ -185,7 +185,7 @@ func domainHTTPStatus(code string) int {
 		return http.StatusConflict
 	case "INVOICE_INVALID":
 		return http.StatusBadRequest
-	case "INVOICE_NOT_FOUND":
+	case "INVOICE_NOT_FOUND", "AUTHORIZATION_XML_NOT_FOUND":
 		return http.StatusNotFound
 	case "NOT_FOUND", "ORGANIZATION_NOT_FOUND", "MEMBER_NOT_FOUND", "EVENT_NOT_FOUND":
 		return http.StatusNotFound

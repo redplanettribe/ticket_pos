@@ -28,6 +28,8 @@ import {
   fetchOperatorInvoice,
 } from "@/lib/operator-api";
 
+import { InvoiceDownloads } from "./invoice-downloads";
+
 // One Tax Invoice in full (#454): Recipient, the Issuer as snapshotted, the
 // lines and totals, the SRI's messages verbatim, the authorization number and
 // date once authorized, and the attempts ledger. Reading only; Check status,
@@ -223,6 +225,8 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
           )}
         </CardContent>
       </Card>
+
+      <InvoiceDownloads invoice={invoice} />
 
       <Card>
         <CardHeader>

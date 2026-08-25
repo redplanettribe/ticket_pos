@@ -9692,6 +9692,140 @@ const docTemplate = `{
                 ]
             }
         },
+        "/api/v1/operator/invoicing/invoices/{id}/authorization-xml": {
+            "get": {
+                "description": "Returns the SRI's ` + "`" + `\u003cautorizacion\u003e` + "`" + ` document for an authorized invoice — the legal proof: number, date, ambiente and the comprobante — exactly as the SRI returned it, as ` + "`" + `application/xml` + "`" + ` with ` + "`" + `Content-Disposition: attachment; filename=\"\u003cclave de acceso\u003e-autorizacion.xml\"` + "`" + `. An invoice that is pending, rejected or not authorized has no such document and answers AUTHORIZATION_XML_NOT_FOUND (404); INVOICE_NOT_FOUND (404) when there is no such invoice. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Tax Invoice id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/xml": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/xml": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/xml": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/xml": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Download a Tax Invoice's authorization XML",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/invoices/{id}/xml": {
+            "get": {
+                "description": "Returns the factura exactly as it was signed and sent to the SRI — byte for byte the stored document — as ` + "`" + `application/xml` + "`" + ` with ` + "`" + `Content-Disposition: attachment; filename=\"\u003cclave de acceso\u003e.xml\"` + "`" + `. Available in every status, since the document exists from the moment the number was consumed. INVOICE_NOT_FOUND (404) otherwise. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Tax Invoice id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/xml": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/xml": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/xml": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/xml": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Download a Tax Invoice's signed XML",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
         "/api/v1/operator/invoicing/issuers/ec": {
             "get": {
                 "description": "Returns the platform's registration with the SRI (ADR 0059): the environment it points at (` + "`" + `test` + "`" + ` = SRI pruebas, ` + "`" + `production` + "`" + ` = SRI producción) and the details every factura carries — RUC, razón social, nombre comercial, dirección matriz, dirección del establecimiento, establecimiento and punto de emisión codes, obligado a llevar contabilidad, régimen and the optional agente de retención resolution number. The data payload is ` + "`" + `null` + "`" + ` when no Issuer has been recorded, which is an ordinary state rather than an error. Platform Operator only.",
