@@ -19,14 +19,14 @@ test("Details is the index of the Event, not its owner", () => {
 test("a page beneath the Event lights its own entry alone", () => {
   assert.deepEqual(litAt("/events/evt_1/sales"), ["sales"]);
   assert.deepEqual(litAt("/events/evt_1/ticket-types"), ["ticketTypes"]);
-  assert.deepEqual(litAt("/events/evt_1/affiliate-links"), ["affiliateLinks"]);
+  assert.deepEqual(litAt("/events/evt_1/reach"), ["reach"]);
 });
 
 test("a sibling Event does not light this Event's entries", () => {
   assert.deepEqual(litAt("/events/evt_10"), []);
 });
 
-test("Affiliate Links stays owner-only; Sales is for every Member", () => {
+test("Reach stays owner-only; Sales is for every Member", () => {
   assert.deepEqual(
     eventNavItems({ eventId: "evt_1", fullAccess: false }).map((item) => item.key),
     ["details", "ticketTypes", "sales"],
@@ -54,10 +54,18 @@ test("Sales is lit on its sub-tabs", () => {
   assert.deepEqual(litAt("/events/evt_1/sales/record"), ["sales"]);
 });
 
+// Reach owns its subtree the same way (#464): the panel entry stays lit whether
+// a reader is on Reach Trends or on the Affiliate Links beneath it. The old
+// Affiliate Links address is a redirect now, and lights nothing of its own.
+test("Reach is lit on its sub-tabs", () => {
+  assert.deepEqual(litAt("/events/evt_1/reach/affiliate-links"), ["reach"]);
+  assert.deepEqual(litAt("/events/evt_1/affiliate-links"), []);
+});
+
 test("entries read in a fixed order", () => {
   assert.deepEqual(
     eventNavItems({ eventId: "evt_1", fullAccess: true }).map((item) => item.key),
-    ["details", "ticketTypes", "affiliateLinks", "sales"],
+    ["details", "ticketTypes", "reach", "sales"],
   );
 });
 
@@ -90,7 +98,7 @@ test("the Holder List is offered when asked for, beside Sales", () => {
     eventNavItems({ eventId: "evt_1", fullAccess: true, holderList: true }).map(
       (item) => item.key,
     ),
-    ["details", "ticketTypes", "affiliateLinks", "sales", "holderList"],
+    ["details", "ticketTypes", "reach", "sales", "holderList"],
   );
 });
 

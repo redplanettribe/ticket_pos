@@ -1,39 +1,28 @@
-import { redirect } from "next/navigation";
+import { permanentRedirect } from "next/navigation";
 
-import { loadEvent } from "@/lib/staff-event";
-
-import { loadSession } from "../../../staff-page-shell";
-import { AffiliateLinksSection } from "../affiliate-links-section";
-import { AffiliateTrendsSection } from "../affiliate-trends-section";
-
-type AffiliateLinksPageProps = {
+type LegacyAffiliateLinksPageProps = {
   params: Promise<{ id: string }>;
 };
 
-export default async function AffiliateLinksPage({ params }: AffiliateLinksPageProps) {
+/**
+ * The old address of the Affiliate Links table, kept as a permanent redirect.
+ *
+ * Affiliate Links became the second sub-tab of the Reach surface (#464), and
+ * this page is all that is left here: a bookmark, a link in a message, or a
+ * browser's autocomplete still lands on the table. `permanentRedirect` — a 308
+ * — rather than the temporary one the guards use, because this move is not
+ * conditional on who is reading; it is where the page lives now, and a client
+ * is welcome to remember it.
+ *
+ * It lives in the route rather than in `next.config`'s `redirects()` so that the
+ * fact stays next to the thing it is about: whoever deletes this folder deletes
+ * the redirect with it, instead of leaving a rule pointing at nothing.
+ *
+ * No guard here. The destination's layout carries the Org Admin / Event Owner
+ * check and sends an Event Staff member on to Ticket Types, so repeating it
+ * would put the same rule in two places.
+ */
+export default async function LegacyAffiliateLinksPage({ params }: LegacyAffiliateLinksPageProps) {
   const { id } = await params;
-  const session = await loadSession();
-  const role = session?.active_member?.role;
-
-  // Affiliate Links are managed by org_admin / event_owner only. The nav hides
-  // this area from Event Staff; guard the route since it stays directly
-  // reachable by URL — and the API refuses them regardless.
-  if (role !== "org_admin" && role !== "event_owner") {
-    redirect(`/events/${id}/ticket-types`);
-  }
-
-  // The Event's own timezone so the Created column is drawn in the zone the
-  // Organizer works in, as the Sales list's times are. Tolerates failure: the
-  // list still renders, in the platform zone.
-  const event = await loadEvent(id);
-  const timezone = event?.timezone ?? null;
-
-  // The management list first — creating a link is the tab's first job — and
-  // the trends chart beneath it, reading what the links above have done.
-  return (
-    <div className="space-y-6">
-      <AffiliateLinksSection eventId={id} timezone={timezone} />
-      <AffiliateTrendsSection eventId={id} />
-    </div>
-  );
+  permanentRedirect(`/events/${id}/reach/affiliate-links`);
 }

@@ -112,7 +112,7 @@
     "backToEvents": "Events",
     "navDetails": "Details",
     "navTicketTypes": "Ticket Types",
-    "navAffiliateLinks": "Affiliate Links",
+    "navReach": "Reach",
     "navSales": "Sales",
     "navHolderList": "Holder List",
     "publish": "Publish event",
@@ -430,6 +430,11 @@
     "savedToast": "Tags updated",
     "saveFailed": "Could not update the tags."
   },
+  "reach": {
+    "tabTrends": "Trends",
+    "tabAffiliateLinks": "Affiliate Links",
+    "tabsLabel": "Reach sections"
+  },
   "affiliateLinks": {
     "title": "Affiliate Links",
     "descriptionAttributed": "Named links to this Event's page that attribute Online Sales to whoever is promoting it. The code is generated for you and never changes.",
@@ -488,10 +493,10 @@
     "sortedDescending": "Sorted descending"
   },
   "affiliateTrends": {
-    "title": "Link trends",
-    "description": "How this Event's page has been reached, hour by hour, in the Event's own timezone. Each Affiliate Link's clicks are drawn against all page views, so a link can be read against the page as a whole.",
-    "loadFailedTitle": "Could not load the link trends",
-    "loadFailed": "Could not load the link trends.",
+    "title": "How this Event's page was reached",
+    "description": "Page views hour by hour, in the Event's own timezone, with each Affiliate Link's clicks drawn against them — so the page can be read as a whole, and each link against it.",
+    "loadFailedTitle": "Could not load the reach trends",
+    "loadFailed": "Could not load the reach trends.",
     "chipsLabel": "Series drawn on the chart",
     "allPageViews": "All page views",
     "rangeLabel": "How far back the chart looks",
@@ -507,7 +512,7 @@
     "scrollLabel": "Link trends chart — scroll sideways to move through the period",
     "floorNote": "Counts are page loads, not people: refreshes and robots count too, and a deactivated link's arrivals count as page views only. Read every figure as a floor on what a link drove, never as a measurement of your audience.",
     "emptyTitle": "No page views to chart yet",
-    "emptyBody": "Nothing has been counted for this Event yet. Counting starts the moment a page is loaded, and it began when this chart shipped — clicks from before then live in each link's lifetime figure above, not here.",
+    "emptyBody": "Nothing has been counted for this Event yet. Counting starts the moment a page is loaded, and it began when this chart shipped — clicks from before then live in each link's lifetime figure on the Affiliate Links tab, not here.",
     "metricLabel": "What the chart counts",
     "metric_clicks": "Clicks",
     "metric_sales": "Attributed sales",

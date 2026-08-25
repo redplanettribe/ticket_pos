@@ -125,6 +125,12 @@ export {
   type OperatorNavKey,
 } from "./lib/operator-nav";
 export {
+  reachNavItems,
+  REACH_NAV_KEYS,
+  type ReachNavEntry,
+  type ReachNavKey,
+} from "./lib/reach-nav";
+export {
   salesNavItems,
   shouldDrawTabStrip,
   SALES_NAV_KEYS,

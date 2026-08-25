@@ -86,7 +86,7 @@ export default async function EventLayout({ params, children }: EventLayoutProps
     nav: {
       details: t("navDetails"),
       ticketTypes: t("navTicketTypes"),
-      affiliateLinks: t("navAffiliateLinks"),
+      reach: t("navReach"),
       sales: t("navSales"),
       holderList: t("navHolderList"),
     },

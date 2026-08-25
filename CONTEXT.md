@@ -526,11 +526,16 @@ Counts loads, not people: refreshes, bots, and prefetches all count, and no visi
 A Page View that arrived through a live Affiliate Link is also counted as that link's Click — a Click is a Page View that carried a live link, and the gap between all Page Views and all Clicks is simply traffic that no link drove.
 _Avoid_: Visitor, unique view, session, impression, traffic (as the counter's name), hit
 
-**Link Trends**:
-The staff surface for reading how an Event's page was reached over time: each Affiliate Link's Clicks drawn against all Page Views, read in one of three ways chosen together with a span of time — Clicks, Attributed Sales, or Attribution Rate.
+**Reach**:
+The staff surface for reading how an Event's page was reached: Reach Trends first, and beneath the same heading the Affiliate Links the page is reached with. One surface because the two are one question asked twice — the chart reads what the links did, the list is where the links are made and named — and because neither is about people: everything here counts loads, and every figure is a floor.
+Restricted to Org Admins and Event Owners, the guard Affiliate Links has always carried, for the whole surface alike.
+_Avoid_: Traffic, analytics, dashboard, audience, promotion, marketing, Affiliate Links (as the surface's name)
+
+**Reach Trends**:
+The surface within Reach for reading how an Event's page was reached over time: each Affiliate Link's Clicks drawn against all Page Views, read in one of three ways chosen together with a span of time — Clicks, Attributed Sales, or Attribution Rate.
 Lists only what has something to say in the span chosen: an Affiliate Link with no Clicks (or no Attributed Sales, or no Attribution Rate) in that span is not listed and not drawn, and a bucket's readout names only the links that counted something there. Widening the span brings a link back; it was never removed, only unlisted. Links are listed busiest first for the span, the page as a whole always first.
 Inherits every caveat of Page View and Affiliate Attribution: every figure is a floor, and an unlisted link is one nobody followed, not one that failed.
-_Avoid_: Affiliate Trends (as the surface's name), analytics, dashboard, traffic report, chart (as the surface's name)
+_Avoid_: Link Trends, Affiliate Trends (as the surface's name), analytics, dashboard, traffic report, chart (as the surface's name)
 
 **External Platform**:
 A third-party ticketing service through which tickets may be sold outside this system.

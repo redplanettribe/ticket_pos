@@ -13,7 +13,7 @@
 export const EVENT_NAV_KEYS = [
   "details",
   "ticketTypes",
-  "affiliateLinks",
+  "reach",
   "sales",
   "holderList",
 ] as const;
@@ -38,10 +38,12 @@ export type EventNavEntry = {
  * while somebody works inside one Event, so these entries stand alone rather
  * than nesting under Events.
  *
- * org_admin and event_owner get full access; event_staff is limited. Affiliate
- * Links stays owner-only, but the Sales list is visible to every Member of the
- * Event — Event Staff included — so it appears for all roles. Tags have no
- * entry of their own: they are managed from within Details.
+ * org_admin and event_owner get full access; event_staff is limited. Reach —
+ * how the Event's page was reached, and the Affiliate Links it is reached with
+ * (#464) — stays owner-only, the gate Affiliate Links always carried, but the
+ * Sales list is visible to every Member of the Event — Event Staff included —
+ * so it appears for all roles. Tags have no entry of their own: they are
+ * managed from within Details.
  *
  * Sales Trends has no entry either, since #460: it became a sub-tab of the
  * Sales surface (`salesNavItems`) rather than a sibling of it, so the same
@@ -80,9 +82,10 @@ export function eventNavItems({
     // list would see two entries claiming to be the current page.
     { key: "details", href: `/events/${eventId}`, exact: true },
     { key: "ticketTypes", href: `/events/${eventId}/ticket-types` },
-    ...(fullAccess
-      ? [{ key: "affiliateLinks" as const, href: `/events/${eventId}/affiliate-links` }]
-      : []),
+    // No `exact`: Reach owns its subtree, so it stays lit on its own sub-tabs
+    // (Trends, Affiliate Links). Affiliate Links has no entry of its own since
+    // #464 — it is the second tab of this surface, not a sibling of it.
+    ...(fullAccess ? [{ key: "reach" as const, href: `/events/${eventId}/reach` }] : []),
     // No `exact`: Sales owns its subtree, so it stays lit on its own sub-tabs
     // (Record, Trends) — which is what a panel entry over a surface should do.
     { key: "sales", href: `/events/${eventId}/sales` },

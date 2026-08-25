@@ -23,3 +23,7 @@ The affiliate tab gains time-series graphs: per-link Clicks, Attributed Sales, A
 ## Amendment: the counting views are drawn as lines
 
 Recorded after the original decision shipped, and amending it rather than superseding it. The Clicks and Attributed Sales views are drawn as one line per series, not as grouped bars, matching the Attribution Rate view. Reason: with the seventeen-odd series an Event can carry, a grouped bar per bucket is an unreadable sliver, while a line per series reads at any series count. A bucket with nothing counted is still drawn as a zero, not a gap — an hour with no clicks is a measurement, unlike a rate with no denominator.
+
+## Amendment: the affiliate tab became the Reach surface
+
+Recorded 2026-08-25 (#464), amending where the graphs live and nothing about what they count. "The affiliate tab" above is the **Reach** surface now — the staff surface for reading how an Event's page was reached — with the graphs as its first sub-tab (Reach Trends, formerly Link Trends) and the Affiliate Links table as its second. The data, the dual-write, the hourly floor and every consequence above are unchanged; only the address and the words around the chart moved.

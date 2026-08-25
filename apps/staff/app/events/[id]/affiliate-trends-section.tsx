@@ -109,8 +109,8 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
     setRange(next);
     setChosenGranularity(rangeGranularity(next));
   }, []);
-  // Which measure the one chart draws. Clicks first — traffic is the tab's
-  // first question, and the only one an externally registered Event can answer.
+  // Which measure the one chart draws. Clicks first — how the page was reached
+  // is the surface's first question, and the only one an externally registered Event can answer.
   const [metric, setMetric] = useState<AffiliateTrendsMetric>("clicks");
   // How the Rate view counts. Cumulative by default: the seven-day Attribution
   // Window makes a day's sales answer an earlier day's clicks, and the running
@@ -156,7 +156,7 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
   // The drawable order: the whole page first, then the links as the API sends
   // them (newest first, deactivated included, so the legend never changes
   // shape). Colour is keyed on this order, so a link keeps its colour whichever
-  // chips are off and whenever the tab is opened.
+  // chips are off and whenever the chart is opened.
   const order = useMemo(
     () => [ALL_PAGE_VIEWS_ID, ...(trends?.links.map((link) => link.id) ?? [])],
     [trends],
@@ -654,7 +654,8 @@ function EmptyWindow({
 /**
  * What an Event with nothing counted yet is told. Counting began at this
  * feature's launch (ADR 0057), so an older Event's earlier clicks live in the
- * lifetime figures above, not here — the empty state says so rather than
+ * lifetime figures on the Affiliate Links tab (#464), not here — the empty
+ * state says so rather than
  * letting the gap read as lost data.
  */
 function EmptyState() {
