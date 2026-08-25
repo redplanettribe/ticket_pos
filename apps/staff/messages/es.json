@@ -473,7 +473,16 @@
     "deleteDialogDescription": "¿Quitar <em>{name}</em> de este Evento? Esto no se puede deshacer. Un enlace que tenga clics o ventas atribuidas no se puede eliminar: desactívelo y conservará su historial.",
     "deleteConfirm": "Eliminar enlace de afiliado",
     "deletedToast": "Enlace de afiliado eliminado",
-    "deleteFailed": "No se pudo eliminar el enlace de afiliado."
+    "deleteFailed": "No se pudo eliminar el enlace de afiliado.",
+    "colName": "Nombre",
+    "colCode": "Código",
+    "colClicks": "Clics",
+    "colSales": "Ventas",
+    "colNetProceeds": "Ingresos netos",
+    "colStatus": "Estado",
+    "colActions": "Acciones",
+    "sortedAscending": "Orden ascendente",
+    "sortedDescending": "Orden descendente"
   },
   "affiliateTrends": {
     "title": "Tendencias de los enlaces",

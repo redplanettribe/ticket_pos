@@ -473,7 +473,16 @@
     "deleteDialogDescription": "Remove <em>{name}</em> from this Event? This cannot be undone. A link that has any clicks or attributed sales cannot be deleted — deactivate it instead, and it keeps its history.",
     "deleteConfirm": "Delete affiliate link",
     "deletedToast": "Affiliate link deleted",
-    "deleteFailed": "Could not delete the affiliate link."
+    "deleteFailed": "Could not delete the affiliate link.",
+    "colName": "Name",
+    "colCode": "Code",
+    "colClicks": "Clicks",
+    "colSales": "Sales",
+    "colNetProceeds": "Net proceeds",
+    "colStatus": "Status",
+    "colActions": "Actions",
+    "sortedAscending": "Sorted ascending",
+    "sortedDescending": "Sorted descending"
   },
   "affiliateTrends": {
     "title": "Link trends",
