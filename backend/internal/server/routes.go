@@ -267,6 +267,10 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// authority again, or send the same document under the same clave.
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/check", operator(http.HandlerFunc(inv.CheckInvoice)))
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/resend", operator(http.HandlerFunc(inv.ResendInvoice)))
+	// The documents handed over (#456): the signed XML in every status, the
+	// SRI's authorization XML only once authorized. Files, not envelopes.
+	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/xml", operator(http.HandlerFunc(inv.DownloadSignedXML)))
+	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/authorization-xml", operator(http.HandlerFunc(inv.DownloadAuthorizationXML)))
 }
 
 // registerCustomerRoutes wires the Storefront's Customer identity surface.
