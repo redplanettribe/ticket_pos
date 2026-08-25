@@ -35,9 +35,20 @@ import { ApiError, parsePriceToCents } from "@/lib/events-api";
 import { PLATFORM_TIME_ZONE, formatDateTime, formatMoney, formatNumber } from "@/lib/format";
 import {
   type OperatorSaleLookup,
+  type OperatorSaleReAddressing,
   fetchOperatorSale,
+  reAddressOperatorSale,
   reverseOperatorSale,
+  withdrawOperatorSaleReAddressing,
 } from "@/lib/operator-api";
+import {
+  RE_ADDRESSING_NOTE_MAX_LENGTH,
+  acceptedReAddressings,
+  correctedEmailProblem,
+  reAddressBody,
+  reAddressingPanel,
+  resendBody,
+} from "@/lib/sale-re-addressing";
 import {
   type ReversalActor,
   type SaleChannel,
@@ -64,6 +75,17 @@ import {
  * How much of that form there is depends on the sale. One that collected
  * nothing has no money to state and refuses both money facts, so it is offered
  * a note and nothing else (#126).
+ *
+ * Beside Reverse sits the second lever on an Online Sale: the Sale
+ * Re-addressing (#420, #423, ADR 0058). A buyer who typed their address wrong
+ * before the sign-in wall cannot reach their tickets; the operator records the
+ * address they meant, the platform mails it a Re-addressing Link, and nothing
+ * moves until that address accepts. The panel shows the form while nothing is
+ * pending and the guards allow, and the pending card once a recording stands
+ * — never the link, which the operator is not shown (lib/sale-re-addressing.ts
+ * decides which). The pending card offers Send again (the same address
+ * recorded again: a fresh link, the earlier one killed) and Withdraw (the
+ * record ended, nobody mailed), after which the form is offered again.
  *
  * WHAT IT DOES NOT SAY IN ITS OWN WORDS: the Sales Channel, its source, the
  * Payment Method and who reversed a sale. Every one of those is vocabulary the
@@ -157,6 +179,17 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
   // as it will be sent, so the dialog restates what is about to be recorded.
   const [pending, setPending] = useState<PendingReversal | null>(null);
 
+  // The Sale Re-addressing form. The address starts empty — never pre-filled
+  // with the wrong one — because the whole act is typing a different address.
+  const [correctedEmail, setCorrectedEmail] = useState("");
+  const [correctedEmailError, setCorrectedEmailError] = useState<string | null>(null);
+  const [reAddressNote, setReAddressNote] = useState("");
+  const [reAddressing, setReAddressing] = useState(false);
+  // The pending card's two controls (#423). Each disables both while it runs:
+  // they act on the same record, and the second would find it gone.
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [resending, setResending] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -212,6 +245,88 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
       );
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // Recording a re-addressing needs no confirmation dialog: unlike a reversal
+  // it moves nothing and can be withdrawn (#423). What it does do is mail a
+  // stranger-shaped address, so the one refusal the operator can see coming —
+  // the sale's own address — is caught here before the round trip.
+  async function handleReAddressSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!lookup) {
+      return;
+    }
+    const problem = correctedEmailProblem(correctedEmail, lookup.sale.customer.email);
+    if (problem !== null) {
+      setCorrectedEmailError(
+        problem === "required"
+          ? t("reAddressEmailRequired")
+          : problem === "invalid"
+            ? t("reAddressEmailInvalid")
+            : t("reAddressEmailSame"),
+      );
+      return;
+    }
+    setCorrectedEmailError(null);
+    setReAddressing(true);
+    try {
+      await reAddressOperatorSale(confirmationRef, reAddressBody(correctedEmail, reAddressNote));
+      setCorrectedEmail("");
+      setReAddressNote("");
+      toast.success(t("saleReAddressed"));
+      // Re-read rather than patch locally: the pending card is the server's
+      // account of what was recorded, by whom and when.
+      await load();
+    } catch (submitError) {
+      toast.error(
+        (submitError instanceof ApiError ? apiErrorMessage(errorCopy, submitError) : null) ??
+          t("reAddressFailed"),
+      );
+    } finally {
+      setReAddressing(false);
+    }
+  }
+
+  // Withdrawing needs no dialog either: it kills the link and mails nobody,
+  // and the sale stays where it was, so the operator can re-address it afresh
+  // — which is what the form reappearing after the re-read offers.
+  async function handleWithdrawReAddressing() {
+    setWithdrawing(true);
+    try {
+      await withdrawOperatorSaleReAddressing(confirmationRef);
+      toast.success(t("reAddressWithdrawn"));
+      await load();
+    } catch (withdrawError) {
+      toast.error(
+        (withdrawError instanceof ApiError ? apiErrorMessage(errorCopy, withdrawError) : null) ??
+          t("reAddressWithdrawFailed"),
+      );
+    } finally {
+      setWithdrawing(false);
+    }
+  }
+
+  // "Send again" is recording the pending address again: the API replaces the
+  // record, kills the earlier link and mails a fresh one, so nothing is
+  // retyped and a link that leaked with the lost mail cannot be used later.
+  async function handleResendReAddressing(record: OperatorSaleReAddressing) {
+    const body = resendBody(record);
+    if (body === null) {
+      return;
+    }
+    setResending(true);
+    try {
+      await reAddressOperatorSale(confirmationRef, body);
+      toast.success(t("reAddressResent"));
+      await load();
+    } catch (resendError) {
+      toast.error(
+        (resendError instanceof ApiError ? apiErrorMessage(errorCopy, resendError) : null) ??
+          t("reAddressResendFailed"),
+      );
+    } finally {
+      setResending(false);
     }
   }
 
@@ -293,6 +408,13 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
   // payment method — that is the fact the API judges the marking against.
   const free = sale.amount_cents === 0;
   const memo = sale.operator_reversal;
+  // Which face the Re-address panel shows: hidden on anything but an active
+  // Online Sale whose Event has not started, the pending card while a
+  // recording stands, the form otherwise.
+  const reAddressPanel = reAddressingPanel(sale, lookup.re_addressing, new Date());
+  // The accepted history is listed whatever the panel shows (#424): the lever
+  // goes away on a reversed or started sale, the evidence trail never does.
+  const reAddressHistory = acceptedReAddressings(lookup.re_addressing);
   // The sale's own currency, and the platform's clock for every moment on this
   // page: a sale's timestamps and its Reversal Window cutoff are Ecuadorian
   // facts (ADR 0018), and only the Event's schedule belongs to the Event's zone.
@@ -531,6 +653,130 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
                 </Button>
               </div>
             </form>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {reAddressPanel.kind === "pending" ? (
+        <Card>
+          <CardHeader className="flex flex-row items-start justify-between gap-4">
+            <div>
+              <CardTitle>{t("reAddressPendingTitle")}</CardTitle>
+              <CardDescription>{t("reAddressPendingDescription")}</CardDescription>
+            </div>
+            <Badge variant="warning">{t("reAddressPendingBadge")}</Badge>
+          </CardHeader>
+          <CardContent className="grid gap-6 sm:grid-cols-2">
+            {/* Addresses and the operator's email are data, never copy. */}
+            <Fact label={t("reAddressPendingEmail")}>
+              {reAddressPanel.record.corrected_email ?? NOTHING}
+            </Fact>
+            <Fact label={t("reAddressPendingPrevious")}>
+              {reAddressPanel.record.previous_email}
+            </Fact>
+            <Fact label={t("reAddressPendingRecordedBy")}>{reAddressPanel.record.operator}</Fact>
+            <Fact label={t("reAddressPendingRecordedAt")}>
+              {moment(reAddressPanel.record.requested_at)}
+            </Fact>
+            {reAddressPanel.record.note ? (
+              <div className="sm:col-span-2">
+                <Fact label={t("reAddressPendingNote")}>
+                  <span className="whitespace-pre-wrap font-normal">
+                    {reAddressPanel.record.note}
+                  </span>
+                </Fact>
+              </div>
+            ) : null}
+            <div className="flex flex-col gap-3 sm:col-span-2">
+              <p className="text-sm text-muted-foreground">{t("reAddressPendingActions")}</p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  onClick={() => void handleResendReAddressing(reAddressPanel.record)}
+                  disabled={withdrawing || resending || resendBody(reAddressPanel.record) === null}
+                >
+                  {resending ? t("reAddressResending") : t("reAddressResend")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void handleWithdrawReAddressing()}
+                  disabled={withdrawing || resending}
+                >
+                  {withdrawing ? t("reAddressWithdrawing") : t("reAddressWithdraw")}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {reAddressPanel.kind === "form" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("reAddressTitle")}</CardTitle>
+            <CardDescription>{t("reAddressDescription")}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form className="grid gap-4 sm:grid-cols-2" onSubmit={handleReAddressSubmit}>
+              <FormField
+                id="re-address-email"
+                label={t("reAddressEmailLabel")}
+                error={correctedEmailError}
+              >
+                <Input
+                  type="email"
+                  value={correctedEmail}
+                  onChange={(event) => setCorrectedEmail(event.target.value)}
+                  autoComplete="off"
+                  placeholder={t("reAddressEmailPlaceholder")}
+                  disabled={reAddressing}
+                />
+              </FormField>
+              <div className="sm:col-span-2">
+                <FormField id="re-address-note" label={t("reAddressNoteLabel")}>
+                  <Textarea
+                    value={reAddressNote}
+                    onChange={(event) => setReAddressNote(event.target.value)}
+                    maxLength={RE_ADDRESSING_NOTE_MAX_LENGTH}
+                    rows={2}
+                    placeholder={t("reAddressNotePlaceholder")}
+                    disabled={reAddressing}
+                  />
+                </FormField>
+              </div>
+              <div className="sm:col-span-2">
+                <Button type="submit" disabled={reAddressing}>
+                  {reAddressing ? t("reAddressing") : t("reAddressSubmit")}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {reAddressHistory.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("reAddressHistoryTitle")}</CardTitle>
+            <CardDescription>{t("reAddressHistoryDescription")}</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-6">
+            {reAddressHistory.map((record) => (
+              <div key={record.id} className="grid gap-6 border-t pt-6 first:border-t-0 first:pt-0 sm:grid-cols-2">
+                {/* Addresses and the operator's email are data, never copy. */}
+                <Fact label={t("reAddressPendingEmail")}>{record.corrected_email}</Fact>
+                <Fact label={t("reAddressPendingPrevious")}>{record.previous_email}</Fact>
+                <Fact label={t("reAddressPendingRecordedBy")}>{record.operator}</Fact>
+                <Fact label={t("reAddressPendingRecordedAt")}>{moment(record.requested_at)}</Fact>
+                <Fact label={t("reAddressHistoryAcceptedAt")}>{moment(record.accepted_at)}</Fact>
+                {record.note ? (
+                  <Fact label={t("reAddressPendingNote")}>
+                    <span className="whitespace-pre-wrap font-normal">{record.note}</span>
+                  </Fact>
+                ) : null}
+              </div>
+            ))}
           </CardContent>
         </Card>
       ) : null}

@@ -290,6 +290,11 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// checkout, no door sale and no Sale Import consults it, because nothing
 	// about assignment may block or delay any of them.
 	salesService = salesService.WithTicketAssignment(cfg.TicketAssignmentEnabled)
+	// The Re-addressing Link's signing key (#420, ADR 0058): the same
+	// deployment secret every signed link derives from, turned into this
+	// purpose's own key inside sales — see sales.NewReAddressingLinkSigner. The
+	// link points at the Storefront origin sales already holds for checkout.
+	salesService = salesService.WithReAddressingLinks(confirmationLinkSecret)
 	salesHandler := saleshandler.New(salesService)
 
 	// Catalog is built AFTER sales because the public Event page reports a
@@ -434,6 +439,14 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// wired this into accepts nothing at all — which is the safe way to be
 	// unwired, and is what every build before this ticket was.
 	catalogService = catalogService.WithHolderCustomers(customersService)
+
+	// Accepting a Re-addressing Link signs the buyer in (#421, ADR 0058): the
+	// same sign-in a passcode produces, minted by the customers module after
+	// the sales transaction that moved the Sale has committed. The Customer
+	// the transaction mints goes through CustomerService.AcceptReAddressedSale
+	// on the seam sales already holds; only the session needs this second
+	// wire, and it is tied here because customers is built after sales.
+	salesHandler = salesHandler.WithReAddressingSignIn(customersService)
 
 	// The opportunistic drain (ADR 0024): a Customer loading their Area makes the
 	// platform ask the Payment Provider again about their own stuck reversal.

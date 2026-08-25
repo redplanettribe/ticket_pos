@@ -415,6 +415,18 @@ Remembers who asserted it and when, alongside an optional note, what the buyer a
 Irreversible, and invisible to the Organization beyond the sale showing as reversed by the platform.
 _Avoid_: Manual refund, admin refund, force reversal, out-of-band reversal
 
+**Sale Re-addressing**:
+A Platform Operator's act of moving an Online Sale to the address its buyer meant — the remedy for a Sale sold before checkout required a Customer Session, whose buyer typed an address nobody can open. Completed only when the corrected address accepts by Re-addressing Link; until then it is pending, and the Sale still belongs to whoever it belonged to.
+Moves whom the Sale belongs to and nothing that was transacted: the Tickets, the money, the Payment and what it was told, the Reversal Window and the Sale Confirmation reference all stay exactly as they were, and the Self-held Ticket follows the Sale only while its Holder is still the address being corrected. Consent granted under the wrong address does not follow, since a tick from an unproven address was only ever a claim. The corrected Customer receives a fresh Sale Confirmation; the wrong address is told nothing, being nobody or a stranger.
+Recorded per Sale, one pending at a time, and remembers who recorded it, when, both addresses and when it was accepted. Withdrawable by the Operator, killed by a Sale Reversal, and expiring at the Event's start on the same terms as an unaccepted Ticket Assignment, after which only the money question remains.
+Distinct from a Sale Correction, which replaces an imported Sale, and from a Ticket Assignment, which hands one Ticket to a Holder without moving the Sale.
+_Avoid_: Email change, customer merge, transfer, buyer correction, reassignment, ownership change, edit
+
+**Re-addressing Link**:
+The signed token mailed to the address a Sale Re-addressing names, and the only route by which that address accepts. Clicking it is Proof of Email Ownership, so the click mints or matches a Verified Customer exactly as accepting an Assignment Link does, and it is delivered to that address alone — never shown to the Operator or to staff.
+Dies when the re-addressing is withdrawn, replaced, killed or expired.
+_Avoid_: Claim link, confirm link, magic link, transfer link, recovery link
+
 **Reversal Window**:
 The period during which a Customer may reverse their own Online Sale: from the moment its Payment is approved until the earlier of 20:00 Ecuador time on the day of purchase, or the Event's start.
 A platform rule rather than a provider one — it applies equally to a free Online Sale, where there is no money to return. That the launch Payment Provider happens to accept reversals over the same period is a fact about that provider, not the definition.

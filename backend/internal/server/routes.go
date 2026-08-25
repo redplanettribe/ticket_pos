@@ -156,6 +156,14 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// off-platform, keyed on the same reference the lookup takes because the
 	// action hangs off that lookup and the operator has nothing else (#125).
 	mux.Handle("POST /api/v1/operator/sales/{confirmationRef}/reverse", operator(http.HandlerFunc(h.ReverseSale)))
+	// The Sale Re-addressing: recording the address a stranded buyer meant, so
+	// the platform can mail it a Re-addressing Link (#420, ADR 0058). The
+	// second lever on an Online Sale, beside Reverse and hanging off the same
+	// lookup. Operator only: moving whom a paid record belongs to is a larger
+	// trust grant than any Organization holds. Recording while one is pending
+	// replaces it; DELETE on the same path withdraws it (#423).
+	mux.Handle("POST /api/v1/operator/sales/{confirmationRef}/re-address", operator(http.HandlerFunc(h.ReAddressSale)))
+	mux.Handle("DELETE /api/v1/operator/sales/{confirmationRef}/re-address", operator(http.HandlerFunc(h.WithdrawReAddressing)))
 	// Recording a Payout, which used to mean an INSERT typed by hand into the
 	// production database (ADR 0015).
 	mux.Handle("POST /api/v1/operator/organizations/{orgID}/payouts", operator(http.HandlerFunc(h.RecordPayout)))
@@ -640,6 +648,16 @@ func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	mux.HandleFunc("POST /api/v1/public/assignment-link", app.CatalogHandler.AcceptAssignmentLink)
 	mux.HandleFunc("PUT /api/v1/public/assignment-link/name", app.CatalogHandler.NameByAssignmentLink)
 	mux.HandleFunc("PUT /api/v1/public/assignment-link/questions/{questionId}", app.CatalogHandler.AnswerByAssignmentLink)
+
+	// The Re-addressing Link (#421, ADR 0058): the Assignment Link's twin for a
+	// whole purchase. GET opens it without accepting — the token in the query,
+	// as the mailed link carries it — and POST accepts, the token in the body.
+	// Its own token under its own key, so an Assignment Link fails here
+	// cryptographically. UNLIKE the Assignment Link the accept SIGNS THE READER
+	// IN: the Sale is now theirs, and the response is the passcode's own
+	// sign-in outcome.
+	mux.HandleFunc("GET /api/v1/public/re-addressing-link", app.SalesHandler.ViewReAddressingLink)
+	mux.HandleFunc("POST /api/v1/public/re-addressing-link", app.SalesHandler.AcceptReAddressingLink)
 }
 
 func registerAuthRoutes(mux *http.ServeMux, app *App) {

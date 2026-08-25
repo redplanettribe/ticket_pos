@@ -295,6 +295,13 @@ type OperatorSaleRow struct {
 	CustomerFirstName string
 	CustomerLastName  string
 
+	// Locale is the Sale Locale (migration 059): the language of the page the
+	// sale was completed on, NULL on every sale no page produced. Read here for
+	// the one mail the Operator's surface sends about a Sale — the
+	// Re-addressing mail (#420), written in the Sale's own language as the
+	// original Sale Confirmation was (ADR 0058).
+	Locale sql.NullString
+
 	// TicketTypes is the same roll-up the Sales list carries, built by the same
 	// aggregate, so both surfaces name a sale's contents identically.
 	TicketTypes []SaleLineRollup
@@ -346,6 +353,7 @@ func (r *Repository) GetSaleByConfirmationRef(ctx context.Context, confirmationR
 			ts.customer_email,
 			ts.customer_first_name,
 			ts.customer_last_name,
+			ts.locale,
 			lines.ticket_types,
 			lines.ticket_count,
 			org.currency,
@@ -399,6 +407,7 @@ func (r *Repository) GetSaleByConfirmationRef(ctx context.Context, confirmationR
 		&out.CustomerEmail,
 		&out.CustomerFirstName,
 		&out.CustomerLastName,
+		&out.Locale,
 		&typesJSON,
 		&out.TicketCount,
 		&out.Currency,

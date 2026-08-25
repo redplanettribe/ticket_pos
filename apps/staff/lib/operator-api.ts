@@ -557,9 +557,43 @@ export type OperatorSaleDetail = {
   reversal_window_passed: boolean;
 };
 
+/**
+ * One Sale Re-addressing record as the operator sees it (#420, ADR 0058): the
+ * address the buyer meant, the address the sale carried when it was recorded,
+ * who recorded it and when, and how far it has got. `status` is derived by the
+ * API and never stored: 'pending' | 'accepted' | 'withdrawn' | 'expired'.
+ *
+ * IT CARRIES NO LINK AND NO TOKEN, and there is no field for one. The
+ * Re-addressing Link goes to the corrected address alone, so the operator
+ * cannot complete the acceptance themself.
+ */
+export type OperatorSaleReAddressing = {
+  id: string;
+  ticket_sale_id: string;
+  confirmation_ref: string;
+  status: string;
+  /** The sale's address when this was recorded — the wrong one. */
+  previous_email: string;
+  /** The address the buyer meant, normalised; null once purged at the Event's start. */
+  corrected_email: string | null;
+  /** The recording operator's email, from their session. */
+  operator: string;
+  note: string | null;
+  requested_at: string;
+  accepted_at: string | null;
+  withdrawn_at: string | null;
+};
+
+/** The lookup's `re_addressing` block: the one pending record (or null) and the accepted history. */
+export type OperatorSaleReAddressingBlock = {
+  pending: OperatorSaleReAddressing | null;
+  accepted: OperatorSaleReAddressing[];
+};
+
 export type OperatorSaleLookup = {
   sale: OperatorSaleDetail;
   organization: OperatorOrganization;
+  re_addressing: OperatorSaleReAddressingBlock;
 };
 
 /**
@@ -614,6 +648,50 @@ export async function reverseOperatorSale(
   return fetchEventsJSON<OperatorSaleReversal>(
     `/api/operator/sales/${encodeURIComponent(confirmationRef)}/reverse`,
     { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+/**
+ * A Sale Re-addressing as the operator states it: the address the buyer meant,
+ * and an optional note. Who recorded it is never sent — the API takes that from
+ * the session.
+ */
+export type OperatorReAddressBody = {
+  email: string;
+  note?: string;
+};
+
+/**
+ * Records a Sale Re-addressing against an active Online Sale (#420, ADR 0058).
+ *
+ * The API mails the corrected address a Re-addressing Link; nothing moves until
+ * that address accepts, and no Payment Provider is called. The result is the
+ * pending record, without the link. Recording while one is pending replaces it
+ * and kills its link (#423) — recording the SAME address again is how a lost
+ * mail is sent again.
+ */
+export async function reAddressOperatorSale(
+  confirmationRef: string,
+  body: OperatorReAddressBody,
+): Promise<OperatorSaleReAddressing> {
+  return fetchEventsJSON<OperatorSaleReAddressing>(
+    `/api/operator/sales/${encodeURIComponent(confirmationRef)}/re-address`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+/**
+ * Withdraws the pending Sale Re-addressing of a sale (#423, ADR 0058): the
+ * record is kept and stamped withdrawn, its link stops working, and nobody is
+ * emailed. The API refuses with RE_ADDRESSING_NOTHING_PENDING when nothing is
+ * pending. The result is the record as it now stands.
+ */
+export async function withdrawOperatorSaleReAddressing(
+  confirmationRef: string,
+): Promise<OperatorSaleReAddressing> {
+  return fetchEventsJSON<OperatorSaleReAddressing>(
+    `/api/operator/sales/${encodeURIComponent(confirmationRef)}/re-address`,
+    { method: "DELETE" },
   );
 }
 

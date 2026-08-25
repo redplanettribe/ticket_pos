@@ -278,6 +278,30 @@ func (s *ResendEmailSender) SendNoLongerHolding(ctx context.Context, n NoLongerH
 	return nil
 }
 
+// SendSaleReAddressing delivers the mail carrying a Re-addressing Link to the
+// corrected address of a Sale Re-addressing (#420, ADR 0058).
+//
+// The error is returned rather than swallowed, and the CALLER treats it as best
+// effort on the Assignment mail's terms: the record the Operator made is worth
+// keeping even unmailed, since "send again" (#423) is one click. What the caller
+// does instead is log it where an operator can count it.
+//
+// It goes out on the TRANSACTIONAL identity and never the Digest one, which
+// SplitEmailSender guarantees structurally (ADR 0030): this reader consented to
+// nothing and may be a stranger, so it must not be reachable from the identity
+// that carries marketing.
+//
+// NEITHER THE LINK NOR THE EVENT IS LOGGED ON FAILURE, only the address and the
+// error. The link is a credential that mints an identity, and a log aggregator
+// is a wider audience than an inbox.
+func (s *ResendEmailSender) SendSaleReAddressing(ctx context.Context, r SaleReAddressing) error {
+	if err := s.send(ctx, r.To, r.Subject(), r.Text()); err != nil {
+		s.logger.Error("resend send sale re-addressing failed", "error", err)
+		return err
+	}
+	return nil
+}
+
 // SendTicketQuestionRevoked delivers one Org Admin's notice that an approved
 // Ticket Question was revoked (#410, ADR 0056). Best-effort like the Payout
 // Request notices beside it: the question is retired whether or not anybody

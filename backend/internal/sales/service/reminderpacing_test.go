@@ -268,6 +268,10 @@ func (pacingCustomers) UpsertForSale(context.Context, *sql.Tx, platform.SaleCust
 	return "", errors.New("not in this test")
 }
 
+func (pacingCustomers) AcceptReAddressedSale(context.Context, *sql.Tx, string, string, time.Time) (string, error) {
+	return "", errors.New("not in this test")
+}
+
 func (pacingCustomers) ResolveByEmail(context.Context, string) (string, string, error) {
 	return "", "", errors.New("not in this test")
 }

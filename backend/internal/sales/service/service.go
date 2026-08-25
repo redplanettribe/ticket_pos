@@ -137,6 +137,14 @@ type CustomerService interface {
 	// receipt offering to confirm one pending while an identical one stood beside
 	// it would resolve half of somebody's inbox.
 	ConsentConfirmationLinkURL(ctx context.Context, customerID string) (string, error)
+	// AcceptReAddressedSale mints or matches the Verified Customer a
+	// Re-addressing Link's click proved, INSIDE the sales transaction that
+	// moves the Sale to them, and carries the ghost's name, Tax ID and phone
+	// only into a Customer nobody has named (#421, ADR 0058). The click is
+	// Proof of Email Ownership and a Customer record — verified_at above all
+	// — is the far side's authority (ADR 0010), which is why sales hands over
+	// the address and the ghost and takes back only an id.
+	AcceptReAddressedSale(ctx context.Context, tx *sql.Tx, correctedEmail, ghostCustomerID string, now time.Time) (customerID string, err error)
 }
 
 // OutstandingAnswerReporter is what sales needs from catalog for the Sale
@@ -271,6 +279,11 @@ type Service struct {
 	// once per Payment and snapshots what it computed, so a later rate change
 	// never moves recorded economics (ADR 0014).
 	fees sales.FeeRates
+	// reAddressingLinks signs Re-addressing Links (#420, ADR 0058). Its zero
+	// value is an UNCONFIGURED signer that mints nothing, so a service nobody
+	// wired a secret into records re-addressings and mails nobody — and says so
+	// in the log — rather than sending a linkless mail; see re_addressing.go.
+	reAddressingLinks sales.ReAddressingLinkSigner
 	// affiliates resolves the Affiliate Link code a checkout arrived with.
 	// Optional: unset, no checkout is ever attributed and everything else is
 	// unchanged — which is exactly what the channels that never carry a code do

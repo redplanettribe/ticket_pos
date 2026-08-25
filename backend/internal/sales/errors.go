@@ -532,3 +532,112 @@ func ErrImportBatchFailed(row int, reason string, details map[string]any) apperr
 	}
 	return apperror.New("IMPORT_BATCH_FAILED", "Import could not be completed.", d)
 }
+
+// The Sale Re-addressing's refusals (#420, ADR 0058). Each is its own code
+// rather than one SALE_NOT_RE_ADDRESSABLE with a reason in details, because
+// the staff app picks its sentence by code and an Operator reading "cannot be
+// re-addressed" needs to know which of four different facts stands in the way
+// — three of which they can do nothing about and one of which (the address)
+// they can.
+
+// ErrSaleNotReAddressable is returned when the Ticket Sale is not an Online
+// Sale. An imported Sale is corrected by Sale Correction (ADR 0050) and a door
+// sale has no buyer surface waiting to be unlocked; the Operator's two levers
+// share one channel rule.
+func ErrSaleNotReAddressable(channel string) apperror.DomainError {
+	return apperror.New(
+		"SALE_NOT_RE_ADDRESSABLE",
+		"Only an Online Sale can be re-addressed. An imported sale is corrected through its Sale Import.",
+		map[string]any{"channel": channel},
+	)
+}
+
+// ErrReAddressingEventStarted is returned when the Sale's Event has already
+// started. Past the doors "give me my tickets" has no meaning; only the money
+// question remains, which the Operator Reversal answers.
+func ErrReAddressingEventStarted() apperror.DomainError {
+	return apperror.New(
+		"RE_ADDRESSING_EVENT_STARTED",
+		"This sale's event has already started, so it can no longer be re-addressed.",
+		nil,
+	)
+}
+
+// ErrReAddressingSameAddress is returned when the corrected address normalises
+// to the address the Sale already carries: a no-op is never recorded and never
+// mailed.
+func ErrReAddressingSameAddress(email string) apperror.DomainError {
+	return apperror.New(
+		"RE_ADDRESSING_SAME_ADDRESS",
+		"That is already the address this sale is addressed to.",
+		map[string]any{"email": email},
+	)
+}
+
+// ErrReAddressingNothingPending is returned when the Operator withdraws and
+// the Sale carries no pending re-addressing: nothing was recorded, or what was
+// recorded has already been accepted, withdrawn, replaced or has expired. There
+// is nothing to end, and nothing is written.
+func ErrReAddressingNothingPending() apperror.DomainError {
+	return apperror.New(
+		"RE_ADDRESSING_NOTHING_PENDING",
+		"No re-addressing of this sale is pending.",
+		nil,
+	)
+}
+
+// The Re-addressing Link's refusals (#421, ADR 0058). Two codes and not one,
+// because the page keys its sentence on the code and the two are different
+// facts to the person reading it: a link that never was, and a link that was
+// real once and is not now.
+
+// ErrReAddressingLinkInvalid is returned when the token was tampered with,
+// truncated, invented, signed for another purpose or by another deployment,
+// names a record that does not exist, or names an instant the record was not
+// minted at (a link an earlier recording produced, replaced since).
+//
+// One code for all of them, on the Assignment Link's rule: whoever holds a
+// link that does not work is entitled to learn nothing beyond that.
+func ErrReAddressingLinkInvalid() apperror.DomainError {
+	return apperror.New("RE_ADDRESSING_LINK_INVALID", "This link is not valid.", nil)
+}
+
+// ReAddressingLinkNoLongerValidReason names why a link that once opened no
+// longer does — the value carried in RE_ADDRESSING_LINK_NO_LONGER_VALID's
+// details.reason.
+const (
+	// ReAddressingLinkWithdrawn: the Operator withdrew the record, or replaced
+	// it with another (#423).
+	ReAddressingLinkWithdrawn = "withdrawn"
+	// ReAddressingLinkSaleReversed: the Sale was reversed while the record was
+	// pending, so there is nothing left to accept.
+	ReAddressingLinkSaleReversed = "sale_reversed"
+	// ReAddressingLinkEventStarted: the Event's doors have opened, and "give me
+	// my tickets" has no meaning past them (ADR 0058).
+	ReAddressingLinkEventStarted = "event_started"
+)
+
+// ErrReAddressingLinkNoLongerValid is returned when a genuine link names a
+// record that has ended without being accepted: withdrawn or replaced by the
+// Operator, or expired because the Sale was reversed or the Event started.
+//
+// Told apart from ErrReAddressingLinkInvalid because the reader IS the buyer —
+// the corrected address is the address the buyer meant — and a buyer is
+// entitled to know that the purchase they were told to accept can no longer be
+// accepted, as against being told their link is broken. The reason travels in
+// details so the page can say which, and nothing else about the Sale does.
+func ErrReAddressingLinkNoLongerValid(reason string) apperror.DomainError {
+	return apperror.New(
+		"RE_ADDRESSING_LINK_NO_LONGER_VALID",
+		"This link is no longer valid. Contact the organizer with your confirmation reference if you still need help.",
+		map[string]any{"reason": reason},
+	)
+}
+
+// ErrReAddressingLinkUnavailable is returned when the deployment cannot accept
+// a Re-addressing Link at all: no link secret to verify with, or no Customer
+// writer or sign-in wired into the service. A deployment fault and never the
+// reader's, so it is a 500 — refusing beats moving a paid Sale to nobody.
+func ErrReAddressingLinkUnavailable() apperror.DomainError {
+	return apperror.New("RE_ADDRESSING_LINK_UNAVAILABLE", "Re-addressing links are not available right now.", nil)
+}

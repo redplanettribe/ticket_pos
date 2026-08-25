@@ -39,6 +39,14 @@ type EnvelopeOperatorSaleLookup struct {
 	RequestID string             `json:"request_id"`
 }
 
+// EnvelopeOperatorSaleReAddressing documents POST and DELETE
+// /operator/sales/{confirmationRef}/re-address success responses (#420, #423).
+type EnvelopeOperatorSaleReAddressing struct {
+	Data      service.ReAddressing `json:"data"`
+	Error     *platform.APIError   `json:"error"`
+	RequestID string               `json:"request_id"`
+}
+
 // EnvelopeOperatorPayoutRequestQueue documents GET /operator/payout-requests
 // success responses: the ADR-0006 nested envelope inside the standard one. The
 // account numbers on these rows are masked (#176).

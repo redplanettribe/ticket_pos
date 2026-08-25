@@ -381,6 +381,47 @@ type TicketAssignment struct {
 	Locale Locale
 }
 
+// SaleReAddressing is the mail telling the address a Sale Re-addressing names
+// that a purchase is being re-addressed to them, carrying the Re-addressing
+// Link whose click accepts it (#420, parent #419, ADR 0058).
+//
+// ITS READER MAY BE NOBODY, THE BUYER, OR A STRANGER. The Operator typed this
+// address from a support thread; if it is right, the buyer finally reaches the
+// tickets they paid for; if it is wrong again, the mail lands on nobody or on
+// somebody who never bought anything. The copy is written for the third case
+// as carefully as the second: it says plainly that accepting takes on somebody's
+// purchase, so that ignoring it is the obvious move and costs nothing.
+//
+// IT IS TRANSACTIONAL, beside the Assignment mail, and its recipient has
+// consented to nothing — so it must not be reachable from the identity that
+// carries marketing (ADR 0030). What bounds it is that only an Operator's act
+// sends one, against one active Online Sale, one pending at a time.
+type SaleReAddressing struct {
+	// To is the corrected address, normalised by NormalizeEmail before it was
+	// stored (migration 093). Until accepted it belongs to somebody who is not
+	// here to confirm anything, which is why #424's purge takes it at the
+	// Event's start.
+	To string
+	// EventName and Reference are what the reader recognises the purchase by.
+	// The reference is the Sale's own `TP-` code — the thing the buyer quoted
+	// to support, so the buyer knows which of their Sales this is (a buyer with
+	// two stranded Sales gets two mails, each naming its own), and a thing that
+	// is not a credential, so a stranger gains nothing by reading it.
+	EventName string
+	Reference string
+	// AcceptURL is the Re-addressing Link: the Storefront address whose click
+	// accepts, carrying a token delivered ONLY here. It never appears in any
+	// Operator or staff response — that is what keeps the Operator from
+	// completing the acceptance themself (ADR 0058). The caller refuses to
+	// compose a linkless message rather than send one.
+	AcceptURL string
+	// Locale is the language this is written in, ALREADY RESOLVED by the
+	// caller: the Sale's own locale first (ADR 0058: "mail follows the Sale's
+	// own locale, as the original Sale Confirmation did"), then the recipient's
+	// remembered Mail Locale, then English (ADR 0033).
+	Locale Locale
+}
+
 // NoLongerHolding is the mail telling an accepted Holder that a Ticket they held
 // is no longer theirs (#327, parent #322, ADR 0046).
 //
@@ -978,6 +1019,14 @@ type EmailSender interface {
 	// places for the copy to drift apart, and the whole point is that the reader
 	// cannot tell which happened.
 	SendNoLongerHolding(ctx context.Context, notice NoLongerHolding) error
+	// SendSaleReAddressing delivers the mail carrying a Re-addressing Link to
+	// the corrected address of a Sale Re-addressing (#420, ADR 0058).
+	//
+	// TRANSACTIONAL, beside the Assignment mail whose reader it resembles: a
+	// person who may never have been here, who consented to nothing, and who is
+	// being handed the one link that lets them prove an address. Its placement
+	// on this half is what makes that structural.
+	SendSaleReAddressing(ctx context.Context, reAddressing SaleReAddressing) error
 	// SendTicketQuestionRevoked tells one Org Admin that an approved Ticket
 	// Question was revoked, and why (#410, ADR 0056). Transactional, on the
 	// staff-to-organizer channel beside the Payout Request notices.
@@ -1078,6 +1127,14 @@ func (s *LoggingEmailSender) SendTicketAssignment(_ context.Context, a TicketAss
 // to log: it carries no link, no cause and nothing about the buyer.
 func (s *LoggingEmailSender) SendNoLongerHolding(_ context.Context, n NoLongerHolding) error {
 	s.Logger.Info("no longer holding notice sent", "email", n.To, "event", n.EventName, "locale", string(n.Locale))
+	return nil
+}
+
+// SendSaleReAddressing logs the Re-addressing mail for local development. The
+// address and the link are logged, as the Assignment mail's are, because locally
+// there is no mailbox and the link is the whole point of the message.
+func (s *LoggingEmailSender) SendSaleReAddressing(_ context.Context, r SaleReAddressing) error {
+	s.Logger.Info("sale re-addressing sent", "email", r.To, "event", r.EventName, "reference", r.Reference, "accept_url", r.AcceptURL, "locale", string(r.Locale))
 	return nil
 }
 
@@ -1196,6 +1253,11 @@ func (NoopEmailSender) SendNoLongerHolding(_ context.Context, _ NoLongerHolding)
 	return nil
 }
 
+// SendSaleReAddressing discards the Re-addressing mail.
+func (NoopEmailSender) SendSaleReAddressing(_ context.Context, _ SaleReAddressing) error {
+	return nil
+}
+
 // SendTicketQuestionRevoked discards the Revocation notice.
 func (NoopEmailSender) SendTicketQuestionRevoked(_ context.Context, _ TicketQuestionRevoked) error {
 	return nil
@@ -1287,6 +1349,12 @@ type CaptureEmailSender struct {
 	// one place a test can get one, exactly as a Holder's inbox is the one place
 	// a person can.
 	TicketAssignments []TicketAssignment
+	// The Re-addressing mails delivered (#420, ADR 0058). Kept whole so a test
+	// can render what the corrected address read, and — as with the Assignment
+	// mail — the ONLY way an integration test can see a Re-addressing Link: the
+	// token is in no Operator response, so the captured mail is the one place a
+	// test can get one, exactly as an inbox is the one place a person can.
+	SaleReAddressings []SaleReAddressing
 	// The Assignment Reminders delivered (#362, ADR 0051). Kept whole so a test
 	// can render what the buyer read; asserted on by LENGTH as much as by
 	// contents, since "nobody was reminded" has no message to inspect.
@@ -1460,6 +1528,17 @@ func (s *CaptureEmailSender) SendNoLongerHolding(_ context.Context, n NoLongerHo
 	return nil
 }
 
+// SendSaleReAddressing records a delivered Re-addressing mail.
+func (s *CaptureEmailSender) SendSaleReAddressing(_ context.Context, r SaleReAddressing) error {
+	if err := s.failed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.SaleReAddressings = append(s.SaleReAddressings, r)
+	return nil
+}
+
 // SendPayoutRequestSubmitted records a delivered operator submission notice.
 func (s *CaptureEmailSender) SendPayoutRequestSubmitted(_ context.Context, p PayoutRequestSubmitted) error {
 	if err := s.failed(); err != nil {
@@ -1615,6 +1694,18 @@ func (s *CaptureEmailSender) TicketAssignmentsSent() []TicketAssignment {
 	defer s.mu.Unlock()
 	out := make([]TicketAssignment, len(s.TicketAssignments))
 	copy(out, s.TicketAssignments)
+	return out
+}
+
+// SaleReAddressingsSent returns the Re-addressing mails delivered so far, in
+// the order they were sent. Tests assert on the LENGTH as much as on the
+// contents: "the wrong address was told nothing" and "a refused recording
+// mailed nobody" are facts about there being none.
+func (s *CaptureEmailSender) SaleReAddressingsSent() []SaleReAddressing {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]SaleReAddressing, len(s.SaleReAddressings))
+	copy(out, s.SaleReAddressings)
 	return out
 }
 
@@ -1776,6 +1867,7 @@ func (s *CaptureEmailSender) Reset() {
 	s.HolderAnswerReminders = nil
 	s.TicketAssignments = nil
 	s.AssignmentReminders = nil
+	s.SaleReAddressings = nil
 	s.NoLongerHoldings = nil
 	s.SubmittedPayoutRequests = nil
 	s.SubmittedQuestionReviews = nil
