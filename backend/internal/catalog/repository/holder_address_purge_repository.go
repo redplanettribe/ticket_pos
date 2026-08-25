@@ -129,8 +129,8 @@ func (r *Repository) PurgeUnacceptedHolderAddresses(
 }
 
 // PurgeUnacceptedCorrectedAddresses takes the corrected address off every Sale
-// Re-addressing still pending whose Event has started, and reports how many
-// went (#424, parent #419, ADR 0058).
+// Re-addressing never accepted — pending or withdrawn — whose Event has
+// started, and reports how many went (#424, parent #419, ADR 0058).
 //
 // THE SAME KIND OF FACT AS AN UNACCEPTED HOLDER ADDRESS, ended the same way. A
 // corrected address is typed by a Platform Operator on the buyer's word and
@@ -149,16 +149,16 @@ func (r *Repository) PurgeUnacceptedHolderAddresses(
 //
 // THE PREDICATE:
 //
-//   - `accepted_at IS NULL AND withdrawn_at IS NULL` — the record has not
-//     ended, which is migration 093's one-pending predicate exactly: what this
-//     takes is what the Operator lookup would otherwise still call pending. An
-//     accepted row keeps its address FOREVER: once proven from the corrected
-//     inbox it is the Customer's own, it is on `customers` as well, and
-//     migration 093's CHECK would refuse the NULL anyway. A withdrawn row is
-//     left alone too — the Operator ended it themself and it is not what the
-//     ticket names — which means an address the Operator withdrew is kept
-//     unaccepted past the doors. That is a gap this job does not close, noted
-//     rather than quietly widened into.
+//   - `accepted_at IS NULL` — the address was never proven, whether the record
+//     is still pending or the Operator withdrew or replaced it. An accepted row
+//     keeps its address FOREVER: once proven from the corrected inbox it is the
+//     Customer's own, it is on `customers` as well, and migration 093's CHECK
+//     would refuse the NULL anyway. A withdrawn row is NOT spared: the address
+//     on it was typed by somebody who is not its owner and nobody ever clicked
+//     from it, which is the whole reason this purge exists (ADR 0046, ADR
+//     0058), and the Operator ending the record early does not make the
+//     address theirs to keep. The row's withdrawn_at survives, so the history
+//     still says the Operator ended it and when.
 //
 //   - `corrected_email IS NOT NULL` — there is an address to take, which is
 //     what makes a second run find nothing.
@@ -185,7 +185,6 @@ func (r *Repository) PurgeUnacceptedCorrectedAddresses(ctx context.Context, now 
 		JOIN events e ON e.id = s.event_id
 		WHERE s.id = ra.ticket_sale_id
 		  AND ra.accepted_at IS NULL
-		  AND ra.withdrawn_at IS NULL
 		  AND ra.corrected_email IS NOT NULL
 		  AND e.starts_at IS NOT NULL
 		  AND e.starts_at <= $1

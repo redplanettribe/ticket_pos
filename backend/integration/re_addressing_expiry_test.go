@@ -219,6 +219,10 @@ func TestAPendingReAddressingExpiresAtTheDoorsAndItsAddressIsPurged(t *testing.T
 	unaccepted := strandSale(t, env, "Doors Fest", "readdress-doors-fest", wrong, corrected, 1)
 	accepted := strandAnotherSale(t, env, unaccepted, "Doors Fest Two", "readdress-doors-fest-two", "bea.torres@example.com", "bea.torrez@example.com")
 	acceptAndSignIn(t, env, accepted.token)
+	// A third Sale whose re-addressing the Operator withdrew before the doors:
+	// its address was never proven either, and the purge owes it the same end.
+	withdrawn := strandAnotherSale(t, env, unaccepted, "Doors Fest Three", "readdress-doors-fest-three", "cai.ramos@example.com", "cai.ramoz@example.com")
+	withdrawReAddressOK(t, env, withdrawn.operator, withdrawn.ref)
 	env.email.Reset()
 
 	// An hour before the doors: nothing is due, and the purge says so without
@@ -243,8 +247,19 @@ func TestAPendingReAddressingExpiresAtTheDoorsAndItsAddressIsPurged(t *testing.T
 	assertNothingPendingInTheLookup(t, env, unaccepted, wrong)
 
 	result := purgeHolderAddresses(t, env)
-	if result.CorrectedAddressesPurged != 1 {
-		t.Fatalf("purge = %+v, want exactly 1 corrected address taken — the unaccepted one, and not the accepted one", result)
+	if result.CorrectedAddressesPurged != 2 {
+		t.Fatalf("purge = %+v, want exactly 2 corrected addresses taken — the pending one and the withdrawn one, and not the accepted one", result)
+	}
+
+	// THE WITHDRAWN RECORD LOSES ITS ADDRESS TOO, and keeps the fact that the
+	// Operator ended it: an address nobody ever clicked from is not the
+	// Operator's to keep past the doors.
+	ended := readReAddressingRow(t, env, withdrawn.saleID)
+	if ended.correctedEmail.Valid {
+		t.Errorf("the withdrawn record still carries corrected_email=%q past the doors", ended.correctedEmail.String)
+	}
+	if !ended.withdrawnAt.Valid || ended.acceptedAt.Valid {
+		t.Errorf("the purge rewrote the withdrawn record's time facts: %+v", ended)
 	}
 
 	// THE ADDRESS IS GONE FROM THE DATABASE, and everything beside it stayed:
