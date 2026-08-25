@@ -122,10 +122,14 @@ type Money interface {
 	// Link (#420, ADR 0058). It never calls a Payment Provider. It refuses a
 	// sale that is not an Online Sale (SALE_NOT_RE_ADDRESSABLE), a reversed one
 	// (SALE_ALREADY_REVERSED), one whose Event has started
-	// (RE_ADDRESSING_EVENT_STARTED), a correction to the address the sale
-	// already carries (RE_ADDRESSING_SAME_ADDRESS), and a sale with a pending
-	// re-addressing already (RE_ADDRESSING_ALREADY_PENDING).
+	// (RE_ADDRESSING_EVENT_STARTED), and a correction to the address the sale
+	// already carries (RE_ADDRESSING_SAME_ADDRESS). Recording while one is
+	// pending replaces it and kills its link (#423).
 	ReAddressSaleAsOperator(ctx context.Context, confirmationRef string, input salessvc.ReAddressSaleInput) (*salessvc.SaleReAddressing, error)
+	// WithdrawSaleReAddressingAsOperator ends the pending Sale Re-addressing
+	// on the sale a reference names, kills its link and mails nobody (#423).
+	// It refuses when nothing is pending (RE_ADDRESSING_NOTHING_PENDING).
+	WithdrawSaleReAddressingAsOperator(ctx context.Context, confirmationRef string) (*salessvc.SaleReAddressing, error)
 	// SaleReAddressings is the lookup's `re_addressing` block for one sale:
 	// the pending record or null, and the accepted history.
 	SaleReAddressings(ctx context.Context, sale *salessvc.OperatorSale) (*salessvc.SaleReAddressingBlock, error)

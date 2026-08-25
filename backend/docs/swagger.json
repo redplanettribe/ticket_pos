@@ -9926,8 +9926,83 @@
             }
         },
         "/api/v1/operator/sales/{confirmationRef}/re-address": {
+            "delete": {
+                "description": "Ends the pending Sale Re-addressing on the sale named by a Sale Confirmation reference (ADR 0058): the record is stamped withdrawn_at and KEPT, its Re-addressing Link stops opening on both the public view and the accept, and nobody is mailed — the corrected address's link simply stops working, and the wrong address is told nothing. The Sale stays exactly where it was, so the sale can be re-addressed afresh afterwards. The response is the record as it now stands, with status `withdrawn`. No body. The Payment Provider is never called. Refused with RE_ADDRESSING_NOTHING_PENDING when no re-addressing of the sale is pending: none recorded, or the last one already accepted, withdrawn, replaced, or expired because the sale was reversed or its Event started. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Sale Confirmation reference (case-insensitive)",
+                        "in": "path",
+                        "name": "confirmationRef",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorSaleReAddressing"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Withdraw the pending re-addressing of an Online Sale",
+                "tags": [
+                    "operator"
+                ]
+            },
             "post": {
-                "description": "Records a Sale Re-addressing against the active Online Sale named by a Sale Confirmation reference: the address the buyer meant, and an optional note (at most 500 characters). The platform then mails THAT address a Re-addressing Link, in the Sale's own locale, saying the purchase is being re-addressed to them at the organizer's request and that accepting takes it on; the wrong address is told nothing. NOTHING MOVES YET: the Sale still belongs to whoever it belonged to until the corrected address clicks the link (ADR 0058), and the response is the pending record — corrected address (normalised as a Customer's is), the Sale's address at request time, the acting operator (taken from the Staff Session, never from the body), the note and requested_at. THE RESPONSE CARRIES NO TOKEN AND NO LINK: the link is delivered to the corrected address alone, so the Operator cannot complete the acceptance themself. The Payment Provider is never called — no money moves. Refused for a sale that is not an Online Sale (SALE_NOT_RE_ADDRESSABLE: an imported sale is corrected through its Sale Import), one already reversed (SALE_ALREADY_REVERSED), one whose Event has already started (RE_ADDRESSING_EVENT_STARTED, read live in the Event's timezone), a correction that normalises to the address the sale already carries (RE_ADDRESSING_SAME_ADDRESS), and a sale with a pending re-addressing already (RE_ADDRESSING_ALREADY_PENDING). Platform Operator only.",
+                "description": "Records a Sale Re-addressing against the active Online Sale named by a Sale Confirmation reference: the address the buyer meant, and an optional note (at most 500 characters). The platform then mails THAT address a Re-addressing Link, in the Sale's own locale, saying the purchase is being re-addressed to them at the organizer's request and that accepting takes it on; the wrong address is told nothing. NOTHING MOVES YET: the Sale still belongs to whoever it belonged to until the corrected address clicks the link (ADR 0058), and the response is the pending record — corrected address (normalised as a Customer's is), the Sale's address at request time, the acting operator (taken from the Staff Session, never from the body), the note and requested_at. THE RESPONSE CARRIES NO TOKEN AND NO LINK: the link is delivered to the corrected address alone, so the Operator cannot complete the acceptance themself. The Payment Provider is never called — no money moves. Refused for a sale that is not an Online Sale (SALE_NOT_RE_ADDRESSABLE: an imported sale is corrected through its Sale Import), one already reversed (SALE_ALREADY_REVERSED), one whose Event has already started (RE_ADDRESSING_EVENT_STARTED, read live in the Event's timezone), and a correction that normalises to the address the sale already carries (RE_ADDRESSING_SAME_ADDRESS). RECORDING WHILE ONE IS PENDING REPLACES IT: in the same transaction the pending record is withdrawn (kept, stamped withdrawn_at) and the new one created, the old Re-addressing Link stops opening, and only the new address is mailed — the replaced address is told nothing. Recording the SAME corrected address again is how a lost mail is sent again: a fresh record, a fresh link, and the previous link refused. Platform Operator only.",
                 "parameters": [
                     {
                         "description": "Sale Confirmation reference (case-insensitive)",

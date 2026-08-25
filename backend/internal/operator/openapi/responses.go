@@ -39,8 +39,8 @@ type EnvelopeOperatorSaleLookup struct {
 	RequestID string             `json:"request_id"`
 }
 
-// EnvelopeOperatorSaleReAddressing documents POST
-// /operator/sales/{confirmationRef}/re-address success responses (#420).
+// EnvelopeOperatorSaleReAddressing documents POST and DELETE
+// /operator/sales/{confirmationRef}/re-address success responses (#420, #423).
 type EnvelopeOperatorSaleReAddressing struct {
 	Data      service.ReAddressing `json:"data"`
 	Error     *platform.APIError   `json:"error"`

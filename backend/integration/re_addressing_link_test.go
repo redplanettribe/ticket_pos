@@ -607,12 +607,8 @@ func TestTheReAddressingLinkIsNoLongerValidOnceTheRecordOrTheSaleHasEnded(t *tes
 		{"a started Event", "event_started", func(t *testing.T, env *testEnv, s strandedSale) {
 			setEventStart(t, env, s.eventID, env.fixedClock.Add(-time.Minute))
 		}},
-		// The withdraw control is #423's; until it exists the record is ended
-		// the way #423 will end it, so the refusal it owes is asserted now.
 		{"a withdrawn record", "withdrawn", func(t *testing.T, env *testEnv, s strandedSale) {
-			if _, err := env.db.Exec(`UPDATE sale_re_addressings SET withdrawn_at = $2 WHERE ticket_sale_id = $1`, s.saleID, env.fixedClock); err != nil {
-				t.Fatalf("withdraw the record: %v", err)
-			}
+			withdrawReAddressOK(t, payphoneEnv, s.operator, s.ref)
 		}},
 	}
 	for i, tc := range cases {

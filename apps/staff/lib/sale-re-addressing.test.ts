@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { OperatorSaleReAddressing } from "./operator-api.ts";
-import { correctedEmailProblem, reAddressBody, reAddressingPanel } from "./sale-re-addressing.ts";
+import {
+  correctedEmailProblem,
+  reAddressBody,
+  reAddressingPanel,
+  resendBody,
+} from "./sale-re-addressing.ts";
 
 const now = new Date("2026-07-07T12:00:00Z");
 const event = {
@@ -30,6 +35,17 @@ const pending: OperatorSaleReAddressing = {
 test("the panel shows the form on an active online sale with nothing pending", () => {
   assert.deepEqual(reAddressingPanel(active, { pending: null, accepted: [] }, now), { kind: "form" });
   assert.deepEqual(reAddressingPanel(active, null, now), { kind: "form" });
+});
+
+test("the panel shows the form again once the pending record has been withdrawn", () => {
+  // The lookup lists only what is pending and what was accepted; a withdrawn
+  // record leaves `pending` null, and the form is offered again.
+  assert.deepEqual(reAddressingPanel(active, { pending: null, accepted: [] }, now), { kind: "form" });
+  // An accepted history does not stop a further re-addressing either.
+  const accepted = { ...pending, status: "accepted", accepted_at: "2026-07-07T13:00:00Z" };
+  assert.deepEqual(reAddressingPanel(active, { pending: null, accepted: [accepted] }, now), {
+    kind: "form",
+  });
 });
 
 test("the panel shows the pending card once a recording stands", () => {
@@ -72,4 +88,13 @@ test("reAddressBody trims the address and sends the note only when there is one"
     email: "ana.lopez@example.com",
     note: "buyer wrote in",
   });
+});
+
+test("resendBody records the pending address and note again, and nothing once the address is purged", () => {
+  assert.deepEqual(resendBody(pending), { email: "ana.lopez@example.com" });
+  assert.deepEqual(resendBody({ ...pending, note: "buyer wrote in" }), {
+    email: "ana.lopez@example.com",
+    note: "buyer wrote in",
+  });
+  assert.equal(resendBody({ ...pending, corrected_email: null }), null);
 });

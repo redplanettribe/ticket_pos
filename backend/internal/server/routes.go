@@ -160,9 +160,10 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// the platform can mail it a Re-addressing Link (#420, ADR 0058). The
 	// second lever on an Online Sale, beside Reverse and hanging off the same
 	// lookup. Operator only: moving whom a paid record belongs to is a larger
-	// trust grant than any Organization holds. Withdraw (DELETE on this path)
-	// is #423.
+	// trust grant than any Organization holds. Recording while one is pending
+	// replaces it; DELETE on the same path withdraws it (#423).
 	mux.Handle("POST /api/v1/operator/sales/{confirmationRef}/re-address", operator(http.HandlerFunc(h.ReAddressSale)))
+	mux.Handle("DELETE /api/v1/operator/sales/{confirmationRef}/re-address", operator(http.HandlerFunc(h.WithdrawReAddressing)))
 	// Recording a Payout, which used to mean an INSERT typed by hand into the
 	// production database (ADR 0015).
 	mux.Handle("POST /api/v1/operator/organizations/{orgID}/payouts", operator(http.HandlerFunc(h.RecordPayout)))

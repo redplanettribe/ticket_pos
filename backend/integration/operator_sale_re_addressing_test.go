@@ -18,8 +18,10 @@ import (
 // the Sale by the reference the buyer quoted and records the address the buyer
 // meant; the platform mails THAT address a Re-addressing Link. Nothing moves
 // yet — the Sale still belongs to whoever it belonged to — and the lookup shows
-// the pending record. The click itself, the withdraw/replace controls and the
-// reversal/expiry interplay are #421, #423 and #424.
+// the pending record. The Operator can also withdraw the pending record, or
+// replace it by recording again — the same address to resend a lost mail, a
+// different one to fix their own typo — and each move kills the earlier link
+// (#423). The click itself is #421; the reversal/expiry interplay is #424.
 //
 // THE PROPERTY EVERYTHING ELSE RESTS ON is the Assignment Link's, carried over:
 // the Re-addressing Link is a token delivered to the corrected address alone
@@ -277,28 +279,246 @@ func TestOperatorReAddressesAnOnlineSaleAndTheCorrectedAddressIsMailedALink(t *t
 	}
 }
 
-// TestReAddressingIsRefusedWhileOneIsPending: one pending per Sale. Until #423
-// makes a second recording a replace (killing the earlier link), the API
-// refuses it outright, and mails nobody.
-func TestReAddressingIsRefusedWhileOneIsPending(t *testing.T) {
+// withdrawReAddressRequest is the Operator's DELETE on the same path the
+// recording POSTs to: the one control that ends a pending re-addressing
+// (#423). No body — there is nothing to say beyond "not this one".
+func withdrawReAddressRequest(t *testing.T, env *testEnv, sessionID, confirmationRef string) (*http.Response, envelope) {
+	t.Helper()
+	var headers map[string]string
+	if sessionID != "" {
+		headers = authHeader(sessionID)
+	}
+	return env.deleteJSON(t, reAddressPath(confirmationRef), nil, headers)
+}
+
+func withdrawReAddressOK(t *testing.T, env *testEnv, sessionID, confirmationRef string) saleReAddressing {
+	t.Helper()
+	resp, envBody := withdrawReAddressRequest(t, env, sessionID, confirmationRef)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("withdraw status=%d error=%+v, want 200", resp.StatusCode, envBody.Error)
+	}
+	var out saleReAddressing
+	if err := json.Unmarshal(envBody.Data, &out); err != nil {
+		t.Fatalf("decode withdrawn re-addressing: %v", err)
+	}
+	return out
+}
+
+// assertReAddressingLinkDead is the assertion every move below makes through
+// the public view: a link whose record has ended refuses both the view and the
+// click, and says why. The link died because the OPERATOR ended the record, so
+// the reason is `withdrawn` whether the record was withdrawn outright or
+// replaced — from the reader's side those are the same fact.
+func assertReAddressingLinkDead(t *testing.T, token string) {
+	t.Helper()
+	resp, body := viewReAddressingLink(t, payphoneEnv, token)
+	assertRefused(t, resp, body, http.StatusUnauthorized, "RE_ADDRESSING_LINK_NO_LONGER_VALID")
+	if got := answerDetail(body, "reason"); got != "withdrawn" {
+		t.Errorf("view details.reason = %q, want withdrawn", got)
+	}
+	resp, body = acceptReAddressingLink(t, payphoneEnv, token)
+	assertRefused(t, resp, body, http.StatusUnauthorized, "RE_ADDRESSING_LINK_NO_LONGER_VALID")
+	if got := answerDetail(body, "reason"); got != "withdrawn" {
+		t.Errorf("accept details.reason = %q, want withdrawn", got)
+	}
+}
+
+// TestOperatorWithdrawsAPendingReAddressing: a mistake of the Operator's never
+// completes (ADR 0058). The withdrawal stamps the record, kills the link on
+// both its routes, mails nobody, and leaves the Sale where it was — with the
+// lever offered again, since nothing is pending any more.
+func TestOperatorWithdrawsAPendingReAddressing(t *testing.T) {
+	env := setupTest(t)
+	s := strandSale(t, env, "Withdraw Fest", "readdress-withdraw-fest", "ana.lopes@example.com", "ana.lopez@example.com", 1)
+	viewReAddressingLinkOK(t, payphoneEnv, s.token)
+
+	withdrawn := withdrawReAddressOK(t, payphoneEnv, s.operator, s.ref)
+	if withdrawn.Status != "withdrawn" || withdrawn.ConfirmationRef != s.ref ||
+		withdrawn.CorrectedEmail == nil || *withdrawn.CorrectedEmail != "ana.lopez@example.com" {
+		t.Fatalf("withdrawn = %+v, want the pending record read back as withdrawn", withdrawn)
+	}
+	if withdrawn.WithdrawnAt == nil || *withdrawn.WithdrawnAt != env.fixedClock.UTC().Format(time.RFC3339) {
+		t.Fatalf("withdrawn_at = %v, want the server's own clock", withdrawn.WithdrawnAt)
+	}
+	if withdrawn.AcceptedAt != nil {
+		t.Fatalf("accepted_at = %v on a withdrawn record, want null", withdrawn.AcceptedAt)
+	}
+	if got := payphoneStub.reverseCount(); got != 0 {
+		t.Fatalf("PayPhone was asked to reverse %d times; a withdrawal moves no money", got)
+	}
+
+	// NOBODY IS MAILED: not the corrected address, whose link simply stops
+	// working, and not the wrong one, which is told nothing (ADR 0058).
+	assertNoReAddressingMail(t, env)
+	if got := len(env.email.Voided()) + len(env.email.Confirmations()); got != 0 {
+		t.Fatalf("captured %d Customer mails from a withdrawal, want none", got)
+	}
+
+	// THE LINK IS DEAD on both routes, and the click minted nobody.
+	assertReAddressingLinkDead(t, s.token)
+	if _, exists := readHolderCustomer(t, env, "ana.lopez@example.com"); exists {
+		t.Error("a withdrawn link minted a Customer")
+	}
+
+	// THE SALE HAS NOT MOVED, and the lookup shows nothing pending and nothing
+	// accepted: a withdrawn record is kept as evidence but is not an
+	// outstanding correction.
+	found, raw := lookUpSaleWithReAddressing(t, env, s.operator, s.ref)
+	if found.Sale.Customer.Email != "ana.lopes@example.com" || found.Sale.Status != "active" {
+		t.Fatalf("sale after withdrawal = %s / %s, want untouched", found.Sale.Customer.Email, found.Sale.Status)
+	}
+	if found.ReAddressing.Pending != nil || len(found.ReAddressing.Accepted) != 0 {
+		t.Fatalf("re_addressing after withdrawal = %s, want nothing pending and nothing accepted", raw)
+	}
+
+	// A second withdrawal has nothing to withdraw.
+	resp, body := withdrawReAddressRequest(t, payphoneEnv, s.operator, s.ref)
+	assertRefused(t, resp, body, http.StatusConflict, "RE_ADDRESSING_NOTHING_PENDING")
+
+	// And the lever is offered again: a fresh recording opens a fresh link,
+	// which is the form reappearing on the Sale page.
+	again := reAddressOK(t, payphoneEnv, s.operator, s.ref, reAddressBody{Email: "ana.lopez@example.com"})
+	if again.ID == withdrawn.ID || again.Status != "pending" {
+		t.Fatalf("recording after withdrawal = %+v, want a new pending record, not the withdrawn one reopened", again)
+	}
+	viewReAddressingLinkOK(t, payphoneEnv, reAddressingTokenFrom(t, reAddressingMailFor(t, env, "ana.lopez@example.com")))
+	assertReAddressingLinkDead(t, s.token)
+}
+
+// TestWithdrawingIsRefusedWhenNothingIsPending: with no recording against the
+// Sale there is nothing to end, and the refusal writes nothing and mails
+// nobody. The withdraw is also the operator's alone, and 404 on a reference
+// nothing carries, exactly as the recording is.
+func TestWithdrawingIsRefusedWhenNothingIsPending(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
-	_, gaID := publishEventStarting(t, env, sessionID, "Pending Fest", "readdress-pending-fest",
+	_, gaID := publishEventStarting(t, env, sessionID, "Nothing Fest", "readdress-nothing-fest",
 		env.fixedClock.Add(72*time.Hour), "America/Guayaquil", feeTestBaseCents, 10)
-	ref := buyOnline(t, env, "readdress-pending-fest", gaID, "ana.lopes@example.com")
+	ref := buyOnline(t, env, "readdress-nothing-fest", gaID, "ana.lopes@example.com")
 	operatorSessionID := operatorSession(t, env, "operator@example.com")
 	env.email.Reset()
 
-	reAddressOK(t, env, operatorSessionID, ref, reAddressBody{Email: "ana.lopez@example.com"})
-	env.email.Reset()
-
-	resp, body, _ := reAddressRequest(t, env, operatorSessionID, ref, reAddressBody{Email: "ana.lopez2@example.com"})
-	assertRefused(t, resp, body, http.StatusConflict, "RE_ADDRESSING_ALREADY_PENDING")
+	resp, body := withdrawReAddressRequest(t, env, operatorSessionID, ref)
+	assertRefused(t, resp, body, http.StatusConflict, "RE_ADDRESSING_NOTHING_PENDING")
 	assertNoReAddressingMail(t, env)
 
+	resp, body = withdrawReAddressRequest(t, env, operatorSessionID, "TP-NOSUCHREF")
+	if resp.StatusCode != http.StatusNotFound || body.Error == nil || body.Error.Code != "TICKET_SALE_NOT_FOUND" {
+		t.Fatalf("unknown reference status=%d error=%+v, want 404 TICKET_SALE_NOT_FOUND", resp.StatusCode, body.Error)
+	}
+
+	reAddressOK(t, env, operatorSessionID, ref, reAddressBody{Email: "ana.lopez@example.com"})
+	resp, body = withdrawReAddressRequest(t, env, "", ref)
+	if resp.StatusCode != http.StatusUnauthorized || body.Error == nil || body.Error.Code != "UNAUTHORIZED" {
+		t.Fatalf("unauthenticated withdrawal status=%d error=%+v, want 401 UNAUTHORIZED", resp.StatusCode, body.Error)
+	}
+	resp, body = withdrawReAddressRequest(t, env, sessionID, ref)
+	if resp.StatusCode != http.StatusForbidden || body.Error == nil || body.Error.Code != "FORBIDDEN" {
+		t.Fatalf("org_admin withdrawal status=%d error=%+v, want 403 FORBIDDEN", resp.StatusCode, body.Error)
+	}
 	found, _ := lookUpSaleWithReAddressing(t, env, operatorSessionID, ref)
-	if found.ReAddressing.Pending == nil || *found.ReAddressing.Pending.CorrectedEmail != "ana.lopez@example.com" {
-		t.Fatalf("pending = %+v, want the first recording left standing", found.ReAddressing.Pending)
+	if found.ReAddressing.Pending == nil {
+		t.Fatal("a refused withdrawal ended the pending record")
+	}
+}
+
+// TestRecordingWhileOneIsPendingReplacesItAndKillsItsLink: fixing the
+// Operator's own typo is one act, not two. The new recording withdraws the old
+// in the same transaction, the old link dies, the new address alone is mailed,
+// and the lookup shows only the new record. The old one is kept, ended — the
+// evidence of what was typed first.
+func TestRecordingWhileOneIsPendingReplacesItAndKillsItsLink(t *testing.T) {
+	env := setupTest(t)
+	s := strandSale(t, env, "Replace Fest", "readdress-replace-fest", "ana.lopes@example.com", "ana.lopez@example.com", 1)
+	first, _ := lookUpSaleWithReAddressing(t, env, s.operator, s.ref)
+	firstID := first.ReAddressing.Pending.ID
+
+	replaced := reAddressOK(t, payphoneEnv, s.operator, s.ref, reAddressBody{
+		Email: "ana.lopez.real@example.com",
+		Note:  strPtr("second typo was mine"),
+	})
+	if replaced.Status != "pending" || replaced.ID == firstID ||
+		replaced.CorrectedEmail == nil || *replaced.CorrectedEmail != "ana.lopez.real@example.com" {
+		t.Fatalf("replacement = %+v, want a new pending record for the new address", replaced)
+	}
+	if got := payphoneStub.reverseCount(); got != 0 {
+		t.Fatalf("PayPhone was asked to reverse %d times", got)
+	}
+
+	// ONE MAIL, TO THE NEW ADDRESS. The first corrected address is not told its
+	// link died — it was a typo, and may be nobody.
+	newMail := reAddressingMailFor(t, env, "ana.lopez.real@example.com")
+	if len(env.email.SaleReAddressingsSent()) != 1 {
+		t.Fatalf("captured %d Re-addressing mails from the replacement, want exactly one", len(env.email.SaleReAddressingsSent()))
+	}
+	newToken := reAddressingTokenFrom(t, newMail)
+	if newToken == s.token {
+		t.Fatal("the replacement reused the old token")
+	}
+
+	// THE OLD LINK IS DEAD, THE NEW ONE OPENS.
+	assertReAddressingLinkDead(t, s.token)
+	if view := viewReAddressingLinkOK(t, payphoneEnv, newToken); view.CorrectedEmail != "ana.lopez.real@example.com" {
+		t.Fatalf("new link views %+v, want the new address", view)
+	}
+
+	// THE LOOKUP SHOWS ONLY THE NEW RECORD.
+	found, _ := lookUpSaleWithReAddressing(t, env, s.operator, s.ref)
+	pending := found.ReAddressing.Pending
+	if pending == nil || pending.ID != replaced.ID || *pending.CorrectedEmail != "ana.lopez.real@example.com" ||
+		pending.Note == nil || *pending.Note != "second typo was mine" {
+		t.Fatalf("pending = %+v, want the replacement alone", pending)
+	}
+	if len(found.ReAddressing.Accepted) != 0 || found.Sale.Customer.Email != "ana.lopes@example.com" {
+		t.Fatalf("accepted=%v customer=%s, want nothing accepted and the sale untouched", found.ReAddressing.Accepted, found.Sale.Customer.Email)
+	}
+
+	// And the new address can accept: the replacement is a real recording.
+	accepted := acceptReAddressingLinkOK(t, payphoneEnv, newToken)
+	if accepted.ConfirmationRef != s.ref {
+		t.Fatalf("accepted = %+v", accepted)
+	}
+	found, _ = lookUpSaleWithReAddressing(t, env, s.operator, s.ref)
+	if found.Sale.Customer.Email != "ana.lopez.real@example.com" || len(found.ReAddressing.Accepted) != 1 || found.ReAddressing.Pending != nil {
+		t.Fatalf("after acceptance customer=%s accepted=%d pending=%v", found.Sale.Customer.Email, len(found.ReAddressing.Accepted), found.ReAddressing.Pending)
+	}
+	if _, exists := readHolderCustomer(t, env, "ana.lopez@example.com"); exists {
+		t.Error("the replaced address was minted a Customer")
+	}
+}
+
+// TestRecordingTheSameAddressAgainResendsTheLink: a lost mail is one click to
+// recover. "Send again" is recording the same address again — a fresh record,
+// a fresh mail, a fresh token bound to the new row, and the previous token
+// refused, so a link that leaked with the lost mail cannot be used later.
+func TestRecordingTheSameAddressAgainResendsTheLink(t *testing.T) {
+	env := setupTest(t)
+	s := strandSale(t, env, "Resend Fest", "readdress-resend-fest", "ana.lopes@example.com", "ana.lopez@example.com", 1)
+	first, _ := lookUpSaleWithReAddressing(t, env, s.operator, s.ref)
+	firstID := first.ReAddressing.Pending.ID
+
+	resent := reAddressOK(t, payphoneEnv, s.operator, s.ref, reAddressBody{Email: "Ana.Lopez@example.com"})
+	if resent.Status != "pending" || resent.ID == firstID || *resent.CorrectedEmail != "ana.lopez@example.com" {
+		t.Fatalf("resend = %+v, want a fresh pending record for the same address", resent)
+	}
+
+	mail := reAddressingMailFor(t, env, "ana.lopez@example.com")
+	if len(env.email.SaleReAddressingsSent()) != 1 {
+		t.Fatalf("captured %d Re-addressing mails from the resend, want exactly one", len(env.email.SaleReAddressingsSent()))
+	}
+	newToken := reAddressingTokenFrom(t, mail)
+	if newToken == s.token {
+		t.Fatal("the resend reused the previous token; a resend mints a fresh one")
+	}
+	assertReAddressingLinkDead(t, s.token)
+	viewReAddressingLinkOK(t, payphoneEnv, newToken)
+
+	found, _ := lookUpSaleWithReAddressing(t, env, s.operator, s.ref)
+	if found.ReAddressing.Pending == nil || found.ReAddressing.Pending.ID != resent.ID {
+		t.Fatalf("pending = %+v, want the resent record alone", found.ReAddressing.Pending)
+	}
+	if got := payphoneStub.reverseCount(); got != 0 {
+		t.Fatalf("PayPhone was asked to reverse %d times", got)
 	}
 }
 

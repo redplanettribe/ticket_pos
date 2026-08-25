@@ -36,3 +36,26 @@ export async function POST(request: Request, context: RouteContext) {
     return jsonFromAPIError(error);
   }
 }
+
+// DELETE withdraws the pending Sale Re-addressing (#423): the record is kept
+// and stamped withdrawn, its link stops working, and nobody is emailed. No
+// body. Refused when nothing is pending, and for anyone not on the platform
+// operator allowlist.
+export async function DELETE(_request: Request, context: RouteContext) {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  if (!token) {
+    return unauthorizedResponse();
+  }
+
+  const { confirmationRef } = await context.params;
+  try {
+    const envelope = await callBackend<OperatorSaleReAddressing>(
+      `/api/v1/operator/sales/${encodeURIComponent(confirmationRef)}/re-address`,
+      { method: "DELETE", sessionToken: token },
+    );
+    return NextResponse.json(envelope);
+  } catch (error) {
+    return jsonFromAPIError(error);
+  }
+}
