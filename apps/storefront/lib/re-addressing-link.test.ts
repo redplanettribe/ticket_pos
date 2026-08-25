@@ -108,6 +108,20 @@ test("a press with consent outstanding goes to the sign-in page's consent step, 
   assert.equal(url.searchParams.get("next"), "/tickets#sale-sale-1");
 });
 
+test("the accepted page's disclosure does not promise that signing in needs nothing else", () => {
+  // A Customer who still owes consent is sent to the sign-in page's consent
+  // step first (#437); the copy says the Privacy Policy may come first and
+  // never claims there is no further step.
+  for (const [messages, terms, bare] of [
+    [enMessages, "privacy policy", "nothing else"],
+    [esMessages, "política de privacidad", "nada más"],
+  ] as const) {
+    const sentence = messages.reAddressingLink.acceptedDisclosure.toLowerCase();
+    assert.equal(sentence.includes(terms), true, `acceptedDisclosure does not mention the ${terms}`);
+    assert.equal(sentence.includes(bare), false, `acceptedDisclosure still promises "${bare}"`);
+  }
+});
+
 test("every failure key the mapper can return has copy in both languages", () => {
   // The mapper returns a key and the page renders `${key}Description`; a key
   // with no sentence behind it is a blank alert for somebody who paid.

@@ -195,7 +195,7 @@
     "ignoring": "No tiene que hacerlo. Si cierra esta página no pasa nada: la compra se queda donde está.",
     "acceptedTitle": "Esta compra ya es suya",
     "acceptedDescription": "Ya la aceptó antes. Inicie sesión abajo para verla entre sus entradas.",
-    "acceptedDisclosure": "Iniciar sesión aquí no requiere nada más: esta dirección quedó verificada cuando aceptó.",
+    "acceptedDisclosure": "Esta dirección quedó verificada cuando aceptó, así que no hay ningún código que escribir. Si aún no ha aceptado nuestra Política de Privacidad, se le pedirá leerla primero y después se le llevará a sus entradas.",
     "open": "Ir a mis entradas",
     "backToStorefront": "Volver a los eventos",
     "failedTitle": "No se pudo completar",

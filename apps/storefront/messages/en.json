@@ -195,7 +195,7 @@
     "ignoring": "You don't have to. If you close this page nothing happens: the purchase stays where it is.",
     "acceptedTitle": "This purchase is already yours",
     "acceptedDescription": "You accepted it earlier. Sign in below to see it under your tickets.",
-    "acceptedDisclosure": "Signing in here needs nothing else: this address was verified when you accepted.",
+    "acceptedDisclosure": "This address was verified when you accepted, so there is no code to type. If you haven't yet agreed to our Privacy Policy, you'll be asked to read it first, and then taken to your tickets.",
     "open": "Go to my tickets",
     "backToStorefront": "Back to the events",
     "failedTitle": "That didn't work",
