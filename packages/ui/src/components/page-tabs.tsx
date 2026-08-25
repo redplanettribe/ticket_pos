@@ -42,7 +42,7 @@ export type PageTabsProps = {
  */
 export function PageTabs({ items, activePath, ariaLabel, className }: PageTabsProps) {
   return (
-    <nav aria-label={ariaLabel} className={cn("flex gap-6 overflow-x-auto border-b", className)}>
+    <nav aria-label={ariaLabel} className={cn("flex gap-1 overflow-x-auto border-b", className)}>
       {items.map((item) => {
         const active = isNavItemActive(activePath, item.href, { exact: item.exact });
         return (
@@ -51,9 +51,9 @@ export function PageTabs({ items, activePath, ariaLabel, className }: PageTabsPr
             href={item.href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "whitespace-nowrap border-b-2 px-1 pb-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm",
+              "whitespace-nowrap rounded-t-md border-b-2 px-3 pb-2 pt-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               active
-                ? "border-foreground text-foreground"
+                ? "border-primary text-foreground"
                 : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
             )}
           >
