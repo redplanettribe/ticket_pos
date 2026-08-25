@@ -16,7 +16,6 @@ export const EVENT_NAV_KEYS = [
   "affiliateLinks",
   "sales",
   "holderList",
-  "trends",
 ] as const;
 
 export type EventNavKey = (typeof EVENT_NAV_KEYS)[number];
@@ -40,13 +39,14 @@ export type EventNavEntry = {
  * than nesting under Events.
  *
  * org_admin and event_owner get full access; event_staff is limited. Affiliate
- * Links and Trends stay owner-only, but the Sales list is visible to every
- * Member of the Event — Event Staff included — so it appears for all roles.
- * Tags have no entry of their own: they are managed from within Details.
+ * Links stays owner-only, but the Sales list is visible to every Member of the
+ * Event — Event Staff included — so it appears for all roles. Tags have no
+ * entry of their own: they are managed from within Details.
  *
- * Trends is hidden from Event Staff rather than shown and refused: the Sales
- * Trends surface carries the same guard the Event's money already has, and
- * offering a tab that answers 403 is worse than not offering it.
+ * Sales Trends has no entry either, since #460: it became a sub-tab of the
+ * Sales surface (`salesNavItems`) rather than a sibling of it, so the same
+ * chart is not offered from two places. The Sales entry lights while it is
+ * being read, because Sales owns its subtree.
  *
  * The Holder List (#333; formerly the Outstanding Answers entry) follows that
  * rule twice over, which is why it takes a flag of its own rather than riding
@@ -83,6 +83,8 @@ export function eventNavItems({
     ...(fullAccess
       ? [{ key: "affiliateLinks" as const, href: `/events/${eventId}/affiliate-links` }]
       : []),
+    // No `exact`: Sales owns its subtree, so it stays lit on its own sub-tabs
+    // (Record, Trends) — which is what a panel entry over a surface should do.
     { key: "sales", href: `/events/${eventId}/sales` },
     // The Holder List sits beside Sales because it is about who those sales
     // seat: every Ticket of the Event, who is coming on each, and — where the
@@ -90,7 +92,5 @@ export function eventNavItems({
     ...(holderList
       ? [{ key: "holderList" as const, href: `/events/${eventId}/outstanding-answers` }]
       : []),
-    // Trends reads the sales the tab above it lists, so it follows them.
-    ...(fullAccess ? [{ key: "trends" as const, href: `/events/${eventId}/trends` }] : []),
   ];
 }

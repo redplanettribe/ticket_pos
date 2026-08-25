@@ -47,6 +47,7 @@ export { OperatorShell, type OperatorShellLabels } from "./components/operator-s
 export { OrgAvatar } from "./components/org-avatar";
 export { PlatformMark } from "./components/platform-mark";
 export { PageHeader } from "./components/page-header";
+export { PageTabs, type PageTabsItem, type PageTabsProps } from "./components/page-tabs";
 export {
   SidebarShell,
   DEFAULT_SIDEBAR_LABELS,
@@ -123,6 +124,13 @@ export {
   type OperatorNavEntry,
   type OperatorNavKey,
 } from "./lib/operator-nav";
+export {
+  salesNavItems,
+  shouldDrawTabStrip,
+  SALES_NAV_KEYS,
+  type SalesNavEntry,
+  type SalesNavKey,
+} from "./lib/sales-nav";
 export {
   staffNavItems,
   STAFF_NAV_KEYS,

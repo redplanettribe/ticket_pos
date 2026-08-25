@@ -13,6 +13,10 @@ export type SortableHeaderProps<F extends string> = {
   // title, when given, names the active sort for a pointer resting on the
   // arrow; an inactive column carries no title.
   title?: { ascending: string; descending: string };
+  // dense tightens the header's vertical padding to match a table whose body
+  // rows are tight (the Sales list, #458). The Affiliate Links table, which
+  // shares this header, keeps the roomier default.
+  dense?: boolean;
 };
 
 // SortableHeader is a column header that toggles a table's sort. The active
@@ -33,11 +37,15 @@ export function SortableHeader<F extends string>({
   onSort,
   numeric,
   title,
+  dense,
 }: SortableHeaderProps<F>) {
   const active = sort === field;
+  const padding = dense ? "py-1.5" : "py-2";
   return (
     <th
-      className={numeric ? "py-2 pr-4 text-right font-medium" : "py-2 pr-4 font-medium"}
+      className={
+        numeric ? `${padding} pr-4 text-right font-medium` : `${padding} pr-4 font-medium`
+      }
       aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
     >
       <button

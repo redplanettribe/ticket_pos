@@ -89,7 +89,6 @@ export default async function EventLayout({ params, children }: EventLayoutProps
       affiliateLinks: t("navAffiliateLinks"),
       sales: t("navSales"),
       holderList: t("navHolderList"),
-      trends: t("navTrends"),
     },
     sidebar: {
       skipToContent: shell("skipToContent"),
@@ -117,7 +116,7 @@ export default async function EventLayout({ params, children }: EventLayoutProps
       statusLabel={statusLabel}
       userMenu={<LogoutButton />}
     >
-      <div className="mx-auto max-w-4xl space-y-6">
+      <div className="mx-auto max-w-6xl space-y-6">
         <EventHeaderBar
           eventId={id}
           name={event.name}

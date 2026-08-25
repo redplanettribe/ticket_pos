@@ -359,22 +359,24 @@ export function SalesList({
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="w-8 py-2 pr-2" />
+                  <th className="w-8 py-1.5 pr-2" />
                   <SortableHeader
                     label={t("colCustomer")}
                     field="customer"
                     sort={sort}
                     dir={dir}
                     onSort={toggleSort}
+                    dense
                   />
-                  <th className="py-2 pr-4 font-medium">{t("colTaxId")}</th>
-                  <th className="py-2 pr-4 font-medium">{t("colTicketTypes")}</th>
+                  <th className="py-1.5 pr-4 font-medium">{t("colTaxId")}</th>
+                  <th className="py-1.5 pr-4 font-medium">{t("colTicketTypes")}</th>
                   <SortableHeader
                     label={t("colAmount")}
                     field="amount"
                     sort={sort}
                     dir={dir}
                     onSort={toggleSort}
+                    dense
                   />
                   <SortableHeader
                     label={t("colSold")}
@@ -382,6 +384,7 @@ export function SalesList({
                     sort={sort}
                     dir={dir}
                     onSort={toggleSort}
+                    dense
                   />
                   <SortableHeader
                     label={t("colRecorded")}
@@ -389,9 +392,10 @@ export function SalesList({
                     sort={sort}
                     dir={dir}
                     onSort={toggleSort}
+                    dense
                   />
-                  <th className="py-2 pr-4 font-medium">{t("colChannel")}</th>
-                  <th className="py-2 pr-4 font-medium">{t("colReference")}</th>
+                  <th className="py-1.5 pr-4 font-medium">{t("colChannel")}</th>
+                  <th className="py-1.5 pr-4 font-medium">{t("colReference")}</th>
                 </tr>
               </thead>
               {result.data.map((sale) => (
@@ -870,8 +874,8 @@ function SaleRows({
         onClick={onToggle}
         aria-expanded={expanded}
       >
-        <td className="py-3 pr-2 text-muted-foreground">{expanded ? "▾" : "▸"}</td>
-        <td className="py-3 pr-4">
+        <td className="py-1.5 pr-2 text-muted-foreground">{expanded ? "▾" : "▸"}</td>
+        <td className="py-1.5 pr-4 leading-tight">
           <div className="font-medium">{name}</div>
           <div className="text-muted-foreground">{sale.customer_email}</div>
           {/* A reversed sale says when it went and which side asked; an active
@@ -905,7 +909,7 @@ function SaleRows({
             </div>
           ) : null}
         </td>
-        <td className="py-3 pr-4 whitespace-nowrap">
+        <td className="py-1.5 pr-4 whitespace-nowrap">
           {taxId
             ? t("taxIdValue", {
                 type: taxId.token ? t(TAX_ID_KEYS[taxId.token]) : taxId.rawType,
@@ -913,7 +917,7 @@ function SaleRows({
               })
             : NOTHING_TO_SHOW}
         </td>
-        <td className="py-3 pr-4">
+        <td className="py-1.5 pr-4">
           {sale.ticket_types.length === 0
             ? NOTHING_TO_SHOW
             : sale.ticket_types
@@ -925,14 +929,14 @@ function SaleRows({
                 )
                 .join(", ")}
         </td>
-        <td className="py-3 pr-4 tabular-nums">
+        <td className="py-1.5 pr-4 tabular-nums">
           {formatMoney(sale.amount_cents, sale.currency, locale)}
         </td>
-        <td className="py-3 pr-4">{formatDateTime(sale.sold_at, zone, locale)}</td>
-        <td className="py-3 pr-4 text-muted-foreground">
+        <td className="py-1.5 pr-4">{formatDateTime(sale.sold_at, zone, locale)}</td>
+        <td className="py-1.5 pr-4 text-muted-foreground">
           {formatDateTime(sale.recorded_at, zone, locale)}
         </td>
-        <td className="py-3 pr-4">
+        <td className="py-1.5 pr-4 leading-tight">
           <div>
             {sourceToken || sale.source
               ? t("channelWithSource", {
@@ -949,12 +953,12 @@ function SaleRows({
               the list at all (#370). */}
           {origin ? <div className="text-xs text-muted-foreground">{origin}</div> : null}
         </td>
-        <td className="py-3 pr-4 font-mono text-xs">{sale.confirmation_ref}</td>
+        <td className="py-1.5 pr-4 font-mono text-xs">{sale.confirmation_ref}</td>
       </tr>
       {expanded ? (
         <tr className="bg-muted/30">
           <td />
-          <td className="py-3 pr-4 text-muted-foreground" colSpan={8}>
+          <td className="py-1.5 pr-4 text-muted-foreground" colSpan={8}>
             <div className="flex flex-wrap items-center gap-x-8 gap-y-1">
               <span>
                 <span className="font-medium text-foreground">{t("paymentMethodHeading")}</span>{" "}

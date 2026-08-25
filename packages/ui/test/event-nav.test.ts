@@ -20,7 +20,6 @@ test("a page beneath the Event lights its own entry alone", () => {
   assert.deepEqual(litAt("/events/evt_1/sales"), ["sales"]);
   assert.deepEqual(litAt("/events/evt_1/ticket-types"), ["ticketTypes"]);
   assert.deepEqual(litAt("/events/evt_1/affiliate-links"), ["affiliateLinks"]);
-  assert.deepEqual(litAt("/events/evt_1/trends"), ["trends"]);
 });
 
 test("a sibling Event does not light this Event's entries", () => {
@@ -34,32 +33,31 @@ test("Affiliate Links stays owner-only; Sales is for every Member", () => {
   );
 });
 
-// Sales Trends carries the guard the Event's money already has, so an Event
-// Staff member is not offered a tab they would only be refused (#276).
-test("Trends is offered on full access and absent otherwise", () => {
-  assert.ok(
-    eventNavItems({ eventId: "evt_1", fullAccess: true })
-      .map((item) => item.key)
-      .includes("trends"),
-  );
-  assert.ok(
-    !eventNavItems({ eventId: "evt_1", fullAccess: false })
-      .map((item) => item.key)
-      .includes("trends"),
-  );
+// Sales Trends left the panel in #460: it is a sub-tab of the Sales surface now
+// (`salesNavItems`), so that the same chart is not offered from two places.
+test("Trends has no entry of its own at any access level", () => {
+  for (const fullAccess of [true, false]) {
+    const keys: string[] = eventNavItems({ eventId: "evt_1", fullAccess }).map((item) => item.key);
+    assert.ok(!keys.includes("trends"));
+    assert.ok(
+      !eventNavItems({ eventId: "evt_1", fullAccess }).some((item) =>
+        item.href.endsWith("/trends"),
+      ),
+    );
+  }
 });
 
-test("Trends points at the Event's own Trends tab", () => {
-  const trends = eventNavItems({ eventId: "evt_1", fullAccess: true }).find(
-    (item) => item.key === "trends",
-  );
-  assert.equal(trends?.href, "/events/evt_1/trends");
+// Sales owns its subtree, so the panel entry stays lit while a reader is on one
+// of the Sales sub-tabs — including the one Trends moved to.
+test("Sales is lit on its sub-tabs", () => {
+  assert.deepEqual(litAt("/events/evt_1/sales/trends"), ["sales"]);
+  assert.deepEqual(litAt("/events/evt_1/sales/record"), ["sales"]);
 });
 
 test("entries read in a fixed order", () => {
   assert.deepEqual(
     eventNavItems({ eventId: "evt_1", fullAccess: true }).map((item) => item.key),
-    ["details", "ticketTypes", "affiliateLinks", "sales", "trends"],
+    ["details", "ticketTypes", "affiliateLinks", "sales"],
   );
 });
 
@@ -92,7 +90,7 @@ test("the Holder List is offered when asked for, beside Sales", () => {
     eventNavItems({ eventId: "evt_1", fullAccess: true, holderList: true }).map(
       (item) => item.key,
     ),
-    ["details", "ticketTypes", "affiliateLinks", "sales", "holderList", "trends"],
+    ["details", "ticketTypes", "affiliateLinks", "sales", "holderList"],
   );
 });
 
