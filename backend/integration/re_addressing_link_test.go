@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -485,7 +486,95 @@ func TestReAddressingCarriesTheGhostsFactsOnlyIntoANamelessCustomer(t *testing.T
 		t.Errorf("the Sale reads %+v; the address moves and the snapshot name stays", found.Sale.Customer)
 	}
 	// The carry INTO a nameless Customer — name and Tax ID — is asserted on
-	// the tracer, whose corrected address is nobody's until the click.
+	// the tracer, whose corrected address is nobody's until the click, and the
+	// slot-by-slot rule for a nameless Customer who has already stated a fact
+	// is the test below.
+}
+
+// customerFacts is the whole of what a Customer asserts about themselves,
+// read off the row: the carry rule is stated per slot, so it is asserted per
+// slot, on both sides of the move.
+type customerFacts struct {
+	firstName, lastName           string
+	taxIDType, taxIDNumber, phone sql.NullString
+}
+
+func readCustomerFacts(t *testing.T, env *testEnv, email string) customerFacts {
+	t.Helper()
+	var f customerFacts
+	if err := env.db.QueryRow(`
+		SELECT first_name, last_name, tax_id_type, tax_id_number, phone FROM customers WHERE email = $1
+	`, email).Scan(&f.firstName, &f.lastName, &f.taxIDType, &f.taxIDNumber, &f.phone); err != nil {
+		t.Fatalf("read the facts of Customer %s: %v", email, err)
+	}
+	return f
+}
+
+// TestANamelessCorrectedCustomerKeepsTheFactsTheyStatedAndTakesTheGhostsIntoEmptySlots
+// pins the rule slot by slot (#438): a Customer nobody has named takes the
+// ghost's name whole, but a Tax ID and a phone carry only into an empty slot.
+// Here the corrected address has a phone of its own and no Tax ID, so after
+// the click it keeps its phone, gains the ghost's cédula, and is called what
+// the ghost was called — and the ghost keeps every fact it had.
+func TestANamelessCorrectedCustomerKeepsTheFactsTheyStatedAndTakesTheGhostsIntoEmptySlots(t *testing.T) {
+	env := setupTest(t)
+
+	// The ghost has a phone of its own, so that "keeps their own phone" is a
+	// choice between two numbers rather than the absence of one.
+	ghostPhone := "+593991112233"
+	ghost := customerSignIn(t, env, "ana.lopes@example.com")
+	resp, body := env.patch(t, "/api/v1/customer/profile", map[string]any{
+		"first_name": "Ana", "last_name": "Lopez", "phone": ghostPhone,
+	}, authHeader(ghost))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("ghost profile status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	// The corrected address has signed in once and never been named — the
+	// profile editor refuses a blank name, so the phone it once stated is
+	// placed on the row directly. A nameless Customer with a phone is a state
+	// the schema permits and the rule is written for.
+	ownPhone := "+593987654321"
+	customerSignIn(t, env, "ana.lopez@example.com")
+	if _, err := env.db.Exec(`UPDATE customers SET phone = $2 WHERE email = $1`, "ana.lopez@example.com", ownPhone); err != nil {
+		t.Fatalf("give the nameless Customer a phone: %v", err)
+	}
+	if before := readCustomerFacts(t, env, "ana.lopez@example.com"); before.firstName != "" || before.lastName != "" || before.taxIDType.Valid {
+		t.Fatalf("the corrected Customer reads %+v before the click, want nameless with no Tax ID", before)
+	}
+
+	s := strandSale(t, env, "Slots Fest", "readdress-slots-fest", "ana.lopes@example.com", "ana.lopez@example.com", 1)
+	ghostBefore := readCustomerFacts(t, env, "ana.lopes@example.com")
+	if !ghostBefore.taxIDType.Valid || ghostBefore.taxIDType.String != "cedula" || !ghostBefore.phone.Valid || ghostBefore.phone.String != ghostPhone {
+		t.Fatalf("the ghost reads %+v before the click, want the checkout's cédula and its own phone", ghostBefore)
+	}
+
+	accepted, session := acceptAndSignIn(t, payphoneEnv, s.token)
+	if accepted.TicketSaleID != s.saleID {
+		t.Fatalf("accepted = %+v", accepted)
+	}
+
+	// THE NAME CARRIES, THE TAX ID FILLS THE EMPTY SLOT, THE PHONE STAYS THEIRS.
+	after := readCustomerFacts(t, env, "ana.lopez@example.com")
+	if after.firstName != "Ana" || after.lastName != "Lopez" {
+		t.Errorf("the nameless Customer reads %q %q after the click, want the ghost's name carried whole", after.firstName, after.lastName)
+	}
+	if !after.taxIDType.Valid || after.taxIDType.String != "cedula" || !after.taxIDNumber.Valid || after.taxIDNumber.String != validCedula {
+		t.Errorf("the corrected Customer's Tax ID reads %+v/%+v after the click, want the ghost's cédula carried into the empty slot", after.taxIDType, after.taxIDNumber)
+	}
+	if !after.phone.Valid || after.phone.String != ownPhone {
+		t.Errorf("the corrected Customer's phone reads %+v after the click, want their own %s kept over the ghost's %s", after.phone, ownPhone, ghostPhone)
+	}
+	// The same, read the way the person reads it.
+	if me := readSessionFacts(t, env, session); me.FirstName != "Ana" || me.TaxIDType == nil || *me.TaxIDType != "cedula" ||
+		me.Phone == nil || *me.Phone != ownPhone {
+		t.Errorf("the corrected Customer's own view reads %+v", me)
+	}
+
+	// THE GHOST KEEPS ITS OWN FACTS: the carry copies, it does not move.
+	if ghostAfter := readCustomerFacts(t, env, "ana.lopes@example.com"); ghostAfter != ghostBefore {
+		t.Errorf("the ghost reads %+v after the click, want %+v untouched", ghostAfter, ghostBefore)
+	}
 }
 
 // TestAcceptingTheReAddressingLinkTwiceRewritesNothing: people click twice
