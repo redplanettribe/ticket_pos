@@ -393,6 +393,42 @@ func TestIssueInvoiceSnapshotsIssuer(t *testing.T) {
 	}
 }
 
+// TestIssueInvoiceSnapshotsRecipient: the Recipient is recorded on the Tax
+// Invoice exactly as entered, and stays so whatever is entered later — a
+// second factura to somebody else leaves the first one's Recipient untouched.
+func TestIssueInvoiceSnapshotsRecipient(t *testing.T) {
+	env := setupTest(t)
+	sessionID := operatorSession(t, env, "operator@example.com")
+	issuerReady(t, sessionID)
+
+	sent := validInvoiceBody()["recipient"].(map[string]any)
+	view := issueOK(t, sessionID, validInvoiceBody())
+	assertRecipient := func(got invoiceDetailView, when string) {
+		t.Helper()
+		if got.Recipient.TaxIDType != sent["tax_id_type"] || got.Recipient.TaxID != sent["tax_id"] ||
+			got.Recipient.LegalName != sent["legal_name"] || got.Recipient.Address != sent["address"] ||
+			got.Recipient.Email != sent["email"] {
+			t.Fatalf("recipient %s = %+v, want %v", when, got.Recipient, sent)
+		}
+	}
+	assertRecipient(view, "on issue")
+	assertRecipient(getInvoice(t, sessionID, view.ID), "on reread")
+
+	other := validInvoiceBody()
+	other["recipient"] = map[string]any{
+		"tax_id_type": "cedula",
+		"tax_id":      "1710034065",
+		"legal_name":  "OTRA PERSONA",
+		"address":     "Otra calle, Guayaquil",
+		"email":       "other@example.com",
+	}
+	second := issueOK(t, sessionID, other)
+	if second.Recipient.LegalName != "OTRA PERSONA" {
+		t.Fatalf("second invoice recipient = %+v, want OTRA PERSONA", second.Recipient)
+	}
+	assertRecipient(getInvoice(t, sessionID, view.ID), "after a later issue")
+}
+
 func getInvoice(t *testing.T, sessionID, id string) invoiceDetailView {
 	t.Helper()
 	resp, env := sriEnv.get(t, invoicesPath+"/"+id, authHeader(sessionID))

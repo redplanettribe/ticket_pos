@@ -22,12 +22,9 @@ import { useLocale, useMessages, useTranslations } from "next-intl";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { type AppLocale, PLATFORM_TIME_ZONE, formatCalendarDay, formatDateTime, formatMoney } from "@/lib/format";
-import {
-  type InvoiceStatus,
-  type OperatorInvoiceDetail,
-  fetchOperatorInvoice,
-} from "@/lib/operator-api";
+import { type OperatorInvoiceDetail, fetchOperatorInvoice } from "@/lib/operator-api";
 
+import { INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "../invoice-status";
 import { OperatorInvoiceActions } from "./operator-invoice-actions";
 import { InvoiceDownloads } from "./invoice-downloads";
 
@@ -35,20 +32,6 @@ import { InvoiceDownloads } from "./invoice-downloads";
 // lines and totals, the SRI's messages verbatim, the authorization number and
 // date once authorized, and the attempts ledger. Check status and Resend are
 // #455's card (operator-invoice-actions.tsx); downloads are #456.
-
-const STATUS_KEYS = {
-  pending: "invoicingStatusPending",
-  authorized: "invoicingStatusAuthorized",
-  not_authorized: "invoicingStatusNotAuthorized",
-  rejected: "invoicingStatusRejected",
-} as const satisfies Record<InvoiceStatus, string>;
-
-const STATUS_VARIANTS: Record<InvoiceStatus, "default" | "secondary" | "destructive"> = {
-  pending: "secondary",
-  authorized: "default",
-  not_authorized: "destructive",
-  rejected: "destructive",
-};
 
 const IVA_RATE_KEYS = {
   "15": "invoicingIvaRate15",
@@ -129,7 +112,7 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
         actions={
           <div className="flex items-center gap-2">
             {invoice.environment === "test" ? <Badge variant="outline">{t("invoicingTestBadge")}</Badge> : null}
-            <Badge variant={STATUS_VARIANTS[invoice.status]}>{t(STATUS_KEYS[invoice.status])}</Badge>
+            <Badge variant={INVOICE_STATUS_VARIANTS[invoice.status]}>{t(INVOICE_STATUS_KEYS[invoice.status])}</Badge>
           </div>
         }
       />

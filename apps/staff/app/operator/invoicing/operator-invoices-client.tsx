@@ -23,30 +23,14 @@ import { useLocale, useMessages, useTranslations } from "next-intl";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { type AppLocale, formatCalendarDay, formatMoney } from "@/lib/format";
-import {
-  type InvoiceStatus,
-  type OperatorInvoiceListItem,
-  fetchOperatorInvoices,
-} from "@/lib/operator-api";
+import { type OperatorInvoiceListItem, fetchOperatorInvoices } from "@/lib/operator-api";
+
+import { INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "./invoice-status";
 
 // The invoices list (#454): every factura the platform issued, newest first —
 // number, date, Recipient, total, status, country, and a Test badge for the
 // SRI pruebas environment so a certification run is never mistaken for a real
 // factura.
-
-const STATUS_KEYS = {
-  pending: "invoicingStatusPending",
-  authorized: "invoicingStatusAuthorized",
-  not_authorized: "invoicingStatusNotAuthorized",
-  rejected: "invoicingStatusRejected",
-} as const satisfies Record<InvoiceStatus, string>;
-
-const STATUS_VARIANTS: Record<InvoiceStatus, "default" | "secondary" | "destructive"> = {
-  pending: "secondary",
-  authorized: "default",
-  not_authorized: "destructive",
-  rejected: "destructive",
-};
 
 function InvoiceRow({ item, locale }: { item: OperatorInvoiceListItem; locale: AppLocale }) {
   const t = useTranslations("operator");
@@ -69,7 +53,7 @@ function InvoiceRow({ item, locale }: { item: OperatorInvoiceListItem; locale: A
       </td>
       <td className="py-3 pr-4 text-right tabular-nums">{formatMoney(item.total_cents, item.currency, locale)}</td>
       <td className="py-3 pr-4">
-        <Badge variant={STATUS_VARIANTS[item.status]}>{t(STATUS_KEYS[item.status])}</Badge>
+        <Badge variant={INVOICE_STATUS_VARIANTS[item.status]}>{t(INVOICE_STATUS_KEYS[item.status])}</Badge>
       </td>
       <td className="py-3 pr-4 uppercase text-muted-foreground">{item.country}</td>
     </tr>
