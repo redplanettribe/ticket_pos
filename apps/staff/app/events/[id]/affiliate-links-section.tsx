@@ -284,8 +284,7 @@ export function AffiliateLinksSection({ eventId, timezone }: AffiliateLinksSecti
   // attribute a sale, so a "0" and "$0.00" would read as a failed link rather
   // than one whose success is measured in clicks. Absent, not zeroed, and not
   // an em dash either — a dash is still a claim that something is missing.
-  // Whatever is declared here is what the header, the skeleton and the body
-  // agree on; a column without a `sortField` is a plain header.
+  // Whatever is declared here is what the header and the body agree on; a column without a `sortField` is a plain header.
   const columns: Column[] = [
     { key: "name", label: t("colName"), sortField: "name" },
     { key: "code", label: t("colCode") },
@@ -331,20 +330,16 @@ export function AffiliateLinksSection({ eventId, timezone }: AffiliateLinksSecti
         </div>
 
         {loading ? (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <tbody>
-                {Array.from({ length: 3 }).map((_, index) => (
-                  <tr key={index} className="border-b">
-                    {columns.map((column) => (
-                      <td key={column.key} className="py-3 pr-4">
-                        <Skeleton className="h-4 w-full" />
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          // Row-shaped placeholders with no column structure. Whether this
+          // Event's table has the Sales and Net proceeds columns is read off
+          // the rows themselves, so nothing is known until they arrive, and a
+          // skeleton that guessed would jump when the real table replaced it.
+          <div>
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div key={index} className="border-b py-3">
+                <Skeleton className="h-4 w-full" />
+              </div>
+            ))}
           </div>
         ) : loadError ? (
           <Alert variant="destructive">
@@ -584,8 +579,8 @@ export function AffiliateLinksSection({ eventId, timezone }: AffiliateLinksSecti
   );
 }
 
-// A column of the Affiliate Links table. Declared as data so the header, the
-// loading skeleton and the body agree on the set; `sortField` makes the header
+// A column of the Affiliate Links table. Declared as data so the header and
+// the body agree on the set; `sortField` makes the header
 // a sort button, `numeric` right-aligns it over its right-aligned cells.
 type Column = {
   key: string;
