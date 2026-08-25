@@ -228,6 +228,14 @@ export function formatCalendarDay(day: string, locale: AppLocale): string {
 export const PLATFORM_TIME_ZONE = "America/Guayaquil";
 
 /**
+ * What a table cell prints where a row has nothing to show: an em dash.
+ * Punctuation, in every language, so it lives beside the formatters rather than
+ * in a catalog — and here once, so the Sales list and the Affiliate Links table
+ * draw the same mark.
+ */
+export const NOTHING_TO_SHOW = "—";
+
+/**
  * A proportion written as a percentage: 0.034 becomes "3.4%" in English and
  * "3,4 %" in Spanish.
  *

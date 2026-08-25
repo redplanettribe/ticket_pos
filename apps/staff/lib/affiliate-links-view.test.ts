@@ -48,7 +48,7 @@ test("default order is Clicks desc, and equal Clicks fall back to newest-first t
     row("4", { clicks: 3, created_at: "2026-08-03T00:00:00Z" }),
     row("5", { clicks: 0, created_at: "2026-08-05T00:00:00Z" }),
   ];
-  const sorted = sortAffiliateLinks(links, "clicks", "desc");
+  const sorted = sortAffiliateLinks(links, { field: "clicks", dir: "desc" });
   // 9 first; the three at 3 newest-first, and the two created together by id
   // descending — the server's own order inside a tie band.
   assert.deepEqual(ids(sorted), ["2", "4", "3", "1", "5"]);
@@ -56,7 +56,7 @@ test("default order is Clicks desc, and equal Clicks fall back to newest-first t
 
 test("sorting returns a new array and leaves the input untouched", () => {
   const links = [row("1", { clicks: 1 }), row("2", { clicks: 2 })];
-  const sorted = sortAffiliateLinks(links, "clicks", "desc");
+  const sorted = sortAffiliateLinks(links, { field: "clicks", dir: "desc" });
   assert.notEqual(sorted, links);
   assert.deepEqual(ids(links), ["1", "2"]);
   assert.deepEqual(ids(sorted), ["2", "1"]);
@@ -104,9 +104,9 @@ test("sales, net proceeds and created each sort largest or newest first", () => 
     row("2", { sales_count: 7, net_proceeds_cents: 100, created_at: "2026-08-03T00:00:00Z" }),
     row("3", { sales_count: 4, net_proceeds_cents: 900, created_at: "2026-08-02T00:00:00Z" }),
   ];
-  assert.deepEqual(ids(sortAffiliateLinks(links, "sales", "desc")), ["2", "3", "1"]);
-  assert.deepEqual(ids(sortAffiliateLinks(links, "net_proceeds", "desc")), ["3", "1", "2"]);
-  assert.deepEqual(ids(sortAffiliateLinks(links, "created", "desc")), ["2", "3", "1"]);
+  assert.deepEqual(ids(sortAffiliateLinks(links, { field: "sales", dir: "desc" })), ["2", "3", "1"]);
+  assert.deepEqual(ids(sortAffiliateLinks(links, { field: "net_proceeds", dir: "desc" })), ["3", "1", "2"]);
+  assert.deepEqual(ids(sortAffiliateLinks(links, { field: "created", dir: "desc" })), ["2", "3", "1"]);
 });
 
 test("a flipped column reverses the values but ties still fall newest-first", () => {
@@ -115,8 +115,8 @@ test("a flipped column reverses the values but ties still fall newest-first", ()
     row("2", { clicks: 9, created_at: "2026-08-02T00:00:00Z" }),
     row("3", { clicks: 3, created_at: "2026-08-03T00:00:00Z" }),
   ];
-  assert.deepEqual(ids(sortAffiliateLinks(links, "clicks", "asc")), ["3", "1", "2"]);
-  assert.deepEqual(ids(sortAffiliateLinks(links, "created", "asc")), ["1", "2", "3"]);
+  assert.deepEqual(ids(sortAffiliateLinks(links, { field: "clicks", dir: "asc" })), ["3", "1", "2"]);
+  assert.deepEqual(ids(sortAffiliateLinks(links, { field: "created", dir: "asc" })), ["1", "2", "3"]);
 });
 
 // --- null money fields -----------------------------------------------------
@@ -128,10 +128,10 @@ test("null sales and net proceeds never throw and sort as unavailable, after eve
     row("3", { sales_count: 5, net_proceeds_cents: 250, created_at: "2026-08-02T00:00:00Z" }),
     row("4", { sales_count: null, net_proceeds_cents: null, created_at: "2026-08-04T00:00:00Z" }),
   ];
-  assert.deepEqual(ids(sortAffiliateLinks(links, "sales", "desc")), ["3", "2", "4", "1"]);
-  assert.deepEqual(ids(sortAffiliateLinks(links, "sales", "asc")), ["2", "3", "4", "1"]);
-  assert.deepEqual(ids(sortAffiliateLinks(links, "net_proceeds", "desc")), ["3", "2", "4", "1"]);
-  assert.deepEqual(ids(sortAffiliateLinks(links, "net_proceeds", "asc")), ["2", "3", "4", "1"]);
+  assert.deepEqual(ids(sortAffiliateLinks(links, { field: "sales", dir: "desc" })), ["3", "2", "4", "1"]);
+  assert.deepEqual(ids(sortAffiliateLinks(links, { field: "sales", dir: "asc" })), ["2", "3", "4", "1"]);
+  assert.deepEqual(ids(sortAffiliateLinks(links, { field: "net_proceeds", dir: "desc" })), ["3", "2", "4", "1"]);
+  assert.deepEqual(ids(sortAffiliateLinks(links, { field: "net_proceeds", dir: "asc" })), ["2", "3", "4", "1"]);
 });
 
 test("an all-null list sorts by sales without throwing, in newest-first order", () => {
@@ -139,8 +139,8 @@ test("an all-null list sorts by sales without throwing, in newest-first order", 
     row("1", { sales_count: null, net_proceeds_cents: null, created_at: "2026-08-01T00:00:00Z" }),
     row("2", { sales_count: null, net_proceeds_cents: null, created_at: "2026-08-02T00:00:00Z" }),
   ];
-  assert.deepEqual(ids(sortAffiliateLinks(links, "sales", "desc")), ["2", "1"]);
-  assert.deepEqual(ids(sortAffiliateLinks(links, "net_proceeds", "asc")), ["2", "1"]);
+  assert.deepEqual(ids(sortAffiliateLinks(links, { field: "sales", dir: "desc" })), ["2", "1"]);
+  assert.deepEqual(ids(sortAffiliateLinks(links, { field: "net_proceeds", dir: "asc" })), ["2", "1"]);
 });
 
 // --- measured or not ---------------------------------------------------------
@@ -187,8 +187,8 @@ test("name sorts case-insensitively and locale-aware, accents folded", () => {
     row("3", { name: "Álvaro" }),
     row("4", { name: "carla" }),
   ];
-  assert.deepEqual(ids(sortAffiliateLinks(links, "name", "asc")), ["3", "2", "1", "4"]);
-  assert.deepEqual(ids(sortAffiliateLinks(links, "name", "desc")), ["4", "1", "2", "3"]);
+  assert.deepEqual(ids(sortAffiliateLinks(links, { field: "name", dir: "asc" })), ["3", "2", "1", "4"]);
+  assert.deepEqual(ids(sortAffiliateLinks(links, { field: "name", dir: "desc" })), ["4", "1", "2", "3"]);
 });
 
 test("names equal but for case tie and fall back to newest-first", () => {
@@ -197,8 +197,8 @@ test("names equal but for case tie and fall back to newest-first", () => {
     row("2", { name: "María", created_at: "2026-08-02T00:00:00Z" }),
     row("3", { name: "MARÍA", created_at: "2026-08-03T00:00:00Z" }),
   ];
-  assert.deepEqual(ids(sortAffiliateLinks(links, "name", "asc")), ["3", "2", "1"]);
-  assert.deepEqual(ids(sortAffiliateLinks(links, "name", "desc")), ["3", "2", "1"]);
+  assert.deepEqual(ids(sortAffiliateLinks(links, { field: "name", dir: "asc" })), ["3", "2", "1"]);
+  assert.deepEqual(ids(sortAffiliateLinks(links, { field: "name", dir: "desc" })), ["3", "2", "1"]);
 });
 
 // --- search ------------------------------------------------------------------

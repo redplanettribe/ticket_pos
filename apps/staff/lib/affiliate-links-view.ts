@@ -18,7 +18,7 @@ import type { AffiliateLink } from "./affiliates-api.ts";
  * in disguise, and none is being added. */
 export type AffiliateSortField = "clicks" | "sales" | "net_proceeds" | "name" | "created";
 
-export type SortDir = "asc" | "desc";
+type SortDir = "asc" | "desc";
 
 export type AffiliateSort = { field: AffiliateSortField; dir: SortDir };
 
@@ -59,8 +59,9 @@ export function isAttributionMeasured(links: readonly AffiliateLinkRow[]): boole
   return links.length === 0 || links.some((link) => link.sales_count !== null);
 }
 
-/** Whether a field can be sorted on given what the Event measures. */
-export function isSortAvailable(field: AffiliateSortField, measured: boolean): boolean {
+// Whether a field can be sorted on given what the Event measures. Only the
+// resolver below asks; nothing outside this module does.
+function isSortAvailable(field: AffiliateSortField, measured: boolean): boolean {
   return measured || (field !== "sales" && field !== "net_proceeds");
 }
 
@@ -80,36 +81,57 @@ export function resolveAffiliateSort(sort: AffiliateSort, measured: boolean): Af
 // locale this app ships agrees on Latin-script base ordering.
 const nameCollator = new Intl.Collator(undefined, { sensitivity: "base" });
 
-// Numbers with a hole: a null figure (an Event that registers externally) is
-// unavailable, not zero, and sorts after every real figure whichever way the
-// column points. Two nulls are a tie.
-function compareNullableNumber(a: number | null, b: number | null, dir: SortDir): number {
-  if (a === null || b === null) {
-    if (a === null && b === null) {
-      return 0;
-    }
-    return a === null ? 1 : -1;
+// Whether the figure a column sorts on is a hole: a null figure (an Event that
+// registers externally) is unavailable, not zero. Only the two attribution
+// columns can have one.
+function isUnavailable(link: AffiliateLinkRow, field: AffiliateSortField): boolean {
+  switch (field) {
+    case "sales":
+      return link.sales_count === null;
+    case "net_proceeds":
+      return link.net_proceeds_cents === null;
+    default:
+      return false;
   }
-  return dir === "asc" ? a - b : b - a;
+}
+
+// A hole sorts after every real figure whichever way the column points, so
+// availability is ranked BEFORE the direction is applied and never flips with
+// it. Two holes are a tie; two figures fall through to the column's own order.
+function compareAvailability(a: AffiliateLinkRow, b: AffiliateLinkRow, field: AffiliateSortField): number {
+  return Number(isUnavailable(a, field)) - Number(isUnavailable(b, field));
+}
+
+// The column's natural (ascending) order between two rows that both have a
+// figure: smallest, A→Z or oldest first. Direction is not this function's
+// business — `withDirection` is the one place it is applied. The `?? 0` on
+// the attribution figures is never reached with only one side null:
+// `compareAvailability` has already decided that pair.
+function compareAscending(a: AffiliateLinkRow, b: AffiliateLinkRow, field: AffiliateSortField): number {
+  switch (field) {
+    case "clicks":
+      return a.clicks - b.clicks;
+    case "sales":
+      return (a.sales_count ?? 0) - (b.sales_count ?? 0);
+    case "net_proceeds":
+      return (a.net_proceeds_cents ?? 0) - (b.net_proceeds_cents ?? 0);
+    case "name":
+      return nameCollator.compare(a.name, b.name);
+    case "created":
+      return compareISO(a.created_at, b.created_at);
+  }
+}
+
+// The one place the direction is applied: an ascending comparison stands, a
+// descending one is turned around.
+function withDirection(ascending: number, dir: SortDir): number {
+  return dir === "asc" ? ascending : -ascending;
 }
 
 function compareByField(a: AffiliateLinkRow, b: AffiliateLinkRow, sort: AffiliateSort): number {
-  switch (sort.field) {
-    case "clicks":
-      return sort.dir === "asc" ? a.clicks - b.clicks : b.clicks - a.clicks;
-    case "sales":
-      return compareNullableNumber(a.sales_count, b.sales_count, sort.dir);
-    case "net_proceeds":
-      return compareNullableNumber(a.net_proceeds_cents, b.net_proceeds_cents, sort.dir);
-    case "name": {
-      const byName = nameCollator.compare(a.name, b.name);
-      return sort.dir === "asc" ? byName : -byName;
-    }
-    case "created": {
-      const byCreated = compareISO(a.created_at, b.created_at);
-      return sort.dir === "asc" ? byCreated : -byCreated;
-    }
-  }
+  return (
+    compareAvailability(a, b, sort.field) || withDirection(compareAscending(a, b, sort.field), sort.dir)
+  );
 }
 
 // ISO-8601 UTC timestamps from the API order as text; no Date is built.
@@ -131,10 +153,8 @@ function compareTiebreak(a: AffiliateLinkRow, b: AffiliateLinkRow): number {
 /** The links in table order. Returns a new array; the input is left as it came. */
 export function sortAffiliateLinks<T extends AffiliateLinkRow>(
   links: readonly T[],
-  field: AffiliateSortField,
-  dir: SortDir,
+  sort: AffiliateSort,
 ): T[] {
-  const sort: AffiliateSort = { field, dir };
   return [...links].sort((a, b) => compareByField(a, b, sort) || compareTiebreak(a, b));
 }
 

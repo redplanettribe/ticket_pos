@@ -52,7 +52,7 @@ import {
 } from "@/lib/affiliate-links-view";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
-import { PLATFORM_TIME_ZONE, formatDate, formatMoney } from "@/lib/format";
+import { NOTHING_TO_SHOW, PLATFORM_TIME_ZONE, formatDate, formatMoney } from "@/lib/format";
 import { fetchSalesSummary } from "@/lib/sales-api";
 
 type AffiliateLinksSectionProps = {
@@ -270,10 +270,7 @@ export function AffiliateLinksSection({ eventId, timezone }: AffiliateLinksSecti
   // picked before the list turned out unmeasured is not thrown away, only set
   // aside for Clicks desc while the column it names is absent.
   const activeSort = resolveAffiliateSort(sort, attributionMeasured);
-  const sortedLinks = useMemo(
-    () => sortAffiliateLinks(links, activeSort.field, activeSort.dir),
-    [links, activeSort.field, activeSort.dir],
-  );
+  const sortedLinks = useMemo(() => sortAffiliateLinks(links, activeSort), [links, activeSort]);
   // The rows on screen: the sorted list narrowed by the search. Filter after
   // sort so the order is the sort's whatever the query.
   const visibleLinks = useMemo(() => filterAffiliateLinks(sortedLinks, query), [sortedLinks, query]);
@@ -411,7 +408,7 @@ export function AffiliateLinksSection({ eventId, timezone }: AffiliateLinksSecti
                           {link.net_proceeds_cents !== null
                             ? currency
                               ? formatMoney(link.net_proceeds_cents, currency, locale)
-                              : "—"
+                              : NOTHING_TO_SHOW
                             : ""}
                         </td>
                       </>
