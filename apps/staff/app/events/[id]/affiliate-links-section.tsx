@@ -354,7 +354,19 @@ export function AffiliateLinksSection({ eventId, timezone }: AffiliateLinksSecti
         ) : links.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("empty")}</p>
         ) : visibleLinks.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t("noMatches")}</p>
+          // Nothing matched: say what was searched for and how to get the
+          // links back. Clearing empties the box only — the chosen sort stays.
+          <p className="text-sm text-muted-foreground">
+            {t("noMatches")}{" "}
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto p-0 text-sm font-normal"
+              onClick={() => setQuery("")}
+            >
+              {t("clearSearch")}
+            </Button>
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-sm">
