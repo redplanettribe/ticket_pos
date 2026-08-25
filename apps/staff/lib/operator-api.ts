@@ -1000,9 +1000,19 @@ export type OperatorEcuadorIssuer = EcuadorIssuerBody & {
    * word.
    */
   certificate_ruc_mismatch: boolean;
+  /**
+   * The details that may no longer change (#455): `ruc` once any Tax Invoice
+   * exists in either environment, `establecimiento` and `punto_emision` once
+   * a sequence has started under them. The page renders these read-only and
+   * says why; a save that changes one is refused with ISSUER_FIELD_FROZEN.
+   */
+  frozen_fields: EcuadorIssuerFrozenField[];
   created_at: string;
   updated_at: string;
 };
+
+/** An Issuer detail the API may report as frozen. */
+export type EcuadorIssuerFrozenField = "ruc" | "establecimiento" | "punto_emision";
 
 const ECUADOR_ISSUER_PATH = "/api/operator/invoicing/issuers/ec";
 const ECUADOR_ISSUER_CERTIFICATE_PATH = `${ECUADOR_ISSUER_PATH}/certificate`;
@@ -1208,6 +1218,12 @@ export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
   ecuador: OperatorInvoiceEcuador;
   attempts: OperatorInvoiceAttempt[];
   has_authorization_xml: boolean;
+  /**
+   * True when the invoice is pending and the SRI holds the document —
+   * received, still in processing, or 43/70 on a resend (#455). The page
+   * says "check status" rather than showing an error.
+   */
+  check_status_hint: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -1268,5 +1284,26 @@ export async function previewOperatorInvoiceTotals(
   return fetchEventsJSON<OperatorInvoiceTotals>(`${INVOICES_PATH}/totals`, {
     method: "POST",
     body: JSON.stringify({ lines }),
+  });
+}
+
+/**
+ * Asks the SRI again about a non-authorized invoice (#455) and returns it as
+ * it then stands. Refused with INVOICE_ALREADY_AUTHORIZED on an authorized one.
+ */
+export async function checkOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/check`, {
+    method: "POST",
+  });
+}
+
+/**
+ * Resends a non-authorized invoice under the same clave de acceso, re-signed
+ * with the current certificate (#455), and returns it as it then stands.
+ * Refused with INVOICE_ALREADY_AUTHORIZED on an authorized one.
+ */
+export async function resendOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/resend`, {
+    method: "POST",
   });
 }

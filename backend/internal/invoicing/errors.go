@@ -70,3 +70,19 @@ func ErrInvoiceInvalid(reason string) apperror.DomainError {
 func ErrInvoiceNotFound() apperror.DomainError {
 	return apperror.New("INVOICE_NOT_FOUND", "No invoice has that id.", nil)
 }
+
+// ErrInvoiceAlreadyAuthorized: Check status and Resend are refused on an
+// authorized Tax Invoice — it is a legal artifact and nothing about it is
+// asked or sent again (#455, story 34).
+func ErrInvoiceAlreadyAuthorized() apperror.DomainError {
+	return apperror.New("INVOICE_ALREADY_AUTHORIZED", "The invoice is already authorized. Nothing can be checked or resent for it.", nil)
+}
+
+// ErrIssuerFieldFrozen: the Issuer detail named in details.field may no
+// longer change — the RUC once any Tax Invoice exists (it is inside every
+// clave de acceso), establecimiento and punto de emisión once a sequence has
+// started under them (numbering must stay continuous). Every other detail
+// still saves (#455, stories 4–6).
+func ErrIssuerFieldFrozen(field string) apperror.DomainError {
+	return apperror.New("ISSUER_FIELD_FROZEN", "The Issuer's "+field+" cannot change any more: documents have been issued under it.", map[string]string{"field": field})
+}

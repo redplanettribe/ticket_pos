@@ -1533,7 +1533,24 @@
     "invoicingAttemptOutcomeError": "Error",
     "invoicingBreadcrumbList": "Facturas",
     "invoicingClave": "Clave de acceso",
-    "invoicingBackToList": "Volver a las facturas"
+    "invoicingBackToList": "Volver a las facturas",
+    "invoicingActionsTitle": "Acciones",
+    "invoicingActionsDescription": "El SRI no ha autorizado esta factura. Consultar estado vuelve a preguntar al SRI sin enviar nada; Reenviar envía el mismo documento con la misma clave de acceso y el mismo número, firmado de nuevo con el certificado actual.",
+    "invoicingCheckStatus": "Consultar estado",
+    "invoicingCheckingStatus": "Consultando…",
+    "invoicingResend": "Reenviar",
+    "invoicingResending": "Reenviando…",
+    "invoicingCheckStatusHintTitle": "El SRI tiene este documento",
+    "invoicingCheckStatusHint": "Fue recibido y sigue en proceso. Consulte el estado en lugar de reenviarlo.",
+    "invoicingCheckedAuthorized": "El SRI autorizó la factura.",
+    "invoicingCheckedNotAuthorized": "El SRI no autorizó la factura. Revise sus mensajes.",
+    "invoicingCheckedRejected": "El SRI devolvió la factura. Revise sus mensajes.",
+    "invoicingCheckedPending": "El SRI aún no ha decidido. La factura sigue pendiente.",
+    "invoicingActionFailedTitle": "La acción falló",
+    "invoicingCheckFailed": "No se pudo consultar el estado.",
+    "invoicingResendFailed": "No se pudo reenviar la factura.",
+    "invoicingFrozenRuc": "Solo lectura: se han emitido facturas con este RUC y forma parte de cada clave de acceso.",
+    "invoicingFrozenNumbering": "Solo lectura: ya se inició una secuencia con este establecimiento y punto de emisión, y la numeración debe ser continua."
   },
   "errors": {
     "envelope": {
@@ -1638,7 +1655,9 @@
       "CERTIFICATE_KEY_NOT_CONFIGURED": "El servidor no tiene configurada la clave de certificados, por lo que no puede guardar un certificado. Es un ajuste del despliegue (INVOICING_CERTIFICATE_KEY), no un problema del archivo ni de la contraseña.",
       "CERTIFICATE_PASSWORD_INCORRECT": "No se pudo abrir el certificado con esa contraseña. No se cambió nada.",
       "CERTIFICATE_NO_RSA_KEY": "Ese archivo no contiene una clave privada RSA. El SRI exige un certificado de firma RSA; no se cambió nada.",
-      "CERTIFICATE_FILE_INVALID": "Ese archivo no es un certificado .p12 válido. No se cambió nada."
+      "CERTIFICATE_FILE_INVALID": "Ese archivo no es un certificado .p12 válido. No se cambió nada.",
+      "INVOICE_ALREADY_AUTHORIZED": "La factura ya está autorizada. No se puede consultar ni reenviar.",
+      "ISSUER_FIELD_FROZEN": "Ese campo ya no puede cambiar: se han emitido documentos con él."
     },
     "field": {
       "REQUIRED": "es obligatorio",
