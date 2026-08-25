@@ -26,6 +26,7 @@ import {
 } from "@ticket-pos/ui";
 import { useLocale, useMessages, useTranslations } from "next-intl";
 
+import { SortableHeader } from "@/components/sortable-header";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { PLATFORM_TIME_ZONE, formatDateTime, formatMoney, formatNumber } from "@/lib/format";
@@ -541,41 +542,6 @@ function ReversedSalesNotice({ count, viewingReversed, onApply }: ReversedSalesN
         </Button>
       )}
     </div>
-  );
-}
-
-type SortableHeaderProps = {
-  label: string;
-  field: SaleSortField;
-  sort: SaleSortField;
-  dir: SaleSortDir;
-  onSort: (field: SaleSortField) => void;
-};
-
-// SortableHeader is a column header that toggles the Sales list sort. The active
-// column shows a direction arrow; clicking flips it, clicking another column
-// switches to it. aria-sort exposes the state to assistive tech.
-//
-// `label` arrives translated rather than as a key: the header is one of several
-// things this component is handed, and the surface above owns its own words.
-function SortableHeader({ label, field, sort, dir, onSort }: SortableHeaderProps) {
-  const active = sort === field;
-  return (
-    <th
-      className="py-2 pr-4 font-medium"
-      aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
-    >
-      <button
-        type="button"
-        onClick={() => onSort(field)}
-        className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-foreground"
-      >
-        {label}
-        <span aria-hidden className={active ? "text-foreground" : "text-muted-foreground/40"}>
-          {active ? (dir === "asc" ? "▲" : "▼") : "↕"}
-        </span>
-      </button>
-    </th>
   );
 }
 

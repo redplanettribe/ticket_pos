@@ -31,6 +31,7 @@ import {
   toast,
 } from "@ticket-pos/ui";
 
+import { SortableHeader } from "@/components/sortable-header";
 import {
   AFFILIATE_LINK_NAME_MAX_LENGTH,
   createAffiliateLink,
@@ -369,10 +370,13 @@ export function AffiliateLinksSection({ eventId, timezone }: AffiliateLinksSecti
                         label={column.label}
                         field={column.sortField}
                         numeric={column.numeric}
-                        sort={activeSort}
+                        sort={activeSort.field}
+                        dir={activeSort.dir}
                         onSort={toggleSort}
-                        sortedAscending={t("sortedAscending")}
-                        sortedDescending={t("sortedDescending")}
+                        title={{
+                          ascending: t("sortedAscending"),
+                          descending: t("sortedDescending"),
+                        }}
                       />
                     ) : (
                       <th key={column.key} className="py-2 pr-4 font-medium">
@@ -581,47 +585,3 @@ type Column = {
   numeric?: boolean;
 };
 
-type SortableHeaderProps = {
-  label: string;
-  field: AffiliateSortField;
-  numeric?: boolean;
-  sort: AffiliateSort;
-  onSort: (field: AffiliateSortField) => void;
-  sortedAscending: string;
-  sortedDescending: string;
-};
-
-// SortableHeader is a column header that toggles the table sort, the Sales
-// list's header over again. The active column shows a direction arrow; clicking
-// flips it, clicking another column switches to it in its natural direction.
-// aria-sort exposes the state to assistive tech, and the title names it for a
-// pointer resting on the arrow.
-function SortableHeader({
-  label,
-  field,
-  numeric,
-  sort,
-  onSort,
-  sortedAscending,
-  sortedDescending,
-}: SortableHeaderProps) {
-  const active = sort.field === field;
-  return (
-    <th
-      className={numeric ? "py-2 pr-4 text-right font-medium" : "py-2 pr-4 font-medium"}
-      aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
-    >
-      <button
-        type="button"
-        onClick={() => onSort(field)}
-        title={active ? (sort.dir === "asc" ? sortedAscending : sortedDescending) : undefined}
-        className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-foreground"
-      >
-        {label}
-        <span aria-hidden className={active ? "text-foreground" : "text-muted-foreground/40"}>
-          {active ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}
-        </span>
-      </button>
-    </th>
-  );
-}
