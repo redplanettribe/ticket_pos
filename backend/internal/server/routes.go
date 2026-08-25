@@ -254,6 +254,15 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// object storage buckets are public, so a presigned upload is not an option
 	// for a private key.
 	mux.Handle("POST /api/v1/operator/invoicing/issuers/ec/certificate", operator(http.HandlerFunc(inv.PostEcuadorIssuerCertificate)))
+	// The Tax Invoices (#454): issued from the form, listed newest first, read
+	// one at a time. Issue is synchronous within a budget — the response is
+	// the invoice as it stands when the authority answered or the budget ran
+	// out. The totals preview is the same arithmetic the document carries,
+	// served so the form never does it itself.
+	mux.Handle("GET /api/v1/operator/invoicing/invoices", operator(http.HandlerFunc(inv.ListInvoices)))
+	mux.Handle("POST /api/v1/operator/invoicing/invoices", operator(http.HandlerFunc(inv.IssueInvoice)))
+	mux.Handle("POST /api/v1/operator/invoicing/invoices/totals", operator(http.HandlerFunc(inv.PreviewTotals)))
+	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}", operator(http.HandlerFunc(inv.GetInvoice)))
 }
 
 // registerCustomerRoutes wires the Storefront's Customer identity surface.

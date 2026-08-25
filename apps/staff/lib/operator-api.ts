@@ -1066,3 +1066,207 @@ export async function uploadOperatorEcuadorIssuerCertificate(
   }
   return saved;
 }
+
+// ---- Tax Invoices (#454, ADR 0059) ------------------------------------
+
+/** Where a Tax Invoice stands with the SRI. */
+export type InvoiceStatus = "pending" | "authorized" | "not_authorized" | "rejected";
+
+/** The IVA rate on a line: the platform's words, not the SRI's codes. */
+export type InvoiceIVARate = "15" | "0" | "exento" | "no_objeto";
+
+export const INVOICE_IVA_RATES = ["15", "0", "exento", "no_objeto"] as const satisfies readonly InvoiceIVARate[];
+
+/**
+ * The SRI formas de pago, code and label, for the form's select and the RIDE.
+ * The list mirrors the backend's `sri.PaymentMethods`; `20` is the default.
+ */
+export const INVOICE_PAYMENT_METHODS = [
+  { code: "01", label: "SIN UTILIZACION DEL SISTEMA FINANCIERO" },
+  { code: "15", label: "COMPENSACIÓN DE DEUDAS" },
+  { code: "16", label: "TARJETA DE DÉBITO" },
+  { code: "17", label: "DINERO ELECTRÓNICO" },
+  { code: "18", label: "TARJETA PREPAGO" },
+  { code: "19", label: "TARJETA DE CRÉDITO" },
+  { code: "20", label: "OTROS CON UTILIZACION DEL SISTEMA FINANCIERO" },
+  { code: "21", label: "ENDOSO DE TÍTULOS" },
+] as const;
+
+export const INVOICE_PAYMENT_METHOD_DEFAULT = "20";
+
+/** The Recipient as recorded on the invoice. */
+export type InvoiceRecipient = {
+  tax_id_type: "cedula" | "ruc" | "passport";
+  tax_id: string;
+  legal_name: string;
+  address: string;
+  email: string;
+};
+
+/** One row of the invoices list. */
+export type OperatorInvoiceListItem = {
+  id: string;
+  country: string;
+  environment: EcuadorIssuerEnvironment;
+  status: InvoiceStatus;
+  /** The printed document number, e.g. `001-001-000000012`. */
+  number: string;
+  /** Emission date, `YYYY-MM-DD` in the Issuer's country. */
+  issued_on: string;
+  issued_at: string;
+  issued_by: string;
+  recipient: InvoiceRecipient;
+  total_cents: number;
+  currency: string;
+};
+
+/** One line as recorded, with its arithmetic. */
+export type OperatorInvoiceLine = {
+  position: number;
+  description: string;
+  /** A decimal string with up to six decimals. */
+  quantity: string;
+  unit_price_cents: number;
+  discount_cents: number;
+  iva_rate: InvoiceIVARate;
+  rate_percent: number;
+  base_cents: number;
+  iva_cents: number;
+};
+
+/** One subtotal per IVA rate. */
+export type OperatorInvoiceRateTotal = {
+  iva_rate: InvoiceIVARate;
+  rate_percent: number;
+  base_cents: number;
+  iva_cents: number;
+};
+
+/** The invoice's arithmetic in cents. */
+export type OperatorInvoiceTotals = {
+  by_rate: OperatorInvoiceRateTotal[];
+  subtotal_cents: number;
+  discount_cents: number;
+  iva_cents: number;
+  total_cents: number;
+};
+
+/** One message from the SRI, verbatim. */
+export type OperatorInvoiceMessage = {
+  identifier: string;
+  message: string;
+  additional_info: string;
+  type: string;
+};
+
+/** One row of the attempts ledger. */
+export type OperatorInvoiceAttempt = {
+  id: number;
+  operation: "submit" | "query";
+  outcome: "received" | "authorized" | "not_authorized" | "rejected" | "error";
+  messages: OperatorInvoiceMessage[];
+  error: string;
+  started_at: string;
+  duration_ms: number;
+};
+
+/** The Issuer snapshot recorded on the invoice. */
+export type OperatorInvoiceIssuerSnapshot = {
+  ruc: string;
+  razon_social: string;
+  nombre_comercial: string;
+  direccion_matriz: string;
+  direccion_establecimiento: string;
+  establecimiento: string;
+  punto_emision: string;
+  obligado_contabilidad: boolean;
+  regimen: EcuadorIssuerRegimen;
+  agente_retencion: string | null;
+};
+
+/** The SRI numbering and authorization of the invoice. */
+export type OperatorInvoiceEcuador = {
+  access_key: string;
+  cod_doc: string;
+  estab: string;
+  pto_emi: string;
+  secuencial: number;
+  ambiente: string;
+  authorization_number: string | null;
+  authorization_date: string | null;
+};
+
+/** One Tax Invoice in full. */
+export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
+  issuer: OperatorInvoiceIssuerSnapshot;
+  lines: OperatorInvoiceLine[];
+  additional_fields: { name: string; value: string }[];
+  payment_method: string;
+  payment_method_label: string;
+  totals: OperatorInvoiceTotals;
+  messages: OperatorInvoiceMessage[];
+  ecuador: OperatorInvoiceEcuador;
+  attempts: OperatorInvoiceAttempt[];
+  has_authorization_xml: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+/** The invoices list — the ADR-0006 nested envelope. */
+export type OperatorInvoiceListPage = {
+  data: OperatorInvoiceListItem[];
+  pagination: OperatorPagination;
+};
+
+/** One line as the form submits it. */
+export type IssueInvoiceLineBody = {
+  description: string;
+  quantity: string;
+  unit_price_cents: number;
+  discount_cents: number;
+  iva_rate: InvoiceIVARate;
+};
+
+/** The New invoice form as submitted. */
+export type IssueInvoiceBody = {
+  recipient: InvoiceRecipient;
+  lines: IssueInvoiceLineBody[];
+  payment_method: string;
+  additional_fields: { name: string; value: string }[];
+};
+
+const INVOICES_PATH = "/api/operator/invoicing/invoices";
+
+export const OPERATOR_INVOICES_PAGE_SIZE = 50;
+
+/** A page of Tax Invoices, newest first. */
+export async function fetchOperatorInvoices(page = 1): Promise<OperatorInvoiceListPage> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(OPERATOR_INVOICES_PAGE_SIZE),
+  });
+  return fetchEventsJSON<OperatorInvoiceListPage>(`${INVOICES_PATH}?${params.toString()}`);
+}
+
+/** One Tax Invoice in full. */
+export async function fetchOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}`);
+}
+
+/** Issues a Tax Invoice and returns it as it stands when the SRI answered. */
+export async function issueOperatorInvoice(body: IssueInvoiceBody): Promise<OperatorInvoiceDetail> {
+  return fetchEventsJSON<OperatorInvoiceDetail>(INVOICES_PATH, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** The server's totals for a set of lines — what the form shows as it is filled. */
+export async function previewOperatorInvoiceTotals(
+  lines: IssueInvoiceLineBody[],
+): Promise<OperatorInvoiceTotals> {
+  return fetchEventsJSON<OperatorInvoiceTotals>(`${INVOICES_PATH}/totals`, {
+    method: "POST",
+    body: JSON.stringify({ lines }),
+  });
+}

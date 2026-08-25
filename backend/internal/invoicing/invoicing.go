@@ -139,14 +139,26 @@ const (
 type Outcome struct {
 	State    OutcomeState
 	Messages []AuthorityMessage
+	// AuthorizationNumber and AuthorizationDate are set only when State is
+	// OutcomeAuthorized: the authority's number for the legal artifact (in
+	// Ecuador the clave de acceso itself) and when it granted it.
+	AuthorizationNumber string
+	AuthorizationDate   time.Time
+	// AuthorityXML is the authority's own authorization document when State
+	// is OutcomeAuthorized — the legal proof the invoice keeps — and nil
+	// otherwise.
+	AuthorityXML []byte
 }
 
 // AuthorityMessage is one message from the authority, kept in the authority's
 // own vocabulary: the SRI's identificador, mensaje, informacionAdicional and
 // tipo map onto these four fields and are shown to the operator unchanged.
+//
+// The JSON names are how the messages are stored (last_messages, the attempts
+// ledger) and served, so the operator surface reads one shape everywhere.
 type AuthorityMessage struct {
-	Identifier     string
-	Message        string
-	AdditionalInfo string
-	Type           string
+	Identifier     string `json:"identifier"`
+	Message        string `json:"message"`
+	AdditionalInfo string `json:"additional_info"`
+	Type           string `json:"type"`
 }

@@ -75,9 +75,9 @@ export function operatorNavItems({
     { key: "customerConsent", href: "/operator/consent" },
     // Tax invoicing (#450, ADR 0059): the platform's own facturas to the SRI,
     // issued by hand. It sits last because it is the platform's own paperwork
-    // rather than anything an Organization or a Customer is waiting on. The
-    // entry lands on the Issuer page until there are invoices to list (#455),
-    // which is when it should be repointed at /operator/invoicing.
-    { key: "taxInvoicing", href: "/operator/invoicing/issuer" },
+    // rather than anything an Organization or a Customer is waiting on. It
+    // lands on the invoices list (#454), and the Issuer page hangs beneath the
+    // same /operator/invoicing subtree, so either lights this one entry.
+    { key: "taxInvoicing", href: "/operator/invoicing" },
   ];
 }

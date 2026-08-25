@@ -15,3 +15,27 @@ type EnvelopeEcuadorIssuer struct {
 	Error     *platform.APIError     `json:"error"`
 	RequestID string                 `json:"request_id"`
 }
+
+// EnvelopeInvoiceDetail documents POST /operator/invoicing/invoices and
+// GET /operator/invoicing/invoices/{id} success responses.
+type EnvelopeInvoiceDetail struct {
+	Data      service.InvoiceDetail `json:"data"`
+	Error     *platform.APIError    `json:"error"`
+	RequestID string                `json:"request_id"`
+}
+
+// EnvelopeInvoiceList documents GET /operator/invoicing/invoices success
+// responses: the ADR-0006 nested envelope inside the standard one.
+type EnvelopeInvoiceList struct {
+	Data      service.InvoiceList `json:"data"`
+	Error     *platform.APIError  `json:"error"`
+	RequestID string              `json:"request_id"`
+}
+
+// EnvelopeInvoiceTotals documents POST /operator/invoicing/invoices/totals
+// success responses.
+type EnvelopeInvoiceTotals struct {
+	Data      service.TotalsView `json:"data"`
+	Error     *platform.APIError `json:"error"`
+	RequestID string             `json:"request_id"`
+}
