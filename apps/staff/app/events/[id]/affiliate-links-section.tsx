@@ -21,6 +21,10 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   FormField,
   Input,
   Skeleton,
@@ -407,50 +411,53 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
                         {link.active ? t("active") : t("inactive")}
                       </Badge>
                     </td>
-                    <td className="py-3 pr-4">
-                      <div className="flex flex-wrap items-center gap-2">
+                    {/* One visible action, the common one, and the rest behind
+                        a ⋯ menu so a row stays a single line. Rename and Delete
+                        open the same dialogs as before; the toggle is the same
+                        handler. Every menu item is disabled while this row is
+                        busy, the way the buttons they replaced were. */}
+                    <td className="py-3 pr-4 whitespace-nowrap">
+                      <div className="flex items-center gap-1">
                         <Button type="button" variant="outline" size="sm" onClick={() => void copyURL(link)}>
                           {copiedId === link.id ? t("copied") : t("copy")}
                         </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={busyId === link.id}
-                          aria-busy={busyId === link.id}
-                          onClick={() => openRenameDialog(link)}
-                        >
-                          {t("rename")}
-                        </Button>
-                        {/* Deactivating leaves everything on this row where it is and
-                            only stops the code counting and attributing; reactivating
-                            resumes both under the same link. */}
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={busyId === link.id}
-                          aria-busy={busyId === link.id}
-                          onClick={() => void toggleActive(link)}
-                        >
-                          {busyId === link.id
-                            ? link.active
-                              ? t("deactivating")
-                              : t("reactivating")
-                            : link.active
-                              ? t("deactivate")
-                              : t("reactivate")}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          size="sm"
-                          disabled={busyId === link.id}
-                          aria-busy={busyId === link.id}
-                          onClick={() => setDeleteTarget(link)}
-                        >
-                          {t("delete")}
-                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              aria-label={t("moreActions")}
+                              aria-busy={busyId === link.id}
+                            >
+                              <span aria-hidden>⋯</span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              disabled={busyId === link.id}
+                              onSelect={() => openRenameDialog(link)}
+                            >
+                              {t("rename")}
+                            </DropdownMenuItem>
+                            {/* Deactivating leaves everything on this row where it is and
+                                only stops the code counting and attributing; reactivating
+                                resumes both under the same link. */}
+                            <DropdownMenuItem
+                              disabled={busyId === link.id}
+                              onSelect={() => void toggleActive(link)}
+                            >
+                              {link.active ? t("deactivate") : t("reactivate")}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              variant="destructive"
+                              disabled={busyId === link.id}
+                              onSelect={() => setDeleteTarget(link)}
+                            >
+                              {t("delete")}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </td>
                   </tr>
