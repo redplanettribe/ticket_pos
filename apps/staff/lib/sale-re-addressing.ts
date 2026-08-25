@@ -54,15 +54,32 @@ export function reAddressingPanel(
 }
 
 /**
+ * An accepted Sale Re-addressing as the history card reads it: the corrected
+ * address is always there, and so is the moment of acceptance. The Event-start
+ * purge (#424) takes a pending or withdrawn record's address, never an
+ * accepted one — the database refuses an accepted row without its address
+ * (`sale_re_addressings_accepted_keeps_address_ck`, migration 093) — so a
+ * page reading this type has no purged case to draw.
+ */
+export type AcceptedReAddressing = OperatorSaleReAddressing & {
+  corrected_email: string;
+  accepted_at: string;
+};
+
+/**
  * The accepted history: every re-addressing of this sale that completed, in
  * the order recorded. Listed WHATEVER face the panel shows — a reversed or
  * started sale offers no lever, but the evidence trail of who the sale was
  * moved to, by whom and when is permanent (#424, ADR 0058).
+ *
+ * The narrowing is the database's promise restated, not a filter: the API
+ * lists under `accepted` only rows the constraint above has already vouched
+ * for, so nothing is dropped here.
  */
 export function acceptedReAddressings(
   block: OperatorSaleReAddressingBlock | null | undefined,
-): OperatorSaleReAddressing[] {
-  return block?.accepted ?? [];
+): AcceptedReAddressing[] {
+  return (block?.accepted ?? []) as AcceptedReAddressing[];
 }
 
 /**

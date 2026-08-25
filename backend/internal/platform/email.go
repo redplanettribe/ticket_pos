@@ -1349,7 +1349,6 @@ type CaptureEmailSender struct {
 	// one place a test can get one, exactly as a Holder's inbox is the one place
 	// a person can.
 	TicketAssignments []TicketAssignment
-	// The Assignment Reminders delivered (#362, ADR 0051).	TicketAssignments []TicketAssignment
 	// The Re-addressing mails delivered (#420, ADR 0058). Kept whole so a test
 	// can render what the corrected address read, and — as with the Assignment
 	// mail — the ONLY way an integration test can see a Re-addressing Link: the

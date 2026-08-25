@@ -765,7 +765,7 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
             {reAddressHistory.map((record) => (
               <div key={record.id} className="grid gap-6 border-t pt-6 first:border-t-0 first:pt-0 sm:grid-cols-2">
                 {/* Addresses and the operator's email are data, never copy. */}
-                <Fact label={t("reAddressPendingEmail")}>{record.corrected_email ?? NOTHING}</Fact>
+                <Fact label={t("reAddressPendingEmail")}>{record.corrected_email}</Fact>
                 <Fact label={t("reAddressPendingPrevious")}>{record.previous_email}</Fact>
                 <Fact label={t("reAddressPendingRecordedBy")}>{record.operator}</Fact>
                 <Fact label={t("reAddressPendingRecordedAt")}>{moment(record.requested_at)}</Fact>

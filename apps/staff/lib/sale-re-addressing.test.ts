@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { OperatorSaleReAddressing } from "./operator-api.ts";
+import type { AcceptedReAddressing } from "./sale-re-addressing.ts";
 import {
   acceptedReAddressings,
   correctedEmailProblem,
@@ -73,10 +74,13 @@ test("the panel is hidden on a reversed, non-online, or started sale", () => {
   });
 });
 
-const accepted: OperatorSaleReAddressing = {
+// Typed as the history card reads it: an accepted row keeps its address by
+// database constraint, so `corrected_email` is a string here, never null.
+const accepted: AcceptedReAddressing = {
   ...pending,
   id: "r0",
   status: "accepted",
+  corrected_email: "ana.lopez@example.com",
   requested_at: "2026-07-06T12:00:00Z",
   accepted_at: "2026-07-06T12:30:00Z",
 };
@@ -110,6 +114,10 @@ test("the accepted history is listed whatever face the panel shows", () => {
   // sale may in principle be re-addressed twice.
   assert.deepEqual(reAddressingPanel(active, block, now), { kind: "form" });
   assert.deepEqual(acceptedReAddressings({ pending, accepted: [accepted] }), [accepted]);
+  // The history never shows a purged address: every accepted row carries one.
+  for (const record of acceptedReAddressings(block)) {
+    assert.equal(typeof record.corrected_email, "string");
+  }
   // Nothing accepted, or no block at all, is an empty list rather than a crash.
   assert.deepEqual(acceptedReAddressings({ pending: null, accepted: [] }), []);
   assert.deepEqual(acceptedReAddressings(null), []);
