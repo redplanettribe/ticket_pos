@@ -41,6 +41,9 @@ type holderPurgeResult struct {
 	EventsPurged    int    `json:"events_purged"`
 	PurgedAt        string `json:"purged_at"`
 	AddressesHeld   int    `json:"addresses_held"`
+	// CorrectedAddressesPurged is #424's widening: unaccepted corrected
+	// addresses taken off pending Sale Re-addressings of started Events.
+	CorrectedAddressesPurged int `json:"corrected_addresses_purged"`
 }
 
 // purgeHolderAddresses runs one purge tick and asserts only that the endpoint

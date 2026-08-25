@@ -41,6 +41,7 @@ import {
 } from "@/lib/operator-api";
 import {
   RE_ADDRESSING_NOTE_MAX_LENGTH,
+  acceptedReAddressings,
   correctedEmailProblem,
   reAddressBody,
   reAddressingPanel,
@@ -360,6 +361,9 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
   // Online Sale whose Event has not started, the pending card while a
   // recording stands, the form otherwise.
   const reAddressPanel = reAddressingPanel(sale, lookup.re_addressing, new Date());
+  // The accepted history is listed whatever the panel shows (#424): the lever
+  // goes away on a reversed or started sale, the evidence trail never does.
+  const reAddressHistory = acceptedReAddressings(lookup.re_addressing);
   // The sale's own currency, and the platform's clock for every moment on this
   // page: a sale's timestamps and its Reversal Window cutoff are Ecuadorian
   // facts (ADR 0018), and only the Event's schedule belongs to the Event's zone.
@@ -676,6 +680,32 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
                 </Button>
               </div>
             </form>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {reAddressHistory.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("reAddressHistoryTitle")}</CardTitle>
+            <CardDescription>{t("reAddressHistoryDescription")}</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-6">
+            {reAddressHistory.map((record) => (
+              <div key={record.id} className="grid gap-6 border-t pt-6 first:border-t-0 first:pt-0 sm:grid-cols-2">
+                {/* Addresses and the operator's email are data, never copy. */}
+                <Fact label={t("reAddressPendingEmail")}>{record.corrected_email ?? NOTHING}</Fact>
+                <Fact label={t("reAddressPendingPrevious")}>{record.previous_email}</Fact>
+                <Fact label={t("reAddressPendingRecordedBy")}>{record.operator}</Fact>
+                <Fact label={t("reAddressPendingRecordedAt")}>{moment(record.requested_at)}</Fact>
+                <Fact label={t("reAddressHistoryAcceptedAt")}>{moment(record.accepted_at)}</Fact>
+                {record.note ? (
+                  <Fact label={t("reAddressPendingNote")}>
+                    <span className="whitespace-pre-wrap font-normal">{record.note}</span>
+                  </Fact>
+                ) : null}
+              </div>
+            ))}
           </CardContent>
         </Card>
       ) : null}

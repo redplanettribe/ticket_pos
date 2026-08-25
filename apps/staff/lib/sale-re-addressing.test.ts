@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { OperatorSaleReAddressing } from "./operator-api.ts";
-import { correctedEmailProblem, reAddressBody, reAddressingPanel } from "./sale-re-addressing.ts";
+import {
+  acceptedReAddressings,
+  correctedEmailProblem,
+  reAddressBody,
+  reAddressingPanel,
+} from "./sale-re-addressing.ts";
 
 const now = new Date("2026-07-07T12:00:00Z");
 const event = {
@@ -54,6 +59,49 @@ test("the panel is hidden on a reversed, non-online, or started sale", () => {
   assert.deepEqual(reAddressingPanel({ ...active, event: { ...event, starts_at: null } }, null, now), {
     kind: "form",
   });
+});
+
+const accepted: OperatorSaleReAddressing = {
+  ...pending,
+  id: "r0",
+  status: "accepted",
+  requested_at: "2026-07-06T12:00:00Z",
+  accepted_at: "2026-07-06T12:30:00Z",
+};
+
+test("the panel is hidden on a reversed or started sale even while a record is pending", () => {
+  // A reversal by any route, or the doors opening, leaves the pending record
+  // expired: the API still returns null for it, but the page must not offer
+  // the card even if a stale lookup carried one (#424).
+  assert.deepEqual(reAddressingPanel({ ...active, status: "reversed" }, { pending, accepted: [] }, now), {
+    kind: "hidden",
+  });
+  const started = { ...event, starts_at: "2026-07-07T12:00:00Z" };
+  assert.deepEqual(reAddressingPanel({ ...active, event: started }, { pending, accepted: [] }, now), {
+    kind: "hidden",
+  });
+});
+
+test("the accepted history is listed whatever face the panel shows", () => {
+  const block = { pending: null, accepted: [accepted] };
+  // Hidden on a reversed sale, and the history still reads.
+  assert.deepEqual(reAddressingPanel({ ...active, status: "reversed" }, block, now), { kind: "hidden" });
+  assert.deepEqual(acceptedReAddressings(block), [accepted]);
+  // Hidden on a started sale, likewise.
+  const started = { ...event, starts_at: "2026-07-01T12:00:00Z" };
+  assert.deepEqual(reAddressingPanel({ ...active, event: started }, block, now), { kind: "hidden" });
+  assert.deepEqual(acceptedReAddressings(block), [accepted]);
+  // Hidden on a non-online sale, likewise.
+  assert.deepEqual(reAddressingPanel({ ...active, channel: "import" }, block, now), { kind: "hidden" });
+  assert.deepEqual(acceptedReAddressings(block), [accepted]);
+  // And on an active sale the form is offered again, above the history: a
+  // sale may in principle be re-addressed twice.
+  assert.deepEqual(reAddressingPanel(active, block, now), { kind: "form" });
+  assert.deepEqual(acceptedReAddressings({ pending, accepted: [accepted] }), [accepted]);
+  // Nothing accepted, or no block at all, is an empty list rather than a crash.
+  assert.deepEqual(acceptedReAddressings({ pending: null, accepted: [] }), []);
+  assert.deepEqual(acceptedReAddressings(null), []);
+  assert.deepEqual(acceptedReAddressings(undefined), []);
 });
 
 test("correctedEmailProblem catches the empty field, a non-address, and the sale's own address", () => {
