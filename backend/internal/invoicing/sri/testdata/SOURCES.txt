@@ -1,0 +1,16 @@
+Vendored schemas, unmodified.
+
+factura_V1.1.0.xsd
+  Source: SRI, "XML y XSD Factura" bundle (factura_V1.0.0 / 1.1.0 / 2.0.0 / 2.1.0)
+  URL:    https://www.sri.gob.ec/o/sri-portlet-biblioteca-alfresco-internet/descargar/05546998-6f29-4870-be3b-62650f312a6c/XML%20y%20XSD%20Factura.zip
+  Fetched 2026-08-25; sha256 62db9bf0ecceb00ef2b7ed136e59224815e5e5e33c77efc6a0552001e052eb8b
+  (file dated 2022-02-07 inside the zip; the same bytes are vendored by at least five
+  independent open-source SRI implementations on GitHub).
+  Known lag behind Ficha Tecnica v2.34: the contribuyenteRimpe pattern only admits
+  "CONTRIBUYENTE RÉGIMEN RIMPE"; the Ficha (Anexo 22) also defines
+  "CONTRIBUYENTE NEGOCIO POPULAR - RÉGIMEN RIMPE", which this XSD rejects.
+
+xmldsig-core-schema.xsd
+  Source: W3C, XML-Signature Syntax and Processing (2002-02-12 Recommendation)
+  URL:    https://www.w3.org/TR/2002/REC-xmldsig-core-20020212/xmldsig-core-schema.xsd
+  Imported by factura_V1.1.0.xsd for the ds:Signature element.

@@ -8,14 +8,17 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.42.1
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.28
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.105.0
+	github.com/beevik/etree v1.7.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
+	github.com/russellhaering/goxmldsig v1.6.1
 	github.com/swaggo/http-swagger v1.3.4
 	github.com/swaggo/swag/v2 v2.0.0-rc5
 	github.com/testcontainers/testcontainers-go v0.43.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.43.0
 	github.com/xuri/excelize/v2 v2.11.0
 	gopkg.in/yaml.v3 v3.0.1
+	software.sslmate.com/src/go-pkcs12 v0.7.3
 )
 
 require (
@@ -55,6 +58,7 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
