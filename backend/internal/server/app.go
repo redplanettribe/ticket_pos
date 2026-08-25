@@ -30,6 +30,7 @@ import (
 	identityhandler "github.com/peter/ticket_pos/backend/internal/identity/handler"
 	identityrepo "github.com/peter/ticket_pos/backend/internal/identity/repository"
 	identitysvc "github.com/peter/ticket_pos/backend/internal/identity/service"
+	"github.com/peter/ticket_pos/backend/internal/invoicing"
 	invoicinghandler "github.com/peter/ticket_pos/backend/internal/invoicing/handler"
 	invoicingrepo "github.com/peter/ticket_pos/backend/internal/invoicing/repository"
 	invoicingsvc "github.com/peter/ticket_pos/backend/internal/invoicing/service"
@@ -522,8 +523,18 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// Tax invoicing (#450, ADR 0059). Served on the operator namespace but not
 	// composed by the operator module: it owns data of its own, and the
 	// operator module composes modules that own theirs.
+	// The certificate key is absent-safe by design (#453): without it the app
+	// boots and serves everything but certificate upload and signing, which is
+	// what keeps invoicing being unconfigured from ever being an outage.
+	invoicingCustody, err := invoicing.NewCustody(cfg.InvoicingCertificateKey)
+	if err != nil {
+		return nil, fmt.Errorf("invoicing certificate custody: %w", err)
+	}
+	if !invoicingCustody.Configured() {
+		platformLogger.Warn("invoicing: no INVOICING_CERTIFICATE_KEY set; certificate upload and signing are unavailable, everything else serves")
+	}
 	invoicingRepo := invoicingrepo.New(db)
-	invoicingService := invoicingsvc.New(invoicingRepo, platformLogger)
+	invoicingService := invoicingsvc.New(invoicingRepo, invoicingCustody, platformLogger)
 	invoicingHandler := invoicinghandler.New(invoicingService)
 
 	return &App{

@@ -80,6 +80,10 @@ services:
       DIGEST_RESEND_API_KEY: ${DIGEST_RESEND_API_KEY:-}
       DIGEST_EMAIL_FROM: ${DIGEST_EMAIL_FROM:-}
       DIGEST_EMAIL_ALLOW_SHARED_DOMAIN: ${DIGEST_EMAIL_ALLOW_SHARED_DOMAIN:-}
+      # The Issuer's certificate key (#453, ADR 0059), from the root .env: 32
+      # bytes as base64, `openssl rand -base64 32`. Empty (the default) leaves
+      # the API up and only certificate upload and signing unavailable.
+      INVOICING_CERTIFICATE_KEY: ${INVOICING_CERTIFICATE_KEY:-}
       # Ticket Question authoring (#309, ADR 0045). Empty by default, which
       # leaves the staff surface hidden and every one of its endpoints answering
       # 404 — the shipped state. Set TICKET_QUESTIONS_ENABLED=true in the root

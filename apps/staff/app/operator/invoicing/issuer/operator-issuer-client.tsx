@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { toAppLocale } from "@ticket-pos/locale";
 import {
@@ -33,6 +33,7 @@ import {
   type OperatorEcuadorIssuer,
   fetchOperatorEcuadorIssuer,
   saveOperatorEcuadorIssuer,
+  uploadOperatorEcuadorIssuerCertificate,
 } from "@/lib/operator-api";
 
 /**
@@ -52,9 +53,15 @@ import {
  * catalog uses the term alone. The régimen and environment options are the
  * API's tokens with the catalog holding the word for each.
  *
+ * THE CERTIFICATE IS A SECOND FORM ON THE SAME PAGE (#453). It is the Issuer's
+ * signing key in custody, uploaded as multipart through the BFF and the API and
+ * read back as metadata only; the card below the details shows what is on file
+ * and takes the next upload. It is its own form because it is its own request —
+ * a save of the details never touches the certificate, and an upload never
+ * touches the details.
+ *
  * NOTHING HERE IS READ-ONLY YET. The freezes — RUC once any factura exists,
- * establecimiento and punto de emisión once a sequence has started — are #453's,
- * and the certificate card is #452's; both land on this page.
+ * establecimiento and punto de emisión once a sequence has started — are #454's.
  */
 
 /** The régimen catalog key for each API token. */
@@ -437,6 +444,182 @@ export function OperatorIssuerClient() {
           {saving ? t("invoicingSaving") : t("invoicingSave")}
         </Button>
       </form>
+
+      <CertificateCard
+        issuer={issuer}
+        onUploaded={(saved) => {
+          setIssuer(saved);
+          setValues(toFormValues(saved));
+        }}
+      />
     </div>
+  );
+}
+
+/**
+ * The signing certificate in custody and the form that replaces it.
+ *
+ * WHAT IT SHOWS IS ALL THE SERVER KNOWS WITHOUT OPENING THE FILE: subject, the
+ * RUC found inside, the validity window, the fingerprint and when it was
+ * uploaded. The bytes and the password never come back, so there is nothing to
+ * hide here and nothing to show but this. A RUC that differs from the Issuer's
+ * is a WARNING and never a block — some certification authorities put the RUC
+ * somewhere the server does not look, and the SRI's own check is the final word.
+ *
+ * EVERY REFUSAL IS THE API'S, AND IT IS SHOWN IN PLACE. A wrong password, a
+ * file without an RSA key, a file that is not a .p12 and a server with no
+ * certificate key each arrive as their own code and are rendered as an alert on
+ * the card, from the catalog: the last of those is a deployment setting and
+ * must not be mistaken for a bad file, which a toast that vanishes would invite.
+ */
+function CertificateCard({
+  issuer,
+  onUploaded,
+}: {
+  issuer: OperatorEcuadorIssuer | null;
+  onUploaded: (saved: OperatorEcuadorIssuer) => void;
+}) {
+  const t = useTranslations("operator");
+  const errorCopy = useMessages().errors;
+  const locale = toAppLocale(useLocale());
+
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [password, setPassword] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  const certificate = issuer?.certificate ?? null;
+  const canUpload = issuer !== null;
+
+  async function handleUpload(event: React.FormEvent) {
+    event.preventDefault();
+    if (!file) {
+      setFieldErrors({ file: t("invoicingCertificateFileRequired") });
+      return;
+    }
+    setUploading(true);
+    setUploadError(null);
+    setFieldErrors({});
+    try {
+      const saved = await uploadOperatorEcuadorIssuerCertificate(file, password);
+      onUploaded(saved);
+      // The password was checked and is now in custody; nothing on this page
+      // should keep it a moment longer.
+      setPassword("");
+      setFile(null);
+      if (fileInput.current) fileInput.current.value = "";
+      toast.success(t("invoicingCertificateUploaded"));
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "VALIDATION_FAILED") {
+        setFieldErrors(fieldErrorMessages(errorCopy, error.details));
+      } else {
+        setUploadError(
+          (error instanceof ApiError ? apiErrorMessage(errorCopy, error) : null) ??
+            t("invoicingCertificateUploadFailed"),
+        );
+      }
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("invoicingCertificateTitle")}</CardTitle>
+        <CardDescription>{t("invoicingCertificateDescription")}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {certificate ? (
+          <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[max-content_1fr]">
+            <dt className="text-muted-foreground">{t("invoicingCertificateSubject")}</dt>
+            {/* A distinguished name and a fingerprint are the certificate's own and are never translated. */}
+            <dd className="break-all">{certificate.subject}</dd>
+            <dt className="text-muted-foreground">{t("invoicingCertificateRuc")}</dt>
+            <dd>{certificate.ruc === "" ? t("invoicingCertificateRucNone") : certificate.ruc}</dd>
+            <dt className="text-muted-foreground">{t("invoicingCertificateValidFrom")}</dt>
+            <dd>{formatDateTime(certificate.not_before, PLATFORM_TIME_ZONE, locale)}</dd>
+            <dt className="text-muted-foreground">{t("invoicingCertificateValidUntil")}</dt>
+            <dd>{formatDateTime(certificate.not_after, PLATFORM_TIME_ZONE, locale)}</dd>
+            <dt className="text-muted-foreground">{t("invoicingCertificateFingerprint")}</dt>
+            <dd className="break-all font-mono text-xs">{certificate.fingerprint_sha256}</dd>
+            <dt className="text-muted-foreground">{t("invoicingCertificateUploadedAt")}</dt>
+            <dd>{formatDateTime(certificate.uploaded_at, PLATFORM_TIME_ZONE, locale)}</dd>
+          </dl>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {canUpload ? t("invoicingCertificateNone") : t("invoicingCertificateNeedsIssuer")}
+          </p>
+        )}
+
+        {issuer && certificate && issuer.certificate_ruc_mismatch ? (
+          <Alert variant="warning">
+            <AlertTitle>{t("invoicingCertificateMismatchTitle")}</AlertTitle>
+            <AlertDescription>
+              {t("invoicingCertificateMismatch", {
+                certificateRuc: certificate.ruc,
+                issuerRuc: issuer.ruc,
+              })}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {uploadError ? (
+          <Alert variant="destructive">
+            <AlertTitle>{t("invoicingCertificateUploadFailedTitle")}</AlertTitle>
+            <AlertDescription>{uploadError}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        <form className="space-y-4" onSubmit={handleUpload}>
+          <FormField
+            id="issuer-certificate-file"
+            label={t("invoicingCertificateFileLabel")}
+            description={t("invoicingCertificateFileHint")}
+            error={fieldErrors.file}
+          >
+            <input
+              ref={fileInput}
+              type="file"
+              accept=".p12,.pfx,application/x-pkcs12"
+              disabled={!canUpload || uploading}
+              className="text-sm file:mr-3 file:rounded-md file:border file:border-input file:bg-background file:px-3 file:py-1.5 file:text-sm disabled:opacity-60"
+              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+            />
+          </FormField>
+          {/* A filename is the reader's own and is never translated. */}
+          {file ? (
+            <p className="text-sm text-muted-foreground">
+              {t("invoicingCertificateSelectedFile", { name: file.name })}
+            </p>
+          ) : null}
+
+          <FormField
+            id="issuer-certificate-password"
+            label={t("invoicingCertificatePasswordLabel")}
+            description={t("invoicingCertificatePasswordHint")}
+            error={fieldErrors.password}
+          >
+            <Input
+              type="password"
+              value={password}
+              disabled={!canUpload || uploading}
+              autoComplete="off"
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </FormField>
+
+          <Button type="submit" disabled={!canUpload || uploading}>
+            {uploading
+              ? t("invoicingCertificateUploading")
+              : certificate
+                ? t("invoicingCertificateReplace")
+                : t("invoicingCertificateUpload")}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 }

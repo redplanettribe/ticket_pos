@@ -99,6 +99,10 @@ services:
       # parity stack reproducible; it is not a secret and must never be a real
       # one, which is exactly why it is spelled out here rather than defaulted.
       CONFIRMATION_LINK_SECRET: parity-stack-not-a-real-secret
+      # The Issuer's certificate key (#453): base64 of the 32 ASCII bytes
+      # "parity-stack-not-a-real-key-0000", so a certificate uploaded to the
+      # parity stack is encrypted under a key that is obviously not a secret.
+      INVOICING_CERTIFICATE_KEY: cGFyaXR5LXN0YWNrLW5vdC1hLXJlYWwta2V5LTAwMDA=
       # Where the parity Storefront answers, so Confirmation Links are followable.
       STOREFRONT_BASE_URL: http://localhost:64603
     healthcheck:

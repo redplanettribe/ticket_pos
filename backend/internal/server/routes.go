@@ -250,6 +250,10 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	inv := app.InvoicingHandler
 	mux.Handle("GET /api/v1/operator/invoicing/issuers/ec", operator(http.HandlerFunc(inv.GetEcuadorIssuer)))
 	mux.Handle("PUT /api/v1/operator/invoicing/issuers/ec", operator(http.HandlerFunc(inv.PutEcuadorIssuer)))
+	// The signing certificate goes THROUGH the API as multipart (#453): the
+	// object storage buckets are public, so a presigned upload is not an option
+	// for a private key.
+	mux.Handle("POST /api/v1/operator/invoicing/issuers/ec/certificate", operator(http.HandlerFunc(inv.PostEcuadorIssuerCertificate)))
 }
 
 // registerCustomerRoutes wires the Storefront's Customer identity surface.

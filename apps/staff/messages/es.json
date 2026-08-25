@@ -1404,7 +1404,32 @@
     "invoicingSaving": "Guardando...",
     "invoicingSaved": "Emisor guardado.",
     "invoicingSaveFailed": "No se pudo guardar el emisor.",
-    "invoicingCheckFields": "Revise los campos señalados."
+    "invoicingCheckFields": "Revise los campos señalados.",
+    "invoicingCertificateTitle": "Certificado de firma",
+    "invoicingCertificateDescription": "El archivo .p12 de la plataforma, guardado cifrado en el servidor. Cada factura se firma con él. Si lo sube de nuevo, reemplaza el certificado por completo.",
+    "invoicingCertificateNone": "No se ha subido ningún certificado. El emisor no puede firmar facturas hasta que suba uno.",
+    "invoicingCertificateNeedsIssuer": "Guarde los datos del emisor antes de subir un certificado.",
+    "invoicingCertificateSubject": "Titular",
+    "invoicingCertificateRuc": "RUC en el certificado",
+    "invoicingCertificateRucNone": "No se encontró ninguno",
+    "invoicingCertificateValidFrom": "Válido desde",
+    "invoicingCertificateValidUntil": "Válido hasta",
+    "invoicingCertificateFingerprint": "Huella SHA-256",
+    "invoicingCertificateUploadedAt": "Subido",
+    "invoicingCertificateMismatchTitle": "El RUC del certificado no coincide con el del emisor",
+    "invoicingCertificateMismatch": "El certificado indica el RUC {certificateRuc}; el emisor está registrado con el RUC {issuerRuc}. El SRI puede rechazar las facturas firmadas con él. Verifique cuál es el correcto antes de emitir.",
+    "invoicingCertificateFileLabel": "Archivo .p12",
+    "invoicingCertificateFileHint": "El certificado de firma tal como se lo entregó su entidad de certificación (.p12 o .pfx).",
+    "invoicingCertificateSelectedFile": "Seleccionado: {name}",
+    "invoicingCertificatePasswordLabel": "Contraseña del certificado",
+    "invoicingCertificatePasswordHint": "Se comprueba al abrir el archivo. Se guarda cifrada y no vuelve a mostrarse.",
+    "invoicingCertificateUpload": "Subir certificado",
+    "invoicingCertificateReplace": "Reemplazar certificado",
+    "invoicingCertificateUploading": "Subiendo...",
+    "invoicingCertificateUploaded": "Certificado subido.",
+    "invoicingCertificateUploadFailedTitle": "No se subió el certificado",
+    "invoicingCertificateUploadFailed": "No se pudo subir el certificado.",
+    "invoicingCertificateFileRequired": "Elija el archivo .p12."
   },
   "errors": {
     "envelope": {
@@ -1504,7 +1529,12 @@
       "ANSWER_NOT_FOUND": "Aquí no hay ninguna respuesta que borrar.",
       "TICKET_SALE_REVERSED": "Esta venta fue anulada, así que sus respuestas ya no se pueden cambiar.",
       "EVENT_STARTED_ANSWERS_CLOSED": "Este evento ya empezó, así que sus respuestas ya no se pueden cambiar.",
-      "ANSWER_OPTION_NOT_OFFERED": "Esa opción no es una de las que ofrece esta pregunta."
+      "ANSWER_OPTION_NOT_OFFERED": "Esa opción no es una de las que ofrece esta pregunta.",
+      "ISSUER_NOT_FOUND": "Aún no se ha registrado el emisor. Guarde primero los datos del emisor.",
+      "CERTIFICATE_KEY_NOT_CONFIGURED": "El servidor no tiene configurada la clave de certificados, por lo que no puede guardar un certificado. Es un ajuste del despliegue (INVOICING_CERTIFICATE_KEY), no un problema del archivo ni de la contraseña.",
+      "CERTIFICATE_PASSWORD_INCORRECT": "No se pudo abrir el certificado con esa contraseña. No se cambió nada.",
+      "CERTIFICATE_NO_RSA_KEY": "Ese archivo no contiene una clave privada RSA. El SRI exige un certificado de firma RSA; no se cambió nada.",
+      "CERTIFICATE_FILE_INVALID": "Ese archivo no es un certificado .p12 válido. No se cambió nada."
     },
     "field": {
       "REQUIRED": "es obligatorio",

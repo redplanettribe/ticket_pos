@@ -1404,7 +1404,32 @@
     "invoicingSaving": "Saving...",
     "invoicingSaved": "Issuer saved.",
     "invoicingSaveFailed": "Could not save the issuer.",
-    "invoicingCheckFields": "Check the highlighted fields."
+    "invoicingCheckFields": "Check the highlighted fields.",
+    "invoicingCertificateTitle": "Signing certificate",
+    "invoicingCertificateDescription": "The platform's .p12 file, kept encrypted on the server. Every factura is signed with it. Uploading again replaces the certificate outright.",
+    "invoicingCertificateNone": "No certificate has been uploaded. The issuer cannot sign facturas until one is.",
+    "invoicingCertificateNeedsIssuer": "Save the issuer details before uploading a certificate.",
+    "invoicingCertificateSubject": "Subject",
+    "invoicingCertificateRuc": "RUC in the certificate",
+    "invoicingCertificateRucNone": "None found",
+    "invoicingCertificateValidFrom": "Valid from",
+    "invoicingCertificateValidUntil": "Valid until",
+    "invoicingCertificateFingerprint": "SHA-256 fingerprint",
+    "invoicingCertificateUploadedAt": "Uploaded",
+    "invoicingCertificateMismatchTitle": "The certificate's RUC does not match the issuer's",
+    "invoicingCertificateMismatch": "The certificate names RUC {certificateRuc}; the issuer is recorded under {issuerRuc}. The SRI may reject facturas signed with it. Check which one is right before issuing.",
+    "invoicingCertificateFileLabel": ".p12 file",
+    "invoicingCertificateFileHint": "The signing certificate as your certification authority delivered it (.p12 or .pfx).",
+    "invoicingCertificateSelectedFile": "Selected: {name}",
+    "invoicingCertificatePasswordLabel": "Certificate password",
+    "invoicingCertificatePasswordHint": "Checked when the file is opened. It is stored encrypted and never shown again.",
+    "invoicingCertificateUpload": "Upload certificate",
+    "invoicingCertificateReplace": "Replace certificate",
+    "invoicingCertificateUploading": "Uploading...",
+    "invoicingCertificateUploaded": "Certificate uploaded.",
+    "invoicingCertificateUploadFailedTitle": "The certificate was not uploaded",
+    "invoicingCertificateUploadFailed": "Could not upload the certificate.",
+    "invoicingCertificateFileRequired": "Choose the .p12 file."
   },
   "errors": {
     "envelope": {
@@ -1504,7 +1529,12 @@
       "ANSWER_NOT_FOUND": "There is no answer here to clear.",
       "TICKET_SALE_REVERSED": "This sale was reversed, so its answers can no longer be changed.",
       "EVENT_STARTED_ANSWERS_CLOSED": "This event has started, so its answers can no longer be changed.",
-      "ANSWER_OPTION_NOT_OFFERED": "That option is not one this question offers."
+      "ANSWER_OPTION_NOT_OFFERED": "That option is not one this question offers.",
+      "ISSUER_NOT_FOUND": "The issuer has not been recorded yet. Save the issuer details first.",
+      "CERTIFICATE_KEY_NOT_CONFIGURED": "The server has no certificate key configured, so it cannot store a certificate. This is a deployment setting (INVOICING_CERTIFICATE_KEY), not a problem with the file or the password.",
+      "CERTIFICATE_PASSWORD_INCORRECT": "The certificate could not be opened with that password. Nothing was changed.",
+      "CERTIFICATE_NO_RSA_KEY": "That file has no RSA private key. The SRI requires an RSA signing certificate; nothing was changed.",
+      "CERTIFICATE_FILE_INVALID": "That file is not a valid .p12 certificate. Nothing was changed."
     },
     "field": {
       "REQUIRED": "is required",

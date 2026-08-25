@@ -236,3 +236,59 @@ func TestOutOfRangeFeeRateFailsStartup(t *testing.T) {
 		}
 	}
 }
+
+// INVOICING_CERTIFICATE_KEY is the key the Issuer's signing certificate is
+// kept encrypted under (#453, ADR 0059). Unset is a running state; set but not
+// 32 bytes is a startup failure.
+
+func TestInvoicingCertificateKeyIsOptional(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/ticket_pos")
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("INVOICING_CERTIFICATE_KEY", "")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.InvoicingCertificateKey != nil {
+		t.Fatalf("key = %v, want nil when unset", cfg.InvoicingCertificateKey)
+	}
+}
+
+func TestInvoicingCertificateKeyDecodesTo32Bytes(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/ticket_pos")
+	// 32 bytes of 0x42, standard base64 with padding.
+	t.Setenv("INVOICING_CERTIFICATE_KEY", " QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI= ")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if len(cfg.InvoicingCertificateKey) != 32 {
+		t.Fatalf("key length = %d, want 32", len(cfg.InvoicingCertificateKey))
+	}
+	for i, b := range cfg.InvoicingCertificateKey {
+		if b != 0x42 {
+			t.Fatalf("key[%d] = %#x, want 0x42", i, b)
+		}
+	}
+}
+
+func TestInvoicingCertificateKeyRefusesOtherLengthsAndBadBase64(t *testing.T) {
+	cases := map[string]string{
+		"16 bytes":   "QUFBQUFBQUFBQUFBQUFBQQ==",
+		"31 bytes":   "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ==",
+		"33 bytes":   "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFB",
+		"not base64": "not*base64*at*all",
+		"raw hex":    "4242424242424242424242424242424242424242424242424242424242424242",
+	}
+	for name, value := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://localhost/ticket_pos")
+			t.Setenv("INVOICING_CERTIFICATE_KEY", value)
+			if _, err := LoadConfig(); err == nil || !strings.Contains(err.Error(), "INVOICING_CERTIFICATE_KEY") {
+				t.Fatalf("LoadConfig error = %v, want a refusal naming INVOICING_CERTIFICATE_KEY", err)
+			}
+		})
+	}
+}

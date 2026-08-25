@@ -971,25 +971,56 @@ export type EcuadorIssuerBody = {
   agente_retencion: string | null;
 };
 
+/**
+ * The signing certificate in custody, as the Issuer read shows it (#453, ADR
+ * 0059): metadata only. The `.p12` bytes and the password are encrypted on
+ * the server and never come back under any name.
+ */
+export type OperatorEcuadorIssuerCertificate = {
+  /** RFC 2253 distinguished name. */
+  subject: string;
+  /** The RUC found inside the certificate, or `""` when none was. */
+  ruc: string;
+  not_before: string;
+  not_after: string;
+  /** Lowercase hex SHA-256 of the DER certificate. */
+  fingerprint_sha256: string;
+  uploaded_at: string;
+};
+
 /** The Ecuador Issuer as stored. */
 export type OperatorEcuadorIssuer = EcuadorIssuerBody & {
   id: string;
   country: "ec";
+  /** `null` until a certificate has been uploaded. */
+  certificate: OperatorEcuadorIssuerCertificate | null;
+  /**
+   * True only when the certificate names a RUC and it is not the Issuer's — a
+   * warning the page shows, never a refusal; the SRI's own check is the final
+   * word.
+   */
+  certificate_ruc_mismatch: boolean;
   created_at: string;
   updated_at: string;
 };
 
 const ECUADOR_ISSUER_PATH = "/api/operator/invoicing/issuers/ec";
+const ECUADOR_ISSUER_CERTIFICATE_PATH = `${ECUADOR_ISSUER_PATH}/certificate`;
 
 /**
  * Reads or writes the Ecuador Issuer, keeping `null` data as a legitimate
  * answer: a platform that has not recorded its Issuer yet is not an error, and
  * the page renders an empty form from it. `fetchEventsJSON` would throw on the
- * null, which is why this does not use it.
+ * null, which is why this does not use it. A `FormData` body is sent as the
+ * browser builds it — the multipart boundary is its own to set.
  */
-async function requestEcuadorIssuer(init?: RequestInit): Promise<OperatorEcuadorIssuer | null> {
-  const response = await fetch(ECUADOR_ISSUER_PATH, {
-    headers: { "Content-Type": "application/json" },
+async function requestEcuadorIssuer(
+  init?: RequestInit,
+  path: string = ECUADOR_ISSUER_PATH,
+): Promise<OperatorEcuadorIssuer | null> {
+  const isForm = init?.body instanceof FormData;
+  const response = await fetch(path, {
+    ...(isForm ? {} : { headers: { "Content-Type": "application/json" } }),
     ...init,
   });
   const envelope = (await response.json()) as {
@@ -1010,6 +1041,26 @@ export async function fetchOperatorEcuadorIssuer(): Promise<OperatorEcuadorIssue
 /** Records the Ecuador Issuer — created on the first save, replaced after. */
 export async function saveOperatorEcuadorIssuer(body: EcuadorIssuerBody): Promise<OperatorEcuadorIssuer> {
   const saved = await requestEcuadorIssuer({ method: "PUT", body: JSON.stringify(body) });
+  if (saved === null) {
+    throw new Error("Empty response");
+  }
+  return saved;
+}
+
+/**
+ * Uploads the platform's `.p12` with its password, replacing any certificate
+ * already in custody, and returns the Issuer as it now reads. Multipart
+ * through the BFF and the API, never a presigned browser upload: the object
+ * storage buckets are public and a private key has no business in one.
+ */
+export async function uploadOperatorEcuadorIssuerCertificate(
+  file: File,
+  password: string,
+): Promise<OperatorEcuadorIssuer> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("password", password);
+  const saved = await requestEcuadorIssuer({ method: "POST", body: form }, ECUADOR_ISSUER_CERTIFICATE_PATH);
   if (saved === null) {
     throw new Error("Empty response");
   }

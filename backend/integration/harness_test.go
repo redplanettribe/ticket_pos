@@ -43,6 +43,10 @@ var (
 	sharedApp   *server.App
 	pgContainer testcontainers.Container
 	sharedEmail *platform.CaptureEmailSender
+	// sharedConnStr is the shared database's connection string, kept so a test
+	// can boot a second app over it configured differently from the shared one
+	// (see startAppWithoutCertificateKey in invoicing_certificate_test.go).
+	sharedConnStr string
 	// sharedStorage is the bucket the shared app writes to. Package-level so
 	// tests can read its delete recorder; reset per test like sharedEmail.
 	sharedStorage = &mockObjectStorage{}
@@ -72,6 +76,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "connection string: %v\n", err)
 		os.Exit(1)
 	}
+	sharedConnStr = connStr
 
 	email := &platform.CaptureEmailSender{}
 
@@ -110,6 +115,11 @@ func TestMain(m *testing.M) {
 			},
 			TokenEndpoint: googleStub.server.URL,
 		},
+		// The key the Issuer's signing certificate is kept encrypted under
+		// (#453, ADR 0059): 32 fixed bytes, as LoadConfig would decode them
+		// from INVOICING_CERTIFICATE_KEY. A test of the deployment that has no
+		// key boots its own app without one.
+		InvoicingCertificateKey: bytes.Repeat([]byte{0x42}, 32),
 	}
 
 	app, err := server.NewApp(ctx, cfg,
