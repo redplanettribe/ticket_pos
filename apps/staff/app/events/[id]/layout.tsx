@@ -7,8 +7,9 @@ import { notFound } from "next/navigation";
 import type { EventShellLabels } from "@ticket-pos/ui";
 
 import { callBackend } from "@/lib/api";
-import { eventStatusKey, type EventDetail } from "@/lib/events-api";
+import { eventStatusKey } from "@/lib/events-api";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
+import { loadEvent } from "@/lib/staff-event";
 
 import { LogoutButton } from "../../logout-button";
 import { loadSession } from "../../staff-page-shell";
@@ -19,18 +20,6 @@ type EventLayoutProps = {
   params: Promise<{ id: string }>;
   children: ReactNode;
 };
-
-async function fetchEvent(eventId: string, token: string): Promise<EventDetail | null> {
-  try {
-    const envelope = await callBackend<EventDetail>(`/api/v1/staff/events/${eventId}`, {
-      method: "GET",
-      sessionToken: token,
-    });
-    return envelope.data;
-  } catch {
-    return null;
-  }
-}
 
 // Publish-readiness depends on the persisted Ticket Type count. Fetch it here on
 // the server so the header bar reads saved state without any client form state.
@@ -55,7 +44,7 @@ export default async function EventLayout({ params, children }: EventLayoutProps
   }
 
   const [event, ticketTypeCount, session, t, shell] = await Promise.all([
-    fetchEvent(id, token),
+    loadEvent(id),
     fetchTicketTypeCount(id, token),
     loadSession(),
     getTranslations("event"),
