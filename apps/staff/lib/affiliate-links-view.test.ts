@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   DEFAULT_AFFILIATE_SORT,
   defaultDirFor,
+  filterAffiliateLinks,
   isAttributionMeasured,
   nextAffiliateSort,
   resolveAffiliateSort,
@@ -198,4 +199,66 @@ test("names equal but for case tie and fall back to newest-first", () => {
   ];
   assert.deepEqual(ids(sortAffiliateLinks(links, "name", "asc")), ["3", "2", "1"]);
   assert.deepEqual(ids(sortAffiliateLinks(links, "name", "desc")), ["3", "2", "1"]);
+});
+
+// --- search ------------------------------------------------------------------
+
+// The search reads a name and a code and nothing else; a row here carries the
+// URL too, purely so a test can show the URL is never looked at.
+function searchRow(name: string, code: string) {
+  return { name, code, url: `https://tickets.example/e/summer-fiesta?ref=${code}` };
+}
+
+const searchable = [
+  searchRow("María's Instagram", "k7pq2m"),
+  searchRow("Radio spot", "x3n8ab"),
+  searchRow("Newsletter", "m4k7zz"),
+];
+
+test("search matches a substring of the name", () => {
+  assert.deepEqual(
+    filterAffiliateLinks(searchable, "Radio").map((l) => l.code),
+    ["x3n8ab"],
+  );
+});
+
+test("search matches a substring of the code", () => {
+  assert.deepEqual(
+    filterAffiliateLinks(searchable, "k7").map((l) => l.name),
+    ["María's Instagram", "Newsletter"],
+  );
+});
+
+test("search is case-insensitive", () => {
+  assert.deepEqual(
+    filterAffiliateLinks(searchable, "maría").map((l) => l.code),
+    ["k7pq2m"],
+  );
+  assert.deepEqual(
+    filterAffiliateLinks(searchable, "X3N8AB").map((l) => l.name),
+    ["Radio spot"],
+  );
+});
+
+test("search trims the query before matching", () => {
+  assert.deepEqual(
+    filterAffiliateLinks(searchable, "  radio spot  ").map((l) => l.code),
+    ["x3n8ab"],
+  );
+});
+
+test("a query equal to the URL's Event slug matches nothing", () => {
+  assert.deepEqual(filterAffiliateLinks(searchable, "summer-fiesta"), []);
+  assert.deepEqual(filterAffiliateLinks(searchable, "tickets.example"), []);
+});
+
+test("an empty or whitespace query returns every link in the same order", () => {
+  assert.deepEqual(
+    filterAffiliateLinks(searchable, "").map((l) => l.code),
+    ["k7pq2m", "x3n8ab", "m4k7zz"],
+  );
+  assert.deepEqual(
+    filterAffiliateLinks(searchable, "   ").map((l) => l.code),
+    ["k7pq2m", "x3n8ab", "m4k7zz"],
+  );
 });

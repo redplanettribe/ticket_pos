@@ -474,6 +474,8 @@
     "deleteConfirm": "Delete affiliate link",
     "deletedToast": "Affiliate link deleted",
     "deleteFailed": "Could not delete the affiliate link.",
+    "searchPlaceholder": "Search by name or code",
+    "noMatches": "No links match",
     "colName": "Name",
     "colCode": "Code",
     "colClicks": "Clicks",

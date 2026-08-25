@@ -3,15 +3,15 @@
 import type { AffiliateLink } from "./affiliates-api.ts";
 
 /**
- * The Affiliate Links table's view rules (#425, #427): how the rows an Event's
- * tab has already loaded are ordered on screen.
+ * The Affiliate Links table's view rules (#425, #427, #428): how the rows an
+ * Event's tab has already loaded are ordered and narrowed on screen.
  *
  * Everything here is a pure transform of the array `listAffiliateLinks` returns
  * in full — the endpoint is unpaginated and orders by `created_at DESC, id DESC`
  * — so the component stays a renderer and the rules get `node --test` coverage.
  * Nothing is URL state: the default view is what every fresh visit should show,
- * and sort survives a rename, toggle or delete because it lives beside the
- * list in component state.
+ * and sort and search survive a rename, toggle or delete because they live
+ * beside the list in component state.
  */
 
 /** The columns a header click can sort on. Status is not one: it is a filter
@@ -136,4 +136,24 @@ export function sortAffiliateLinks<T extends AffiliateLinkRow>(
 ): T[] {
   const sort: AffiliateSort = { field, dir };
   return [...links].sort((a, b) => compareByField(a, b, sort) || compareTiebreak(a, b));
+}
+
+/**
+ * The links a search query keeps: those whose name or code contains the
+ * trimmed query, case-insensitively. Never the URL — its Event-slug part is
+ * identical on every row, so a search for the Event's name would match all of
+ * them. An empty (or all-whitespace) query keeps everything, in the order it
+ * came; the filter composes with the sort either side, so order is preserved.
+ */
+export function filterAffiliateLinks<T extends { name: string; code: string }>(
+  links: readonly T[],
+  query: string,
+): T[] {
+  const needle = query.trim().toLowerCase();
+  if (needle === "") {
+    return [...links];
+  }
+  return links.filter(
+    (link) => link.name.toLowerCase().includes(needle) || link.code.toLowerCase().includes(needle),
+  );
 }

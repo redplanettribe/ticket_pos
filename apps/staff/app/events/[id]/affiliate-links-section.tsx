@@ -37,6 +37,7 @@ import {
 } from "@/lib/affiliates-api";
 import {
   DEFAULT_AFFILIATE_SORT,
+  filterAffiliateLinks,
   isAttributionMeasured,
   nextAffiliateSort,
   resolveAffiliateSort,
@@ -70,6 +71,9 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
   // every fresh visit should show, and keeping it here is what lets a rename,
   // toggle or delete reload the list without throwing the chosen order away.
   const [sort, setSort] = useState<AffiliateSort>(DEFAULT_AFFILIATE_SORT);
+  // The search box's text, kept here for the same reason as the sort: a
+  // rename, toggle or delete reloads the list and the query stays put.
+  const [query, setQuery] = useState("");
   // The two lifecycle dialogs, each holding the row it was opened on. A rename
   // is an edit, a delete is destructive and confirmed the way every other
   // destructive staff action is; the activate/deactivate toggle is reversible
@@ -242,6 +246,9 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
     () => sortAffiliateLinks(links, activeSort.field, activeSort.dir),
     [links, activeSort.field, activeSort.dir],
   );
+  // The rows on screen: the sorted list narrowed by the search. Filter after
+  // sort so the order is the sort's whatever the query.
+  const visibleLinks = useMemo(() => filterAffiliateLinks(sortedLinks, query), [sortedLinks, query]);
 
   function toggleSort(field: AffiliateSortField) {
     setSort((current) => nextAffiliateSort(resolveAffiliateSort(current, attributionMeasured), field));
@@ -304,6 +311,17 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
           </Button>
         </form>
 
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Input
+            type="search"
+            className="sm:flex-1"
+            placeholder={t("searchPlaceholder")}
+            aria-label={t("searchPlaceholder")}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
+
         {loading ? (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-sm">
@@ -327,6 +345,8 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
           </Alert>
         ) : links.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("empty")}</p>
+        ) : visibleLinks.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{t("noMatches")}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-sm">
@@ -353,7 +373,7 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
                 </tr>
               </thead>
               <tbody>
-                {sortedLinks.map((link) => (
+                {visibleLinks.map((link) => (
                   <tr key={link.id} className="border-b last:border-b-0">
                     <td className="py-3 pr-4 font-medium">{link.name}</td>
                     {/* The code, never the whole URL: the URL is identical on
