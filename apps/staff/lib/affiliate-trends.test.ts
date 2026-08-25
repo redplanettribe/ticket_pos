@@ -792,3 +792,163 @@ test("an empty window opens at the plot's end, and the anchor never overshoots e
   const last = Array.from({ length: 10 }, (_, index) => ({ values: { a: index === 9 ? 1 : 0 } }));
   assert.equal(latestBucketsScrollLeft(last, geometry), 672);
 });
+
+// --- listing: only what counted in the window, busiest first (#431) ---------
+
+// The listing is a pure derivation over the builders above: which chips the
+// legend shows, in what order, and whether the window has anything at all.
+// `selected` is an input it never rewrites — a dimmed link stays dimmed
+// through every range and metric switch, listed or not.
+
+import { listTrendsSeries, toggleListedSeries } from "./affiliate-trends.ts";
+
+const LINK_C = "5f0f8f6a-0000-0000-0000-00000000000c";
+const LINKS = [LINK_A, LINK_B, LINK_C].map((id) => ({ id, name: id.slice(-1), active: true }));
+const ALL_SELECTED = [ALL_PAGE_VIEWS_ID, LINK_A, LINK_B, LINK_C];
+
+function listedTrends(
+  view_buckets: AffiliateViewBucket[],
+  sales_buckets: AffiliateSalesBucket[] | null = [],
+) {
+  return { timezone: TZ, links: LINKS, view_buckets, sales_buckets };
+}
+
+const VIEW = (hour: string, link_id: string | null, views: number) => ({ hour, link_id, views });
+
+test("clicks view: a link with no Clicks in the window is unlisted and undrawn", () => {
+  const trends = listedTrends([
+    VIEW("2026-08-24T14:00:00Z", null, 5),
+    VIEW("2026-08-24T14:00:00Z", LINK_A, 2),
+    // B clicked three days ago — outside 24h, inside 7d.
+    VIEW("2026-08-21T14:00:00Z", LINK_B, 1),
+  ]);
+  const day = listTrendsSeries(trends, ALL_SELECTED, "clicks", "24h", "hour", "cumulative", NOW);
+  assert.deepEqual(day.listed, [ALL_PAGE_VIEWS_ID, LINK_A]);
+  assert.deepEqual(day.drawn, [ALL_PAGE_VIEWS_ID, LINK_A]);
+  assert.equal(day.empty, false);
+});
+
+test("clicks view: widening the range lists the link again with its selection as the reader left it", () => {
+  const trends = listedTrends([
+    VIEW("2026-08-24T14:00:00Z", LINK_A, 2),
+    VIEW("2026-08-21T14:00:00Z", LINK_B, 1),
+  ]);
+  // B was dimmed before it went unlisted on 24h; on 7d it is listed, still dimmed.
+  const selected = [ALL_PAGE_VIEWS_ID, LINK_A, LINK_C];
+  const week = listTrendsSeries(trends, selected, "clicks", "7d", "hour", "cumulative", NOW);
+  assert.deepEqual(week.listed, [LINK_A, LINK_B]);
+  assert.deepEqual(week.drawn, [LINK_A]);
+  // The selection is the input, never the output: the unlisted C is still in it.
+  assert.deepEqual(selected, [ALL_PAGE_VIEWS_ID, LINK_A, LINK_C]);
+});
+
+test("clicks view: the whole page is listed only when it received a view in the window", () => {
+  const trends = listedTrends([
+    VIEW("2026-08-21T14:00:00Z", null, 5),
+    VIEW("2026-08-24T14:00:00Z", LINK_A, 2),
+  ]);
+  const day = listTrendsSeries(trends, ALL_SELECTED, "clicks", "24h", "hour", "cumulative", NOW);
+  assert.deepEqual(day.listed, [LINK_A]);
+  const week = listTrendsSeries(trends, ALL_SELECTED, "clicks", "7d", "day", "cumulative", NOW);
+  assert.deepEqual(week.listed, [ALL_PAGE_VIEWS_ID, LINK_A]);
+});
+
+test("sales view: only links with an Attributed Sale in the window, and never the whole page", () => {
+  const trends = listedTrends(
+    [VIEW("2026-08-24T14:00:00Z", null, 50), VIEW("2026-08-24T14:00:00Z", LINK_A, 9)],
+    [SALE("2026-08-24T09:00", LINK_B, 1, 1, 100), SALE("2026-08-20T09:00", LINK_C, 3, 3, 300)],
+  );
+  const day = listTrendsSeries(trends, ALL_SELECTED, "sales", "24h", "hour", "cumulative", NOW);
+  assert.deepEqual(day.listed, [LINK_B]);
+  const week = listTrendsSeries(trends, ALL_SELECTED, "sales", "7d", "hour", "cumulative", NOW);
+  assert.deepEqual(week.listed, [LINK_C, LINK_B]);
+});
+
+test("rate view: a link with Clicks and no sales is listed at 0%, a link with no Clicks is not", () => {
+  const trends = listedTrends(
+    [VIEW("2026-08-24T14:00:00Z", null, 10), VIEW("2026-08-24T14:00:00Z", LINK_A, 4)],
+    [SALE("2026-08-24T09:00", LINK_B, 1, 1, 100)],
+  );
+  for (const view of ["daily", "cumulative"] as const) {
+    const listed = listTrendsSeries(trends, ALL_SELECTED, "rate", "7d", "hour", view, NOW);
+    assert.deepEqual(listed.listed, [ALL_PAGE_VIEWS_ID, LINK_A], view);
+  }
+});
+
+test("rate view: Cumulative lists a link whose Clicks predate the window; Daily does not", () => {
+  const trends = listedTrends(
+    [VIEW("2026-08-24T14:00:00Z", null, 10), VIEW("2026-08-10T14:00:00Z", LINK_A, 4)],
+    [SALE("2026-08-10T09:00", LINK_A, 1, 1, 100)],
+  );
+  const cumulative = listTrendsSeries(trends, ALL_SELECTED, "rate", "7d", "hour", "cumulative", NOW);
+  assert.deepEqual(cumulative.listed, [ALL_PAGE_VIEWS_ID, LINK_A]);
+  const daily = listTrendsSeries(trends, ALL_SELECTED, "rate", "7d", "hour", "daily", NOW);
+  assert.deepEqual(daily.listed, [ALL_PAGE_VIEWS_ID]);
+});
+
+test("the whole page is pinned first, then links by window total, ties in API order", () => {
+  const trends = listedTrends([
+    VIEW("2026-08-24T14:00:00Z", null, 1),
+    VIEW("2026-08-24T14:00:00Z", LINK_A, 2),
+    VIEW("2026-08-24T13:00:00Z", LINK_B, 3),
+    VIEW("2026-08-24T12:00:00Z", LINK_B, 3),
+    VIEW("2026-08-24T14:00:00Z", LINK_C, 2),
+  ]);
+  const day = listTrendsSeries(trends, ALL_SELECTED, "clicks", "24h", "hour", "cumulative", NOW);
+  assert.deepEqual(day.listed, [ALL_PAGE_VIEWS_ID, LINK_B, LINK_A, LINK_C]);
+  // The whole page leads however small: it is the page, not a competitor.
+  const sales = listTrendsSeries(
+    listedTrends([], [SALE("2026-08-24T09:00", LINK_C, 2, 2, 200), SALE("2026-08-24T09:00", LINK_A, 1, 1, 100)]),
+    ALL_SELECTED,
+    "sales",
+    "24h",
+    "hour",
+    "cumulative",
+    NOW,
+  );
+  assert.deepEqual(sales.listed, [LINK_C, LINK_A]);
+});
+
+test("a window in which nothing was counted is empty, whichever series are selected", () => {
+  const trends = listedTrends(
+    [VIEW("2026-08-21T14:00:00Z", null, 5), VIEW("2026-08-21T14:00:00Z", LINK_A, 2)],
+    [SALE("2026-08-21T09:00", LINK_A, 1, 1, 100)],
+  );
+  const clicks = listTrendsSeries(trends, [LINK_B], "clicks", "24h", "hour", "cumulative", NOW);
+  assert.deepEqual(clicks, { listed: [], drawn: [], empty: true });
+  const sales = listTrendsSeries(trends, ALL_SELECTED, "sales", "24h", "hour", "cumulative", NOW);
+  assert.equal(sales.empty, true);
+  // The same data is not empty on the week — the window, not the history, is empty.
+  const week = listTrendsSeries(trends, ALL_SELECTED, "clicks", "7d", "hour", "cumulative", NOW);
+  assert.equal(week.empty, false);
+  // A selection that meets nothing listed draws everything listed: the reader
+  // dimmed a link on one window, and this window lists only that link. Nothing
+  // drawn is never the answer, and `selected` is not rewritten for it.
+  const chosen = [LINK_B];
+  const dimmed = listTrendsSeries(trends, chosen, "clicks", "7d", "hour", "cumulative", NOW);
+  assert.deepEqual(dimmed, {
+    listed: [ALL_PAGE_VIEWS_ID, LINK_A],
+    drawn: [ALL_PAGE_VIEWS_ID, LINK_A],
+    empty: false,
+  });
+  assert.deepEqual(chosen, [LINK_B]);
+  // Once one listed series is chosen, only the chosen are drawn.
+  const one = listTrendsSeries(trends, [LINK_A, LINK_B], "clicks", "7d", "hour", "cumulative", NOW);
+  assert.deepEqual(one.drawn, [LINK_A]);
+});
+
+test("the deselect guard refuses only on the last LISTED chip", () => {
+  const order = [ALL_PAGE_VIEWS_ID, LINK_A, LINK_B];
+  // A is the only listed chip still selected; B is selected but unlisted here.
+  assert.deepEqual(toggleListedSeries(order, [LINK_A], [LINK_A, LINK_B], LINK_A), [LINK_A, LINK_B]);
+  // With two listed chips on, either can go.
+  assert.deepEqual(toggleListedSeries(order, [ALL_PAGE_VIEWS_ID, LINK_A], order, LINK_A), [
+    ALL_PAGE_VIEWS_ID,
+    LINK_B,
+  ]);
+  // Toggling a chip back on is always allowed, and keeps API order.
+  assert.deepEqual(toggleListedSeries(order, [ALL_PAGE_VIEWS_ID, LINK_A], [LINK_B], LINK_A), [
+    LINK_A,
+    LINK_B,
+  ]);
+});

@@ -17,7 +17,7 @@ The affiliate tab gains time-series graphs: per-link Clicks, Attributed Sales, A
 - **Attributed Sales stay derived.** Per-hour sales come from `ticket_sales` (`affiliate_link_id`, `sold_at`, `status = 'active'`) at read time, so a Reversal retroactively edits the graph, as everywhere else.
 - **Attribution Rate is never hourly.** Last-click attribution spans a 7-day window, so hour-by-hour division produces rates over 100% and division by zero; the Rate view offers Daily and Cumulative only, defaulting to Cumulative.
 - **Hourly buckets are the floor forever.** Minute-level trends, uniques, and sessions are permanently out of reach of this data — reopening any of them means reopening this ADR.
-- **Deactivated links count nothing**, matching the existing click rule: their series shows zeros while their arrivals still count as Page Views. No active-period history is kept to shade the chart.
+- **Deactivated links count nothing**, matching the existing click rule: their series shows zeros while their arrivals still count as Page Views. No active-period history is kept to shade the chart. _Amended 2026-08-24 (#426): Link Trends lists and draws only the series with something to say in the window chosen, so an all-zero series — a deactivated link among them — is unlisted there rather than drawn flat; the data still counts nothing, as above._
 - **External Registration events get views-only graphs**: Sales and Rate are hidden, not zeroed, mirroring how the tab already nulls their sales figures.
 
 ## Amendment: the counting views are drawn as lines

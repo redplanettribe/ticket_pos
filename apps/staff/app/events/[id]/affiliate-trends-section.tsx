@@ -41,6 +41,7 @@ import {
   granularityChoosable,
   hasTrendsData,
   latestBucketsScrollLeft,
+  listTrendsSeries,
   multiSeriesYMax,
   rangeGranularity,
   rateRange,
@@ -48,7 +49,7 @@ import {
   rateYMax,
   rateYTicks,
   salesSeries,
-  toggleSeriesSelection,
+  toggleListedSeries,
   trendsGranularity,
   viewsSeries,
   type AffiliateRateDatum,
@@ -174,19 +175,24 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
   );
   const colorOf = useCallback((id: string) => chartSeriesColor(order.indexOf(id)), [order]);
 
-  // The sales view draws links only: the whole-page series is a views concept,
-  // so its chip leaves the legend rather than sitting beside a line it can never
-  // have. The Clicks and Rate views keep it — as the page's views, and as the
-  // page's own rate. The selection itself is shared: chips chosen on one view
-  // hold on the others.
-  const chartOrder = useMemo(
-    () => (metric === "sales" ? order.filter((id) => id !== ALL_PAGE_VIEWS_ID) : order),
-    [order, metric],
+  // What this window and metric list: the series with something to say in the
+  // span, busiest first, the whole page ahead (#431). Chips, lines and the
+  // series the chart is handed all read from this one listing, so a link with
+  // nothing in the window is neither a chip nor a flat zero line — and is back,
+  // with its selection as the reader left it, on a range that lists it. The
+  // sales view never lists the whole page: it is a views concept with no sales
+  // to its name. The selection itself is shared across views and ranges.
+  const listing = useMemo(
+    () =>
+      trends
+        ? listTrendsSeries(trends, selected, metric, range, granularity, rateView, now)
+        : { listed: [], drawn: [], empty: true },
+    [trends, selected, metric, range, granularity, rateView, now],
   );
 
   const chips: ChartLegendChip[] = useMemo(
-    () => chartOrder.map((id) => ({ id, label: nameOf(id), color: colorOf(id) })),
-    [chartOrder, nameOf, colorOf],
+    () => listing.listed.map((id) => ({ id, label: nameOf(id), color: colorOf(id) })),
+    [listing, nameOf, colorOf],
   );
 
   // The Rate view's range ladder starts at the week: a rate is never hourly
@@ -232,27 +238,28 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
   );
 
   const series: StackedSeries[] = useMemo(
-    () =>
-      chartOrder
-        .filter((id) => selected.includes(id))
-        .map((id) => ({ id, name: nameOf(id), color: colorOf(id) })),
-    [chartOrder, selected, nameOf, colorOf],
+    () => listing.drawn.map((id) => ({ id, name: nameOf(id), color: colorOf(id) })),
+    [listing, nameOf, colorOf],
   );
 
+  // The words on the legend's Show-all button, stated here because the UI
+  // package has no i18n and the count's grammar belongs to the locale.
+  const collapseLabels = useMemo(
+    () => ({
+      showAll: (count: number) => t("showAllChips", { count }),
+      showFewer: t("showFewerChips"),
+    }),
+    [t],
+  );
+
+  // The last chip THIS window lists cannot be deselected: a still-selected
+  // series the window does not list is not on the chart, so it must not count
+  // as "something is still drawn".
   const onToggle = useCallback(
     (id: string) => {
-      setSelected((current) => {
-        // The last chip THIS view draws cannot be deselected — on the sales
-        // view a still-selected whole-page series is not drawn, so it must not
-        // count as "something is still on the chart".
-        const drawnHere = current.filter((entry) => chartOrder.includes(entry));
-        if (drawnHere.length <= 1 && drawnHere.includes(id)) {
-          return current;
-        }
-        return toggleSeriesSelection(order, current, id);
-      });
+      setSelected((current) => toggleListedSeries(order, listing.listed, current, id));
     },
-    [order, chartOrder],
+    [order, listing],
   );
 
   return (
@@ -272,11 +279,16 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
         ) : !trends ? null : hasTrendsData(trends) ? (
           <>
             <div className="flex flex-wrap items-center justify-between gap-3">
+              {/* Collapsed to three rows on a busy Event (#433): the chart is the
+                  point, and thirty chips would push it below the fold. Sales
+                  Trends' legend is not collapsed — a Ticket Type is never that
+                  numerous, and its chips are the reading. */}
               <ChartLegendChips
                 chips={chips}
-                selected={selected}
+                selected={listing.drawn}
                 onToggle={onToggle}
                 ariaLabel={t("chipsLabel")}
+                collapsible={collapseLabels}
               />
               <div className="flex flex-wrap items-center gap-2">
                 {metricOptions.length > 1 ? (
@@ -310,11 +322,13 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
                 />
               </div>
             </div>
-            {metric === "rate" ? (
+            {listing.empty ? (
+              <EmptyWindow metric={metric} range={metric === "rate" ? rateRange(range) : range} />
+            ) : metric === "rate" ? (
               <RateChart
                 trends={trends}
                 series={series}
-                selected={selected}
+                selected={listing.drawn}
                 range={range}
                 now={now}
                 view={rateView}
@@ -323,7 +337,7 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
               <SalesChart
                 trends={trends}
                 series={series}
-                selected={selected}
+                selected={listing.drawn}
                 range={range}
                 granularity={granularity}
                 now={now}
@@ -332,7 +346,7 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
               <ClicksChart
                 trends={trends}
                 series={series}
-                selected={selected}
+                selected={listing.drawn}
                 range={range}
                 granularity={granularity}
                 now={now}
@@ -405,6 +419,7 @@ function ClicksChart({
         yTicks={yTicks}
         plotWidth={plotWidth}
         formatValue={(value) => formatNumber(value, locale)}
+        nothingCountedLabel={t("tooltipNothingCounted")}
         ariaLabel={hourly ? t("chartLabelHourly") : t("chartLabelDaily")}
       />
     </ChartScrollArea>
@@ -475,6 +490,7 @@ function SalesChart({
         plotWidth={plotWidth}
         formatValue={(value) => formatNumber(value, locale)}
         formatSeriesDetail={formatSeriesDetail}
+        nothingCountedLabel={t("tooltipNothingCounted")}
         ariaLabel={hourly ? t("salesChartLabelHourly") : t("salesChartLabelDaily")}
       />
     </ChartScrollArea>
@@ -545,6 +561,8 @@ function RateChart({
         plotWidth={plotWidth}
         formatValue={(value) => formatPercent(value, locale)}
         formatSeriesDetail={formatSeriesDetail}
+        nothingCountedLabel={t("tooltipNothingCounted")}
+        zeroIsMeasured
         ariaLabel={view === "cumulative" ? t("rateChartLabelCumulative") : t("rateChartLabelDaily")}
       />
     </ChartScrollArea>
@@ -607,6 +625,30 @@ function useLatestBucketsFirst(
     });
     anchor.current.taken = true;
   }, [element, anchorKey, plotWidth, data]);
+}
+
+/**
+ * What a window with nothing in it is told, in the chart's place: the span by
+ * name, and on the sales and rate views the metric too, so the reader knows
+ * which reading is empty and that widening the range is the way out — the
+ * controls stay above it for exactly that. Distinct from `EmptyState`, which
+ * is the whole history being empty (#431).
+ */
+function EmptyWindow({
+  metric,
+  range,
+}: {
+  metric: AffiliateTrendsMetric;
+  range: AffiliateTrendsRange;
+}) {
+  const t = useTranslations("affiliateTrends");
+  return (
+    <div className="rounded-md border border-dashed px-6 py-12 text-center">
+      <p className="text-sm text-muted-foreground">
+        {t(`emptyWindow_${metric}`, { window: t(`window_${range}`) })}
+      </p>
+    </div>
+  );
 }
 
 /**

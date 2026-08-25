@@ -329,12 +329,17 @@ export function ChartTooltipCard({
   rows,
   chartHeight,
   footer,
+  emptyLabel,
 }: {
   label: string;
   rows: ChartTooltipRow[];
   /** The chart's height, which is all the room the card may take. */
   chartHeight: number;
   footer?: React.ReactNode;
+  /** What the card says under its label when it has no rows — one muted line,
+   * so an empty card never looks like a rendering fault. Without it an empty
+   * list is drawn, which is what a chart that always has rows expects. */
+  emptyLabel?: string;
 }) {
   const hasDetail = rows.some((row) => row.detail != null);
   const available =
@@ -355,27 +360,31 @@ export function ChartTooltipCard({
       style={{ transform: `translate(${shift.x}px, ${shift.y}px)` }}
     >
       <p className="mb-1 text-xs font-medium">{label}</p>
-      <ul
-        className="grid grid-flow-col gap-x-4 gap-y-0.5"
-        style={{ gridTemplateRows: `repeat(${rowsPerColumn}, auto)` }}
-      >
-        {rows.map((row) => (
-          <li key={row.id} className="text-xs">
-            <div className="flex items-center gap-2">
-              <span
-                aria-hidden
-                className="size-2 shrink-0 rounded-[2px]"
-                style={{ backgroundColor: row.color }}
-              />
-              <span className="text-muted-foreground">{row.name}</span>
-              <span className="ml-auto pl-2 tabular-nums">{row.value}</span>
-            </div>
-            {row.detail == null ? null : (
-              <p className="pl-4 text-[11px] text-muted-foreground tabular-nums">{row.detail}</p>
-            )}
-          </li>
-        ))}
-      </ul>
+      {rows.length === 0 && emptyLabel !== undefined ? (
+        <p className="text-xs text-muted-foreground">{emptyLabel}</p>
+      ) : (
+        <ul
+          className="grid grid-flow-col gap-x-4 gap-y-0.5"
+          style={{ gridTemplateRows: `repeat(${rowsPerColumn}, auto)` }}
+        >
+          {rows.map((row) => (
+            <li key={row.id} className="text-xs">
+              <div className="flex items-center gap-2">
+                <span
+                  aria-hidden
+                  className="size-2 shrink-0 rounded-[2px]"
+                  style={{ backgroundColor: row.color }}
+                />
+                <span className="text-muted-foreground">{row.name}</span>
+                <span className="ml-auto pl-2 tabular-nums">{row.value}</span>
+              </div>
+              {row.detail == null ? null : (
+                <p className="pl-4 text-[11px] text-muted-foreground tabular-nums">{row.detail}</p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
       {footer}
     </div>
   );
