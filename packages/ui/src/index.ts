@@ -79,6 +79,17 @@ export {
   DialogTitle,
   DialogTrigger,
 } from "./components/ui/dialog";
+export {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuPortal,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  type DropdownMenuItemProps,
+} from "./components/ui/dropdown-menu";
 export { Input } from "./components/ui/input";
 export { Label } from "./components/ui/label";
 export {
