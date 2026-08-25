@@ -1,30 +1,28 @@
-import { redirect } from "next/navigation";
+import { permanentRedirect } from "next/navigation";
 
-import { loadSession } from "../../../staff-page-shell";
-import { SalesTrendsSection } from "../sales-trends-section";
-
-type TrendsPageProps = {
+type LegacyTrendsPageProps = {
   params: Promise<{ id: string }>;
 };
 
-export default async function EventTrendsPage({ params }: TrendsPageProps) {
+/**
+ * The old address of Sales Trends, kept as a permanent redirect.
+ *
+ * Trends became the third sub-tab of the Sales surface (#460), and this page is
+ * all that is left here: a bookmark, a link in a message, or a browser's
+ * autocomplete still lands on the chart. `permanentRedirect` — a 308 — rather
+ * than the temporary one the guards use, because this move is not conditional
+ * on who is reading; it is where the page lives now, and a client is welcome to
+ * remember it.
+ *
+ * It lives in the route rather than in `next.config`'s `redirects()` so that the
+ * fact stays next to the thing it is about: whoever deletes this folder deletes
+ * the redirect with it, instead of leaving a rule pointing at nothing.
+ *
+ * No guard here. The destination carries the Org Admin / Event Owner check and
+ * sends an Event Staff member on to the Sales list, so repeating it would put
+ * the same rule in two places.
+ */
+export default async function LegacyEventTrendsPage({ params }: LegacyTrendsPageProps) {
   const { id } = await params;
-  const session = await loadSession();
-  const role = session?.active_member?.role;
-
-  // Sales Trends carries the guard the Event's money already has: Org Admins and
-  // Event Owners, not hired door staff. The nav hides the tab from Event Staff,
-  // so this guard is for the URL somebody was sent — and the API refuses them
-  // the endpoint regardless.
-  if (role !== "org_admin" && role !== "event_owner") {
-    redirect(`/events/${id}/sales`);
-  }
-
-  // An Event with External Registration is not special-cased here. It sells no
-  // Ticket Sale, so the endpoint returns no days and the surface shows its empty
-  // state, which names that case in words. Reading registration_mode to hide the
-  // tab would put the same answer in two places, and they would eventually
-  // disagree — an Event switched to tickets mid-life would still be told it has
-  // nothing to chart while its sales piled up.
-  return <SalesTrendsSection eventId={id} />;
+  permanentRedirect(`/events/${id}/sales/trends`);
 }

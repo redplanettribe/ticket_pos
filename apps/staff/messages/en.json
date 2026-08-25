@@ -115,7 +115,6 @@
     "navAffiliateLinks": "Affiliate Links",
     "navSales": "Sales",
     "navHolderList": "Holder List",
-    "navTrends": "Trends",
     "publish": "Publish event",
     "publishing": "Publishing...",
     "publishedToast": "Event published",
@@ -547,6 +546,10 @@
   "sales": {
     "title": "Sales",
     "description": "Every individual Ticket Sale recorded for this Event. Click a column heading to sort.",
+    "tabSales": "Sales",
+    "tabRecord": "Record",
+    "tabTrends": "Trends",
+    "tabsLabel": "Sales sections",
     "reversedNoticeNone": "No sales have been reversed on this Event.",
     "reversedNotice": "<value>{count, plural, one {# reversed sale} other {# reversed sales}}</value> on this Event — reversed by a buyer, by staff, or by the platform; no longer counted in the totals.",
     "backToActive": "Back to active sales",

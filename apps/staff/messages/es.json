@@ -115,7 +115,6 @@
     "navAffiliateLinks": "Enlaces de Afiliado",
     "navSales": "Ventas",
     "navHolderList": "Lista de Titulares",
-    "navTrends": "Tendencias",
     "publish": "Publicar evento",
     "publishing": "Publicando...",
     "publishedToast": "Evento publicado",
@@ -547,6 +546,10 @@
   "sales": {
     "title": "Ventas",
     "description": "Cada venta de entradas registrada para este evento. Haga clic en el título de una columna para ordenar.",
+    "tabSales": "Ventas",
+    "tabRecord": "Registrar",
+    "tabTrends": "Tendencias",
+    "tabsLabel": "Secciones de ventas",
     "reversedNoticeNone": "No se ha revertido ninguna venta de este evento.",
     "reversedNotice": "<value>{count, plural, one {# venta revertida} other {# ventas revertidas}}</value> en este evento: revertidas por un comprador, por el personal o por la plataforma, y ya no se cuentan en los totales.",
     "backToActive": "Volver a las ventas activas",

@@ -9,10 +9,7 @@ import { loadEvent } from "@/lib/staff-event";
 import { parseSaleDir, parseSaleSort } from "@/lib/sales-api";
 
 import { loadSession } from "../../../staff-page-shell";
-import { ImportSalesSection } from "../import-sales-section";
 import { SalesList, type TicketTypeOption } from "../sales-list";
-import { SalesRefreshProvider } from "../sales-refresh";
-import { SalesSummaryStrip } from "../sales-summary-strip";
 
 type SalesSearchParams = {
   page?: string;
@@ -101,11 +98,11 @@ export default async function EventSalesPage({ params, searchParams }: EventSale
   const role = session?.active_member?.role;
 
   // The Sales list is visible to every Member of the Event (Org Admin, Event
-  // Owner, Event Staff). The Net Proceeds strip above it, the Sale Import tool
-  // below it, and the Sales Export button in its filter bar are for the owner:
-  // hired door staff see neither the Event's earnings (the API refuses them the
-  // summary too) nor the import controls, and get no downloadable copy of every
-  // buyer's email and Tax ID (the API refuses them that too).
+  // Owner, Event Staff). What is owner-only on this page is the Sales Export
+  // button in its filter bar and the per-row management actions: hired door
+  // staff get no downloadable copy of every buyer's email and Tax ID (the API
+  // refuses them that too). The Net Proceeds strip above and the Record tab
+  // beside are gated by the Sales layout, which draws them.
   const isOwner = role === "org_admin" || role === "event_owner";
 
   const cookieStore = await cookies();
@@ -117,29 +114,17 @@ export default async function EventSalesPage({ params, searchParams }: EventSale
   const timezone = facts.timezone;
 
   return (
-    // SalesRefreshProvider lets the owner-only import section signal the Sales
-    // list and the stat strip to re-read after a successful commit/undo.
-    <SalesRefreshProvider>
-      <div className="space-y-6">
-        {isOwner ? <SalesSummaryStrip eventId={id} /> : null}
-        <SalesList
-          eventId={id}
-          page={parsePage(resolvedSearchParams.page)}
-          filters={parseFilters(resolvedSearchParams)}
-          ticketTypes={ticketTypes}
-          sort={parseSaleSort(resolvedSearchParams.sort)}
-          dir={parseSaleDir(resolvedSearchParams.dir)}
-          timezone={timezone}
-          canExport={isOwner}
-          canManageSales={isOwner}
-          ticketQuestionsEnabled={facts.ticketQuestionsEnabled}
-        />
-        {/* The Event's timezone reaches the import history for the same reason
-            it reaches the list: an imported batch happened at a moment, and the
-            moment is drawn on the Event's clock rather than on the reader's
-            machine, whichever language the reader is in (ADR 0041). */}
-        {isOwner ? <ImportSalesSection eventId={id} timezone={timezone} /> : null}
-      </div>
-    </SalesRefreshProvider>
+    <SalesList
+      eventId={id}
+      page={parsePage(resolvedSearchParams.page)}
+      filters={parseFilters(resolvedSearchParams)}
+      ticketTypes={ticketTypes}
+      sort={parseSaleSort(resolvedSearchParams.sort)}
+      dir={parseSaleDir(resolvedSearchParams.dir)}
+      timezone={timezone}
+      canExport={isOwner}
+      canManageSales={isOwner}
+      ticketQuestionsEnabled={facts.ticketQuestionsEnabled}
+    />
   );
 }
