@@ -24,8 +24,8 @@ import {
 import { useLocale, useMessages, useTranslations } from "next-intl";
 
 import { apiErrorMessage, fieldErrorMessages } from "@/lib/api-errors";
-import { ApiError } from "@/lib/events-api";
-import { formatMoney } from "@/lib/format";
+import { ApiError, isoToDateTimeLocal } from "@/lib/events-api";
+import { PLATFORM_TIME_ZONE, formatMoney } from "@/lib/format";
 import {
   INVOICE_IVA_RATES,
   INVOICE_PAYMENT_METHODS,
@@ -88,14 +88,11 @@ function toLineBody(line: LineForm): IssueInvoiceLineBody | null {
   };
 }
 
-// Today in Ecuador as YYYY-MM-DD, the same day the server fixes on the factura.
+// Today in Ecuador as YYYY-MM-DD, the same day the server fixes on the
+// factura: the platform's clock, never the reader's machine, read through the
+// same helper the Event forms use for a day in a stated zone.
 function ecuadorToday(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Guayaquil",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
+  return isoToDateTimeLocal(new Date().toISOString(), PLATFORM_TIME_ZONE).slice(0, 10);
 }
 
 export function OperatorNewInvoiceClient() {

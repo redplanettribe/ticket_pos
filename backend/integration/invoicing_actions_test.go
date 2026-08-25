@@ -15,7 +15,7 @@ import (
 // again; Resend rebuilds and re-signs the document and submits it under the
 // SAME clave de acceso and secuencial, which is what the Ficha requires
 // (research §2.5). Asserted at the HTTP seam and on what the fake SRI
-// received, never on the module's tables — with one exception below.
+// received, never on the module's tables.
 
 func checkInvoice(t *testing.T, sessionID, id string) (*http.Response, envelope) {
 	t.Helper()
@@ -57,17 +57,15 @@ func actionHint(t *testing.T, env envelope) bool {
 	return view.CheckStatusHint
 }
 
-// storedSignedXML reads the signed document off the invoice row. The API that
-// serves it (the XML download) is #456's and does not exist on this branch,
-// and the rule under test — the artifact on file is replaced only when the SRI
-// took the resend — is invisible any other way.
-func storedSignedXML(t *testing.T, id string) []byte {
+// storedSignedXML reads the signed document on file through its download
+// (#456), which serves the artifact exactly as stored.
+func storedSignedXML(t *testing.T, sessionID, id string) []byte {
 	t.Helper()
-	var xml []byte
-	if err := sriEnv.db.QueryRow(`SELECT signed_xml FROM invoicing_invoices WHERE id = $1`, id).Scan(&xml); err != nil {
-		t.Fatalf("read signed_xml: %v", err)
+	resp, body := sriEnv.getRaw(t, signedXMLPath(id), authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("download signed XML status=%d body=%s", resp.StatusCode, body)
 	}
-	return xml
+	return body
 }
 
 // issuePending issues an invoice the fake keeps EN PROCESAMIENTO, so the
@@ -289,7 +287,7 @@ func TestResendFromRejectedSendsSameClaveWithFreshSignature(t *testing.T) {
 	if !ok {
 		t.Fatal("the fake received nothing on issue")
 	}
-	if !bytes.Equal(storedSignedXML(t, rejected.ID), first.signedXML) {
+	if !bytes.Equal(storedSignedXML(t, sessionID, rejected.ID), first.signedXML) {
 		t.Fatal("setup: the stored document is not the one the fake received")
 	}
 
@@ -317,7 +315,7 @@ func TestResendFromRejectedSendsSameClaveWithFreshSignature(t *testing.T) {
 		t.Fatalf("resent document does not verify: %v", err)
 	}
 	validateReceivedAgainstXSD(t, second.signedXML)
-	if !bytes.Equal(storedSignedXML(t, rejected.ID), second.signedXML) {
+	if !bytes.Equal(storedSignedXML(t, sessionID, rejected.ID), second.signedXML) {
 		t.Fatal("RECIBIDA resend did not replace the document on file")
 	}
 	// The ledger: the rejected submit from issue, then the resend's submit
@@ -353,7 +351,7 @@ func TestResendRejectedAgainKeepsStoredXML(t *testing.T) {
 	if second.accessKey != first.accessKey {
 		t.Fatalf("resend carried clave %q, want %q", second.accessKey, first.accessKey)
 	}
-	if !bytes.Equal(storedSignedXML(t, rejected.ID), first.signedXML) {
+	if !bytes.Equal(storedSignedXML(t, sessionID, rejected.ID), first.signedXML) {
 		t.Fatal("a DEVUELTA resend replaced the document on file")
 	}
 	if len(view.Attempts) != len(rejected.Attempts)+1 {
@@ -457,7 +455,7 @@ func TestResendErrors43And70LeavePendingWithHint(t *testing.T) {
 			if len(view.Messages) == 0 || view.Messages[0].Identifier != code {
 				t.Fatalf("messages = %+v, want the SRI's %s kept", view.Messages, code)
 			}
-			if !bytes.Equal(storedSignedXML(t, rejected.ID), first.signedXML) {
+			if !bytes.Equal(storedSignedXML(t, sessionID, rejected.ID), first.signedXML) {
 				t.Fatalf("error %s replaced the document on file", code)
 			}
 			if len(view.Attempts) <= len(rejected.Attempts) {
@@ -497,8 +495,8 @@ func TestResendFromPendingAfterTransportFailure(t *testing.T) {
 	}
 }
 
-// TestInvoiceActionsAreOperatorOnly: a signed-in Member off the allowlist is
-// refused both actions.
+// TestInvoiceActionsAreOperatorOnly: both actions refuse a missing session
+// with 401 and a signed-in Member off the allowlist with 403.
 func TestInvoiceActionsAreOperatorOnly(t *testing.T) {
 	env := setupTest(t)
 	sessionID := operatorSession(t, env, "operator@example.com")
@@ -507,7 +505,12 @@ func TestInvoiceActionsAreOperatorOnly(t *testing.T) {
 	member := verifyOTP(t, env, "member@example.com")
 
 	for _, path := range []string{"/check", "/resend"} {
-		resp, body := sriEnv.post(t, invoicesPath+"/"+authorized.ID+path, nil, authHeader(member))
+		resp, body := sriEnv.post(t, invoicesPath+"/"+authorized.ID+path, nil, nil)
+		if resp.StatusCode != http.StatusUnauthorized || body.Error == nil || body.Error.Code != "UNAUTHORIZED" {
+			t.Fatalf("%s unauthenticated: status=%d error=%+v, want 401 UNAUTHORIZED", path, resp.StatusCode, body.Error)
+		}
+
+		resp, body = sriEnv.post(t, invoicesPath+"/"+authorized.ID+path, nil, authHeader(member))
 		if resp.StatusCode != http.StatusForbidden || body.Error == nil || body.Error.Code != "FORBIDDEN" {
 			t.Fatalf("%s as a Member: status=%d error=%+v, want 403 FORBIDDEN", path, resp.StatusCode, body.Error)
 		}

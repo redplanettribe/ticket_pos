@@ -349,10 +349,15 @@ func (s *Service) dryRun(base sri.Factura, recipient sri.Recipient, lines []sri.
 	return err
 }
 
+// probeCedula is a syntactically valid cédula — ten digits, province 17,
+// correct check digit — and not a real person: it exists only so the probe
+// passes the Recipient rules and can find nothing wrong but the Issuer.
+const probeCedula = "1710034065"
+
 // The canned Recipient and line the Issuer probe uses: valid by every rule,
 // so the only thing the probe can find wrong is the Issuer.
 var (
-	probeRecipient = sri.Recipient{IDType: sri.RecipientIDCedula, ID: "1710034065", LegalName: "PROBE"}
+	probeRecipient = sri.Recipient{IDType: sri.RecipientIDCedula, ID: probeCedula, LegalName: "PROBE"}
 	probeLines     = []sri.Line{{Description: "probe", Quantity: sri.QuantityFromInt(1), UnitPriceCents: 100, IVA: sri.IVACode15}}
 )
 

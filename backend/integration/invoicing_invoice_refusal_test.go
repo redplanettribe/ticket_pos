@@ -53,8 +53,8 @@ func TestIssueRefusedInvalidTaxID(t *testing.T) {
 	body["recipient"].(map[string]any)["tax_id_type"] = "cedula"
 	body["recipient"].(map[string]any)["tax_id"] = "1234567890" // fails the check digit
 	resp, envBody := issueInvoice(t, sessionID, body)
-	if resp.StatusCode != http.StatusUnprocessableEntity && resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("status=%d, want a validation failure", resp.StatusCode)
+	if resp.StatusCode != http.StatusBadRequest || envBody.Error == nil || envBody.Error.Code != "VALIDATION_FAILED" {
+		t.Fatalf("status=%d error=%+v, want 400 VALIDATION_FAILED", resp.StatusCode, envBody.Error)
 	}
 	if envBody.Error == nil || !fieldNamed(envBody.Error.Details, "recipient.tax_id") {
 		t.Fatalf("error=%+v, want a recipient.tax_id field error", envBody.Error)
@@ -71,8 +71,8 @@ func TestIssueRefusedZeroLines(t *testing.T) {
 	body := validInvoiceBody()
 	body["lines"] = []map[string]any{}
 	resp, envBody := issueInvoice(t, sessionID, body)
-	if resp.StatusCode != http.StatusUnprocessableEntity && resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("status=%d, want a validation failure", resp.StatusCode)
+	if resp.StatusCode != http.StatusBadRequest || envBody.Error == nil || envBody.Error.Code != "VALIDATION_FAILED" {
+		t.Fatalf("status=%d error=%+v, want 400 VALIDATION_FAILED", resp.StatusCode, envBody.Error)
 	}
 	if envBody.Error == nil || !fieldNamed(envBody.Error.Details, "lines") {
 		t.Fatalf("error=%+v, want a lines field error", envBody.Error)
@@ -94,8 +94,8 @@ func TestIssueRefusedTooManyAdditionalFields(t *testing.T) {
 	body := validInvoiceBody()
 	body["additional_fields"] = fields
 	resp, envBody := issueInvoice(t, sessionID, body)
-	if resp.StatusCode != http.StatusUnprocessableEntity && resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("status=%d, want a validation failure", resp.StatusCode)
+	if resp.StatusCode != http.StatusBadRequest || envBody.Error == nil || envBody.Error.Code != "VALIDATION_FAILED" {
+		t.Fatalf("status=%d error=%+v, want 400 VALIDATION_FAILED", resp.StatusCode, envBody.Error)
 	}
 	if envBody.Error == nil || !fieldNamed(envBody.Error.Details, "additional_fields") {
 		t.Fatalf("error=%+v, want an additional_fields field error", envBody.Error)
@@ -103,8 +103,9 @@ func TestIssueRefusedTooManyAdditionalFields(t *testing.T) {
 	assertSequenceStillFresh(t, sessionID)
 }
 
-// TestIssueRefusedForNonOperator: a signed-in Member who is not on the
-// allowlist is refused every invoicing route.
+// TestIssueRefusedForNonOperator: every invoicing route refuses a missing
+// session with 401 and a signed-in Member who is not on the allowlist with
+// 403.
 func TestIssueRefusedForNonOperator(t *testing.T) {
 	env := setupTest(t)
 	memberSession := verifyOTP(t, env, "member@example.com")
@@ -117,12 +118,14 @@ func TestIssueRefusedForNonOperator(t *testing.T) {
 		{http.MethodGet, invoicesPath + "/00000000-0000-4000-8000-000000000000"},
 		{http.MethodPost, invoicesPath + "/totals"},
 	} {
-		resp, body := sriEnv.doJSON(t, tc.method, tc.path, map[string]any{}, authHeader(memberSession))
-		if resp.StatusCode != http.StatusForbidden {
-			t.Fatalf("%s %s status=%d, want 403", tc.method, tc.path, resp.StatusCode)
+		resp, body := sriEnv.doJSON(t, tc.method, tc.path, map[string]any{}, nil)
+		if resp.StatusCode != http.StatusUnauthorized || body.Error == nil || body.Error.Code != "UNAUTHORIZED" {
+			t.Fatalf("%s %s unauthenticated status=%d error=%+v, want 401 UNAUTHORIZED", tc.method, tc.path, resp.StatusCode, body.Error)
 		}
-		if body.Error == nil || body.Error.Code != "FORBIDDEN" {
-			t.Fatalf("%s %s error=%+v, want FORBIDDEN", tc.method, tc.path, body.Error)
+
+		resp, body = sriEnv.doJSON(t, tc.method, tc.path, map[string]any{}, authHeader(memberSession))
+		if resp.StatusCode != http.StatusForbidden || body.Error == nil || body.Error.Code != "FORBIDDEN" {
+			t.Fatalf("%s %s as a Member status=%d error=%+v, want 403 FORBIDDEN", tc.method, tc.path, resp.StatusCode, body.Error)
 		}
 	}
 }

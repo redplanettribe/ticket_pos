@@ -67,7 +67,7 @@ instead of scattering it.
 | `organization` | The Organization being administered: the Settings page header, the profile, the Logo, and the danger zone |
 | `onboarding` | Creating an Organization — the gate a brand-new organizer lands on straight after signing in, and the in-app create page that shares its form |
 | `payouts` | Getting paid: both balances, the Payout Profile, the ask, the request history, and the **Payout Request status** vocabulary — one key per state, read by every screen that draws one |
-| `operator` | The Operator Dashboard: the platform-revenue overview, the organizations roll and one Organization's detail, the Payout Request queue and one request, the sale lookup and one sale, the Consent Withdrawal surface, and the Tax invoicing Issuer page |
+| `operator` | The Operator Dashboard: the platform-revenue overview, the organizations roll and one Organization's detail, the Payout Request queue and one request, the sale lookup and one sale, the Consent Withdrawal surface, and **Tax invoicing** — the Issuer page, the Tax Invoices list, the new Tax Invoice form, one Tax Invoice's detail with its Check status and Resend actions and its downloads, and the printable RIDE. The **Tax Invoice status** vocabulary is mapped once, in `app/operator/invoicing/invoice-status.ts`, and every badge reads it from there |
 | `errors`  | Failures, keyed on the API's error code — belongs to no single surface            |
 
 `ticketTypes` covers the **Ticket Question** editor for the same reason `sales`

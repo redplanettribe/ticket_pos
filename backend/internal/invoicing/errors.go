@@ -63,19 +63,19 @@ func ErrIssuerIncomplete(reason string) apperror.DomainError {
 // authority's document. The message is the builder's own. Refused before any
 // number is consumed (#454).
 func ErrInvoiceInvalid(reason string) apperror.DomainError {
-	return apperror.New("INVOICE_INVALID", "The invoice cannot be built: "+reason+".", nil)
+	return apperror.New("INVOICE_INVALID", "The Tax Invoice cannot be built: "+reason+".", nil)
 }
 
 // ErrInvoiceNotFound: no Tax Invoice has that id.
 func ErrInvoiceNotFound() apperror.DomainError {
-	return apperror.New("INVOICE_NOT_FOUND", "No invoice has that id.", nil)
+	return apperror.New("INVOICE_NOT_FOUND", "No Tax Invoice has that id.", nil)
 }
 
 // ErrInvoiceAlreadyAuthorized: Check status and Resend are refused on an
 // authorized Tax Invoice — it is a legal artifact and nothing about it is
 // asked or sent again (#455, story 34).
 func ErrInvoiceAlreadyAuthorized() apperror.DomainError {
-	return apperror.New("INVOICE_ALREADY_AUTHORIZED", "The invoice is already authorized. Nothing can be checked or resent for it.", nil)
+	return apperror.New("INVOICE_ALREADY_AUTHORIZED", "The Tax Invoice is already authorized. Nothing can be checked or resent for it.", nil)
 }
 
 // ErrIssuerFieldFrozen: the Issuer detail named in details.field may no

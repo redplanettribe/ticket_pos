@@ -24,13 +24,6 @@ const (
 	InvoiceStatusRejected InvoiceStatus = "rejected"
 )
 
-// TaxIDType is the Recipient's Tax ID Type, the platform's three words.
-const (
-	TaxIDTypeCedula   = "cedula"
-	TaxIDTypeRUC      = "ruc"
-	TaxIDTypePassport = "passport"
-)
-
 // IVARate is the platform's word for a line's IVA rate. The adapter
 // translates to the authority's code (in Ecuador 4 / 0 / 7 / 6).
 type IVARate string

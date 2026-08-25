@@ -92,6 +92,20 @@ const (
 	frozenFieldPuntoEmision    = "punto_emision"
 )
 
+// frozenField is one Issuer detail that may stop changing: its JSON name and
+// how to read it off the details, so the three are listed once and both the
+// frozen_fields view and the save-time refusal walk the same table.
+type frozenField struct {
+	name string
+	get  func(invoicing.EcuadorIssuerDetails) string
+}
+
+var (
+	frozenRUC             = frozenField{frozenFieldRUC, func(d invoicing.EcuadorIssuerDetails) string { return d.RUC }}
+	frozenEstablecimiento = frozenField{frozenFieldEstablecimiento, func(d invoicing.EcuadorIssuerDetails) string { return d.Establecimiento }}
+	frozenPuntoEmision    = frozenField{frozenFieldPuntoEmision, func(d invoicing.EcuadorIssuerDetails) string { return d.PuntoEmision }}
+)
+
 // EcuadorIssuerCertificate is the certificate in custody as the page shows
 // it: metadata only.
 type EcuadorIssuerCertificate struct {
@@ -150,22 +164,23 @@ func (s *Service) SaveEcuadorIssuer(ctx context.Context, input SaveEcuadorIssuer
 }
 
 // frozenFields names the Issuer details that may no longer change, from
-// what has been issued: never from the Issuer row itself.
-func (s *Service) frozenFields(ctx context.Context, row *repository.EcuadorIssuerRow) ([]string, error) {
-	frozen := []string{}
+// what has been issued: never from the Issuer row itself. The order is the
+// order the page shows them.
+func (s *Service) frozenFields(ctx context.Context, row *repository.EcuadorIssuerRow) ([]frozenField, error) {
+	frozen := []frozenField{}
 	hasInvoices, err := s.repo.IssuerHasInvoices(ctx, row.Issuer.ID)
 	if err != nil {
 		return nil, err
 	}
 	if hasInvoices {
-		frozen = append(frozen, frozenFieldRUC)
+		frozen = append(frozen, frozenRUC)
 	}
 	sequenceStarted, err := s.repo.SequenceExists(ctx, row.Issuer.ID, row.Details.Establecimiento, row.Details.PuntoEmision)
 	if err != nil {
 		return nil, err
 	}
 	if sequenceStarted {
-		frozen = append(frozen, frozenFieldEstablecimiento, frozenFieldPuntoEmision)
+		frozen = append(frozen, frozenEstablecimiento, frozenPuntoEmision)
 	}
 	return frozen, nil
 }
@@ -178,19 +193,8 @@ func (s *Service) refuseFrozenChanges(ctx context.Context, current *repository.E
 		return err
 	}
 	for _, field := range frozen {
-		switch field {
-		case frozenFieldRUC:
-			if next.RUC != current.Details.RUC {
-				return invoicing.ErrIssuerFieldFrozen(field)
-			}
-		case frozenFieldEstablecimiento:
-			if next.Establecimiento != current.Details.Establecimiento {
-				return invoicing.ErrIssuerFieldFrozen(field)
-			}
-		case frozenFieldPuntoEmision:
-			if next.PuntoEmision != current.Details.PuntoEmision {
-				return invoicing.ErrIssuerFieldFrozen(field)
-			}
+		if field.get(next) != field.get(current.Details) {
+			return invoicing.ErrIssuerFieldFrozen(field.name)
 		}
 	}
 	return nil
@@ -202,7 +206,10 @@ func (s *Service) ecuadorIssuerViewWithFreezes(ctx context.Context, row *reposit
 		return nil, err
 	}
 	view := ecuadorIssuerView(row)
-	view.FrozenFields = frozen
+	view.FrozenFields = make([]string, 0, len(frozen))
+	for _, field := range frozen {
+		view.FrozenFields = append(view.FrozenFields, field.name)
+	}
 	return view, nil
 }
 
