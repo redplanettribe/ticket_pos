@@ -80,8 +80,12 @@ Sale — reverse and re-address — therefore share one channel rule.
   that have already started get nothing from this feature, deliberately.
 - A Sale Reversal while a re-addressing is pending kills it, and the corrected address is told nothing,
   having never become party to anything.
-- Name, Tax ID and phone carry from the ghost only into a nameless Customer; an existing Customer's own
-  facts win, and the Sale's snapshot keeps what was typed.
+- The ghost's facts carry only into a nameless Customer, and only where they fill a gap: a corrected
+  Customer nobody has named takes the ghost's first and last name whole, and takes its Tax ID and its
+  phone only into a slot that is empty, never over one they already filled. A corrected Customer who
+  already has a name receives nothing at all. The carry copies rather than moves — the ghost keeps every
+  fact it had — and the Sale's snapshot keeps what was typed either way. A fact a person stated about
+  themselves is theirs; what the ghost said was only ever typed under an address nobody proved.
 - The Re-addressing Link is a signed token delivered to the corrected address alone, never shown to the
   Operator or to staff, so the Operator cannot complete the acceptance themself — the same property that
   makes the Assignment Link a proof.
