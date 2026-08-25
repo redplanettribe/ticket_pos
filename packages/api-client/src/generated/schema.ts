@@ -2894,6 +2894,118 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/invoicing/issuers/ec": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the platform's Ecuador Issuer
+         * @description Returns the platform's registration with the SRI (ADR 0059): the environment it points at (`test` = SRI pruebas, `production` = SRI producción) and the details every factura carries — RUC, razón social, nombre comercial, dirección matriz, dirección del establecimiento, establecimiento and punto de emisión codes, obligado a llevar contabilidad, régimen and the optional agente de retención resolution number. The data payload is `null` when no Issuer has been recorded, which is an ordinary state rather than an error. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeEcuadorIssuer"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        /**
+         * Record the platform's Ecuador Issuer
+         * @description Creates the Ecuador Issuer on the first call and replaces its details on every call after (ADR 0059). `environment` is `test` (SRI pruebas) or `production` (SRI producción) and may be switched freely in either direction. `ruc` is validated exactly as the platform validates a `ruc` Tax ID; `establecimiento` and `punto_emision` are three digits each; `regimen` is `general`, `rimpe_contribuyente` or `rimpe_negocio_popular`; `nombre_comercial` may be empty and `agente_retencion` may be null. Every failing field is named at once under VALIDATION_FAILED and nothing is stored when any fails. Returns the Issuer as stored. Platform Operator only.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description The Issuer's environment and SRI details */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.ecuadorIssuerBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeEcuadorIssuer"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/organizations": {
         parameters: {
             query?: never;
@@ -10719,6 +10831,19 @@ export interface components {
         "handler.digestSubscriptionBody": {
             enabled?: boolean;
         };
+        "handler.ecuadorIssuerBody": {
+            agente_retencion?: string;
+            direccion_establecimiento?: string;
+            direccion_matriz?: string;
+            environment?: string;
+            establecimiento?: string;
+            nombre_comercial?: string;
+            obligado_contabilidad?: boolean;
+            punto_emision?: string;
+            razon_social?: string;
+            regimen?: string;
+            ruc?: string;
+        };
         "handler.fulfilPayoutRequestBody": {
             amount_cents?: number;
             note?: string;
@@ -11235,6 +11360,11 @@ export interface components {
         };
         "openapi.EnvelopeCustomerWithdrawAll": {
             data?: components["schemas"]["service.WithdrawAllView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeEcuadorIssuer": {
+            data?: components["schemas"]["service.EcuadorIssuer"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -12194,6 +12324,23 @@ export interface components {
              *     ordinarily zero even in a week with many unsubscribes.
              */
             skipped?: number;
+        };
+        "service.EcuadorIssuer": {
+            agente_retencion?: string;
+            country?: string;
+            created_at?: string;
+            direccion_establecimiento?: string;
+            direccion_matriz?: string;
+            environment?: string;
+            establecimiento?: string;
+            id?: string;
+            nombre_comercial?: string;
+            obligado_contabilidad?: boolean;
+            punto_emision?: string;
+            razon_social?: string;
+            regimen?: string;
+            ruc?: string;
+            updated_at?: string;
         };
         "service.EnqueueResult": {
             /**

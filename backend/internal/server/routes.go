@@ -240,6 +240,16 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// created is a record of a Consent Withdrawal — and pointedly singular in
 	// what it can do: this path can only ever take something away.
 	mux.Handle("POST /api/v1/operator/customers/{email}/consent/withdrawal", operator(http.HandlerFunc(h.RecordCustomerConsentWithdrawal)))
+
+	// Tax invoicing (#450, ADR 0059): the platform's Issuer with each country's
+	// Tax Authority, and — from #454 — the Tax Invoices it issues by hand. The
+	// platform is the sole Issuer, so this is operator-only by construction and
+	// no Member route exists. The country code in the path is the visible seam:
+	// a second country is a second adapter behind /issuers/{country}, never a
+	// column on this one.
+	inv := app.InvoicingHandler
+	mux.Handle("GET /api/v1/operator/invoicing/issuers/ec", operator(http.HandlerFunc(inv.GetEcuadorIssuer)))
+	mux.Handle("PUT /api/v1/operator/invoicing/issuers/ec", operator(http.HandlerFunc(inv.PutEcuadorIssuer)))
 }
 
 // registerCustomerRoutes wires the Storefront's Customer identity surface.

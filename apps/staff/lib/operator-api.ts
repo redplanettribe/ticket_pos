@@ -6,7 +6,7 @@
 // session whose email is not on the platform operator allowlist (ADR 0015). The
 // UI merely declines to show the surface at all.
 
-import { fetchEventsJSON } from "./events-api";
+import { ApiError, fetchEventsJSON } from "./events-api";
 import type { QuestionReview, QuestionReviewItem } from "./question-reviews";
 import type { TicketQuestion, TicketQuestionOption } from "./ticket-questions";
 
@@ -932,4 +932,86 @@ export async function answerOperatorQuestionReview(
     `/api/operator/question-reviews/${encodeURIComponent(reviewId)}/answer`,
     { method: "POST", body: JSON.stringify(body) },
   );
+}
+
+/**
+ * Which of the SRI's environments the Ecuador Issuer points at (#451, ADR
+ * 0059): `test` is pruebas, `production` is producción. The words are the
+ * platform's rather than the SRI's digits, and the operator may flip them
+ * freely.
+ */
+export type EcuadorIssuerEnvironment = "test" | "production";
+
+/** The three régimenes the factura schema distinguishes. */
+export type EcuadorIssuerRegimen = "general" | "rimpe_contribuyente" | "rimpe_negocio_popular";
+
+export const ECUADOR_ISSUER_ENVIRONMENTS = ["test", "production"] as const satisfies readonly EcuadorIssuerEnvironment[];
+export const ECUADOR_ISSUER_REGIMENES = [
+  "general",
+  "rimpe_contribuyente",
+  "rimpe_negocio_popular",
+] as const satisfies readonly EcuadorIssuerRegimen[];
+
+/**
+ * The Ecuador Issuer as the operator states it: the environment and the SRI
+ * details every factura carries. Field names are the SRI's Spanish, which is
+ * what the operator reads them off the RUC certificate in.
+ */
+export type EcuadorIssuerBody = {
+  environment: EcuadorIssuerEnvironment;
+  ruc: string;
+  razon_social: string;
+  nombre_comercial: string;
+  direccion_matriz: string;
+  direccion_establecimiento: string;
+  establecimiento: string;
+  punto_emision: string;
+  obligado_contabilidad: boolean;
+  regimen: EcuadorIssuerRegimen;
+  agente_retencion: string | null;
+};
+
+/** The Ecuador Issuer as stored. */
+export type OperatorEcuadorIssuer = EcuadorIssuerBody & {
+  id: string;
+  country: "ec";
+  created_at: string;
+  updated_at: string;
+};
+
+const ECUADOR_ISSUER_PATH = "/api/operator/invoicing/issuers/ec";
+
+/**
+ * Reads or writes the Ecuador Issuer, keeping `null` data as a legitimate
+ * answer: a platform that has not recorded its Issuer yet is not an error, and
+ * the page renders an empty form from it. `fetchEventsJSON` would throw on the
+ * null, which is why this does not use it.
+ */
+async function requestEcuadorIssuer(init?: RequestInit): Promise<OperatorEcuadorIssuer | null> {
+  const response = await fetch(ECUADOR_ISSUER_PATH, {
+    headers: { "Content-Type": "application/json" },
+    ...init,
+  });
+  const envelope = (await response.json()) as {
+    data: OperatorEcuadorIssuer | null;
+    error: { code?: string; message?: string; details?: Record<string, unknown> } | null;
+  };
+  if (!response.ok || envelope.error) {
+    throw new ApiError(envelope.error?.message ?? "Request failed", envelope.error?.code, envelope.error?.details);
+  }
+  return envelope.data;
+}
+
+/** The Ecuador Issuer, or `null` when none has been recorded. */
+export async function fetchOperatorEcuadorIssuer(): Promise<OperatorEcuadorIssuer | null> {
+  return requestEcuadorIssuer();
+}
+
+/** Records the Ecuador Issuer — created on the first save, replaced after. */
+export async function saveOperatorEcuadorIssuer(body: EcuadorIssuerBody): Promise<OperatorEcuadorIssuer> {
+  const saved = await requestEcuadorIssuer({ method: "PUT", body: JSON.stringify(body) });
+  if (saved === null) {
+    throw new Error("Empty response");
+  }
+  return saved;
 }

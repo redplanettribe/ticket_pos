@@ -30,6 +30,9 @@ import (
 	identityhandler "github.com/peter/ticket_pos/backend/internal/identity/handler"
 	identityrepo "github.com/peter/ticket_pos/backend/internal/identity/repository"
 	identitysvc "github.com/peter/ticket_pos/backend/internal/identity/service"
+	invoicinghandler "github.com/peter/ticket_pos/backend/internal/invoicing/handler"
+	invoicingrepo "github.com/peter/ticket_pos/backend/internal/invoicing/repository"
+	invoicingsvc "github.com/peter/ticket_pos/backend/internal/invoicing/service"
 	operatorhandler "github.com/peter/ticket_pos/backend/internal/operator/handler"
 	operatorsvc "github.com/peter/ticket_pos/backend/internal/operator/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
@@ -80,6 +83,12 @@ type App struct {
 	ConsentRepo    *consentrepo.Repository
 	ConsentService *consentsvc.Service
 	ConsentHandler *consenthandler.Handler
+	// Tax invoicing (#450, ADR 0059): the platform's Issuer per country and, from
+	// #454, the Tax Invoices it issues. It owns its own tables and reads nothing
+	// of anyone else's — no Sale, Payout or Organization is linked yet.
+	InvoicingRepo    *invoicingrepo.Repository
+	InvoicingService *invoicingsvc.Service
+	InvoicingHandler *invoicinghandler.Handler
 }
 
 // Option customizes application wiring (tests and local overrides).
@@ -510,6 +519,13 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	operatorService := operatorsvc.New(identityService, catalogService, salesService, customersService)
 	operatorHandler := operatorhandler.New(operatorService)
 
+	// Tax invoicing (#450, ADR 0059). Served on the operator namespace but not
+	// composed by the operator module: it owns data of its own, and the
+	// operator module composes modules that own theirs.
+	invoicingRepo := invoicingrepo.New(db)
+	invoicingService := invoicingsvc.New(invoicingRepo, platformLogger)
+	invoicingHandler := invoicinghandler.New(invoicingService)
+
 	return &App{
 		Config:            cfg,
 		Logger:            logger,
@@ -539,6 +555,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		ConsentRepo:       consentRepo,
 		ConsentService:    consentService,
 		ConsentHandler:    consentHandler,
+		InvoicingRepo:     invoicingRepo,
+		InvoicingService:  invoicingService,
+		InvoicingHandler:  invoicingHandler,
 	}, nil
 }
 
