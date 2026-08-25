@@ -1,15 +1,17 @@
 /**
  * The Sale Re-addressing panel's logic, kept out of the page so it can be
- * tested under `node --test` (#420, ADR 0058).
+ * tested under `node --test` (#420, #423, ADR 0058).
  *
- * Two questions, both of which the page would otherwise answer inline: which
- * face the panel shows — nothing, the form, or the pending card — and whether
- * what the operator typed is worth sending. Neither re-decides anything the API
- * decides: the API is the gate, and a refusal from it is shown by code. These
- * exist so the obvious cases never make a round trip.
+ * Three questions, all of which the page would otherwise answer inline: which
+ * face the panel shows — nothing, the form, or the pending card — whether what
+ * the operator typed is worth sending, and what "send again" on the pending
+ * card sends. None re-decides anything the API decides: the API is the gate,
+ * and a refusal from it is shown by code. These exist so the obvious cases
+ * never make a round trip.
  */
 
 import type {
+  OperatorReAddressBody,
   OperatorSaleDetail,
   OperatorSaleReAddressing,
   OperatorSaleReAddressingBlock,
@@ -92,4 +94,20 @@ export function correctedEmailProblem(
 export function reAddressBody(email: string, note: string): { email: string; note?: string } {
   const trimmedNote = note.trim();
   return { email: email.trim(), ...(trimmedNote ? { note: trimmedNote } : {}) };
+}
+
+/**
+ * What "Send again" on the pending card sends (#423): the pending record's own
+ * corrected address and note, recorded again. The API treats a recording made
+ * while one is pending as a replacement — the earlier record is withdrawn and
+ * its link killed, a fresh link is mailed — so a lost mail is one click to
+ * recover and the address is never retyped. Null when the record's address has
+ * been purged (the Event started; #424): there is nothing to send to, and the
+ * panel is hidden on such a sale anyway.
+ */
+export function resendBody(record: OperatorSaleReAddressing): OperatorReAddressBody | null {
+  if (record.corrected_email === null) {
+    return null;
+  }
+  return { email: record.corrected_email, ...(record.note ? { note: record.note } : {}) };
 }

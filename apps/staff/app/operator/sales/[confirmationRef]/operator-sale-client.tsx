@@ -35,15 +35,18 @@ import { ApiError, parsePriceToCents } from "@/lib/events-api";
 import { PLATFORM_TIME_ZONE, formatDateTime, formatMoney, formatNumber } from "@/lib/format";
 import {
   type OperatorSaleLookup,
+  type OperatorSaleReAddressing,
   fetchOperatorSale,
   reAddressOperatorSale,
   reverseOperatorSale,
+  withdrawOperatorSaleReAddressing,
 } from "@/lib/operator-api";
 import {
   RE_ADDRESSING_NOTE_MAX_LENGTH,
   correctedEmailProblem,
   reAddressBody,
   reAddressingPanel,
+  resendBody,
 } from "@/lib/sale-re-addressing";
 import {
   type ReversalActor,
@@ -73,13 +76,15 @@ import {
  * a note and nothing else (#126).
  *
  * Beside Reverse sits the second lever on an Online Sale: the Sale
- * Re-addressing (#420, ADR 0058). A buyer who typed their address wrong before
- * the sign-in wall cannot reach their tickets; the operator records the address
- * they meant, the platform mails it a Re-addressing Link, and nothing moves
- * until that address accepts. The panel shows the form while nothing is
+ * Re-addressing (#420, #423, ADR 0058). A buyer who typed their address wrong
+ * before the sign-in wall cannot reach their tickets; the operator records the
+ * address they meant, the platform mails it a Re-addressing Link, and nothing
+ * moves until that address accepts. The panel shows the form while nothing is
  * pending and the guards allow, and the pending card once a recording stands
  * — never the link, which the operator is not shown (lib/sale-re-addressing.ts
- * decides which). Withdraw and send-again arrive with #423.
+ * decides which). The pending card offers Send again (the same address
+ * recorded again: a fresh link, the earlier one killed) and Withdraw (the
+ * record ended, nobody mailed), after which the form is offered again.
  *
  * WHAT IT DOES NOT SAY IN ITS OWN WORDS: the Sales Channel, its source, the
  * Payment Method and who reversed a sale. Every one of those is vocabulary the
@@ -179,6 +184,10 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
   const [correctedEmailError, setCorrectedEmailError] = useState<string | null>(null);
   const [reAddressNote, setReAddressNote] = useState("");
   const [reAddressing, setReAddressing] = useState(false);
+  // The pending card's two controls (#423). Each disables both while it runs:
+  // they act on the same record, and the second would find it gone.
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [resending, setResending] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -275,6 +284,48 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
       );
     } finally {
       setReAddressing(false);
+    }
+  }
+
+  // Withdrawing needs no dialog either: it kills the link and mails nobody,
+  // and the sale stays where it was, so the operator can re-address it afresh
+  // — which is what the form reappearing after the re-read offers.
+  async function handleWithdrawReAddressing() {
+    setWithdrawing(true);
+    try {
+      await withdrawOperatorSaleReAddressing(confirmationRef);
+      toast.success(t("reAddressWithdrawn"));
+      await load();
+    } catch (withdrawError) {
+      toast.error(
+        (withdrawError instanceof ApiError ? apiErrorMessage(errorCopy, withdrawError) : null) ??
+          t("reAddressWithdrawFailed"),
+      );
+    } finally {
+      setWithdrawing(false);
+    }
+  }
+
+  // "Send again" is recording the pending address again: the API replaces the
+  // record, kills the earlier link and mails a fresh one, so nothing is
+  // retyped and a link that leaked with the lost mail cannot be used later.
+  async function handleResendReAddressing(record: OperatorSaleReAddressing) {
+    const body = resendBody(record);
+    if (body === null) {
+      return;
+    }
+    setResending(true);
+    try {
+      await reAddressOperatorSale(confirmationRef, body);
+      toast.success(t("reAddressResent"));
+      await load();
+    } catch (resendError) {
+      toast.error(
+        (resendError instanceof ApiError ? apiErrorMessage(errorCopy, resendError) : null) ??
+          t("reAddressResendFailed"),
+      );
+    } finally {
+      setResending(false);
     }
   }
 
@@ -632,6 +683,26 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
                 </Fact>
               </div>
             ) : null}
+            <div className="flex flex-col gap-3 sm:col-span-2">
+              <p className="text-sm text-muted-foreground">{t("reAddressPendingActions")}</p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  onClick={() => void handleResendReAddressing(reAddressPanel.record)}
+                  disabled={withdrawing || resending || resendBody(reAddressPanel.record) === null}
+                >
+                  {resending ? t("reAddressResending") : t("reAddressResend")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void handleWithdrawReAddressing()}
+                  disabled={withdrawing || resending}
+                >
+                  {withdrawing ? t("reAddressWithdrawing") : t("reAddressWithdraw")}
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
       ) : null}

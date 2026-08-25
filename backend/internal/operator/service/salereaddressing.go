@@ -33,3 +33,11 @@ func (s *Service) ReAddressSale(ctx context.Context, confirmationRef string, in 
 		Note:           in.Note,
 	})
 }
+
+// WithdrawReAddressing ends the pending Sale Re-addressing on the Ticket Sale
+// a Sale Confirmation reference names (#423, ADR 0058): the record is kept and
+// stamped withdrawn, its Re-addressing Link dies, and nobody is mailed. One
+// call into sales, as the recording is.
+func (s *Service) WithdrawReAddressing(ctx context.Context, confirmationRef string) (*ReAddressing, error) {
+	return s.money.WithdrawSaleReAddressingAsOperator(ctx, confirmationRef)
+}

@@ -574,15 +574,15 @@ func ErrReAddressingSameAddress(email string) apperror.DomainError {
 	)
 }
 
-// ErrReAddressingAlreadyPending is returned when the Sale already carries a
-// pending re-addressing. One pending per Sale (migration 093); until #423 makes
-// a second recording a replace that withdraws the first and kills its link,
-// the second is refused and the first stands.
-func ErrReAddressingAlreadyPending(correctedEmail string) apperror.DomainError {
+// ErrReAddressingNothingPending is returned when the Operator withdraws and
+// the Sale carries no pending re-addressing: nothing was recorded, or what was
+// recorded has already been accepted, withdrawn, replaced or has expired. There
+// is nothing to end, and nothing is written.
+func ErrReAddressingNothingPending() apperror.DomainError {
 	return apperror.New(
-		"RE_ADDRESSING_ALREADY_PENDING",
-		"A re-addressing of this sale is already pending; the corrected address has been mailed and nothing has happened since.",
-		map[string]any{"corrected_email": correctedEmail},
+		"RE_ADDRESSING_NOTHING_PENDING",
+		"No re-addressing of this sale is pending.",
+		nil,
 	)
 }
 

@@ -666,7 +666,9 @@ export type OperatorReAddressBody = {
  *
  * The API mails the corrected address a Re-addressing Link; nothing moves until
  * that address accepts, and no Payment Provider is called. The result is the
- * pending record, without the link.
+ * pending record, without the link. Recording while one is pending replaces it
+ * and kills its link (#423) — recording the SAME address again is how a lost
+ * mail is sent again.
  */
 export async function reAddressOperatorSale(
   confirmationRef: string,
@@ -675,6 +677,21 @@ export async function reAddressOperatorSale(
   return fetchEventsJSON<OperatorSaleReAddressing>(
     `/api/operator/sales/${encodeURIComponent(confirmationRef)}/re-address`,
     { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+/**
+ * Withdraws the pending Sale Re-addressing of a sale (#423, ADR 0058): the
+ * record is kept and stamped withdrawn, its link stops working, and nobody is
+ * emailed. The API refuses with RE_ADDRESSING_NOTHING_PENDING when nothing is
+ * pending. The result is the record as it now stands.
+ */
+export async function withdrawOperatorSaleReAddressing(
+  confirmationRef: string,
+): Promise<OperatorSaleReAddressing> {
+  return fetchEventsJSON<OperatorSaleReAddressing>(
+    `/api/operator/sales/${encodeURIComponent(confirmationRef)}/re-address`,
+    { method: "DELETE" },
   );
 }
 

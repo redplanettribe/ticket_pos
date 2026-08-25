@@ -255,9 +255,10 @@ func domainHTTPStatus(code string) int {
 	// request was well formed and the Operator was entitled to make it, and
 	// what stands in the way is a fact about the Sale — its channel, its
 	// status, its Event's start, or that the "correction" is the address it
-	// already carries — or that a recording already stands. None becomes the
-	// answer by being retried with the same body.
-	case "SALE_NOT_RE_ADDRESSABLE", "RE_ADDRESSING_EVENT_STARTED", "RE_ADDRESSING_SAME_ADDRESS", "RE_ADDRESSING_ALREADY_PENDING":
+	// already carries — or, on a withdrawal, that nothing is pending to be
+	// withdrawn (#423). None becomes the answer by being retried with the same
+	// body.
+	case "SALE_NOT_RE_ADDRESSABLE", "RE_ADDRESSING_EVENT_STARTED", "RE_ADDRESSING_SAME_ADDRESS", "RE_ADDRESSING_NOTHING_PENDING":
 		return http.StatusConflict
 	// The Re-addressing Link's own refusals (#421, ADR 0058), 401 as the
 	// Assignment Link's are: the token IS the credential, and a token that does

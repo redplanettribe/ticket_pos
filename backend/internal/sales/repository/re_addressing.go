@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/sales"
 )
 
 // SaleReAddressingRow is one row of sale_re_addressings (migration 093): the
@@ -40,19 +42,19 @@ type RecordSaleReAddressingInput struct {
 	Now            time.Time
 }
 
-// RecordSaleReAddressingResult is what came of a recording. Exactly one of
-// Recorded and Pending is set when SaleActive is true: either the row was
-// written, or a pending row already stood and nothing was written. SaleActive
-// false means the Sale was reversed between the service's read and this lock,
-// and nothing was written either.
+// RecordSaleReAddressingResult is what came of a recording. Recorded is the
+// row written when SaleActive is true; Replaced is the row that was pending
+// until this recording withdrew it, or nil when nothing was. SaleActive false
+// means the Sale was reversed between the service's read and this lock, and
+// nothing was written.
 type RecordSaleReAddressingResult struct {
 	Recorded   *SaleReAddressingRow
-	Pending    *SaleReAddressingRow
+	Replaced   *SaleReAddressingRow
 	SaleActive bool
 }
 
 // RecordSaleReAddressing writes one Sale Re-addressing under the Sale's own row
-// lock (#420, ADR 0058).
+// lock (#420, #423, ADR 0058).
 //
 // THE LOCK IS THE SALE'S ROW, taken FOR UPDATE, which serialises this against
 // every reversal path — all of which lock the same row — and against a second
@@ -61,11 +63,14 @@ type RecordSaleReAddressingResult struct {
 // on the row as it stands, and the previous_email written is the address the
 // Sale carries NOW rather than the one a stale read saw.
 //
-// ONE PENDING PER SALE is the partial unique index's rule (migration 093), and
-// this reads for a pending row under the same lock rather than catching the
-// unique violation: a refusal that names the address already pending is worth
-// more to the Operator than a constraint error, and the index stays as the
-// backstop for any path that forgets the lock.
+// ONE PENDING PER SALE is the partial unique index's rule (migration 093). A
+// recording made while one is pending REPLACES it in this same transaction:
+// the pending row is stamped withdrawn_at and the new one inserted, so the
+// index is satisfied at commit, the old row stays as evidence of what was typed
+// first, and its link — bound to that row's id and instant — stops opening the
+// moment this commits. That is the Operator fixing their own typo, and it is
+// also "send again": the same address recorded again is a new row with a new
+// link. The index stays as the backstop for any path that forgets the lock.
 func (r *Repository) RecordSaleReAddressing(ctx context.Context, in RecordSaleReAddressingInput) (*RecordSaleReAddressingResult, error) {
 	tx, err := r.db.Pool.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
@@ -86,16 +91,9 @@ func (r *Repository) RecordSaleReAddressing(ctx context.Context, in RecordSaleRe
 		return &RecordSaleReAddressingResult{SaleActive: false}, nil
 	}
 
-	pending, err := scanSaleReAddressing(tx.QueryRowContext(ctx, `
-		SELECT `+saleReAddressingColumns+`
-		FROM sale_re_addressings
-		WHERE ticket_sale_id = $1 AND accepted_at IS NULL AND withdrawn_at IS NULL
-	`, in.TicketSaleID))
+	replaced, err := withdrawPendingSaleReAddressing(ctx, tx, in.TicketSaleID, in.Now)
 	if err != nil {
 		return nil, err
-	}
-	if pending != nil {
-		return &RecordSaleReAddressingResult{Pending: pending, SaleActive: true}, nil
 	}
 
 	recorded, err := scanSaleReAddressing(tx.QueryRowContext(ctx, `
@@ -110,7 +108,80 @@ func (r *Repository) RecordSaleReAddressing(ctx context.Context, in RecordSaleRe
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return &RecordSaleReAddressingResult{Recorded: recorded, SaleActive: true}, nil
+	return &RecordSaleReAddressingResult{Recorded: recorded, Replaced: replaced, SaleActive: true}, nil
+}
+
+// WithdrawSaleReAddressing ends the Sale's pending re-addressing record under
+// the Sale's row lock (#423, ADR 0058): withdrawn_at is stamped and nothing
+// else changes. The row is KEPT — a withdrawn record is the evidence that an
+// address was typed and then taken back — and its link dies with the stamp,
+// since the link's open reads the row's state. Returns nil, and writes
+// nothing, when no record is PENDING: none recorded, every one already ended,
+// or the one unended row expired beneath the Sale's reversal or the Event's
+// start — judged under the lock, from the Sale and Event as they stand.
+//
+// The same lock as the recording and the acceptance take, so a click landing
+// at the same instant either completes first (and this finds nothing pending)
+// or waits and finds the row ended.
+func (r *Repository) WithdrawSaleReAddressing(ctx context.Context, ticketSaleID string, now time.Time) (*SaleReAddressingRow, error) {
+	tx, err := r.db.Pool.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var saleStatus string
+	var eventStartsAt sql.NullTime
+	if err := tx.QueryRowContext(ctx, `
+		SELECT ts.status, e.starts_at
+		FROM ticket_sales ts
+		JOIN events e ON e.id = ts.event_id
+		WHERE ts.id = $1
+		FOR UPDATE OF ts
+	`, ticketSaleID).Scan(&saleStatus, &eventStartsAt); err != nil {
+		return nil, err
+	}
+	unended, err := scanSaleReAddressing(tx.QueryRowContext(ctx, `
+		SELECT `+saleReAddressingColumns+`
+		FROM sale_re_addressings
+		WHERE ticket_sale_id = $1 AND accepted_at IS NULL AND withdrawn_at IS NULL
+	`, ticketSaleID))
+	if err != nil {
+		return nil, err
+	}
+	if unended == nil {
+		return nil, nil
+	}
+	state := sales.DeriveReAddressingState(nil, nil, saleStatus, nullTimeOrNil(eventStartsAt), now)
+	if state != sales.ReAddressingPending {
+		return nil, nil
+	}
+	withdrawn, err := withdrawPendingSaleReAddressing(ctx, tx, ticketSaleID, now)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return withdrawn, nil
+}
+
+// withdrawPendingSaleReAddressing stamps withdrawn_at on the Sale's one unended
+// row, if there is one, and returns it as it now stands. Called only under the
+// Sale's row lock, by the withdrawal and by a recording that replaces.
+//
+// It judges by the two ends alone and not by the derived state: a row the
+// Sale's reversal or the Event's start has expired beneath is still the row
+// that would collide with the partial unique index, so a replacement must end
+// it too. Whether such a row was worth withdrawing on its own is the service's
+// question, answered from the Sale and Event read beside it.
+func withdrawPendingSaleReAddressing(ctx context.Context, tx *sql.Tx, ticketSaleID string, now time.Time) (*SaleReAddressingRow, error) {
+	return scanSaleReAddressing(tx.QueryRowContext(ctx, `
+		UPDATE sale_re_addressings
+		SET withdrawn_at = $2
+		WHERE ticket_sale_id = $1 AND accepted_at IS NULL AND withdrawn_at IS NULL
+		RETURNING `+saleReAddressingColumns,
+		ticketSaleID, now))
 }
 
 // ListSaleReAddressings returns every re-addressing ever recorded against one

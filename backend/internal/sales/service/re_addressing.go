@@ -101,14 +101,19 @@ func (s *Service) WithReAddressingLinks(secret []byte) *Service {
 // address must be somewhere other than where the Sale already goes.
 //
 // THE WRITE IS UNDER THE SALE'S ROW LOCK (repository.RecordSaleReAddressing),
-// which re-reads the status and refuses a second pending record, so two
-// Operators recording at once cannot both win and a reversal committing in
-// between is seen.
+// which re-reads the status, so a reversal committing in between is seen and
+// two Operators recording at once are serialised. A RECORDING MADE WHILE ONE IS
+// PENDING REPLACES IT in that same transaction (#423, ADR 0058): the pending
+// record is withdrawn, the new one written, and the old link — bound to the
+// old row — dies with the commit. Recording the same address again is how a
+// lost mail is sent again: a new record, a new token, a new mail, and the
+// previous token refused. The replaced address is told nothing: it was a typo,
+// or it is about to get the new mail.
 //
 // THE MAIL IS BEST EFFORT AND NEVER UNDOES THE RECORD, on the Assignment mail's
 // terms: the record is worth keeping even unmailed — it says who typed which
-// address when — and #423's "send again" is one click. The Payment Provider is
-// not called and must never be: nothing about this moves money.
+// address when — and "send again" is one click. The Payment Provider is not
+// called and must never be: nothing about this moves money.
 func (s *Service) ReAddressSaleAsOperator(ctx context.Context, confirmationRef string, in ReAddressSaleInput) (*SaleReAddressing, error) {
 	row, err := s.repo.GetSaleByConfirmationRef(ctx, confirmationRef)
 	if err != nil {
@@ -150,14 +155,41 @@ func (s *Service) ReAddressSaleAsOperator(ctx context.Context, confirmationRef s
 		// a colleague's Operator Reversal. Nothing was written.
 		return nil, sales.ErrSaleAlreadyReversed()
 	}
-	if result.Pending != nil {
-		return nil, sales.ErrReAddressingAlreadyPending(result.Pending.CorrectedEmail.String)
-	}
 
 	recorded := result.Recorded
 	s.mailSaleReAddressing(ctx, row, recorded)
 
 	view := s.toSaleReAddressing(*recorded, row.ConfirmationRef, row.Status, nullableTime(row.EventStartsAt), now)
+	return &view, nil
+}
+
+// WithdrawSaleReAddressingAsOperator ends the pending Sale Re-addressing on
+// the Ticket Sale a Sale Confirmation reference names (#423, ADR 0058): the
+// record is stamped withdrawn, kept, and its Re-addressing Link stops opening.
+// Nobody is mailed — the corrected address's link simply stops working, and
+// the wrong address is told nothing, as ever.
+//
+// REFUSED WHEN NOTHING IS PENDING, judged under the Sale's row lock from the
+// record's ends and the Sale and Event beside it: a record already accepted,
+// already withdrawn, or expired beneath a reversal or the Event's start is not
+// pending and is not touched. The Payment Provider is never called.
+func (s *Service) WithdrawSaleReAddressingAsOperator(ctx context.Context, confirmationRef string) (*SaleReAddressing, error) {
+	row, err := s.repo.GetSaleByConfirmationRef(ctx, confirmationRef)
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		return nil, sales.ErrTicketSaleRefNotFound(confirmationRef)
+	}
+	now := s.now()
+	withdrawn, err := s.repo.WithdrawSaleReAddressing(ctx, row.ID, now)
+	if err != nil {
+		return nil, err
+	}
+	if withdrawn == nil {
+		return nil, sales.ErrReAddressingNothingPending()
+	}
+	view := s.toSaleReAddressing(*withdrawn, row.ConfirmationRef, row.Status, nullableTime(row.EventStartsAt), now)
 	return &view, nil
 }
 
