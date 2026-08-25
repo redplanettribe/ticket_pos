@@ -1687,12 +1687,12 @@
       "TICKET_SALE_REVERSED": "This sale was reversed, so its answers can no longer be changed.",
       "EVENT_STARTED_ANSWERS_CLOSED": "This event has started, so its answers can no longer be changed.",
       "ANSWER_OPTION_NOT_OFFERED": "That option is not one this question offers.",
-      "ISSUER_NOT_FOUND": "The issuer has not been recorded yet. Save the issuer details first.",
+      "ISSUER_NOT_FOUND": "The Issuer has not been recorded yet. Save the Issuer details first.",
       "CERTIFICATE_KEY_NOT_CONFIGURED": "The server has no certificate key configured, so it cannot store a certificate. This is a deployment setting (INVOICING_CERTIFICATE_KEY), not a problem with the file or the password.",
       "CERTIFICATE_PASSWORD_INCORRECT": "The certificate could not be opened with that password. Nothing was changed.",
       "CERTIFICATE_NO_RSA_KEY": "That file has no RSA private key. The SRI requires an RSA signing certificate; nothing was changed.",
       "CERTIFICATE_FILE_INVALID": "That file is not a valid .p12 certificate. Nothing was changed.",
-      "INVOICE_ALREADY_AUTHORIZED": "The invoice is already authorized. Nothing can be checked or resent for it.",
+      "INVOICE_ALREADY_AUTHORIZED": "The Tax Invoice is already authorized. Nothing can be checked or resent for it.",
       "ISSUER_FIELD_FROZEN": "That field can no longer change: documents have been issued under it."
     },
     "field": {
