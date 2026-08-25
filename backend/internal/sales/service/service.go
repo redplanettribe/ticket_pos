@@ -137,6 +137,14 @@ type CustomerService interface {
 	// receipt offering to confirm one pending while an identical one stood beside
 	// it would resolve half of somebody's inbox.
 	ConsentConfirmationLinkURL(ctx context.Context, customerID string) (string, error)
+	// AcceptReAddressedSale mints or matches the Verified Customer a
+	// Re-addressing Link's click proved, INSIDE the sales transaction that
+	// moves the Sale to them, and carries the ghost's name, Tax ID and phone
+	// only into a Customer nobody has named (#421, ADR 0058). The click is
+	// Proof of Email Ownership and a Customer record — verified_at above all
+	// — is the far side's authority (ADR 0010), which is why sales hands over
+	// the address and the ghost and takes back only an id.
+	AcceptReAddressedSale(ctx context.Context, tx *sql.Tx, correctedEmail, ghostCustomerID string, now time.Time) (customerID string, err error)
 }
 
 // OutstandingAnswerReporter is what sales needs from catalog for the Sale

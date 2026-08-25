@@ -159,7 +159,7 @@ func domainHTTPStatus(code string) int {
 		return http.StatusBadRequest
 	// No signing key configured is a deployment fault, not the caller's — as is
 	// object storage missing when an Avatar upload is asked for.
-	case "CONFIRMATION_LINK_UNAVAILABLE", "UNSUBSCRIBE_LINK_UNAVAILABLE", "AVATAR_UPLOAD_UNAVAILABLE":
+	case "CONFIRMATION_LINK_UNAVAILABLE", "UNSUBSCRIBE_LINK_UNAVAILABLE", "AVATAR_UPLOAD_UNAVAILABLE", "RE_ADDRESSING_LINK_UNAVAILABLE":
 		return http.StatusInternalServerError
 	case "FORBIDDEN":
 		return http.StatusForbidden
@@ -259,6 +259,14 @@ func domainHTTPStatus(code string) int {
 	// answer by being retried with the same body.
 	case "SALE_NOT_RE_ADDRESSABLE", "RE_ADDRESSING_EVENT_STARTED", "RE_ADDRESSING_SAME_ADDRESS", "RE_ADDRESSING_ALREADY_PENDING":
 		return http.StatusConflict
+	// The Re-addressing Link's own refusals (#421, ADR 0058), 401 as the
+	// Assignment Link's are: the token IS the credential, and a token that does
+	// not open — forged, or genuine but for a record that has since ended — is
+	// a credential that does not authenticate. The two are told apart by code
+	// because the reader of the second is the buyer, who is entitled to know
+	// that the purchase can no longer be accepted.
+	case "RE_ADDRESSING_LINK_INVALID", "RE_ADDRESSING_LINK_NO_LONGER_VALID":
+		return http.StatusUnauthorized
 	// An Answer that does not fit its Ticket Question (#310). 400 and not 409,
 	// which is the line between these and the two above: the body itself is
 	// wrong — text sent to a number question, an Option the question does not

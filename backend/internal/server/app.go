@@ -440,6 +440,14 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// unwired, and is what every build before this ticket was.
 	catalogService = catalogService.WithHolderCustomers(customersService)
 
+	// Accepting a Re-addressing Link signs the buyer in (#421, ADR 0058): the
+	// same sign-in a passcode produces, minted by the customers module after
+	// the sales transaction that moved the Sale has committed. The Customer
+	// the transaction mints goes through CustomerService.AcceptReAddressedSale
+	// on the seam sales already holds; only the session needs this second
+	// wire, and it is tied here because customers is built after sales.
+	salesHandler = salesHandler.WithReAddressingSignIn(customersService)
+
 	// The opportunistic drain (ADR 0024): a Customer loading their Area makes the
 	// platform ask the Payment Provider again about their own stuck reversal.
 	// Wired here rather than at construction because sales is built after

@@ -585,3 +585,59 @@ func ErrReAddressingAlreadyPending(correctedEmail string) apperror.DomainError {
 		map[string]any{"corrected_email": correctedEmail},
 	)
 }
+
+// The Re-addressing Link's refusals (#421, ADR 0058). Two codes and not one,
+// because the page keys its sentence on the code and the two are different
+// facts to the person reading it: a link that never was, and a link that was
+// real once and is not now.
+
+// ErrReAddressingLinkInvalid is returned when the token was tampered with,
+// truncated, invented, signed for another purpose or by another deployment,
+// names a record that does not exist, or names an instant the record was not
+// minted at (a link an earlier recording produced, replaced since).
+//
+// One code for all of them, on the Assignment Link's rule: whoever holds a
+// link that does not work is entitled to learn nothing beyond that.
+func ErrReAddressingLinkInvalid() apperror.DomainError {
+	return apperror.New("RE_ADDRESSING_LINK_INVALID", "This link is not valid.", nil)
+}
+
+// ReAddressingLinkNoLongerValidReason names why a link that once opened no
+// longer does — the value carried in RE_ADDRESSING_LINK_NO_LONGER_VALID's
+// details.reason.
+const (
+	// ReAddressingLinkWithdrawn: the Operator withdrew the record, or replaced
+	// it with another (#423).
+	ReAddressingLinkWithdrawn = "withdrawn"
+	// ReAddressingLinkSaleReversed: the Sale was reversed while the record was
+	// pending, so there is nothing left to accept.
+	ReAddressingLinkSaleReversed = "sale_reversed"
+	// ReAddressingLinkEventStarted: the Event's doors have opened, and "give me
+	// my tickets" has no meaning past them (ADR 0058).
+	ReAddressingLinkEventStarted = "event_started"
+)
+
+// ErrReAddressingLinkNoLongerValid is returned when a genuine link names a
+// record that has ended without being accepted: withdrawn or replaced by the
+// Operator, or expired because the Sale was reversed or the Event started.
+//
+// Told apart from ErrReAddressingLinkInvalid because the reader IS the buyer —
+// the corrected address is the address the buyer meant — and a buyer is
+// entitled to know that the purchase they were told to accept can no longer be
+// accepted, as against being told their link is broken. The reason travels in
+// details so the page can say which, and nothing else about the Sale does.
+func ErrReAddressingLinkNoLongerValid(reason string) apperror.DomainError {
+	return apperror.New(
+		"RE_ADDRESSING_LINK_NO_LONGER_VALID",
+		"This link is no longer valid. Contact the organizer with your confirmation reference if you still need help.",
+		map[string]any{"reason": reason},
+	)
+}
+
+// ErrReAddressingLinkUnavailable is returned when the deployment cannot accept
+// a Re-addressing Link at all: no link secret to verify with, or no Customer
+// writer or sign-in wired into the service. A deployment fault and never the
+// reader's, so it is a 500 — refusing beats moving a paid Sale to nobody.
+func ErrReAddressingLinkUnavailable() apperror.DomainError {
+	return apperror.New("RE_ADDRESSING_LINK_UNAVAILABLE", "Re-addressing links are not available right now.", nil)
+}

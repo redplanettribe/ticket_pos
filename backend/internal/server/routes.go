@@ -647,6 +647,16 @@ func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	mux.HandleFunc("POST /api/v1/public/assignment-link", app.CatalogHandler.AcceptAssignmentLink)
 	mux.HandleFunc("PUT /api/v1/public/assignment-link/name", app.CatalogHandler.NameByAssignmentLink)
 	mux.HandleFunc("PUT /api/v1/public/assignment-link/questions/{questionId}", app.CatalogHandler.AnswerByAssignmentLink)
+
+	// The Re-addressing Link (#421, ADR 0058): the Assignment Link's twin for a
+	// whole purchase. GET opens it without accepting — the token in the query,
+	// as the mailed link carries it — and POST accepts, the token in the body.
+	// Its own token under its own key, so an Assignment Link fails here
+	// cryptographically. UNLIKE the Assignment Link the accept SIGNS THE READER
+	// IN: the Sale is now theirs, and the response is the passcode's own
+	// sign-in outcome.
+	mux.HandleFunc("GET /api/v1/public/re-addressing-link", app.SalesHandler.ViewReAddressingLink)
+	mux.HandleFunc("POST /api/v1/public/re-addressing-link", app.SalesHandler.AcceptReAddressingLink)
 }
 
 func registerAuthRoutes(mux *http.ServeMux, app *App) {

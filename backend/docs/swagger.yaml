@@ -1,5 +1,24 @@
 components:
   schemas:
+    handler.ReAddressingAcceptedResponse:
+      properties:
+        accepted_at:
+          type: string
+        confirmation_ref:
+          type: string
+        consent_required:
+          $ref: '#/components/schemas/service.ConsentRequiredView'
+        corrected_email:
+          type: string
+        event_name:
+          type: string
+        session:
+          $ref: '#/components/schemas/service.CustomerSessionView'
+        session_id:
+          type: string
+        ticket_sale_id:
+          type: string
+      type: object
     handler.answerBody:
       properties:
         checked:
@@ -571,6 +590,11 @@ components:
         email:
           type: string
         note:
+          type: string
+      type: object
+    handler.reAddressingLinkBody:
+      properties:
+        token:
           type: string
       type: object
     handler.recordConsentWithdrawalBody:
@@ -1597,6 +1621,24 @@ components:
       properties:
         data:
           $ref: '#/components/schemas/service.QuestionReviewView'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
+    openapi.EnvelopeReAddressingAccepted:
+      properties:
+        data:
+          $ref: '#/components/schemas/handler.ReAddressingAcceptedResponse'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
+    openapi.EnvelopeReAddressingLink:
+      properties:
+        data:
+          $ref: '#/components/schemas/service.ReAddressingLinkView'
         error:
           $ref: '#/components/schemas/platform.APIError'
         request_id:
@@ -4385,6 +4427,21 @@ components:
           uniqueItems: false
         pending:
           $ref: '#/components/schemas/service.SaleReAddressing'
+      type: object
+    service.ReAddressingLinkView:
+      properties:
+        accepted_at:
+          description: |-
+            AcceptedAt is set once the record has been accepted, so a page opened a
+            second time can say the purchase is already theirs and still offer the
+            button — the accept is idempotent and lands them signed in.
+          type: string
+        confirmation_ref:
+          type: string
+        corrected_email:
+          type: string
+        event_name:
+          type: string
       type: object
     service.ReversalDrainResult:
       properties:
@@ -9382,6 +9439,119 @@ paths:
                 $ref: '#/components/schemas/platform.Envelope'
           description: Internal Server Error
       summary: Current Privacy Policy
+      tags:
+      - public
+  /api/v1/public/re-addressing-link:
+    get:
+      description: 'Opens the Re-addressing Link a Platform Operator''s Sale Re-addressing
+        mailed to the address the buyer meant (ADR 0058), without accepting it: the
+        Event name, the Sale Confirmation reference and the corrected address — the
+        three facts the mail already carried — and `accepted_at` once it has been
+        accepted. Nothing else about the purchase is disclosed before the click. The
+        token travels in the query, as it does in the mailed link. Refused with 401
+        RE_ADDRESSING_LINK_INVALID when the token was tampered with, truncated, signed
+        for another purpose or by another deployment, or names no current recording;
+        those causes are deliberately indistinguishable. Refused with 401 RE_ADDRESSING_LINK_NO_LONGER_VALID,
+        carrying `details.reason` of `withdrawn`, `sale_reversed` or `event_started`,
+        when the link was genuine but its recording has ended unaccepted — told apart
+        because its reader is the buyer.'
+      parameters:
+      - description: The signed re-addressing link token
+        in: query
+        name: token
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeReAddressingLink'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Internal Server Error
+      summary: View a sale re-addressing link
+      tags:
+      - public
+    post:
+      description: 'Accepts the Sale Re-addressing the signed Re-addressing Link names
+        (ADR 0058). The click is Proof of Email Ownership: a Customer is created or
+        matched on the normalised corrected address and marked Verified, and in ONE
+        transaction the Sale''s Customer and snapshot email move to them, the Sale''s
+        Self-held Ticket follows if its Holder is still the wrong address, and the
+        record is stamped accepted; a fresh Sale Confirmation is then sent to the
+        corrected address in the Sale''s own locale. First/last name, Tax ID and phone
+        carry from the previous Customer only into a Customer nobody has named — an
+        existing Customer''s own facts win. Everything transacted stays: the Sale''s
+        reference, snapshot name, timestamps and money figures, the Payment and its
+        snapshot, the Platform Fee, the Reversal Window (not restarted), every other
+        Ticket''s Holder and Answers, and the consent records of either Customer.
+        **Accepting grants no consent of any kind.** **Accepting twice is idempotent**:
+        the second click rewrites nothing, sends no second Confirmation and returns
+        the same Sale. The response carries the Sale the buyer now owns (`ticket_sale_id`,
+        `confirmation_ref`, `event_name`) and the sign-in outcome ON THE SAME TERMS
+        AS A PASSCODE SIGN-IN: `session` and `session_id` when a Customer Session
+        was minted, or `consent_required` with a pending consent token when the current
+        Privacy Policy is outstanding for this Customer — finish it at POST /customer/auth/consent
+        exactly as after a passcode. No cookie is set. Refused with 401 RE_ADDRESSING_LINK_INVALID
+        for a tampered, truncated, cross-purpose or unknown token, and with 401 RE_ADDRESSING_LINK_NO_LONGER_VALID
+        (`details.reason` of `withdrawn`, `sale_reversed` or `event_started`) when
+        the recording has ended unaccepted; in both cases nothing is written and nobody
+        is mailed. The Payment Provider is never called.'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/handler.reAddressingLinkBody'
+                description: The signed re-addressing link token
+                summary: body
+        description: The signed re-addressing link token
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeReAddressingAccepted'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Internal Server Error
+      summary: Accept a sale re-addressing link
       tags:
       - public
   /api/v1/public/tags:

@@ -29,6 +29,10 @@ const maxUploadBytes = 32 << 20
 // Handler exposes HTTP endpoints for the sales domain.
 type Handler struct {
 	svc *service.Service
+	// reAddressingSignIn mints the Customer Session an accepted Re-addressing
+	// Link returns (#421, ADR 0058). Nil until WithReAddressingSignIn, and a
+	// handler without one accepts nothing: see re_addressing_link.go.
+	reAddressingSignIn ReAddressingSignIn
 }
 
 // New returns a sales HTTP handler.

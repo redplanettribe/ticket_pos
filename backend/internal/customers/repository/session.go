@@ -152,18 +152,79 @@ func (r *Repository) VerifyCustomer(ctx context.Context, email string, now time.
 	if mailLocale != "" {
 		named, fresh = mailLocale, mailLocale
 	}
-	c, err := scanCustomer(r.db.Pool.QueryRowContext(ctx, `
+	return verifyCustomer(ctx, r.db.Pool, email, now, named, fresh)
+}
+
+// verifyCustomerSQL is THE statement that makes a Verified Customer: one
+// statement, so that every Proof of Email Ownership — a passcode, a Google
+// Sign-In, an Assignment Link's click, a Re-addressing Link's click — reaches
+// the same person by construction rather than by agreement.
+const verifyCustomerSQL = `
 		INSERT INTO customers (email, first_name, last_name, verified_at, created_at, mail_locale)
 		VALUES ($1, '', '', $2, $2, $4)
 		ON CONFLICT (email) DO UPDATE SET
 			verified_at = COALESCE(customers.verified_at, EXCLUDED.verified_at),
 			mail_locale = COALESCE($3, customers.mail_locale)
-		RETURNING `+customerColumns+`
-	`, email, now, named, fresh))
+		RETURNING ` + customerColumns
+
+// queryRower is the pool or a transaction: whichever the caller is writing in.
+type queryRower interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func verifyCustomer(ctx context.Context, q queryRower, email string, now time.Time, named any, fresh string) (*Customer, error) {
+	c, err := scanCustomer(q.QueryRowContext(ctx, verifyCustomerSQL, email, now, named, fresh))
 	if err != nil {
 		return nil, err
 	}
 	return c, nil
+}
+
+// VerifyCustomerTx is VerifyCustomer inside a caller's transaction, naming no
+// Mail Locale: the click on a Re-addressing Link (#421) happens in the sales
+// module's transaction — the Sale must move in the same commit that mints the
+// person it moves to — and, like an Assignment Link's click, it happens in a
+// mail client and not on a page whose language could be remembered.
+func (r *Repository) VerifyCustomerTx(ctx context.Context, tx *sql.Tx, email string, now time.Time) (*Customer, error) {
+	return verifyCustomer(ctx, tx, email, now, nil, string(platform.DefaultLocale))
+}
+
+// CarryFactsIntoNamelessCustomer copies the name, Tax ID and phone from one
+// Customer into another THAT NOBODY HAS NAMED, in the caller's transaction,
+// and reports whether it did (#421, ADR 0058).
+//
+// THE GUARD IS IN THE STATEMENT, not in Go: the write happens only if the
+// target's name is blank on both halves at the moment of the write, so a
+// racing "My info" edit cannot be overwritten by a re-addressing that read a
+// blank a moment earlier. Within a nameless record, each of the Tax ID and
+// the phone is filled only where empty — a nameless Customer who once typed
+// a phone at checkout keeps it — and the name is taken whole.
+//
+// An existing Customer WITH a name is not touched at all: their own facts win
+// (ADR 0058), whatever the ghost said.
+func (r *Repository) CarryFactsIntoNamelessCustomer(ctx context.Context, tx *sql.Tx, toCustomerID, fromCustomerID string) (bool, error) {
+	if toCustomerID == fromCustomerID {
+		return false, nil
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE customers c
+		SET first_name    = g.first_name,
+		    last_name     = g.last_name,
+		    tax_id_type   = CASE WHEN c.tax_id_type IS NULL THEN g.tax_id_type   ELSE c.tax_id_type   END,
+		    tax_id_number = CASE WHEN c.tax_id_type IS NULL THEN g.tax_id_number ELSE c.tax_id_number END,
+		    phone         = COALESCE(c.phone, g.phone)
+		FROM customers g
+		WHERE c.id = $1 AND g.id = $2
+		  AND c.first_name = '' AND c.last_name = ''
+	`, toCustomerID, fromCustomerID)
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
 // GetTicketSaleCustomer returns the Customer a Ticket Sale belongs to, and

@@ -5,6 +5,7 @@ package openapi
 
 import (
 	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/sales/handler"
 	"github.com/peter/ticket_pos/backend/internal/sales/service"
 )
 
@@ -109,4 +110,22 @@ type EnvelopePayoutsSummary struct {
 	Data      service.PayoutsSummary `json:"data"`
 	Error     *platform.APIError     `json:"error"`
 	RequestID string                 `json:"request_id"`
+}
+
+// EnvelopeReAddressingLink documents GET /public/re-addressing-link success
+// responses: the view of a Re-addressing Link before the click (#421,
+// ADR 0058).
+type EnvelopeReAddressingLink struct {
+	Data      service.ReAddressingLinkView `json:"data"`
+	Error     *platform.APIError           `json:"error"`
+	RequestID string                       `json:"request_id"`
+}
+
+// EnvelopeReAddressingAccepted documents POST /public/re-addressing-link
+// success responses: the Sale the buyer now owns and the sign-in outcome on a
+// passcode's own terms.
+type EnvelopeReAddressingAccepted struct {
+	Data      handler.ReAddressingAcceptedResponse `json:"data"`
+	Error     *platform.APIError                   `json:"error"`
+	RequestID string                               `json:"request_id"`
 }

@@ -5068,6 +5068,130 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/re-addressing-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * View a sale re-addressing link
+         * @description Opens the Re-addressing Link a Platform Operator's Sale Re-addressing mailed to the address the buyer meant (ADR 0058), without accepting it: the Event name, the Sale Confirmation reference and the corrected address — the three facts the mail already carried — and `accepted_at` once it has been accepted. Nothing else about the purchase is disclosed before the click. The token travels in the query, as it does in the mailed link. Refused with 401 RE_ADDRESSING_LINK_INVALID when the token was tampered with, truncated, signed for another purpose or by another deployment, or names no current recording; those causes are deliberately indistinguishable. Refused with 401 RE_ADDRESSING_LINK_NO_LONGER_VALID, carrying `details.reason` of `withdrawn`, `sale_reversed` or `event_started`, when the link was genuine but its recording has ended unaccepted — told apart because its reader is the buyer.
+         */
+        get: {
+            parameters: {
+                query: {
+                    /** @description The signed re-addressing link token */
+                    token: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeReAddressingLink"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Accept a sale re-addressing link
+         * @description Accepts the Sale Re-addressing the signed Re-addressing Link names (ADR 0058). The click is Proof of Email Ownership: a Customer is created or matched on the normalised corrected address and marked Verified, and in ONE transaction the Sale's Customer and snapshot email move to them, the Sale's Self-held Ticket follows if its Holder is still the wrong address, and the record is stamped accepted; a fresh Sale Confirmation is then sent to the corrected address in the Sale's own locale. First/last name, Tax ID and phone carry from the previous Customer only into a Customer nobody has named — an existing Customer's own facts win. Everything transacted stays: the Sale's reference, snapshot name, timestamps and money figures, the Payment and its snapshot, the Platform Fee, the Reversal Window (not restarted), every other Ticket's Holder and Answers, and the consent records of either Customer. **Accepting grants no consent of any kind.** **Accepting twice is idempotent**: the second click rewrites nothing, sends no second Confirmation and returns the same Sale. The response carries the Sale the buyer now owns (`ticket_sale_id`, `confirmation_ref`, `event_name`) and the sign-in outcome ON THE SAME TERMS AS A PASSCODE SIGN-IN: `session` and `session_id` when a Customer Session was minted, or `consent_required` with a pending consent token when the current Privacy Policy is outstanding for this Customer — finish it at POST /customer/auth/consent exactly as after a passcode. No cookie is set. Refused with 401 RE_ADDRESSING_LINK_INVALID for a tampered, truncated, cross-purpose or unknown token, and with 401 RE_ADDRESSING_LINK_NO_LONGER_VALID (`details.reason` of `withdrawn`, `sale_reversed` or `event_started`) when the recording has ended unaccepted; in both cases nothing is written and nobody is mailed. The Payment Provider is never called.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description The signed re-addressing link token */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.reAddressingLinkBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeReAddressingAccepted"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/tags": {
         parameters: {
             query?: never;
@@ -10226,6 +10350,16 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        "handler.ReAddressingAcceptedResponse": {
+            accepted_at?: string;
+            confirmation_ref?: string;
+            consent_required?: components["schemas"]["service.ConsentRequiredView"];
+            corrected_email?: string;
+            event_name?: string;
+            session?: components["schemas"]["service.CustomerSessionView"];
+            session_id?: string;
+            ticket_sale_id?: string;
+        };
         "handler.answerBody": {
             /** @description Checked answers checkbox. */
             checked?: boolean;
@@ -10625,6 +10759,9 @@ export interface components {
         "handler.reAddressSaleBody": {
             email?: string;
             note?: string;
+        };
+        "handler.reAddressingLinkBody": {
+            token?: string;
         };
         "handler.recordConsentWithdrawalBody": {
             marketing_consent?: boolean;
@@ -11231,6 +11368,16 @@ export interface components {
         };
         "openapi.EnvelopeQuestionReview": {
             data?: components["schemas"]["service.QuestionReviewView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeReAddressingAccepted": {
+            data?: components["schemas"]["handler.ReAddressingAcceptedResponse"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeReAddressingLink": {
+            data?: components["schemas"]["service.ReAddressingLinkView"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -13347,6 +13494,17 @@ export interface components {
              */
             accepted?: components["schemas"]["service.SaleReAddressing"][];
             pending?: components["schemas"]["service.SaleReAddressing"];
+        };
+        "service.ReAddressingLinkView": {
+            /**
+             * @description AcceptedAt is set once the record has been accepted, so a page opened a
+             *     second time can say the purchase is already theirs and still offer the
+             *     button — the accept is idempotent and lands them signed in.
+             */
+            accepted_at?: string;
+            confirmation_ref?: string;
+            corrected_email?: string;
+            event_name?: string;
         };
         "service.ReversalDrainResult": {
             /**
