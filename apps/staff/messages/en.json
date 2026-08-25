@@ -481,6 +481,7 @@
     "colSales": "Sales",
     "colNetProceeds": "Net proceeds",
     "colStatus": "Status",
+    "colCreated": "Created",
     "colActions": "Actions",
     "moreActions": "More actions",
     "sortedAscending": "Sorted ascending",

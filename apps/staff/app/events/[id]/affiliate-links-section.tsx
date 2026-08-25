@@ -51,17 +51,22 @@ import {
 } from "@/lib/affiliate-links-view";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
-import { formatMoney } from "@/lib/format";
+import { PLATFORM_TIME_ZONE, formatDate, formatMoney } from "@/lib/format";
 import { fetchSalesSummary } from "@/lib/sales-api";
 
 type AffiliateLinksSectionProps = {
   eventId: string;
+  /** The Event's own timezone, which the Created column is drawn in. */
+  timezone: string | null;
 };
 
-export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
+export function AffiliateLinksSection({ eventId, timezone }: AffiliateLinksSectionProps) {
   const t = useTranslations("affiliateLinks");
   const errorCopy = useMessages().errors;
   const locale = toAppLocale(useLocale());
+  // The Event's zone for the Created column; the platform zone until the page
+  // has it, which for a date alone shifts nothing but a link made near midnight.
+  const zone = timezone ?? PLATFORM_TIME_ZONE;
   const [loading, setLoading] = useState(true);
   // Why the section itself is empty, when it is. A section that will not load is
   // a page-level failure and gets the banner every other one gets — toasts are
@@ -294,6 +299,7 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
         ] satisfies Column[])
       : []),
     { key: "status", label: t("colStatus") },
+    { key: "created", label: t("colCreated"), sortField: "created" },
     { key: "actions", label: t("colActions") },
   ];
 
@@ -410,6 +416,11 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
                       <Badge variant={link.active ? "default" : "secondary"}>
                         {link.active ? t("active") : t("inactive")}
                       </Badge>
+                    </td>
+                    {/* When the link was made, so "age" is something a reader can
+                        rank by and not only the tiebreak behind equal Clicks. */}
+                    <td className="py-3 pr-4 whitespace-nowrap text-muted-foreground">
+                      {formatDate(link.created_at, zone, locale) ?? ""}
                     </td>
                     {/* One visible action, the common one, and the rest behind
                         a ⋯ menu so a row stays a single line. Rename and Delete

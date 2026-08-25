@@ -104,7 +104,7 @@ Usable on phone in a pinch; tablet landscape is the primary target.
 - The Sales list and the Affiliate Links list are dense tables that **scroll sideways** on small screens
   (`overflow-x-auto`) rather than stack: their rows are comparisons, and a stacked row loses the column.
 - **Affiliate Links** (#425): one row per link — name, code (monospace, never the full URL), Clicks, Sales,
-  Net proceeds, status, actions. Sorted by Clicks descending by default; column headers sort, a second click
+  Net proceeds, status, created date (in the Event's zone), actions. Sorted by Clicks descending by default; column headers sort, a second click
   flips, each column opening in its natural direction (Name A→Z, everything else largest/newest first).
   A search box matches name and code. Sort and search run in the browser over the full list — the endpoint is
   unpaginated. Sales and Net proceeds are absent, not zero, on an Event that registers externally.
