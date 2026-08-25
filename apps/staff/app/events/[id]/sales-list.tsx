@@ -26,9 +26,16 @@ import {
 } from "@ticket-pos/ui";
 import { useLocale, useMessages, useTranslations } from "next-intl";
 
+import { SortableHeader } from "@/components/sortable-header";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
-import { PLATFORM_TIME_ZONE, formatDateTime, formatMoney, formatNumber } from "@/lib/format";
+import {
+  NOTHING_TO_SHOW,
+  PLATFORM_TIME_ZONE,
+  formatDateTime,
+  formatMoney,
+  formatNumber,
+} from "@/lib/format";
 import {
   EMPTY_SALES_FILTERS,
   PAYMENT_METHODS,
@@ -117,9 +124,6 @@ const REVERSAL_ACTOR_KEYS = {
   staff: "actorStaff",
   operator: "actorOperator",
 } as const satisfies Record<ReversalActor, string>;
-
-/** Rendered where a row has nothing to show. Punctuation, in every language. */
-const NOTHING = "—";
 
 // TicketTypeOption is the minimal Ticket Type shape the ticket-type filter needs.
 export type TicketTypeOption = {
@@ -544,41 +548,6 @@ function ReversedSalesNotice({ count, viewingReversed, onApply }: ReversedSalesN
   );
 }
 
-type SortableHeaderProps = {
-  label: string;
-  field: SaleSortField;
-  sort: SaleSortField;
-  dir: SaleSortDir;
-  onSort: (field: SaleSortField) => void;
-};
-
-// SortableHeader is a column header that toggles the Sales list sort. The active
-// column shows a direction arrow; clicking flips it, clicking another column
-// switches to it. aria-sort exposes the state to assistive tech.
-//
-// `label` arrives translated rather than as a key: the header is one of several
-// things this component is handed, and the surface above owns its own words.
-function SortableHeader({ label, field, sort, dir, onSort }: SortableHeaderProps) {
-  const active = sort === field;
-  return (
-    <th
-      className="py-2 pr-4 font-medium"
-      aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
-    >
-      <button
-        type="button"
-        onClick={() => onSort(field)}
-        className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-foreground"
-      >
-        {label}
-        <span aria-hidden className={active ? "text-foreground" : "text-muted-foreground/40"}>
-          {active ? (dir === "asc" ? "▲" : "▼") : "↕"}
-        </span>
-      </button>
-    </th>
-  );
-}
-
 const SELECT_CLASS =
   "flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm";
 
@@ -880,7 +849,7 @@ function SaleRows({
   const [answersOpen, setAnswersOpen] = useState(false);
   // A Customer's name is data and is never translated. The zone is the Event's,
   // and the platform's clock beneath it — never the reader's machine.
-  const name = `${sale.customer_first_name} ${sale.customer_last_name}`.trim() || NOTHING;
+  const name = `${sale.customer_first_name} ${sale.customer_last_name}`.trim() || NOTHING_TO_SHOW;
   const reversed = sale.status !== "active";
   const zone = timezone ?? PLATFORM_TIME_ZONE;
   const taxId = taxIdSnapshot(sale.tax_id_type, sale.tax_id_number);
@@ -942,11 +911,11 @@ function SaleRows({
                 type: taxId.token ? t(TAX_ID_KEYS[taxId.token]) : taxId.rawType,
                 number: taxId.number,
               })
-            : NOTHING}
+            : NOTHING_TO_SHOW}
         </td>
         <td className="py-3 pr-4">
           {sale.ticket_types.length === 0
-            ? NOTHING
+            ? NOTHING_TO_SHOW
             : sale.ticket_types
                 .map((type) =>
                   t("ticketTypeQuantity", {
@@ -991,7 +960,7 @@ function SaleRows({
                 <span className="font-medium text-foreground">{t("paymentMethodHeading")}</span>{" "}
                 {paymentToken
                   ? t(PAYMENT_METHOD_KEYS[paymentToken])
-                  : (sale.payment_method ?? NOTHING)}
+                  : (sale.payment_method ?? NOTHING_TO_SHOW)}
               </span>
               {/* The sale's Tickets and what each of them answered (#310).
                   Offered only where the flag is on, because every request behind
@@ -1081,7 +1050,7 @@ function ReversalProvenanceText({
   if (provenance.state === "unrecorded") {
     return <>{t("reversalUnrecorded")}</>;
   }
-  const when = formatDateTime(provenance.at, zone, locale) ?? NOTHING;
+  const when = formatDateTime(provenance.at, zone, locale) ?? NOTHING_TO_SHOW;
   if (provenance.state === "when") {
     return <>{when}</>;
   }

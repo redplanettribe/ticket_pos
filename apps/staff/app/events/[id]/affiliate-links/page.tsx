@@ -1,9 +1,6 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { callBackend } from "@/lib/api";
-import type { EventDetail } from "@/lib/events-api";
-import { SESSION_COOKIE_NAME } from "@/lib/session";
+import { loadEvent } from "@/lib/staff-event";
 
 import { loadSession } from "../../../staff-page-shell";
 import { AffiliateLinksSection } from "../affiliate-links-section";
@@ -12,21 +9,6 @@ import { AffiliateTrendsSection } from "../affiliate-trends-section";
 type AffiliateLinksPageProps = {
   params: Promise<{ id: string }>;
 };
-
-// fetchEventTimezone reads the Event's own timezone so the Created column is
-// drawn in the zone the Organizer works in, as the Sales list's times are. It
-// tolerates failure: the list still renders, in the platform zone.
-async function fetchEventTimezone(eventId: string, token: string): Promise<string | null> {
-  try {
-    const envelope = await callBackend<EventDetail>(`/api/v1/staff/events/${eventId}`, {
-      method: "GET",
-      sessionToken: token,
-    });
-    return envelope.data?.timezone ?? null;
-  } catch {
-    return null;
-  }
-}
 
 export default async function AffiliateLinksPage({ params }: AffiliateLinksPageProps) {
   const { id } = await params;
@@ -40,9 +22,11 @@ export default async function AffiliateLinksPage({ params }: AffiliateLinksPageP
     redirect(`/events/${id}/ticket-types`);
   }
 
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-  const timezone = token ? await fetchEventTimezone(id, token) : null;
+  // The Event's own timezone so the Created column is drawn in the zone the
+  // Organizer works in, as the Sales list's times are. Tolerates failure: the
+  // list still renders, in the platform zone.
+  const event = await loadEvent(id);
+  const timezone = event?.timezone ?? null;
 
   // The management list first — creating a link is the tab's first job — and
   // the trends chart beneath it, reading what the links above have done.

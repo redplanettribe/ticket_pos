@@ -1,9 +1,10 @@
 import { cookies } from "next/headers";
 
 import { callBackend } from "@/lib/api";
-import type { EventDetail, TicketType } from "@/lib/events-api";
+import type { TicketType } from "@/lib/events-api";
 import { DEFAULT_SALES_STATUS, type SalesFilters } from "@/lib/sales-api";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
+import { loadEvent } from "@/lib/staff-event";
 
 import { parseSaleDir, parseSaleSort } from "@/lib/sales-api";
 
@@ -68,20 +69,14 @@ type EventFacts = {
 
 // fetchEventFacts tolerates failure so the list still renders — in the viewer's
 // local zone, and without the Answers button, which is the same state a build
-// with the flag off is in.
-async function fetchEventFacts(eventId: string, token: string): Promise<EventFacts> {
-  try {
-    const envelope = await callBackend<EventDetail>(`/api/v1/staff/events/${eventId}`, {
-      method: "GET",
-      sessionToken: token,
-    });
-    return {
-      timezone: envelope.data?.timezone ?? null,
-      ticketQuestionsEnabled: envelope.data?.ticket_questions_enabled ?? false,
-    };
-  } catch {
-    return { timezone: null, ticketQuestionsEnabled: false };
-  }
+// with the flag off is in. The Event itself comes from the request-shared read
+// the layout has already made, so this costs no call of its own.
+async function fetchEventFacts(eventId: string): Promise<EventFacts> {
+  const event = await loadEvent(eventId);
+  return {
+    timezone: event?.timezone ?? null,
+    ticketQuestionsEnabled: event?.ticket_questions_enabled ?? false,
+  };
 }
 
 // fetchTicketTypeOptions loads the Event's Ticket Types for the ticket-type
@@ -115,9 +110,10 @@ export default async function EventSalesPage({ params, searchParams }: EventSale
 
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-  const [facts, ticketTypes] = token
-    ? await Promise.all([fetchEventFacts(id, token), fetchTicketTypeOptions(id, token)])
-    : [{ timezone: null, ticketQuestionsEnabled: false } satisfies EventFacts, []];
+  const [facts, ticketTypes] = await Promise.all([
+    fetchEventFacts(id),
+    token ? fetchTicketTypeOptions(id, token) : [],
+  ]);
   const timezone = facts.timezone;
 
   return (

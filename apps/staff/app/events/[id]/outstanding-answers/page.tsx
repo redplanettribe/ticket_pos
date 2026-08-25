@@ -1,9 +1,6 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { callBackend } from "@/lib/api";
-import type { EventDetail } from "@/lib/events-api";
-import { SESSION_COOKIE_NAME } from "@/lib/session";
+import { loadEvent } from "@/lib/staff-event";
 
 import { loadSession } from "../../../staff-page-shell";
 import { OutstandingAnswersSection } from "../outstanding-answers-section";
@@ -11,22 +8,6 @@ import { OutstandingAnswersSection } from "../outstanding-answers-section";
 type OutstandingAnswersPageProps = {
   params: Promise<{ id: string }>;
 };
-
-// The Event's timezone, so "sold in January" is January where the Event is and
-// not where the reader is standing. Tolerates failure: without it the list still
-// renders and the dates fall back to the viewer's own zone, which is a worse
-// answer than the right one and a much better answer than no list.
-async function fetchEventTimezone(eventId: string, token: string): Promise<string | null> {
-  try {
-    const envelope = await callBackend<EventDetail>(`/api/v1/staff/events/${eventId}`, {
-      method: "GET",
-      sessionToken: token,
-    });
-    return envelope.data?.timezone ?? null;
-  } catch {
-    return null;
-  }
-}
 
 export default async function EventOutstandingAnswersPage({ params }: OutstandingAnswersPageProps) {
   const { id } = await params;
@@ -48,9 +29,13 @@ export default async function EventOutstandingAnswersPage({ params }: Outstandin
   // page could only ever disagree with one of them, and somebody who reached
   // this URL with both features off sees the surface's load failure — which is
   // the correct amount of information: none.
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-  const timezone = token ? await fetchEventTimezone(id, token) : null;
+  //
+  // The Event's timezone, so "sold in January" is January where the Event is and
+  // not where the reader is standing. Tolerates failure: without it the list still
+  // renders and the dates fall back to the viewer's own zone, which is a worse
+  // answer than the right one and a much better answer than no list.
+  const event = await loadEvent(id);
+  const timezone = event?.timezone ?? null;
 
   return <OutstandingAnswersSection eventId={id} timezone={timezone} />;
 }

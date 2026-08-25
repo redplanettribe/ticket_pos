@@ -31,6 +31,7 @@ import {
   toast,
 } from "@ticket-pos/ui";
 
+import { SortableHeader } from "@/components/sortable-header";
 import {
   AFFILIATE_LINK_NAME_MAX_LENGTH,
   createAffiliateLink,
@@ -51,7 +52,7 @@ import {
 } from "@/lib/affiliate-links-view";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
-import { PLATFORM_TIME_ZONE, formatDate, formatMoney } from "@/lib/format";
+import { NOTHING_TO_SHOW, PLATFORM_TIME_ZONE, formatDate, formatMoney } from "@/lib/format";
 import { fetchSalesSummary } from "@/lib/sales-api";
 
 type AffiliateLinksSectionProps = {
@@ -269,10 +270,7 @@ export function AffiliateLinksSection({ eventId, timezone }: AffiliateLinksSecti
   // picked before the list turned out unmeasured is not thrown away, only set
   // aside for Clicks desc while the column it names is absent.
   const activeSort = resolveAffiliateSort(sort, attributionMeasured);
-  const sortedLinks = useMemo(
-    () => sortAffiliateLinks(links, activeSort.field, activeSort.dir),
-    [links, activeSort.field, activeSort.dir],
-  );
+  const sortedLinks = useMemo(() => sortAffiliateLinks(links, activeSort), [links, activeSort]);
   // The rows on screen: the sorted list narrowed by the search. Filter after
   // sort so the order is the sort's whatever the query.
   const visibleLinks = useMemo(() => filterAffiliateLinks(sortedLinks, query), [sortedLinks, query]);
@@ -286,8 +284,7 @@ export function AffiliateLinksSection({ eventId, timezone }: AffiliateLinksSecti
   // attribute a sale, so a "0" and "$0.00" would read as a failed link rather
   // than one whose success is measured in clicks. Absent, not zeroed, and not
   // an em dash either — a dash is still a claim that something is missing.
-  // Whatever is declared here is what the header, the skeleton and the body
-  // agree on; a column without a `sortField` is a plain header.
+  // Whatever is declared here is what the header and the body agree on; a column without a `sortField` is a plain header.
   const columns: Column[] = [
     { key: "name", label: t("colName"), sortField: "name" },
     { key: "code", label: t("colCode") },
@@ -333,20 +330,16 @@ export function AffiliateLinksSection({ eventId, timezone }: AffiliateLinksSecti
         </div>
 
         {loading ? (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <tbody>
-                {Array.from({ length: 3 }).map((_, index) => (
-                  <tr key={index} className="border-b">
-                    {columns.map((column) => (
-                      <td key={column.key} className="py-3 pr-4">
-                        <Skeleton className="h-4 w-full" />
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          // Row-shaped placeholders with no column structure. Whether this
+          // Event's table has the Sales and Net proceeds columns is read off
+          // the rows themselves, so nothing is known until they arrive, and a
+          // skeleton that guessed would jump when the real table replaced it.
+          <div>
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div key={index} className="border-b py-3">
+                <Skeleton className="h-4 w-full" />
+              </div>
+            ))}
           </div>
         ) : loadError ? (
           <Alert variant="destructive">
@@ -356,7 +349,19 @@ export function AffiliateLinksSection({ eventId, timezone }: AffiliateLinksSecti
         ) : links.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("empty")}</p>
         ) : visibleLinks.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t("noMatches")}</p>
+          // Nothing matched: say what was searched for and how to get the
+          // links back. Clearing empties the box only — the chosen sort stays.
+          <p className="text-sm text-muted-foreground">
+            {t("noMatches")}{" "}
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto p-0 text-sm font-normal"
+              onClick={() => setQuery("")}
+            >
+              {t("clearSearch")}
+            </Button>
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-sm">
@@ -369,10 +374,13 @@ export function AffiliateLinksSection({ eventId, timezone }: AffiliateLinksSecti
                         label={column.label}
                         field={column.sortField}
                         numeric={column.numeric}
-                        sort={activeSort}
+                        sort={activeSort.field}
+                        dir={activeSort.dir}
                         onSort={toggleSort}
-                        sortedAscending={t("sortedAscending")}
-                        sortedDescending={t("sortedDescending")}
+                        title={{
+                          ascending: t("sortedAscending"),
+                          descending: t("sortedDescending"),
+                        }}
                       />
                     ) : (
                       <th key={column.key} className="py-2 pr-4 font-medium">
@@ -407,7 +415,7 @@ export function AffiliateLinksSection({ eventId, timezone }: AffiliateLinksSecti
                           {link.net_proceeds_cents !== null
                             ? currency
                               ? formatMoney(link.net_proceeds_cents, currency, locale)
-                              : "—"
+                              : NOTHING_TO_SHOW
                             : ""}
                         </td>
                       </>
@@ -571,8 +579,8 @@ export function AffiliateLinksSection({ eventId, timezone }: AffiliateLinksSecti
   );
 }
 
-// A column of the Affiliate Links table. Declared as data so the header, the
-// loading skeleton and the body agree on the set; `sortField` makes the header
+// A column of the Affiliate Links table. Declared as data so the header and
+// the body agree on the set; `sortField` makes the header
 // a sort button, `numeric` right-aligns it over its right-aligned cells.
 type Column = {
   key: string;
@@ -581,47 +589,3 @@ type Column = {
   numeric?: boolean;
 };
 
-type SortableHeaderProps = {
-  label: string;
-  field: AffiliateSortField;
-  numeric?: boolean;
-  sort: AffiliateSort;
-  onSort: (field: AffiliateSortField) => void;
-  sortedAscending: string;
-  sortedDescending: string;
-};
-
-// SortableHeader is a column header that toggles the table sort, the Sales
-// list's header over again. The active column shows a direction arrow; clicking
-// flips it, clicking another column switches to it in its natural direction.
-// aria-sort exposes the state to assistive tech, and the title names it for a
-// pointer resting on the arrow.
-function SortableHeader({
-  label,
-  field,
-  numeric,
-  sort,
-  onSort,
-  sortedAscending,
-  sortedDescending,
-}: SortableHeaderProps) {
-  const active = sort.field === field;
-  return (
-    <th
-      className={numeric ? "py-2 pr-4 text-right font-medium" : "py-2 pr-4 font-medium"}
-      aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
-    >
-      <button
-        type="button"
-        onClick={() => onSort(field)}
-        title={active ? (sort.dir === "asc" ? sortedAscending : sortedDescending) : undefined}
-        className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-foreground"
-      >
-        {label}
-        <span aria-hidden className={active ? "text-foreground" : "text-muted-foreground/40"}>
-          {active ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}
-        </span>
-      </button>
-    </th>
-  );
-}
