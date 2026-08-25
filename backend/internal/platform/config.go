@@ -68,6 +68,13 @@ type Config struct {
 	// serves everything but certificate upload and signing without it — so
 	// that invoicing being unconfigured is never an outage.
 	InvoicingCertificateKey []byte
+	// SRIBaseURL points every SRI web-service call at another host in place
+	// of the environment's real endpoint (celcer / cel). It exists for the
+	// integration suite's fake SRI and local development, and for nothing
+	// else: LoadConfig refuses it in production, since it decides which
+	// server the platform believes authorized a factura. Empty means the
+	// real hosts.
+	SRIBaseURL string
 	// OTPGlobalCeiling caps passcode emails sent platform-wide per rate window,
 	// across staff and customer sign-in alike. Zero means "use the package
 	// default". Tunable without a deploy-time code change because the right
@@ -385,6 +392,11 @@ func LoadConfig() (Config, error) {
 		return Config{}, err
 	}
 
+	sriBaseURL, err := loadSRIBaseURL(appEnv)
+	if err != nil {
+		return Config{}, err
+	}
+
 	fees, err := loadFeeConfig()
 	if err != nil {
 		return Config{}, err
@@ -414,6 +426,7 @@ func LoadConfig() (Config, error) {
 		ConfirmationLinkSecret: confirmationLinkSecret,
 
 		InvoicingCertificateKey: invoicingCertificateKey,
+		SRIBaseURL:              sriBaseURL,
 
 		OTPGlobalCeiling: otpCeiling,
 		Google:           google,
@@ -508,6 +521,18 @@ func loadPayPhoneConfig(appEnv string) (PayPhoneConfig, error) {
 		StoreID:  strings.TrimSpace(os.Getenv("PAYPHONE_STORE_ID")),
 		BaseURL:  baseURL,
 	}, nil
+}
+
+// loadSRIBaseURL reads SRI_BASE_URL and enforces the rule loadPayPhoneConfig
+// does for PAYPHONE_API_BASE_URL: the override exists for the integration
+// suite's fake SRI and local development, and a production process that has
+// it set does not start. Empty means the SRI's real hosts per environment.
+func loadSRIBaseURL(appEnv string) (string, error) {
+	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("SRI_BASE_URL")), "/")
+	if baseURL != "" && appEnv == "production" {
+		return "", fmt.Errorf("SRI_BASE_URL must not be set when APP_ENV is production: it decides which server the platform believes authorized a factura and exists only for tests and local development")
+	}
+	return baseURL, nil
 }
 
 // InvoicingCertificateKeyLength is the key size AES-256-GCM takes, and so

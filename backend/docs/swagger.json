@@ -30,6 +30,17 @@
                 },
                 "type": "object"
             },
+            "handler.additionalFieldBody": {
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.answerBody": {
                 "properties": {
                     "checked": {
@@ -579,6 +590,51 @@
                 },
                 "type": "object"
             },
+            "handler.issueInvoiceBody": {
+                "properties": {
+                    "additional_fields": {
+                        "items": {
+                            "$ref": "#/components/schemas/handler.additionalFieldBody"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "lines": {
+                        "items": {
+                            "$ref": "#/components/schemas/handler.lineBody"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "payment_method": {
+                        "type": "string"
+                    },
+                    "recipient": {
+                        "$ref": "#/components/schemas/handler.recipientBody"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.lineBody": {
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "discount_cents": {
+                        "type": "integer"
+                    },
+                    "iva_rate": {
+                        "type": "string"
+                    },
+                    "quantity": {
+                        "type": "string"
+                    },
+                    "unit_price_cents": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "handler.manualSaleBody": {
                 "properties": {
                     "amount_cents": {
@@ -734,6 +790,26 @@
                 },
                 "type": "object"
             },
+            "handler.recipientBody": {
+                "properties": {
+                    "address": {
+                        "type": "string"
+                    },
+                    "email": {
+                        "type": "string"
+                    },
+                    "legal_name": {
+                        "type": "string"
+                    },
+                    "tax_id": {
+                        "type": "string"
+                    },
+                    "tax_id_type": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.recordConsentWithdrawalBody": {
                 "properties": {
                     "marketing_consent": {
@@ -873,6 +949,18 @@
                 "properties": {
                     "label": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.totalsBody": {
+                "properties": {
+                    "lines": {
+                        "items": {
+                            "$ref": "#/components/schemas/handler.lineBody"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     }
                 },
                 "type": "object"
@@ -1183,6 +1271,41 @@
                         "type": "string"
                     },
                     "paid_at": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "invoicing.IssuerSnapshot": {
+                "properties": {
+                    "agente_retencion": {
+                        "type": "string"
+                    },
+                    "direccion_establecimiento": {
+                        "type": "string"
+                    },
+                    "direccion_matriz": {
+                        "type": "string"
+                    },
+                    "establecimiento": {
+                        "type": "string"
+                    },
+                    "nombre_comercial": {
+                        "type": "string"
+                    },
+                    "obligado_contabilidad": {
+                        "type": "boolean"
+                    },
+                    "punto_emision": {
+                        "type": "string"
+                    },
+                    "razon_social": {
+                        "type": "string"
+                    },
+                    "regimen": {
+                        "type": "string"
+                    },
+                    "ruc": {
                         "type": "string"
                     }
                 },
@@ -1774,6 +1897,48 @@
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/service.HolderListPage"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeInvoiceDetail": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.InvoiceDetail"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeInvoiceList": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.InvoiceList"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeInvoiceTotals": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.TotalsView"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -2588,6 +2753,17 @@
                 },
                 "type": "object"
             },
+            "service.AdditionalFieldView": {
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.AffiliateLinkView": {
                 "properties": {
                     "active": {
@@ -2863,6 +3039,53 @@
                     "unrecorded": {
                         "description": "Unrecorded is how many were sent but whose ledger row could not be\nwritten: counted in Sent too, and the one case that can cost a buyer one\nmail over the cap.",
                         "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.AttemptView": {
+                "properties": {
+                    "duration_ms": {
+                        "type": "integer"
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "integer"
+                    },
+                    "messages": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.AuthorityMessageView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "operation": {
+                        "type": "string"
+                    },
+                    "outcome": {
+                        "type": "string"
+                    },
+                    "started_at": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.AuthorityMessageView": {
+                "properties": {
+                    "additional_info": {
+                        "type": "string"
+                    },
+                    "identifier": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -3194,6 +3417,36 @@
                     },
                     "skipped": {
                         "description": "Skipped is Digests whose Customer had unsubscribed by the time the drain\nreached them (#224). NOTHING WAS COMPOSED for these, which is what\nseparates them from Empty: an empty Digest was worked out and found to say\nnothing, a skipped one was never worked out at all.\n\nIt is its own number for the reason `skipped` is its own status: \"their\nFollows matched nothing\" is a reason to look at the composition, and \"we\ndeliberately did not write to this person\" is the feature working. An\noperator who could not tell the two apart would read a week of unsubscribes\nas the matching having broken.\n\nIt counts only the narrow window the enqueue filter cannot cover — somebody\nwho unsubscribed after their Digest was already queued — so it is\nordinarily zero even in a week with many unsubscribes.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.EcuadorInvoiceView": {
+                "properties": {
+                    "access_key": {
+                        "type": "string"
+                    },
+                    "ambiente": {
+                        "type": "string"
+                    },
+                    "authorization_date": {
+                        "type": "string"
+                    },
+                    "authorization_number": {
+                        "description": "AuthorizationNumber and AuthorizationDate are null until authorized.",
+                        "type": "string"
+                    },
+                    "cod_doc": {
+                        "type": "string"
+                    },
+                    "estab": {
+                        "type": "string"
+                    },
+                    "pto_emi": {
+                        "type": "string"
+                    },
+                    "secuencial": {
                         "type": "integer"
                     }
                 },
@@ -3709,6 +3962,205 @@
                     },
                     "ticket_type_name": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.InvoiceDetail": {
+                "properties": {
+                    "additional_fields": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.AdditionalFieldView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "attempts": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.AttemptView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "country": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "currency": {
+                        "type": "string"
+                    },
+                    "ecuador": {
+                        "$ref": "#/components/schemas/service.EcuadorInvoiceView"
+                    },
+                    "environment": {
+                        "type": "string"
+                    },
+                    "has_authorization_xml": {
+                        "description": "HasAuthorizationXML says whether the authority's document is on file\n(#456 serves it).",
+                        "type": "boolean"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "issued_at": {
+                        "type": "string"
+                    },
+                    "issued_by": {
+                        "type": "string"
+                    },
+                    "issued_on": {
+                        "description": "IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country.",
+                        "type": "string"
+                    },
+                    "issuer": {
+                        "$ref": "#/components/schemas/invoicing.IssuerSnapshot"
+                    },
+                    "lines": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.LineView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "messages": {
+                        "description": "Messages are the authority's messages from its last answer.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.AuthorityMessageView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "number": {
+                        "description": "Number is the document number as printed: estab-ptoEmi-secuencial,\ne.g. 001-001-000000012.",
+                        "type": "string"
+                    },
+                    "payment_method": {
+                        "type": "string"
+                    },
+                    "payment_method_label": {
+                        "type": "string"
+                    },
+                    "recipient": {
+                        "$ref": "#/components/schemas/service.RecipientView"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "total_cents": {
+                        "type": "integer"
+                    },
+                    "totals": {
+                        "$ref": "#/components/schemas/service.TotalsView"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.InvoiceList": {
+                "properties": {
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.InvoiceListItem"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "pagination": {
+                        "$ref": "#/components/schemas/service.InvoicePagination"
+                    }
+                },
+                "type": "object"
+            },
+            "service.InvoiceListItem": {
+                "properties": {
+                    "country": {
+                        "type": "string"
+                    },
+                    "currency": {
+                        "type": "string"
+                    },
+                    "environment": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "issued_at": {
+                        "type": "string"
+                    },
+                    "issued_by": {
+                        "type": "string"
+                    },
+                    "issued_on": {
+                        "description": "IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country.",
+                        "type": "string"
+                    },
+                    "number": {
+                        "description": "Number is the document number as printed: estab-ptoEmi-secuencial,\ne.g. 001-001-000000012.",
+                        "type": "string"
+                    },
+                    "recipient": {
+                        "$ref": "#/components/schemas/service.RecipientView"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "total_cents": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.InvoicePagination": {
+                "properties": {
+                    "page": {
+                        "type": "integer"
+                    },
+                    "page_size": {
+                        "type": "integer"
+                    },
+                    "total": {
+                        "type": "integer"
+                    },
+                    "total_pages": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.LineView": {
+                "properties": {
+                    "base_cents": {
+                        "type": "integer"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "discount_cents": {
+                        "type": "integer"
+                    },
+                    "iva_cents": {
+                        "type": "integer"
+                    },
+                    "iva_rate": {
+                        "type": "string"
+                    },
+                    "position": {
+                        "type": "integer"
+                    },
+                    "quantity": {
+                        "description": "Quantity is a decimal string with up to six decimals (\"1\", \"2.5\").",
+                        "type": "string"
+                    },
+                    "rate_percent": {
+                        "type": "integer"
+                    },
+                    "unit_price_cents": {
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -5077,6 +5529,23 @@
                 },
                 "type": "object"
             },
+            "service.RateTotalView": {
+                "properties": {
+                    "base_cents": {
+                        "type": "integer"
+                    },
+                    "iva_cents": {
+                        "type": "integer"
+                    },
+                    "iva_rate": {
+                        "type": "string"
+                    },
+                    "rate_percent": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "service.ReAddressing": {
                 "properties": {
                     "accepted_at": {
@@ -5149,6 +5618,26 @@
                         "type": "string"
                     },
                     "event_name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.RecipientView": {
+                "properties": {
+                    "address": {
+                        "type": "string"
+                    },
+                    "email": {
+                        "type": "string"
+                    },
+                    "legal_name": {
+                        "type": "string"
+                    },
+                    "tax_id": {
+                        "type": "string"
+                    },
+                    "tax_id_type": {
                         "type": "string"
                     }
                 },
@@ -5957,6 +6446,30 @@
                     },
                     "updated_at": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.TotalsView": {
+                "properties": {
+                    "by_rate": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.RateTotalView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "discount_cents": {
+                        "type": "integer"
+                    },
+                    "iva_cents": {
+                        "type": "integer"
+                    },
+                    "subtotal_cents": {
+                        "type": "integer"
+                    },
+                    "total_cents": {
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -8856,6 +9369,317 @@
                     }
                 ],
                 "summary": "List an Event's Ticket Questions for the Platform Operator",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/invoices": {
+            "get": {
+                "description": "Returns a page of every Tax Invoice the platform has issued, newest first: the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such). Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Page number (default 1)",
+                        "in": "query",
+                        "name": "page",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Page size (default 50, max 100)",
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeInvoiceList"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List Tax Invoices",
+                "tags": [
+                    "operator"
+                ]
+            },
+            "post": {
+                "description": "Issues a factura to the Ecuador Issuer's SRI environment from the form (ADR 0059). The Recipient's `tax_id_type` is `ruc`, `cedula` or `passport` (never consumidor final) and `tax_id` is validated exactly as a checkout Tax ID; `legal_name` and `email` are required, `address` optional. Each line has a `description`, a `quantity` (decimal string, up to six decimals), `unit_price_cents`, an optional `discount_cents` and an `iva_rate` of `15`, `0`, `exento` or `no_objeto`. `payment_method` is an SRI forma de pago code, default `20`. Up to 14 `additional_fields` (name/value, 300 chars) may be added — the Recipient's email takes the fifteenth. Totals are computed server-side. Every failing field is named under VALIDATION_FAILED; ISSUER_NOT_FOUND (404), CERTIFICATE_NOT_UPLOADED (409), CERTIFICATE_KEY_NOT_CONFIGURED (503), ISSUER_INCOMPLETE (409) and INVOICE_INVALID (400) are refused before any number is consumed. Otherwise the next secuencial is allocated, the document built and signed, submitted to the SRI and its authorization polled for up to ~15 s; the answer is the invoice as it then stands — `authorized`, `not_authorized`, `rejected` or `pending` — with the SRI's messages verbatim and one attempts row per SRI call. Platform Operator only.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.issueInvoiceBody",
+                                        "summary": "body",
+                                        "description": "The Recipient, lines, forma de pago and additional fields"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The Recipient, lines, forma de pago and additional fields",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeInvoiceDetail"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Issue a Tax Invoice",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/invoices/totals": {
+            "post": {
+                "description": "Does the factura arithmetic for the lines given — per-rate subtotals, total discount, IVA and total, in cents — exactly as the issued document will carry them, without issuing anything. The form shows these; it never computes its own. Lines are validated as on issue. Platform Operator only.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.totalsBody",
+                                        "summary": "body",
+                                        "description": "The lines"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The lines",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeInvoiceTotals"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Preview a Tax Invoice's totals",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/invoices/{id}": {
+            "get": {
+                "description": "Returns one Tax Invoice in full: Recipient, the Issuer as snapshotted at issue time, lines with their arithmetic, totals, status, the SRI's last messages verbatim (identifier, message, additional information, type), the clave de acceso and — once authorized — the authorization number and date, and the attempts ledger with one row per SRI call (operation, outcome, messages, duration). INVOICE_NOT_FOUND (404) otherwise. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Tax Invoice id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeInvoiceDetail"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Get a Tax Invoice",
                 "tags": [
                     "operator"
                 ]

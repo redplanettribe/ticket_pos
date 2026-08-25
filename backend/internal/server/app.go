@@ -34,6 +34,7 @@ import (
 	invoicinghandler "github.com/peter/ticket_pos/backend/internal/invoicing/handler"
 	invoicingrepo "github.com/peter/ticket_pos/backend/internal/invoicing/repository"
 	invoicingsvc "github.com/peter/ticket_pos/backend/internal/invoicing/service"
+	"github.com/peter/ticket_pos/backend/internal/invoicing/sri"
 	operatorhandler "github.com/peter/ticket_pos/backend/internal/operator/handler"
 	operatorsvc "github.com/peter/ticket_pos/backend/internal/operator/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
@@ -535,6 +536,15 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	}
 	invoicingRepo := invoicingrepo.New(db)
 	invoicingService := invoicingsvc.New(invoicingRepo, invoicingCustody, platformLogger)
+	if options.clock != nil {
+		invoicingService = invoicingService.WithClock(options.clock)
+	}
+	// The single base-URL override (#454): every SRI call goes to the fake in
+	// tests and local development; the real hosts otherwise.
+	if cfg.SRIBaseURL != "" {
+		platformLogger.Warn("invoicing: SRI_BASE_URL override in effect; facturas go to a stand-in, not the SRI", "base_url", cfg.SRIBaseURL)
+		invoicingService = invoicingService.WithTaxAuthority(sri.AuthorityFactory(sri.WithBaseURL(cfg.SRIBaseURL)))
+	}
 	invoicingHandler := invoicinghandler.New(invoicingService)
 
 	return &App{

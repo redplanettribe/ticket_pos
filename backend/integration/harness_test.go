@@ -53,6 +53,13 @@ var (
 	fixedClock    = time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
 )
 
+// sharedInvoicingKey is the 32-byte certificate custody key both the shared
+// app and the fake-SRI app boot with, so a certificate uploaded through one
+// opens for signing in the other.
+func sharedInvoicingKey() []byte {
+	return bytes.Repeat([]byte{0x42}, 32)
+}
+
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 
@@ -119,7 +126,7 @@ func TestMain(m *testing.M) {
 		// (#453, ADR 0059): 32 fixed bytes, as LoadConfig would decode them
 		// from INVOICING_CERTIFICATE_KEY. A test of the deployment that has no
 		// key boots its own app without one.
-		InvoicingCertificateKey: bytes.Repeat([]byte{0x42}, 32),
+		InvoicingCertificateKey: sharedInvoicingKey(),
 	}
 
 	app, err := server.NewApp(ctx, cfg,
@@ -156,8 +163,17 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	// A third app over the SAME database, wired with the SRI base-URL override
+	// pointed at a fake SRI, so the Ecuador Tax Authority adapter is exercised
+	// exactly as production wires it. See invoicing_sri_fake_test.go.
+	if err := startSRIEnv(ctx, connStr, email); err != nil {
+		fmt.Fprintf(os.Stderr, "sri env: %v\n", err)
+		os.Exit(1)
+	}
+
 	code := m.Run()
 
+	stopSRIEnv()
 	stopPayPhoneEnv()
 	googleStub.server.Close()
 	srv.Close()
@@ -227,6 +243,10 @@ func setupTest(t *testing.T) *testEnv {
 	sharedApp.DigestService.WithSendInterval(-1)
 	googleStub.reset()
 	payphoneStub.reset()
+	sriStub.reset()
+	// The fake-SRI app carries the invoicing service clock; keep it on the
+	// same fixed clock every reset restores everywhere else.
+	sriApp.InvoicingService.WithClock(func() time.Time { return fixedClock })
 	// The checkout helpers cache one Customer Session per buyer, and the
 	// truncation above has just invalidated every one of them.
 	clear(buyerSessions)
@@ -236,7 +256,7 @@ func setupTest(t *testing.T) *testEnv {
 func resetDatabase(ctx context.Context, db *sql.DB) error {
 	// Update this list when new application tables are added via migrations.
 	if _, err := db.ExecContext(ctx, `
-		TRUNCATE TABLE invoicing_sequences_ec, invoicing_issuers_ec, invoicing_issuers, event_page_views, assignment_reminders, follow_digests, follow_digest_sent_events, affiliate_links, platform_operators, payout_requests, payouts, organization_payout_profiles, payment_lines, payments, customer_organization_follows, customer_tag_follows, consent_records, pending_consents, customer_sessions, sale_reversals, tickets, ticket_sale_lines, ticket_sales, customers, sale_import_batches, event_tags, event_assignments, ticket_question_options, ticket_questions, ticket_type_promotions, ticket_types, events, otp_challenges, staff_locales, sessions, members, organizations RESTART IDENTITY CASCADE
+		TRUNCATE TABLE invoicing_attempts, invoicing_additional_fields, invoicing_invoice_lines, invoicing_invoices_ec, invoicing_invoices, invoicing_sequences_ec, invoicing_issuers_ec, invoicing_issuers, event_page_views, assignment_reminders, follow_digests, follow_digest_sent_events, affiliate_links, platform_operators, payout_requests, payouts, organization_payout_profiles, payment_lines, payments, customer_organization_follows, customer_tag_follows, consent_records, pending_consents, customer_sessions, sale_reversals, tickets, ticket_sale_lines, ticket_sales, customers, sale_import_batches, event_tags, event_assignments, ticket_question_options, ticket_questions, ticket_type_promotions, ticket_types, events, otp_challenges, staff_locales, sessions, members, organizations RESTART IDENTITY CASCADE
 	`); err != nil {
 		return fmt.Errorf("truncate tables: %w", err)
 	}

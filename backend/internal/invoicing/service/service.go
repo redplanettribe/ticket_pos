@@ -20,6 +20,12 @@ type Service struct {
 	repo    *repository.Repository
 	custody *invoicing.Custody
 	logger  platform.Logger
+	clock   func() time.Time
+	// authority builds the country adapter for the environment an invoice is
+	// issued under; the SRI's real hosts unless overridden (#454).
+	authority  func(invoicing.Environment) invoicing.TaxAuthority
+	pollDelays []time.Duration
+	pollBudget time.Duration
 }
 
 // New builds the invoicing Service. custody may be unconfigured (built over a
@@ -29,7 +35,15 @@ func New(repo *repository.Repository, custody *invoicing.Custody, logger platfor
 	if custody == nil {
 		custody, _ = invoicing.NewCustody(nil)
 	}
-	return &Service{repo: repo, custody: custody, logger: logger}
+	return &Service{
+		repo:       repo,
+		custody:    custody,
+		logger:     logger,
+		clock:      time.Now,
+		authority:  sri.AuthorityFactory(),
+		pollDelays: DefaultPollDelays,
+		pollBudget: DefaultPollBudget,
+	}
 }
 
 // EcuadorIssuer is the Ecuador Issuer as the operator surface reads it: the

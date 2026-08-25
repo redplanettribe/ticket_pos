@@ -50,3 +50,23 @@ func ErrCertificateNotUploaded() apperror.DomainError {
 func ErrCertificateUnreadable() apperror.DomainError {
 	return apperror.New("CERTIFICATE_UNREADABLE", "The stored certificate cannot be opened under the current certificate key. Upload the .p12 again.", nil)
 }
+
+// ErrIssuerIncomplete: the Issuer is recorded but the authority's document
+// cannot be built from it — a detail the platform accepts and the SRI's
+// schema does not. The message says which. Refused before any number is
+// consumed (#454).
+func ErrIssuerIncomplete(reason string) apperror.DomainError {
+	return apperror.New("ISSUER_INCOMPLETE", "The Issuer's details cannot go on a factura: "+reason+". Fix the Issuer first.", nil)
+}
+
+// ErrInvoiceInvalid: the Tax Invoice as entered cannot be built into the
+// authority's document. The message is the builder's own. Refused before any
+// number is consumed (#454).
+func ErrInvoiceInvalid(reason string) apperror.DomainError {
+	return apperror.New("INVOICE_INVALID", "The invoice cannot be built: "+reason+".", nil)
+}
+
+// ErrInvoiceNotFound: no Tax Invoice has that id.
+func ErrInvoiceNotFound() apperror.DomainError {
+	return apperror.New("INVOICE_NOT_FOUND", "No invoice has that id.", nil)
+}

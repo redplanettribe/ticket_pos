@@ -178,6 +178,15 @@ func domainHTTPStatus(code string) int {
 		return http.StatusNotFound
 	case "CERTIFICATE_NOT_UPLOADED":
 		return http.StatusConflict
+	// A Tax Invoice refused before a number is consumed (#454): the Issuer is
+	// there but not fit for a factura (409), or the invoice as entered will
+	// not build (400).
+	case "ISSUER_INCOMPLETE":
+		return http.StatusConflict
+	case "INVOICE_INVALID":
+		return http.StatusBadRequest
+	case "INVOICE_NOT_FOUND":
+		return http.StatusNotFound
 	case "NOT_FOUND", "ORGANIZATION_NOT_FOUND", "MEMBER_NOT_FOUND", "EVENT_NOT_FOUND":
 		return http.StatusNotFound
 	case "ORGANIZATION_SLUG_TAKEN", "EVENT_SLUG_TAKEN", "MEMBER_ALREADY_EXISTS", "LAST_ORG_ADMIN", "CANNOT_REMOVE_SELF", "CAPACITY_EXCEEDED", "PURCHASE_LIMIT_EXCEEDED", "IMPORT_BATCH_FAILED", "IMPORT_NOT_LATEST_BATCH", "IMPORT_ALREADY_REVERSED", "EVENT_NOT_DRAFT", "EVENT_DELETE_FORBIDDEN", "EVENT_PUBLISH_REQUIREMENTS_NOT_MET", "EVENT_ALREADY_PUBLISHED", "EVENT_ALREADY_CANCELLED", "EVENT_NOT_PUBLISHED", "TICKET_TYPE_DELETE_FORBIDDEN", "CURRENCY_LOCKED":

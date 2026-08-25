@@ -29,7 +29,7 @@ test("the entries point at the operator surface", () => {
       "/operator/payout-requests",
       "/operator/sales",
       "/operator/consent",
-      "/operator/invoicing/issuer",
+      "/operator/invoicing",
     ],
   );
 });
@@ -62,8 +62,12 @@ test("the consent surface lights Customer consent alone", () => {
   assert.deepEqual(activeKeys("/operator/consent"), ["customerConsent"]);
 });
 
-test("the issuer page lights Tax invoicing alone", () => {
+test("the invoicing surface lights Tax invoicing alone", () => {
+  // The list at the root of the subtree, the Issuer page and an invoice detail
+  // all hang beneath /operator/invoicing, so each lights the one entry.
+  assert.deepEqual(activeKeys("/operator/invoicing"), ["taxInvoicing"]);
   assert.deepEqual(activeKeys("/operator/invoicing/issuer"), ["taxInvoicing"]);
+  assert.deepEqual(activeKeys("/operator/invoicing/inv_123"), ["taxInvoicing"]);
 });
 
 // --- the pending count -----------------------------------------------------
