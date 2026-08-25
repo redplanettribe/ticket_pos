@@ -290,6 +290,11 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// checkout, no door sale and no Sale Import consults it, because nothing
 	// about assignment may block or delay any of them.
 	salesService = salesService.WithTicketAssignment(cfg.TicketAssignmentEnabled)
+	// The Re-addressing Link's signing key (#420, ADR 0058): the same
+	// deployment secret every signed link derives from, turned into this
+	// purpose's own key inside sales — see sales.NewReAddressingLinkSigner. The
+	// link points at the Storefront origin sales already holds for checkout.
+	salesService = salesService.WithReAddressingLinks(confirmationLinkSecret)
 	salesHandler := saleshandler.New(salesService)
 
 	// Catalog is built AFTER sales because the public Event page reports a

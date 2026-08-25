@@ -156,6 +156,13 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// off-platform, keyed on the same reference the lookup takes because the
 	// action hangs off that lookup and the operator has nothing else (#125).
 	mux.Handle("POST /api/v1/operator/sales/{confirmationRef}/reverse", operator(http.HandlerFunc(h.ReverseSale)))
+	// The Sale Re-addressing: recording the address a stranded buyer meant, so
+	// the platform can mail it a Re-addressing Link (#420, ADR 0058). The
+	// second lever on an Online Sale, beside Reverse and hanging off the same
+	// lookup. Operator only: moving whom a paid record belongs to is a larger
+	// trust grant than any Organization holds. Withdraw (DELETE on this path)
+	// is #423.
+	mux.Handle("POST /api/v1/operator/sales/{confirmationRef}/re-address", operator(http.HandlerFunc(h.ReAddressSale)))
 	// Recording a Payout, which used to mean an INSERT typed by hand into the
 	// production database (ADR 0015).
 	mux.Handle("POST /api/v1/operator/organizations/{orgID}/payouts", operator(http.HandlerFunc(h.RecordPayout)))

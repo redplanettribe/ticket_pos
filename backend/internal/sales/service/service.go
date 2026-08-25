@@ -271,6 +271,11 @@ type Service struct {
 	// once per Payment and snapshots what it computed, so a later rate change
 	// never moves recorded economics (ADR 0014).
 	fees sales.FeeRates
+	// reAddressingLinks signs Re-addressing Links (#420, ADR 0058). Its zero
+	// value is an UNCONFIGURED signer that mints nothing, so a service nobody
+	// wired a secret into records re-addressings and mails nobody — and says so
+	// in the log — rather than sending a linkless mail; see re_addressing.go.
+	reAddressingLinks sales.ReAddressingLinkSigner
 	// affiliates resolves the Affiliate Link code a checkout arrived with.
 	// Optional: unset, no checkout is ever attributed and everything else is
 	// unchanged — which is exactly what the channels that never carry a code do

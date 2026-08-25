@@ -648,6 +648,17 @@
                 },
                 "type": "object"
             },
+            "handler.reAddressSaleBody": {
+                "properties": {
+                    "email": {
+                        "type": "string"
+                    },
+                    "note": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.recordConsentWithdrawalBody": {
                 "properties": {
                     "marketing_consent": {
@@ -1930,6 +1941,20 @@
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/service.SaleLookup"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeOperatorSaleReAddressing": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.ReAddressing"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -4848,6 +4873,65 @@
                 },
                 "type": "object"
             },
+            "service.ReAddressing": {
+                "properties": {
+                    "accepted_at": {
+                        "type": "string"
+                    },
+                    "confirmation_ref": {
+                        "type": "string"
+                    },
+                    "corrected_email": {
+                        "description": "CorrectedEmail is the address the buyer meant, normalised as a Customer's\nis. Null once #424's purge has taken it off an unaccepted record.",
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "note": {
+                        "type": "string"
+                    },
+                    "operator": {
+                        "description": "Operator is the acting operator's email, from their Staff Session and\nnever from a request body.",
+                        "type": "string"
+                    },
+                    "previous_email": {
+                        "description": "PreviousEmail is the Sale's address when this was recorded — the wrong\none, kept as the evidence of what was corrected.",
+                        "type": "string"
+                    },
+                    "requested_at": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "description": "Status is DERIVED at read time and never stored: pending, accepted,\nwithdrawn or expired (sales.DeriveReAddressingState).",
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
+                        "type": "string"
+                    },
+                    "withdrawn_at": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.ReAddressingBlock": {
+                "description": "ReAddressing is the Sale Re-addressing block (#420, ADR 0058): the\npending record, or null, and the accepted history. It rides the lookup\nrather than its own read because it is the second lever on this Sale\nbeside Reverse, and the page that offers both reads once. It carries no\ntoken and no link, ever.",
+                "properties": {
+                    "accepted": {
+                        "description": "Accepted is never null: an empty list says \"nobody has accepted\nanything\" and a null would say the block was not computed.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.SaleReAddressing"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "pending": {
+                        "$ref": "#/components/schemas/service.SaleReAddressing"
+                    }
+                },
+                "type": "object"
+            },
             "service.ReversalDrainResult": {
                 "properties": {
                     "failed": {
@@ -5074,8 +5158,53 @@
                     "organization": {
                         "$ref": "#/components/schemas/service.Organization"
                     },
+                    "re_addressing": {
+                        "$ref": "#/components/schemas/service.ReAddressingBlock"
+                    },
                     "sale": {
                         "$ref": "#/components/schemas/service.Sale"
+                    }
+                },
+                "type": "object"
+            },
+            "service.SaleReAddressing": {
+                "properties": {
+                    "accepted_at": {
+                        "type": "string"
+                    },
+                    "confirmation_ref": {
+                        "type": "string"
+                    },
+                    "corrected_email": {
+                        "description": "CorrectedEmail is the address the buyer meant, normalised as a Customer's\nis. Null once #424's purge has taken it off an unaccepted record.",
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "note": {
+                        "type": "string"
+                    },
+                    "operator": {
+                        "description": "Operator is the acting operator's email, from their Staff Session and\nnever from a request body.",
+                        "type": "string"
+                    },
+                    "previous_email": {
+                        "description": "PreviousEmail is the Sale's address when this was recorded — the wrong\none, kept as the evidence of what was corrected.",
+                        "type": "string"
+                    },
+                    "requested_at": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "description": "Status is DERIVED at read time and never stored: pending, accepted,\nwithdrawn or expired (sales.DeriveReAddressingState).",
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
+                        "type": "string"
+                    },
+                    "withdrawn_at": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -9708,6 +9837,113 @@
                     }
                 ],
                 "summary": "Look up a Ticket Sale by its Sale Confirmation reference",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/sales/{confirmationRef}/re-address": {
+            "post": {
+                "description": "Records a Sale Re-addressing against the active Online Sale named by a Sale Confirmation reference: the address the buyer meant, and an optional note (at most 500 characters). The platform then mails THAT address a Re-addressing Link, in the Sale's own locale, saying the purchase is being re-addressed to them at the organizer's request and that accepting takes it on; the wrong address is told nothing. NOTHING MOVES YET: the Sale still belongs to whoever it belonged to until the corrected address clicks the link (ADR 0058), and the response is the pending record — corrected address (normalised as a Customer's is), the Sale's address at request time, the acting operator (taken from the Staff Session, never from the body), the note and requested_at. THE RESPONSE CARRIES NO TOKEN AND NO LINK: the link is delivered to the corrected address alone, so the Operator cannot complete the acceptance themself. The Payment Provider is never called — no money moves. Refused for a sale that is not an Online Sale (SALE_NOT_RE_ADDRESSABLE: an imported sale is corrected through its Sale Import), one already reversed (SALE_ALREADY_REVERSED), one whose Event has already started (RE_ADDRESSING_EVENT_STARTED, read live in the Event's timezone), a correction that normalises to the address the sale already carries (RE_ADDRESSING_SAME_ADDRESS), and a sale with a pending re-addressing already (RE_ADDRESSING_ALREADY_PENDING). Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Sale Confirmation reference (case-insensitive)",
+                        "in": "path",
+                        "name": "confirmationRef",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.reAddressSaleBody",
+                                        "summary": "body",
+                                        "description": "The address the buyer meant, and an optional note"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The address the buyer meant, and an optional note",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorSaleReAddressing"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Re-address an Online Sale to the address its buyer meant",
                 "tags": [
                     "operator"
                 ]

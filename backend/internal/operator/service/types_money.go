@@ -63,3 +63,10 @@ type PayoutFulfilment = service.FulfilledPayoutRequest
 // SaleReversal is one recorded Operator Reversal — the marked sale and the
 // money memo the operator asserted (sales owns it).
 type SaleReversal = service.OperatorReversalResult
+
+// ReAddressing is one Sale Re-addressing record as the Operator sees it
+// (#420, ADR 0058).
+type ReAddressing = service.SaleReAddressing
+
+// ReAddressingBlock is the lookup's pending-plus-accepted block.
+type ReAddressingBlock = service.SaleReAddressingBlock

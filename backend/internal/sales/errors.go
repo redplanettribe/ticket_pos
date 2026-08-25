@@ -532,3 +532,56 @@ func ErrImportBatchFailed(row int, reason string, details map[string]any) apperr
 	}
 	return apperror.New("IMPORT_BATCH_FAILED", "Import could not be completed.", d)
 }
+
+// The Sale Re-addressing's refusals (#420, ADR 0058). Each is its own code
+// rather than one SALE_NOT_RE_ADDRESSABLE with a reason in details, because
+// the staff app picks its sentence by code and an Operator reading "cannot be
+// re-addressed" needs to know which of four different facts stands in the way
+// — three of which they can do nothing about and one of which (the address)
+// they can.
+
+// ErrSaleNotReAddressable is returned when the Ticket Sale is not an Online
+// Sale. An imported Sale is corrected by Sale Correction (ADR 0050) and a door
+// sale has no buyer surface waiting to be unlocked; the Operator's two levers
+// share one channel rule.
+func ErrSaleNotReAddressable(channel string) apperror.DomainError {
+	return apperror.New(
+		"SALE_NOT_RE_ADDRESSABLE",
+		"Only an Online Sale can be re-addressed. An imported sale is corrected through its Sale Import.",
+		map[string]any{"channel": channel},
+	)
+}
+
+// ErrReAddressingEventStarted is returned when the Sale's Event has already
+// started. Past the doors "give me my tickets" has no meaning; only the money
+// question remains, which the Operator Reversal answers.
+func ErrReAddressingEventStarted() apperror.DomainError {
+	return apperror.New(
+		"RE_ADDRESSING_EVENT_STARTED",
+		"This sale's event has already started, so it can no longer be re-addressed.",
+		nil,
+	)
+}
+
+// ErrReAddressingSameAddress is returned when the corrected address normalises
+// to the address the Sale already carries: a no-op is never recorded and never
+// mailed.
+func ErrReAddressingSameAddress(email string) apperror.DomainError {
+	return apperror.New(
+		"RE_ADDRESSING_SAME_ADDRESS",
+		"That is already the address this sale is addressed to.",
+		map[string]any{"email": email},
+	)
+}
+
+// ErrReAddressingAlreadyPending is returned when the Sale already carries a
+// pending re-addressing. One pending per Sale (migration 093); until #423 makes
+// a second recording a replace that withdraws the first and kills its link,
+// the second is refused and the first stands.
+func ErrReAddressingAlreadyPending(correctedEmail string) apperror.DomainError {
+	return apperror.New(
+		"RE_ADDRESSING_ALREADY_PENDING",
+		"A re-addressing of this sale is already pending; the corrected address has been mailed and nothing has happened since.",
+		map[string]any{"corrected_email": correctedEmail},
+	)
+}

@@ -13,6 +13,12 @@ import "context"
 type SaleLookup struct {
 	Sale         Sale         `json:"sale"`
 	Organization Organization `json:"organization"`
+	// ReAddressing is the Sale Re-addressing block (#420, ADR 0058): the
+	// pending record, or null, and the accepted history. It rides the lookup
+	// rather than its own read because it is the second lever on this Sale
+	// beside Reverse, and the page that offers both reads once. It carries no
+	// token and no link, ever.
+	ReAddressing ReAddressingBlock `json:"re_addressing"`
 }
 
 // LookUpSale finds one Ticket Sale by its Sale Confirmation reference, across
@@ -39,5 +45,9 @@ func (s *Service) LookUpSale(ctx context.Context, confirmationRef string) (*Sale
 	if err != nil {
 		return nil, err
 	}
-	return &SaleLookup{Sale: *sale, Organization: *org}, nil
+	reAddressing, err := s.money.SaleReAddressings(ctx, sale)
+	if err != nil {
+		return nil, err
+	}
+	return &SaleLookup{Sale: *sale, Organization: *org, ReAddressing: *reAddressing}, nil
 }

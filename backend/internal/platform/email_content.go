@@ -1028,6 +1028,76 @@ func (a TicketAssignment) Text() string {
 	return text
 }
 
+// The Re-addressing mail (#420, parent #419, ADR 0058): the message telling the
+// address a Sale Re-addressing names that a purchase is being re-addressed to
+// them, and how to accept it.
+//
+// WRITTEN FOR THE STRANGER AS MUCH AS FOR THE BUYER. The Operator typed this
+// address from a support thread; if it is right, the reader is the person who
+// paid and has been locked out of their own tickets for weeks; if it is wrong
+// again, the reader never bought anything. Every sentence was checked against
+// both readers. It says who is doing this (the platform, at the organizer's
+// request), what it is (a purchase, named by Event and reference), that
+// ACCEPTING TAKES THE PURCHASE ON — the sentence #419's story 24 asks for, so
+// that a stranger sees plainly that this is somebody else's — and that ignoring
+// it does nothing.
+//
+// THE VERB IS ACCEPT. Not "claim", not "transfer", not "confirm" — the first two
+// are barred by the glossary and the third is taken four times over (ADR 0046).
+//
+// WHAT IT DOES NOT SAY: the wrong address, the buyer's name, the price, the Tax
+// ID, or anything else about the purchase beyond the two public facts and the
+// reference. The reference is safe — it is not a credential, and it is the
+// thing a buyer with two stranded Sales needs to tell their two mails apart.
+//
+// The Spanish is usted throughout, and takes "compra" for the purchase and
+// "entradas" for the tickets, matching the receipt.
+var (
+	saleReAddressingSubjectCopy = translated(
+		"Your purchase for %s has been re-addressed to you",
+		"Su compra para %s ha sido redirigida a usted",
+	)
+	// Who, what, and on whose request — in that order, because a message from
+	// a platform the reader may never have heard of has to say why it is
+	// writing before it says anything else. The reference is stated as data,
+	// never explained: the buyer knows it and a stranger has no use for it.
+	saleReAddressingOpeningCopy = translated(
+		"At the organizer's request, we are re-addressing a ticket purchase to this email address.\n\nEvent: %s\nReference: %s\n\nThe purchase was made under an email address that could not be reached, and the organizer has told us this is the address it was meant for.",
+		"A pedido de la organización, estamos redirigiendo una compra de entradas a esta dirección de correo.\n\nEvento: %s\nReferencia: %s\n\nLa compra se hizo con una dirección de correo a la que no se podía llegar, y la organización nos ha indicado que esta es la dirección a la que estaba destinada.",
+	)
+	// What accepting does, stated as taking the purchase ON — the sentence that
+	// makes a stranger stop. Then the link.
+	saleReAddressingActionCopy = translated(
+		"If this purchase is yours, accept it here and the tickets and every message about them will come to this address from now on. Accepting takes this purchase on as your own:\n%s",
+		"Si esta compra es suya, acéptela aquí y las entradas y todos los mensajes sobre ellas llegarán a esta dirección de ahora en adelante. Al aceptar, usted asume esta compra como propia:\n%s",
+	)
+	// The closing, and the sentence that makes ignoring a real option: nothing
+	// happens, nothing is theirs, and the link dies at the Event's start —
+	// which is when #424's purge takes the address.
+	saleReAddressingClosingCopy = translated(
+		"If this purchase is not yours, or you did not expect this message, you do not have to do anything. Nothing changes unless you accept, and this link stops working when the event starts.",
+		"Si esta compra no es suya, o no esperaba este mensaje, no tiene que hacer nada. Nada cambia a menos que usted acepte, y este enlace deja de funcionar cuando empieza el evento.",
+	)
+)
+
+// Subject is the Re-addressing mail's subject line: the fact, and what it is
+// for. It leads with "your purchase" because for the reader the feature is
+// meant for, that is the news: the tickets they paid for are finally reachable.
+func (r SaleReAddressing) Subject() string {
+	return fmt.Sprintf(saleReAddressingSubjectCopy.in(r.Locale), r.EventName)
+}
+
+// Text is the Re-addressing mail's plain-text body: who is writing and why,
+// the Event and the reference, what accepting does, the link, and that ignoring
+// it costs nothing. NOTHING HERE IS CONDITIONAL: a message with no link is not a
+// shorter message, so the caller refuses to compose one at all.
+func (r SaleReAddressing) Text() string {
+	text := fmt.Sprintf(saleReAddressingOpeningCopy.in(r.Locale), r.EventName, r.Reference)
+	text += "\n\n" + fmt.Sprintf(saleReAddressingActionCopy.in(r.Locale), r.AcceptURL)
+	text += "\n\n" + saleReAddressingClosingCopy.in(r.Locale)
+	return text
+}
+
 // The No Longer Holding mail (#327, parent #322, ADR 0046): the message telling
 // somebody who accepted a ticket that it is not theirs any more.
 //

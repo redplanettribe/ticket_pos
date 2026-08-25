@@ -250,6 +250,15 @@ func domainHTTPStatus(code string) int {
 		return http.StatusConflict
 	case "TICKET_SALE_REVERSED", "EVENT_STARTED_ANSWERS_CLOSED":
 		return http.StatusConflict
+	// The Sale Re-addressing's refusals (#420, ADR 0058). All 409 beside the
+	// Operator Reversal's SALE_NOT_REVERSIBLE and for the same reason: the
+	// request was well formed and the Operator was entitled to make it, and
+	// what stands in the way is a fact about the Sale — its channel, its
+	// status, its Event's start, or that the "correction" is the address it
+	// already carries — or that a recording already stands. None becomes the
+	// answer by being retried with the same body.
+	case "SALE_NOT_RE_ADDRESSABLE", "RE_ADDRESSING_EVENT_STARTED", "RE_ADDRESSING_SAME_ADDRESS", "RE_ADDRESSING_ALREADY_PENDING":
+		return http.StatusConflict
 	// An Answer that does not fit its Ticket Question (#310). 400 and not 409,
 	// which is the line between these and the two above: the body itself is
 	// wrong — text sent to a number question, an Option the question does not
