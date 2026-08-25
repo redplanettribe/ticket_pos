@@ -1,0 +1,41 @@
+// Package openapi holds typed response envelope wrappers for the invoicing
+// endpoints, so the generated OpenAPI spec (and the api-client built from it)
+// carries real `data` types instead of a bare envelope.
+package openapi
+
+import (
+	"github.com/peter/ticket_pos/backend/internal/invoicing/service"
+	"github.com/peter/ticket_pos/backend/internal/platform"
+)
+
+// EnvelopeEcuadorIssuer documents GET and PUT /operator/invoicing/issuers/ec
+// success responses. `data` is null when no Issuer has been recorded.
+type EnvelopeEcuadorIssuer struct {
+	Data      *service.EcuadorIssuer `json:"data"`
+	Error     *platform.APIError     `json:"error"`
+	RequestID string                 `json:"request_id"`
+}
+
+// EnvelopeInvoiceDetail documents POST /operator/invoicing/invoices and
+// GET /operator/invoicing/invoices/{id} success responses.
+type EnvelopeInvoiceDetail struct {
+	Data      service.InvoiceDetail `json:"data"`
+	Error     *platform.APIError    `json:"error"`
+	RequestID string                `json:"request_id"`
+}
+
+// EnvelopeInvoiceList documents GET /operator/invoicing/invoices success
+// responses: the ADR-0006 nested envelope inside the standard one.
+type EnvelopeInvoiceList struct {
+	Data      service.InvoiceList `json:"data"`
+	Error     *platform.APIError  `json:"error"`
+	RequestID string              `json:"request_id"`
+}
+
+// EnvelopeInvoiceTotals documents POST /operator/invoicing/invoices/totals
+// success responses.
+type EnvelopeInvoiceTotals struct {
+	Data      service.TotalsView `json:"data"`
+	Error     *platform.APIError `json:"error"`
+	RequestID string             `json:"request_id"`
+}

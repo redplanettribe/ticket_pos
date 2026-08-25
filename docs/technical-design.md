@@ -143,6 +143,7 @@ backend/
     identity/      # Organizations, members, roles, Staff Sessions
     customers/     # Customer records, Customer Sessions, Confirmation Links, Customer Area reads
     integrations/  # Partner credentials and integration route wiring
+    invoicing/     # Tax invoicing: the platform's Issuer per country, Tax Invoices, the TaxAuthority seam (sri/ adapter)
     platform/      # DB pool, tx helpers, httputil (envelope + error mapping), tenancy middleware, OTP, Logger
   migrations/      # Plain SQL migration files
 ```
@@ -898,6 +899,49 @@ One file row = one Ticket Sale = one Ticket Sale Line. Grouping lines into one s
 - The **latest** committed batch per Event can be **undone** (reverse sales, restore capacity), sending void emails only when the caller opts in.
 - A reasonable row limit applies (target: 10,000 rows per batch).
 - Async processing and the `external_platform` source are deferred.
+
+## Tax invoicing
+
+The platform issues electronic facturas to Ecuador's SRI for the one taxable service it sells — the Platform Fee with its Fee IVA — by hand, from the Operator Dashboard (#450, ADR 0059; vocabulary in `CONTEXT.md` *Tax invoicing*).
+The platform is the **sole Issuer**: one RUC, one certificate, one set of authorizations per environment. No Organization is an emisor and no Member, Integration Partner or Customer route exists.
+
+### The `invoicing` module
+
+`internal/invoicing/` follows the domain / repository / service / handler split and is served on the operator namespace under `/api/v1/operator/invoicing/*`, behind the operator allowlist middleware and nothing else.
+It owns its own tables and, so far, reads none of anyone else's: no Sale, Payout or Organization is linked.
+
+It is a **thin cross-country core with a country adapter**:
+
+| Where | Owns |
+|-------|------|
+| `internal/invoicing` (core) | `Issuer` (id, country, environment, certificate custody from #452), `Environment` (`test` / `production` — the platform's words, never an authority's codes), the `TaxAuthority` seam, and from #454 the Tax Invoice, its lines and additional fields, and the append-only attempts ledger |
+| `internal/invoicing/sri` (Ecuador adapter) | Everything only the SRI cares about: the clave de acceso, the secuencial, factura XML v1.1.0 building, XAdES-BES signing, the SOAP transport and the SRI's error-code mapping |
+
+The **`TaxAuthority` seam** has two operations — *submit a prepared document* and *query the outcome by the authority's reference* — and the core drives the status machine (pending / authorized / not authorized / rejected) off those two calls.
+The adapter never touches a table; the core never learns SOAP, XML or an authority's error codes.
+A second country is a second adapter, a second Issuer row and a second detail table, never a column on the core.
+
+The country code is **visible in the route path** (`/operator/invoicing/issuers/ec`) so the seam is a fact of the API, not only of the code.
+The Ecuador Issuer's SRI details (`EcuadorIssuerDetails`: RUC, razón social, nombre comercial, both direcciones, establecimiento, punto de emisión, obligado a llevar contabilidad, régimen, optional agente de retención) currently sit in the core package as a self-contained file; they belong to the adapter and may move under `sri` without changing shape once that package exists.
+
+### Storage
+
+Migration 094 lands the Issuer only: `invoicing_issuers` (country unique, environment), `invoicing_issuers_ec` (the SRI details, one-to-one), and `invoicing_sequences_ec` keyed by (issuer, environment, cod_doc, estab, pto_emi), created on first use and bumped with a single `UPDATE … RETURNING` so two concurrent issues get distinct numbers.
+Migration 095 adds the certificate to the core row: the sealed `.p12` and password (`BYTEA`, nonce ‖ ciphertext ‖ tag as `invoicing.Custody` writes them) and the clear metadata — subject, the RUC found inside the certificate (`''` when none), validity window, SHA-256 fingerprint, upload time — under a CHECK that makes them all-or-nothing.
+Migration 096 lands the Tax Invoice (#454): `invoicing_invoices` (Recipient snapshot columns, Issuer snapshot JSON, money in cents, currency `USD`, signed XML and authorization XML as `BYTEA`, last messages JSON, issuing operator's email, status), `invoicing_invoice_lines`, `invoicing_additional_fields`, `invoicing_invoices_ec` (clave de acceso unique, secuencial, with a uniqueness constraint over issuer/environment/cod_doc/estab/pto_emi/secuencial) and the append-only `invoicing_attempts` ledger. Nothing issued is ever deleted, and there is no down path for an issued document. The Issuer freezes (#455) — RUC once any invoice exists; establecimiento and punto de emisión once a sequence row exists under them — are enforced in the Issuer service and shown read-only on the Issuer page. A non-authorized invoice can be checked against the SRI again or resent under the same clave de acceso (#455); the signed XML, the authorization XML and a printable RIDE are downloadable from its detail (#456).
+
+The `sri` adapter is the Ecuador `TaxAuthority`: it carries a prepared factura to recepción (`validarComprobante`) and polls autorización (`autorizacionComprobante`) for the verdict, over hand-written SOAP 1.1 envelopes on `net/http`, at endpoints hard-coded per environment (celcer for test, cel for production). A single `SRI_BASE_URL` override points every call at a stand-in for local development and the integration suite's fake SRI; `LoadConfig` refuses it in production, the way `PAYPHONE_API_BASE_URL` is refused, because it decides which server the platform believes authorized a factura. The issue flow is one request: allocate the secuencial with a single `UPDATE … RETURNING`, compute the clave, snapshot Issuer and Recipient, build and sign, insert `pending` and commit; then submit and poll autorización within a budget, mapping the SRI's answers onto `authorized` / `not_authorized` / `rejected` / `pending` and writing one attempts row per call.
+Nothing issued is ever deleted.
+
+### The certificate key
+
+The signing `.p12` and its password are stored AES-256-GCM encrypted in Postgres under `INVOICING_CERTIFICATE_KEY` (32 bytes, base64; Secret Manager → env in production, `.env` locally), the way the Confirmation Link key is delivered.
+The key is absent-safe: the app boots and serves everything else without it, and only certificate upload and signing fail with `CERTIFICATE_KEY_NOT_CONFIGURED` (503), which the Issuer page shows plainly so a failed upload is not mistaken for a bad file.
+A key that is set but does not decode to 32 bytes is a startup failure (`LoadConfig`), so a mistyped secret never looks like a missing one.
+The upload is a multipart `POST /operator/invoicing/issuers/ec/certificate` (`file` + `password`) through the API — never a presigned browser upload, the buckets being public — and the `.p12` is opened with `sri.OpenCertificate` before anything is stored: a wrong password, a file without an RSA key and a file that is not a `.p12` are `CERTIFICATE_PASSWORD_INCORRECT`, `CERTIFICATE_NO_RSA_KEY` and `CERTIFICATE_FILE_INVALID`, each leaving the previous certificate untouched; a re-upload replaces outright.
+The Issuer read carries a `certificate` object (metadata only, `null` when none) and `certificate_ruc_mismatch`, true only when the certificate names a RUC and it is not the Issuer's — a warning on the page, never a block, since the SRI's own check is the final word.
+`Service.OpenEcuadorSigningKey` is the only decryption path: it opens the sealed bytes into an `*sri.Certificate` in memory for one signing (#454) and nowhere else.
+Landed with #453.
 
 ## Local development
 

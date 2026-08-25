@@ -6,7 +6,7 @@
 // session whose email is not on the platform operator allowlist (ADR 0015). The
 // UI merely declines to show the surface at all.
 
-import { fetchEventsJSON } from "./events-api";
+import { ApiError, fetchEventsJSON } from "./events-api";
 import type { QuestionReview, QuestionReviewItem } from "./question-reviews";
 import type { TicketQuestion, TicketQuestionOption } from "./ticket-questions";
 
@@ -932,4 +932,395 @@ export async function answerOperatorQuestionReview(
     `/api/operator/question-reviews/${encodeURIComponent(reviewId)}/answer`,
     { method: "POST", body: JSON.stringify(body) },
   );
+}
+
+/**
+ * Which of the SRI's environments the Ecuador Issuer points at (#451, ADR
+ * 0059): `test` is pruebas, `production` is producción. The words are the
+ * platform's rather than the SRI's digits, and the operator may flip them
+ * freely.
+ */
+export type EcuadorIssuerEnvironment = "test" | "production";
+
+/** The three régimenes the factura schema distinguishes. */
+export type EcuadorIssuerRegimen = "general" | "rimpe_contribuyente" | "rimpe_negocio_popular";
+
+export const ECUADOR_ISSUER_ENVIRONMENTS = ["test", "production"] as const satisfies readonly EcuadorIssuerEnvironment[];
+export const ECUADOR_ISSUER_REGIMENES = [
+  "general",
+  "rimpe_contribuyente",
+  "rimpe_negocio_popular",
+] as const satisfies readonly EcuadorIssuerRegimen[];
+
+/**
+ * The Ecuador Issuer as the operator states it: the environment and the SRI
+ * details every factura carries. Field names are the SRI's Spanish, which is
+ * what the operator reads them off the RUC certificate in.
+ */
+export type EcuadorIssuerBody = {
+  environment: EcuadorIssuerEnvironment;
+  ruc: string;
+  razon_social: string;
+  nombre_comercial: string;
+  direccion_matriz: string;
+  direccion_establecimiento: string;
+  establecimiento: string;
+  punto_emision: string;
+  obligado_contabilidad: boolean;
+  regimen: EcuadorIssuerRegimen;
+  agente_retencion: string | null;
+};
+
+/**
+ * The signing certificate in custody, as the Issuer read shows it (#453, ADR
+ * 0059): metadata only. The `.p12` bytes and the password are encrypted on
+ * the server and never come back under any name.
+ */
+export type OperatorEcuadorIssuerCertificate = {
+  /** RFC 2253 distinguished name. */
+  subject: string;
+  /** The RUC found inside the certificate, or `""` when none was. */
+  ruc: string;
+  not_before: string;
+  not_after: string;
+  /** Lowercase hex SHA-256 of the DER certificate. */
+  fingerprint_sha256: string;
+  uploaded_at: string;
+};
+
+/** The Ecuador Issuer as stored. */
+export type OperatorEcuadorIssuer = EcuadorIssuerBody & {
+  id: string;
+  country: "ec";
+  /** `null` until a certificate has been uploaded. */
+  certificate: OperatorEcuadorIssuerCertificate | null;
+  /**
+   * True only when the certificate names a RUC and it is not the Issuer's — a
+   * warning the page shows, never a refusal; the SRI's own check is the final
+   * word.
+   */
+  certificate_ruc_mismatch: boolean;
+  /**
+   * The details that may no longer change (#455): `ruc` once any Tax Invoice
+   * exists in either environment, `establecimiento` and `punto_emision` once
+   * a sequence has started under them. The page renders these read-only and
+   * says why; a save that changes one is refused with ISSUER_FIELD_FROZEN.
+   */
+  frozen_fields: EcuadorIssuerFrozenField[];
+  created_at: string;
+  updated_at: string;
+};
+
+/** An Issuer detail the API may report as frozen. */
+export type EcuadorIssuerFrozenField = "ruc" | "establecimiento" | "punto_emision";
+
+const ECUADOR_ISSUER_PATH = "/api/operator/invoicing/issuers/ec";
+const ECUADOR_ISSUER_CERTIFICATE_PATH = `${ECUADOR_ISSUER_PATH}/certificate`;
+
+/**
+ * Reads or writes the Ecuador Issuer, keeping `null` data as a legitimate
+ * answer: a platform that has not recorded its Issuer yet is not an error, and
+ * the page renders an empty form from it. `fetchEventsJSON` would throw on the
+ * null, which is why this does not use it. A `FormData` body is sent as the
+ * browser builds it — the multipart boundary is its own to set.
+ */
+async function requestEcuadorIssuer(
+  init?: RequestInit,
+  path: string = ECUADOR_ISSUER_PATH,
+): Promise<OperatorEcuadorIssuer | null> {
+  const isForm = init?.body instanceof FormData;
+  const response = await fetch(path, {
+    ...(isForm ? {} : { headers: { "Content-Type": "application/json" } }),
+    ...init,
+  });
+  const envelope = (await response.json()) as {
+    data: OperatorEcuadorIssuer | null;
+    error: { code?: string; message?: string; details?: Record<string, unknown> } | null;
+  };
+  if (!response.ok || envelope.error) {
+    throw new ApiError(envelope.error?.message ?? "Request failed", envelope.error?.code, envelope.error?.details);
+  }
+  return envelope.data;
+}
+
+/** The Ecuador Issuer, or `null` when none has been recorded. */
+export async function fetchOperatorEcuadorIssuer(): Promise<OperatorEcuadorIssuer | null> {
+  return requestEcuadorIssuer();
+}
+
+/** Records the Ecuador Issuer — created on the first save, replaced after. */
+export async function saveOperatorEcuadorIssuer(body: EcuadorIssuerBody): Promise<OperatorEcuadorIssuer> {
+  const saved = await requestEcuadorIssuer({ method: "PUT", body: JSON.stringify(body) });
+  if (saved === null) {
+    throw new Error("Empty response");
+  }
+  return saved;
+}
+
+/**
+ * Uploads the platform's `.p12` with its password, replacing any certificate
+ * already in custody, and returns the Issuer as it now reads. Multipart
+ * through the BFF and the API, never a presigned browser upload: the object
+ * storage buckets are public and a private key has no business in one.
+ */
+export async function uploadOperatorEcuadorIssuerCertificate(
+  file: File,
+  password: string,
+): Promise<OperatorEcuadorIssuer> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("password", password);
+  const saved = await requestEcuadorIssuer({ method: "POST", body: form }, ECUADOR_ISSUER_CERTIFICATE_PATH);
+  if (saved === null) {
+    throw new Error("Empty response");
+  }
+  return saved;
+}
+
+// ---- Tax Invoices (#454, ADR 0059) ------------------------------------
+
+/** Where a Tax Invoice stands with the SRI. */
+export type InvoiceStatus = "pending" | "authorized" | "not_authorized" | "rejected";
+
+/** The IVA rate on a line: the platform's words, not the SRI's codes. */
+export type InvoiceIVARate = "15" | "0" | "exento" | "no_objeto";
+
+export const INVOICE_IVA_RATES = ["15", "0", "exento", "no_objeto"] as const satisfies readonly InvoiceIVARate[];
+
+/**
+ * The SRI formas de pago, code and label, for the form's select and the RIDE.
+ * The list mirrors the backend's `sri.PaymentMethods`; `20` is the default.
+ */
+export const INVOICE_PAYMENT_METHODS = [
+  { code: "01", label: "SIN UTILIZACION DEL SISTEMA FINANCIERO" },
+  { code: "15", label: "COMPENSACIÓN DE DEUDAS" },
+  { code: "16", label: "TARJETA DE DÉBITO" },
+  { code: "17", label: "DINERO ELECTRÓNICO" },
+  { code: "18", label: "TARJETA PREPAGO" },
+  { code: "19", label: "TARJETA DE CRÉDITO" },
+  { code: "20", label: "OTROS CON UTILIZACION DEL SISTEMA FINANCIERO" },
+  { code: "21", label: "ENDOSO DE TÍTULOS" },
+] as const;
+
+export const INVOICE_PAYMENT_METHOD_DEFAULT = "20";
+
+/** The Recipient as recorded on the invoice. */
+export type InvoiceRecipient = {
+  tax_id_type: "cedula" | "ruc" | "passport";
+  tax_id: string;
+  legal_name: string;
+  address: string;
+  email: string;
+};
+
+/** One row of the invoices list. */
+export type OperatorInvoiceListItem = {
+  id: string;
+  country: string;
+  environment: EcuadorIssuerEnvironment;
+  status: InvoiceStatus;
+  /** The printed document number, e.g. `001-001-000000012`. */
+  number: string;
+  /** Emission date, `YYYY-MM-DD` in the Issuer's country. */
+  issued_on: string;
+  issued_at: string;
+  issued_by: string;
+  recipient: InvoiceRecipient;
+  total_cents: number;
+  currency: string;
+};
+
+/** One line as recorded, with its arithmetic. */
+export type OperatorInvoiceLine = {
+  position: number;
+  description: string;
+  /** A decimal string with up to six decimals. */
+  quantity: string;
+  unit_price_cents: number;
+  discount_cents: number;
+  iva_rate: InvoiceIVARate;
+  rate_percent: number;
+  base_cents: number;
+  iva_cents: number;
+};
+
+/** One subtotal per IVA rate. */
+export type OperatorInvoiceRateTotal = {
+  iva_rate: InvoiceIVARate;
+  rate_percent: number;
+  base_cents: number;
+  iva_cents: number;
+};
+
+/** The invoice's arithmetic in cents. */
+export type OperatorInvoiceTotals = {
+  by_rate: OperatorInvoiceRateTotal[];
+  subtotal_cents: number;
+  discount_cents: number;
+  iva_cents: number;
+  total_cents: number;
+};
+
+/** One message from the SRI, verbatim. */
+export type OperatorInvoiceMessage = {
+  identifier: string;
+  message: string;
+  additional_info: string;
+  type: string;
+};
+
+/** One row of the attempts ledger. */
+export type OperatorInvoiceAttempt = {
+  id: number;
+  operation: "submit" | "query";
+  outcome: "received" | "authorized" | "not_authorized" | "rejected" | "error";
+  messages: OperatorInvoiceMessage[];
+  error: string;
+  started_at: string;
+  duration_ms: number;
+};
+
+/** The Issuer snapshot recorded on the invoice. */
+export type OperatorInvoiceIssuerSnapshot = {
+  ruc: string;
+  razon_social: string;
+  nombre_comercial: string;
+  direccion_matriz: string;
+  direccion_establecimiento: string;
+  establecimiento: string;
+  punto_emision: string;
+  obligado_contabilidad: boolean;
+  regimen: EcuadorIssuerRegimen;
+  agente_retencion: string | null;
+};
+
+/** The SRI numbering and authorization of the invoice. */
+export type OperatorInvoiceEcuador = {
+  access_key: string;
+  cod_doc: string;
+  estab: string;
+  pto_emi: string;
+  secuencial: number;
+  ambiente: string;
+  authorization_number: string | null;
+  authorization_date: string | null;
+};
+
+/** One Tax Invoice in full. */
+export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
+  issuer: OperatorInvoiceIssuerSnapshot;
+  lines: OperatorInvoiceLine[];
+  additional_fields: { name: string; value: string }[];
+  payment_method: string;
+  payment_method_label: string;
+  totals: OperatorInvoiceTotals;
+  messages: OperatorInvoiceMessage[];
+  ecuador: OperatorInvoiceEcuador;
+  attempts: OperatorInvoiceAttempt[];
+  has_authorization_xml: boolean;
+  /**
+   * True when the invoice is pending and the SRI holds the document —
+   * received, still in processing, or 43/70 on a resend (#455). The page
+   * says "check status" rather than showing an error.
+   */
+  check_status_hint: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+/** The invoices list — the ADR-0006 nested envelope. */
+export type OperatorInvoiceListPage = {
+  data: OperatorInvoiceListItem[];
+  pagination: OperatorPagination;
+};
+
+/** One line as the form submits it. */
+export type IssueInvoiceLineBody = {
+  description: string;
+  quantity: string;
+  unit_price_cents: number;
+  discount_cents: number;
+  iva_rate: InvoiceIVARate;
+};
+
+/** The New invoice form as submitted. */
+export type IssueInvoiceBody = {
+  recipient: InvoiceRecipient;
+  lines: IssueInvoiceLineBody[];
+  payment_method: string;
+  additional_fields: { name: string; value: string }[];
+};
+
+const INVOICES_PATH = "/api/operator/invoicing/invoices";
+
+export const OPERATOR_INVOICES_PAGE_SIZE = 50;
+
+/** A page of Tax Invoices, newest first. */
+export async function fetchOperatorInvoices(page = 1): Promise<OperatorInvoiceListPage> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(OPERATOR_INVOICES_PAGE_SIZE),
+  });
+  return fetchEventsJSON<OperatorInvoiceListPage>(`${INVOICES_PATH}?${params.toString()}`);
+}
+
+/** One Tax Invoice in full. */
+export async function fetchOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}`);
+}
+
+/** Issues a Tax Invoice and returns it as it stands when the SRI answered. */
+export async function issueOperatorInvoice(body: IssueInvoiceBody): Promise<OperatorInvoiceDetail> {
+  return fetchEventsJSON<OperatorInvoiceDetail>(INVOICES_PATH, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** The server's totals for a set of lines — what the form shows as it is filled. */
+export async function previewOperatorInvoiceTotals(
+  lines: IssueInvoiceLineBody[],
+): Promise<OperatorInvoiceTotals> {
+  return fetchEventsJSON<OperatorInvoiceTotals>(`${INVOICES_PATH}/totals`, {
+    method: "POST",
+    body: JSON.stringify({ lines }),
+  });
+}
+
+/**
+ * Asks the SRI again about a non-authorized invoice (#455) and returns it as
+ * it then stands. Refused with INVOICE_ALREADY_AUTHORIZED on an authorized one.
+ */
+export async function checkOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/check`, {
+    method: "POST",
+  });
+}
+
+/**
+ * Resends a non-authorized invoice under the same clave de acceso, re-signed
+ * with the current certificate (#455), and returns it as it then stands.
+ * Refused with INVOICE_ALREADY_AUTHORIZED on an authorized one.
+ */
+export async function resendOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/resend`, {
+    method: "POST",
+  });
+}
+
+// ---- The documents handed over (#456) ----------------------------------
+
+/** Where the browser downloads a Tax Invoice's signed XML from. */
+export function operatorInvoiceSignedXmlUrl(id: string): string {
+  return `${INVOICES_PATH}/${encodeURIComponent(id)}/xml`;
+}
+
+/** Where the browser downloads the SRI's authorization XML from; only an authorized invoice has one. */
+export function operatorInvoiceAuthorizationXmlUrl(id: string): string {
+  return `${INVOICES_PATH}/${encodeURIComponent(id)}/authorization-xml`;
+}
+
+/** The RIDE page: a print-styled rendering of the invoice. */
+export function operatorInvoiceRidePath(id: string): string {
+  return `/operator/invoicing/${encodeURIComponent(id)}/ride`;
 }

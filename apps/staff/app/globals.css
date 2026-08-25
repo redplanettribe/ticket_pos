@@ -2,3 +2,19 @@
 
 @source "../../../packages/ui/src";
 @source "../";
+
+/* The RIDE (#456): what prints is the document alone, on one clean page. */
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  body:has(.ride-page) {
+    background: #fff;
+    color: #000;
+  }
+  .ride-page {
+    max-width: none;
+    font-size: 11px;
+  }
+}

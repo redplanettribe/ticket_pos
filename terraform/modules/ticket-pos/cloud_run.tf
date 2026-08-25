@@ -314,6 +314,20 @@ resource "google_cloud_run_v2_service" "api" {
         }
       }
 
+      # The key the Issuer's signing certificate is encrypted under in Postgres
+      # (invoicing_certificate.tf). Optional to the API — absent, everything but
+      # certificate upload and signing serves — but always mounted, since a
+      # version always exists.
+      env {
+        name = "INVOICING_CERTIFICATE_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.invoicing_certificate_key.secret_id
+            version = "latest"
+          }
+        }
+      }
+
       # Mounted only when a Resend key version exists (email.tf). Absent, the API
       # falls back to the logging sender — so this env appearing is precisely what
       # switches production email on. Referencing "latest" when no version existed
@@ -506,6 +520,8 @@ resource "google_cloud_run_v2_service" "api" {
     google_secret_manager_secret_iam_member.api_storage_secret_key,
     google_secret_manager_secret_version.confirmation_link_secret,
     google_secret_manager_secret_iam_member.api_confirmation_link_secret,
+    google_secret_manager_secret_version.invoicing_certificate_key,
+    google_secret_manager_secret_iam_member.api_invoicing_certificate_key,
   ]
 
   lifecycle {

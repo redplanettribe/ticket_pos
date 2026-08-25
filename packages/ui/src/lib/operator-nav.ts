@@ -14,6 +14,7 @@ export const OPERATOR_NAV_KEYS = [
   "payoutRequests",
   "findSale",
   "customerConsent",
+  "taxInvoicing",
 ] as const;
 
 export type OperatorNavKey = (typeof OPERATOR_NAV_KEYS)[number];
@@ -72,5 +73,11 @@ export function operatorNavItems({
     // page begins with finding them: an operator holding a posted form has an
     // email address and nothing else.
     { key: "customerConsent", href: "/operator/consent" },
+    // Tax invoicing (#450, ADR 0059): the platform's own facturas to the SRI,
+    // issued by hand. It sits last because it is the platform's own paperwork
+    // rather than anything an Organization or a Customer is waiting on. It
+    // lands on the invoices list (#454), and the Issuer page hangs beneath the
+    // same /operator/invoicing subtree, so either lights this one entry.
+    { key: "taxInvoicing", href: "/operator/invoicing" },
   ];
 }

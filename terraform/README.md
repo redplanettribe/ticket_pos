@@ -145,6 +145,12 @@ credential appears in the service definition.
 Both runtime service accounts are granted `secretAccessor` **per secret**, never project-wide. The API
 reads three of the four; the migrate Job reads only the connection string.
 
+A `prod-ticket-pos-confirmation-link-secret` signs Confirmation Links (`confirmation_link.tf`), and a
+`prod-ticket-pos-invoicing-certificate-key` — 32 random bytes as base64 — is what the Issuer's signing
+certificate is AES-256-GCM encrypted under in Postgres (`invoicing_certificate.tf`, ADR 0059). The API
+reads both; only the latter is optional to it, and rotating it makes the stored certificate unreadable
+until it is uploaded again.
+
 **Rotating the HMAC key** is manual: `terraform taint module.ticket_pos.google_storage_hmac_key.app`,
 apply, redeploy the API so it picks up the new version. Automating it needs a two-key overlap the
 application cannot express with one credential pair.

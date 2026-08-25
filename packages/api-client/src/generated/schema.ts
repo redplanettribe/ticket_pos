@@ -2894,6 +2894,795 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/invoicing/invoices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Tax Invoices
+         * @description Returns a page of every Tax Invoice the platform has issued, newest first: the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such). Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Page number (default 1) */
+                    page?: number;
+                    /** @description Page size (default 50, max 100) */
+                    page_size?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeInvoiceList"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Issue a Tax Invoice
+         * @description Issues a factura to the Ecuador Issuer's SRI environment from the form (ADR 0059). The Recipient's `tax_id_type` is `ruc`, `cedula` or `passport` (never consumidor final) and `tax_id` is validated exactly as a checkout Tax ID; `legal_name` and `email` are required, `address` optional. Each line has a `description`, a `quantity` (decimal string, up to six decimals), `unit_price_cents`, an optional `discount_cents` and an `iva_rate` of `15`, `0`, `exento` or `no_objeto`. `payment_method` is an SRI forma de pago code, default `20`. Up to 14 `additional_fields` (name/value, 300 chars) may be added — the Recipient's email takes the fifteenth. Totals are computed server-side. Every failing field is named under VALIDATION_FAILED; ISSUER_NOT_FOUND (404), CERTIFICATE_NOT_UPLOADED (409), CERTIFICATE_KEY_NOT_CONFIGURED (503), ISSUER_INCOMPLETE (409) and INVOICE_INVALID (400) are refused before any number is consumed. Otherwise the next secuencial is allocated, the document built and signed, submitted to the SRI and its authorization polled for up to ~15 s; the answer is the invoice as it then stands — `authorized`, `not_authorized`, `rejected` or `pending` — with the SRI's messages verbatim and one attempts row per SRI call. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description The Recipient, lines, forma de pago and additional fields */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.issueInvoiceBody"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeInvoiceDetail"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/invoicing/invoices/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a Tax Invoice
+         * @description Returns one Tax Invoice in full: Recipient, the Issuer as snapshotted at issue time, lines with their arithmetic, totals, status, the SRI's last messages verbatim (identifier, message, additional information, type), the clave de acceso and — once authorized — the authorization number and date, and the attempts ledger with one row per SRI call (operation, outcome, messages, duration). INVOICE_NOT_FOUND (404) otherwise. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Tax Invoice id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeInvoiceDetail"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/invoicing/invoices/{id}/authorization-xml": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download a Tax Invoice's authorization XML
+         * @description Returns the SRI's `<autorizacion>` document for an authorized invoice — the legal proof: number, date, ambiente and the comprobante — exactly as the SRI returned it, as `application/xml` with `Content-Disposition: attachment; filename="<clave de acceso>-autorizacion.xml"`. An invoice that is pending, rejected or not authorized has no such document and answers AUTHORIZATION_XML_NOT_FOUND (404); INVOICE_NOT_FOUND (404) when there is no such invoice. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Tax Invoice id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/xml": string;
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/xml": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/xml": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/xml": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/invoicing/invoices/{id}/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check a Tax Invoice's status with the SRI
+         * @description Asks the SRI's autorización service again about a Tax Invoice that is `pending`, `rejected` or `not_authorized`, and updates it from the answer: `AUTORIZADO` stores the authorization number, date and XML; `NO AUTORIZADO` stores the SRI's messages; an answer that decides nothing (still in processing, or nothing known under the clave) leaves the status as it was. Nothing is sent. Exactly one attempts row is written. INVOICE_ALREADY_AUTHORIZED (409) on an authorized invoice; INVOICE_NOT_FOUND (404) otherwise. Returns the invoice as it then stands, with `check_status_hint` true when it is pending and the SRI holds it. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Tax Invoice id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeInvoiceDetail"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/invoicing/invoices/{id}/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resend a Tax Invoice to the SRI
+         * @description Rebuilds the factura of a `pending`, `rejected` or `not_authorized` Tax Invoice from its recorded Recipient, lines and fields — with the Issuer's editable details as they now stand, under the SAME clave de acceso and secuencial — re-signs it with the certificate now in custody, submits it to recepción and polls autorización as an issue does. The signed XML on file is replaced by the re-signed bytes only when the SRI answered `RECIBIDA`, so the artifact the platform holds is always the one the SRI holds. SRI errors 43 (clave already registered) and 70 (in processing) mean the SRI has it: the invoice is `pending` with `check_status_hint` true and the messages kept, never an error. One attempts row per SRI call. INVOICE_ALREADY_AUTHORIZED (409) on an authorized invoice; INVOICE_NOT_FOUND (404); ISSUER_NOT_FOUND (404), CERTIFICATE_NOT_UPLOADED (409), CERTIFICATE_KEY_NOT_CONFIGURED (503) and ISSUER_INCOMPLETE (409) before anything is sent. Returns the invoice as it then stands. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Tax Invoice id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeInvoiceDetail"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/invoicing/invoices/{id}/xml": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download a Tax Invoice's signed XML
+         * @description Returns the factura exactly as it was signed and sent to the SRI — byte for byte the stored document — as `application/xml` with `Content-Disposition: attachment; filename="<clave de acceso>.xml"`. Available in every status, since the document exists from the moment the number was consumed. INVOICE_NOT_FOUND (404) otherwise. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Tax Invoice id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/xml": string;
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/xml": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/xml": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/xml": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/invoicing/invoices/totals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview a Tax Invoice's totals
+         * @description Does the factura arithmetic for the lines given — per-rate subtotals, total discount, IVA and total, in cents — exactly as the issued document will carry them, without issuing anything. The form shows these; it never computes its own. Lines are validated as on issue. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description The lines */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.totalsBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeInvoiceTotals"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/invoicing/issuers/ec": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the platform's Ecuador Issuer
+         * @description Returns the platform's registration with the SRI (ADR 0059): the environment it points at (`test` = SRI pruebas, `production` = SRI producción) and the details every factura carries — RUC, razón social, nombre comercial, dirección matriz, dirección del establecimiento, establecimiento and punto de emisión codes, obligado a llevar contabilidad, régimen and the optional agente de retención resolution number. The data payload is `null` when no Issuer has been recorded, which is an ordinary state rather than an error. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeEcuadorIssuer"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        /**
+         * Record the platform's Ecuador Issuer
+         * @description Creates the Ecuador Issuer on the first call and replaces its details on every call after (ADR 0059). `environment` is `test` (SRI pruebas) or `production` (SRI producción) and may be switched freely in either direction. `ruc` is validated exactly as the platform validates a `ruc` Tax ID; `establecimiento` and `punto_emision` are three digits each; `regimen` is `general`, `rimpe_contribuyente` or `rimpe_negocio_popular`; `nombre_comercial` may be empty and `agente_retencion` may be null. Every failing field is named at once under VALIDATION_FAILED and nothing is stored when any fails. Returns the Issuer as stored. Platform Operator only.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description The Issuer's environment and SRI details */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.ecuadorIssuerBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeEcuadorIssuer"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/invoicing/issuers/ec/certificate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload the Ecuador Issuer's signing certificate
+         * @description Puts the platform's `.p12` and its password in custody on the Ecuador Issuer (ADR 0059), replacing any certificate already there. The file is opened before anything is stored: a wrong password answers CERTIFICATE_PASSWORD_INCORRECT, a file without an RSA private key CERTIFICATE_NO_RSA_KEY, and a file that is not a PKCS#12 file CERTIFICATE_FILE_INVALID — all 400, and in every case the previous certificate is untouched. ISSUER_NOT_FOUND (404) when the Issuer has not been recorded yet. CERTIFICATE_KEY_NOT_CONFIGURED (503) when the server has no INVOICING_CERTIFICATE_KEY; everything else about the Issuer keeps working. Returns the Issuer as it now reads, with the certificate's metadata and never its bytes or password. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description The .p12 file | The .p12 password */
+            requestBody: {
+                content: {
+                    "application/x-www-form-urlencoded": Record<string, never> | string;
+                    "multipart/form-data": Record<string, never>;
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeEcuadorIssuer"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/organizations": {
         parameters: {
             query?: never;
@@ -10422,6 +11211,10 @@ export interface components {
             session_id?: string;
             ticket_sale_id?: string;
         };
+        "handler.additionalFieldBody": {
+            name?: string;
+            value?: string;
+        };
         "handler.answerBody": {
             /** @description Checked answers checkbox. */
             checked?: boolean;
@@ -10719,6 +11512,19 @@ export interface components {
         "handler.digestSubscriptionBody": {
             enabled?: boolean;
         };
+        "handler.ecuadorIssuerBody": {
+            agente_retencion?: string;
+            direccion_establecimiento?: string;
+            direccion_matriz?: string;
+            environment?: string;
+            establecimiento?: string;
+            nombre_comercial?: string;
+            obligado_contabilidad?: boolean;
+            punto_emision?: string;
+            razon_social?: string;
+            regimen?: string;
+            ruc?: string;
+        };
         "handler.fulfilPayoutRequestBody": {
             amount_cents?: number;
             note?: string;
@@ -10764,6 +11570,19 @@ export interface components {
             quantity?: number;
             sold_at?: string;
             ticket_type_id?: string;
+        };
+        "handler.issueInvoiceBody": {
+            additional_fields?: components["schemas"]["handler.additionalFieldBody"][];
+            lines?: components["schemas"]["handler.lineBody"][];
+            payment_method?: string;
+            recipient?: components["schemas"]["handler.recipientBody"];
+        };
+        "handler.lineBody": {
+            description?: string;
+            discount_cents?: number;
+            iva_rate?: string;
+            quantity?: string;
+            unit_price_cents?: number;
         };
         "handler.manualSaleBody": {
             amount_cents?: number;
@@ -10824,6 +11643,13 @@ export interface components {
         };
         "handler.reAddressingLinkBody": {
             token?: string;
+        };
+        "handler.recipientBody": {
+            address?: string;
+            email?: string;
+            legal_name?: string;
+            tax_id?: string;
+            tax_id_type?: string;
         };
         "handler.recordConsentWithdrawalBody": {
             marketing_consent?: boolean;
@@ -10888,6 +11714,9 @@ export interface components {
         };
         "handler.ticketQuestionOptionBody": {
             label?: string;
+        };
+        "handler.totalsBody": {
+            lines?: components["schemas"]["handler.lineBody"][];
         };
         "handler.undoImportBody": {
             notify_buyers?: boolean;
@@ -11076,6 +11905,18 @@ export interface components {
             note?: string;
             paid_at?: string;
         };
+        "invoicing.IssuerSnapshot": {
+            agente_retencion?: string;
+            direccion_establecimiento?: string;
+            direccion_matriz?: string;
+            establecimiento?: string;
+            nombre_comercial?: string;
+            obligado_contabilidad?: boolean;
+            punto_emision?: string;
+            razon_social?: string;
+            regimen?: string;
+            ruc?: string;
+        };
         "openapi.CustomerConsentSubmissionData": {
             consent_required?: components["schemas"]["service.ConsentRequiredView"];
             follow?: components["schemas"]["service.FollowView"];
@@ -11238,6 +12079,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeEcuadorIssuer": {
+            data?: components["schemas"]["service.EcuadorIssuer"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeEventDetail": {
             data?: components["schemas"]["service.EventDetail"];
             error?: components["schemas"]["platform.APIError"];
@@ -11275,6 +12121,21 @@ export interface components {
         };
         "openapi.EnvelopeHolderList": {
             data?: components["schemas"]["service.HolderListPage"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeInvoiceDetail": {
+            data?: components["schemas"]["service.InvoiceDetail"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeInvoiceList": {
+            data?: components["schemas"]["service.InvoiceList"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeInvoiceTotals": {
+            data?: components["schemas"]["service.TotalsView"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -11568,6 +12429,10 @@ export interface components {
             organization_name?: string;
             organization_slug?: string;
             role?: string;
+        };
+        "service.AdditionalFieldView": {
+            name?: string;
+            value?: string;
         };
         "service.AffiliateLinkView": {
             active?: boolean;
@@ -11866,6 +12731,21 @@ export interface components {
              *     mail over the cap.
              */
             unrecorded?: number;
+        };
+        "service.AttemptView": {
+            duration_ms?: number;
+            error?: string;
+            id?: number;
+            messages?: components["schemas"]["service.AuthorityMessageView"][];
+            operation?: string;
+            outcome?: string;
+            started_at?: string;
+        };
+        "service.AuthorityMessageView": {
+            additional_info?: string;
+            identifier?: string;
+            message?: string;
+            type?: string;
         };
         "service.BeginCheckoutResult": {
             /**
@@ -12194,6 +13074,63 @@ export interface components {
              *     ordinarily zero even in a week with many unsubscribes.
              */
             skipped?: number;
+        };
+        "service.EcuadorInvoiceView": {
+            access_key?: string;
+            ambiente?: string;
+            authorization_date?: string;
+            /** @description AuthorizationNumber and AuthorizationDate are null until authorized. */
+            authorization_number?: string;
+            cod_doc?: string;
+            estab?: string;
+            pto_emi?: string;
+            secuencial?: number;
+        };
+        "service.EcuadorIssuer": {
+            agente_retencion?: string;
+            certificate?: components["schemas"]["service.EcuadorIssuerCertificate"];
+            /**
+             * @description CertificateRUCMismatch is true only when the certificate carries a RUC
+             *     and it is not the Issuer's. A warning for the page, never a refusal: the
+             *     SRI's own check is the final word.
+             */
+            certificate_ruc_mismatch?: boolean;
+            country?: string;
+            created_at?: string;
+            direccion_establecimiento?: string;
+            direccion_matriz?: string;
+            environment?: string;
+            establecimiento?: string;
+            /**
+             * @description FrozenFields names the details that may no longer change (#455): "ruc"
+             *     once any Tax Invoice exists in either environment, "establecimiento"
+             *     and "punto_emision" once a sequence has started under them. Empty
+             *     until then. The page renders these read-only and says why; a save
+             *     that changes one is refused with ISSUER_FIELD_FROZEN.
+             */
+            frozen_fields?: string[];
+            id?: string;
+            nombre_comercial?: string;
+            obligado_contabilidad?: boolean;
+            punto_emision?: string;
+            razon_social?: string;
+            regimen?: string;
+            ruc?: string;
+            updated_at?: string;
+        };
+        /**
+         * @description Certificate is the signing certificate's metadata, null until one is
+         *     uploaded. Never the bytes and never the password, under any name.
+         */
+        "service.EcuadorIssuerCertificate": {
+            /** @description FingerprintSHA256 is lowercase hex. */
+            fingerprint_sha256?: string;
+            not_after?: string;
+            not_before?: string;
+            /** @description RUC is the RUC found inside the certificate, "" when none was. */
+            ruc?: string;
+            subject?: string;
+            uploaded_at?: string;
         };
         "service.EnqueueResult": {
             /**
@@ -12561,6 +13498,87 @@ export interface components {
             ticket_sale_id?: string;
             ticket_type_id?: string;
             ticket_type_name?: string;
+        };
+        "service.InvoiceDetail": {
+            additional_fields?: components["schemas"]["service.AdditionalFieldView"][];
+            attempts?: components["schemas"]["service.AttemptView"][];
+            /**
+             * @description CheckStatusHint is true when the invoice is pending and the authority
+             *     holds the document (received, in processing, or 43/70 on a resend): the
+             *     page says "check status" rather than showing an error (#455).
+             */
+            check_status_hint?: boolean;
+            country?: string;
+            created_at?: string;
+            currency?: string;
+            ecuador?: components["schemas"]["service.EcuadorInvoiceView"];
+            environment?: string;
+            /**
+             * @description HasAuthorizationXML says whether the authority's document is on file
+             *     (#456 serves it).
+             */
+            has_authorization_xml?: boolean;
+            id?: string;
+            issued_at?: string;
+            issued_by?: string;
+            /** @description IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country. */
+            issued_on?: string;
+            issuer?: components["schemas"]["invoicing.IssuerSnapshot"];
+            lines?: components["schemas"]["service.LineView"][];
+            /** @description Messages are the authority's messages from its last answer. */
+            messages?: components["schemas"]["service.AuthorityMessageView"][];
+            /**
+             * @description Number is the document number as printed: estab-ptoEmi-secuencial,
+             *     e.g. 001-001-000000012.
+             */
+            number?: string;
+            payment_method?: string;
+            payment_method_label?: string;
+            recipient?: components["schemas"]["service.RecipientView"];
+            status?: string;
+            total_cents?: number;
+            totals?: components["schemas"]["service.TotalsView"];
+            updated_at?: string;
+        };
+        "service.InvoiceList": {
+            data?: components["schemas"]["service.InvoiceListItem"][];
+            pagination?: components["schemas"]["service.InvoicePagination"];
+        };
+        "service.InvoiceListItem": {
+            country?: string;
+            currency?: string;
+            environment?: string;
+            id?: string;
+            issued_at?: string;
+            issued_by?: string;
+            /** @description IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country. */
+            issued_on?: string;
+            /**
+             * @description Number is the document number as printed: estab-ptoEmi-secuencial,
+             *     e.g. 001-001-000000012.
+             */
+            number?: string;
+            recipient?: components["schemas"]["service.RecipientView"];
+            status?: string;
+            total_cents?: number;
+        };
+        "service.InvoicePagination": {
+            page?: number;
+            page_size?: number;
+            total?: number;
+            total_pages?: number;
+        };
+        "service.LineView": {
+            base_cents?: number;
+            description?: string;
+            discount_cents?: number;
+            iva_cents?: number;
+            iva_rate?: string;
+            position?: number;
+            /** @description Quantity is a decimal string with up to six decimals ("1", "2.5"). */
+            quantity?: string;
+            rate_percent?: number;
+            unit_price_cents?: number;
         };
         "service.MembershipView": {
             member_id?: string;
@@ -13522,6 +14540,12 @@ export interface components {
              */
             submitted_by?: string;
         };
+        "service.RateTotalView": {
+            base_cents?: number;
+            iva_cents?: number;
+            iva_rate?: string;
+            rate_percent?: number;
+        };
         "service.ReAddressing": {
             accepted_at?: string;
             confirmation_ref?: string;
@@ -13576,6 +14600,13 @@ export interface components {
             confirmation_ref?: string;
             corrected_email?: string;
             event_name?: string;
+        };
+        "service.RecipientView": {
+            address?: string;
+            email?: string;
+            legal_name?: string;
+            tax_id?: string;
+            tax_id_type?: string;
         };
         "service.ReversalDrainResult": {
             /**
@@ -14204,6 +15235,13 @@ export interface components {
             sold_count?: number;
             sort_order?: number;
             updated_at?: string;
+        };
+        "service.TotalsView": {
+            by_rate?: components["schemas"]["service.RateTotalView"][];
+            discount_cents?: number;
+            iva_cents?: number;
+            subtotal_cents?: number;
+            total_cents?: number;
         };
         "service.TrendsDay": {
             date?: string;

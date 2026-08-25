@@ -30,6 +30,11 @@ import (
 	identityhandler "github.com/peter/ticket_pos/backend/internal/identity/handler"
 	identityrepo "github.com/peter/ticket_pos/backend/internal/identity/repository"
 	identitysvc "github.com/peter/ticket_pos/backend/internal/identity/service"
+	"github.com/peter/ticket_pos/backend/internal/invoicing"
+	invoicinghandler "github.com/peter/ticket_pos/backend/internal/invoicing/handler"
+	invoicingrepo "github.com/peter/ticket_pos/backend/internal/invoicing/repository"
+	invoicingsvc "github.com/peter/ticket_pos/backend/internal/invoicing/service"
+	"github.com/peter/ticket_pos/backend/internal/invoicing/sri"
 	operatorhandler "github.com/peter/ticket_pos/backend/internal/operator/handler"
 	operatorsvc "github.com/peter/ticket_pos/backend/internal/operator/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
@@ -80,6 +85,12 @@ type App struct {
 	ConsentRepo    *consentrepo.Repository
 	ConsentService *consentsvc.Service
 	ConsentHandler *consenthandler.Handler
+	// Tax invoicing (#450, ADR 0059): the platform's Issuer per country and, from
+	// #454, the Tax Invoices it issues. It owns its own tables and reads nothing
+	// of anyone else's — no Sale, Payout or Organization is linked yet.
+	InvoicingRepo    *invoicingrepo.Repository
+	InvoicingService *invoicingsvc.Service
+	InvoicingHandler *invoicinghandler.Handler
 }
 
 // Option customizes application wiring (tests and local overrides).
@@ -510,6 +521,32 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	operatorService := operatorsvc.New(identityService, catalogService, salesService, customersService)
 	operatorHandler := operatorhandler.New(operatorService)
 
+	// Tax invoicing (#450, ADR 0059). Served on the operator namespace but not
+	// composed by the operator module: it owns data of its own, and the
+	// operator module composes modules that own theirs.
+	// The certificate key is absent-safe by design (#453): without it the app
+	// boots and serves everything but certificate upload and signing, which is
+	// what keeps invoicing being unconfigured from ever being an outage.
+	invoicingCustody, err := invoicing.NewCustody(cfg.InvoicingCertificateKey)
+	if err != nil {
+		return nil, fmt.Errorf("invoicing certificate custody: %w", err)
+	}
+	if !invoicingCustody.Configured() {
+		platformLogger.Warn("invoicing: no INVOICING_CERTIFICATE_KEY set; certificate upload and signing are unavailable, everything else serves")
+	}
+	invoicingRepo := invoicingrepo.New(db)
+	invoicingService := invoicingsvc.New(invoicingRepo, invoicingCustody, platformLogger)
+	if options.clock != nil {
+		invoicingService = invoicingService.WithClock(options.clock)
+	}
+	// The single base-URL override (#454): every SRI call goes to the fake in
+	// tests and local development; the real hosts otherwise.
+	if cfg.SRIBaseURL != "" {
+		platformLogger.Warn("invoicing: SRI_BASE_URL override in effect; facturas go to a stand-in, not the SRI", "base_url", cfg.SRIBaseURL)
+		invoicingService = invoicingService.WithTaxAuthority(sri.AuthorityFactory(sri.WithBaseURL(cfg.SRIBaseURL)))
+	}
+	invoicingHandler := invoicinghandler.New(invoicingService)
+
 	return &App{
 		Config:            cfg,
 		Logger:            logger,
@@ -539,6 +576,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		ConsentRepo:       consentRepo,
 		ConsentService:    consentService,
 		ConsentHandler:    consentHandler,
+		InvoicingRepo:     invoicingRepo,
+		InvoicingService:  invoicingService,
+		InvoicingHandler:  invoicingHandler,
 	}, nil
 }
 

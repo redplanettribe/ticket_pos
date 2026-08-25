@@ -107,6 +107,7 @@ async function shellLabels(
         payoutRequests: t("navPayoutRequests"),
         findSale: t("navFindSale"),
         customerConsent: t("navCustomerConsent"),
+        taxInvoicing: t("navTaxInvoicing"),
       },
       sidebar,
     },

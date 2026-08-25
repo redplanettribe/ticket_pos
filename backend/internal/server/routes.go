@@ -240,6 +240,37 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// created is a record of a Consent Withdrawal — and pointedly singular in
 	// what it can do: this path can only ever take something away.
 	mux.Handle("POST /api/v1/operator/customers/{email}/consent/withdrawal", operator(http.HandlerFunc(h.RecordCustomerConsentWithdrawal)))
+
+	// Tax invoicing (#450, ADR 0059): the platform's Issuer with each country's
+	// Tax Authority, and — from #454 — the Tax Invoices it issues by hand. The
+	// platform is the sole Issuer, so this is operator-only by construction and
+	// no Member route exists. The country code in the path is the visible seam:
+	// a second country is a second adapter behind /issuers/{country}, never a
+	// column on this one.
+	inv := app.InvoicingHandler
+	mux.Handle("GET /api/v1/operator/invoicing/issuers/ec", operator(http.HandlerFunc(inv.GetEcuadorIssuer)))
+	mux.Handle("PUT /api/v1/operator/invoicing/issuers/ec", operator(http.HandlerFunc(inv.PutEcuadorIssuer)))
+	// The signing certificate goes THROUGH the API as multipart (#453): the
+	// object storage buckets are public, so a presigned upload is not an option
+	// for a private key.
+	mux.Handle("POST /api/v1/operator/invoicing/issuers/ec/certificate", operator(http.HandlerFunc(inv.PostEcuadorIssuerCertificate)))
+	// The Tax Invoices (#454): issued from the form, listed newest first, read
+	// one at a time. Issue is synchronous within a budget — the response is
+	// the invoice as it stands when the authority answered or the budget ran
+	// out. The totals preview is the same arithmetic the document carries,
+	// served so the form never does it itself.
+	mux.Handle("GET /api/v1/operator/invoicing/invoices", operator(http.HandlerFunc(inv.ListInvoices)))
+	mux.Handle("POST /api/v1/operator/invoicing/invoices", operator(http.HandlerFunc(inv.IssueInvoice)))
+	mux.Handle("POST /api/v1/operator/invoicing/invoices/totals", operator(http.HandlerFunc(inv.PreviewTotals)))
+	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}", operator(http.HandlerFunc(inv.GetInvoice)))
+	// Check status and Resend (#455): on a non-authorized invoice, ask the
+	// authority again, or send the same document under the same clave.
+	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/check", operator(http.HandlerFunc(inv.CheckInvoice)))
+	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/resend", operator(http.HandlerFunc(inv.ResendInvoice)))
+	// The documents handed over (#456): the signed XML in every status, the
+	// SRI's authorization XML only once authorized. Files, not envelopes.
+	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/xml", operator(http.HandlerFunc(inv.DownloadSignedXML)))
+	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/authorization-xml", operator(http.HandlerFunc(inv.DownloadAuthorizationXML)))
 }
 
 // registerCustomerRoutes wires the Storefront's Customer identity surface.
