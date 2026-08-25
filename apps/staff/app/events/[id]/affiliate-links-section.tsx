@@ -67,6 +67,10 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
   // a page-level failure and gets the banner every other one gets — toasts are
   // for the mutations below, which leave the list on screen behind them.
   const [loadError, setLoadError] = useState<string | null>(null);
+  // The create dialog: open or not, the name typed into it, and whether the
+  // request is in flight. Behind a button rather than inline so the toolbar
+  // has one text field and Name can't be mistaken for Search.
+  const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [links, setLinks] = useState<AffiliateLink[]>([]);
@@ -130,6 +134,14 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
     };
   }, [eventId]);
 
+  function closeCreateDialog() {
+    if (creating) {
+      return;
+    }
+    setCreateOpen(false);
+    setName("");
+  }
+
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = name.trim();
@@ -139,7 +151,13 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
     setCreating(true);
     try {
       await createAffiliateLink(eventId, trimmed);
+      setCreateOpen(false);
       setName("");
+      // The one mutation that clears the search: the new link has 0 Clicks
+      // and a name the query almost certainly doesn't match, and the point of
+      // creating it is to see it. The sort stays — ties are newest-first, so
+      // the new row leads the zeros under the default order.
+      setQuery("");
       await loadLinks();
       toast.success(t("createdToast"));
     } catch (createError) {
@@ -293,28 +311,7 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <form className="flex flex-col gap-3 sm:flex-row sm:items-end" onSubmit={(event) => void handleCreate(event)}>
-          <div className="flex-1">
-            <FormField id="affiliate-link-name" label={t("nameLabel")}>
-              <Input
-                id="affiliate-link-name"
-                value={name}
-                maxLength={AFFILIATE_LINK_NAME_MAX_LENGTH}
-                onChange={(event) => setName(event.target.value)}
-                placeholder={t("namePlaceholder")}
-                required
-              />
-            </FormField>
-          </div>
-          <Button
-            type="submit"
-            disabled={creating || name.trim() === ""}
-            aria-busy={creating}
-          >
-            {creating ? t("creating") : t("create")}
-          </Button>
-        </form>
-
+        {/* The toolbar: one text input (the search) and the create button. */}
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Input
             type="search"
@@ -324,6 +321,9 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
+          <Button type="button" onClick={() => setCreateOpen(true)}>
+            {t("newLink")}
+          </Button>
         </div>
 
         {loading ? (
@@ -467,6 +467,35 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
           </div>
         )}
       </CardContent>
+
+      <Dialog open={createOpen} onOpenChange={(open) => !open && closeCreateDialog()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("createDialogTitle")}</DialogTitle>
+            <DialogDescription>{t("createDialogDescription")}</DialogDescription>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={(event) => void handleCreate(event)}>
+            <FormField id="affiliate-link-name" label={t("nameLabel")}>
+              <Input
+                id="affiliate-link-name"
+                value={name}
+                maxLength={AFFILIATE_LINK_NAME_MAX_LENGTH}
+                onChange={(event) => setName(event.target.value)}
+                placeholder={t("namePlaceholder")}
+                required
+              />
+            </FormField>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeCreateDialog}>
+                {t("cancel")}
+              </Button>
+              <Button type="submit" disabled={creating || name.trim() === ""} aria-busy={creating}>
+                {creating ? t("creating") : t("create")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={renameTarget !== null} onOpenChange={(open) => !open && setRenameTarget(null)}>
         <DialogContent>
