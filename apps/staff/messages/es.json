@@ -509,7 +509,7 @@
     "granularity_day": "Por día",
     "chartLabelHourly": "Clics por Enlace de Afiliado junto a todas las vistas de página, una línea por serie con un punto por hora",
     "chartLabelDaily": "Clics por Enlace de Afiliado junto a todas las vistas de página, una línea por serie con un punto por día",
-    "scrollLabel": "Gráfico de tendencias de los enlaces: desplácese de lado para recorrer el periodo",
+    "scrollLabel": "Gráfico de tendencias de alcance: desplácese de lado para recorrer el periodo",
     "floorNote": "Los conteos son cargas de página, no personas: las recargas y los robots también cuentan, y las llegadas por un enlace desactivado cuentan solo como vistas de página. Lea cada cifra como un piso de lo que un enlace trajo, nunca como una medición de su público.",
     "emptyTitle": "Todavía no hay vistas de página que graficar",
     "emptyBody": "Todavía no se ha contado nada para este Evento. El conteo empieza en cuanto se carga una página, y comenzó cuando se estrenó este gráfico: los clics anteriores viven en la cifra de por vida de cada enlace, en la pestaña Enlaces de Afiliado, no aquí.",

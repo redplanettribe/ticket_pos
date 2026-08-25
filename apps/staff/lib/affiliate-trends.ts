@@ -1005,7 +1005,7 @@ export type ListedTrendsSeries = {
 };
 
 /**
- * listTrendsSeries is the one derivation the Link Trends legend, lines and
+ * listTrendsSeries is the one derivation the Reach Trends legend, lines and
  * tooltip all read from: which series have something to say in the window
  * chosen, and in what order. A link with nothing in the span is unlisted —
  * not removed; widening the range lists it again — so a reader on 24h sees
@@ -1090,7 +1090,7 @@ export function listTrendsSeries(
 }
 
 /**
- * toggleListedSeries is `toggleSeriesSelection` as the Link Trends legend
+ * toggleListedSeries is `toggleSeriesSelection` as the Reach Trends legend
  * needs it: the chip that cannot be deselected is the last LISTED one still
  * on, not the last selected id — a selected link the window does not list is
  * not on the chart, and must not count as "something is still drawn".

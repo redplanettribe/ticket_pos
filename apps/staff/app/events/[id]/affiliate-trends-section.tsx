@@ -70,8 +70,9 @@ type AffiliateTrendsSectionProps = {
 };
 
 /**
- * The Affiliate Link trends surface: each link's Clicks, hour by hour, set
- * against everything the Event page received (ADR 0057, #411).
+ * Reach Trends, the first tab of the Reach surface (#464): each Affiliate
+ * Link's Clicks, hour by hour, set against everything the Event page received
+ * (ADR 0057, #411).
  *
  * The whole bounded history arrives in one request and never comes back to the
  * network: range switching and legend toggling are pure transforms of the
@@ -655,8 +656,7 @@ function EmptyWindow({
  * What an Event with nothing counted yet is told. Counting began at this
  * feature's launch (ADR 0057), so an older Event's earlier clicks live in the
  * lifetime figures on the Affiliate Links tab (#464), not here — the empty
- * state says so rather than
- * letting the gap read as lost data.
+ * state says so rather than letting the gap read as lost data.
  */
 function EmptyState() {
   const t = useTranslations("affiliateTrends");
