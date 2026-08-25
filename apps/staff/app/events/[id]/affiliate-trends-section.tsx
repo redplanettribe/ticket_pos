@@ -404,6 +404,7 @@ function ClicksChart({
         yTicks={yTicks}
         plotWidth={plotWidth}
         formatValue={(value) => formatNumber(value, locale)}
+        nothingCountedLabel={t("tooltipNothingCounted")}
         ariaLabel={hourly ? t("chartLabelHourly") : t("chartLabelDaily")}
       />
     </ChartScrollArea>
@@ -474,6 +475,7 @@ function SalesChart({
         plotWidth={plotWidth}
         formatValue={(value) => formatNumber(value, locale)}
         formatSeriesDetail={formatSeriesDetail}
+        nothingCountedLabel={t("tooltipNothingCounted")}
         ariaLabel={hourly ? t("salesChartLabelHourly") : t("salesChartLabelDaily")}
       />
     </ChartScrollArea>
@@ -544,6 +546,8 @@ function RateChart({
         plotWidth={plotWidth}
         formatValue={(value) => formatPercent(value, locale)}
         formatSeriesDetail={formatSeriesDetail}
+        nothingCountedLabel={t("tooltipNothingCounted")}
+        zeroIsMeasured
         ariaLabel={view === "cumulative" ? t("rateChartLabelCumulative") : t("rateChartLabelDaily")}
       />
     </ChartScrollArea>

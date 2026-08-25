@@ -12,6 +12,7 @@ import {
   xAxisProps,
   type StackedSeries,
 } from "./chart-frame";
+import { tooltipRows } from "./chart-tooltip-rows";
 
 /**
  * One bucket of a multi-series LINE chart: its key, its axis label, and each
@@ -42,6 +43,14 @@ export type MultiSeriesLineChartProps = {
   /** An extra muted line under a series' tooltip row — the Attribution Rate
    * view states the division behind each point there. */
   formatSeriesDetail?: (seriesId: string, datum: MultiSeriesLineDatum) => string | null;
+  /** Whether a zero is a finding the hover card names (a 0% rate: clicks came,
+   * nobody bought) or a count of nothing it leaves out. Off by default, which
+   * is what a counting view means by zero. See `tooltipRows`. */
+  zeroIsMeasured?: boolean;
+  /** What the hover card says for a bucket in which no drawn series counted
+   * anything. English by default so the chart stands alone; a localised
+   * surface passes its own. */
+  nothingCountedLabel?: string;
   syncId?: string;
   height?: number;
   ariaLabel: string;
@@ -73,6 +82,8 @@ export function MultiSeriesLineChart({
   formatValue,
   formatTickValue,
   formatSeriesDetail,
+  zeroIsMeasured = false,
+  nothingCountedLabel = "Nothing counted",
   syncId,
   height = 320,
   ariaLabel,
@@ -106,6 +117,8 @@ export function MultiSeriesLineChart({
                 series={series}
                 formatValue={formatValue}
                 formatSeriesDetail={formatSeriesDetail}
+                zeroIsMeasured={zeroIsMeasured}
+                nothingCountedLabel={nothingCountedLabel}
                 chartHeight={height}
               />
             }
@@ -186,6 +199,8 @@ type MultiSeriesLineTooltipProps = {
   series: StackedSeries[];
   formatValue: (value: number) => string;
   formatSeriesDetail?: (seriesId: string, datum: MultiSeriesLineDatum) => string | null;
+  zeroIsMeasured: boolean;
+  nothingCountedLabel: string;
   /** The chart's height, handed on so the card can fit itself to it. */
   chartHeight: number;
   /** Injected by recharts when it clones this element. */
@@ -194,15 +209,17 @@ type MultiSeriesLineTooltipProps = {
 };
 
 /**
- * The hover card for one bucket: every drawn series in the caller's order. A
- * null value is stated as an em dash — the gap in the line, said out loud —
- * rather than formatted as the zero it is not, and carries no detail line: the
- * detail states a division, and there was none.
+ * The hover card for one bucket: the drawn series that counted something
+ * there, in the caller's order (see `tooltipRows` for what "counted" means and
+ * why a gap and a zero are left out). When none did, the card keeps its
+ * bucket label and says so in one muted line.
  */
 export function MultiSeriesLineTooltip({
   series,
   formatValue,
   formatSeriesDetail,
+  zeroIsMeasured,
+  nothingCountedLabel,
   chartHeight,
   active,
   payload,
@@ -211,20 +228,19 @@ export function MultiSeriesLineTooltip({
   if (!active || !datum) {
     return null;
   }
+  const { rows, nothingCounted } = tooltipRows(
+    series,
+    datum.values,
+    formatValue,
+    (seriesId) => formatSeriesDetail?.(seriesId, datum) ?? null,
+    { zeroIsMeasured },
+  );
   return (
     <ChartTooltipCard
       label={datum.label}
       chartHeight={chartHeight}
-      rows={series.map((entry) => {
-        const value = datum.values[entry.id] ?? null;
-        return {
-          id: entry.id,
-          name: entry.name,
-          color: entry.color,
-          value: value === null ? "—" : formatValue(value),
-          detail: value === null ? null : (formatSeriesDetail?.(entry.id, datum) ?? null),
-        };
-      })}
+      rows={rows}
+      emptyLabel={nothingCounted ? nothingCountedLabel : undefined}
     />
   );
 }
