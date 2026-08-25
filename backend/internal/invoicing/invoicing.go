@@ -55,14 +55,34 @@ func (e Environment) Valid() bool {
 
 // Issuer is the cross-country core of the platform's registration with one
 // Tax Authority. Its country-specific details live on the adapter's detail
-// row (EcuadorIssuerDetails for CountryEcuador); its certificate custody
-// columns arrive with #452 and are read into this struct then.
+// row (EcuadorIssuerDetails for CountryEcuador); its signing certificate is
+// in custody on the same row (#453), of which only the metadata is read here.
 type Issuer struct {
 	ID          string
 	Country     Country
 	Environment Environment
+	// Certificate is the metadata of the signing certificate in custody, nil
+	// when none has been uploaded. The sealed bytes and password are never on
+	// this struct: they are opened into memory only at signing.
+	Certificate *CertificateMetadata
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+// CertificateMetadata is what is known about the certificate in custody
+// without opening it: what the Issuer page shows.
+type CertificateMetadata struct {
+	// Subject is the RFC 2253 distinguished name.
+	Subject string
+	// RUC is the 13-digit RUC found inside the certificate, or "" when none
+	// could be discovered. Compared with the Issuer's own RUC for a warning,
+	// never a refusal.
+	RUC       string
+	NotBefore time.Time
+	NotAfter  time.Time
+	// FingerprintSHA256 is the lowercase hex SHA-256 of the DER certificate.
+	FingerprintSHA256 string
+	UploadedAt        time.Time
 }
 
 // TaxAuthority is the seam a country adapter implements: the two things the

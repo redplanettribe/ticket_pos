@@ -3211,6 +3211,13 @@ const docTemplate = `{
                     "agente_retencion": {
                         "type": "string"
                     },
+                    "certificate": {
+                        "$ref": "#/components/schemas/service.EcuadorIssuerCertificate"
+                    },
+                    "certificate_ruc_mismatch": {
+                        "description": "CertificateRUCMismatch is true only when the certificate carries a RUC\nand it is not the Issuer's. A warning for the page, never a refusal: the\nSRI's own check is the final word.",
+                        "type": "boolean"
+                    },
                     "country": {
                         "type": "string"
                     },
@@ -3251,6 +3258,32 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "updated_at": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.EcuadorIssuerCertificate": {
+                "description": "Certificate is the signing certificate's metadata, null until one is\nuploaded. Never the bytes and never the password, under any name.",
+                "properties": {
+                    "fingerprint_sha256": {
+                        "description": "FingerprintSHA256 is lowercase hex.",
+                        "type": "string"
+                    },
+                    "not_after": {
+                        "type": "string"
+                    },
+                    "not_before": {
+                        "type": "string"
+                    },
+                    "ruc": {
+                        "description": "RUC is the RUC found inside the certificate, \"\" when none was.",
+                        "type": "string"
+                    },
+                    "subject": {
+                        "type": "string"
+                    },
+                    "uploaded_at": {
                         "type": "string"
                     }
                 },
@@ -8950,6 +8983,107 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Record the platform's Ecuador Issuer",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/issuers/ec/certificate": {
+            "post": {
+                "description": "Puts the platform's ` + "`" + `.p12` + "`" + ` and its password in custody on the Ecuador Issuer (ADR 0059), replacing any certificate already there. The file is opened before anything is stored: a wrong password answers CERTIFICATE_PASSWORD_INCORRECT, a file without an RSA private key CERTIFICATE_NO_RSA_KEY, and a file that is not a PKCS#12 file CERTIFICATE_FILE_INVALID — all 400, and in every case the previous certificate is untouched. ISSUER_NOT_FOUND (404) when the Issuer has not been recorded yet. CERTIFICATE_KEY_NOT_CONFIGURED (503) when the server has no INVOICING_CERTIFICATE_KEY; everything else about the Issuer keeps working. Returns the Issuer as it now reads, with the certificate's metadata and never its bytes or password. Platform Operator only.",
+                "requestBody": {
+                    "content": {
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "title": "file",
+                                        "type": "file"
+                                    },
+                                    {
+                                        "title": "password",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    },
+                    "description": "The .p12 file | The .p12 password",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeEcuadorIssuer"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Upload the Ecuador Issuer's signing certificate",
                 "tags": [
                     "operator"
                 ]

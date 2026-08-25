@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"os"
@@ -60,6 +61,13 @@ type Config struct {
 	// mint a link to any Ticket Sale, so it is read from the environment like
 	// every other secret and never defaulted in production.
 	ConfirmationLinkSecret string
+	// InvoicingCertificateKey is the AES-256 key the Issuer's signing
+	// certificate and its password are kept encrypted under in Postgres (#453,
+	// ADR 0059): the 32 bytes INVOICING_CERTIFICATE_KEY decodes to, or nil when
+	// it is unset. Nil is a running state and not a startup failure — the app
+	// serves everything but certificate upload and signing without it — so
+	// that invoicing being unconfigured is never an outage.
+	InvoicingCertificateKey []byte
 	// OTPGlobalCeiling caps passcode emails sent platform-wide per rate window,
 	// across staff and customer sign-in alike. Zero means "use the package
 	// default". Tunable without a deploy-time code change because the right
@@ -359,6 +367,11 @@ func LoadConfig() (Config, error) {
 	// Requiring it here failed the migrate Job on every production deploy.
 	confirmationLinkSecret := strings.TrimSpace(os.Getenv("CONFIRMATION_LINK_SECRET"))
 
+	invoicingCertificateKey, err := loadInvoicingCertificateKey()
+	if err != nil {
+		return Config{}, err
+	}
+
 	resendAPIKey := os.Getenv("RESEND_API_KEY")
 	digestEmail := loadDigestEmailConfig(resendAPIKey)
 
@@ -399,6 +412,8 @@ func LoadConfig() (Config, error) {
 		// is mapped it has none to inject, which NewApp warns about at startup.
 		StorefrontBaseURL:      strings.TrimRight(envOrDefault("STOREFRONT_BASE_URL", DevStorefrontBaseURL), "/"),
 		ConfirmationLinkSecret: confirmationLinkSecret,
+
+		InvoicingCertificateKey: invoicingCertificateKey,
 
 		OTPGlobalCeiling: otpCeiling,
 		Google:           google,
@@ -493,6 +508,34 @@ func loadPayPhoneConfig(appEnv string) (PayPhoneConfig, error) {
 		StoreID:  strings.TrimSpace(os.Getenv("PAYPHONE_STORE_ID")),
 		BaseURL:  baseURL,
 	}, nil
+}
+
+// InvoicingCertificateKeyLength is the key size AES-256-GCM takes, and so
+// what INVOICING_CERTIFICATE_KEY must decode to.
+const InvoicingCertificateKeyLength = 32
+
+// loadInvoicingCertificateKey reads INVOICING_CERTIFICATE_KEY: standard base64
+// of exactly 32 bytes, or unset.
+//
+// Unset is allowed everywhere, production included, and is NOT the Confirmation
+// Link rule: a deployment without the key boots and serves every other feature,
+// and only certificate upload and signing answer with a specific error (#453).
+// A key that IS set but is not 32 decoded bytes is a startup failure, because
+// the alternative — silently running keyless, or padding it — would let a
+// mistyped secret look like a missing one.
+func loadInvoicingCertificateKey() ([]byte, error) {
+	raw := strings.TrimSpace(os.Getenv("INVOICING_CERTIFICATE_KEY"))
+	if raw == "" {
+		return nil, nil
+	}
+	key, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, fmt.Errorf("INVOICING_CERTIFICATE_KEY must be standard base64 of %d bytes: %w", InvoicingCertificateKeyLength, err)
+	}
+	if len(key) != InvoicingCertificateKeyLength {
+		return nil, fmt.Errorf("INVOICING_CERTIFICATE_KEY must decode to exactly %d bytes, got %d", InvoicingCertificateKeyLength, len(key))
+	}
+	return key, nil
 }
 
 // loadFeeConfig reads the Platform Fee schedule, falling back to the launch

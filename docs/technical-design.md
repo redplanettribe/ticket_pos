@@ -927,14 +927,19 @@ The Ecuador Issuer's SRI details (`EcuadorIssuerDetails`: RUC, razón social, no
 ### Storage
 
 Migration 094 lands the Issuer only: `invoicing_issuers` (country unique, environment), `invoicing_issuers_ec` (the SRI details, one-to-one), and `invoicing_sequences_ec` keyed by (issuer, environment, cod_doc, estab, pto_emi), created on first use and bumped with a single `UPDATE … RETURNING` so two concurrent issues get distinct numbers.
-The Tax Invoice tables, the certificate columns and the freezes (RUC once any invoice exists; establecimiento and punto de emisión once a sequence row exists under them) are later migrations in the same series.
+Migration 095 adds the certificate to the core row: the sealed `.p12` and password (`BYTEA`, nonce ‖ ciphertext ‖ tag as `invoicing.Custody` writes them) and the clear metadata — subject, the RUC found inside the certificate (`''` when none), validity window, SHA-256 fingerprint, upload time — under a CHECK that makes them all-or-nothing.
+The Tax Invoice tables and the freezes (RUC once any invoice exists; establecimiento and punto de emisión once a sequence row exists under them) are later migrations in the same series.
 Nothing issued is ever deleted.
 
 ### The certificate key
 
 The signing `.p12` and its password are stored AES-256-GCM encrypted in Postgres under `INVOICING_CERTIFICATE_KEY` (32 bytes, base64; Secret Manager → env in production, `.env` locally), the way the Confirmation Link key is delivered.
-The key is absent-safe: the app boots and serves everything else without it, and only certificate upload and signing fail, with a specific error.
-Landing with #452.
+The key is absent-safe: the app boots and serves everything else without it, and only certificate upload and signing fail with `CERTIFICATE_KEY_NOT_CONFIGURED` (503), which the Issuer page shows plainly so a failed upload is not mistaken for a bad file.
+A key that is set but does not decode to 32 bytes is a startup failure (`LoadConfig`), so a mistyped secret never looks like a missing one.
+The upload is a multipart `POST /operator/invoicing/issuers/ec/certificate` (`file` + `password`) through the API — never a presigned browser upload, the buckets being public — and the `.p12` is opened with `sri.OpenCertificate` before anything is stored: a wrong password, a file without an RSA key and a file that is not a `.p12` are `CERTIFICATE_PASSWORD_INCORRECT`, `CERTIFICATE_NO_RSA_KEY` and `CERTIFICATE_FILE_INVALID`, each leaving the previous certificate untouched; a re-upload replaces outright.
+The Issuer read carries a `certificate` object (metadata only, `null` when none) and `certificate_ruc_mismatch`, true only when the certificate names a RUC and it is not the Issuer's — a warning on the page, never a block, since the SRI's own check is the final word.
+`Service.OpenEcuadorSigningKey` is the only decryption path: it opens the sealed bytes into an `*sri.Certificate` in memory for one signing (#454) and nowhere else.
+Landed with #453.
 
 ## Local development
 

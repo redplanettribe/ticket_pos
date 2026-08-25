@@ -3006,6 +3006,96 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/invoicing/issuers/ec/certificate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload the Ecuador Issuer's signing certificate
+         * @description Puts the platform's `.p12` and its password in custody on the Ecuador Issuer (ADR 0059), replacing any certificate already there. The file is opened before anything is stored: a wrong password answers CERTIFICATE_PASSWORD_INCORRECT, a file without an RSA private key CERTIFICATE_NO_RSA_KEY, and a file that is not a PKCS#12 file CERTIFICATE_FILE_INVALID — all 400, and in every case the previous certificate is untouched. ISSUER_NOT_FOUND (404) when the Issuer has not been recorded yet. CERTIFICATE_KEY_NOT_CONFIGURED (503) when the server has no INVOICING_CERTIFICATE_KEY; everything else about the Issuer keeps working. Returns the Issuer as it now reads, with the certificate's metadata and never its bytes or password. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description The .p12 file | The .p12 password */
+            requestBody: {
+                content: {
+                    "application/x-www-form-urlencoded": Record<string, never> | string;
+                    "multipart/form-data": Record<string, never>;
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeEcuadorIssuer"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/organizations": {
         parameters: {
             query?: never;
@@ -12327,6 +12417,13 @@ export interface components {
         };
         "service.EcuadorIssuer": {
             agente_retencion?: string;
+            certificate?: components["schemas"]["service.EcuadorIssuerCertificate"];
+            /**
+             * @description CertificateRUCMismatch is true only when the certificate carries a RUC
+             *     and it is not the Issuer's. A warning for the page, never a refusal: the
+             *     SRI's own check is the final word.
+             */
+            certificate_ruc_mismatch?: boolean;
             country?: string;
             created_at?: string;
             direccion_establecimiento?: string;
@@ -12341,6 +12438,20 @@ export interface components {
             regimen?: string;
             ruc?: string;
             updated_at?: string;
+        };
+        /**
+         * @description Certificate is the signing certificate's metadata, null until one is
+         *     uploaded. Never the bytes and never the password, under any name.
+         */
+        "service.EcuadorIssuerCertificate": {
+            /** @description FingerprintSHA256 is lowercase hex. */
+            fingerprint_sha256?: string;
+            not_after?: string;
+            not_before?: string;
+            /** @description RUC is the RUC found inside the certificate, "" when none was. */
+            ruc?: string;
+            subject?: string;
+            uploaded_at?: string;
         };
         "service.EnqueueResult": {
             /**

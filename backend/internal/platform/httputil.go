@@ -163,6 +163,21 @@ func domainHTTPStatus(code string) int {
 		return http.StatusInternalServerError
 	case "FORBIDDEN":
 		return http.StatusForbidden
+	// The Issuer's signing certificate (#453, ADR 0059). No key on the server
+	// is 503: the deployment has not provisioned the secret, and nothing the
+	// caller sends will change that. A stored certificate that will not open
+	// is a 500 for the same reason — the row or the key, never the request.
+	// The three ways an upload is bad are the default 400 below; a missing
+	// Issuer is the ordinary 404; a missing certificate is a 409 because the
+	// Issuer exists and is simply not ready to sign.
+	case "CERTIFICATE_KEY_NOT_CONFIGURED":
+		return http.StatusServiceUnavailable
+	case "CERTIFICATE_UNREADABLE":
+		return http.StatusInternalServerError
+	case "ISSUER_NOT_FOUND":
+		return http.StatusNotFound
+	case "CERTIFICATE_NOT_UPLOADED":
+		return http.StatusConflict
 	case "NOT_FOUND", "ORGANIZATION_NOT_FOUND", "MEMBER_NOT_FOUND", "EVENT_NOT_FOUND":
 		return http.StatusNotFound
 	case "ORGANIZATION_SLUG_TAKEN", "EVENT_SLUG_TAKEN", "MEMBER_ALREADY_EXISTS", "LAST_ORG_ADMIN", "CANNOT_REMOVE_SELF", "CAPACITY_EXCEEDED", "PURCHASE_LIMIT_EXCEEDED", "IMPORT_BATCH_FAILED", "IMPORT_NOT_LATEST_BATCH", "IMPORT_ALREADY_REVERSED", "EVENT_NOT_DRAFT", "EVENT_DELETE_FORBIDDEN", "EVENT_PUBLISH_REQUIREMENTS_NOT_MET", "EVENT_ALREADY_PUBLISHED", "EVENT_ALREADY_CANCELLED", "EVENT_NOT_PUBLISHED", "TICKET_TYPE_DELETE_FORBIDDEN", "CURRENCY_LOCKED":

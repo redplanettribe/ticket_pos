@@ -6,6 +6,7 @@ package handler
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 
@@ -132,4 +133,66 @@ func validateEcuadorIssuer(body ecuadorIssuerBody) (service.SaveEcuadorIssuerInp
 	fields = append(fields, detailErrs...)
 
 	return service.SaveEcuadorIssuerInput{Environment: environment, Details: details}, fields
+}
+
+// maxCertificateUploadBytes caps a .p12 upload at 1 MiB. A signing certificate
+// with its chain is a few kilobytes; anything near this bound is not one.
+const maxCertificateUploadBytes = 1 << 20
+
+// PostEcuadorIssuerCertificate uploads the platform's signing certificate.
+//
+// @Summary      Upload the Ecuador Issuer's signing certificate
+// @Description  Puts the platform's `.p12` and its password in custody on the Ecuador Issuer (ADR 0059), replacing any certificate already there. The file is opened before anything is stored: a wrong password answers CERTIFICATE_PASSWORD_INCORRECT, a file without an RSA private key CERTIFICATE_NO_RSA_KEY, and a file that is not a PKCS#12 file CERTIFICATE_FILE_INVALID — all 400, and in every case the previous certificate is untouched. ISSUER_NOT_FOUND (404) when the Issuer has not been recorded yet. CERTIFICATE_KEY_NOT_CONFIGURED (503) when the server has no INVOICING_CERTIFICATE_KEY; everything else about the Issuer keeps working. Returns the Issuer as it now reads, with the certificate's metadata and never its bytes or password. Platform Operator only.
+// @Tags         operator
+// @Accept       multipart/form-data
+// @Produce      json
+// @Security     BearerAuth
+// @Param        file      formData  file    true  "The .p12 file"
+// @Param        password  formData  string  true  "The .p12 password"
+// @Success      200  {object}  openapi.EnvelopeEcuadorIssuer
+// @Failure      400  {object}  platform.Envelope
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Failure      503  {object}  platform.Envelope
+// @Router       /api/v1/operator/invoicing/issuers/ec/certificate [post]
+func (h *Handler) PostEcuadorIssuerCertificate(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxCertificateUploadBytes)
+	if err := r.ParseMultipartForm(maxCertificateUploadBytes); err != nil {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "file", Code: platform.CodeInvalidUpload, Message: "must be a valid multipart upload"}})
+		return
+	}
+
+	// Both parts are checked before either is refused, so one answer names
+	// everything missing.
+	var fields []platform.FieldError
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		fields = append(fields, platform.FieldError{Field: "file", Code: platform.CodeRequired, Message: "is required"})
+	} else {
+		defer func() { _ = file.Close() }()
+	}
+	password, hasPassword := r.MultipartForm.Value["password"]
+	if !hasPassword || len(password) == 0 {
+		fields = append(fields, platform.FieldError{Field: "password", Code: platform.CodeRequired, Message: "is required"})
+	}
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+
+	p12, err := io.ReadAll(io.LimitReader(file, maxCertificateUploadBytes))
+	if err != nil {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "file", Code: platform.CodeInvalidUpload, Message: "could not be read"}})
+		return
+	}
+
+	issuer, err := h.svc.UploadEcuadorIssuerCertificate(r.Context(), p12, password[0])
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, issuer)
 }

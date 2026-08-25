@@ -35,6 +35,8 @@ type EcuadorIssuerRow struct {
 
 const ecuadorIssuerColumns = `
 	i.id, i.country, i.environment, i.created_at, i.updated_at,
+	i.certificate_subject, i.certificate_ruc, i.certificate_not_before, i.certificate_not_after,
+	i.certificate_fingerprint_sha256, i.certificate_uploaded_at,
 	e.ruc, e.razon_social, e.nombre_comercial, e.direccion_matriz, e.direccion_establecimiento,
 	e.establecimiento, e.punto_emision, e.obligado_contabilidad, e.regimen, e.agente_retencion,
 	e.updated_at`
@@ -136,8 +138,13 @@ func (r *Repository) SaveEcuadorIssuer(ctx context.Context, environment invoicin
 func scanEcuadorIssuer(scanner interface{ Scan(dest ...any) error }) (*EcuadorIssuerRow, error) {
 	var row EcuadorIssuerRow
 	var agenteRetencion sql.NullString
+	var (
+		certSubject, certRUC, certFingerprint     sql.NullString
+		certNotBefore, certNotAfter, certUploaded sql.NullTime
+	)
 	if err := scanner.Scan(
 		&row.Issuer.ID, &row.Issuer.Country, &row.Issuer.Environment, &row.Issuer.CreatedAt, &row.Issuer.UpdatedAt,
+		&certSubject, &certRUC, &certNotBefore, &certNotAfter, &certFingerprint, &certUploaded,
 		&row.Details.RUC, &row.Details.RazonSocial, &row.Details.NombreComercial,
 		&row.Details.DireccionMatriz, &row.Details.DireccionEstablecimiento,
 		&row.Details.Establecimiento, &row.Details.PuntoEmision, &row.Details.ObligadoContabilidad,
@@ -149,5 +156,70 @@ func scanEcuadorIssuer(scanner interface{ Scan(dest ...any) error }) (*EcuadorIs
 	if agenteRetencion.Valid {
 		row.Details.AgenteRetencion = &agenteRetencion.String
 	}
+	// Migration 095's CHECK makes the certificate columns all-or-nothing, so
+	// one of them being set is all of them being set.
+	if certFingerprint.Valid {
+		row.Issuer.Certificate = &invoicing.CertificateMetadata{
+			Subject:           certSubject.String,
+			RUC:               certRUC.String,
+			NotBefore:         certNotBefore.Time,
+			NotAfter:          certNotAfter.Time,
+			FingerprintSHA256: certFingerprint.String,
+			UploadedAt:        certUploaded.Time,
+		}
+	}
 	return &row, nil
+}
+
+// SealedCertificate is the certificate as it sits in custody: the .p12 and
+// its password, each sealed by invoicing.Custody. The repository stores and
+// returns these bytes and never looks inside them.
+type SealedCertificate struct {
+	P12      []byte
+	Password []byte
+}
+
+// SaveCertificate puts a certificate in custody on the Issuer row, replacing
+// whatever was there outright, and stamps the upload time. The metadata's
+// UploadedAt is the database's clock and is returned by the next read.
+func (r *Repository) SaveCertificate(ctx context.Context, issuerID string, sealed SealedCertificate, meta invoicing.CertificateMetadata) error {
+	res, err := r.db.Pool.ExecContext(ctx, `
+		UPDATE invoicing_issuers SET
+			certificate_p12 = $2,
+			certificate_password = $3,
+			certificate_subject = $4,
+			certificate_ruc = $5,
+			certificate_not_before = $6,
+			certificate_not_after = $7,
+			certificate_fingerprint_sha256 = $8,
+			certificate_uploaded_at = NOW(),
+			updated_at = NOW()
+		WHERE id = $1
+	`, issuerID, sealed.P12, sealed.Password, meta.Subject, meta.RUC, meta.NotBefore, meta.NotAfter, meta.FingerprintSHA256)
+	if err != nil {
+		return fmt.Errorf("save certificate: %w", err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return fmt.Errorf("save certificate: issuer %s: %w", issuerID, sql.ErrNoRows)
+	}
+	return nil
+}
+
+// GetSealedCertificate reads the sealed certificate off the Issuer row, or
+// nil when the Issuer has none. This is the only read of the custody columns,
+// and its one caller opens the result into memory at signing time.
+func (r *Repository) GetSealedCertificate(ctx context.Context, issuerID string) (*SealedCertificate, error) {
+	var sealed SealedCertificate
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT certificate_p12, certificate_password
+		FROM invoicing_issuers
+		WHERE id = $1
+	`, issuerID).Scan(&sealed.P12, &sealed.Password)
+	if err != nil {
+		return nil, fmt.Errorf("get sealed certificate: %w", err)
+	}
+	if sealed.P12 == nil {
+		return nil, nil
+	}
+	return &sealed, nil
 }
