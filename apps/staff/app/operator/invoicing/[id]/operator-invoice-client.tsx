@@ -28,10 +28,12 @@ import {
   fetchOperatorInvoice,
 } from "@/lib/operator-api";
 
+import { OperatorInvoiceActions } from "./operator-invoice-actions";
+
 // One Tax Invoice in full (#454): Recipient, the Issuer as snapshotted, the
 // lines and totals, the SRI's messages verbatim, the authorization number and
-// date once authorized, and the attempts ledger. Reading only; Check status,
-// Resend and downloads are #455 and #456.
+// date once authorized, and the attempts ledger. Check status and Resend are
+// #455's card (operator-invoice-actions.tsx); downloads are #456.
 
 const STATUS_KEYS = {
   pending: "invoicingStatusPending",
@@ -130,6 +132,8 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
           </div>
         }
       />
+
+      <OperatorInvoiceActions invoice={invoice} onUpdated={setInvoice} />
 
       <Card>
         <CardHeader>

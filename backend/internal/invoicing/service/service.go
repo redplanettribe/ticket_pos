@@ -73,10 +73,24 @@ type EcuadorIssuer struct {
 	// CertificateRUCMismatch is true only when the certificate carries a RUC
 	// and it is not the Issuer's. A warning for the page, never a refusal: the
 	// SRI's own check is the final word.
-	CertificateRUCMismatch bool      `json:"certificate_ruc_mismatch"`
-	CreatedAt              time.Time `json:"created_at"`
-	UpdatedAt              time.Time `json:"updated_at"`
+	CertificateRUCMismatch bool `json:"certificate_ruc_mismatch"`
+	// FrozenFields names the details that may no longer change (#455): "ruc"
+	// once any Tax Invoice exists in either environment, "establecimiento"
+	// and "punto_emision" once a sequence has started under them. Empty
+	// until then. The page renders these read-only and says why; a save
+	// that changes one is refused with ISSUER_FIELD_FROZEN.
+	FrozenFields []string  `json:"frozen_fields"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
+
+// The frozen field names, as they appear in frozen_fields and in the
+// refusal's details.field. They are the JSON names of the Issuer payload.
+const (
+	frozenFieldRUC             = "ruc"
+	frozenFieldEstablecimiento = "establecimiento"
+	frozenFieldPuntoEmision    = "punto_emision"
+)
 
 // EcuadorIssuerCertificate is the certificate in custody as the page shows
 // it: metadata only.
@@ -105,7 +119,7 @@ func (s *Service) GetEcuadorIssuer(ctx context.Context) (*EcuadorIssuer, error) 
 	if err != nil || row == nil {
 		return nil, err
 	}
-	return ecuadorIssuerView(row), nil
+	return s.ecuadorIssuerViewWithFreezes(ctx, row)
 }
 
 // SaveEcuadorIssuer records the Ecuador Issuer, creating it on the first save
@@ -113,16 +127,83 @@ func (s *Service) GetEcuadorIssuer(ctx context.Context) (*EcuadorIssuer, error) 
 //
 // The input arrives validated: well-formedness is
 // invoicing.EcuadorIssuerDetails.Normalize's verdict and the handler asks for
-// it. What this method will add, with #453, is the question only the service
-// can answer — whether the RUC may change given that Tax Invoices exist, and
-// whether establecimiento / punto de emisión may change given that a
-// sequence has started under them. Until then every save is unconditional.
+// it. What only the service can answer is whether a detail MAY change (#455):
+// the RUC is refused once any Tax Invoice exists for the Issuer in either
+// environment, establecimiento and punto de emisión once a sequence has
+// started under them. Sent unchanged, a frozen field is no obstacle; every
+// other detail saves freely.
 func (s *Service) SaveEcuadorIssuer(ctx context.Context, input SaveEcuadorIssuerInput) (*EcuadorIssuer, error) {
+	current, err := s.repo.GetEcuadorIssuer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if current != nil {
+		if err := s.refuseFrozenChanges(ctx, current, input.Details); err != nil {
+			return nil, err
+		}
+	}
 	row, err := s.repo.SaveEcuadorIssuer(ctx, input.Environment, input.Details)
 	if err != nil {
 		return nil, err
 	}
-	return ecuadorIssuerView(row), nil
+	return s.ecuadorIssuerViewWithFreezes(ctx, row)
+}
+
+// frozenFields names the Issuer details that may no longer change, from
+// what has been issued: never from the Issuer row itself.
+func (s *Service) frozenFields(ctx context.Context, row *repository.EcuadorIssuerRow) ([]string, error) {
+	frozen := []string{}
+	hasInvoices, err := s.repo.IssuerHasInvoices(ctx, row.Issuer.ID)
+	if err != nil {
+		return nil, err
+	}
+	if hasInvoices {
+		frozen = append(frozen, frozenFieldRUC)
+	}
+	sequenceStarted, err := s.repo.SequenceExists(ctx, row.Issuer.ID, row.Details.Establecimiento, row.Details.PuntoEmision)
+	if err != nil {
+		return nil, err
+	}
+	if sequenceStarted {
+		frozen = append(frozen, frozenFieldEstablecimiento, frozenFieldPuntoEmision)
+	}
+	return frozen, nil
+}
+
+// refuseFrozenChanges answers ErrIssuerFieldFrozen for the first frozen
+// detail the save would change, in the order the page shows them.
+func (s *Service) refuseFrozenChanges(ctx context.Context, current *repository.EcuadorIssuerRow, next invoicing.EcuadorIssuerDetails) error {
+	frozen, err := s.frozenFields(ctx, current)
+	if err != nil {
+		return err
+	}
+	for _, field := range frozen {
+		switch field {
+		case frozenFieldRUC:
+			if next.RUC != current.Details.RUC {
+				return invoicing.ErrIssuerFieldFrozen(field)
+			}
+		case frozenFieldEstablecimiento:
+			if next.Establecimiento != current.Details.Establecimiento {
+				return invoicing.ErrIssuerFieldFrozen(field)
+			}
+		case frozenFieldPuntoEmision:
+			if next.PuntoEmision != current.Details.PuntoEmision {
+				return invoicing.ErrIssuerFieldFrozen(field)
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Service) ecuadorIssuerViewWithFreezes(ctx context.Context, row *repository.EcuadorIssuerRow) (*EcuadorIssuer, error) {
+	frozen, err := s.frozenFields(ctx, row)
+	if err != nil {
+		return nil, err
+	}
+	view := ecuadorIssuerView(row)
+	view.FrozenFields = frozen
+	return view, nil
 }
 
 // UploadEcuadorIssuerCertificate puts a .p12 and its password in custody on

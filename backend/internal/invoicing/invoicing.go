@@ -139,6 +139,13 @@ const (
 type Outcome struct {
 	State    OutcomeState
 	Messages []AuthorityMessage
+	// AlreadyHeld is set with OutcomeReceived when the authority reported
+	// that it already holds a document under this reference and did NOT take
+	// the one just submitted (SRI 43 "clave registrada", 70 "en
+	// procesamiento"). The core treats it as "it is there — ask for the
+	// outcome" and keeps the artifact on file as it was, since what the
+	// authority holds is the earlier send (#455).
+	AlreadyHeld bool
 	// AuthorizationNumber and AuthorizationDate are set only when State is
 	// OutcomeAuthorized: the authority's number for the legal artifact (in
 	// Ecuador the clave de acceso itself) and when it granted it.

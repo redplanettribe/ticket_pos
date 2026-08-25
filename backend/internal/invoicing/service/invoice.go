@@ -216,7 +216,7 @@ func (s *Service) IssueInvoice(ctx context.Context, in IssueInput) (*InvoiceDeta
 	s.logger.Info("invoicing: tax invoice issued",
 		"invoice_id", row.Invoice.ID, "environment", env, "secuencial", row.Ecuador.Secuencial, "issued_by", in.IssuedBy)
 
-	s.submitAndPoll(ctx, row)
+	s.submitAndPoll(ctx, row, nil)
 	return s.GetInvoice(ctx, row.Invoice.ID)
 }
 
@@ -225,9 +225,11 @@ func (s *Service) IssueInvoice(ctx context.Context, in IssueInput) (*InvoiceDeta
 // settled or the budget is spent. Every call is an attempts row. A failure
 // anywhere leaves the invoice pending with its number kept.
 //
-// #455's Check status is pollOnce without the submit; its Resend is this
-// function over a re-signed document.
-func (s *Service) submitAndPoll(ctx context.Context, row *repository.InvoiceRow) {
+// #455's Check status is one query without the submit (CheckInvoice); its
+// Resend is this function over a re-signed document, with onReceived (may be
+// nil) called once the authority has taken it — where the document on file
+// is replaced.
+func (s *Service) submitAndPoll(ctx context.Context, row *repository.InvoiceRow, onReceived func(context.Context, invoicing.Outcome)) {
 	ctx, cancel := context.WithTimeout(ctx, s.pollBudget)
 	defer cancel()
 	authority := s.authority(row.Invoice.Environment)
@@ -246,6 +248,9 @@ func (s *Service) submitAndPoll(ctx context.Context, row *repository.InvoiceRow)
 	// Received: the messages so far (warnings, or the 43/70 "it is there")
 	// are worth keeping while it stays pending.
 	s.applyOutcome(ctx, id, outcome)
+	if onReceived != nil {
+		onReceived(ctx, outcome)
+	}
 
 	for _, delay := range s.pollDelays {
 		select {
@@ -572,9 +577,13 @@ type InvoiceDetail struct {
 	Attempts []AttemptView          `json:"attempts"`
 	// HasAuthorizationXML says whether the authority's document is on file
 	// (#456 serves it).
-	HasAuthorizationXML bool      `json:"has_authorization_xml"`
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at"`
+	HasAuthorizationXML bool `json:"has_authorization_xml"`
+	// CheckStatusHint is true when the invoice is pending and the authority
+	// holds the document (received, in processing, or 43/70 on a resend): the
+	// page says "check status" rather than showing an error (#455).
+	CheckStatusHint bool      `json:"check_status_hint"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // FormatNumber renders the printed document number.
@@ -617,6 +626,7 @@ func invoiceDetailView(row *repository.InvoiceRow) *InvoiceDetail {
 		Messages:            messagesView(inv.Messages),
 		Attempts:            []AttemptView{},
 		HasAuthorizationXML: len(inv.AuthorizationXML) > 0,
+		CheckStatusHint:     checkStatusHint(inv, row.Attempts),
 		CreatedAt:           inv.CreatedAt.UTC(),
 		UpdatedAt:           inv.UpdatedAt.UTC(),
 		Ecuador: EcuadorInvoiceView{

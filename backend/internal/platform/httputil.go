@@ -187,6 +187,11 @@ func domainHTTPStatus(code string) int {
 		return http.StatusBadRequest
 	case "INVOICE_NOT_FOUND":
 		return http.StatusNotFound
+	// Check status / Resend on an authorized invoice, and a save that would
+	// change a frozen Issuer detail (#455): the resource exists and its state
+	// forbids the request.
+	case "INVOICE_ALREADY_AUTHORIZED", "ISSUER_FIELD_FROZEN":
+		return http.StatusConflict
 	case "NOT_FOUND", "ORGANIZATION_NOT_FOUND", "MEMBER_NOT_FOUND", "EVENT_NOT_FOUND":
 		return http.StatusNotFound
 	case "ORGANIZATION_SLUG_TAKEN", "EVENT_SLUG_TAKEN", "MEMBER_ALREADY_EXISTS", "LAST_ORG_ADMIN", "CANNOT_REMOVE_SELF", "CAPACITY_EXCEEDED", "PURCHASE_LIMIT_EXCEEDED", "IMPORT_BATCH_FAILED", "IMPORT_NOT_LATEST_BATCH", "IMPORT_ALREADY_REVERSED", "EVENT_NOT_DRAFT", "EVENT_DELETE_FORBIDDEN", "EVENT_PUBLISH_REQUIREMENTS_NOT_MET", "EVENT_ALREADY_PUBLISHED", "EVENT_ALREADY_CANCELLED", "EVENT_NOT_PUBLISHED", "TICKET_TYPE_DELETE_FORBIDDEN", "CURRENCY_LOCKED":

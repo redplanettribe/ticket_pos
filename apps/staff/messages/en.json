@@ -1533,7 +1533,24 @@
     "invoicingAttemptOutcomeError": "Error",
     "invoicingBreadcrumbList": "Tax Invoices",
     "invoicingClave": "Clave de acceso",
-    "invoicingBackToList": "Back to invoices"
+    "invoicingBackToList": "Back to invoices",
+    "invoicingActionsTitle": "Actions",
+    "invoicingActionsDescription": "The SRI has not authorized this invoice. Check status asks the SRI again without sending anything; Resend sends the same document under the same clave de acceso and number, re-signed with the current certificate.",
+    "invoicingCheckStatus": "Check status",
+    "invoicingCheckingStatus": "Checking…",
+    "invoicingResend": "Resend",
+    "invoicingResending": "Resending…",
+    "invoicingCheckStatusHintTitle": "The SRI has this document",
+    "invoicingCheckStatusHint": "It was received and is still being processed. Check status rather than resending it.",
+    "invoicingCheckedAuthorized": "The SRI authorized the invoice.",
+    "invoicingCheckedNotAuthorized": "The SRI did not authorize the invoice. See its messages.",
+    "invoicingCheckedRejected": "The SRI returned the invoice. See its messages.",
+    "invoicingCheckedPending": "The SRI has not decided yet. The invoice stays pending.",
+    "invoicingActionFailedTitle": "The action failed",
+    "invoicingCheckFailed": "The status could not be checked.",
+    "invoicingResendFailed": "The invoice could not be resent.",
+    "invoicingFrozenRuc": "Read-only: invoices have been issued under this RUC, and it is part of every clave de acceso.",
+    "invoicingFrozenNumbering": "Read-only: a sequence has started under this establecimiento and punto de emisión, and numbering must stay continuous."
   },
   "errors": {
     "envelope": {
@@ -1638,7 +1655,9 @@
       "CERTIFICATE_KEY_NOT_CONFIGURED": "The server has no certificate key configured, so it cannot store a certificate. This is a deployment setting (INVOICING_CERTIFICATE_KEY), not a problem with the file or the password.",
       "CERTIFICATE_PASSWORD_INCORRECT": "The certificate could not be opened with that password. Nothing was changed.",
       "CERTIFICATE_NO_RSA_KEY": "That file has no RSA private key. The SRI requires an RSA signing certificate; nothing was changed.",
-      "CERTIFICATE_FILE_INVALID": "That file is not a valid .p12 certificate. Nothing was changed."
+      "CERTIFICATE_FILE_INVALID": "That file is not a valid .p12 certificate. Nothing was changed.",
+      "INVOICE_ALREADY_AUTHORIZED": "The invoice is already authorized. Nothing can be checked or resent for it.",
+      "ISSUER_FIELD_FROZEN": "That field can no longer change: documents have been issued under it."
     },
     "field": {
       "REQUIRED": "is required",

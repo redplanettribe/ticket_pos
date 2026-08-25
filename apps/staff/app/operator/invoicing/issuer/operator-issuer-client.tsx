@@ -29,6 +29,7 @@ import {
   ECUADOR_ISSUER_REGIMENES,
   type EcuadorIssuerBody,
   type EcuadorIssuerEnvironment,
+  type EcuadorIssuerFrozenField,
   type EcuadorIssuerRegimen,
   type OperatorEcuadorIssuer,
   fetchOperatorEcuadorIssuer,
@@ -60,8 +61,13 @@ import {
  * a save of the details never touches the certificate, and an upload never
  * touches the details.
  *
- * NOTHING HERE IS READ-ONLY YET. The freezes — RUC once any factura exists,
- * establecimiento and punto de emisión once a sequence has started — are #454's.
+ * THREE FIELDS FREEZE (#455). The API's read names them in `frozen_fields`:
+ * the RUC once any factura exists in either environment (it is inside every
+ * clave de acceso), establecimiento and punto de emisión once a sequence has
+ * started under them (numbering must stay continuous). Those inputs render
+ * read-only with the reason in place of their hint, and a save that changed
+ * one anyway would be refused with ISSUER_FIELD_FROZEN. Everything else stays
+ * editable at any time.
  */
 
 /** The régimen catalog key for each API token. */
@@ -232,6 +238,9 @@ export function OperatorIssuerClient() {
   // The badge reads the STORED environment, never the select: an operator who
   // has picked production and not yet saved is still issuing under test.
   const lastSaved = issuer ? formatDateTime(issuer.updated_at, PLATFORM_TIME_ZONE, locale) : null;
+  // Likewise the freezes are the stored Issuer's: what has been issued under
+  // it, which no unsaved edit changes.
+  const frozen = new Set<EcuadorIssuerFrozenField>(issuer?.frozen_fields ?? []);
 
   return (
     <div className="space-y-6">
@@ -295,12 +304,14 @@ export function OperatorIssuerClient() {
             <FormField
               id="issuer-ruc"
               label={t("invoicingRucLabel")}
-              description={t("invoicingRucHint")}
+              description={frozen.has("ruc") ? t("invoicingFrozenRuc") : t("invoicingRucHint")}
               error={fieldErrors.ruc}
             >
               <Input
                 value={values.ruc}
                 disabled={saving}
+                readOnly={frozen.has("ruc")}
+                aria-readonly={frozen.has("ruc")}
                 inputMode="numeric"
                 autoComplete="off"
                 maxLength={13}
@@ -365,12 +376,16 @@ export function OperatorIssuerClient() {
               <FormField
                 id="issuer-establecimiento"
                 label={t("invoicingEstablecimientoLabel")}
-                description={t("invoicingThreeDigitsHint")}
+                description={
+                  frozen.has("establecimiento") ? t("invoicingFrozenNumbering") : t("invoicingThreeDigitsHint")
+                }
                 error={fieldErrors.establecimiento}
               >
                 <Input
                   value={values.establecimiento}
                   disabled={saving}
+                  readOnly={frozen.has("establecimiento")}
+                  aria-readonly={frozen.has("establecimiento")}
                   inputMode="numeric"
                   autoComplete="off"
                   maxLength={3}
@@ -381,12 +396,16 @@ export function OperatorIssuerClient() {
               <FormField
                 id="issuer-punto-emision"
                 label={t("invoicingPuntoEmisionLabel")}
-                description={t("invoicingThreeDigitsHint")}
+                description={
+                  frozen.has("punto_emision") ? t("invoicingFrozenNumbering") : t("invoicingThreeDigitsHint")
+                }
                 error={fieldErrors.punto_emision}
               >
                 <Input
                   value={values.punto_emision}
                   disabled={saving}
+                  readOnly={frozen.has("punto_emision")}
+                  aria-readonly={frozen.has("punto_emision")}
                   inputMode="numeric"
                   autoComplete="off"
                   maxLength={3}
