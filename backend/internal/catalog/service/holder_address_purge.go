@@ -79,10 +79,19 @@ type HolderAddressPurgeResult struct {
 	// assigning anything. Neither is the same as a scheduler that is paused, and
 	// the log line below is where that distinction is actually recorded.
 	AddressesHeld int `json:"addresses_held"`
+	// CorrectedAddressesPurged is how many corrected addresses this run took
+	// off pending Sale Re-addressings whose Event had started (#424, ADR 0058)
+	// — the second kind of address this job is accountable for, and reported
+	// as its own figure because it is a different liability: an address a
+	// Platform Operator typed on a buyer's word, rather than one a buyer typed
+	// for a friend. Zero is the ordinary answer.
+	CorrectedAddressesPurged int `json:"corrected_addresses_purged"`
 }
 
 // PurgeUnacceptedHolderAddresses takes the address off every Ticket still in
-// `assigned` whose Event has started.
+// `assigned` whose Event has started — and, since #424, the corrected address
+// off every Sale Re-addressing still pending whose Event has started (ADR
+// 0058), which is the same kind of fact ending on the same terms.
 //
 // THE MOMENT IS COMPUTED HERE, from this service's clock, and is never taken
 // from the caller. That is the internal namespace's standing rule — a caller who
@@ -111,10 +120,23 @@ func (s *Service) PurgeUnacceptedHolderAddresses(ctx context.Context) (*HolderAd
 		return nil, err
 	}
 
+	// THE SAME INSTANT FOR BOTH KINDS OF ADDRESS. A pending Sale Re-addressing
+	// expires at the Event's start on the same terms as an unaccepted Ticket
+	// Assignment (ADR 0058), and its corrected address goes on the same tick.
+	// A second statement rather than a widening of the first because the two
+	// live in different tables with different predicates; each is idempotent
+	// on its own, so a run killed between them leaves the second for the next
+	// tick and nothing half-done.
+	corrected, err := s.repo.PurgeUnacceptedCorrectedAddresses(ctx, now)
+	if err != nil {
+		return nil, err
+	}
+
 	result := &HolderAddressPurgeResult{
-		AddressesPurged: int(addresses),
-		EventsPurged:    int(events),
-		PurgedAt:        now.Format(time.RFC3339),
+		AddressesPurged:          int(addresses),
+		EventsPurged:             int(events),
+		PurgedAt:                 now.Format(time.RFC3339),
+		CorrectedAddressesPurged: int(corrected),
 	}
 
 	held, err := s.repo.CountUnacceptedHolderAddresses(ctx)
@@ -149,6 +171,7 @@ func (s *Service) PurgeUnacceptedHolderAddresses(ctx context.Context) (*HolderAd
 			"events_purged", result.EventsPurged,
 			"purged_at", result.PurgedAt,
 			"addresses_held", result.AddressesHeld,
+			"corrected_addresses_purged", result.CorrectedAddressesPurged,
 		)
 	}
 	return result, nil

@@ -54,6 +54,18 @@ export function reAddressingPanel(
 }
 
 /**
+ * The accepted history: every re-addressing of this sale that completed, in
+ * the order recorded. Listed WHATEVER face the panel shows — a reversed or
+ * started sale offers no lever, but the evidence trail of who the sale was
+ * moved to, by whom and when is permanent (#424, ADR 0058).
+ */
+export function acceptedReAddressings(
+  block: OperatorSaleReAddressingBlock | null | undefined,
+): OperatorSaleReAddressing[] {
+  return block?.accepted ?? [];
+}
+
+/**
  * The same normalisation every address on the platform gets: trimmed and
  * lowercased. Used only to catch the one refusal the operator can see coming
  * without a round trip — "that is already the sale's address".

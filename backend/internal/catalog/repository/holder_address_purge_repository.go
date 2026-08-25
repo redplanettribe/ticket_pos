@@ -128,6 +128,74 @@ func (r *Repository) PurgeUnacceptedHolderAddresses(
 	return addresses, events, nil
 }
 
+// PurgeUnacceptedCorrectedAddresses takes the corrected address off every Sale
+// Re-addressing still pending whose Event has started, and reports how many
+// went (#424, parent #419, ADR 0058).
+//
+// THE SAME KIND OF FACT AS AN UNACCEPTED HOLDER ADDRESS, ended the same way. A
+// corrected address is typed by a Platform Operator on the buyer's word and
+// held until its owner accepts by Re-addressing Link; until that click it is
+// an address supplied by somebody who is not its owner, exactly as a holder
+// address is. Once the Event has started nothing pending can be accepted — the
+// derived state reads `expired` from the Event alone (sales.
+// DeriveReAddressingState) — so the address has no purpose left and goes on the
+// same tick, from the same job, judged against the same instant.
+//
+// IT LIVES IN CATALOG'S REPOSITORY RATHER THAN SALES', because the purge is
+// catalog's job and sales cannot be reached from here without a cycle. The
+// statement names sales' table directly, on the terms the statement above
+// already names `ticket_sales`: a purge is a cross-cutting retention promise
+// and its predicate reads whatever tables carry the data it exists to remove.
+//
+// THE PREDICATE:
+//
+//   - `accepted_at IS NULL AND withdrawn_at IS NULL` — the record has not
+//     ended, which is migration 093's one-pending predicate exactly: what this
+//     takes is what the Operator lookup would otherwise still call pending. An
+//     accepted row keeps its address FOREVER: once proven from the corrected
+//     inbox it is the Customer's own, it is on `customers` as well, and
+//     migration 093's CHECK would refuse the NULL anyway. A withdrawn row is
+//     left alone too — the Operator ended it themself and it is not what the
+//     ticket names — which means an address the Operator withdrew is kept
+//     unaccepted past the doors. That is a gap this job does not close, noted
+//     rather than quietly widened into.
+//
+//   - `corrected_email IS NOT NULL` — there is an address to take, which is
+//     what makes a second run find nothing.
+//
+//   - `e.starts_at IS NOT NULL AND e.starts_at <= now` — the Event has
+//     started, read as an instant for the reasons the statement above sets
+//     out. An unscheduled Event never purges.
+//
+// NO SALE-STATUS CLAUSE, as above: a pending record on a reversed Sale already
+// reads `expired` and its address has even less purpose. But a reversal alone
+// does not bring a row here — the Event's start does — because the reversal
+// paths write to the Sale and to nothing else, on the derived-state rule.
+//
+// IT TAKES THE ADDRESS AND NOTHING ELSE. The operator's email, the address the
+// Sale was sold to, the note and every timestamp stay, so the row keeps saying
+// "somebody tried, when, and from where" once it no longer says to whom. There
+// is no marker column: a NULL corrected address on an unended row IS the
+// marker, since nothing else ever writes NULL there.
+func (r *Repository) PurgeUnacceptedCorrectedAddresses(ctx context.Context, now time.Time) (int64, error) {
+	result, err := r.db.Pool.ExecContext(ctx, `
+		UPDATE sale_re_addressings ra
+		SET corrected_email = NULL
+		FROM ticket_sales s
+		JOIN events e ON e.id = s.event_id
+		WHERE s.id = ra.ticket_sale_id
+		  AND ra.accepted_at IS NULL
+		  AND ra.withdrawn_at IS NULL
+		  AND ra.corrected_email IS NOT NULL
+		  AND e.starts_at IS NOT NULL
+		  AND e.starts_at <= $1
+	`, now)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 // CountUnacceptedHolderAddresses is how many addresses are sitting unaccepted on
 // Tickets right now, across the platform.
 //

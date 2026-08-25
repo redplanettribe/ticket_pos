@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -188,5 +189,44 @@ func TestTheHolderAddressPurgeDeadlineIsInsideTheRequestTimeout(t *testing.T) {
 	if deadline >= requestTimeout {
 		t.Fatalf("Cloud Scheduler's attempt deadline = %v, Cloud Run's request timeout = %v: the deadline must expire first, or Scheduler is waiting on a request Cloud Run has already killed",
 			deadline, requestTimeout)
+	}
+}
+
+// TestTheHolderAddressPurgeResultIsCountsAndAnInstant pins the response's
+// shape now that it reports two kinds of address (#424, ADR 0058).
+//
+// The corrected-address figure is its own field rather than folded into
+// `addresses_purged`, because it is a different liability — an address a
+// Platform Operator typed on a buyer's word, not one a buyer typed for a friend
+// — and an operator reading the runbook needs to see which promise a run kept.
+// And the whole payload is still numbers and one timestamp: a field that named
+// an address, a Ticket, a Sale or an Event would publish what the deletion
+// exists to remove, and this is where somebody adding one would be stopped.
+func TestTheHolderAddressPurgeResultIsCountsAndAnInstant(t *testing.T) {
+	encoded, err := json.Marshal(HolderAddressPurgeResult{
+		AddressesPurged: 2, EventsPurged: 1, PurgedAt: "2026-07-07T12:00:00Z",
+		AddressesHeld: 3, CorrectedAddressesPurged: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"addresses_purged":           float64(2),
+		"events_purged":              float64(1),
+		"purged_at":                  "2026-07-07T12:00:00Z",
+		"addresses_held":             float64(3),
+		"corrected_addresses_purged": float64(1),
+	}
+	if len(fields) != len(want) {
+		t.Fatalf("the purge result has fields %v, want exactly %v — every field here is a count or the instant, and nothing may name what was deleted", fields, want)
+	}
+	for name, value := range want {
+		if fields[name] != value {
+			t.Errorf("result[%q] = %v, want %v", name, fields[name], value)
+		}
 	}
 }

@@ -619,6 +619,10 @@ func TestTheReAddressingLinkIsNoLongerValidOnceTheRecordOrTheSaleHasEnded(t *tes
 			// The link opened before the end.
 			viewReAddressingLinkOK(t, payphoneEnv, s.token)
 			tc.end(t, env, s)
+			// The corrected address is told nothing by the ending itself
+			// (#424): an Operator Reversal's void notice goes to the address
+			// the Sale was sold to, and a withdrawal mails nobody.
+			assertNothingWentToTheWrongAddress(t, env, "ana.lopez@example.com")
 			env.email.Reset()
 
 			resp, body := viewReAddressingLink(t, payphoneEnv, s.token)
