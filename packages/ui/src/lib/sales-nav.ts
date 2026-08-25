@@ -10,7 +10,7 @@
  * So this module keeps the part that is a decision — which tabs exist, for whom,
  * and in what order — and the caller supplies the words.
  */
-export const SALES_NAV_KEYS = ["sales", "record", "trends"] as const;
+export const SALES_NAV_KEYS = ["sales", "record", "trends", "holderList"] as const;
 
 export type SalesNavKey = (typeof SALES_NAV_KEYS)[number];
 
@@ -45,14 +45,33 @@ export type SalesNavEntry = {
  * Sales Trends (#460) is the third tab and carries the same owner-only gate:
  * it reads the Event's money, and it was offered from the Event panel until it
  * moved here, so that the same chart is not offered from two places.
+ *
+ * The Holder List (#469) is the fourth and last tab, and it followed the same
+ * road out of the Event panel: the roster is a reading of the sales exactly as
+ * the chart is — who those sales seat. It takes a flag of its own rather than
+ * riding `fullAccess`, for the two reasons `eventNavItems` used to give: its
+ * route is gated to Org Admins alone — narrower than `fullAccess`, which also
+ * admits an Event Owner — and the surface exists only while EITHER Ticket
+ * Assignment or Ticket Questions is open, two features that ship dark
+ * (ADR 0045). Both facts are the caller's to establish, because only the caller
+ * holds the Event payload the flags arrive on and the Member's actual role;
+ * this module keeps only the decision that the entry exists and where it sits.
  */
 export function salesNavItems({
   eventId,
   fullAccess,
+  holderList = false,
 }: {
   eventId: string;
   /** Whether this Member sees the owner-only tabs: an Org Admin or Event Owner. */
   fullAccess: boolean;
+  /**
+   * Whether this reader may see the Event's Holder List: Ticket Assignment or
+   * Ticket Questions is on AND they are an Org Admin. Defaults to false, so a
+   * caller that has not thought about it gets the dark state the features ship
+   * in rather than a tab that 404s.
+   */
+  holderList?: boolean;
 }): SalesNavEntry[] {
   return [
     // The list is the index of the Sales surface, not its owner: without `exact`
@@ -63,6 +82,11 @@ export function salesNavItems({
     // Trends reads the sales the first tab lists, so it follows the tools that
     // record one.
     ...(fullAccess ? [{ key: "trends" as const, href: `/events/${eventId}/sales/trends` }] : []),
+    // Last, after every reading of what was sold: who is coming on it. Record
+    // keeps second place, where the Org Admin's most-used tool is.
+    ...(holderList
+      ? [{ key: "holderList" as const, href: `/events/${eventId}/sales/holders` }]
+      : []),
   ];
 }
 

@@ -39,13 +39,6 @@ type EventShellProps = {
   backHref?: string;
   /** Whether this Member sees the owner-only entries. */
   fullAccess: boolean;
-  /**
-   * Whether this Member sees the Event's Holder List entry: Ticket Assignment
-   * or Ticket Questions is on AND they are an Org Admin. Separate from
-   * `fullAccess` because it is a narrower gate over features that ship dark —
-   * see `eventNavItems`.
-   */
-  holderList?: boolean;
   eventId: string;
   activePath?: string;
   userMenu?: ReactNode;
@@ -64,7 +57,6 @@ export function EventShell({
   statusVariant,
   backHref = "/events",
   fullAccess,
-  holderList = false,
   eventId,
   activePath,
   userMenu,
@@ -75,7 +67,6 @@ export function EventShell({
   const navItems: SidebarNavItem[] = eventNavItems({
     eventId,
     fullAccess,
-    holderList,
   }).map((entry) => ({
     ...entry,
     label: labels.nav[entry.key],

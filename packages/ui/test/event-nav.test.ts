@@ -7,8 +7,8 @@ import { eventNavItems } from "../src/lib/event-nav.ts";
 // Keys rather than labels throughout, the same way staff-nav.test.ts reads: the
 // panel's words come from the staff catalog now (ADR 0041), and a copy edit is
 // not a change to this module's behaviour.
-const litAt = (activePath: string, fullAccess = true, holderList = false) =>
-  eventNavItems({ eventId: "evt_1", fullAccess, holderList })
+const litAt = (activePath: string, fullAccess = true) =>
+  eventNavItems({ eventId: "evt_1", fullAccess })
     .filter((item) => isNavItemActive(activePath, item.href, { exact: item.exact }))
     .map((item) => item.key);
 
@@ -52,6 +52,7 @@ test("Trends has no entry of its own at any access level", () => {
 test("Sales is lit on its sub-tabs", () => {
   assert.deepEqual(litAt("/events/evt_1/sales/trends"), ["sales"]);
   assert.deepEqual(litAt("/events/evt_1/sales/record"), ["sales"]);
+  assert.deepEqual(litAt("/events/evt_1/sales/holders"), ["sales"]);
 });
 
 // Reach owns its subtree the same way (#464): the panel entry stays lit whether
@@ -69,53 +70,20 @@ test("entries read in a fixed order", () => {
   );
 });
 
-// THE DARK DEFAULT. Ticket Assignment and Ticket Questions both ship behind
-// flags that are off (ADR 0045), and a nav entry is exactly the kind of thing
-// that would admit a feature is there before the Privacy Policy describes it.
-// So the entry is absent unless a caller says otherwise — including for a
-// caller that has not thought about it, which is what the default argument is
-// for. Every test above is a witness to this, since none of them passes the
-// flag.
-test("the Holder List is absent until it is asked for", () => {
-  assert.ok(
-    !eventNavItems({ eventId: "evt_1", fullAccess: true })
-      .map((item) => item.key)
-      .includes("holderList"),
-  );
-  assert.ok(
-    !eventNavItems({ eventId: "evt_1", fullAccess: true, holderList: false })
-      .map((item) => item.key)
-      .includes("holderList"),
-  );
-});
-
-// It takes a flag of its OWN rather than riding fullAccess, because its route is
-// gated to Org Admins alone — narrower than fullAccess, which also admits an
-// Event Owner — and because both features can be dark for everybody. The caller
-// establishes both facts; this module only places the entry.
-test("the Holder List is offered when asked for, beside Sales", () => {
-  assert.deepEqual(
-    eventNavItems({ eventId: "evt_1", fullAccess: true, holderList: true }).map(
-      (item) => item.key,
-    ),
-    ["details", "ticketTypes", "reach", "sales", "holderList"],
-  );
-});
-
-// The href keeps the route's historical name (#333): the screen became the
-// Holder List, and its address is where it has always lived — a rename of the
-// path would break every bookmark for a word.
-test("the Holder List points at the Event's own tab", () => {
-  const entry = eventNavItems({
-    eventId: "evt_1",
-    fullAccess: true,
-    holderList: true,
-  }).find((item) => item.key === "holderList");
-  assert.equal(entry?.href, "/events/evt_1/outstanding-answers");
-});
-
-test("the Holder List tab lights on its own page alone", () => {
-  assert.deepEqual(litAt("/events/evt_1/outstanding-answers", true, true), ["holderList"]);
+// The Holder List left the panel in #469: it is the last sub-tab of the Sales
+// surface now (`salesNavItems`), so that the same roster is not offered from
+// two places. Its old address is a redirect, and lights nothing of its own.
+test("the Holder List has no entry of its own at any access level", () => {
+  for (const fullAccess of [true, false]) {
+    const keys: string[] = eventNavItems({ eventId: "evt_1", fullAccess }).map((item) => item.key);
+    assert.ok(!keys.includes("holderList"));
+    assert.ok(
+      !eventNavItems({ eventId: "evt_1", fullAccess }).some((item) =>
+        item.href.endsWith("/outstanding-answers"),
+      ),
+    );
+  }
+  assert.deepEqual(litAt("/events/evt_1/outstanding-answers"), []);
 });
 
 test("Tags are managed from Details, so they have no entry of their own", () => {

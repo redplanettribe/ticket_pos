@@ -7,11 +7,11 @@ import { salesNavItems, shouldDrawTabStrip } from "../src/lib/sales-nav.ts";
 // Keys rather than labels throughout, the same way event-nav.test.ts reads: the
 // strip's words come from the staff catalog (ADR 0041), and a copy edit is not a
 // change to this module's behaviour.
-const keysFor = (fullAccess: boolean) =>
-  salesNavItems({ eventId: "evt_1", fullAccess }).map((item) => item.key);
+const keysFor = (fullAccess: boolean, holderList = false) =>
+  salesNavItems({ eventId: "evt_1", fullAccess, holderList }).map((item) => item.key);
 
-const litAt = (activePath: string, fullAccess = true) =>
-  salesNavItems({ eventId: "evt_1", fullAccess })
+const litAt = (activePath: string, fullAccess = true, holderList = false) =>
+  salesNavItems({ eventId: "evt_1", fullAccess, holderList })
     .filter((item) => isNavItemActive(activePath, item.href, { exact: item.exact }))
     .map((item) => item.key);
 
@@ -25,12 +25,16 @@ test("Record and Trends are owner-only, so Event Staff are offered the list alon
 
 test("each tab points at its own address", () => {
   const hrefs = Object.fromEntries(
-    salesNavItems({ eventId: "evt_1", fullAccess: true }).map((item) => [item.key, item.href]),
+    salesNavItems({ eventId: "evt_1", fullAccess: true, holderList: true }).map((item) => [
+      item.key,
+      item.href,
+    ]),
   );
   assert.deepEqual(hrefs, {
     sales: "/events/evt_1/sales",
     record: "/events/evt_1/sales/record",
     trends: "/events/evt_1/sales/trends",
+    holderList: "/events/evt_1/sales/holders",
   });
 });
 
@@ -40,6 +44,7 @@ test("each tab points at its own address", () => {
 test("Sales is lit only at its own path", () => {
   assert.deepEqual(litAt("/events/evt_1/sales"), ["sales"]);
   assert.deepEqual(litAt("/events/evt_1/sales/record"), ["record"]);
+  assert.deepEqual(litAt("/events/evt_1/sales/holders", true, true), ["holderList"]);
 });
 
 // An Event Staff member is offered the list alone, so the tab they were sent to
@@ -62,10 +67,46 @@ test("Trends lights its own entry alone", () => {
   assert.deepEqual(litAt("/events/evt_1/sales/trends"), ["trends"]);
 });
 
+// The Holder List came here from the Event panel in #469, and it keeps the gate
+// it always had — which is not the surface's own. THE DARK DEFAULT first:
+// Ticket Assignment and Ticket Questions both ship behind flags that are off
+// (ADR 0045), and a nav entry is exactly the kind of thing that would admit a
+// feature is there before the Privacy Policy describes it. So the tab is absent
+// unless a caller says otherwise — including for a caller that has not thought
+// about it, which is what the default argument is for. Every test above is a
+// witness to this, since none of them passes the flag.
+test("the Holder List is absent until it is asked for", () => {
+  assert.ok(!keysFor(true).includes("holderList"));
+  assert.ok(!keysFor(true, false).includes("holderList"));
+});
+
+// It takes a flag of its OWN rather than riding fullAccess, because its route is
+// gated to Org Admins alone — narrower than fullAccess, which also admits an
+// Event Owner, who therefore sees three tabs beside their Org Admin colleague's
+// four — and because both features can be dark for everybody. The caller
+// establishes both facts; this module only places the entry, and places it
+// last: after every reading of what was sold, who is coming on it.
+test("the Holder List is offered last when asked for", () => {
+  assert.deepEqual(keysFor(true, true), ["sales", "record", "trends", "holderList"]);
+});
+
+test("the Holder List lights its own entry alone", () => {
+  assert.deepEqual(litAt("/events/evt_1/sales/holders", true, true), ["holderList"]);
+  assert.deepEqual(litAt("/events/evt_1/sales", true, true), ["sales"]);
+});
+
+// The tab somebody was sent to without the gate lights nothing — the instant
+// before the route's redirect carries them back to the list.
+test("the Holder List tab that is not offered lights nothing", () => {
+  assert.deepEqual(litAt("/events/evt_1/sales/holders", true, false), []);
+  assert.deepEqual(litAt("/events/evt_1/sales/holders", false, false), []);
+});
+
 test("a sibling Event lights nothing", () => {
   assert.deepEqual(litAt("/events/evt_10/sales"), []);
   assert.deepEqual(litAt("/events/evt_10/sales/record"), []);
   assert.deepEqual(litAt("/events/evt_10/sales/trends"), []);
+  assert.deepEqual(litAt("/events/evt_10/sales/holders", true, true), []);
 });
 
 // A strip with one tab in it says nothing a reader did not already know, so

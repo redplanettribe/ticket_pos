@@ -15,7 +15,6 @@ export const EVENT_NAV_KEYS = [
   "ticketTypes",
   "reach",
   "sales",
-  "holderList",
 ] as const;
 
 export type EventNavKey = (typeof EVENT_NAV_KEYS)[number];
@@ -50,31 +49,17 @@ export type EventNavEntry = {
  * chart is not offered from two places. The Sales entry lights while it is
  * being read, because Sales owns its subtree.
  *
- * The Holder List (#333; formerly the Outstanding Answers entry) follows that
- * rule twice over, which is why it takes a flag of its own rather than riding
- * `fullAccess`. Its route is gated to Org Admins alone — narrower than
- * `fullAccess`, which also admits an Event Owner — and the surface exists only
- * while EITHER Ticket Assignment or Ticket Questions is open, two features that
- * ship dark (ADR 0045). Both facts are the caller's to establish, because only
- * the caller holds the Event payload the flags arrive on and the Member's
- * actual role; this module keeps only the decision that the entry exists and
- * where it sits. Its href keeps the route's historical name — the screen is the
- * Holder List, the address is where it has always lived.
+ * The Holder List (#333) has no entry either, since #469: it is the last tab
+ * of that same Sales surface, because the roster is a reading of the sales —
+ * who they seat — exactly as the chart is. Its gate (Org Admin, and a feature
+ * that is on) travels with it to `salesNavItems`.
  */
 export function eventNavItems({
   eventId,
   fullAccess,
-  holderList = false,
 }: {
   eventId: string;
   fullAccess: boolean;
-  /**
-   * Whether this reader may see the Event's Holder List: Ticket Assignment or
-   * Ticket Questions is on AND they are an Org Admin. Defaults to false, so a
-   * caller that has not thought about it gets the dark state the features ship
-   * in rather than a tab that 404s.
-   */
-  holderList?: boolean;
 }): EventNavEntry[] {
   return [
     // Details is the index of the Event, not its owner: without `exact` it would
@@ -87,13 +72,8 @@ export function eventNavItems({
     // #464 — it is the second tab of this surface, not a sibling of it.
     ...(fullAccess ? [{ key: "reach" as const, href: `/events/${eventId}/reach` }] : []),
     // No `exact`: Sales owns its subtree, so it stays lit on its own sub-tabs
-    // (Record, Trends) — which is what a panel entry over a surface should do.
+    // (Record, Trends, Holder List) — which is what a panel entry over a
+    // surface should do.
     { key: "sales", href: `/events/${eventId}/sales` },
-    // The Holder List sits beside Sales because it is about who those sales
-    // seat: every Ticket of the Event, who is coming on each, and — where the
-    // Event asks questions — what each still owes.
-    ...(holderList
-      ? [{ key: "holderList" as const, href: `/events/${eventId}/outstanding-answers` }]
-      : []),
   ];
 }

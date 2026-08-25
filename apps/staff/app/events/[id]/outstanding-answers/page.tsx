@@ -1,41 +1,30 @@
-import { redirect } from "next/navigation";
+import { permanentRedirect } from "next/navigation";
 
-import { loadEvent } from "@/lib/staff-event";
-
-import { loadSession } from "../../../staff-page-shell";
-import { OutstandingAnswersSection } from "../outstanding-answers-section";
-
-type OutstandingAnswersPageProps = {
+type LegacyHolderListPageProps = {
   params: Promise<{ id: string }>;
 };
 
-export default async function EventOutstandingAnswersPage({ params }: OutstandingAnswersPageProps) {
+/**
+ * The old address of the Holder List, kept as a permanent redirect.
+ *
+ * The Holder List became the last sub-tab of the Sales surface (#469), and this
+ * page is all that is left here: a bookmark, a link in a message, or a browser's
+ * autocomplete still lands on the roster. The path carried the screen's first
+ * name, Outstanding Answers (#313), long after the screen was widened to the
+ * roster (#333); the move was the moment to stop carrying it. `permanentRedirect`
+ * — a 308 — rather than the temporary one the guards use, because this move is
+ * not conditional on who is reading; it is where the page lives now, and a
+ * client is welcome to remember it.
+ *
+ * It lives in the route rather than in `next.config`'s `redirects()` so that the
+ * fact stays next to the thing it is about: whoever deletes this folder deletes
+ * the redirect with it, instead of leaving a rule pointing at nothing.
+ *
+ * No guard here. The destination carries the Org Admin check and sends anybody
+ * else on to the Sales list, so repeating it would put the same rule in two
+ * places.
+ */
+export default async function LegacyOutstandingAnswersPage({ params }: LegacyHolderListPageProps) {
   const { id } = await params;
-  const session = await loadSession();
-  const role = session?.active_member?.role;
-
-  // Org Admins alone, which is the gate the API puts on every Ticket Question
-  // and Answer route — narrower than the Event's money surfaces, which also
-  // admit an Event Owner. The nav hides the tab from everybody else, so this
-  // guard is for the URL somebody was sent or bookmarked.
-  if (role !== "org_admin") {
-    redirect(`/events/${id}/sales`);
-  }
-
-  // The feature flags are DELIBERATELY NOT READ HERE. The layout already reads
-  // both off the Event payload to decide the nav entry — the Holder List exists
-  // while EITHER is on (#333) — and the API answers 404 to the endpoint while
-  // both are dark regardless (ADR 0045). A second copy of that decision on this
-  // page could only ever disagree with one of them, and somebody who reached
-  // this URL with both features off sees the surface's load failure — which is
-  // the correct amount of information: none.
-  //
-  // The Event's timezone, so "sold in January" is January where the Event is and
-  // not where the reader is standing. Tolerates failure: without it the list still
-  // renders and the dates fall back to the viewer's own zone, which is a worse
-  // answer than the right one and a much better answer than no list.
-  const event = await loadEvent(id);
-  const timezone = event?.timezone ?? null;
-
-  return <OutstandingAnswersSection eventId={id} timezone={timezone} />;
+  permanentRedirect(`/events/${id}/sales/holders`);
 }
