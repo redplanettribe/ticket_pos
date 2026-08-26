@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -154,6 +155,13 @@ func TestReversalWithdrawsASaleInvoiceNeverSent(t *testing.T) {
 				if n := getNeedsAttentionCount(t, operatorSessionID); n != 0 {
 					t.Fatalf("needs_attention count = %d; want 0, a withdrawn document needs nobody", n)
 				}
+				// The operator's actions say what it is, not that it is owed.
+				if resp, body := checkInvoice(t, operatorSessionID, invoiceID); resp.StatusCode != http.StatusConflict || body.Error == nil || body.Error.Code != "INVOICE_WITHDRAWN" {
+					t.Fatalf("check on a withdrawn document: status=%d error=%+v; want 409 INVOICE_WITHDRAWN", resp.StatusCode, body.Error)
+				}
+				if resp, body := resendInvoice(t, operatorSessionID, invoiceID); resp.StatusCode != http.StatusConflict || body.Error == nil || body.Error.Code != "INVOICE_WITHDRAWN" {
+					t.Fatalf("resend of a withdrawn document: status=%d error=%+v; want 409 INVOICE_WITHDRAWN", resp.StatusCode, body.Error)
+				}
 
 				// A working Issuer changes nothing: withdrawn is never worked.
 				issuerReady(t, operatorSessionID)
@@ -244,6 +252,8 @@ func TestReversalCreditsAnAuthorizedSaleInvoice(t *testing.T) {
 			if n := sequenceRows(t, env); n != 2 {
 				t.Fatalf("sequence rows = %d; want two: the factura's 01 and the nota de crédito's 04", n)
 			}
+			// Read directly: no surface says which sequence a number came
+			// out of, and "the 04 sequence stands at 1" is the fact.
 			var codDoc string
 			var last int64
 			if err := env.db.QueryRow(`SELECT cod_doc, last_secuencial FROM invoicing_sequences_ec WHERE cod_doc = '04'`).Scan(&codDoc, &last); err != nil || last != 1 {
@@ -443,6 +453,8 @@ func TestCreditNoteIsWithdrawnWhenItsSaleInvoiceDies(t *testing.T) {
 	if n := sriStub.receptionCount(); n != 1 {
 		t.Fatalf("the SRI received %d documents; want still the factura alone", n)
 	}
+	// Read directly: no surface says "no nota de crédito number was ever
+	// consumed"; the absence of a 04 sequence row is that fact.
 	var notes int
 	if err := env.db.QueryRow(`SELECT COUNT(*) FROM invoicing_sequences_ec WHERE cod_doc = '04'`).Scan(&notes); err != nil || notes != 0 {
 		t.Fatalf("04 sequence rows = %d (%v); want none, no number consumed", notes, err)
@@ -488,5 +500,85 @@ func TestNonHouseReversalOwesNothing(t *testing.T) {
 				t.Fatalf("sale status = %s; want reversed", status)
 			}
 		})
+	}
+}
+
+// TestReversalWinsAgainstADrainerParkingAnUnsignableDocument: the Drainer
+// has claimed the owed document and is about to park it unsignable (no
+// Issuer) when the buyer's reversal withdraws it. The park finds the row
+// no longer owed and leaves it exactly as the reversal left it: withdrawn,
+// off the queue — never resurrected needs_attention, which the next round
+// with a working Issuer would have signed into a factura for a sale that
+// no longer stands.
+//
+// The Drainer is held between its claim and its park by a table lock on
+// the Issuer it reads next: there is no API and no fake that can hold a
+// round at that instant, and the claim is visible through the operator
+// detail (next_attempt_at moves to the lease) so the reversal is made only
+// once the round provably holds the document.
+func TestReversalWinsAgainstADrainerParkingAnUnsignableDocument(t *testing.T) {
+	env := setupTest(t)
+	operatorSessionID, invoiceID := houseSaleOwed(t, env, 1000, 1)
+	ref := lastConfirmation(t, env).Reference
+
+	hold, err := env.db.Begin()
+	if err != nil {
+		t.Fatalf("begin hold: %v", err)
+	}
+	t.Cleanup(func() { _ = hold.Rollback() })
+	if _, err := hold.Exec(`LOCK TABLE invoicing_issuers IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatalf("hold the Issuer: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	var result saleInvoiceDrainResult
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		result = drainSaleInvoices(t)
+	}()
+	lease := fixedClock.Add(5 * time.Minute)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		detail := getDrainedInvoice(t, operatorSessionID, invoiceID)
+		if detail.NextAttemptAt != nil && nextAttemptAt(t, detail).Equal(lease) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the Drainer never claimed the document: next_attempt_at %v", detail.NextAttemptAt)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	reversalRoutes[0].reverse(t, env, operatorSessionID, ref)
+	if detail := getDrainedInvoice(t, operatorSessionID, invoiceID); detail.Status != "withdrawn" {
+		t.Fatalf("after the reversal, under the Drainer's claim: %s; want withdrawn", detail.Status)
+	}
+
+	_ = hold.Rollback()
+	wg.Wait()
+
+	if result.Claimed != 1 || result.NeedsAttention != 0 || result.Withdrawn != 1 || result.Failed != 0 {
+		t.Fatalf("drain that lost the row to the reversal = %+v; want it claimed and reported withdrawn, not parked", result)
+	}
+	detail := getDrainedInvoice(t, operatorSessionID, invoiceID)
+	if detail.Status != "withdrawn" || detail.NextAttemptAt != nil || detail.Number != nil {
+		t.Fatalf("after the round: status %s next %v number %v; want withdrawn, nothing due, unsigned", detail.Status, detail.NextAttemptAt, detail.Number)
+	}
+	if n := getNeedsAttentionCount(t, operatorSessionID); n != 0 {
+		t.Fatalf("needs_attention count = %d; want 0", n)
+	}
+
+	// A working Issuer an hour later signs nothing: the sale is gone.
+	issuerReady(t, operatorSessionID)
+	atInvoicingClock(t, fixedClock.Add(2*time.Hour))
+	if again := drainSaleInvoices(t); again.Claimed != 0 {
+		t.Fatalf("drain with a working Issuer = %+v; want nothing claimed", again)
+	}
+	if n := sriStub.receptionCount(); n != 0 {
+		t.Fatalf("the SRI received %d documents; want none", n)
+	}
+	if n := sequenceRows(t, env); n != 0 {
+		t.Fatalf("sequence rows = %d; want none", n)
 	}
 }

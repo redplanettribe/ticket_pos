@@ -25,8 +25,10 @@
 -- (no Issuer, no certificate, expired), definitely refused or unanswered for
 -- 24 h from pending. `withdrawn` was never sent and never will be: its Sale
 -- reversed first, or the factura it would have credited died. `annulled` is
--- the operator's manual portal act on an authorized document, recorded when
--- a later ticket adds who and when. Nothing is ever deleted.
+-- the operator's record of a manual portal act on a SIGNED document that
+-- was pending or needs_attention — never on an authorized one, which is
+-- credited instead — with who and when added by a later migration (099).
+-- Nothing is ever deleted.
 --
 -- The Recipient's address was already optional on the column ('' default);
 -- a Sale Invoice never has one, since the checkout asks for none.

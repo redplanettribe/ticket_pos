@@ -164,12 +164,20 @@ func (r *Repository) SignOwedInvoice(ctx context.Context, invoiceID string, in S
 // nil leaves them as they were. Nothing on the signed side is touched. `at`
 // is the round's instant, recorded as attention_since when the round parks
 // the document (#477).
-func (r *Repository) Reschedule(ctx context.Context, invoiceID string, status invoicing.InvoiceStatus, messages []invoicing.AuthorityMessage, nextAttemptAt *time.Time, at time.Time) error {
+//
+// GUARDED ON THE STATE THE ROUND READ. A claim is a lease, not a lock: a
+// reversal may withdraw the row under it (#476), an operator may mark it
+// annulled (#477), and a write that assumed the row was still `from` would
+// resurrect a document that is dead — a withdrawn Sale Invoice parked
+// needs_attention is signed on the next round, for a sale that no longer
+// stands. It reports false, having written nothing, when the row is no
+// longer in `from`; the round then leaves the row to whoever moved it.
+func (r *Repository) Reschedule(ctx context.Context, invoiceID string, from, to invoicing.InvoiceStatus, messages []invoicing.AuthorityMessage, nextAttemptAt *time.Time, at time.Time) (bool, error) {
 	var encoded []byte
 	if messages != nil {
 		var err error
 		if encoded, err = json.Marshal(messages); err != nil {
-			return fmt.Errorf("marshal messages: %w", err)
+			return false, fmt.Errorf("marshal messages: %w", err)
 		}
 	}
 	res, err := r.db.Pool.ExecContext(ctx, `
@@ -179,15 +187,43 @@ func (r *Repository) Reschedule(ctx context.Context, invoiceID string, status in
 			next_attempt_at = $4,
 			attention_since = `+attentionSinceExpr("$2", "$5")+`,
 			updated_at = NOW()
-		WHERE id = $1
-	`, invoiceID, status, encoded, nextAttemptAt, at)
+		WHERE id = $1 AND status = $6
+	`, invoiceID, to, encoded, nextAttemptAt, at, from)
 	if err != nil {
-		return fmt.Errorf("reschedule invoice: %w", err)
+		return false, fmt.Errorf("reschedule invoice: %w", err)
 	}
-	if n, err := res.RowsAffected(); err == nil && n == 0 {
-		return fmt.Errorf("reschedule invoice: invoice %s: %w", invoiceID, sql.ErrNoRows)
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("reschedule invoice: %w", err)
 	}
-	return nil
+	return n == 1, nil
+}
+
+// DueForDelivery makes an authorized, undelivered document due at once —
+// and only one that is off the queue: next_attempt_at NULL. It is the
+// operator's Check status and Resend that need it (#475): the Drainer
+// keeps its own claim through delivery, but a document those actions heal
+// was parked with nothing due, and would otherwise stay authorized and
+// never mailed. One that is on the ladder, or under a round's lease, is
+// left exactly as it is: the round that holds it delivers it, and a due
+// time written over a lease would let a second round mail it again. It
+// reports whether the row was made due.
+func (r *Repository) DueForDelivery(ctx context.Context, invoiceID string, at time.Time) (bool, error) {
+	res, err := r.db.Pool.ExecContext(ctx, `
+		UPDATE invoicing_invoices SET
+			next_attempt_at = $2,
+			updated_at = NOW()
+		WHERE id = $1 AND kind <> 'manual' AND status = 'authorized'
+		  AND delivered_at IS NULL AND next_attempt_at IS NULL
+	`, invoiceID, at)
+	if err != nil {
+		return false, fmt.Errorf("due for delivery: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("due for delivery: %w", err)
+	}
+	return n == 1, nil
 }
 
 // CountSaleInvoicesByStatus counts the Sale Invoices standing in each state,

@@ -43,7 +43,26 @@ func (s *Service) CheckInvoice(ctx context.Context, id string) (*InvoiceDetail, 
 		s.applyOutcome(ctx, row, outcome)
 	}
 	s.logger.Info("invoicing: tax invoice checked", "invoice_id", id, "outcome", outcome.State, "error", err)
+	s.dueForDelivery(ctx, row)
 	return s.GetInvoice(ctx, id)
+}
+
+// dueForDelivery makes a Sale-side document the operator's action has just
+// healed due at once, so the Drainer's next round mails it to the buyer
+// (#475). Only a document that was off the queue is touched: one under a
+// round's lease is that round's to deliver (repository.DueForDelivery).
+func (s *Service) dueForDelivery(ctx context.Context, row *repository.InvoiceRow) {
+	if row.Invoice.Kind == invoicing.DocumentKindManual {
+		return
+	}
+	due, err := s.repo.DueForDelivery(context.WithoutCancel(ctx), row.Invoice.ID, s.clock())
+	if err != nil {
+		s.logger.Error("invoicing: could not make the healed document due for delivery", "invoice_id", row.Invoice.ID, "error", err)
+		return
+	}
+	if due {
+		s.logger.Info("invoicing: healed document due for delivery", "invoice_id", row.Invoice.ID, "kind", row.Invoice.Kind)
+	}
 }
 
 // ResendInvoice rebuilds, re-signs and resubmits a non-authorized invoice
@@ -86,6 +105,7 @@ func (s *Service) ResendInvoice(ctx context.Context, id string) (*InvoiceDetail,
 			s.logger.Error("invoicing: could not replace the signed document after a received resend", "invoice_id", id, "error", err)
 		}
 	})
+	s.dueForDelivery(ctx, row)
 	return s.GetInvoice(ctx, id)
 }
 
@@ -93,9 +113,10 @@ func (s *Service) ResendInvoice(ctx context.Context, id string) (*InvoiceDetail,
 // one — a legal artifact is neither asked about nor sent again — an
 // annulled one (#477): the operator recorded that the authority no longer
 // holds it as valid, and a Check that found a late AUTORIZADO would undo
-// that record — and one not yet signed (#473): an owed document has no
-// clave to ask about and no bytes to send, and the Drainer is what issues
-// it.
+// that record — a withdrawn one (#476): never sent, and never will be, its
+// sale having been reversed first — and one not yet signed (#473): an owed
+// document has no clave to ask about and no bytes to send, and the Drainer
+// is what issues it.
 func (s *Service) actionable(ctx context.Context, id string) (*repository.InvoiceRow, error) {
 	row, err := s.repo.GetInvoice(ctx, id)
 	if err != nil {
@@ -104,11 +125,13 @@ func (s *Service) actionable(ctx context.Context, id string) (*repository.Invoic
 	if row == nil {
 		return nil, invoicing.ErrInvoiceNotFound()
 	}
-	if row.Invoice.Status == invoicing.InvoiceStatusAuthorized {
+	switch row.Invoice.Status {
+	case invoicing.InvoiceStatusAuthorized:
 		return nil, invoicing.ErrInvoiceAlreadyAuthorized()
-	}
-	if row.Invoice.Status == invoicing.InvoiceStatusAnnulled {
+	case invoicing.InvoiceStatusAnnulled:
 		return nil, invoicing.ErrInvoiceAnnulled()
+	case invoicing.InvoiceStatusWithdrawn:
+		return nil, invoicing.ErrInvoiceWithdrawn()
 	}
 	if !row.Invoice.Signed() || row.Ecuador == nil {
 		return nil, invoicing.ErrInvoiceNotIssued()

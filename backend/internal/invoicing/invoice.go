@@ -36,8 +36,9 @@ const (
 	// InvoiceStatusWithdrawn: never sent and never will be — its Sale was
 	// reversed first, or the factura it would have credited died.
 	InvoiceStatusWithdrawn InvoiceStatus = "withdrawn"
-	// InvoiceStatusAnnulled: an authorized document the operator annulled by
-	// hand at the authority's portal.
+	// InvoiceStatusAnnulled: a signed document — pending or needs_attention,
+	// never authorized, which is credited instead — the operator annulled by
+	// hand at the authority's portal and then recorded as such (#477).
 	InvoiceStatusAnnulled InvoiceStatus = "annulled"
 )
 

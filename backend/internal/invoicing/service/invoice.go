@@ -379,13 +379,26 @@ func (s *Service) attempt(ctx context.Context, invoiceID string, op invoicing.At
 // authority's messages beside it. An undecided answer leaves a manual
 // document pending until the operator checks; it leaves a Sale Invoice
 // pending AND due again on the ladder — or needs_attention-still-polled once
-// 24 hours have passed since signing without a definite answer. And an
-// authorized Sale Invoice is due again at once, for its delivery (#475);
-// an authorized manual document is the operator's to hand over.
+// 24 hours have passed since signing without a definite answer.
+//
+// AN AUTHORIZED SALE INVOICE STAYS WHERE IT IS ON THE QUEUE (#475). The
+// round that authorized it delivers it in the same breath, and the row
+// keeps that round's lease until MarkDelivered clears it or a refused send
+// reschedules it: a due time written here would release the lease before
+// the mail goes out, and a second round could claim the document and mail
+// the buyer again. The operator's Check status and Resend, which hold no
+// lease, make a healed document due themselves (dueForDelivery). An
+// authorized manual document is the operator's to hand over.
+//
+// The write is guarded on the status the row was read in: an operator's
+// Mark annulled, or a reversal, may have moved the row while the authority
+// was being asked, and the answer then applies to a document that no
+// longer stands. The row is left to whoever moved it, and the answer is
+// in the attempts ledger.
 func (s *Service) applyOutcome(ctx context.Context, row *repository.InvoiceRow, o invoicing.Outcome) {
 	inv := &row.Invoice
 	now := s.clock()
-	u := repository.OutcomeUpdate{Messages: o.Messages, At: now}
+	u := repository.OutcomeUpdate{From: inv.Status, Messages: o.Messages, At: now}
 	switch o.State {
 	case invoicing.OutcomeAuthorized:
 		u.Status = invoicing.InvoiceStatusAuthorized
@@ -401,11 +414,7 @@ func (s *Service) applyOutcome(ctx context.Context, row *repository.InvoiceRow, 
 	if inv.Kind != invoicing.DocumentKindManual {
 		switch u.Status {
 		case invoicing.InvoiceStatusAuthorized:
-			// Due at once, for delivery (#475): the Drainer mails it in this
-			// round or, when the round was an operator's Check status, on
-			// its next tick. MarkDelivered clears it.
-			now := s.clock()
-			u.NextAttemptAt = &now
+			u.KeepNextAttemptAt = true
 		case invoicing.InvoiceStatusNotAuthorized, invoicing.InvoiceStatusRejected:
 			u.Status = invoicing.InvoiceStatusNeedsAttention
 		case invoicing.InvoiceStatusPending:
@@ -414,9 +423,19 @@ func (s *Service) applyOutcome(ctx context.Context, row *repository.InvoiceRow, 
 			u.NextAttemptAt = &next
 		}
 	}
-	if err := s.repo.ApplyOutcome(context.WithoutCancel(ctx), inv.ID, u); err != nil {
+	applied, err := s.repo.ApplyOutcome(context.WithoutCancel(ctx), inv.ID, u)
+	if err != nil {
 		s.logger.Error("invoicing: could not apply outcome", "invoice_id", inv.ID, "status", u.Status, "error", err)
+		return
 	}
+	if !applied {
+		s.logger.Info("invoicing: the document moved while the authority was asked; its answer was not applied",
+			"invoice_id", inv.ID, "read_as", inv.Status, "answer", u.Status)
+		return
+	}
+	// The row as it now stands, so a later answer in the same round is
+	// guarded on what this one wrote.
+	inv.Status = u.Status
 }
 
 // dryRun builds — never signs, never stores — a factura from the pieces with

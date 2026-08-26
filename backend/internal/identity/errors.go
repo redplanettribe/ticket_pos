@@ -85,10 +85,11 @@ func ErrInvalidLogoImageKey() apperror.DomainError {
 
 // ErrHouseOrganizationCurrencyUnsupported is returned when an Organization is
 // designated a House Organization while trading in a currency the platform's
-// Issuer does not invoice in (#472, ADR 0060). The message names the currency,
-// because that is the whole of what the operator can do about it.
+// Issuer does not issue Sale Invoices in (#472, ADR 0060). The message names
+// the currency, because that is the whole of what the operator can do about
+// it.
 func ErrHouseOrganizationCurrencyUnsupported(currency string) apperror.DomainError {
 	return apperror.New("HOUSE_ORGANIZATION_CURRENCY_UNSUPPORTED",
-		"This organization trades in "+currency+", and the platform issues invoices in USD only. A House Organization must trade in USD.",
+		"This organization trades in "+currency+", and the platform issues Sale Invoices in USD only. A House Organization must trade in USD.",
 		map[string]any{"currency": currency})
 }

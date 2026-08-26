@@ -3,6 +3,7 @@ package integration
 import (
 	"encoding/json"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 )
@@ -533,5 +534,67 @@ func TestSaleLookupShowsTheSalesDocuments(t *testing.T) {
 	operatorGetOK(t, env, operatorSessionID, operatorSaleLookupPath(settled.ConfirmationRef), &plain)
 	if plain.Documents == nil || len(plain.Documents) != 0 {
 		t.Fatalf("documents on an ordinary sale = %+v; want an empty list", plain.Documents)
+	}
+}
+
+// TestMarkAnnulledWinsAgainstADrainersLateAuthorization: the document is
+// pending and held by the SRI; a round is asking autorización — and the
+// SRI is about to say AUTORIZADO — when the operator marks it annulled.
+// The round's answer finds the row no longer pending and leaves it as the
+// operator recorded it: annulled, with the trail, off the queue, nothing
+// mailed. The SRI's late answer is in the attempts ledger and nowhere
+// else. Before this held, the answer overwrote the annulment.
+func TestMarkAnnulledWinsAgainstADrainersLateAuthorization(t *testing.T) {
+	env := setupTest(t)
+	operatorSessionID, invoiceID := houseSaleOwed(t, env, 1000, 1)
+	issuerReady(t, operatorSessionID)
+	sriStub.setAuthorization(func(accessKey string) (int, string) { return http.StatusOK, inProcessingSOAP(accessKey) })
+	if result := drainSaleInvoices(t); result.Pending != 1 {
+		t.Fatalf("setup drain = %+v; want pending", result)
+	}
+	attempts := len(getDrainedInvoice(t, operatorSessionID, invoiceID).AttemptRows)
+
+	sriStub.setAuthorization(func(accessKey string) (int, string) { return http.StatusOK, authorizedSOAP(accessKey) })
+	arrived, release := sriStub.holdAuthorization()
+	atInvoicingClock(t, fixedClock.Add(time.Minute))
+
+	var wg sync.WaitGroup
+	var result saleInvoiceDrainResult
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		result = drainSaleInvoices(t)
+	}()
+	select {
+	case <-arrived:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the Drainer never asked the SRI")
+	}
+	view := annulOK(t, operatorSessionID, invoiceID)
+	if view.Status != "annulled" || view.AnnulledBy == nil || *view.AnnulledBy != "operator@example.com" {
+		t.Fatalf("annul under the Drainer's claim = %s by %v; want annulled by the operator", view.Status, view.AnnulledBy)
+	}
+	release()
+	wg.Wait()
+
+	if result.Claimed != 1 || result.Authorized != 0 || result.Delivered != 0 {
+		t.Fatalf("drain that lost the row to the annulment = %+v; want it claimed and neither authorized nor delivered", result)
+	}
+	after := getDrainedInvoice(t, operatorSessionID, invoiceID)
+	if after.Status != "annulled" || after.NextAttemptAt != nil || after.DeliveredAt != nil || after.HasAuthorizationXML {
+		t.Fatalf("after the round: status %s next %v delivered %v xml %v; want annulled, nothing due, nothing delivered, no authorization on file", after.Status, after.NextAttemptAt, after.DeliveredAt, after.HasAuthorizationXML)
+	}
+	if len(after.AttemptRows) != attempts+1 || after.AttemptRows[len(after.AttemptRows)-1].Outcome != "authorized" {
+		t.Fatalf("attempts = %+v; want the late AUTORIZADO in the ledger and nowhere else", after.AttemptRows)
+	}
+	if n := len(deliveriesSent(t, env)); n != 0 {
+		t.Fatalf("%d delivery mails; want none for an annulled document", n)
+	}
+	if n := getNeedsAttentionCount(t, operatorSessionID); n != 0 {
+		t.Fatalf("needs_attention count = %d; want 0", n)
+	}
+	atInvoicingClock(t, fixedClock.Add(2*time.Hour))
+	if again := drainSaleInvoices(t); again.Claimed != 0 {
+		t.Fatalf("drain afterwards = %+v; want nothing claimed", again)
 	}
 }

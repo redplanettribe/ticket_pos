@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/invoicing"
 	"github.com/peter/ticket_pos/backend/internal/invoicing/repository"
@@ -53,7 +54,7 @@ func (s *Service) deliverDocument(ctx context.Context, row *repository.InvoiceRo
 		// for an operator to see, and off the queue.
 		s.logger.Error("invoicing: an authorized document cannot be delivered; it has no Sale or no signed bytes",
 			"invoice_id", inv.ID, "kind", inv.Kind)
-		return false, s.repo.Reschedule(context.WithoutCancel(ctx), inv.ID, inv.Status, nil, nil, now)
+		return false, s.rescheduleDelivery(ctx, inv, nil, now)
 	}
 
 	delivery := platform.TaxDocumentDelivery{
@@ -79,11 +80,26 @@ func (s *Service) deliverDocument(ctx context.Context, row *repository.InvoiceRo
 		next := now.Add(ladderDelay(now.Sub(inv.IssuedAt)))
 		s.logger.Warn("invoicing: tax document delivery failed; due again on the ladder",
 			"invoice_id", inv.ID, "kind", inv.Kind, "next_attempt_at", next, "error", err)
-		return false, s.repo.Reschedule(context.WithoutCancel(ctx), inv.ID, inv.Status, nil, &next, now)
+		return false, s.rescheduleDelivery(ctx, inv, &next, now)
 	}
 	if err := s.repo.MarkDelivered(context.WithoutCancel(ctx), inv.ID, now); err != nil {
 		return true, err
 	}
 	s.logger.Info("invoicing: tax document delivered", "invoice_id", inv.ID, "kind", inv.Kind, "locale", delivery.Locale)
 	return true, nil
+}
+
+// rescheduleDelivery writes when delivery is next due — or that it never
+// is — on a document that is still authorized; one that is not any more
+// (nothing moves an authorized document but a later ticket) is left to
+// whoever moved it.
+func (s *Service) rescheduleDelivery(ctx context.Context, inv *invoicing.Invoice, next *time.Time, now time.Time) error {
+	written, err := s.repo.Reschedule(context.WithoutCancel(ctx), inv.ID, inv.Status, inv.Status, nil, next, now)
+	if err != nil {
+		return err
+	}
+	if !written {
+		s.logger.Info("invoicing: the document moved during its delivery; its schedule was not written", "invoice_id", inv.ID, "read_as", inv.Status)
+	}
+	return nil
 }

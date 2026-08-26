@@ -71,7 +71,7 @@ test("every surface has its words in both languages", () => {
     for (const key of keys) {
       assert.ok(catalog.operator[key]?.trim(), `${locale}: operator.${key} is missing or empty`);
     }
-    for (const code of ["INVOICE_NOT_ANNULLABLE", "INVOICE_ANNULLED"]) {
+    for (const code of ["INVOICE_NOT_ANNULLABLE", "INVOICE_ANNULLED", "INVOICE_WITHDRAWN"]) {
       assert.ok(catalog.errors.envelope[code]?.trim(), `${locale}: errors.envelope.${code} is missing`);
     }
   }

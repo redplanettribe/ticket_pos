@@ -108,6 +108,14 @@ func ErrInvoiceAnnulled() apperror.DomainError {
 	return apperror.New("INVOICE_ANNULLED", "The document has been marked annulled. Nothing can be checked or resent for it.", nil)
 }
 
+// ErrInvoiceWithdrawn: Check status and Resend are refused on a withdrawn
+// document (#476) — its Ticket Sale was reversed before it was ever sent,
+// so there is nothing at the authority to ask about and nothing that will
+// ever be sent.
+func ErrInvoiceWithdrawn() apperror.DomainError {
+	return apperror.New("INVOICE_WITHDRAWN", "The document was withdrawn: its Ticket Sale was reversed before it was sent, and nothing was ever sent to the Tax Authority.", nil)
+}
+
 // ErrIssuerFieldFrozen: the Issuer detail named in details.field may no
 // longer change — the RUC once any Tax Invoice exists (it is inside every
 // clave de acceso), establecimiento and punto de emisión once a sequence has

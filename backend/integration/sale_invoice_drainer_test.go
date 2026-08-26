@@ -330,6 +330,8 @@ func TestSaleInvoiceDrainerRetriesAnUnreachableSRIOnTheLadder(t *testing.T) {
 	if n := sequenceRows(t, env); n != 1 {
 		t.Fatalf("sequence rows = %d", n)
 	}
+	// Read directly: no API exposes the sequence table, and that three
+	// submissions consumed one number is a fact about it alone.
 	var last int64
 	if err := env.db.QueryRow(`SELECT last_secuencial FROM invoicing_sequences_ec`).Scan(&last); err != nil || last != 1 {
 		t.Fatalf("last_secuencial = %d (%v); want 1: retries consume no numbers", last, err)
@@ -579,6 +581,8 @@ func TestSaleInvoiceDrainerNeverWorksOneDocumentTwice(t *testing.T) {
 	if detail.Status != "authorized" || *detail.Number != "001-001-000000001" {
 		t.Fatalf("detail = %s %v", detail.Status, detail.Number)
 	}
+	// Read directly: the document's own number says it got one, and only
+	// the sequence table says the second drain did not consume another.
 	var last int64
 	if err := env.db.QueryRow(`SELECT last_secuencial FROM invoicing_sequences_ec`).Scan(&last); err != nil || last != 1 {
 		t.Fatalf("last_secuencial = %d (%v); want 1", last, err)

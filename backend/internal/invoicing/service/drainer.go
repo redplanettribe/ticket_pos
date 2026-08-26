@@ -62,11 +62,20 @@ import (
 // authorized factura (#471 story 29).
 //
 // DELIVERY IS THIS DRAINER'S LAST STEP (#475). An authorized document is
-// mailed to the buyer in the same round that saw it authorized — and, if
-// the sender refused, is claimed again on the same ladder for delivery
-// alone: an authorized document without a delivered_at is due work exactly
-// as an owed one is, and the authorization is never touched by whatever
-// the mail does. Delivery asks the authority nothing. See delivery.go.
+// mailed to the buyer in the same round that saw it authorized — under the
+// same claim, which the authorization leaves in place — and, if the sender
+// refused, is claimed again on the same ladder for delivery alone: an
+// authorized document without a delivered_at is due work exactly as an
+// owed one is, and the authorization is never touched by whatever the mail
+// does. Delivery asks the authority nothing. See delivery.go.
+//
+// A CLAIM IS A LEASE, NOT A LOCK. A reversal may withdraw an owed document
+// under the round that holds it (#476), and an operator may mark a signed
+// one annulled (#477). Every write a round makes is therefore guarded on
+// the state it read the row in (repository.Reschedule, ApplyOutcome), and
+// a round that finds its row moved writes nothing more and reports the
+// row as it now stands: a dead document is never resurrected onto the
+// queue by a round that started before it died.
 //
 // LOG LINES COUNT DOCUMENTS AND NAME STATES, never buyers (#471 story 35).
 
@@ -129,9 +138,11 @@ type SaleInvoiceDrainResult struct {
 	// buyers (#475). Each is counted under Authorized as well; an authorized
 	// document the sender refused is not counted here and is due again.
 	Delivered int `json:"delivered"`
-	// Withdrawn is how many Credit Notes this run withdrew because the
-	// factura they would have credited died (#476). Counted beside the
-	// three above rather than under any of them.
+	// Withdrawn is how many documents this run found dead under it: Credit
+	// Notes it withdrew because the factura they would have credited died
+	// (#476), and documents a reversal withdrew or an operator marked
+	// annulled while the round was working them. Counted beside the three
+	// above rather than under any of them.
 	Withdrawn int `json:"withdrawn"`
 	// Failed is documents whose round errored on the database itself. Each
 	// logged its own line; the claim lease returns them to the queue. With
@@ -233,7 +244,7 @@ func (s *Service) drainSaleInvoices(ctx context.Context, ticketSaleID string) (*
 			out.Authorized++
 		case invoicing.InvoiceStatusNeedsAttention:
 			out.NeedsAttention++
-		case invoicing.InvoiceStatusWithdrawn:
+		case invoicing.InvoiceStatusWithdrawn, invoicing.InvoiceStatusAnnulled:
 			out.Withdrawn++
 		default:
 			out.Pending++
@@ -278,8 +289,11 @@ func (s *Service) workSaleInvoice(ctx context.Context, row *repository.InvoiceRo
 			return "", false, err
 		}
 		if signed == nil {
-			// Parked unsignable; signOwedInvoice wrote why.
-			return invoicing.InvoiceStatusNeedsAttention, false, nil
+			// Parked unsignable, and signOwedInvoice wrote why — or a
+			// reversal withdrew it under the claim and the park wrote
+			// nothing; the row says which.
+			status, err := s.settleRound(ctx, row.Invoice.ID)
+			return status, false, err
 		}
 		row = signed
 		s.submitAndPoll(ctx, row, nil)
@@ -332,8 +346,13 @@ func (s *Service) withdrawCreditNoteOfADeadFactura(ctx context.Context, row *rep
 		Message:    fmt.Sprintf("The Sale Invoice this Credit Note would have credited is %s; nothing was sent to the SRI.", factura.Invoice.Status),
 		Type:       platformMessageType,
 	}}
-	if err := s.repo.Reschedule(context.WithoutCancel(ctx), row.Invoice.ID, invoicing.InvoiceStatusWithdrawn, msgs, nil, now); err != nil {
+	written, err := s.repo.Reschedule(context.WithoutCancel(ctx), row.Invoice.ID, row.Invoice.Status, invoicing.InvoiceStatusWithdrawn, msgs, nil, now)
+	if err != nil {
 		return false, err
+	}
+	if !written {
+		s.logger.Info("invoicing: the credit note moved under the drainer; not withdrawn by this round", "invoice_id", row.Invoice.ID, "read_as", row.Invoice.Status)
+		return true, nil
 	}
 	s.logger.Info("invoicing: credit note withdrawn; the factura it credits died unauthorized",
 		"invoice_id", row.Invoice.ID, "credits_invoice_id", factura.Invoice.ID, "factura_status", factura.Invoice.Status)
@@ -362,7 +381,9 @@ func (s *Service) pollOnce(ctx context.Context, row *repository.InvoiceRow) {
 // without an answer to schedule from (a transport failure writes no
 // outcome), puts it on the ladder itself. A refusal and an unsignable
 // document are left exactly as applyOutcome and signOwedInvoice parked
-// them.
+// them, and a document that died under the round — withdrawn, annulled —
+// exactly as whoever killed it left it. It returns the document's
+// status as it then stands, and it is what the round reports.
 func (s *Service) settleRound(ctx context.Context, id string) (invoicing.InvoiceStatus, error) {
 	row, err := s.repo.GetInvoice(ctx, id)
 	if err != nil {
@@ -374,7 +395,7 @@ func (s *Service) settleRound(ctx context.Context, id string) (invoicing.Invoice
 	inv := &row.Invoice
 	switch inv.Status {
 	case invoicing.InvoiceStatusPending:
-		return undecidedStatus(inv, s.clock()), s.reschedule(ctx, row)
+		return s.reschedule(ctx, row)
 	case invoicing.InvoiceStatusNeedsAttention:
 		if len(row.Attempts) == 0 {
 			// Unsignable: parked with its hourly retry already written.
@@ -383,18 +404,41 @@ func (s *Service) settleRound(ctx context.Context, id string) (invoicing.Invoice
 		switch row.Attempts[len(row.Attempts)-1].Outcome {
 		case string(invoicing.OutcomeReceived), invoicing.AttemptOutcomeError:
 			// Past 24 h and still undecided: parked, and still polled.
-			return inv.Status, s.reschedule(ctx, row)
+			return s.reschedule(ctx, row)
 		}
 	}
 	return inv.Status, nil
 }
 
 // reschedule puts an undecided document on the ladder from its signing
-// instant, parking it needs_attention once 24 h have passed.
-func (s *Service) reschedule(ctx context.Context, row *repository.InvoiceRow) error {
+// instant, parking it needs_attention once 24 h have passed, and returns
+// the status it wrote — or, when the row moved under the round and nothing
+// was written, the status it now reads.
+func (s *Service) reschedule(ctx context.Context, row *repository.InvoiceRow) (invoicing.InvoiceStatus, error) {
 	now := s.clock()
 	next := now.Add(ladderDelay(now.Sub(row.Invoice.IssuedAt)))
-	return s.repo.Reschedule(context.WithoutCancel(ctx), row.Invoice.ID, undecidedStatus(&row.Invoice, now), nil, &next, now)
+	status := undecidedStatus(&row.Invoice, now)
+	written, err := s.repo.Reschedule(context.WithoutCancel(ctx), row.Invoice.ID, row.Invoice.Status, status, nil, &next, now)
+	if err != nil {
+		return "", err
+	}
+	if !written {
+		s.logger.Info("invoicing: the document moved under the drainer; not rescheduled by this round", "invoice_id", row.Invoice.ID, "read_as", row.Invoice.Status)
+		return s.currentStatus(ctx, row.Invoice.ID)
+	}
+	return status, nil
+}
+
+// currentStatus reads a document's status as it stands now.
+func (s *Service) currentStatus(ctx context.Context, id string) (invoicing.InvoiceStatus, error) {
+	row, err := s.repo.GetInvoice(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if row == nil {
+		return "", invoicing.ErrInvoiceNotFound()
+	}
+	return row.Invoice.Status, nil
 }
 
 // signOwedInvoice turns an owed row into a signed, pending one, consuming a
@@ -407,8 +451,17 @@ func (s *Service) signOwedInvoice(ctx context.Context, row *repository.InvoiceRo
 	park := func(code, message string) (*repository.InvoiceRow, error) {
 		next := now.Add(SaleInvoiceLadder[len(SaleInvoiceLadder)-1])
 		msgs := []invoicing.AuthorityMessage{{Identifier: code, Message: message, Type: platformMessageType}}
-		if err := s.repo.Reschedule(context.WithoutCancel(ctx), inv.ID, invoicing.InvoiceStatusNeedsAttention, msgs, &next, now); err != nil {
+		// Guarded on the state the row was claimed in: a reversal that
+		// withdrew it since (#476) wins, and the park writes nothing — a
+		// withdrawn document parked needs_attention would be signed on the
+		// next round, for a sale that no longer stands.
+		written, err := s.repo.Reschedule(context.WithoutCancel(ctx), inv.ID, inv.Status, invoicing.InvoiceStatusNeedsAttention, msgs, &next, now)
+		if err != nil {
 			return nil, err
+		}
+		if !written {
+			s.logger.Info("invoicing: the document moved under the drainer; not parked by this round", "invoice_id", inv.ID, "read_as", inv.Status, "reason", code)
+			return nil, nil
 		}
 		s.logger.Warn("invoicing: sale invoice cannot be signed; parked needs_attention with no number consumed", "invoice_id", inv.ID, "reason", code)
 		return nil, nil

@@ -5443,9 +5443,11 @@ components:
           type: object
         withdrawn:
           description: |-
-            Withdrawn is how many Credit Notes this run withdrew because the
-            factura they would have credited died (#476). Counted beside the
-            three above rather than under any of them.
+            Withdrawn is how many documents this run found dead under it: Credit
+            Notes it withdrew because the factura they would have credited died
+            (#476), and documents a reversal withdrew or an operator marked
+            annulled while the round was working them. Counted beside the three
+            above rather than under any of them.
           type: integer
       type: object
     service.SaleLine:
@@ -8904,9 +8906,12 @@ paths:
         stores the SRI''s messages; an answer that decides nothing (still in processing,
         or nothing known under the clave) leaves the status as it was. Nothing is
         sent. Exactly one attempts row is written. INVOICE_ALREADY_AUTHORIZED (409)
-        on an authorized invoice; INVOICE_NOT_FOUND (404) otherwise. Returns the invoice
-        as it then stands, with `check_status_hint` true when it is pending and the
-        SRI holds it. Platform Operator only.'
+        on an authorized invoice; INVOICE_ANNULLED (409) on one marked annulled; INVOICE_WITHDRAWN
+        (409) on a withdrawn Sale Invoice or Credit Note, which was never sent; INVOICE_NOT_ISSUED
+        (409) on one still owed and unsigned; INVOICE_NOT_FOUND (404) otherwise. Returns
+        the invoice as it then stands, with `check_status_hint` true when it is pending
+        and the SRI holds it. A Sale Invoice or Credit Note this check finds authorized
+        is made due for the Sale Invoice Drainer to deliver. Platform Operator only.'
       parameters:
       - description: Tax Invoice id
         in: path
@@ -8962,10 +8967,13 @@ paths:
         registered) and 70 (in processing) mean the SRI has it: the invoice is `pending`
         with `check_status_hint` true and the messages kept, never an error. One attempts
         row per SRI call. INVOICE_ALREADY_AUTHORIZED (409) on an authorized invoice;
-        INVOICE_NOT_FOUND (404); ISSUER_NOT_FOUND (404), CERTIFICATE_NOT_UPLOADED
+        INVOICE_ANNULLED (409) on one marked annulled; INVOICE_WITHDRAWN (409) on
+        a withdrawn Sale Invoice or Credit Note; INVOICE_NOT_ISSUED (409) on one still
+        owed and unsigned; INVOICE_NOT_FOUND (404); ISSUER_NOT_FOUND (404), CERTIFICATE_NOT_UPLOADED
         (409), CERTIFICATE_KEY_NOT_CONFIGURED (503) and ISSUER_INCOMPLETE (409) before
-        anything is sent. Returns the invoice as it then stands. Platform Operator
-        only.'
+        anything is sent. Returns the invoice as it then stands. A Sale Invoice or
+        Credit Note the resend gets authorized is delivered by the Sale Invoice Drainer
+        on its next round. Platform Operator only.'
       parameters:
       - description: Tax Invoice id
         in: path

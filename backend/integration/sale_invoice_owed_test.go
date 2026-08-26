@@ -177,6 +177,9 @@ func assertNoSaleInvoicePromised(t *testing.T, c platform.SaleConfirmation, wher
 	}
 }
 
+// sequenceRows counts the SRI sequence rows directly: no API exposes the
+// sequence table, and "no number was consumed" is only visible as the
+// absence of a row there.
 func sequenceRows(t *testing.T, env *testEnv) int {
 	t.Helper()
 	var n int

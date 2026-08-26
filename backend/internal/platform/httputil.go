@@ -192,8 +192,8 @@ func domainHTTPStatus(code string) int {
 	// forbids the request. The same for either action on a document still
 	// owed and unsigned (#473), and for Mark annulled on a document in any
 	// state but pending or needs_attention, or either action on one already
-	// annulled (#477).
-	case "INVOICE_ALREADY_AUTHORIZED", "INVOICE_NOT_ISSUED", "ISSUER_FIELD_FROZEN", "INVOICE_NOT_ANNULLABLE", "INVOICE_ANNULLED":
+	// annulled (#477) or withdrawn (#476).
+	case "INVOICE_ALREADY_AUTHORIZED", "INVOICE_NOT_ISSUED", "ISSUER_FIELD_FROZEN", "INVOICE_NOT_ANNULLABLE", "INVOICE_ANNULLED", "INVOICE_WITHDRAWN":
 		return http.StatusConflict
 	case "NOT_FOUND", "ORGANIZATION_NOT_FOUND", "MEMBER_NOT_FOUND", "EVENT_NOT_FOUND":
 		return http.StatusNotFound

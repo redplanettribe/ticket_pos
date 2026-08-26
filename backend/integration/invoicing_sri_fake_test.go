@@ -59,6 +59,13 @@ type fakeSRI struct {
 	reception     func(accessKey string) (int, string)
 	authorization func(accessKey string) (int, string)
 	sleep         time.Duration
+
+	// A one-shot gate on the next autorización call (holdAuthorization):
+	// the fake signals on holdArrived once the query is in, and answers
+	// only once holdRelease is closed — so a test can do something to the
+	// document while the Drainer is provably waiting on the SRI.
+	holdArrived chan struct{}
+	holdRelease chan struct{}
 }
 
 var claveInXML = regexp.MustCompile(`<claveAcceso>([0-9]{49})</claveAcceso>`)
@@ -95,8 +102,17 @@ func startSRIStub() *fakeSRI {
 		default:
 			status, out = http.StatusNotFound, ""
 		}
+		var arrived, release chan struct{}
+		if strings.HasPrefix(r.URL.Path, sri.AuthorizationPath) && f.holdRelease != nil {
+			arrived, release = f.holdArrived, f.holdRelease
+			f.holdArrived, f.holdRelease = nil, nil
+		}
 		f.mu.Unlock()
 
+		if release != nil {
+			close(arrived)
+			<-release
+		}
 		if sleep > 0 {
 			time.Sleep(sleep)
 		}
@@ -126,8 +142,23 @@ func (f *fakeSRI) reset() {
 	defer f.mu.Unlock()
 	f.received = nil
 	f.sleep = 0
+	f.holdArrived, f.holdRelease = nil, nil
 	f.reception = func(accessKey string) (int, string) { return http.StatusOK, receivedSOAP(accessKey) }
 	f.authorization = func(accessKey string) (int, string) { return http.StatusOK, authorizedSOAP(accessKey) }
+}
+
+// holdAuthorization gates the NEXT autorización call: arrived is closed
+// once the SRI has the query in hand, and the answer goes out only when
+// release is called. One call, then the gate is gone. The caller must
+// release within the SRI app's poll budget (testPollBudget) or the call
+// times out on the platform's side and no outcome is applied at all.
+func (f *fakeSRI) holdAuthorization() (arrived <-chan struct{}, release func()) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	a, r := make(chan struct{}), make(chan struct{})
+	f.holdArrived, f.holdRelease = a, r
+	var once sync.Once
+	return a, func() { once.Do(func() { close(r) }) }
 }
 
 // answerAsUsual restores the default answers — RECIBIDA then AUTORIZADO —

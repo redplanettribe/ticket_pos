@@ -212,6 +212,9 @@ func insertInvoiceChildren(ctx context.Context, tx execer, id string, inv invoic
 
 // OutcomeUpdate is what an authority's answer changes on the invoice row.
 type OutcomeUpdate struct {
+	// From is the status the row was read in: the write is guarded on it
+	// (see ApplyOutcome).
+	From     invoicing.InvoiceStatus
 	Status   invoicing.InvoiceStatus
 	Messages []invoicing.AuthorityMessage
 	// Authorization and AuthorizationXML are set only when Status is
@@ -221,8 +224,14 @@ type OutcomeUpdate struct {
 	// NextAttemptAt is when the Sale Invoice Drainer should look again (#474);
 	// nil when nothing is due, which is every manual document and every
 	// settled one. Written on every answer, so a claim's lease never outlives
-	// the answer it was taken for.
+	// the answer it was taken for — except when KeepNextAttemptAt says so.
 	NextAttemptAt *time.Time
+	// KeepNextAttemptAt leaves next_attempt_at exactly as it stands: an
+	// authorized Sale Invoice stays under the round's lease until that
+	// round has delivered it (#475), so a second round cannot claim it —
+	// and mail the buyer again — between the authorization and the
+	// delivery. NextAttemptAt is ignored when set.
+	KeepNextAttemptAt bool
 	// At is the service clock's instant the answer was applied: what
 	// attention_since records when the answer parks the document (#477).
 	At time.Time
@@ -234,14 +243,19 @@ type OutcomeUpdate struct {
 // is never touched here. attention_since is set when the answer parks the
 // document and kept while it stays parked; any other answer clears it
 // (#477).
-func (r *Repository) ApplyOutcome(ctx context.Context, invoiceID string, u OutcomeUpdate) error {
+//
+// GUARDED ON u.From, the status the answer was asked for. An operator may
+// have marked the document annulled while the authority was being asked
+// (#477), and an answer written over that record would undo it. It reports
+// false, having written nothing, when the row is no longer in u.From.
+func (r *Repository) ApplyOutcome(ctx context.Context, invoiceID string, u OutcomeUpdate) (bool, error) {
 	messages, err := json.Marshal(messagesOrEmpty(u.Messages))
 	if err != nil {
-		return fmt.Errorf("marshal messages: %w", err)
+		return false, fmt.Errorf("marshal messages: %w", err)
 	}
 	tx, err := r.db.Pool.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin apply outcome: %w", err)
+		return false, fmt.Errorf("begin apply outcome: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -250,26 +264,33 @@ func (r *Repository) ApplyOutcome(ctx context.Context, invoiceID string, u Outco
 			status = $2,
 			last_messages = $3,
 			authorization_xml = COALESCE($4, authorization_xml),
-			next_attempt_at = $5,
+			next_attempt_at = CASE WHEN $7 THEN next_attempt_at ELSE $5::timestamptz END,
 			attention_since = `+attentionSinceExpr("$2", "$6")+`,
 			updated_at = NOW()
-		WHERE id = $1
-	`, invoiceID, u.Status, messages, u.AuthorizationXML, u.NextAttemptAt, u.At)
+		WHERE id = $1 AND status = $8
+	`, invoiceID, u.Status, messages, u.AuthorizationXML, u.NextAttemptAt, u.At, u.KeepNextAttemptAt, u.From)
 	if err != nil {
-		return fmt.Errorf("apply outcome: %w", err)
+		return false, fmt.Errorf("apply outcome: %w", err)
 	}
-	if n, err := res.RowsAffected(); err == nil && n == 0 {
-		return fmt.Errorf("apply outcome: invoice %s: %w", invoiceID, sql.ErrNoRows)
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("apply outcome: %w", err)
+	}
+	if n == 0 {
+		return false, nil
 	}
 	if u.Authorization != nil {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE invoicing_invoices_ec SET authorization_number = $2, authorization_date = $3
 			WHERE invoice_id = $1
 		`, invoiceID, u.Authorization.Number, u.Authorization.Date); err != nil {
-			return fmt.Errorf("apply authorization: %w", err)
+			return false, fmt.Errorf("apply authorization: %w", err)
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit apply outcome: %w", err)
+	}
+	return true, nil
 }
 
 // RecordAttempt appends one request to the attempts ledger.

@@ -1513,6 +1513,24 @@ type CaptureEmailSender struct {
 	// must already hold the sessions it needs. Cleared by Reset, so a failure
 	// never leaks into the next test.
 	failure error
+	// delay, when set, makes the Tax Document delivery take that long before
+	// it is recorded — a slow provider, as the calling code would meet one.
+	//
+	// It exists for one property: that a document is mailed ONCE when two
+	// Sale Invoice Drainer rounds overlap (#475). The window in which a
+	// second round could claim a document the first is still mailing is a
+	// few milliseconds wide against a sender that answers at once, and a
+	// test that cannot hold it open cannot prove it is closed. Cleared by
+	// Reset.
+	delay time.Duration
+}
+
+// SlowTaxDocumentDeliveryBy makes every subsequent Tax Document delivery
+// take d before it is recorded, or restores instant delivery when d is 0.
+func (s *CaptureEmailSender) SlowTaxDocumentDeliveryBy(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.delay = d
 }
 
 // FailWith makes every subsequent send fail with err, or restores ordinary
@@ -1571,6 +1589,12 @@ func (s *CaptureEmailSender) SendSaleVoided(_ context.Context, v SaleVoided) err
 func (s *CaptureEmailSender) SendTaxDocumentDelivery(_ context.Context, d TaxDocumentDelivery) error {
 	if err := s.failed(); err != nil {
 		return err
+	}
+	s.mu.Lock()
+	delay := s.delay
+	s.mu.Unlock()
+	if delay > 0 {
+		time.Sleep(delay)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1991,6 +2015,7 @@ func (s *CaptureEmailSender) Reset() {
 	s.VoidedSales = nil
 	s.RefusedReversals = nil
 	s.TaxDocumentDeliveries = nil
+	s.delay = 0
 	s.WithdrawalConfirmations = nil
 	s.HolderAnswerReminders = nil
 	s.TicketAssignments = nil

@@ -1756,7 +1756,7 @@
       "INVALID_MEMBER_ROLE": "That isn't a role a member can hold.",
       "ASSIGNMENT_NOT_FOUND": "That event assignment no longer exists.",
       "CURRENCY_LOCKED": "The currency can't change once this organization has ticket types.",
-      "HOUSE_ORGANIZATION_CURRENCY_UNSUPPORTED": "This organization trades in {currency}, and the platform issues invoices in USD only. A house organization must trade in USD.",
+      "HOUSE_ORGANIZATION_CURRENCY_UNSUPPORTED": "This organization trades in {currency}, and the platform issues Sale Invoices in USD only. A House Organization must trade in USD.",
       "LOGO_UPLOAD_UNAVAILABLE": "Logo uploads are unavailable right now. Please try again later.",
       "INVALID_LOGO_IMAGE_KEY": "That upload didn't finish. Choose the image again.",
       "TICKET_QUESTION_NOT_FOUND": "That question no longer exists.",
@@ -1784,6 +1784,7 @@
       "INVOICE_ALREADY_AUTHORIZED": "The Tax Invoice is already authorized. Nothing can be checked or resent for it.",
       "INVOICE_NOT_ANNULLABLE": "Only a document that is pending or needs attention can be marked annulled.",
       "INVOICE_ANNULLED": "The document has been marked annulled. Nothing can be checked or resent for it.",
+      "INVOICE_WITHDRAWN": "The document was withdrawn: its sale was reversed before it was sent, and nothing was ever sent to the tax authority. Nothing can be checked or resent for it.",
       "ISSUER_FIELD_FROZEN": "That field can no longer change: documents have been issued under it."
     },
     "field": {

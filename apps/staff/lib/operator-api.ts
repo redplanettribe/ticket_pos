@@ -1432,7 +1432,9 @@ export async function previewOperatorInvoiceTotals(
 
 /**
  * Asks the SRI again about a non-authorized invoice (#455) and returns it as
- * it then stands. Refused with INVOICE_ALREADY_AUTHORIZED on an authorized one.
+ * it then stands. Refused with INVOICE_ALREADY_AUTHORIZED on an authorized
+ * one, INVOICE_ANNULLED on an annulled one, INVOICE_WITHDRAWN on a withdrawn
+ * one, and INVOICE_NOT_ISSUED on one still owed and unsigned.
  */
 export async function checkOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
   return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/check`, {
@@ -1443,7 +1445,9 @@ export async function checkOperatorInvoice(id: string): Promise<OperatorInvoiceD
 /**
  * Resends a non-authorized invoice under the same clave de acceso, re-signed
  * with the current certificate (#455), and returns it as it then stands.
- * Refused with INVOICE_ALREADY_AUTHORIZED on an authorized one.
+ * Refused with INVOICE_ALREADY_AUTHORIZED on an authorized one,
+ * INVOICE_ANNULLED on an annulled one, INVOICE_WITHDRAWN on a withdrawn one,
+ * and INVOICE_NOT_ISSUED on one still owed and unsigned.
  */
 export async function resendOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
   return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/resend`, {

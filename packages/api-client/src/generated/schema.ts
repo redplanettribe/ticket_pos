@@ -3437,7 +3437,7 @@ export interface paths {
         put?: never;
         /**
          * Check a Tax Invoice's status with the SRI
-         * @description Asks the SRI's autorización service again about a Tax Invoice that is `pending`, `rejected` or `not_authorized`, and updates it from the answer: `AUTORIZADO` stores the authorization number, date and XML; `NO AUTORIZADO` stores the SRI's messages; an answer that decides nothing (still in processing, or nothing known under the clave) leaves the status as it was. Nothing is sent. Exactly one attempts row is written. INVOICE_ALREADY_AUTHORIZED (409) on an authorized invoice; INVOICE_NOT_FOUND (404) otherwise. Returns the invoice as it then stands, with `check_status_hint` true when it is pending and the SRI holds it. Platform Operator only.
+         * @description Asks the SRI's autorización service again about a Tax Invoice that is `pending`, `rejected` or `not_authorized`, and updates it from the answer: `AUTORIZADO` stores the authorization number, date and XML; `NO AUTORIZADO` stores the SRI's messages; an answer that decides nothing (still in processing, or nothing known under the clave) leaves the status as it was. Nothing is sent. Exactly one attempts row is written. INVOICE_ALREADY_AUTHORIZED (409) on an authorized invoice; INVOICE_ANNULLED (409) on one marked annulled; INVOICE_WITHDRAWN (409) on a withdrawn Sale Invoice or Credit Note, which was never sent; INVOICE_NOT_ISSUED (409) on one still owed and unsigned; INVOICE_NOT_FOUND (404) otherwise. Returns the invoice as it then stands, with `check_status_hint` true when it is pending and the SRI holds it. A Sale Invoice or Credit Note this check finds authorized is made due for the Sale Invoice Drainer to deliver. Platform Operator only.
          */
         post: {
             parameters: {
@@ -3515,7 +3515,7 @@ export interface paths {
         put?: never;
         /**
          * Resend a Tax Invoice to the SRI
-         * @description Rebuilds the factura of a `pending`, `rejected` or `not_authorized` Tax Invoice from its recorded Recipient, lines and fields — with the Issuer's editable details as they now stand, under the SAME clave de acceso and secuencial — re-signs it with the certificate now in custody, submits it to recepción and polls autorización as an issue does. The signed XML on file is replaced by the re-signed bytes only when the SRI answered `RECIBIDA`, so the artifact the platform holds is always the one the SRI holds. SRI errors 43 (clave already registered) and 70 (in processing) mean the SRI has it: the invoice is `pending` with `check_status_hint` true and the messages kept, never an error. One attempts row per SRI call. INVOICE_ALREADY_AUTHORIZED (409) on an authorized invoice; INVOICE_NOT_FOUND (404); ISSUER_NOT_FOUND (404), CERTIFICATE_NOT_UPLOADED (409), CERTIFICATE_KEY_NOT_CONFIGURED (503) and ISSUER_INCOMPLETE (409) before anything is sent. Returns the invoice as it then stands. Platform Operator only.
+         * @description Rebuilds the factura of a `pending`, `rejected` or `not_authorized` Tax Invoice from its recorded Recipient, lines and fields — with the Issuer's editable details as they now stand, under the SAME clave de acceso and secuencial — re-signs it with the certificate now in custody, submits it to recepción and polls autorización as an issue does. The signed XML on file is replaced by the re-signed bytes only when the SRI answered `RECIBIDA`, so the artifact the platform holds is always the one the SRI holds. SRI errors 43 (clave already registered) and 70 (in processing) mean the SRI has it: the invoice is `pending` with `check_status_hint` true and the messages kept, never an error. One attempts row per SRI call. INVOICE_ALREADY_AUTHORIZED (409) on an authorized invoice; INVOICE_ANNULLED (409) on one marked annulled; INVOICE_WITHDRAWN (409) on a withdrawn Sale Invoice or Credit Note; INVOICE_NOT_ISSUED (409) on one still owed and unsigned; INVOICE_NOT_FOUND (404); ISSUER_NOT_FOUND (404), CERTIFICATE_NOT_UPLOADED (409), CERTIFICATE_KEY_NOT_CONFIGURED (503) and ISSUER_INCOMPLETE (409) before anything is sent. Returns the invoice as it then stands. A Sale Invoice or Credit Note the resend gets authorized is delivered by the Sale Invoice Drainer on its next round. Platform Operator only.
          */
         post: {
             parameters: {
@@ -15536,9 +15536,11 @@ export interface components {
                 [key: string]: number;
             };
             /**
-             * @description Withdrawn is how many Credit Notes this run withdrew because the
-             *     factura they would have credited died (#476). Counted beside the
-             *     three above rather than under any of them.
+             * @description Withdrawn is how many documents this run found dead under it: Credit
+             *     Notes it withdrew because the factura they would have credited died
+             *     (#476), and documents a reversal withdrew or an operator marked
+             *     annulled while the round was working them. Counted beside the three
+             *     above rather than under any of them.
              */
             withdrawn?: number;
         };

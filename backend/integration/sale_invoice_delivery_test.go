@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -60,15 +61,27 @@ func listCustomerDocuments(t *testing.T, sessionID, saleID string) ([]customerDo
 	return docs, body.Data
 }
 
-// ticketTypeIDBySlug reads the one Ticket Type of the Event with the slug,
-// for a second checkout on an Event a helper published.
+// ticketTypeIDBySlug reads the one Ticket Type of the test Organization's
+// Event with the slug through the public catalog, for a second checkout on
+// an Event a helper published.
 func ticketTypeIDBySlug(t *testing.T, env *testEnv, eventSlug string) string {
 	t.Helper()
-	var id string
-	if err := env.db.QueryRow(`SELECT tt.id FROM ticket_types tt JOIN events e ON e.id = tt.event_id WHERE e.slug = $1 LIMIT 1`, eventSlug).Scan(&id); err != nil {
-		t.Fatalf("read ticket type of %q: %v", eventSlug, err)
+	resp, body := env.get(t, "/api/v1/public/organizations/test-org/events/"+eventSlug, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("public event %q status=%d error=%+v", eventSlug, resp.StatusCode, body.Error)
 	}
-	return id
+	var detail struct {
+		TicketTypes []struct {
+			ID string `json:"id"`
+		} `json:"ticket_types"`
+	}
+	if err := json.Unmarshal(body.Data, &detail); err != nil {
+		t.Fatalf("decode public event: %v", err)
+	}
+	if len(detail.TicketTypes) != 1 {
+		t.Fatalf("public event %q lists %d ticket types; want the one the helper published", eventSlug, len(detail.TicketTypes))
+	}
+	return detail.TicketTypes[0].ID
 }
 
 func deliveriesSent(t *testing.T, env *testEnv) []platform.TaxDocumentDelivery {
@@ -388,5 +401,157 @@ func TestCustomerSaleDocumentDownloadIsGatedOnTheSale(t *testing.T) {
 	resp, body = sriEnv.getRaw(t, signedXMLPath(invoiceID), authHeader(owner))
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("a Customer Session on the operator download: status=%d body=%s; want 401", resp.StatusCode, body)
+	}
+}
+
+// TestSaleInvoiceDeliveryHappensOnceWhenTwoDrainsOverlap: the document is
+// pending and held by the SRI when a round authorizes it; the sender is
+// slow, and a second drain starts while the first is still mailing. The
+// document stays that round's — leased through its delivery — so the
+// second drain claims nothing, the buyer gets ONE mail, and delivered_at
+// is recorded once. Before this held, the authorization released the
+// lease and the second drain mailed the buyer again.
+func TestSaleInvoiceDeliveryHappensOnceWhenTwoDrainsOverlap(t *testing.T) {
+	env := setupTest(t)
+	operatorSessionID, invoiceID := houseSaleOwed(t, env, 1000, 1)
+	issuerReady(t, operatorSessionID)
+	sriStub.setAuthorization(func(accessKey string) (int, string) { return http.StatusOK, inProcessingSOAP(accessKey) })
+	if result := drainSaleInvoices(t); result.Pending != 1 {
+		t.Fatalf("setup drain = %+v; want pending", result)
+	}
+
+	sriStub.setAuthorization(func(accessKey string) (int, string) { return http.StatusOK, authorizedSOAP(accessKey) })
+	env.email.SlowTaxDocumentDeliveryBy(600 * time.Millisecond)
+	t.Cleanup(func() { env.email.SlowTaxDocumentDeliveryBy(0) })
+	atInvoicingClock(t, fixedClock.Add(time.Minute))
+
+	var wg sync.WaitGroup
+	var first, second saleInvoiceDrainResult
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		first = drainSaleInvoices(t)
+	}()
+	// Well inside the first round's send: it has polled, applied the
+	// authorization and is waiting on the sender.
+	time.Sleep(200 * time.Millisecond)
+	second = drainSaleInvoices(t)
+	wg.Wait()
+
+	if first.Claimed != 1 || first.Authorized != 1 || first.Delivered != 1 {
+		t.Fatalf("first drain = %+v; want the document claimed, authorized and delivered", first)
+	}
+	if second.Claimed != 0 || second.Delivered != 0 {
+		t.Fatalf("overlapping drain = %+v; want nothing claimed — the document is the first round's until it is delivered", second)
+	}
+	if n := len(deliveriesSent(t, env)); n != 1 {
+		t.Fatalf("%d delivery mails were sent by two overlapping drains; want exactly one", n)
+	}
+	detail := getDrainedInvoice(t, operatorSessionID, invoiceID)
+	if detail.Status != "authorized" || detail.DeliveredAt == nil || detail.NextAttemptAt != nil {
+		t.Fatalf("after both drains: status %s delivered_at %v next %v; want authorized, delivered, nothing due", detail.Status, detail.DeliveredAt, detail.NextAttemptAt)
+	}
+	if again := drainSaleInvoices(t); again.Claimed != 0 {
+		t.Fatalf("drain afterwards = %+v; want nothing claimed", again)
+	}
+}
+
+// TestSaleInvoiceDeliveryFollowsAnOperatorsHeal: a document the SRI refused
+// is parked off the ladder — nothing is due — until the operator's Check
+// status finds a late AUTORIZADO; a document the SRI returned is parked the
+// same way until the operator's Resend gets it authorized. Either heal
+// leaves delivery due — at once after a Check, which asks and holds
+// nothing; at the ladder's first rung after a Resend, whose own RECIBIDA
+// put it there — the drain then mails the buyer exactly once, and nothing
+// is asked of the SRI again.
+func TestSaleInvoiceDeliveryFollowsAnOperatorsHeal(t *testing.T) {
+	heals := []struct {
+		name string
+		park func(t *testing.T)
+		heal func(t *testing.T, operatorSessionID, invoiceID string)
+		// due is when delivery is due after the heal.
+		due time.Time
+	}{
+		{
+			name: "check status",
+			due:  fixedClock,
+			park: func(t *testing.T) {
+				sriStub.setAuthorization(func(accessKey string) (int, string) {
+					return http.StatusOK, notAuthorizedSOAP(accessKey, sriMessage("65", "FECHA EMISION EXTEMPORANEA", "", "ERROR"))
+				})
+			},
+			heal: func(t *testing.T, operatorSessionID, invoiceID string) {
+				t.Helper()
+				sriStub.setAuthorization(func(accessKey string) (int, string) { return http.StatusOK, authorizedSOAP(accessKey) })
+				resp, body := checkInvoice(t, operatorSessionID, invoiceID)
+				if view := actionOK(t, "check", resp, body); view.Status != "authorized" {
+					t.Fatalf("check = %s; want authorized", view.Status)
+				}
+			},
+		},
+		{
+			name: "resend",
+			due:  fixedClock.Add(time.Minute),
+			park: func(t *testing.T) {
+				sriStub.setReception(func(accessKey string) (int, string) {
+					return http.StatusOK, returnedSOAP(accessKey, sriMessage("35", "DOCUMENTO INVALIDO", "", "ERROR"))
+				})
+			},
+			heal: func(t *testing.T, operatorSessionID, invoiceID string) {
+				t.Helper()
+				sriStub.answerAsUsual()
+				resp, body := resendInvoice(t, operatorSessionID, invoiceID)
+				if view := actionOK(t, "resend", resp, body); view.Status != "authorized" {
+					t.Fatalf("resend = %s; want authorized", view.Status)
+				}
+			},
+		},
+	}
+	for _, h := range heals {
+		t.Run(h.name, func(t *testing.T) {
+			env := setupTest(t)
+			operatorSessionID, invoiceID := houseSaleOwed(t, env, 1000, 1)
+			issuerReady(t, operatorSessionID)
+			h.park(t)
+			if result := drainSaleInvoices(t); result.NeedsAttention != 1 {
+				t.Fatalf("setup drain = %+v; want the document parked", result)
+			}
+			if detail := getDrainedInvoice(t, operatorSessionID, invoiceID); detail.NextAttemptAt != nil {
+				t.Fatalf("parked document has next_attempt_at %v; want nothing due", detail.NextAttemptAt)
+			}
+
+			h.heal(t, operatorSessionID, invoiceID)
+
+			detail := getDrainedInvoice(t, operatorSessionID, invoiceID)
+			if detail.Status != "authorized" || detail.DeliveredAt != nil {
+				t.Fatalf("healed document: status %s delivered_at %v; want authorized and not yet delivered", detail.Status, detail.DeliveredAt)
+			}
+			if at := nextAttemptAt(t, detail); !at.Equal(h.due) {
+				t.Fatalf("next_attempt_at after the heal = %s; want delivery due at %s", at, h.due)
+			}
+			if n := len(deliveriesSent(t, env)); n != 0 {
+				t.Fatalf("%d delivery mails before any drain; want none — the operator's action delivers nothing itself", n)
+			}
+			received := sriStub.receptionCount()
+
+			atInvoicingClock(t, h.due)
+			result := drainSaleInvoices(t)
+			if result.Claimed != 1 || result.Authorized != 1 || result.Delivered != 1 {
+				t.Fatalf("drain after the heal = %+v; want the document claimed for delivery alone and delivered", result)
+			}
+			if n := len(deliveriesSent(t, env)); n != 1 {
+				t.Fatalf("%d delivery mails; want exactly one", n)
+			}
+			if n := sriStub.receptionCount(); n != received {
+				t.Fatalf("the SRI received %d more documents over the delivery; want none", n-received)
+			}
+			detail = getDrainedInvoice(t, operatorSessionID, invoiceID)
+			if detail.DeliveredAt == nil || detail.NextAttemptAt != nil {
+				t.Fatalf("after delivery: delivered_at %v next %v; want delivered and nothing due", detail.DeliveredAt, detail.NextAttemptAt)
+			}
+			if again := drainSaleInvoices(t); again.Claimed != 0 || len(deliveriesSent(t, env)) != 1 {
+				t.Fatalf("second drain = %+v with %d mails; want nothing claimed and still one mail", again, len(deliveriesSent(t, env)))
+			}
+		})
 	}
 }
