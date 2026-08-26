@@ -1853,3 +1853,81 @@ func (r TicketQuestionRevoked) Subject() string {
 func (r TicketQuestionRevoked) Text() string {
 	return fmt.Sprintf(questionRevokedTextCopy.in(r.Locale), r.QuestionLabel, r.EventName, r.OrganizationName, r.Reason)
 }
+
+// The Tax Document delivery (#475, ADR 0060): the mail that hands a buyer
+// the factura the receipt promised, and — through the same words keyed on
+// Kind — the nota de crédito a later reversal owes.
+//
+// It is short on purpose. The document is the attachment; the prose only
+// says what it is, which purchase it belongs to (the Event and the Sale
+// Confirmation reference the buyer already holds), and where to find it
+// again. It names no amount: the amount is on the document, and a figure
+// repeated in prose is a figure that can disagree with it.
+//
+// WHAT THE READER IS NEVER TOLD is anything the authority said. The mail
+// exists only once the document is authorized, so there is nothing to
+// relay; and the same rule holds on the Customer Area, where a document
+// still in flight is "on its way" and never a message from the SRI (#471
+// story 15).
+//
+// "Tax invoice (factura)" and "credit note (nota de crédito)" in English
+// name each document by the glossary's word and the word printed on it;
+// Spanish says factura and nota de crédito alone, which is what everyone in
+// Ecuador calls them.
+var (
+	taxDocumentSaleInvoiceSubjectCopy = translated(
+		"Your tax invoice (factura) for %s",
+		"Su factura de %s",
+	)
+	taxDocumentCreditNoteSubjectCopy = translated(
+		"Your credit note (nota de crédito) for %s",
+		"Su nota de crédito de %s",
+	)
+	// The opening names the document, the purchase and the reference as one
+	// block, for the receipt's reason: the three are one sentence of prose
+	// in either language, and a translator must not be able to reorder half
+	// of it without the other half.
+	taxDocumentSaleInvoiceOpeningCopy = translated(
+		"Hi %s,\n\nAttached is the tax invoice (factura) for your purchase for %s, authorized by the SRI.\nReference: %s",
+		"Hola %s:\n\nAdjuntamos la factura de su compra de %s, autorizada por el SRI.\nReferencia: %s",
+	)
+	taxDocumentCreditNoteOpeningCopy = translated(
+		"Hi %s,\n\nAttached is the credit note (nota de crédito) for your reversed purchase for %s, authorized by the SRI.\nReference: %s",
+		"Hola %s:\n\nAdjuntamos la nota de crédito de su compra anulada de %s, autorizada por el SRI.\nReferencia: %s",
+	)
+	taxDocumentAttachmentCopy = translated(
+		"The attached XML is the document itself, exactly as the SRI authorized it.",
+		"El XML adjunto es el documento en sí, tal como lo autorizó el SRI.",
+	)
+	// The way back to the file once the mail is gone: the Sale in the
+	// Customer Area, behind a sign-in. It says "sign in" outright, because
+	// unlike the receipt's link this one opens nothing on its own.
+	taxDocumentLinkCopy = translated(
+		"You can download it again from your purchase, after signing in:\n%s",
+		"Puede volver a descargarlo desde su compra, después de iniciar sesión:\n%s",
+	)
+)
+
+// Subject is the delivery's subject line, naming the document and the Event
+// in the Sale's language.
+func (d TaxDocumentDelivery) Subject() string {
+	if d.Kind == TaxDocumentKindCreditNote {
+		return fmt.Sprintf(taxDocumentCreditNoteSubjectCopy.in(d.Locale), d.EventName)
+	}
+	return fmt.Sprintf(taxDocumentSaleInvoiceSubjectCopy.in(d.Locale), d.EventName)
+}
+
+// Text is the delivery's plain-text body: what is attached, which purchase
+// it belongs to, and where to find it again.
+func (d TaxDocumentDelivery) Text() string {
+	opening := taxDocumentSaleInvoiceOpeningCopy
+	if d.Kind == TaxDocumentKindCreditNote {
+		opening = taxDocumentCreditNoteOpeningCopy
+	}
+	text := fmt.Sprintf(opening.in(d.Locale), d.CustomerName, d.EventName, d.Reference)
+	text += "\n\n" + taxDocumentAttachmentCopy.in(d.Locale)
+	if d.CustomerAreaURL != "" {
+		text += "\n\n" + fmt.Sprintf(taxDocumentLinkCopy.in(d.Locale), d.CustomerAreaURL)
+	}
+	return text
+}

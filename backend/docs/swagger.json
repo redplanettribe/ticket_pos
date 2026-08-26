@@ -1606,6 +1606,24 @@
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeCustomerDocuments": {
+                "properties": {
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.CustomerDocument"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeCustomerFollow": {
                 "properties": {
                     "data": {
@@ -3327,6 +3345,37 @@
                     }
                 },
                 "type": "object"
+            },
+            "service.CustomerDocument": {
+                "properties": {
+                    "download_url": {
+                        "description": "DownloadURL is the API path of the signed XML once authorized, null\nbefore: the card draws the download exactly where this is set.",
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "description": "Kind is `sale` (a factura) or `credit_note`; the card names each by\nits own word.",
+                        "type": "string"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/service.CustomerDocumentStatus"
+                    }
+                },
+                "type": "object"
+            },
+            "service.CustomerDocumentStatus": {
+                "description": "Status is `authorized` or `on_its_way`, and nothing else.",
+                "enum": [
+                    "authorized",
+                    "on_its_way"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "CustomerDocumentAuthorized",
+                    "CustomerDocumentOnItsWay"
+                ]
             },
             "service.CustomerOTPRequestResult": {
                 "properties": {
@@ -5953,6 +6002,10 @@
                     },
                     "claimed": {
                         "description": "Claimed is how many documents this run took up. Zero is the ordinary\nanswer: nothing was due.",
+                        "type": "integer"
+                    },
+                    "delivered": {
+                        "description": "Delivered is how many authorized documents this run mailed to their\nbuyers (#475). Each is counted under Authorized as well; an authorized\ndocument the sender refused is not counted here and is due again.",
                         "type": "integer"
                     },
                     "failed": {
@@ -8803,6 +8856,119 @@
                     }
                 ],
                 "summary": "Undo a Ticket Sale",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
+        "/api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents": {
+            "get": {
+                "description": "The Customer Area's read of a Sale's documents (ADR 0060): every Sale Invoice and Credit Note the Sale owes or was issued, each with its `kind` (`sale` for a factura, `credit_note`), a `status` in the platform's own words — `authorized`, or `on_its_way` for a document still owed, pending at the SRI or parked for an operator — and `download_url`, the path of the signed XML once authorized and null before. Nothing the SRI said ever travels here. An empty list for a Sale that owes no document (a free, imported or non-House sale), for a Sale that is not this Customer's, and for any Sale but the one a Confirmation Link session names: not yours and not there are one answer. Requires a Customer Session; a Confirmation Link session is enough.",
+                "parameters": [
+                    {
+                        "description": "Ticket Sale id",
+                        "in": "path",
+                        "name": "ticketSaleId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerDocuments"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List the Tax Documents of one of the Customer's Ticket Sales",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
+        "/api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents/{id}/xml": {
+            "get": {
+                "description": "The buyer's download (ADR 0060): the factura or nota de crédito exactly as it was signed and authorized, as `application/xml` with `Content-Disposition: attachment; filename=\"\u003cclave de acceso\u003e.xml\"` — the same bytes the operator route serves. Gated on the Sale: the Customer Session must own the Ticket Sale in the path, or be a Confirmation Link session naming it. Any other Customer, any other Sale, a document that is not this Sale's, and a document not yet authorized all answer INVOICE_NOT_FOUND (404), one refusal for every case so that ids cannot be probed. No session at all is 401.",
+                "parameters": [
+                    {
+                        "description": "Ticket Sale id",
+                        "in": "path",
+                        "name": "ticketSaleId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Tax Document id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/xml": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/xml": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/xml": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Download the signed XML of one of the Customer's Tax Documents",
                 "tags": [
                     "customer"
                 ]

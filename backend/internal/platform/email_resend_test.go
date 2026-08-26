@@ -3,11 +3,13 @@ package platform
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -170,5 +172,64 @@ func TestResendFailureLogNamesNoRecipient(t *testing.T) {
 	}
 	if !contains(got, "429") {
 		t.Errorf("failure log should still carry the provider error:\n%s", got)
+	}
+}
+
+// TestResendSendTaxDocumentDeliveryAttachesTheDocument: the attachment
+// travels inline on the one POST, base64-encoded under its filename and
+// media type, beside the rendered subject and text.
+func TestResendSendTaxDocumentDeliveryAttachesTheDocument(t *testing.T) {
+	var gotBody string
+	sender := newTestSender(t, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"abc"}`))
+	})
+
+	d := TaxDocumentDelivery{
+		To:              "buyer@example.com",
+		Kind:            TaxDocumentKindSaleInvoice,
+		CustomerName:    "Ana Lopez",
+		EventName:       "House Fest",
+		Reference:       "REF1",
+		CustomerAreaURL: "https://example.test/tickets#sale-1",
+		Attachment:      EmailAttachment{Filename: "clave.xml", ContentType: "application/xml; charset=utf-8", Body: []byte("<factura/>")},
+		Locale:          LocaleEN,
+	}
+	if err := sender.SendTaxDocumentDelivery(context.Background(), d); err != nil {
+		t.Fatalf("SendTaxDocumentDelivery returned error: %v", err)
+	}
+
+	var payload resendRequest
+	if err := json.Unmarshal([]byte(gotBody), &payload); err != nil {
+		t.Fatalf("body was not valid JSON: %v", err)
+	}
+	if len(payload.To) != 1 || payload.To[0] != "buyer@example.com" || payload.Subject != d.Subject() || payload.Text != d.Text() {
+		t.Fatalf("payload = %+v, want the rendered message to the buyer", payload)
+	}
+	if len(payload.Attachments) != 1 {
+		t.Fatalf("attachments = %+v, want one", payload.Attachments)
+	}
+	a := payload.Attachments[0]
+	if a.Filename != "clave.xml" || a.ContentType != "application/xml; charset=utf-8" || a.Content != base64.StdEncoding.EncodeToString([]byte("<factura/>")) {
+		t.Fatalf("attachment = %+v, want the XML base64-encoded under its filename", a)
+	}
+}
+
+// TestResendMessagesWithoutAttachmentsCarryNoAttachmentsKey: every earlier
+// message's payload is exactly what it was before attachments existed.
+func TestResendMessagesWithoutAttachmentsCarryNoAttachmentsKey(t *testing.T) {
+	var gotBody string
+	sender := newTestSender(t, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusOK)
+	})
+	if err := sender.SendOTP(context.Background(), "user@example.com", "123456", DefaultLocale); err != nil {
+		t.Fatalf("SendOTP returned error: %v", err)
+	}
+	if strings.Contains(gotBody, "attachments") {
+		t.Fatalf("body = %s, want no attachments key", gotBody)
 	}
 }

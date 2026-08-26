@@ -2112,6 +2112,119 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the Tax Documents of one of the Customer's Ticket Sales
+         * @description The Customer Area's read of a Sale's documents (ADR 0060): every Sale Invoice and Credit Note the Sale owes or was issued, each with its `kind` (`sale` for a factura, `credit_note`), a `status` in the platform's own words — `authorized`, or `on_its_way` for a document still owed, pending at the SRI or parked for an operator — and `download_url`, the path of the signed XML once authorized and null before. Nothing the SRI said ever travels here. An empty list for a Sale that owes no document (a free, imported or non-House sale), for a Sale that is not this Customer's, and for any Sale but the one a Confirmation Link session names: not yours and not there are one answer. Requires a Customer Session; a Confirmation Link session is enough.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Ticket Sale id */
+                    ticketSaleId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerDocuments"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents/{id}/xml": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download the signed XML of one of the Customer's Tax Documents
+         * @description The buyer's download (ADR 0060): the factura or nota de crédito exactly as it was signed and authorized, as `application/xml` with `Content-Disposition: attachment; filename="<clave de acceso>.xml"` — the same bytes the operator route serves. Gated on the Sale: the Customer Session must own the Ticket Sale in the path, or be a Confirmation Link session naming it. Any other Customer, any other Sale, a document that is not this Sale's, and a document not yet authorized all answer INVOICE_NOT_FOUND (404), one refusal for every case so that ids cannot be probed. No session at all is 401.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Ticket Sale id */
+                    ticketSaleId: string;
+                    /** @description Tax Document id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/xml": string;
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/xml": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/xml": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customer/ticket-sales/{ticketSaleId}/tickets": {
         parameters: {
             query?: never;
@@ -12199,6 +12312,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeCustomerDocuments": {
+            data?: components["schemas"]["service.CustomerDocument"][];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeCustomerFollow": {
             data?: components["schemas"]["service.FollowView"];
             error?: components["schemas"]["platform.APIError"];
@@ -13133,6 +13251,25 @@ export interface components {
             past?: components["schemas"]["service.TicketSaleView"][];
             upcoming?: components["schemas"]["service.TicketSaleView"][];
         };
+        "service.CustomerDocument": {
+            /**
+             * @description DownloadURL is the API path of the signed XML once authorized, null
+             *     before: the card draws the download exactly where this is set.
+             */
+            download_url?: string;
+            id?: string;
+            /**
+             * @description Kind is `sale` (a factura) or `credit_note`; the card names each by
+             *     its own word.
+             */
+            kind?: string;
+            status?: components["schemas"]["service.CustomerDocumentStatus"];
+        };
+        /**
+         * @description Status is `authorized` or `on_its_way`, and nothing else.
+         * @enum {string}
+         */
+        "service.CustomerDocumentStatus": "authorized" | "on_its_way";
         "service.CustomerOTPRequestResult": {
             message?: string;
         };
@@ -15047,6 +15184,12 @@ export interface components {
              *     answer: nothing was due.
              */
             claimed?: number;
+            /**
+             * @description Delivered is how many authorized documents this run mailed to their
+             *     buyers (#475). Each is counted under Authorized as well; an authorized
+             *     document the sender refused is not counted here and is due again.
+             */
+            delivered?: number;
             /**
              * @description Failed is documents whose round errored on the database itself. Each
              *     logged its own line; the claim lease returns them to the queue.

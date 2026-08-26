@@ -34,6 +34,7 @@ type saleInvoiceDrainResult struct {
 	Authorized     int            `json:"authorized"`
 	Pending        int            `json:"pending"`
 	NeedsAttention int            `json:"needs_attention"`
+	Delivered      int            `json:"delivered"`
 	Failed         int            `json:"failed"`
 	Standing       map[string]int `json:"standing"`
 }
@@ -166,7 +167,7 @@ func xmlText(t *testing.T, doc *etree.Document, path string) string {
 // the fake SRI received validates against the XSD and states what the
 // buyer paid: cédula code 05, "Ana Lopez", the Ticket Type and the Event on
 // the line, the backed-out unit price, and totals equal to the Payment to
-// the cent. Delivery is a later ticket: delivered_at stays null.
+// the cent. The same round delivers it (#475): delivered_at is set.
 func TestSaleInvoiceDrainerAuthorizesOnFirstDrain(t *testing.T) {
 	env := setupTest(t)
 	operatorSessionID, invoiceID := houseSaleOwed(t, env, 1000, 2)
@@ -205,8 +206,8 @@ func TestSaleInvoiceDrainerAuthorizesOnFirstDrain(t *testing.T) {
 	if detail.EcuadorFull == nil || detail.EcuadorFull.Secuencial != 1 || detail.EcuadorFull.AuthorizationNumber == nil {
 		t.Fatalf("ecuador = %+v; want secuencial 1 and an authorization", detail.EcuadorFull)
 	}
-	if !detail.HasAuthorizationXML || detail.DeliveredAt != nil || detail.NextAttemptAt != nil {
-		t.Fatalf("authorization xml %v delivered_at %v next_attempt_at %v; want the SRI's XML on file, no delivery yet, nothing due", detail.HasAuthorizationXML, detail.DeliveredAt, detail.NextAttemptAt)
+	if !detail.HasAuthorizationXML || detail.DeliveredAt == nil || detail.NextAttemptAt != nil {
+		t.Fatalf("authorization xml %v delivered_at %v next_attempt_at %v; want the SRI's XML on file, delivered, nothing due", detail.HasAuthorizationXML, detail.DeliveredAt, detail.NextAttemptAt)
 	}
 	if len(detail.AttemptRows) < 2 || detail.AttemptRows[0].Operation != "submit" || detail.AttemptRows[0].Outcome != "received" || detail.AttemptRows[len(detail.AttemptRows)-1].Outcome != "authorized" {
 		t.Fatalf("attempts = %+v; want a received submit and an authorized query", detail.AttemptRows)

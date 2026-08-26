@@ -212,6 +212,34 @@ export async function callBackend<T>(
   return { ...envelope, status: response.status };
 }
 
+/**
+ * fetchBackendRaw proxies one request to the Go API and hands back the
+ * Response untouched: for the routes whose body is a FILE and not an envelope.
+ *
+ * The buyer's Tax Document download is the first of those in this app (#475):
+ * the API answers XML under a Content-Disposition, and a relay that parsed the
+ * body as JSON — callBackend above — would eat the document. The credentials
+ * travel exactly as they do there: the Customer Session in Authorization, the
+ * service credential in X-Serverless-Authorization (ADR 0008). Errors are the
+ * caller's to read off the status, since the API still answers a JSON envelope
+ * for those.
+ */
+export async function fetchBackendRaw(
+  path: string,
+  init: RequestInit & { sessionToken?: string } = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  if (init.sessionToken) {
+    headers.set("Authorization", `Bearer ${init.sessionToken}`);
+  }
+  if (!headers.has("X-Request-ID")) {
+    headers.set("X-Request-ID", crypto.randomUUID());
+  }
+  const serviceHeaders = new Headers(await serviceAuthHeaders());
+  serviceHeaders.forEach((value, key) => headers.set(key, value));
+  return fetch(`${apiBaseUrl()}${path}`, { ...init, cache: "no-store", headers });
+}
+
 export type PublicOrganization = {
   name: string;
   slug: string;

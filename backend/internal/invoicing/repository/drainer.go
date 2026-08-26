@@ -28,8 +28,9 @@ import (
 // ticketSaleID narrows the claim to one Sale's documents — the post-commit
 // kick works the document it was kicked for and nothing else — and "" means
 // any. Only documents of kind `sale` in a workable state are claimed: owed
-// (to sign and submit), pending (to poll) and needs_attention still carrying
-// a next_attempt_at (parked, but still polled or still unsignable). A Credit
+// (to sign and submit), pending (to poll), needs_attention still carrying
+// a next_attempt_at (parked, but still polled or still unsignable), and
+// authorized but not yet delivered (to mail, #475). A Credit
 // Note is worked once the ticket that builds its XML lands; the state
 // machine it will ride is this one.
 func (r *Repository) ClaimDueInvoice(ctx context.Context, now, leaseUntil time.Time, ticketSaleID string) (*InvoiceRow, error) {
@@ -42,7 +43,8 @@ func (r *Repository) ClaimDueInvoice(ctx context.Context, now, leaseUntil time.T
 			FROM invoicing_invoices i
 			WHERE i.next_attempt_at <= $1
 			  AND i.kind = 'sale'
-			  AND i.status IN ('owed', 'pending', 'needs_attention')
+			  AND (i.status IN ('owed', 'pending', 'needs_attention')
+			       OR (i.status = 'authorized' AND i.delivered_at IS NULL))
 			  AND ($3 = '' OR i.ticket_sale_id = NULLIF($3, '')::uuid)
 			ORDER BY i.next_attempt_at
 			FOR UPDATE SKIP LOCKED
@@ -187,4 +189,59 @@ func (r *Repository) CountSaleInvoicesByStatus(ctx context.Context) (map[string]
 		out[status] = n
 	}
 	return out, rows.Err()
+}
+
+// MarkDelivered records that the authorized document was handed to its
+// buyer, and takes it off the queue: delivered_at is written and
+// next_attempt_at cleared in one statement, guarded on delivered_at still
+// being NULL so that a document is never recorded delivered twice.
+func (r *Repository) MarkDelivered(ctx context.Context, invoiceID string, at time.Time) error {
+	res, err := r.db.Pool.ExecContext(ctx, `
+		UPDATE invoicing_invoices SET
+			delivered_at = $2,
+			next_attempt_at = NULL,
+			updated_at = NOW()
+		WHERE id = $1 AND delivered_at IS NULL
+	`, invoiceID, at)
+	if err != nil {
+		return fmt.Errorf("mark delivered: %w", err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return fmt.Errorf("mark delivered: invoice %s is already delivered: %w", invoiceID, sql.ErrNoRows)
+	}
+	return nil
+}
+
+// SaleDeliveryFacts is what the delivery mail needs of the Sale beside the
+// document's own row: the Event's name, the Sale Locale as stored, and the
+// buyer's remembered Mail Locale — the two raw halves of the chain
+// platform.ResolveMailLocale walks for the receipt, so the second mail
+// about a sale is written in the language of the first.
+type SaleDeliveryFacts struct {
+	EventName      string
+	SaleLocale     string
+	CustomerLocale string
+}
+
+// GetSaleDeliveryFacts reads the delivery facts of one Ticket Sale, or nil
+// when there is no such Sale.
+func (r *Repository) GetSaleDeliveryFacts(ctx context.Context, ticketSaleID string) (*SaleDeliveryFacts, error) {
+	var f SaleDeliveryFacts
+	var saleLocale, customerLocale sql.NullString
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT e.name, ts.locale, c.mail_locale
+		FROM ticket_sales ts
+		JOIN events e ON e.id = ts.event_id
+		LEFT JOIN customers c ON c.id = ts.customer_id
+		WHERE ts.id = $1
+	`, ticketSaleID).Scan(&f.EventName, &saleLocale, &customerLocale)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get sale delivery facts: %w", err)
+	}
+	f.SaleLocale = saleLocale.String
+	f.CustomerLocale = customerLocale.String
+	return &f, nil
 }

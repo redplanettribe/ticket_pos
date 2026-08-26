@@ -535,7 +535,12 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		platformLogger.Warn("invoicing: no INVOICING_CERTIFICATE_KEY set; certificate upload and signing are unavailable, everything else serves")
 	}
 	invoicingRepo := invoicingrepo.New(db)
-	invoicingService := invoicingsvc.New(invoicingRepo, invoicingCustody, platformLogger)
+	invoicingService := invoicingsvc.New(invoicingRepo, invoicingCustody, platformLogger).
+		// The Tax Document delivery goes out on the TRANSACTIONAL sender
+		// (#475) — emailSender is the split sender, which routes only the
+		// Digest away — and links the buyer into the Customer Area.
+		WithEmailSender(emailSender).
+		WithStorefrontBaseURL(cfg.StorefrontBaseURL)
 	if options.clock != nil {
 		invoicingService = invoicingService.WithClock(options.clock)
 	}

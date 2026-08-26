@@ -430,6 +430,18 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// asking about any other Ticket Sale is answered as if it did not exist.
 	mux.Handle("GET /api/v1/customer/ticket-sales/{ticketSaleId}/tickets",
 		signedIn(http.HandlerFunc(app.CatalogHandler.ListBuyerTicketAnswers)))
+	// The Sale's Tax Documents and their download (#475, ADR 0060). Served by
+	// the INVOICING handler under this namespace, as the undo is served by
+	// the sales one: the credential is a Customer Session, the document is
+	// the invoicing module's. Behind the same gate and not one more — a
+	// Confirmation Link session is the buyer of the one Sale it names, and
+	// a forwarded receipt is exactly where "where is my factura" is asked
+	// from. The service narrows it to that Sale; another Customer's Sale
+	// lists nothing and downloads INVOICE_NOT_FOUND, never a different word.
+	mux.Handle("GET /api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents",
+		signedIn(http.HandlerFunc(app.InvoicingHandler.ListCustomerSaleDocuments)))
+	mux.Handle("GET /api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents/{id}/xml",
+		signedIn(http.HandlerFunc(app.InvoicingHandler.DownloadCustomerSaleDocumentXML)))
 	// The Tickets the Customer HOLDS, and the one write on them (#343, ADR
 	// 0049): the buyer's Self-held Ticket and every Ticket they accepted by
 	// Assignment Link, through one route, keyed on the holder customer id of
