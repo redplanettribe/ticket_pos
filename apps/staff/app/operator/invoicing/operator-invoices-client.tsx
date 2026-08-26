@@ -88,6 +88,15 @@ function InvoiceRow({ item, locale }: { item: OperatorInvoiceListItem; locale: A
             {t("invoicingRecipientWarningBadge")}
           </Badge>
         ) : null}
+        {item.superseded_by_invoice_id ? (
+          // The superseded marker (#486, ADR 0061), beside the status for the
+          // same reason: a reissued factura is still authorized, and no
+          // longer the sale's current one — so the operator does not act on
+          // it.
+          <Badge variant="secondary" className="ml-2">
+            {t("invoicingSupersededBadge")}
+          </Badge>
+        ) : null}
       </td>
       <td className="py-3 pr-4 uppercase text-muted-foreground">{item.country}</td>
     </tr>

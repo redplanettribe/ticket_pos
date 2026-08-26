@@ -656,6 +656,13 @@ type InvoiceListItem struct {
 	// The status is unaffected. Always false while SALE_INVOICING_ENABLED is
 	// closed.
 	RecipientWarning bool `json:"recipient_warning"`
+	// SupersededByInvoiceID is, on a reissued Sale Invoice, the live
+	// corrected one — the list's superseded marker (#486, ADR 0061), so an
+	// operator tells a superseded factura from the current one without
+	// opening it. Null on every other row, and always null while
+	// SALE_INVOICING_ENABLED is closed. The status stays authorized:
+	// superseded is a relation, not a state.
+	SupersededByInvoiceID *string `json:"superseded_by_invoice_id"`
 }
 
 // InvoiceList is the ADR-0006 nested envelope for the list.
@@ -764,17 +771,17 @@ type InvoiceDetail struct {
 	AnnulledAt *time.Time `json:"annulled_at"`
 	// The Sale Invoice Reissue's chain and trail (#483, ADR 0061).
 	// SupersedesInvoiceID is, on a corrected Sale Invoice, the factura it
-	// corrects; SupersededByInvoiceID is, on a reissued factura, the live
-	// corrected one — the current Sale Invoice is the one with neither a
-	// successor nor a withdrawn or annulled state. ReissuedBy, ReissuedAt
-	// and ReissueNote are who reissued, when and the optional note, shown on
-	// the corrected factura, the superseded one and the reissue's Credit
-	// Note alike. All null where no reissue concerns the document.
-	SupersedesInvoiceID   *string    `json:"supersedes_invoice_id"`
-	SupersededByInvoiceID *string    `json:"superseded_by_invoice_id"`
-	ReissuedBy            *string    `json:"reissued_by"`
-	ReissuedAt            *time.Time `json:"reissued_at"`
-	ReissueNote           *string    `json:"reissue_note"`
+	// corrects; the list row's SupersededByInvoiceID is, on a reissued
+	// factura, the live corrected one — the current Sale Invoice is the one
+	// with neither a successor nor a withdrawn or annulled state. ReissuedBy,
+	// ReissuedAt and ReissueNote are who reissued, when and the optional
+	// note, shown on the corrected factura, the superseded one and the
+	// reissue's Credit Note alike. All null where no reissue concerns the
+	// document.
+	SupersedesInvoiceID *string    `json:"supersedes_invoice_id"`
+	ReissuedBy          *string    `json:"reissued_by"`
+	ReissuedAt          *time.Time `json:"reissued_at"`
+	ReissueNote         *string    `json:"reissue_note"`
 	// HasAuthorizationXML says whether the authority's document is on file
 	// (#456 serves it).
 	HasAuthorizationXML bool `json:"has_authorization_xml"`
@@ -792,17 +799,21 @@ func FormatNumber(estab, ptoEmi string, secuencial int64) string {
 }
 
 // listItem is invoiceListItem under the service's flag: the Recipient
-// Warning (#482) is shown only while SALE_INVOICING_ENABLED is open, so a
-// closed flag means no marker anywhere, whatever the row holds.
+// Warning (#482) and the superseded marker (#486) are shown only while
+// SALE_INVOICING_ENABLED is open, so a closed flag means no marker
+// anywhere, whatever the row holds.
 func (s *Service) listItem(row *repository.InvoiceRow) InvoiceListItem {
 	item := invoiceListItem(row)
 	if !s.saleInvoicingEnabled {
 		item.RecipientWarning = false
+		item.SupersededByInvoiceID = nil
 	}
 	return item
 }
 
 // detailView is invoiceDetailView under the service's flag (see listItem).
+// The detail's chain links (#483) are left as read whatever the flag says:
+// they are the document's facts, and superseded_by is among them.
 func (s *Service) detailView(row *repository.InvoiceRow) *InvoiceDetail {
 	d := invoiceDetailView(row)
 	if !s.saleInvoicingEnabled {
@@ -825,12 +836,13 @@ func invoiceListItem(row *repository.InvoiceRow) InvoiceListItem {
 			Address:   inv.Recipient.Address,
 			Email:     inv.Recipient.Email,
 		},
-		TicketSaleID:        optional(inv.TicketSaleID),
-		SaleConfirmationRef: optional(inv.SaleConfirmationRef),
-		TotalCents:          inv.TotalCents,
-		Currency:            inv.Currency,
-		AttentionSince:      optionalTime(inv.AttentionSince),
-		RecipientWarning:    inv.RecipientWarning,
+		TicketSaleID:          optional(inv.TicketSaleID),
+		SaleConfirmationRef:   optional(inv.SaleConfirmationRef),
+		TotalCents:            inv.TotalCents,
+		Currency:              inv.Currency,
+		AttentionSince:        optionalTime(inv.AttentionSince),
+		RecipientWarning:      inv.RecipientWarning,
+		SupersededByInvoiceID: optional(inv.SupersededByInvoiceID),
 	}
 	if inv.Signed() {
 		item.Environment = optional(string(inv.Environment))
@@ -865,29 +877,28 @@ func optionalTime(t *time.Time) *time.Time {
 func invoiceDetailView(row *repository.InvoiceRow) *InvoiceDetail {
 	inv := &row.Invoice
 	d := &InvoiceDetail{
-		InvoiceListItem:       invoiceListItem(row),
-		Issuer:                inv.Issuer,
-		Lines:                 []LineView{},
-		AdditionalFields:      []AdditionalFieldView{},
-		PaymentMethod:         inv.PaymentMethod,
-		PaymentMethodLabel:    sri.PaymentMethodLabel(sri.PaymentMethod(inv.PaymentMethod)),
-		Messages:              messagesView(inv.Messages),
-		Attempts:              []AttemptView{},
-		HasAuthorizationXML:   len(inv.AuthorizationXML) > 0,
-		CheckStatusHint:       checkStatusHint(inv, row.Attempts),
-		IVARate:               optional(string(inv.IVARate)),
-		CreditsInvoiceID:      optional(inv.CreditsInvoiceID),
-		ReversalReason:        optional(inv.CreditNoteReason),
-		CreditedByInvoiceID:   optional(inv.CreditedByInvoiceID),
-		AnnulledBy:            optional(inv.AnnulledBy),
-		AnnulledAt:            optionalTime(inv.AnnulledAt),
-		SupersedesInvoiceID:   optional(inv.SupersedesInvoiceID),
-		SupersededByInvoiceID: optional(inv.SupersededByInvoiceID),
-		ReissuedBy:            optional(inv.ReissuedBy),
-		ReissuedAt:            optionalTime(inv.ReissuedAt),
-		ReissueNote:           optional(inv.ReissueNote),
-		CreatedAt:             inv.CreatedAt.UTC(),
-		UpdatedAt:             inv.UpdatedAt.UTC(),
+		InvoiceListItem:     invoiceListItem(row),
+		Issuer:              inv.Issuer,
+		Lines:               []LineView{},
+		AdditionalFields:    []AdditionalFieldView{},
+		PaymentMethod:       inv.PaymentMethod,
+		PaymentMethodLabel:  sri.PaymentMethodLabel(sri.PaymentMethod(inv.PaymentMethod)),
+		Messages:            messagesView(inv.Messages),
+		Attempts:            []AttemptView{},
+		HasAuthorizationXML: len(inv.AuthorizationXML) > 0,
+		CheckStatusHint:     checkStatusHint(inv, row.Attempts),
+		IVARate:             optional(string(inv.IVARate)),
+		CreditsInvoiceID:    optional(inv.CreditsInvoiceID),
+		ReversalReason:      optional(inv.CreditNoteReason),
+		CreditedByInvoiceID: optional(inv.CreditedByInvoiceID),
+		AnnulledBy:          optional(inv.AnnulledBy),
+		AnnulledAt:          optionalTime(inv.AnnulledAt),
+		SupersedesInvoiceID: optional(inv.SupersedesInvoiceID),
+		ReissuedBy:          optional(inv.ReissuedBy),
+		ReissuedAt:          optionalTime(inv.ReissuedAt),
+		ReissueNote:         optional(inv.ReissueNote),
+		CreatedAt:           inv.CreatedAt.UTC(),
+		UpdatedAt:           inv.UpdatedAt.UTC(),
 	}
 	d.DeliveredAt = optionalTime(inv.DeliveredAt)
 	d.NextAttemptAt = optionalTime(inv.NextAttemptAt)

@@ -48,6 +48,8 @@ type saleInvoiceListView struct {
 		} `json:"recipient"`
 		TotalCents int64  `json:"total_cents"`
 		Currency   string `json:"currency"`
+		// SupersededByInvoiceID is the list's superseded marker (#486).
+		SupersededByInvoiceID *string `json:"superseded_by_invoice_id"`
 	} `json:"data"`
 	Pagination struct {
 		Total int `json:"total"`

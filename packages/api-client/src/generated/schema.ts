@@ -13746,6 +13746,8 @@ export interface components {
              */
             attention_since?: string;
             country?: string;
+            credit_note_reason?: string;
+            credits_invoice_id?: string;
             currency?: string;
             /**
              * @description Environment is the authority environment the document was signed
@@ -13777,8 +13779,34 @@ export interface components {
              *     closed.
              */
             recipient_warning?: boolean;
+            reissue_note?: string;
+            reissued_at?: string;
+            /**
+             * @description ReissuedBy, ReissuedAt and ReissueNote are the reissue's trail, on the
+             *     corrected factura, the superseded one and the reissue's Credit Note
+             *     alike; a document's own reissue wins over one that later superseded
+             *     it. Null where no reissue concerns the document.
+             */
+            reissued_by?: string;
+            role?: components["schemas"]["service.DocumentRole"];
             sale_confirmation_ref?: string;
             status?: string;
+            /**
+             * @description SupersededByInvoiceID is, on a reissued Sale Invoice, the live
+             *     corrected one — the list's superseded marker (#486, ADR 0061), so an
+             *     operator tells a superseded factura from the current one without
+             *     opening it. Null on every other row, and always null while
+             *     SALE_INVOICING_ENABLED is closed. The status stays authorized:
+             *     superseded is a relation, not a state.
+             */
+            superseded_by_invoice_id?: string;
+            /**
+             * @description SupersedesInvoiceID is, on a corrected Sale Invoice, the factura it
+             *     corrects; CreditsInvoiceID and CreditNoteReason are, on a Credit
+             *     Note, the factura it credits and why — a reversal route or "reissue".
+             *     Null where they do not apply.
+             */
+            supersedes_invoice_id?: string;
             /**
              * @description TicketSaleID and SaleConfirmationRef name the Ticket Sale a sale
              *     document or credit note is about; null on a manual document.
@@ -13786,6 +13814,8 @@ export interface components {
             ticket_sale_id?: string;
             total_cents?: number;
         };
+        /** @enum {string} */
+        "service.DocumentRole": "current" | "superseded" | "credit_note" | "not_current";
         "service.DrainResult": {
             /**
              * @description Claimed is how many pending Digests this run took out of the queue. Zero is
@@ -14367,16 +14397,25 @@ export interface components {
             reversal_reason?: string;
             sale_confirmation_ref?: string;
             status?: string;
+            /**
+             * @description SupersededByInvoiceID is, on a reissued Sale Invoice, the live
+             *     corrected one — the list's superseded marker (#486, ADR 0061), so an
+             *     operator tells a superseded factura from the current one without
+             *     opening it. Null on every other row, and always null while
+             *     SALE_INVOICING_ENABLED is closed. The status stays authorized:
+             *     superseded is a relation, not a state.
+             */
             superseded_by_invoice_id?: string;
             /**
              * @description The Sale Invoice Reissue's chain and trail (#483, ADR 0061).
              *     SupersedesInvoiceID is, on a corrected Sale Invoice, the factura it
-             *     corrects; SupersededByInvoiceID is, on a reissued factura, the live
-             *     corrected one — the current Sale Invoice is the one with neither a
-             *     successor nor a withdrawn or annulled state. ReissuedBy, ReissuedAt
-             *     and ReissueNote are who reissued, when and the optional note, shown on
-             *     the corrected factura, the superseded one and the reissue's Credit
-             *     Note alike. All null where no reissue concerns the document.
+             *     corrects; the list row's SupersededByInvoiceID is, on a reissued
+             *     factura, the live corrected one — the current Sale Invoice is the one
+             *     with neither a successor nor a withdrawn or annulled state. ReissuedBy,
+             *     ReissuedAt and ReissueNote are who reissued, when and the optional
+             *     note, shown on the corrected factura, the superseded one and the
+             *     reissue's Credit Note alike. All null where no reissue concerns the
+             *     document.
              */
             supersedes_invoice_id?: string;
             /**
@@ -14433,6 +14472,15 @@ export interface components {
             recipient_warning?: boolean;
             sale_confirmation_ref?: string;
             status?: string;
+            /**
+             * @description SupersededByInvoiceID is, on a reissued Sale Invoice, the live
+             *     corrected one — the list's superseded marker (#486, ADR 0061), so an
+             *     operator tells a superseded factura from the current one without
+             *     opening it. Null on every other row, and always null while
+             *     SALE_INVOICING_ENABLED is closed. The status stays authorized:
+             *     superseded is a relation, not a state.
+             */
+            superseded_by_invoice_id?: string;
             /**
              * @description TicketSaleID and SaleConfirmationRef name the Ticket Sale a sale
              *     document or credit note is about; null on a manual document.
@@ -14511,6 +14559,15 @@ export interface components {
             recipient_warning?: boolean;
             sale_confirmation_ref?: string;
             status?: string;
+            /**
+             * @description SupersededByInvoiceID is, on a reissued Sale Invoice, the live
+             *     corrected one — the list's superseded marker (#486, ADR 0061), so an
+             *     operator tells a superseded factura from the current one without
+             *     opening it. Null on every other row, and always null while
+             *     SALE_INVOICING_ENABLED is closed. The status stays authorized:
+             *     superseded is a relation, not a state.
+             */
+            superseded_by_invoice_id?: string;
             /**
              * @description TicketSaleID and SaleConfirmationRef name the Ticket Sale a sale
              *     document or credit note is about; null on a manual document.
@@ -15800,11 +15857,14 @@ export interface components {
         };
         "service.SaleLookup": {
             /**
-             * @description Documents are the Tax Invoices about this Sale (#477, ADR 0060): the
-             *     Sale Invoice a paid House checkout owed and the Credit Note its
-             *     reversal owed, oldest first, each with its kind, state and number, and
-             *     its id as the link to the document detail. Empty — never null — on a
-             *     Sale that owes nothing, which is every Sale outside a House Organization.
+             * @description Documents are the Tax Invoices about this Sale (#477, ADR 0060; #486,
+             *     ADR 0061): the Sale Invoice a paid House checkout owed, the Credit
+             *     Note its reversal owed, and — after a Sale Invoice Reissue — the
+             *     superseded factura, its Credit Note and the corrected factura, in chain
+             *     order, each with its kind, state, number and role, the current one
+             *     marked as such, and its id as the link to the document detail. Empty —
+             *     never null — on a Sale that owes nothing, which is every Sale outside a
+             *     House Organization.
              */
             documents?: components["schemas"]["service.Document"][];
             organization?: components["schemas"]["service.Organization"];

@@ -3546,6 +3546,12 @@ const docTemplate = `{
                     "country": {
                         "type": "string"
                     },
+                    "credit_note_reason": {
+                        "type": "string"
+                    },
+                    "credits_invoice_id": {
+                        "type": "string"
+                    },
                     "currency": {
                         "type": "string"
                     },
@@ -3581,10 +3587,31 @@ const docTemplate = `{
                         "description": "RecipientWarning is true on an authorized Sale Invoice the SRI warned\nabout — the Recipient's Tax ID does not exist (advertencia 59) or is\nincorrect (62) — until the document is superseded (#482, ADR 0061).\nThe status is unaffected. Always false while SALE_INVOICING_ENABLED is\nclosed.",
                         "type": "boolean"
                     },
+                    "reissue_note": {
+                        "type": "string"
+                    },
+                    "reissued_at": {
+                        "type": "string"
+                    },
+                    "reissued_by": {
+                        "description": "ReissuedBy, ReissuedAt and ReissueNote are the reissue's trail, on the\ncorrected factura, the superseded one and the reissue's Credit Note\nalike; a document's own reissue wins over one that later superseded\nit. Null where no reissue concerns the document.",
+                        "type": "string"
+                    },
+                    "role": {
+                        "$ref": "#/components/schemas/service.DocumentRole"
+                    },
                     "sale_confirmation_ref": {
                         "type": "string"
                     },
                     "status": {
+                        "type": "string"
+                    },
+                    "superseded_by_invoice_id": {
+                        "description": "SupersededByInvoiceID is, on a reissued Sale Invoice, the live\ncorrected one — the list's superseded marker (#486, ADR 0061), so an\noperator tells a superseded factura from the current one without\nopening it. Null on every other row, and always null while\nSALE_INVOICING_ENABLED is closed. The status stays authorized:\nsuperseded is a relation, not a state.",
+                        "type": "string"
+                    },
+                    "supersedes_invoice_id": {
+                        "description": "SupersedesInvoiceID is, on a corrected Sale Invoice, the factura it\ncorrects; CreditsInvoiceID and CreditNoteReason are, on a Credit\nNote, the factura it credits and why — a reversal route or \"reissue\".\nNull where they do not apply.",
                         "type": "string"
                     },
                     "ticket_sale_id": {
@@ -3596,6 +3623,21 @@ const docTemplate = `{
                     }
                 },
                 "type": "object"
+            },
+            "service.DocumentRole": {
+                "enum": [
+                    "current",
+                    "superseded",
+                    "credit_note",
+                    "not_current"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "DocumentRoleCurrent",
+                    "DocumentRoleSuperseded",
+                    "DocumentRoleCreditNote",
+                    "DocumentRoleNotCurrent"
+                ]
             },
             "service.DrainResult": {
                 "properties": {
@@ -4329,10 +4371,11 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "superseded_by_invoice_id": {
+                        "description": "SupersededByInvoiceID is, on a reissued Sale Invoice, the live\ncorrected one — the list's superseded marker (#486, ADR 0061), so an\noperator tells a superseded factura from the current one without\nopening it. Null on every other row, and always null while\nSALE_INVOICING_ENABLED is closed. The status stays authorized:\nsuperseded is a relation, not a state.",
                         "type": "string"
                     },
                     "supersedes_invoice_id": {
-                        "description": "The Sale Invoice Reissue's chain and trail (#483, ADR 0061).\nSupersedesInvoiceID is, on a corrected Sale Invoice, the factura it\ncorrects; SupersededByInvoiceID is, on a reissued factura, the live\ncorrected one — the current Sale Invoice is the one with neither a\nsuccessor nor a withdrawn or annulled state. ReissuedBy, ReissuedAt\nand ReissueNote are who reissued, when and the optional note, shown on\nthe corrected factura, the superseded one and the reissue's Credit\nNote alike. All null where no reissue concerns the document.",
+                        "description": "The Sale Invoice Reissue's chain and trail (#483, ADR 0061).\nSupersedesInvoiceID is, on a corrected Sale Invoice, the factura it\ncorrects; the list row's SupersededByInvoiceID is, on a reissued\nfactura, the live corrected one — the current Sale Invoice is the one\nwith neither a successor nor a withdrawn or annulled state. ReissuedBy,\nReissuedAt and ReissueNote are who reissued, when and the optional\nnote, shown on the corrected factura, the superseded one and the\nreissue's Credit Note alike. All null where no reissue concerns the\ndocument.",
                         "type": "string"
                     },
                     "ticket_sale_id": {
@@ -4414,6 +4457,10 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "status": {
+                        "type": "string"
+                    },
+                    "superseded_by_invoice_id": {
+                        "description": "SupersededByInvoiceID is, on a reissued Sale Invoice, the live\ncorrected one — the list's superseded marker (#486, ADR 0061), so an\noperator tells a superseded factura from the current one without\nopening it. Null on every other row, and always null while\nSALE_INVOICING_ENABLED is closed. The status stays authorized:\nsuperseded is a relation, not a state.",
                         "type": "string"
                     },
                     "ticket_sale_id": {
@@ -4562,6 +4609,10 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "status": {
+                        "type": "string"
+                    },
+                    "superseded_by_invoice_id": {
+                        "description": "SupersededByInvoiceID is, on a reissued Sale Invoice, the live\ncorrected one — the list's superseded marker (#486, ADR 0061), so an\noperator tells a superseded factura from the current one without\nopening it. Null on every other row, and always null while\nSALE_INVOICING_ENABLED is closed. The status stays authorized:\nsuperseded is a relation, not a state.",
                         "type": "string"
                     },
                     "ticket_sale_id": {
@@ -6332,7 +6383,7 @@ const docTemplate = `{
             "service.SaleLookup": {
                 "properties": {
                     "documents": {
-                        "description": "Documents are the Tax Invoices about this Sale (#477, ADR 0060): the\nSale Invoice a paid House checkout owed and the Credit Note its\nreversal owed, oldest first, each with its kind, state and number, and\nits id as the link to the document detail. Empty — never null — on a\nSale that owes nothing, which is every Sale outside a House Organization.",
+                        "description": "Documents are the Tax Invoices about this Sale (#477, ADR 0060; #486,\nADR 0061): the Sale Invoice a paid House checkout owed, the Credit\nNote its reversal owed, and — after a Sale Invoice Reissue — the\nsuperseded factura, its Credit Note and the corrected factura, in chain\norder, each with its kind, state, number and role, the current one\nmarked as such, and its id as the link to the document detail. Empty —\nnever null — on a Sale that owes nothing, which is every Sale outside a\nHouse Organization.",
                         "items": {
                             "$ref": "#/components/schemas/service.Document"
                         },
