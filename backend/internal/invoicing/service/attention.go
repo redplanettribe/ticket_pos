@@ -23,6 +23,14 @@ import (
 // document is credited, never annulled here, and an owed or unsigned one
 // was never at the authority. It is irreversible, and it takes the
 // document out of the Drainer's claim set and the queue in the same write.
+//
+// MARK ANNULLED ON A REISSUE'S CREDIT NOTE UNDOES THE REISSUE (#484, ADR
+// 0061). The corrected factura was waiting, unsigned, for that Credit Note
+// to be authorized; it never will be, so the same transaction withdraws
+// the corrected factura — no number consumed, nothing sent — and the old
+// factura is the Sale's current one again, credited by nothing live and
+// open to another reissue. The Drainer would do the same on its next round
+// (drainer.go); doing it here is what lets the operator reissue at once.
 
 // NeedsAttentionQueue is one page of the documents parked for an operator,
 // longest waiting first, with the total: the ADR-0006 nested envelope.
@@ -113,7 +121,10 @@ func (s *Service) AnnulInvoice(ctx context.Context, id, annulledBy string) (*Inv
 		return nil, err
 	}
 	now := s.clock()
-	done, err := s.repo.AnnulInvoice(ctx, id, annulledBy, now)
+	successorMessages := []invoicing.AuthorityMessage{{
+		Identifier: correctedInvoiceWithdrawnCode, Message: correctedInvoiceWithdrawnMessage, Type: platformMessageType,
+	}}
+	done, withdrawnSuccessorID, err := s.repo.AnnulInvoice(ctx, id, annulledBy, now, successorMessages)
 	if err != nil {
 		return nil, err
 	}
@@ -122,6 +133,10 @@ func (s *Service) AnnulInvoice(ctx context.Context, id, annulledBy string) (*Inv
 	}
 	s.logger.Info("invoicing: document marked annulled",
 		"invoice_id", id, "kind", row.Invoice.Kind, "from_status", row.Invoice.Status, "annulled_by", annulledBy)
+	if withdrawnSuccessorID != "" {
+		s.logger.Info("invoicing: corrected sale invoice withdrawn; the credit note it follows was marked annulled",
+			"invoice_id", withdrawnSuccessorID, "credit_note_id", id, "superseded_invoice_id", row.Invoice.CreditsInvoiceID)
+	}
 	return s.GetInvoice(ctx, id)
 }
 

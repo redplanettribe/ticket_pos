@@ -208,8 +208,9 @@ type Invoice struct {
 	CreditsInvoiceID string
 	CreditNoteReason string
 	// CreditedByInvoiceID is, on a Sale Invoice, the Credit Note that
-	// credits it (#476) — the newest, should there ever be more than one —
-	// read beside the row so the two documents link both ways; "" when
+	// credits it (#476) — the newest LIVE one, should there ever be more
+	// than one: a withdrawn or annulled Credit Note credits nothing (#484)
+	// — read beside the row so the two documents link both ways; "" when
 	// none does.
 	CreditedByInvoiceID string
 	// IVARate is the one rate a platform-priced document was priced under;
@@ -229,7 +230,8 @@ type Invoice struct {
 	// RecipientWarning is the authority's word, on an authorized Sale
 	// Invoice, that the Recipient's Tax ID does not exist or is incorrect
 	// (#482, ADR 0061): set from the authorization's messages, cleared only
-	// when the document is superseded. Never true on any other kind.
+	// when the document is superseded — the moment the corrected factura
+	// that supersedes it is authorized (#484). Never true on any other kind.
 	RecipientWarning bool
 
 	// The Sale Invoice Reissue (#483, ADR 0061). SupersedesInvoiceID is, on

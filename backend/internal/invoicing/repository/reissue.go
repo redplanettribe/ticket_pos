@@ -19,7 +19,7 @@ import (
 //
 // THE LOCK ORDER IS THE REVERSAL'S. A Sale Reversal takes the ticket_sales
 // row FOR UPDATE first and the Sale's invoices FOR UPDATE after
-// (sales/repository/sale_reverse.go, LockSaleInvoicesForReversal); this
+// (sales/repository/sale_reverse.go, LockSaleDocumentsForReversal); this
 // transaction takes them in the same order, so the two can only queue
 // behind each other and never deadlock. Whichever commits first, the other
 // decides on what it then finds: a reissue behind a reversal finds the Sale
