@@ -510,6 +510,21 @@ var (
 		"Present this reference at the event.",
 		"Presente esta referencia en el evento.",
 	)
+	// The Sale Invoice's one line (#473, ADR 0060), carried only by receipts
+	// for a paid House sale. It sits with the reference, the total and the
+	// Tax ID because it is about the same thing they are — the buyer's fiscal
+	// record of this purchase — and above "present this reference" because
+	// the buyer reads the money lines first and the door lines second.
+	//
+	// "Tax invoice (factura)" in English names the document by the glossary's
+	// word and the word the buyer will see on it; Spanish says factura alone,
+	// which is what everyone in Ecuador calls it. It names no deadline and no
+	// sender: the SRI decides when, and the mail arrives from the same place
+	// this one did.
+	saleConfirmationSaleInvoiceCopy = translated(
+		"A tax invoice (factura) for this purchase will follow in a separate email.",
+		"La factura de esta compra le llegará en un correo aparte.",
+	)
 	saleConfirmationLinkCopy = translated(
 		"View your tickets:\n%s\n\nThis link opens this purchase only, and stays valid until shortly after the event.",
 		"Vea sus entradas:\n%s\n\nEste enlace abre solo esta compra y sigue siendo válido hasta poco después del evento.",
@@ -585,6 +600,12 @@ func (c SaleConfirmation) Text() string {
 	// their own expense records (#99).
 	if taxID := c.TaxID.Display(); taxID != "" {
 		text += "\n" + taxID
+	}
+
+	// The factura promise, directly under the fiscal facts it belongs with
+	// and only for a sale that owed one (#473).
+	if c.SaleInvoiceFollows {
+		text += "\n\n" + saleConfirmationSaleInvoiceCopy.in(c.Locale)
 	}
 
 	text += "\n\n" + saleConfirmationPresentCopy.in(c.Locale)

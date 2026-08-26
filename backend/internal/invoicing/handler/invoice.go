@@ -156,7 +156,7 @@ func (h *Handler) PreviewTotals(w http.ResponseWriter, r *http.Request) {
 // ListInvoices lists Tax Invoices newest first.
 //
 // @Summary      List Tax Invoices
-// @Description  Returns a page of every Tax Invoice the platform has issued, newest first: the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such). Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
+// @Description  Returns a page of every Tax Invoice the platform has issued or owes, newest first: the document `kind` (`manual` from the form; `sale` for a Sale Invoice a paid House checkout owed; `credit_note` for its reversal), the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such), and — on a `sale` or `credit_note` — the Ticket Sale id and its Sale Confirmation reference. A document still `owed` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
 // @Tags         operator
 // @Produce      json
 // @Security     BearerAuth
@@ -180,7 +180,7 @@ func (h *Handler) ListInvoices(w http.ResponseWriter, r *http.Request) {
 // GetInvoice returns one Tax Invoice in full.
 //
 // @Summary      Get a Tax Invoice
-// @Description  Returns one Tax Invoice in full: Recipient, the Issuer as snapshotted at issue time, lines with their arithmetic, totals, status, the SRI's last messages verbatim (identifier, message, additional information, type), the clave de acceso and — once authorized — the authorization number and date, and the attempts ledger with one row per SRI call (operation, outcome, messages, duration). INVOICE_NOT_FOUND (404) otherwise. Platform Operator only.
+// @Description  Returns one Tax Invoice in full: its kind, Recipient, the Issuer as snapshotted at issue time, lines with their arithmetic, totals, status, the SRI's last messages verbatim (identifier, message, additional information, type), the clave de acceso and — once authorized — the authorization number and date, and the attempts ledger with one row per SRI call (operation, outcome, messages, duration). A `sale` or `credit_note` document also carries its Ticket Sale id and Sale Confirmation reference, the IVA rate it was priced under, when it was delivered to the buyer and when the Drainer next works it; a `credit_note` names the Sale Invoice it credits and the reversal route. On a document still `owed` the `issuer` and `ecuador` objects and every issue fact are null. INVOICE_NOT_FOUND (404) otherwise. Platform Operator only.
 // @Tags         operator
 // @Produce      json
 // @Security     BearerAuth

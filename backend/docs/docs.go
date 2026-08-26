@@ -1284,6 +1284,7 @@ const docTemplate = `{
                 "type": "object"
             },
             "invoicing.IssuerSnapshot": {
+                "description": "Issuer is the Issuer as snapshotted at signing; null until signed.",
                 "properties": {
                     "agente_retencion": {
                         "type": "string"
@@ -3444,6 +3445,7 @@ const docTemplate = `{
                 "type": "object"
             },
             "service.EcuadorInvoiceView": {
+                "description": "Ecuador is the SRI's numbering and authorization; null until signed.",
                 "properties": {
                     "access_key": {
                         "type": "string"
@@ -4021,13 +4023,20 @@ const docTemplate = `{
                     "created_at": {
                         "type": "string"
                     },
+                    "credits_invoice_id": {
+                        "type": "string"
+                    },
                     "currency": {
+                        "type": "string"
+                    },
+                    "delivered_at": {
                         "type": "string"
                     },
                     "ecuador": {
                         "$ref": "#/components/schemas/service.EcuadorInvoiceView"
                     },
                     "environment": {
+                        "description": "Environment is the authority environment the document was signed\nunder; null until signed.",
                         "type": "string"
                     },
                     "has_authorization_xml": {
@@ -4044,11 +4053,19 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "issued_on": {
-                        "description": "IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country.",
+                        "description": "IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country;\nIssuedAt the instant; IssuedBy the operator (or the Drainer). All null\nuntil signed.",
                         "type": "string"
                     },
                     "issuer": {
                         "$ref": "#/components/schemas/invoicing.IssuerSnapshot"
+                    },
+                    "iva_rate": {
+                        "description": "The Sale side (#473): the one IVA rate a platform-priced document was\npriced under, when its authorized document was mailed to the buyer,\nwhen the Drainer next works it, and — on a Credit Note — the Sale\nInvoice it credits and the reversal route that made it owed. All null\non a manual Tax Invoice.",
+                        "type": "string"
+                    },
+                    "kind": {
+                        "description": "Kind is why the document exists: manual, sale or credit_note.",
+                        "type": "string"
                     },
                     "lines": {
                         "items": {
@@ -4065,8 +4082,11 @@ const docTemplate = `{
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "next_attempt_at": {
+                        "type": "string"
+                    },
                     "number": {
-                        "description": "Number is the document number as printed: estab-ptoEmi-secuencial,\ne.g. 001-001-000000012.",
+                        "description": "Number is the document number as printed: estab-ptoEmi-secuencial,\ne.g. 001-001-000000012. Null until signed.",
                         "type": "string"
                     },
                     "payment_method": {
@@ -4078,7 +4098,17 @@ const docTemplate = `{
                     "recipient": {
                         "$ref": "#/components/schemas/service.RecipientView"
                     },
+                    "reversal_reason": {
+                        "type": "string"
+                    },
+                    "sale_confirmation_ref": {
+                        "type": "string"
+                    },
                     "status": {
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
+                        "description": "TicketSaleID and SaleConfirmationRef name the Ticket Sale a sale\ndocument or credit note is about; null on a manual document.",
                         "type": "string"
                     },
                     "total_cents": {
@@ -4117,6 +4147,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "environment": {
+                        "description": "Environment is the authority environment the document was signed\nunder; null until signed.",
                         "type": "string"
                     },
                     "id": {
@@ -4129,17 +4160,28 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "issued_on": {
-                        "description": "IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country.",
+                        "description": "IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country;\nIssuedAt the instant; IssuedBy the operator (or the Drainer). All null\nuntil signed.",
+                        "type": "string"
+                    },
+                    "kind": {
+                        "description": "Kind is why the document exists: manual, sale or credit_note.",
                         "type": "string"
                     },
                     "number": {
-                        "description": "Number is the document number as printed: estab-ptoEmi-secuencial,\ne.g. 001-001-000000012.",
+                        "description": "Number is the document number as printed: estab-ptoEmi-secuencial,\ne.g. 001-001-000000012. Null until signed.",
                         "type": "string"
                     },
                     "recipient": {
                         "$ref": "#/components/schemas/service.RecipientView"
                     },
+                    "sale_confirmation_ref": {
+                        "type": "string"
+                    },
                     "status": {
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
+                        "description": "TicketSaleID and SaleConfirmationRef name the Ticket Sale a sale\ndocument or credit note is about; null on a manual document.",
                         "type": "string"
                     },
                     "total_cents": {
@@ -9423,7 +9465,7 @@ const docTemplate = `{
         },
         "/api/v1/operator/invoicing/invoices": {
             "get": {
-                "description": "Returns a page of every Tax Invoice the platform has issued, newest first: the printed number (` + "`" + `001-001-000000012` + "`" + `), emission date, Recipient, total, status, country and the environment it was issued under (` + "`" + `test` + "`" + ` invoices are badged as such). Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.",
+                "description": "Returns a page of every Tax Invoice the platform has issued or owes, newest first: the document ` + "`" + `kind` + "`" + ` (` + "`" + `manual` + "`" + ` from the form; ` + "`" + `sale` + "`" + ` for a Sale Invoice a paid House checkout owed; ` + "`" + `credit_note` + "`" + ` for its reversal), the printed number (` + "`" + `001-001-000000012` + "`" + `), emission date, Recipient, total, status, country and the environment it was issued under (` + "`" + `test` + "`" + ` invoices are badged as such), and — on a ` + "`" + `sale` + "`" + ` or ` + "`" + `credit_note` + "`" + ` — the Ticket Sale id and its Sale Confirmation reference. A document still ` + "`" + `owed` + "`" + ` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.",
                 "parameters": [
                     {
                         "description": "Page number (default 1)",
@@ -9667,7 +9709,7 @@ const docTemplate = `{
         },
         "/api/v1/operator/invoicing/invoices/{id}": {
             "get": {
-                "description": "Returns one Tax Invoice in full: Recipient, the Issuer as snapshotted at issue time, lines with their arithmetic, totals, status, the SRI's last messages verbatim (identifier, message, additional information, type), the clave de acceso and — once authorized — the authorization number and date, and the attempts ledger with one row per SRI call (operation, outcome, messages, duration). INVOICE_NOT_FOUND (404) otherwise. Platform Operator only.",
+                "description": "Returns one Tax Invoice in full: its kind, Recipient, the Issuer as snapshotted at issue time, lines with their arithmetic, totals, status, the SRI's last messages verbatim (identifier, message, additional information, type), the clave de acceso and — once authorized — the authorization number and date, and the attempts ledger with one row per SRI call (operation, outcome, messages, duration). A ` + "`" + `sale` + "`" + ` or ` + "`" + `credit_note` + "`" + ` document also carries its Ticket Sale id and Sale Confirmation reference, the IVA rate it was priced under, when it was delivered to the buyer and when the Drainer next works it; a ` + "`" + `credit_note` + "`" + ` names the Sale Invoice it credits and the reversal route. On a document still ` + "`" + `owed` + "`" + ` the ` + "`" + `issuer` + "`" + ` and ` + "`" + `ecuador` + "`" + ` objects and every issue fact are null. INVOICE_NOT_FOUND (404) otherwise. Platform Operator only.",
                 "parameters": [
                     {
                         "description": "Tax Invoice id",

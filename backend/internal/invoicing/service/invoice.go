@@ -142,7 +142,7 @@ func (s *Service) IssueInvoice(ctx context.Context, in IssueInput) (*InvoiceDeta
 		IssuedAt:      now,
 		IssuedBy:      in.IssuedBy,
 		Recipient:     in.Recipient,
-		Issuer:        snapshot,
+		Issuer:        &snapshot,
 		Currency:      "USD",
 		SubtotalCents: totals.SubtotalCents,
 		DiscountCents: totals.DiscountCents,
@@ -480,21 +480,36 @@ type RecipientView struct {
 }
 
 // InvoiceListItem is one row of the invoices list.
+//
+// THE ISSUE FACTS ARE NULL UNTIL SIGNED (#473). An owed Sale Invoice has no
+// number, no environment, no emission date and no signer, and the list says
+// null rather than "" so a reader can tell "not yet" from "blank". A manual
+// Tax Invoice is signed at birth and never null here.
 type InvoiceListItem struct {
-	ID          string `json:"id"`
-	Country     string `json:"country"`
-	Environment string `json:"environment"`
-	Status      string `json:"status"`
+	ID string `json:"id"`
+	// Kind is why the document exists: manual, sale or credit_note.
+	Kind    string `json:"kind"`
+	Country string `json:"country"`
+	// Environment is the authority environment the document was signed
+	// under; null until signed.
+	Environment *string `json:"environment"`
+	Status      string  `json:"status"`
 	// Number is the document number as printed: estab-ptoEmi-secuencial,
-	// e.g. 001-001-000000012.
-	Number string `json:"number"`
-	// IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country.
-	IssuedOn   string        `json:"issued_on"`
-	IssuedAt   time.Time     `json:"issued_at"`
-	IssuedBy   string        `json:"issued_by"`
-	Recipient  RecipientView `json:"recipient"`
-	TotalCents int64         `json:"total_cents"`
-	Currency   string        `json:"currency"`
+	// e.g. 001-001-000000012. Null until signed.
+	Number *string `json:"number"`
+	// IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country;
+	// IssuedAt the instant; IssuedBy the operator (or the Drainer). All null
+	// until signed.
+	IssuedOn  *string       `json:"issued_on"`
+	IssuedAt  *time.Time    `json:"issued_at"`
+	IssuedBy  *string       `json:"issued_by"`
+	Recipient RecipientView `json:"recipient"`
+	// TicketSaleID and SaleConfirmationRef name the Ticket Sale a sale
+	// document or credit note is about; null on a manual document.
+	TicketSaleID        *string `json:"ticket_sale_id"`
+	SaleConfirmationRef *string `json:"sale_confirmation_ref"`
+	TotalCents          int64   `json:"total_cents"`
+	Currency            string  `json:"currency"`
 }
 
 // InvoiceList is the ADR-0006 nested envelope for the list.
@@ -570,16 +585,28 @@ type AttemptView struct {
 // InvoiceDetail is one Tax Invoice in full.
 type InvoiceDetail struct {
 	InvoiceListItem
-	Issuer             invoicing.IssuerSnapshot `json:"issuer"`
-	Lines              []LineView               `json:"lines"`
-	AdditionalFields   []AdditionalFieldView    `json:"additional_fields"`
-	PaymentMethod      string                   `json:"payment_method"`
-	PaymentMethodLabel string                   `json:"payment_method_label"`
-	Totals             TotalsView               `json:"totals"`
+	// Issuer is the Issuer as snapshotted at signing; null until signed.
+	Issuer             *invoicing.IssuerSnapshot `json:"issuer"`
+	Lines              []LineView                `json:"lines"`
+	AdditionalFields   []AdditionalFieldView     `json:"additional_fields"`
+	PaymentMethod      string                    `json:"payment_method"`
+	PaymentMethodLabel string                    `json:"payment_method_label"`
+	Totals             TotalsView                `json:"totals"`
 	// Messages are the authority's messages from its last answer.
 	Messages []AuthorityMessageView `json:"messages"`
-	Ecuador  EcuadorInvoiceView     `json:"ecuador"`
-	Attempts []AttemptView          `json:"attempts"`
+	// Ecuador is the SRI's numbering and authorization; null until signed.
+	Ecuador  *EcuadorInvoiceView `json:"ecuador"`
+	Attempts []AttemptView       `json:"attempts"`
+	// The Sale side (#473): the one IVA rate a platform-priced document was
+	// priced under, when its authorized document was mailed to the buyer,
+	// when the Drainer next works it, and — on a Credit Note — the Sale
+	// Invoice it credits and the reversal route that made it owed. All null
+	// on a manual Tax Invoice.
+	IVARate          *string    `json:"iva_rate"`
+	DeliveredAt      *time.Time `json:"delivered_at"`
+	NextAttemptAt    *time.Time `json:"next_attempt_at"`
+	CreditsInvoiceID *string    `json:"credits_invoice_id"`
+	ReversalReason   *string    `json:"reversal_reason"`
 	// HasAuthorizationXML says whether the authority's document is on file
 	// (#456 serves it).
 	HasAuthorizationXML bool `json:"has_authorization_xml"`
@@ -598,15 +625,11 @@ func FormatNumber(estab, ptoEmi string, secuencial int64) string {
 
 func invoiceListItem(row *repository.InvoiceRow) InvoiceListItem {
 	inv := &row.Invoice
-	return InvoiceListItem{
-		ID:          inv.ID,
-		Country:     string(inv.Country),
-		Environment: string(inv.Environment),
-		Status:      string(inv.Status),
-		Number:      FormatNumber(row.Ecuador.Estab, row.Ecuador.PtoEmi, row.Ecuador.Secuencial),
-		IssuedOn:    inv.IssuedOn.Format("2006-01-02"),
-		IssuedAt:    inv.IssuedAt.UTC(),
-		IssuedBy:    inv.IssuedBy,
+	item := InvoiceListItem{
+		ID:      inv.ID,
+		Kind:    string(inv.Kind),
+		Country: string(inv.Country),
+		Status:  string(inv.Status),
 		Recipient: RecipientView{
 			TaxIDType: inv.Recipient.TaxIDType,
 			TaxID:     inv.Recipient.TaxID,
@@ -614,9 +637,30 @@ func invoiceListItem(row *repository.InvoiceRow) InvoiceListItem {
 			Address:   inv.Recipient.Address,
 			Email:     inv.Recipient.Email,
 		},
-		TotalCents: inv.TotalCents,
-		Currency:   inv.Currency,
+		TicketSaleID:        optional(inv.TicketSaleID),
+		SaleConfirmationRef: optional(inv.SaleConfirmationRef),
+		TotalCents:          inv.TotalCents,
+		Currency:            inv.Currency,
 	}
+	if inv.Signed() {
+		item.Environment = optional(string(inv.Environment))
+		item.IssuedOn = optional(inv.IssuedOn.Format("2006-01-02"))
+		issuedAt := inv.IssuedAt.UTC()
+		item.IssuedAt = &issuedAt
+		item.IssuedBy = optional(inv.IssuedBy)
+	}
+	if row.Ecuador != nil {
+		item.Number = optional(FormatNumber(row.Ecuador.Estab, row.Ecuador.PtoEmi, row.Ecuador.Secuencial))
+	}
+	return item
+}
+
+// optional renders "" as null: the value is absent, not blank.
+func optional(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 func invoiceDetailView(row *repository.InvoiceRow) *InvoiceDetail {
@@ -632,22 +676,35 @@ func invoiceDetailView(row *repository.InvoiceRow) *InvoiceDetail {
 		Attempts:            []AttemptView{},
 		HasAuthorizationXML: len(inv.AuthorizationXML) > 0,
 		CheckStatusHint:     checkStatusHint(inv, row.Attempts),
+		IVARate:             optional(string(inv.IVARate)),
+		CreditsInvoiceID:    optional(inv.CreditsInvoiceID),
+		ReversalReason:      optional(inv.ReversalReason),
 		CreatedAt:           inv.CreatedAt.UTC(),
 		UpdatedAt:           inv.UpdatedAt.UTC(),
-		Ecuador: EcuadorInvoiceView{
-			AccessKey:  row.Ecuador.AccessKey,
-			CodDoc:     row.Ecuador.CodDoc,
-			Estab:      row.Ecuador.Estab,
-			PtoEmi:     row.Ecuador.PtoEmi,
-			Secuencial: row.Ecuador.Secuencial,
-			Ambiente:   string(sri.AmbienteFor(inv.Environment)),
-		},
 	}
-	if a := row.Ecuador.Authorization; a != nil {
-		number := a.Number
-		date := a.Date.UTC()
-		d.Ecuador.AuthorizationNumber = &number
-		d.Ecuador.AuthorizationDate = &date
+	if inv.DeliveredAt != nil {
+		t := inv.DeliveredAt.UTC()
+		d.DeliveredAt = &t
+	}
+	if inv.NextAttemptAt != nil {
+		t := inv.NextAttemptAt.UTC()
+		d.NextAttemptAt = &t
+	}
+	if e := row.Ecuador; e != nil {
+		d.Ecuador = &EcuadorInvoiceView{
+			AccessKey:  e.AccessKey,
+			CodDoc:     e.CodDoc,
+			Estab:      e.Estab,
+			PtoEmi:     e.PtoEmi,
+			Secuencial: e.Secuencial,
+			Ambiente:   string(sri.AmbienteFor(inv.Environment)),
+		}
+		if a := e.Authorization; a != nil {
+			number := a.Number
+			date := a.Date.UTC()
+			d.Ecuador.AuthorizationNumber = &number
+			d.Ecuador.AuthorizationDate = &date
+		}
 	}
 
 	// The totals are re-derived from the stored per-line arithmetic, never

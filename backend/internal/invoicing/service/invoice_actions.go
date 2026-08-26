@@ -66,7 +66,7 @@ func (s *Service) ResendInvoice(ctx context.Context, id string) (*InvoiceDetail,
 		return nil, err
 	}
 
-	snapshot := refreshedSnapshot(row.Invoice.Issuer, issuer.Details)
+	snapshot := refreshedSnapshot(*row.Invoice.Issuer, issuer.Details)
 	signed, err := s.rebuildAndSign(row, snapshot, cert)
 	if err != nil {
 		return nil, err
@@ -90,7 +90,9 @@ func (s *Service) ResendInvoice(ctx context.Context, id string) (*InvoiceDetail,
 }
 
 // actionable loads the invoice both actions work on, refusing an authorized
-// one: a legal artifact is neither asked about nor sent again.
+// one — a legal artifact is neither asked about nor sent again — and one
+// not yet signed (#473): an owed document has no clave to ask about and no
+// bytes to send, and the Drainer is what issues it.
 func (s *Service) actionable(ctx context.Context, id string) (*repository.InvoiceRow, error) {
 	row, err := s.repo.GetInvoice(ctx, id)
 	if err != nil {
@@ -101,6 +103,9 @@ func (s *Service) actionable(ctx context.Context, id string) (*repository.Invoic
 	}
 	if row.Invoice.Status == invoicing.InvoiceStatusAuthorized {
 		return nil, invoicing.ErrInvoiceAlreadyAuthorized()
+	}
+	if !row.Invoice.Signed() || row.Ecuador == nil {
+		return nil, invoicing.ErrInvoiceNotIssued()
 	}
 	return row, nil
 }

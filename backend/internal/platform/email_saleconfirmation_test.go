@@ -385,3 +385,42 @@ func TestSaleConfirmationOutstandingAnswersLineIsWrittenInSpanish(t *testing.T) 
 		t.Fatalf("text = %q is written in tú; Spanish mail is usted (ADR 0033)", text)
 	}
 }
+
+// TestSaleConfirmationPromisesAFacturaOnlyWhenOneIsOwed is the mail half of
+// #473, asserted as a difference like the two lines beside it: a receipt for
+// a paid House sale carries one sentence more, in the receipt's own language,
+// and a receipt for any other sale is byte-identical to what it always was.
+// The sentence sits with the reference, the total and the Tax ID — the
+// fiscal facts it belongs with — and above "present this reference".
+func TestSaleConfirmationPromisesAFacturaOnlyWhenOneIsOwed(t *testing.T) {
+	sentences := map[Locale]string{
+		LocaleEN: "A tax invoice (factura) for this purchase will follow in a separate email.",
+		LocaleES: "La factura de esta compra le llegará en un correo aparte.",
+	}
+	for _, locale := range []Locale{LocaleEN, LocaleES} {
+		owing := spanishConfirmation()
+		owing.Locale = locale
+		owing.SaleInvoiceFollows = true
+
+		nothing := spanishConfirmation()
+		nothing.Locale = locale
+
+		if strings.Contains(nothing.Text(), "factura") {
+			t.Fatalf("locale %q: a sale owing no Sale Invoice promises a factura:\n%q", locale, nothing.Text())
+		}
+		text := owing.Text()
+		if !strings.Contains(text, sentences[locale]) {
+			t.Fatalf("locale %q: receipt lacks the factura sentence:\n%q", locale, text)
+		}
+		taxID := strings.Index(text, "1712345675")
+		sentence := strings.Index(text, sentences[locale])
+		present := strings.Index(text, saleConfirmationPresentCopy.in(locale))
+		if !(taxID < sentence && sentence < present) {
+			t.Fatalf("locale %q: the factura sentence is not between the Tax ID and the door line:\n%q", locale, text)
+		}
+		// Only the one sentence was added: the rest reads exactly as before.
+		if strings.Replace(text, "\n\n"+sentences[locale], "", 1) != nothing.Text() {
+			t.Fatalf("locale %q: the factura sentence rewrote the receipt:\n%q", locale, text)
+		}
+	}
+}

@@ -547,6 +547,15 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	}
 	invoicingHandler := invoicinghandler.New(invoicingService)
 
+	// A paid House sale owes a Sale Invoice in the transaction that records
+	// it (#473, ADR 0060). Tied on here, after the invoicing service exists,
+	// and pointing from sales to invoicing: sales states what it sold, and
+	// the invoicing module owes the document. A build that forgot this line
+	// would sell House tickets and invoice nobody, which is the compliance
+	// gap #471 exists to close — but it would fail no sale, because the seam
+	// is nil-safe by design.
+	salesService = salesService.WithSaleInvoicing(invoicingService)
+
 	return &App{
 		Config:            cfg,
 		Logger:            logger,

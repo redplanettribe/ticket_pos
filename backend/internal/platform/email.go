@@ -94,6 +94,18 @@ type SaleConfirmation struct {
 	// and on imported sales that never carried one, in which case the receipt
 	// simply has no such line.
 	TaxID SaleTaxID
+	// SaleInvoiceFollows says a Sale Invoice was owed for this sale — a paid
+	// Online Sale of a House Organization's Event (#473, ADR 0060) — and adds
+	// ONE sentence telling the buyer a factura will arrive by a separate
+	// email. False, the zero value and what every other sale passes, changes
+	// nothing, and the byte-identical test keeps that true.
+	//
+	// It is set from the commit's own answer and never re-derived at send
+	// time, so a receipt can only ever promise a document that exists as
+	// owed. It says nothing about WHEN: the document is issued by a Drainer
+	// on the Tax Authority's timetable, and a receipt that named a delay
+	// would be wrong one way or the other.
+	SaleInvoiceFollows bool
 	// Locale is the language this receipt is written in, ALREADY RESOLVED by the
 	// caller through platform.ResolveMailLocale (#245, ADR 0033): the Sale
 	// Locale, then the Customer's Mail Locale, then English.

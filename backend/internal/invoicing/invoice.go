@@ -22,7 +22,40 @@ const (
 	// InvoiceStatusRejected: not taken at all (SRI DEVUELTA); the messages
 	// say why.
 	InvoiceStatusRejected InvoiceStatus = "rejected"
+
+	// The states a document the platform owes itself passes through (#473,
+	// ADR 0060). A manual Tax Invoice is born pending and never sees them.
+
+	// InvoiceStatusOwed: recorded in the transaction that recorded its
+	// Ticket Sale, not yet worked. No number, no signature, no Issuer even.
+	InvoiceStatusOwed InvoiceStatus = "owed"
+	// InvoiceStatusNeedsAttention: parked for a Platform Operator — unsignable
+	// from owed (no Issuer, no certificate, expired), or definitely refused
+	// or unanswered too long from pending.
+	InvoiceStatusNeedsAttention InvoiceStatus = "needs_attention"
+	// InvoiceStatusWithdrawn: never sent and never will be — its Sale was
+	// reversed first, or the factura it would have credited died.
+	InvoiceStatusWithdrawn InvoiceStatus = "withdrawn"
+	// InvoiceStatusAnnulled: an authorized document the operator annulled by
+	// hand at the authority's portal.
+	InvoiceStatusAnnulled InvoiceStatus = "annulled"
 )
+
+// DocumentKind says why a Tax Invoice exists: an operator typed it, a paid
+// House checkout owed it, or such a Sale's reversal owed it (#473).
+type DocumentKind string
+
+const (
+	DocumentKindManual     DocumentKind = "manual"
+	DocumentKindSale       DocumentKind = "sale"
+	DocumentKindCreditNote DocumentKind = "credit_note"
+)
+
+// SaleInvoiceIVARate is the rate every Sale Invoice is priced under: the
+// platform sells tickets at the general rate, with the IVA inside the price
+// the buyer paid (ADR 0060). The 0% RUAC rate for cultural shows is out of
+// scope, visibly.
+const SaleInvoiceIVARate = IVARate15
 
 // IVARate is the platform's word for a line's IVA rate. The adapter
 // translates to the authority's code (in Ecuador 4 / 0 / 7 / 6).
@@ -117,20 +150,34 @@ func SnapshotOf(d EcuadorIssuerDetails) IssuerSnapshot {
 }
 
 // Invoice is the core Tax Invoice row.
+//
+// A DOCUMENT MAY BE UNSIGNED. Before #473 every row was signed at birth;
+// an owed Sale Invoice or Credit Note has no Issuer, environment, emission
+// date, signer, snapshot or bytes until the Drainer signs it, and Signed
+// says which. The zero values stand in for NULL on the unsigned side, and
+// the views render them as null rather than as blanks.
 type Invoice struct {
-	ID          string
-	IssuerID    string
-	Country     Country
+	ID string
+	// Kind is why the document exists (manual, sale, credit_note).
+	Kind DocumentKind
+	// IssuerID is "" until signed.
+	IssuerID string
+	Country  Country
+	// Environment is "" until signed: it is copied from the Issuer at signing
+	// time, so an Issuer moved to production signs still-owed documents in
+	// production.
 	Environment Environment
 	Status      InvoiceStatus
 	// IssuedOn is the emission date in the Issuer's country; IssuedAt the
-	// instant Issue was pressed; IssuedBy the operator's email.
+	// instant Issue was pressed; IssuedBy the operator's email (or the
+	// Drainer's name). All zero until signed.
 	IssuedOn  time.Time
 	IssuedAt  time.Time
 	IssuedBy  string
 	Recipient Recipient
-	Issuer    IssuerSnapshot
-	Currency  string
+	// Issuer is the Issuer's details as they stood at signing; nil until then.
+	Issuer   *IssuerSnapshot
+	Currency string
 	// Totals in cents, as the document carries them.
 	SubtotalCents int64
 	DiscountCents int64
@@ -145,8 +192,35 @@ type Invoice struct {
 	Messages         []AuthorityMessage
 	Lines            []InvoiceLine
 	AdditionalFields []AdditionalField
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+
+	// The Sale side (#473, ADR 0060), all empty on a manual document.
+
+	// TicketSaleID is the Ticket Sale a sale document or credit note is about.
+	TicketSaleID string
+	// SaleConfirmationRef is that Sale's Sale Confirmation reference, read
+	// beside the row for the operator surfaces; never stored here.
+	SaleConfirmationRef string
+	// CreditsInvoiceID is the Sale Invoice a Credit Note credits, and
+	// ReversalReason the reversal route that made it owed.
+	CreditsInvoiceID string
+	ReversalReason   string
+	// IVARate is the one rate a platform-priced document was priced under;
+	// "" on a manual document, whose lines each carry their own.
+	IVARate IVARate
+	// DeliveredAt is when the authorized document was mailed to the buyer;
+	// NextAttemptAt when the Drainer should next work it. Nil when not.
+	DeliveredAt   *time.Time
+	NextAttemptAt *time.Time
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// Signed reports whether the document has been built and signed — the seven
+// issue-time facts are present and an Ecuador detail row exists — as opposed
+// to merely owed.
+func (i *Invoice) Signed() bool {
+	return len(i.SignedXML) > 0
 }
 
 // EcuadorInvoiceDetails is the SRI's numbering of one Tax Invoice.

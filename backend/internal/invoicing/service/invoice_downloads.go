@@ -10,7 +10,8 @@ import (
 // bytes the authority received, the authorization XML the bytes it answered
 // with, and both leave exactly as they were stored.
 
-// SignedXML returns the invoice's signed document, in every status.
+// SignedXML returns the invoice's signed document, in every status a signed
+// document has; an owed one has none yet (#473).
 func (s *Service) SignedXML(ctx context.Context, id string) (*invoicing.Document, error) {
 	row, err := s.repo.GetInvoice(ctx, id)
 	if err != nil {
@@ -18,6 +19,9 @@ func (s *Service) SignedXML(ctx context.Context, id string) (*invoicing.Document
 	}
 	if row == nil {
 		return nil, invoicing.ErrInvoiceNotFound()
+	}
+	if !row.Invoice.Signed() || row.Ecuador == nil {
+		return nil, invoicing.ErrSignedXMLNotFound()
 	}
 	return &invoicing.Document{
 		Filename:    row.Ecuador.AccessKey + ".xml",
@@ -36,7 +40,7 @@ func (s *Service) AuthorizationXML(ctx context.Context, id string) (*invoicing.D
 	if row == nil {
 		return nil, invoicing.ErrInvoiceNotFound()
 	}
-	if row.Invoice.Status != invoicing.InvoiceStatusAuthorized || len(row.Invoice.AuthorizationXML) == 0 {
+	if row.Invoice.Status != invoicing.InvoiceStatusAuthorized || len(row.Invoice.AuthorizationXML) == 0 || row.Ecuador == nil {
 		return nil, invoicing.ErrAuthorizationXMLNotFound()
 	}
 	return &invoicing.Document{

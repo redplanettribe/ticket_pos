@@ -14,12 +14,18 @@ import (
 // The Tax Invoice's storage (#454): the core row, its lines and additional
 // fields, the Ecuador detail row, and the append-only attempts ledger.
 // Nothing here is ever deleted.
+//
+// From #473 a row may exist UNSIGNED: an owed Sale Invoice or Credit Note
+// has no Issuer, no environment, no emission facts, no snapshot, no bytes
+// and no Ecuador detail row until the Drainer signs it. The reads here LEFT
+// JOIN the detail row and scan the signed-side columns as nullable, and
+// OweInvoice is the one write that produces such a row.
 
-// InvoiceRow is one Tax Invoice as stored, with its Ecuador numbering and
-// its attempts.
+// InvoiceRow is one Tax Invoice as stored, with its Ecuador numbering (nil
+// until signed) and its attempts.
 type InvoiceRow struct {
 	Invoice  invoicing.Invoice
-	Ecuador  invoicing.EcuadorInvoiceDetails
+	Ecuador  *invoicing.EcuadorInvoiceDetails
 	Attempts []invoicing.Attempt
 }
 
@@ -39,6 +45,11 @@ type PreparedInvoice struct {
 	SignedXML []byte
 }
 
+// execer is what the child-row inserts need of a transaction.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
 // CreateInvoice allocates the next secuencial and stores the invoice in ONE
 // transaction.
 //
@@ -50,6 +61,9 @@ type PreparedInvoice struct {
 // the service computes the clave de acceso and builds and signs the document,
 // none of which this package knows about. If prepare fails the transaction
 // rolls back and the number is not consumed.
+//
+// This is the MANUAL document's birth (kind manual, status pending, signed
+// at once). A Sale Invoice is born by OweInvoice and numbered later.
 func (r *Repository) CreateInvoice(ctx context.Context, in NewInvoice, prepare func(secuencial int64) (*PreparedInvoice, error)) (*InvoiceRow, error) {
 	tx, err := r.db.Pool.BeginTx(ctx, nil)
 	if err != nil {
@@ -75,6 +89,9 @@ func (r *Repository) CreateInvoice(ctx context.Context, in NewInvoice, prepare f
 		return nil, err
 	}
 
+	if inv.Issuer == nil {
+		return nil, errors.New("create invoice: a signed document needs its Issuer snapshot")
+	}
 	snapshot, err := json.Marshal(inv.Issuer)
 	if err != nil {
 		return nil, fmt.Errorf("marshal issuer snapshot: %w", err)
@@ -82,14 +99,14 @@ func (r *Repository) CreateInvoice(ctx context.Context, in NewInvoice, prepare f
 	var id string
 	if err := tx.QueryRowContext(ctx, `
 		INSERT INTO invoicing_invoices
-			(issuer_id, country, environment, status, issued_on, issued_at, issued_by,
+			(kind, issuer_id, country, environment, status, issued_on, issued_at, issued_by,
 			 recipient_tax_id_type, recipient_tax_id, recipient_legal_name, recipient_address, recipient_email,
 			 issuer_snapshot, currency, subtotal_cents, discount_cents, iva_cents, total_cents, payment_method,
 			 signed_xml, last_messages)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, '[]'::jsonb)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, '[]'::jsonb)
 		RETURNING id
 	`,
-		inv.IssuerID, inv.Country, inv.Environment, invoicing.InvoiceStatusPending, inv.IssuedOn, inv.IssuedAt, inv.IssuedBy,
+		invoicing.DocumentKindManual, inv.IssuerID, inv.Country, inv.Environment, invoicing.InvoiceStatusPending, inv.IssuedOn, inv.IssuedAt, inv.IssuedBy,
 		inv.Recipient.TaxIDType, inv.Recipient.TaxID, inv.Recipient.LegalName, inv.Recipient.Address, inv.Recipient.Email,
 		snapshot, inv.Currency, inv.SubtotalCents, inv.DiscountCents, inv.IVACents, inv.TotalCents, inv.PaymentMethod,
 		prepared.SignedXML,
@@ -97,22 +114,8 @@ func (r *Repository) CreateInvoice(ctx context.Context, in NewInvoice, prepare f
 		return nil, fmt.Errorf("insert invoice: %w", err)
 	}
 
-	for _, l := range inv.Lines {
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO invoicing_invoice_lines
-				(invoice_id, position, description, quantity_millionths, unit_price_cents, discount_cents, iva_rate, base_cents, iva_cents)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		`, id, l.Position, l.Description, l.QuantityMillionths, l.UnitPriceCents, l.DiscountCents, l.IVARate, l.BaseCents, l.IVACents); err != nil {
-			return nil, fmt.Errorf("insert invoice line %d: %w", l.Position, err)
-		}
-	}
-	for _, f := range inv.AdditionalFields {
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO invoicing_additional_fields (invoice_id, position, name, value)
-			VALUES ($1, $2, $3, $4)
-		`, id, f.Position, f.Name, f.Value); err != nil {
-			return nil, fmt.Errorf("insert additional field %d: %w", f.Position, err)
-		}
+	if err := insertInvoiceChildren(ctx, tx, id, inv); err != nil {
+		return nil, err
 	}
 
 	if _, err := tx.ExecContext(ctx, `
@@ -126,6 +129,64 @@ func (r *Repository) CreateInvoice(ctx context.Context, in NewInvoice, prepare f
 		return nil, fmt.Errorf("commit create invoice: %w", err)
 	}
 	return r.GetInvoice(ctx, id)
+}
+
+// OweInvoice records a document the platform owes — a Sale Invoice, or later
+// a Credit Note — in the CALLER'S transaction, which is the one recording
+// the Ticket Sale it is about (#473, ADR 0060). It writes the core row in
+// state owed with its Recipient, lines and totals, and nothing on the signed
+// side: no Issuer, no number, no bytes, no attempt. The Drainer fills those
+// in later; if this insert fails, the sale it rides with is not recorded.
+//
+// Kind, ticket_sale_id, iva_rate and — for a Credit Note — what it credits
+// and why come from the Invoice; country comes from it too, since the Sale
+// is invoiced by the country's Issuer whether or not one exists yet.
+func (r *Repository) OweInvoice(ctx context.Context, tx *sql.Tx, inv invoicing.Invoice) (string, error) {
+	var id string
+	if err := tx.QueryRowContext(ctx, `
+		INSERT INTO invoicing_invoices
+			(kind, country, status, ticket_sale_id, credits_invoice_id, reversal_reason, iva_rate,
+			 recipient_tax_id_type, recipient_tax_id, recipient_legal_name, recipient_address, recipient_email,
+			 currency, subtotal_cents, discount_cents, iva_cents, total_cents, payment_method,
+			 next_attempt_at, last_messages)
+		VALUES ($1, $2, $3, $4, NULLIF($5, '')::uuid, NULLIF($6, ''), $7,
+		        $8, $9, $10, $11, $12,
+		        $13, $14, $15, $16, $17, $18,
+		        $19, '[]'::jsonb)
+		RETURNING id
+	`,
+		inv.Kind, inv.Country, invoicing.InvoiceStatusOwed, inv.TicketSaleID, inv.CreditsInvoiceID, inv.ReversalReason, inv.IVARate,
+		inv.Recipient.TaxIDType, inv.Recipient.TaxID, inv.Recipient.LegalName, inv.Recipient.Address, inv.Recipient.Email,
+		inv.Currency, inv.SubtotalCents, inv.DiscountCents, inv.IVACents, inv.TotalCents, inv.PaymentMethod,
+		inv.NextAttemptAt,
+	).Scan(&id); err != nil {
+		return "", fmt.Errorf("owe invoice: %w", err)
+	}
+	if err := insertInvoiceChildren(ctx, tx, id, inv); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+func insertInvoiceChildren(ctx context.Context, tx execer, id string, inv invoicing.Invoice) error {
+	for _, l := range inv.Lines {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO invoicing_invoice_lines
+				(invoice_id, position, description, quantity_millionths, unit_price_cents, discount_cents, iva_rate, base_cents, iva_cents)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`, id, l.Position, l.Description, l.QuantityMillionths, l.UnitPriceCents, l.DiscountCents, l.IVARate, l.BaseCents, l.IVACents); err != nil {
+			return fmt.Errorf("insert invoice line %d: %w", l.Position, err)
+		}
+	}
+	for _, f := range inv.AdditionalFields {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO invoicing_additional_fields (invoice_id, position, name, value)
+			VALUES ($1, $2, $3, $4)
+		`, id, f.Position, f.Name, f.Value); err != nil {
+			return fmt.Errorf("insert additional field %d: %w", f.Position, err)
+		}
+	}
+	return nil
 }
 
 // OutcomeUpdate is what an authority's answer changes on the invoice row.
@@ -193,15 +254,22 @@ func (r *Repository) RecordAttempt(ctx context.Context, a invoicing.Attempt) err
 }
 
 const invoiceColumns = `
-	i.id, i.issuer_id, i.country, i.environment, i.status, i.issued_on, i.issued_at, i.issued_by,
+	i.id, i.kind, i.issuer_id, i.country, i.environment, i.status, i.issued_on, i.issued_at, i.issued_by,
 	i.recipient_tax_id_type, i.recipient_tax_id, i.recipient_legal_name, i.recipient_address, i.recipient_email,
 	i.issuer_snapshot, i.currency, i.subtotal_cents, i.discount_cents, i.iva_cents, i.total_cents, i.payment_method,
-	i.signed_xml, i.authorization_xml, i.last_messages, i.created_at, i.updated_at,
+	i.signed_xml, i.authorization_xml, i.last_messages,
+	i.ticket_sale_id, ts.confirmation_ref, i.credits_invoice_id, i.reversal_reason, i.iva_rate, i.delivered_at, i.next_attempt_at,
+	i.created_at, i.updated_at,
 	e.cod_doc, e.estab, e.pto_emi, e.secuencial, e.access_key, e.authorization_number, e.authorization_date`
 
+// The Ecuador detail row is absent until signing, and a Ticket Sale only a
+// Sale-side document has; both joins are LEFT for that reason. The Sale's
+// Confirmation reference is read beside the row rather than copied onto it:
+// it is the Sale's fact, and the operator surfaces want it on every read.
 const invoiceFrom = `
 	FROM invoicing_invoices i
-	JOIN invoicing_invoices_ec e ON e.invoice_id = i.id`
+	LEFT JOIN invoicing_invoices_ec e ON e.invoice_id = i.id
+	LEFT JOIN ticket_sales ts ON ts.id = i.ticket_sale_id`
 
 // GetInvoice reads one Tax Invoice in full, or nil when none has the id.
 func (r *Repository) GetInvoice(ctx context.Context, id string) (*InvoiceRow, error) {
@@ -218,8 +286,9 @@ func (r *Repository) GetInvoice(ctx context.Context, id string) (*InvoiceRow, er
 	return row, nil
 }
 
-// ListInvoices reads a page of Tax Invoices newest first, without their
-// lines, fields or attempts, and the total count.
+// ListInvoices reads a page of Tax Invoices newest first — by emission
+// instant once signed, by owing instant before — without their lines,
+// fields or attempts, and the total count.
 func (r *Repository) ListInvoices(ctx context.Context, page, pageSize int) ([]InvoiceRow, int, error) {
 	var total int
 	if err := r.db.Pool.QueryRowContext(ctx, `SELECT COUNT(*) FROM invoicing_invoices`).Scan(&total); err != nil {
@@ -227,7 +296,7 @@ func (r *Repository) ListInvoices(ctx context.Context, page, pageSize int) ([]In
 	}
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT `+invoiceColumns+invoiceFrom+`
-		ORDER BY i.issued_at DESC, i.created_at DESC, i.id DESC
+		ORDER BY COALESCE(i.issued_at, i.created_at) DESC, i.created_at DESC, i.id DESC
 		LIMIT $1 OFFSET $2
 	`, pageSize, (page-1)*pageSize)
 	if err != nil {
@@ -316,28 +385,67 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 	var row InvoiceRow
 	inv := &row.Invoice
 	var (
-		snapshot, messages []byte
-		authNumber         sql.NullString
-		authDate           sql.NullTime
+		issuerID, environment, issuedBy  sql.NullString
+		issuedOn, issuedAt               sql.NullTime
+		snapshot, messages               []byte
+		ticketSaleID, confirmationRef    sql.NullString
+		creditsInvoiceID, reversalReason sql.NullString
+		ivaRate                          sql.NullString
+		deliveredAt, nextAttemptAt       sql.NullTime
+		codDoc, estab, ptoEmi, accessKey sql.NullString
+		secuencial                       sql.NullInt64
+		authNumber                       sql.NullString
+		authDate                         sql.NullTime
 	)
 	if err := scanner.Scan(
-		&inv.ID, &inv.IssuerID, &inv.Country, &inv.Environment, &inv.Status, &inv.IssuedOn, &inv.IssuedAt, &inv.IssuedBy,
+		&inv.ID, &inv.Kind, &issuerID, &inv.Country, &environment, &inv.Status, &issuedOn, &issuedAt, &issuedBy,
 		&inv.Recipient.TaxIDType, &inv.Recipient.TaxID, &inv.Recipient.LegalName, &inv.Recipient.Address, &inv.Recipient.Email,
 		&snapshot, &inv.Currency, &inv.SubtotalCents, &inv.DiscountCents, &inv.IVACents, &inv.TotalCents, &inv.PaymentMethod,
-		&inv.SignedXML, &inv.AuthorizationXML, &messages, &inv.CreatedAt, &inv.UpdatedAt,
-		&row.Ecuador.CodDoc, &row.Ecuador.Estab, &row.Ecuador.PtoEmi, &row.Ecuador.Secuencial, &row.Ecuador.AccessKey,
-		&authNumber, &authDate,
+		&inv.SignedXML, &inv.AuthorizationXML, &messages,
+		&ticketSaleID, &confirmationRef, &creditsInvoiceID, &reversalReason, &ivaRate, &deliveredAt, &nextAttemptAt,
+		&inv.CreatedAt, &inv.UpdatedAt,
+		&codDoc, &estab, &ptoEmi, &secuencial, &accessKey, &authNumber, &authDate,
 	); err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(snapshot, &inv.Issuer); err != nil {
-		return nil, fmt.Errorf("decode issuer snapshot: %w", err)
+	inv.IssuerID = issuerID.String
+	inv.Environment = invoicing.Environment(environment.String)
+	inv.IssuedOn = issuedOn.Time
+	inv.IssuedAt = issuedAt.Time
+	inv.IssuedBy = issuedBy.String
+	if len(snapshot) > 0 {
+		inv.Issuer = &invoicing.IssuerSnapshot{}
+		if err := json.Unmarshal(snapshot, inv.Issuer); err != nil {
+			return nil, fmt.Errorf("decode issuer snapshot: %w", err)
+		}
 	}
 	if err := json.Unmarshal(messages, &inv.Messages); err != nil {
 		return nil, fmt.Errorf("decode messages: %w", err)
 	}
-	if authNumber.Valid {
-		row.Ecuador.Authorization = &invoicing.Authorization{Number: authNumber.String, Date: authDate.Time}
+	inv.TicketSaleID = ticketSaleID.String
+	inv.SaleConfirmationRef = confirmationRef.String
+	inv.CreditsInvoiceID = creditsInvoiceID.String
+	inv.ReversalReason = reversalReason.String
+	inv.IVARate = invoicing.IVARate(ivaRate.String)
+	if deliveredAt.Valid {
+		t := deliveredAt.Time
+		inv.DeliveredAt = &t
+	}
+	if nextAttemptAt.Valid {
+		t := nextAttemptAt.Time
+		inv.NextAttemptAt = &t
+	}
+	if accessKey.Valid {
+		row.Ecuador = &invoicing.EcuadorInvoiceDetails{
+			CodDoc:     codDoc.String,
+			Estab:      estab.String,
+			PtoEmi:     ptoEmi.String,
+			Secuencial: secuencial.Int64,
+			AccessKey:  accessKey.String,
+		}
+		if authNumber.Valid {
+			row.Ecuador.Authorization = &invoicing.Authorization{Number: authNumber.String, Date: authDate.Time}
+		}
 	}
 	return &row, nil
 }

@@ -1116,8 +1116,24 @@ export async function uploadOperatorEcuadorIssuerCertificate(
 
 // ---- Tax Invoices (#454, ADR 0059) ------------------------------------
 
-/** Where a Tax Invoice stands with the SRI. */
-export type InvoiceStatus = "pending" | "authorized" | "not_authorized" | "rejected";
+/**
+ * Where a Tax Invoice stands with the SRI. `owed`, `needs_attention`,
+ * `withdrawn` and `annulled` are the states of a document the platform owes
+ * itself — a Sale Invoice or a Credit Note (#473, ADR 0060); a manual Tax
+ * Invoice is born `pending` and never sees them.
+ */
+export type InvoiceStatus =
+  | "owed"
+  | "pending"
+  | "authorized"
+  | "not_authorized"
+  | "rejected"
+  | "needs_attention"
+  | "withdrawn"
+  | "annulled";
+
+/** Why a document exists: an operator typed it, a paid House checkout owed it, or such a Sale's reversal did. */
+export type InvoiceKind = "manual" | "sale" | "credit_note";
 
 /** The IVA rate on a line: the platform's words, not the SRI's codes. */
 export type InvoiceIVARate = "15" | "0" | "exento" | "no_objeto";
@@ -1150,19 +1166,28 @@ export type InvoiceRecipient = {
   email: string;
 };
 
-/** One row of the invoices list. */
+/**
+ * One row of the invoices list. The issue facts — number, environment,
+ * emission date, signer — are null until the document is signed (#473): an
+ * owed Sale Invoice has none of them yet, and a manual Tax Invoice is signed
+ * at birth and never null here.
+ */
 export type OperatorInvoiceListItem = {
   id: string;
+  kind: InvoiceKind;
   country: string;
-  environment: EcuadorIssuerEnvironment;
+  environment: EcuadorIssuerEnvironment | null;
   status: InvoiceStatus;
-  /** The printed document number, e.g. `001-001-000000012`. */
-  number: string;
-  /** Emission date, `YYYY-MM-DD` in the Issuer's country. */
-  issued_on: string;
-  issued_at: string;
-  issued_by: string;
+  /** The printed document number, e.g. `001-001-000000012`; null until signed. */
+  number: string | null;
+  /** Emission date, `YYYY-MM-DD` in the Issuer's country; null until signed. */
+  issued_on: string | null;
+  issued_at: string | null;
+  issued_by: string | null;
   recipient: InvoiceRecipient;
+  /** The Ticket Sale a Sale Invoice or Credit Note is about; null on a manual document. */
+  ticket_sale_id: string | null;
+  sale_confirmation_ref: string | null;
   total_cents: number;
   currency: string;
 };
@@ -1243,17 +1268,25 @@ export type OperatorInvoiceEcuador = {
   authorization_date: string | null;
 };
 
-/** One Tax Invoice in full. */
+/** One Tax Invoice in full. `issuer` and `ecuador` are null until the document is signed (#473). */
 export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
-  issuer: OperatorInvoiceIssuerSnapshot;
+  issuer: OperatorInvoiceIssuerSnapshot | null;
   lines: OperatorInvoiceLine[];
   additional_fields: { name: string; value: string }[];
   payment_method: string;
   payment_method_label: string;
   totals: OperatorInvoiceTotals;
   messages: OperatorInvoiceMessage[];
-  ecuador: OperatorInvoiceEcuador;
+  ecuador: OperatorInvoiceEcuador | null;
   attempts: OperatorInvoiceAttempt[];
+  /** The one IVA rate a platform-priced document was priced under; null on a manual one. */
+  iva_rate: InvoiceIVARate | null;
+  /** When the authorized document was mailed to the buyer, and when the Drainer next works it. */
+  delivered_at: string | null;
+  next_attempt_at: string | null;
+  /** On a Credit Note: the Sale Invoice it credits and the reversal route that made it owed. */
+  credits_invoice_id: string | null;
+  reversal_reason: string | null;
   has_authorization_xml: boolean;
   /**
    * True when the invoice is pending and the SRI holds the document —

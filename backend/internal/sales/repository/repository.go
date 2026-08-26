@@ -175,6 +175,12 @@ type RecordedSale struct {
 	// existed — which is what sends the resolution on to the Customer's
 	// remembered language, and then to English.
 	Locale string
+	// SaleInvoiceOwed says the commit wrote a Sale Invoice for this sale in
+	// its own transaction (#473, ADR 0060): a paid online sale of a House
+	// Organization, with the invoicing seam wired. The Sale Confirmation
+	// reads it to promise the factura, and nothing else does. False on every
+	// other channel and every other sale.
+	SaleInvoiceOwed bool
 }
 
 // CommittedBatch is the outcome of a committed (or replayed) Sale Import.

@@ -208,6 +208,26 @@ var PaymentMethods = []struct {
 	{"21", "ENDOSO DE TÍTULOS"},
 }
 
+// PaymentMethodCard is "tarjeta de crédito": what a Sale Invoice states
+// for money a card processor collected (#473). PayPhone takes cards and
+// reports the brand, never whether it was credit or debit; the credit code
+// is the one the Ficha lists first for card payments and the one a
+// processor-collected charge is conventionally filed under.
+const PaymentMethodCard PaymentMethod = "19"
+
+// PaymentMethodForProvider maps the Payment Provider that collected an
+// Online Sale's money onto the forma de pago the document states. Every
+// provider the platform has is a card processor; anything unknown falls to
+// the platform's default, "otros con utilización del sistema financiero",
+// which is true of any provider at all.
+func PaymentMethodForProvider(provider string) PaymentMethod {
+	switch provider {
+	case "payphone":
+		return PaymentMethodCard
+	}
+	return PaymentMethodDefault
+}
+
 // PaymentMethodLabel returns the SRI label of a code, or "" when unknown.
 func PaymentMethodLabel(code PaymentMethod) string {
 	for _, m := range PaymentMethods {

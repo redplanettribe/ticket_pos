@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/consent"
@@ -361,6 +362,9 @@ type ApprovePaymentInput struct {
 	// is stamped with Terms.Now too: approving the Payment and recording its sale
 	// are one act, and a second clock read here would let them disagree.
 	Terms CommitTerms
+	// OweSaleInvoice writes the Sale Invoice a paid House sale owes, inside
+	// the same transaction (#473). Nil owes nothing.
+	OweSaleInvoice OweSaleInvoice
 	// CaptureConsent writes the Consent Record for the answers this Payment has
 	// been holding since begin-checkout, inside the same transaction (#253).
 	//
@@ -387,6 +391,26 @@ type ApprovePaymentInput struct {
 // the transaction nothing has been charged that a rollback would strand: the
 // caller marks the approved-without-sale incident it already knows how to mark.
 type CaptureConsent func(ctx context.Context, tx *sql.Tx, capture consent.Capture) error
+
+// OweSaleInvoice is the sale-commit spine's invoicing seam (#473, ADR 0060):
+// called for a PAID online sale of a HOUSE ORGANIZATION, inside the
+// transaction that is committing its Ticket Sale, with the sale described
+// as it was just written. The sales service supplies it, bound to the
+// invoicing service, exactly as CaptureConsent is bound to consent.
+//
+// Its error is fatal to the commit, deliberately and by the ADR's own word:
+// "owing in the sale's transaction is what makes the invariant hold: nothing
+// can be sold and forgotten." A sale recorded without the document it owes
+// would be exactly that, and at this point nothing has been charged that a
+// rollback would strand — the caller marks the approved-without-sale
+// incident it already knows how to mark.
+//
+// NIL IS THE NO-INVOICING DEPLOYMENT, and every other channel's commit. A
+// nil seam owes nothing and fails nothing, which is what a build without an
+// invoicing module wired must do; whether the Organization is a House
+// Organization is decided HERE, in the transaction, so that a designation
+// made a second after the sale committed can never reach it.
+type OweSaleInvoice func(ctx context.Context, tx *sql.Tx, sale sales.PaidOnlineSale) error
 
 // ApprovedPayment is the outcome of ApprovePaymentAndCommitSale. When another
 // confirm settled the Payment first, AlreadySettled is set and nothing was
@@ -623,6 +647,33 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 		}
 	}
 
+	// The Sale Invoice a paid House sale owes, written last and inside the
+	// same transaction — after the sale it names exists and before anything
+	// commits (#473, ADR 0060). Three conditions, all decided here: the seam
+	// is wired, money was collected, and the Organization is a House
+	// Organization AT THIS MOMENT. The channel is `online` by construction of
+	// this function. A free claim owes nothing (nothing to invoice), and an
+	// Organization designated after this transaction commits owes nothing
+	// for it either: designation is never retroactive, and reading the
+	// designation inside the transaction is what makes that a property of
+	// the data rather than of timing.
+	if in.OweSaleInvoice != nil && recorded[0].AmountCents > 0 {
+		house, err := isHouseOrganization(ctx, tx, orgID)
+		if err != nil {
+			return nil, err
+		}
+		if house {
+			sale, err := paidOnlineSaleOf(ctx, tx, &recorded[0], orgID, eventID, in.PaymentMethod, lines)
+			if err != nil {
+				return nil, err
+			}
+			if err := in.OweSaleInvoice(ctx, tx, sale); err != nil {
+				return nil, err
+			}
+			recorded[0].SaleInvoiceOwed = true
+		}
+	}
+
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE payments
 		SET status = 'approved',
@@ -639,6 +690,85 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 		return nil, err
 	}
 	return &ApprovedPayment{Sale: &recorded[0]}, nil
+}
+
+// isHouseOrganization reads the House designation inside the sale's own
+// transaction: the pair of columns migration 097 keeps, set exactly when
+// somebody designated the Organization (ADR 0060).
+func isHouseOrganization(ctx context.Context, tx *sql.Tx, orgID string) (bool, error) {
+	var house bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT house_designated_at IS NOT NULL FROM organizations WHERE id = $1
+	`, orgID).Scan(&house); err != nil {
+		return false, fmt.Errorf("read house designation: %w", err)
+	}
+	return house, nil
+}
+
+// paidOnlineSaleOf describes the sale just recorded for the invoicing seam:
+// the buyer as snapshotted on it, the Event's name, and one line per Ticket
+// Sale Line in cart order with the Ticket Type's name and the buyer price
+// it was sold at. The names are read now, in the transaction, so that the
+// document's lines say what the buyer saw at checkout and never what the
+// catalog is renamed to afterwards.
+func paidOnlineSaleOf(ctx context.Context, tx *sql.Tx, sale *RecordedSale, orgID, eventID, provider string, lines []CommitLine) (sales.PaidOnlineSale, error) {
+	var eventName string
+	if err := tx.QueryRowContext(ctx, `SELECT name FROM events WHERE id = $1`, eventID).Scan(&eventName); err != nil {
+		return sales.PaidOnlineSale{}, fmt.Errorf("read event name: %w", err)
+	}
+	rows, err := tx.QueryContext(ctx, `
+		SELECT tt.id, tt.name
+		FROM ticket_sale_lines l
+		JOIN ticket_types tt ON tt.id = l.ticket_type_id
+		WHERE l.ticket_sale_id = $1
+	`, sale.ID)
+	if err != nil {
+		return sales.PaidOnlineSale{}, fmt.Errorf("read ticket type names: %w", err)
+	}
+	defer rows.Close()
+	names := map[string]string{}
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return sales.PaidOnlineSale{}, fmt.Errorf("scan ticket type name: %w", err)
+		}
+		names[id] = name
+	}
+	if err := rows.Err(); err != nil {
+		return sales.PaidOnlineSale{}, fmt.Errorf("read ticket type names: %w", err)
+	}
+	out := sales.PaidOnlineSale{
+		TicketSaleID:    sale.ID,
+		OrganizationID:  orgID,
+		EventID:         eventID,
+		EventName:       eventName,
+		ConfirmationRef: sale.ConfirmationRef,
+		Buyer: platform.SaleCustomer{
+			Email:     sale.CustomerEmail,
+			FirstName: sale.CustomerFirstName,
+			LastName:  sale.CustomerLastName,
+			TaxID:     sale.CustomerTaxID,
+		},
+		Locale:          sale.Locale,
+		PaymentProvider: provider,
+		AmountCents:     sale.AmountCents,
+	}
+	for _, l := range lines {
+		name, ok := names[l.TicketTypeID]
+		if !ok {
+			return sales.PaidOnlineSale{}, fmt.Errorf("ticket type %s of sale %s has no line on file", l.TicketTypeID, sale.ID)
+		}
+		price := 0
+		if l.UnitPriceCents != nil {
+			price = *l.UnitPriceCents
+		}
+		out.Lines = append(out.Lines, sales.PaidOnlineSaleLine{
+			TicketTypeName: name,
+			Quantity:       l.Quantity,
+			UnitPriceCents: price,
+		})
+	}
+	return out, nil
 }
 
 // nullableBool restores a held consent answer to the *bool the consent

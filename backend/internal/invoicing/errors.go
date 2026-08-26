@@ -78,6 +78,13 @@ func ErrInvoiceAlreadyAuthorized() apperror.DomainError {
 	return apperror.New("INVOICE_ALREADY_AUTHORIZED", "The Tax Invoice is already authorized. Nothing can be checked or resent for it.", nil)
 }
 
+// ErrInvoiceNotIssued: Check status and Resend are refused on a document
+// that is owed and not yet signed (#473) — there is no clave to ask about and
+// nothing to send again. The Drainer is what issues it.
+func ErrInvoiceNotIssued() apperror.DomainError {
+	return apperror.New("INVOICE_NOT_ISSUED", "The document has not been issued yet: it is owed, and the Sale Invoice Drainer issues it.", nil)
+}
+
 // ErrIssuerFieldFrozen: the Issuer detail named in details.field may no
 // longer change — the RUC once any Tax Invoice exists (it is inside every
 // clave de acceso), establecimiento and punto de emisión once a sequence has

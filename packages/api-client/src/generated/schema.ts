@@ -2903,7 +2903,7 @@ export interface paths {
         };
         /**
          * List Tax Invoices
-         * @description Returns a page of every Tax Invoice the platform has issued, newest first: the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such). Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
+         * @description Returns a page of every Tax Invoice the platform has issued or owes, newest first: the document `kind` (`manual` from the form; `sale` for a Sale Invoice a paid House checkout owed; `credit_note` for its reversal), the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such), and — on a `sale` or `credit_note` — the Ticket Sale id and its Sale Confirmation reference. A document still `owed` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
          */
         get: {
             parameters: {
@@ -3047,7 +3047,7 @@ export interface paths {
         };
         /**
          * Get a Tax Invoice
-         * @description Returns one Tax Invoice in full: Recipient, the Issuer as snapshotted at issue time, lines with their arithmetic, totals, status, the SRI's last messages verbatim (identifier, message, additional information, type), the clave de acceso and — once authorized — the authorization number and date, and the attempts ledger with one row per SRI call (operation, outcome, messages, duration). INVOICE_NOT_FOUND (404) otherwise. Platform Operator only.
+         * @description Returns one Tax Invoice in full: its kind, Recipient, the Issuer as snapshotted at issue time, lines with their arithmetic, totals, status, the SRI's last messages verbatim (identifier, message, additional information, type), the clave de acceso and — once authorized — the authorization number and date, and the attempts ledger with one row per SRI call (operation, outcome, messages, duration). A `sale` or `credit_note` document also carries its Ticket Sale id and Sale Confirmation reference, the IVA rate it was priced under, when it was delivered to the buyer and when the Drainer next works it; a `credit_note` names the Sale Invoice it credits and the reversal route. On a document still `owed` the `issuer` and `ecuador` objects and every issue fact are null. INVOICE_NOT_FOUND (404) otherwise. Platform Operator only.
          */
         get: {
             parameters: {
@@ -12036,6 +12036,7 @@ export interface components {
             note?: string;
             paid_at?: string;
         };
+        /** @description Issuer is the Issuer as snapshotted at signing; null until signed. */
         "invoicing.IssuerSnapshot": {
             agente_retencion?: string;
             direccion_establecimiento?: string;
@@ -13211,6 +13212,7 @@ export interface components {
              */
             skipped?: number;
         };
+        /** @description Ecuador is the SRI's numbering and authorization; null until signed. */
         "service.EcuadorInvoiceView": {
             access_key?: string;
             ambiente?: string;
@@ -13646,8 +13648,14 @@ export interface components {
             check_status_hint?: boolean;
             country?: string;
             created_at?: string;
+            credits_invoice_id?: string;
             currency?: string;
+            delivered_at?: string;
             ecuador?: components["schemas"]["service.EcuadorInvoiceView"];
+            /**
+             * @description Environment is the authority environment the document was signed
+             *     under; null until signed.
+             */
             environment?: string;
             /**
              * @description HasAuthorizationXML says whether the authority's document is on file
@@ -13657,21 +13665,43 @@ export interface components {
             id?: string;
             issued_at?: string;
             issued_by?: string;
-            /** @description IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country. */
+            /**
+             * @description IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country;
+             *     IssuedAt the instant; IssuedBy the operator (or the Drainer). All null
+             *     until signed.
+             */
             issued_on?: string;
             issuer?: components["schemas"]["invoicing.IssuerSnapshot"];
+            /**
+             * @description The Sale side (#473): the one IVA rate a platform-priced document was
+             *     priced under, when its authorized document was mailed to the buyer,
+             *     when the Drainer next works it, and — on a Credit Note — the Sale
+             *     Invoice it credits and the reversal route that made it owed. All null
+             *     on a manual Tax Invoice.
+             */
+            iva_rate?: string;
+            /** @description Kind is why the document exists: manual, sale or credit_note. */
+            kind?: string;
             lines?: components["schemas"]["service.LineView"][];
             /** @description Messages are the authority's messages from its last answer. */
             messages?: components["schemas"]["service.AuthorityMessageView"][];
+            next_attempt_at?: string;
             /**
              * @description Number is the document number as printed: estab-ptoEmi-secuencial,
-             *     e.g. 001-001-000000012.
+             *     e.g. 001-001-000000012. Null until signed.
              */
             number?: string;
             payment_method?: string;
             payment_method_label?: string;
             recipient?: components["schemas"]["service.RecipientView"];
+            reversal_reason?: string;
+            sale_confirmation_ref?: string;
             status?: string;
+            /**
+             * @description TicketSaleID and SaleConfirmationRef name the Ticket Sale a sale
+             *     document or credit note is about; null on a manual document.
+             */
+            ticket_sale_id?: string;
             total_cents?: number;
             totals?: components["schemas"]["service.TotalsView"];
             updated_at?: string;
@@ -13683,19 +13713,35 @@ export interface components {
         "service.InvoiceListItem": {
             country?: string;
             currency?: string;
+            /**
+             * @description Environment is the authority environment the document was signed
+             *     under; null until signed.
+             */
             environment?: string;
             id?: string;
             issued_at?: string;
             issued_by?: string;
-            /** @description IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country. */
+            /**
+             * @description IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country;
+             *     IssuedAt the instant; IssuedBy the operator (or the Drainer). All null
+             *     until signed.
+             */
             issued_on?: string;
+            /** @description Kind is why the document exists: manual, sale or credit_note. */
+            kind?: string;
             /**
              * @description Number is the document number as printed: estab-ptoEmi-secuencial,
-             *     e.g. 001-001-000000012.
+             *     e.g. 001-001-000000012. Null until signed.
              */
             number?: string;
             recipient?: components["schemas"]["service.RecipientView"];
+            sale_confirmation_ref?: string;
             status?: string;
+            /**
+             * @description TicketSaleID and SaleConfirmationRef name the Ticket Sale a sale
+             *     document or credit note is about; null on a manual document.
+             */
+            ticket_sale_id?: string;
             total_cents?: number;
         };
         "service.InvoicePagination": {

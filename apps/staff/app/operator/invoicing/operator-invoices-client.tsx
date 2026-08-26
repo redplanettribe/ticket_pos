@@ -25,12 +25,16 @@ import { ApiError } from "@/lib/events-api";
 import { type AppLocale, formatCalendarDay, formatMoney } from "@/lib/format";
 import { type OperatorInvoiceListItem, fetchOperatorInvoices } from "@/lib/operator-api";
 
-import { INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "./invoice-status";
+import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "./invoice-status";
 
 // The invoices list (#454): every factura the platform issued, newest first —
 // number, date, Recipient, total, status, country, and a Test badge for the
 // SRI pruebas environment so a certification run is never mistaken for a real
-// factura.
+// factura. From #473 it is also every document the platform OWES: a Sale
+// Invoice or Credit Note appears the moment its sale commits, with its kind
+// and its Sale Confirmation reference beside the manual Tax Invoices, and
+// with no number or date until the Drainer signs it — those cells say so
+// rather than showing a blank, since "not yet" and "unknown" are different.
 
 function InvoiceRow({ item, locale }: { item: OperatorInvoiceListItem; locale: AppLocale }) {
   const t = useTranslations("operator");
@@ -38,7 +42,7 @@ function InvoiceRow({ item, locale }: { item: OperatorInvoiceListItem; locale: A
     <tr className="border-b last:border-b-0">
       <td className="py-3 pr-4">
         <Link href={`/operator/invoicing/${item.id}`} className="font-mono font-medium hover:underline">
-          {item.number}
+          {item.number ?? t("invoicingNotIssuedYet")}
         </Link>
         {item.environment === "test" ? (
           <Badge variant="outline" className="ml-2 align-middle">
@@ -46,7 +50,11 @@ function InvoiceRow({ item, locale }: { item: OperatorInvoiceListItem; locale: A
           </Badge>
         ) : null}
       </td>
-      <td className="py-3 pr-4 tabular-nums">{formatCalendarDay(item.issued_on, locale)}</td>
+      <td className="py-3 pr-4">{t(INVOICE_KIND_KEYS[item.kind])}</td>
+      <td className="py-3 pr-4 font-mono text-xs">{item.sale_confirmation_ref ?? "—"}</td>
+      <td className="py-3 pr-4 tabular-nums">
+        {item.issued_on ? formatCalendarDay(item.issued_on, locale) : <span className="text-muted-foreground">—</span>}
+      </td>
       <td className="py-3 pr-4">
         <p className="font-medium">{item.recipient.legal_name}</p>
         <p className="font-mono text-xs text-muted-foreground">{item.recipient.tax_id}</p>
@@ -145,6 +153,8 @@ export function OperatorInvoicesClient() {
                   <thead>
                     <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
                       <th className="py-2 pr-4 font-medium">{t("invoicingColNumber")}</th>
+                      <th className="py-2 pr-4 font-medium">{t("invoicingColKind")}</th>
+                      <th className="py-2 pr-4 font-medium">{t("invoicingColSale")}</th>
                       <th className="py-2 pr-4 font-medium">{t("invoicingColDate")}</th>
                       <th className="py-2 pr-4 font-medium">{t("invoicingColRecipient")}</th>
                       <th className="py-2 pr-4 text-right font-medium">{t("invoicingColTotal")}</th>

@@ -48,7 +48,7 @@ const OUTCOME_KEYS = {
   not_authorized: "invoicingCheckedNotAuthorized",
   rejected: "invoicingCheckedRejected",
   pending: "invoicingCheckedPending",
-} as const satisfies Record<InvoiceStatus, string>;
+} as const satisfies Partial<Record<InvoiceStatus, string>>;
 
 export function OperatorInvoiceActions({
   invoice,
@@ -76,7 +76,7 @@ export function OperatorInvoiceActions({
       if (updated.status === "authorized") {
         toast.success(t(OUTCOME_KEYS.authorized));
       } else {
-        toast.info(t(OUTCOME_KEYS[updated.status]));
+        toast.info(t(OUTCOME_KEYS[updated.status as keyof typeof OUTCOME_KEYS] ?? "invoicingCheckedPending"));
       }
     } catch (actionError) {
       setError(
