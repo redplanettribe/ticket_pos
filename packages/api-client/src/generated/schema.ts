@@ -2121,7 +2121,7 @@ export interface paths {
         };
         /**
          * List the Tax Documents of one of the Customer's Ticket Sales
-         * @description The Customer Area's read of a Sale's documents (ADR 0060): every Sale Invoice and Credit Note the Sale owes or was issued, each with its `kind` (`sale` for a factura, `credit_note`), a `status` in the platform's own words — `authorized`, or `on_its_way` for a document still owed, pending at the SRI or parked for an operator — and `download_url`, the path of the signed XML once authorized and null before. Nothing the SRI said ever travels here. An empty list for a Sale that owes no document (a free, imported or non-House sale), for a Sale that is not this Customer's, and for any Sale but the one a Confirmation Link session names: not yours and not there are one answer. Requires a Customer Session; a Confirmation Link session is enough.
+         * @description The Customer Area's read of a Sale's documents (ADR 0060): every Sale Invoice and Credit Note the Sale owes or was issued, each with its `kind` (`sale` for a factura, `credit_note`), a `status` in the platform's own words — `authorized`, or `on_its_way` for a document still owed, pending at the SRI or parked for an operator — and `download_url`, the path of the signed XML once authorized and null before. After a Sale Invoice Reissue (ADR 0061) the list holds the whole chain, and each document carries its `role` — `current` for the factura that stands, `superseded` for one a reissue corrected (still authorized and downloadable), `credit_note` — and the ids it points at: `supersedes_invoice_id`, `superseded_by_invoice_id`, `credits_invoice_id`, each another document of this list or null. Nothing the SRI said ever travels here. An empty list for a Sale that owes no document (a free, imported or non-House sale), for a Sale that is not this Customer's, and for any Sale but the one a Confirmation Link session names: not yours and not there are one answer. Requires a Customer Session; a Confirmation Link session is enough.
          */
         get: {
             parameters: {
@@ -13654,6 +13654,7 @@ export interface components {
             upcoming?: components["schemas"]["service.TicketSaleView"][];
         };
         "service.CustomerDocument": {
+            credits_invoice_id?: string;
             /**
              * @description DownloadURL is the API path of the signed XML once authorized, null
              *     before: the card draws the download exactly where this is set.
@@ -13665,8 +13666,24 @@ export interface components {
              *     its own word.
              */
             kind?: string;
+            role?: components["schemas"]["service.CustomerDocumentRole"];
             status?: components["schemas"]["service.CustomerDocumentStatus"];
+            superseded_by_invoice_id?: string;
+            /**
+             * @description SupersedesInvoiceID is, on a factura a reissue produced, the factura
+             *     it corrects; SupersededByInvoiceID, on a superseded factura, the one
+             *     that corrects it; CreditsInvoiceID, on a Credit Note, the factura it
+             *     credits. Each names another document of this same list, null when
+             *     there is none.
+             */
+            supersedes_invoice_id?: string;
         };
+        /**
+         * @description Role is `current`, `superseded` or `credit_note` (#485): the card
+         *     orders the chain by it and labels a superseded factura.
+         * @enum {string}
+         */
+        "service.CustomerDocumentRole": "current" | "superseded" | "credit_note";
         /**
          * @description Status is `authorized` or `on_its_way`, and nothing else.
          * @enum {string}

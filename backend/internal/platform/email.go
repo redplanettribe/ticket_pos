@@ -1018,6 +1018,11 @@ type TaxDocumentDelivery struct {
 	// purchase was reversed or that a corrected factura follows (#481). ""
 	// on a Sale Invoice.
 	Reason string
+	// Supersedes is, on a Sale Invoice, whether a Sale Invoice Reissue
+	// produced it (#485, ADR 0061): the ordinary factura words then carry
+	// one more line saying it replaces the earlier factura the Credit Note
+	// cancelled. False on a first factura and on every Credit Note.
+	Supersedes bool
 	// CustomerName is the Recipient's legal name as printed on the document.
 	CustomerName string
 	// EventName and Reference name the purchase the document is about, so
