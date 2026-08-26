@@ -46,6 +46,16 @@ const IVA_RATE_KEYS = {
   no_objeto: "invoicingIvaRateNoObjeto",
 } as const;
 
+// The reversal route a Credit Note names as its reason (#476): the five
+// words the Sales Export's reversed_by column uses, one label each.
+const REVERSAL_ROUTE_KEYS = {
+  customer: "invoicingReversalRouteCustomer",
+  platform: "invoicingReversalRoutePlatform",
+  import_undo: "invoicingReversalRouteImportUndo",
+  staff_reversal: "invoicingReversalRouteStaffReversal",
+  correction: "invoicingReversalRouteCorrection",
+} as const;
+
 const OPERATION_KEYS = {
   submit: "invoicingAttemptSubmit",
   query: "invoicingAttemptQuery",
@@ -139,6 +149,38 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
             {invoice.iva_rate ? (
               <p className="text-muted-foreground">{t("invoicingDetailPricedAt", { rate: ivaLabel(invoice.iva_rate) })}</p>
             ) : null}
+            {invoice.reversal_reason ? (
+              <p className="text-muted-foreground">
+                {t("invoicingDetailReversalReason", {
+                  route: t(
+                    REVERSAL_ROUTE_KEYS[invoice.reversal_reason as keyof typeof REVERSAL_ROUTE_KEYS] ??
+                      "invoicingReversalRoutePlatform",
+                  ),
+                })}
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {invoice.credits_invoice_id || invoice.credited_by_invoice_id ? (
+        // The two documents of a reversed sale link each other (#476): a
+        // Credit Note names the Sale Invoice it credits, and a credited Sale
+        // Invoice names its Credit Note. One card either way; which sentence
+        // it opens with says which side the reader is on.
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              {invoice.credits_invoice_id ? t("invoicingDetailCredits") : t("invoicingDetailCreditedBy")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm">
+            <Link
+              href={`/operator/invoicing/${invoice.credits_invoice_id ?? invoice.credited_by_invoice_id}`}
+              className="font-medium underline underline-offset-4"
+            >
+              {t("invoicingDetailOpenDocument")}
+            </Link>
           </CardContent>
         </Card>
       ) : null}

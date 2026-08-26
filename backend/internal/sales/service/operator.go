@@ -521,6 +521,13 @@ func (s *Service) ReverseSaleAsOperator(ctx context.Context, confirmationRef str
 			RefundedAmountCents: in.RefundedAmountCents,
 			PlatformFeeKept:     in.PlatformFeeKept,
 		},
+		// The sale's paperwork, in the same transaction (#476, ADR 0060).
+		// The memo above never reaches it: what the operator refunded and
+		// whether the fee was kept are money facts about the platform and
+		// the buyer, and the Credit Note is for the whole amount the
+		// factura stated whatever they say (#471 story 30).
+		Route:        sales.ReversalRoutePlatform,
+		SaleReversed: s.settleReversedSale(),
 	})
 	if err != nil {
 		return nil, err
@@ -538,6 +545,9 @@ func (s *Service) ReverseSaleAsOperator(ctx context.Context, confirmationRef str
 	// failure to send is swallowed exactly as every other notice in this module
 	// is: the tickets are gone whether or not the email lands.
 	reversed := reversedSales[0]
+	// The Credit Note the reversal may have owed is worked now, in the
+	// background (#476), exactly as after the buyer's own undo.
+	s.kickSaleInvoiceDrainerForReversal(ctx, reversed)
 	_ = s.email.SendSaleVoided(ctx, platform.SaleVoided{
 		To:           reversed.CustomerEmail,
 		CustomerName: displayName(reversed.CustomerFirstName, reversed.CustomerLastName),

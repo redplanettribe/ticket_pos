@@ -32,6 +32,10 @@ func (e Environment) Valid() bool {
 // DocumentTypeFactura is the SRI "codDoc" for a factura (Ficha Tabla 3).
 const DocumentTypeFactura = "01"
 
+// DocumentTypeNotaCredito is the SRI "codDoc" for a nota de crédito (Ficha
+// Tabla 3): the Credit Note that undoes a factura (#476, ADR 0060).
+const DocumentTypeNotaCredito = "04"
+
 // TipoEmisionNormal is the only tipo de emisión in the offline scheme
 // (Ficha v2.34 Tabla 2).
 const TipoEmisionNormal = "1"

@@ -331,6 +331,7 @@ const invoiceColumns = `
 	i.issuer_snapshot, i.currency, i.subtotal_cents, i.discount_cents, i.iva_cents, i.total_cents, i.payment_method,
 	i.signed_xml, i.authorization_xml, i.last_messages,
 	i.ticket_sale_id, ts.confirmation_ref, i.credits_invoice_id, i.reversal_reason, i.iva_rate, i.delivered_at, i.next_attempt_at,
+	(SELECT c.id FROM invoicing_invoices c WHERE c.credits_invoice_id = i.id ORDER BY c.created_at DESC, c.id DESC LIMIT 1),
 	i.attention_since, i.annulled_by, i.annulled_at,
 	i.created_at, i.updated_at,
 	e.cod_doc, e.estab, e.pto_emi, e.secuencial, e.access_key, e.authorization_number, e.authorization_date`
@@ -339,6 +340,8 @@ const invoiceColumns = `
 // Sale-side document has; both joins are LEFT for that reason. The Sale's
 // Confirmation reference is read beside the row rather than copied onto it:
 // it is the Sale's fact, and the operator surfaces want it on every read.
+// The Credit Note crediting a Sale Invoice is read the same way (#476): the
+// link is stored once, on the Credit Note, and walked back here.
 const invoiceFrom = `
 	FROM invoicing_invoices i
 	LEFT JOIN invoicing_invoices_ec e ON e.invoice_id = i.id
@@ -457,9 +460,19 @@ func scanInvoices(rows *sql.Rows) ([]InvoiceRow, error) {
 	return out, rows.Err()
 }
 
+// querier is what the child-row reads need of a connection: the pool, or
+// a transaction that must see its own writes (#476).
+type querier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
 func (r *Repository) loadInvoiceChildren(ctx context.Context, row *InvoiceRow) error {
+	return loadInvoiceChildrenFrom(ctx, r.db.Pool, row)
+}
+
+func loadInvoiceChildrenFrom(ctx context.Context, q querier, row *InvoiceRow) error {
 	id := row.Invoice.ID
-	lines, err := r.db.Pool.QueryContext(ctx, `
+	lines, err := q.QueryContext(ctx, `
 		SELECT position, description, quantity_millionths, unit_price_cents, discount_cents, iva_rate, base_cents, iva_cents
 		FROM invoicing_invoice_lines WHERE invoice_id = $1 ORDER BY position
 	`, id)
@@ -478,7 +491,7 @@ func (r *Repository) loadInvoiceChildren(ctx context.Context, row *InvoiceRow) e
 		return fmt.Errorf("invoice lines: %w", err)
 	}
 
-	fields, err := r.db.Pool.QueryContext(ctx, `
+	fields, err := q.QueryContext(ctx, `
 		SELECT position, name, value FROM invoicing_additional_fields WHERE invoice_id = $1 ORDER BY position
 	`, id)
 	if err != nil {
@@ -496,7 +509,7 @@ func (r *Repository) loadInvoiceChildren(ctx context.Context, row *InvoiceRow) e
 		return fmt.Errorf("additional fields: %w", err)
 	}
 
-	attempts, err := r.db.Pool.QueryContext(ctx, `
+	attempts, err := q.QueryContext(ctx, `
 		SELECT id, operation, outcome, messages, error, started_at, duration_ms
 		FROM invoicing_attempts WHERE invoice_id = $1 ORDER BY id
 	`, id)
@@ -530,6 +543,7 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 		snapshot, messages               []byte
 		ticketSaleID, confirmationRef    sql.NullString
 		creditsInvoiceID, reversalReason sql.NullString
+		creditedByInvoiceID              sql.NullString
 		ivaRate                          sql.NullString
 		deliveredAt, nextAttemptAt       sql.NullTime
 		attentionSince, annulledAt       sql.NullTime
@@ -545,6 +559,7 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 		&snapshot, &inv.Currency, &inv.SubtotalCents, &inv.DiscountCents, &inv.IVACents, &inv.TotalCents, &inv.PaymentMethod,
 		&inv.SignedXML, &inv.AuthorizationXML, &messages,
 		&ticketSaleID, &confirmationRef, &creditsInvoiceID, &reversalReason, &ivaRate, &deliveredAt, &nextAttemptAt,
+		&creditedByInvoiceID,
 		&attentionSince, &annulledBy, &annulledAt,
 		&inv.CreatedAt, &inv.UpdatedAt,
 		&codDoc, &estab, &ptoEmi, &secuencial, &accessKey, &authNumber, &authDate,
@@ -569,6 +584,7 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 	inv.SaleConfirmationRef = confirmationRef.String
 	inv.CreditsInvoiceID = creditsInvoiceID.String
 	inv.ReversalReason = reversalReason.String
+	inv.CreditedByInvoiceID = creditedByInvoiceID.String
 	inv.IVARate = invoicing.IVARate(ivaRate.String)
 	if deliveredAt.Valid {
 		t := deliveredAt.Time

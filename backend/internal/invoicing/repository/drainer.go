@@ -27,12 +27,22 @@ import (
 //
 // ticketSaleID narrows the claim to one Sale's documents — the post-commit
 // kick works the document it was kicked for and nothing else — and "" means
-// any. Only documents of kind `sale` in a workable state are claimed: owed
-// (to sign and submit), pending (to poll), needs_attention still carrying
-// a next_attempt_at (parked, but still polled or still unsignable), and
-// authorized but not yet delivered (to mail, #475). A Credit
-// Note is worked once the ticket that builds its XML lands; the state
-// machine it will ride is this one.
+// any. Only documents the platform owes itself (kind `sale` or
+// `credit_note`) in a workable state are claimed: owed (to sign and
+// submit), pending (to poll), needs_attention still carrying a
+// next_attempt_at (parked, but still polled or still unsignable), and
+// authorized but not yet delivered (to mail, #475).
+//
+// A CREDIT NOTE WAITS FOR ITS FACTURA (#476, ADR 0060). An owed Credit Note
+// is claimable only once the Sale Invoice it credits is terminal —
+// authorized, or dead (withdrawn, annulled) — because a nota de crédito
+// must name an authorized factura, and one whose factura is still pending
+// or parked has nothing to name yet. The wait is decided HERE, at claim
+// time, rather than by an event when the factura settles: the factura
+// settles by the Drainer's own rounds, by an operator's Check status and
+// by an operator's Mark annulled, and a claim that reads the factura's
+// state on every tick needs none of them to remember the Credit Note. A
+// signed Credit Note is past the wait and is polled like any other.
 func (r *Repository) ClaimDueInvoice(ctx context.Context, now, leaseUntil time.Time, ticketSaleID string) (*InvoiceRow, error) {
 	var id string
 	err := r.db.Pool.QueryRowContext(ctx, `
@@ -42,9 +52,13 @@ func (r *Repository) ClaimDueInvoice(ctx context.Context, now, leaseUntil time.T
 			SELECT i.id
 			FROM invoicing_invoices i
 			WHERE i.next_attempt_at <= $1
-			  AND i.kind = 'sale'
+			  AND i.kind IN ('sale', 'credit_note')
 			  AND (i.status IN ('owed', 'pending', 'needs_attention')
 			       OR (i.status = 'authorized' AND i.delivered_at IS NULL))
+			  AND (i.kind <> 'credit_note' OR i.signed_xml IS NOT NULL OR EXISTS (
+			        SELECT 1 FROM invoicing_invoices f
+			        WHERE f.id = i.credits_invoice_id
+			          AND f.status IN ('authorized', 'withdrawn', 'annulled')))
 			  AND ($3 = '' OR i.ticket_sale_id = NULLIF($3, '')::uuid)
 			ORDER BY i.next_attempt_at
 			FOR UPDATE SKIP LOCKED
@@ -85,11 +99,14 @@ type SignedInvoice struct {
 // build and the signature happen there, and if it fails the transaction
 // rolls back and the number is not consumed.
 //
-// The UPDATE is guarded on the row being UNSIGNED — owed, or parked
-// needs_attention while it could not be signed — so two drains that somehow
-// both held the row could never sign it twice: the second finds no row to
-// update and its number rolls back with it. A row parked unsignable leaves
-// needs_attention here, and its attention_since with it (#477).
+// The UPDATE is guarded on the row being UNSIGNED AND STILL OWED — owed, or
+// parked needs_attention while it could not be signed — so two drains that
+// somehow both held the row could never sign it twice: the second finds no
+// row to update and its number rolls back with it. A row parked unsignable
+// leaves needs_attention here, and its attention_since with it (#477). A
+// row a reversal withdrew between the claim and this write (#476) is found
+// by the same guard, and the number rolls back with it: a withdrawn
+// document is never signed, whoever got to it first.
 func (r *Repository) SignOwedInvoice(ctx context.Context, invoiceID string, in SignedInvoice, prepare func(secuencial int64) (*PreparedInvoice, error)) (*InvoiceRow, error) {
 	tx, err := r.db.Pool.BeginTx(ctx, nil)
 	if err != nil {
@@ -121,14 +138,14 @@ func (r *Repository) SignOwedInvoice(ctx context.Context, invoiceID string, in S
 			signed_xml = $9,
 			attention_since = NULL,
 			updated_at = NOW()
-		WHERE id = $1 AND signed_xml IS NULL
+		WHERE id = $1 AND signed_xml IS NULL AND status IN ('owed', 'needs_attention')
 	`, invoiceID, in.IssuerID, in.Environment, invoicing.InvoiceStatusPending, in.IssuedOn, in.IssuedAt, in.IssuedBy,
 		snapshot, prepared.SignedXML)
 	if err != nil {
 		return nil, fmt.Errorf("sign owed invoice: %w", err)
 	}
 	if n, err := res.RowsAffected(); err == nil && n == 0 {
-		return nil, fmt.Errorf("sign owed invoice: invoice %s is already signed: %w", invoiceID, sql.ErrNoRows)
+		return nil, fmt.Errorf("sign owed invoice: invoice %s is already signed or withdrawn: %w", invoiceID, sql.ErrNoRows)
 	}
 	if err := insertEcuadorDetails(ctx, tx, invoiceID, in.IssuerID, in.Environment,
 		NewInvoice{CodDoc: in.CodDoc, Estab: in.Estab, PtoEmi: in.PtoEmi}, secuencial, prepared.AccessKey); err != nil {

@@ -204,6 +204,11 @@ type Invoice struct {
 	// ReversalReason the reversal route that made it owed.
 	CreditsInvoiceID string
 	ReversalReason   string
+	// CreditedByInvoiceID is, on a Sale Invoice, the Credit Note that
+	// credits it (#476) — the newest, should there ever be more than one —
+	// read beside the row so the two documents link both ways; "" when
+	// none does.
+	CreditedByInvoiceID string
 	// IVARate is the one rate a platform-priced document was priced under;
 	// "" on a manual document, whose lines each carry their own.
 	IVARate IVARate
@@ -269,4 +274,27 @@ type Attempt struct {
 	Error     string
 	StartedAt time.Time
 	Duration  time.Duration
+}
+
+// CreditNoteMotivo is the reason a Credit Note states to the authority
+// for the reversal route that made it owed (#476, ADR 0060): the route in
+// the document's own language, since the nota de crédito is read by the
+// SRI and the buyer's accountant, never by the Storefront. An unknown
+// route — one added to the schema's CHECK later — is named as such rather
+// than refused: the document is owed by then, and a reason it cannot
+// state must not be the reason it is never issued.
+func CreditNoteMotivo(route string) string {
+	switch route {
+	case "customer":
+		return "Anulación de la venta por el comprador"
+	case "platform":
+		return "Anulación de la venta por el operador de la plataforma"
+	case "import_undo":
+		return "Anulación de la venta al deshacer su importación"
+	case "staff_reversal":
+		return "Anulación de la venta por el personal de la organización"
+	case "correction":
+		return "Anulación de la venta por corrección"
+	}
+	return "Anulación de la venta"
 }

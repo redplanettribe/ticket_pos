@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/invoicing"
@@ -50,6 +51,15 @@ import (
 // anyone pressing anything. An unsignable document is retried hourly for the
 // same reason: an operator who uploads the certificate has fixed it, and the
 // next hour's tick proves so.
+//
+// A CREDIT NOTE RIDES THE SAME MACHINE (#476). Claimed only once the
+// factura it credits is terminal (repository.ClaimDueInvoice), it is then
+// one of two things: its factura is authorized, and it is signed under
+// codDoc 04 from the factura's number and date, submitted, polled, parked
+// and delivered exactly as a Sale Invoice is; or its factura died —
+// withdrawn, annulled — and it is withdrawn with it, unsigned, no number
+// consumed, nothing sent, because a nota de crédito can name only an
+// authorized factura (#471 story 29).
 //
 // DELIVERY IS THIS DRAINER'S LAST STEP (#475). An authorized document is
 // mailed to the buyer in the same round that saw it authorized — and, if
@@ -119,8 +129,13 @@ type SaleInvoiceDrainResult struct {
 	// buyers (#475). Each is counted under Authorized as well; an authorized
 	// document the sender refused is not counted here and is due again.
 	Delivered int `json:"delivered"`
+	// Withdrawn is how many Credit Notes this run withdrew because the
+	// factura they would have credited died (#476). Counted beside the
+	// three above rather than under any of them.
+	Withdrawn int `json:"withdrawn"`
 	// Failed is documents whose round errored on the database itself. Each
-	// logged its own line; the claim lease returns them to the queue.
+	// logged its own line; the claim lease returns them to the queue. With
+	// Authorized, Pending, NeedsAttention and Withdrawn it sums to Claimed.
 	Failed int `json:"failed"`
 	// Standing is how many Sale Invoices sit in each state once this run
 	// finished, so two curls apart say whether a backlog is shrinking.
@@ -218,6 +233,8 @@ func (s *Service) drainSaleInvoices(ctx context.Context, ticketSaleID string) (*
 			out.Authorized++
 		case invoicing.InvoiceStatusNeedsAttention:
 			out.NeedsAttention++
+		case invoicing.InvoiceStatusWithdrawn:
+			out.Withdrawn++
 		default:
 			out.Pending++
 		}
@@ -231,7 +248,7 @@ func (s *Service) drainSaleInvoices(ctx context.Context, ticketSaleID string) (*
 	}
 	s.logger.Info("invoicing: sale invoices drained",
 		"claimed", out.Claimed, "authorized", out.Authorized, "pending", out.Pending,
-		"needs_attention", out.NeedsAttention, "delivered", out.Delivered, "failed", out.Failed)
+		"needs_attention", out.NeedsAttention, "delivered", out.Delivered, "withdrawn", out.Withdrawn, "failed", out.Failed)
 	return out, nil
 }
 
@@ -247,6 +264,15 @@ func (s *Service) workSaleInvoice(ctx context.Context, row *repository.InvoiceRo
 		return invoicing.InvoiceStatusAuthorized, delivered, err
 	}
 	if !row.Invoice.Signed() {
+		if row.Invoice.Kind == invoicing.DocumentKindCreditNote {
+			// Its factura is terminal, or it would not have been claimed.
+			// Dead factura: the Credit Note goes with it, and there is
+			// nothing further to do this round.
+			withdrawn, err := s.withdrawCreditNoteOfADeadFactura(ctx, row)
+			if err != nil || withdrawn {
+				return invoicing.InvoiceStatusWithdrawn, false, err
+			}
+		}
 		signed, err := s.signOwedInvoice(ctx, row)
 		if err != nil {
 			return "", false, err
@@ -277,6 +303,46 @@ func (s *Service) workSaleInvoice(ctx context.Context, row *repository.InvoiceRo
 	delivered, err := s.deliverDocument(ctx, authorized)
 	return status, delivered, err
 }
+
+// withdrawCreditNoteOfADeadFactura reads the factura an owed Credit Note
+// credits and, if that factura will never be authorized — withdrawn, or
+// annulled by the operator at the portal — withdraws the Credit Note too,
+// off the queue, with a platform message saying why, and reports so. An
+// authorized factura reports false: the Credit Note is signed next. Any
+// other state is a claim that should not have happened and is left
+// leased to expire, reported as neither.
+func (s *Service) withdrawCreditNoteOfADeadFactura(ctx context.Context, row *repository.InvoiceRow) (bool, error) {
+	factura, err := s.repo.GetInvoice(ctx, row.Invoice.CreditsInvoiceID)
+	if err != nil {
+		return false, err
+	}
+	if factura == nil {
+		return false, fmt.Errorf("invoicing: credit note %s credits invoice %s, which does not exist", row.Invoice.ID, row.Invoice.CreditsInvoiceID)
+	}
+	switch factura.Invoice.Status {
+	case invoicing.InvoiceStatusAuthorized:
+		return false, nil
+	case invoicing.InvoiceStatusWithdrawn, invoicing.InvoiceStatusAnnulled:
+	default:
+		return false, fmt.Errorf("invoicing: credit note %s was claimed while its factura is %s", row.Invoice.ID, factura.Invoice.Status)
+	}
+	now := s.clock()
+	msgs := []invoicing.AuthorityMessage{{
+		Identifier: creditNoteWithdrawnCode,
+		Message:    fmt.Sprintf("The Sale Invoice this Credit Note would have credited is %s; nothing was sent to the SRI.", factura.Invoice.Status),
+		Type:       platformMessageType,
+	}}
+	if err := s.repo.Reschedule(context.WithoutCancel(ctx), row.Invoice.ID, invoicing.InvoiceStatusWithdrawn, msgs, nil, now); err != nil {
+		return false, err
+	}
+	s.logger.Info("invoicing: credit note withdrawn; the factura it credits died unauthorized",
+		"invoice_id", row.Invoice.ID, "credits_invoice_id", factura.Invoice.ID, "factura_status", factura.Invoice.Status)
+	return true, nil
+}
+
+// creditNoteWithdrawnCode is the platform message a withdrawn Credit Note
+// carries, in the operator's vocabulary beside the authority's codes.
+const creditNoteWithdrawnCode = "CREDIT_NOTE_FACTURA_NOT_AUTHORIZED"
 
 // pollOnce asks autorización once and applies a definite answer; an
 // undecided one only reschedules.
@@ -379,7 +445,7 @@ func (s *Service) signOwedInvoice(ctx context.Context, row *repository.InvoiceRo
 		IssuedOn:      now,
 		PaymentMethod: sri.PaymentMethod(inv.PaymentMethod),
 	}
-	parts, err := saleFacturaParts(base, inv)
+	parts, err := s.saleDocumentParts(ctx, base, row)
 	if err != nil {
 		e := invoicing.ErrInvoiceInvalid(reason(err))
 		return park(e.Code(), e.Message())
@@ -388,7 +454,7 @@ func (s *Service) signOwedInvoice(ctx context.Context, row *repository.InvoiceRo
 		e := invoicing.ErrIssuerIncomplete(reason(err))
 		return park(e.Code(), e.Message())
 	}
-	if err := s.dryRun(base, parts.recipient, parts.lines, parts.fields); err != nil {
+	if err := s.dryRunParts(parts); err != nil {
 		e := invoicing.ErrInvoiceInvalid(reason(err))
 		return park(e.Code(), e.Message())
 	}
@@ -400,16 +466,61 @@ func (s *Service) signOwedInvoice(ctx context.Context, row *repository.InvoiceRo
 		IssuedAt:    now,
 		IssuedBy:    saleInvoiceDrainerName,
 		Snapshot:    snapshot,
-		CodDoc:      sri.DocumentTypeFactura,
+		CodDoc:      parts.documentType(),
 		Estab:       snapshot.Establecimiento,
 		PtoEmi:      snapshot.PuntoEmision,
 	}, numberAndSign(parts, cert, now))
 	if err != nil {
 		return nil, err
 	}
-	s.logger.Info("invoicing: sale invoice signed",
-		"invoice_id", signed.Invoice.ID, "environment", env, "secuencial", signed.Ecuador.Secuencial)
+	s.logger.Info("invoicing: sale document signed",
+		"invoice_id", signed.Invoice.ID, "kind", inv.Kind, "cod_doc", parts.documentType(), "environment", env, "secuencial", signed.Ecuador.Secuencial)
 	return signed, nil
+}
+
+// saleDocumentParts assembles the parts of an owed document by its kind: a
+// Sale Invoice's factura, or a Credit Note's nota de crédito, which needs
+// the factura it credits read for its number and date (#476).
+func (s *Service) saleDocumentParts(ctx context.Context, base sri.Factura, row *repository.InvoiceRow) (facturaParts, error) {
+	parts, err := saleFacturaParts(base, &row.Invoice)
+	if err != nil {
+		return facturaParts{}, err
+	}
+	if row.Invoice.Kind != invoicing.DocumentKindCreditNote {
+		return parts, nil
+	}
+	factura, err := s.repo.GetInvoice(ctx, row.Invoice.CreditsInvoiceID)
+	if err != nil {
+		return facturaParts{}, err
+	}
+	return creditNoteParts(parts, &row.Invoice, factura)
+}
+
+// creditNoteParts turns a Credit Note's factura-shaped parts into a nota
+// de crédito's: codDoc 04, the credited factura's printed number and
+// emission date, and the reversal route as the motivo. The credited
+// factura must be signed and authorized; anything else is a document the
+// Drainer should never have reached here with.
+func creditNoteParts(parts facturaParts, note *invoicing.Invoice, factura *repository.InvoiceRow) (facturaParts, error) {
+	if factura == nil || factura.Ecuador == nil || !factura.Invoice.Signed() {
+		return facturaParts{}, fmt.Errorf("credit note %s credits an unsigned or missing invoice %s", note.ID, note.CreditsInvoiceID)
+	}
+	if factura.Invoice.Status != invoicing.InvoiceStatusAuthorized {
+		return facturaParts{}, fmt.Errorf("credit note %s credits invoice %s, which is %s and not authorized", note.ID, note.CreditsInvoiceID, factura.Invoice.Status)
+	}
+	// The factura's emission date as the factura printed it. issued_on is
+	// the Guayaquil calendar day stored as a date-only value (guayaquilDate),
+	// so it is re-read as a day and NOT shifted through a zone again: a
+	// midnight-UTC date moved to Guayaquil would print the day before.
+	y, m, d := factura.Invoice.IssuedOn.Date()
+	parts.docType = sri.DocumentTypeNotaCredito
+	parts.modifies = sri.ModifiedDocument{
+		DocumentType: factura.Ecuador.CodDoc,
+		Number:       FormatNumber(factura.Ecuador.Estab, factura.Ecuador.PtoEmi, factura.Ecuador.Secuencial),
+		IssuedOn:     time.Date(y, m, d, 12, 0, 0, 0, sri.Guayaquil),
+	}
+	parts.motivo = invoicing.CreditNoteMotivo(note.ReversalReason)
+	return parts, nil
 }
 
 // saleFacturaParts assembles the factura from the owed row's own snapshot:

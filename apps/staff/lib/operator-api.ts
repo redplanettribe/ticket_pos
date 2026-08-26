@@ -1296,6 +1296,8 @@ export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
   /** On a Credit Note: the Sale Invoice it credits and the reversal route that made it owed. */
   credits_invoice_id: string | null;
   reversal_reason: string | null;
+  /** On a Sale Invoice: the Credit Note that credits it (#476); null until one does. */
+  credited_by_invoice_id: string | null;
   /** The operator who marked the document annulled at the SRI portal, and when (#477); null unless annulled. */
   annulled_by: string | null;
   annulled_at: string | null;

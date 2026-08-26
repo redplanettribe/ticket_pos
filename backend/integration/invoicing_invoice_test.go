@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -456,9 +457,14 @@ func validateReceivedAgainstXSD(t *testing.T, signed []byte) {
 	if err := os.WriteFile(path, signed, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	xsd := filepath.Join("..", "internal", "invoicing", "sri", "testdata", "factura_V1.1.0.xsd")
+	// The schema follows the root: a factura's, or a nota de crédito's (#476).
+	schema := "factura_V1.1.0.xsd"
+	if bytes.Contains(signed, []byte("<notaCredito ")) {
+		schema = "NotaCredito_V1.1.0.xsd"
+	}
+	xsd := filepath.Join("..", "internal", "invoicing", "sri", "testdata", schema)
 	cmd := exec.Command(xmllint, "--noout", "--nonet", "--schema", xsd, path)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("received document does not validate against factura_V1.1.0.xsd:\n%s", out)
+		t.Fatalf("received document does not validate against %s:\n%s", schema, out)
 	}
 }

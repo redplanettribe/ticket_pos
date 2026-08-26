@@ -3507,6 +3507,11 @@ components:
           type: string
         created_at:
           type: string
+        credited_by_invoice_id:
+          description: |-
+            CreditedByInvoiceID is, on a Sale Invoice, the Credit Note that
+            credits it (#476); null on every other document and until one does.
+          type: string
         credits_invoice_id:
           type: string
         currency:
@@ -5422,7 +5427,8 @@ components:
         failed:
           description: |-
             Failed is documents whose round errored on the database itself. Each
-            logged its own line; the claim lease returns them to the queue.
+            logged its own line; the claim lease returns them to the queue. With
+            Authorized, Pending, NeedsAttention and Withdrawn it sums to Claimed.
           type: integer
         needs_attention:
           type: integer
@@ -5435,6 +5441,12 @@ components:
             Standing is how many Sale Invoices sit in each state once this run
             finished, so two curls apart say whether a backlog is shrinking.
           type: object
+        withdrawn:
+          description: |-
+            Withdrawn is how many Credit Notes this run withdrew because the
+            factura they would have credited died (#476). Counted beside the
+            three above rather than under any of them.
+          type: integer
       type: object
     service.SaleLine:
       properties:

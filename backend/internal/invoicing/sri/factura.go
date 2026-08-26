@@ -428,7 +428,7 @@ type BuiltFactura struct {
 // no namespace prefixes, two-decimal amounts, per-rate totalConImpuestos,
 // one pago for the full total, up to 15 campoAdicional.
 func BuildFactura(f Factura) (*BuiltFactura, error) {
-	if err := validateFactura(&f); err != nil {
+	if err := validateDocument(&f, DocumentTypeFactura); err != nil {
 		return nil, err
 	}
 	totals, err := ComputeTotals(f.Lines)
@@ -566,7 +566,11 @@ func serializeDocument(root *etree.Element) ([]byte, error) {
 
 var noNewline = regexp.MustCompile(`^[^\n]*$`)
 
-func validateFactura(f *Factura) error {
+// validateDocument checks the fields a factura and a nota de crédito share
+// — the Issuer, the Recipient, the number, the clave, the lines and the
+// additional fields — against the two schemas' common rules. docType is
+// the codDoc the clave de acceso must have been computed under.
+func validateDocument(f *Factura, docType string) error {
 	if !f.Environment.Valid() {
 		return fmt.Errorf("%w: environment %q", ErrInvalidFactura, f.Environment)
 	}
@@ -631,7 +635,7 @@ func validateFactura(f *Factura) error {
 		return fmt.Errorf("%w: %v", ErrInvalidFactura, err)
 	}
 	expected := AccessKeyInput{
-		IssuedOn: f.IssuedOn, DocumentType: DocumentTypeFactura, RUC: is.RUC, Environment: f.Environment,
+		IssuedOn: f.IssuedOn, DocumentType: docType, RUC: is.RUC, Environment: f.Environment,
 		Establishment: is.Establishment, EmissionPoint: is.EmissionPoint, Sequential: f.Sequential,
 		NumericCode: parsed.NumericCode,
 	}

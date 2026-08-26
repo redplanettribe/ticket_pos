@@ -1,6 +1,10 @@
 package sales
 
-import "github.com/peter/ticket_pos/backend/internal/platform"
+import (
+	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/platform"
+)
 
 // PaidOnlineSale is what the sale-commit spine tells the invoicing module
 // about a Ticket Sale that owes a Sale Invoice (#473, ADR 0060): a paid
@@ -48,4 +52,41 @@ type PaidOnlineSaleLine struct {
 	// UnitPriceCents is the buyer unit price snapshotted on the line: the
 	// price paid per ticket, IVA and fee inside.
 	UnitPriceCents int
+}
+
+// The reversal routes, as a Ticket Sale's documents name them (#476, ADR
+// 0060): the same five words the Sales Export states in its reversed_by
+// column, because a Credit Note's reason and a spreadsheet's route are one
+// fact told twice. The stored `reversed_by` actor is coarser — `staff`
+// covers three levers — so the route is decided where the lever is pulled
+// and handed down, never derived afterwards.
+const (
+	// ReversalRouteCustomer: the buyer undid their own Online Sale.
+	ReversalRouteCustomer = "customer"
+	// ReversalRoutePlatform: an Operator Reversal (ADR 0019).
+	ReversalRoutePlatform = "platform"
+	// ReversalRouteImportUndo: a whole Sale Import batch undone.
+	ReversalRouteImportUndo = "import_undo"
+	// ReversalRouteStaffReversal: one imported sale reversed on its own.
+	ReversalRouteStaffReversal = "staff_reversal"
+	// ReversalRouteCorrection: one imported sale replaced by a Sale Correction.
+	ReversalRouteCorrection = "correction"
+)
+
+// SaleReversal is what the reversal primitive tells the invoicing module
+// about a Ticket Sale it has just marked reversed (#476, ADR 0060), still
+// inside that transaction: which Sale, by which route, and when. Nothing
+// about money or lines travels — the documents to settle are the Sale's
+// own rows on the invoicing side, and a Credit Note copies the Sale
+// Invoice it credits, never the Sale as it stands now.
+//
+// An Operator Reversal's memo (what was refunded, whether the fee was
+// kept) is deliberately absent: the Credit Note is always for the whole
+// amount the factura stated (#471 story 30).
+type SaleReversal struct {
+	TicketSaleID string
+	// Route is one of the ReversalRoute* values.
+	Route string
+	// At is the reversal's instant, the one stamped on the sale.
+	At time.Time
 }

@@ -67,7 +67,7 @@ func (s *Service) ResendInvoice(ctx context.Context, id string) (*InvoiceDetail,
 	}
 
 	snapshot := refreshedSnapshot(*row.Invoice.Issuer, issuer.Details)
-	signed, err := s.rebuildAndSign(row, snapshot, cert)
+	signed, err := s.rebuildAndSign(ctx, row, snapshot, cert)
 	if err != nil {
 		return nil, err
 	}
@@ -130,9 +130,11 @@ func refreshedSnapshot(stored invoicing.IssuerSnapshot, live invoicing.EcuadorIs
 	return refreshed
 }
 
-// rebuildAndSign builds the factura from what the invoice recorded — the
-// same number, clave and emission instant — and signs it now.
-func (s *Service) rebuildAndSign(row *repository.InvoiceRow, snapshot invoicing.IssuerSnapshot, cert *sri.Certificate) ([]byte, error) {
+// rebuildAndSign builds the document from what the invoice recorded — the
+// same number, clave and emission instant — and signs it now. A Credit
+// Note is rebuilt as the nota de crédito it was (#476), from the factura
+// it credits.
+func (s *Service) rebuildAndSign(ctx context.Context, row *repository.InvoiceRow, snapshot invoicing.IssuerSnapshot, cert *sri.Certificate) ([]byte, error) {
 	inv := &row.Invoice
 	recipient, err := sriRecipient(inv.Recipient)
 	if err != nil {
@@ -150,29 +152,41 @@ func (s *Service) rebuildAndSign(row *repository.InvoiceRow, snapshot invoicing.
 			UnitPriceCents: l.UnitPriceCents,
 			DiscountCents:  l.DiscountCents,
 			IVA:            code,
+			// A platform-priced document's lines are priced as paid, IVA
+			// inside (#474); a resend must render them as the original did.
+			IVAInclusive: inv.Kind != invoicing.DocumentKindManual,
 		})
 	}
 	sequential, err := sri.FormatSequential(row.Ecuador.Secuencial)
 	if err != nil {
 		return nil, invoicing.ErrInvoiceInvalid(reason(err))
 	}
-	f := sri.Factura{
-		Environment:      sri.AmbienteFor(inv.Environment),
-		Issuer:           sri.IssuerFromSnapshot(snapshot),
-		AccessKey:        row.Ecuador.AccessKey,
-		Sequential:       sequential,
-		IssuedOn:         inv.IssuedAt,
-		Recipient:        recipient,
-		Lines:            lines,
-		PaymentMethod:    sri.PaymentMethod(inv.PaymentMethod),
-		AdditionalFields: sriFields(inv.AdditionalFields),
+	parts := facturaParts{
+		base: sri.Factura{
+			Environment:   sri.AmbienteFor(inv.Environment),
+			Issuer:        sri.IssuerFromSnapshot(snapshot),
+			IssuedOn:      inv.IssuedAt,
+			PaymentMethod: sri.PaymentMethod(inv.PaymentMethod),
+		},
+		recipient: recipient,
+		lines:     lines,
+		fields:    sriFields(inv.AdditionalFields),
 	}
-	built, err := sri.BuildFactura(f)
+	if inv.Kind == invoicing.DocumentKindCreditNote {
+		factura, err := s.repo.GetInvoice(ctx, inv.CreditsInvoiceID)
+		if err != nil {
+			return nil, err
+		}
+		if parts, err = creditNoteParts(parts, inv, factura); err != nil {
+			return nil, invoicing.ErrInvoiceInvalid(reason(err))
+		}
+	}
+	unsigned, err := parts.build(row.Ecuador.AccessKey, sequential)
 	if err != nil {
 		// The invoice built once; what can have changed since is the Issuer.
 		return nil, invoicing.ErrIssuerIncomplete(reason(err))
 	}
-	signed, err := sri.Sign(built.XML, cert, sri.SignOptions{SigningTime: s.clock()})
+	signed, err := sri.Sign(unsigned, cert, sri.SignOptions{SigningTime: s.clock()})
 	if err != nil {
 		return nil, err
 	}

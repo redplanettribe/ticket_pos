@@ -4181,6 +4181,10 @@ const docTemplate = `{
                     "created_at": {
                         "type": "string"
                     },
+                    "credited_by_invoice_id": {
+                        "description": "CreditedByInvoiceID is, on a Sale Invoice, the Credit Note that\ncredits it (#476); null on every other document and until one does.",
+                        "type": "string"
+                    },
                     "credits_invoice_id": {
                         "type": "string"
                     },
@@ -6201,7 +6205,7 @@ const docTemplate = `{
                         "type": "integer"
                     },
                     "failed": {
-                        "description": "Failed is documents whose round errored on the database itself. Each\nlogged its own line; the claim lease returns them to the queue.",
+                        "description": "Failed is documents whose round errored on the database itself. Each\nlogged its own line; the claim lease returns them to the queue. With\nAuthorized, Pending, NeedsAttention and Withdrawn it sums to Claimed.",
                         "type": "integer"
                     },
                     "needs_attention": {
@@ -6216,6 +6220,10 @@ const docTemplate = `{
                         },
                         "description": "Standing is how many Sale Invoices sit in each state once this run\nfinished, so two curls apart say whether a backlog is shrinking.",
                         "type": "object"
+                    },
+                    "withdrawn": {
+                        "description": "Withdrawn is how many Credit Notes this run withdrew because the\nfactura they would have credited died (#476). Counted beside the\nthree above rather than under any of them.",
+                        "type": "integer"
                     }
                 },
                 "type": "object"

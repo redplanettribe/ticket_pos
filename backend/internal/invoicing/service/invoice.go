@@ -183,15 +183,68 @@ func (s *Service) IssueInvoice(ctx context.Context, in IssueInput) (*InvoiceDeta
 	return s.GetInvoice(ctx, row.Invoice.ID)
 }
 
-// facturaParts is a factura minus its number: everything the builder needs
+// facturaParts is a document minus its number: everything the builder needs
 // that is known before a secuencial is allocated. The manual issue and the
 // Drainer (#474) both assemble one, dry-run it, and hand it to numberAndSign
 // inside the transaction that allocates the number.
+//
+// It is a nota de crédito's parts too (#476): docType says which builder
+// renders it, and modifies and motivo are what only that document has.
+// One shape for both, because everything that surrounds the builder —
+// the clave, the dry run, the signing, the number's transaction — is the
+// same for both, and only the last step differs.
 type facturaParts struct {
+	// docType is the codDoc: DocumentTypeFactura unless set.
+	docType   string
 	base      sri.Factura
 	recipient sri.Recipient
 	lines     []sri.Line
 	fields    []sri.AdditionalField
+	// The nota de crédito's own: the factura it modifies and why.
+	modifies sri.ModifiedDocument
+	motivo   string
+}
+
+// documentType is the parts' codDoc, a factura's when none was named.
+func (p facturaParts) documentType() string {
+	if p.docType == "" {
+		return sri.DocumentTypeFactura
+	}
+	return p.docType
+}
+
+// build renders the unsigned document under the given clave and number:
+// the factura builder or the nota de crédito builder, by docType.
+func (p facturaParts) build(accessKey, sequential string) ([]byte, error) {
+	if p.documentType() == sri.DocumentTypeNotaCredito {
+		built, err := sri.BuildNotaCredito(sri.NotaCredito{
+			Environment:      p.base.Environment,
+			Issuer:           p.base.Issuer,
+			AccessKey:        accessKey,
+			Sequential:       sequential,
+			IssuedOn:         p.base.IssuedOn,
+			Recipient:        p.recipient,
+			Lines:            p.lines,
+			Modifies:         p.modifies,
+			Motivo:           p.motivo,
+			AdditionalFields: p.fields,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return built.XML, nil
+	}
+	f := p.base
+	f.AccessKey = accessKey
+	f.Sequential = sequential
+	f.Recipient = p.recipient
+	f.Lines = p.lines
+	f.AdditionalFields = p.fields
+	built, err := sri.BuildFactura(f)
+	if err != nil {
+		return nil, err
+	}
+	return built.XML, nil
 }
 
 // numberAndSign is the prepare callback both signing writes run with the
@@ -211,7 +264,7 @@ func numberAndSign(parts facturaParts, cert *sri.Certificate, now time.Time) fun
 		base := parts.base
 		key, err := sri.NewAccessKey(sri.AccessKeyInput{
 			IssuedOn:      now,
-			DocumentType:  sri.DocumentTypeFactura,
+			DocumentType:  parts.documentType(),
 			RUC:           base.Issuer.RUC,
 			Environment:   base.Environment,
 			Establishment: base.Issuer.Establishment,
@@ -222,17 +275,11 @@ func numberAndSign(parts facturaParts, cert *sri.Certificate, now time.Time) fun
 		if err != nil {
 			return nil, err
 		}
-		f := base
-		f.AccessKey = key
-		f.Sequential = sequential
-		f.Recipient = parts.recipient
-		f.Lines = parts.lines
-		f.AdditionalFields = parts.fields
-		built, err := sri.BuildFactura(f)
+		unsigned, err := parts.build(key, sequential)
 		if err != nil {
 			return nil, err
 		}
-		signed, err := sri.Sign(built.XML, cert, sri.SignOptions{SigningTime: now})
+		signed, err := sri.Sign(unsigned, cert, sri.SignOptions{SigningTime: now})
 		if err != nil {
 			return nil, err
 		}
@@ -375,27 +422,26 @@ func (s *Service) applyOutcome(ctx context.Context, row *repository.InvoiceRow, 
 // dryRun builds — never signs, never stores — a factura from the pieces with
 // a placeholder number, to learn whether the builder would refuse it.
 func (s *Service) dryRun(base sri.Factura, recipient sri.Recipient, lines []sri.Line, fields []sri.AdditionalField) error {
+	return s.dryRunParts(facturaParts{base: base, recipient: recipient, lines: lines, fields: fields})
+}
+
+// dryRunParts is dryRun for assembled parts of either document type.
+func (s *Service) dryRunParts(parts facturaParts) error {
 	const sequential = "000000001"
 	key, err := sri.NewAccessKey(sri.AccessKeyInput{
-		IssuedOn:      base.IssuedOn,
-		DocumentType:  sri.DocumentTypeFactura,
-		RUC:           base.Issuer.RUC,
-		Environment:   base.Environment,
-		Establishment: base.Issuer.Establishment,
-		EmissionPoint: base.Issuer.EmissionPoint,
+		IssuedOn:      parts.base.IssuedOn,
+		DocumentType:  parts.documentType(),
+		RUC:           parts.base.Issuer.RUC,
+		Environment:   parts.base.Environment,
+		Establishment: parts.base.Issuer.Establishment,
+		EmissionPoint: parts.base.Issuer.EmissionPoint,
 		Sequential:    sequential,
 		NumericCode:   "00000000",
 	})
 	if err != nil {
 		return err
 	}
-	f := base
-	f.AccessKey = key
-	f.Sequential = sequential
-	f.Recipient = recipient
-	f.Lines = lines
-	f.AdditionalFields = fields
-	_, err = sri.BuildFactura(f)
+	_, err = parts.build(key, sequential)
 	return err
 }
 
@@ -449,6 +495,7 @@ func sriFields(in []invoicing.AdditionalField) []sri.AdditionalField {
 // operator reads what was wrong and not which package said so.
 func reason(err error) string {
 	msg := err.Error()
+	msg = strings.TrimPrefix(msg, sri.ErrInvalidNotaCredito.Error()+": ")
 	msg = strings.TrimPrefix(msg, sri.ErrInvalidFactura.Error()+": ")
 	msg = strings.TrimPrefix(msg, sri.ErrInvalidAccessKey.Error()+": ")
 	return msg
@@ -666,6 +713,9 @@ type InvoiceDetail struct {
 	NextAttemptAt    *time.Time `json:"next_attempt_at"`
 	CreditsInvoiceID *string    `json:"credits_invoice_id"`
 	ReversalReason   *string    `json:"reversal_reason"`
+	// CreditedByInvoiceID is, on a Sale Invoice, the Credit Note that
+	// credits it (#476); null on every other document and until one does.
+	CreditedByInvoiceID *string `json:"credited_by_invoice_id"`
 	// AnnulledBy and AnnulledAt are the operator who marked the document
 	// annulled after annulling it by hand at the SRI portal, and when (#477).
 	// Both null unless the document is annulled.
@@ -753,6 +803,7 @@ func invoiceDetailView(row *repository.InvoiceRow) *InvoiceDetail {
 		IVARate:             optional(string(inv.IVARate)),
 		CreditsInvoiceID:    optional(inv.CreditsInvoiceID),
 		ReversalReason:      optional(inv.ReversalReason),
+		CreditedByInvoiceID: optional(inv.CreditedByInvoiceID),
 		AnnulledBy:          optional(inv.AnnulledBy),
 		AnnulledAt:          optionalTime(inv.AnnulledAt),
 		CreatedAt:           inv.CreatedAt.UTC(),

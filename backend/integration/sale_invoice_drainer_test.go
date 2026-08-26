@@ -35,6 +35,7 @@ type saleInvoiceDrainResult struct {
 	Pending        int            `json:"pending"`
 	NeedsAttention int            `json:"needs_attention"`
 	Delivered      int            `json:"delivered"`
+	Withdrawn      int            `json:"withdrawn"`
 	Failed         int            `json:"failed"`
 	Standing       map[string]int `json:"standing"`
 }
@@ -56,11 +57,12 @@ func drainSaleInvoices(t *testing.T) saleInvoiceDrainResult {
 // signed-side facts beside the Sale-side ones.
 type drainedInvoiceView struct {
 	saleInvoiceDetailView
-	Environment     *string `json:"environment"`
-	IssuedOn        *string `json:"issued_on"`
-	IssuedBy        *string `json:"issued_by"`
-	CheckStatusHint bool    `json:"check_status_hint"`
-	Messages        []struct {
+	Environment         *string `json:"environment"`
+	IssuedOn            *string `json:"issued_on"`
+	IssuedBy            *string `json:"issued_by"`
+	CreditedByInvoiceID *string `json:"credited_by_invoice_id"`
+	CheckStatusHint     bool    `json:"check_status_hint"`
+	Messages            []struct {
 		Identifier string `json:"identifier"`
 		Message    string `json:"message"`
 		Type       string `json:"type"`

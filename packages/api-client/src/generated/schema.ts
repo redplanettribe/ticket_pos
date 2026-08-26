@@ -14109,6 +14109,11 @@ export interface components {
             check_status_hint?: boolean;
             country?: string;
             created_at?: string;
+            /**
+             * @description CreditedByInvoiceID is, on a Sale Invoice, the Credit Note that
+             *     credits it (#476); null on every other document and until one does.
+             */
+            credited_by_invoice_id?: string;
             credits_invoice_id?: string;
             currency?: string;
             delivered_at?: string;
@@ -15517,7 +15522,8 @@ export interface components {
             delivered?: number;
             /**
              * @description Failed is documents whose round errored on the database itself. Each
-             *     logged its own line; the claim lease returns them to the queue.
+             *     logged its own line; the claim lease returns them to the queue. With
+             *     Authorized, Pending, NeedsAttention and Withdrawn it sums to Claimed.
              */
             failed?: number;
             needs_attention?: number;
@@ -15529,6 +15535,12 @@ export interface components {
             standing?: {
                 [key: string]: number;
             };
+            /**
+             * @description Withdrawn is how many Credit Notes this run withdrew because the
+             *     factura they would have credited died (#476). Counted beside the
+             *     three above rather than under any of them.
+             */
+            withdrawn?: number;
         };
         "service.SaleLine": {
             quantity?: number;

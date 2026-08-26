@@ -259,10 +259,11 @@ type StaffLocales interface {
 // transaction, so the Sale Invoice is owed in the same breath as the sale
 // (#473, parent #471, ADR 0060).
 //
-// ONE METHOD, ONE DIRECTION. Sales knows nothing about facturas, Issuers,
+// ONE DIRECTION, TWO FACTS. Sales knows nothing about facturas, Issuers,
 // sequence numbers or the SRI; it states what it just sold — the buyer as
-// transacted, the lines as paid, the Sale's reference — and the invoicing
-// module decides what document that makes owed. It is the ConsentCapturer's
+// transacted, the lines as paid, the Sale's reference — or what it just
+// reversed (#476), and the invoicing module decides what document that
+// makes owed, withdrawn or waited on. It is the ConsentCapturer's
 // shape (a write offered inside the sale's own transaction) with the
 // DisplacedHolderNotifier's failure rule reversed: this write MAY refuse the
 // sale, because ADR 0060's invariant is that nothing can be sold and
@@ -285,6 +286,14 @@ type SaleInvoicer interface {
 	// (#474). Fire-and-forget on the far side: it returns at once, and
 	// nothing about the checkout waits on it or can fail because of it.
 	KickSaleInvoiceDrainer(ctx context.Context, ticketSaleID string)
+	// SettleReversedSale is the seam's other direction (#476): a Ticket
+	// Sale was just marked reversed, in tx, and its documents are settled
+	// there — an owed Sale Invoice withdrawn, an issued one credited, a
+	// pending one waited on — by the far side's rules. It reports whether
+	// the Drainer now has work for this Sale. Nil-safe at the call site
+	// exactly as OwePaidOnlineSale is; see repository.SaleReversed for why
+	// its error fails the reversal and why that is not a refusal.
+	SettleReversedSale(ctx context.Context, tx *sql.Tx, reversal sales.SaleReversal) (bool, error)
 }
 
 // Service implements sales business rules.
@@ -592,6 +601,32 @@ func (s *Service) oweSaleInvoice() repository.OweSaleInvoice {
 		return nil
 	}
 	return s.saleInvoices.OwePaidOnlineSale
+}
+
+// settleReversedSale is the reversal primitive's invoicing seam as the two
+// online reversal routes hand it over (#476): nil when nothing is wired,
+// so the primitive settles nothing, and otherwise the invoicing service's
+// write. A method for oweSaleInvoice's reason — both routes reach the
+// same seam with no chance of one being wired and the other forgotten.
+// The import-channel routes do not hand it over at all: an imported sale
+// never owes a document (ADR 0060), so there is nothing to settle.
+func (s *Service) settleReversedSale() repository.SaleReversed {
+	if s.saleInvoices == nil {
+		return nil
+	}
+	return s.saleInvoices.SettleReversedSale
+}
+
+// kickSaleInvoiceDrainerForReversal is kickSaleInvoiceDrainer for a Sale
+// Reversal (#476): once the transaction that settled the sale's documents
+// has committed, the Credit Note it may have owed is worked at once rather
+// than at the next scheduled tick. A reversal that owed nothing — a
+// withdrawn Sale Invoice, a non-House sale — kicks nothing.
+func (s *Service) kickSaleInvoiceDrainerForReversal(ctx context.Context, reversed repository.ReversedSale) {
+	if s.saleInvoices == nil || !reversed.DocumentsDue {
+		return
+	}
+	s.saleInvoices.KickSaleInvoiceDrainer(ctx, reversed.ID)
 }
 
 // kickSaleInvoiceDrainer tells the invoicing module, after the commit, that

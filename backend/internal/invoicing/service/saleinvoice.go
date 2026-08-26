@@ -117,3 +117,98 @@ func recipientLegalName(first, last string) string {
 func lineDescription(ticketType, event string) string {
 	return ticketType + " — " + event
 }
+
+// The Sale's paperwork on reversal (#476, parent #471, ADR 0060): the sales
+// module has just marked a Ticket Sale reversed and, still inside that
+// transaction, tells this module so. What happens is decided by the state
+// of the Sale Invoice, read under a lock, and by nothing outside the
+// database:
+//
+//   - NEVER SENT (owed, or parked needs_attention while unsignable — no
+//     signature, no number): WITHDRAWN. The Tax Authority is told nothing
+//     about a sale that no longer stands (#471 story 28).
+//   - AUTHORIZED: a CREDIT NOTE is owed, due at once — the whole amount,
+//     the same Recipient and lines, the reversal route as its reason.
+//   - SIGNED AND UNDECIDED (pending, or parked needs_attention after a
+//     refusal or 24 h of silence — a number consumed, the authority
+//     possibly holding it): a Credit Note is owed and WAITS. The Drainer
+//     claims it only once the factura is terminal (repository.
+//     ClaimDueInvoice): authorized → issued; withdrawn or annulled → the
+//     Credit Note is withdrawn with it (#471 story 29).
+//   - ANNULLED, or already credited: nothing. The factura is already
+//     undone at the authority, or a Credit Note already stands.
+//
+// Never refused for the Issuer's sake, never delayed by the authority: the
+// only failures are the rows' own constraints, which fail the reversal's
+// transaction exactly as they would fail any write in it.
+
+// SettleReversedSale implements the sales module's SaleInvoicer seam for a
+// Sale Reversal. It reports whether the Drainer now has work for the Sale.
+func (s *Service) SettleReversedSale(ctx context.Context, tx *sql.Tx, reversal sales.SaleReversal) (bool, error) {
+	facturas, err := s.repo.LockSaleInvoicesForReversal(ctx, tx, reversal.TicketSaleID)
+	if err != nil {
+		return false, err
+	}
+	due := false
+	for i := range facturas {
+		row := &facturas[i]
+		inv := &row.Invoice
+		switch {
+		case !inv.Signed():
+			// owed, or needs_attention with nothing signed: never sent.
+			withdrawn, err := s.repo.WithdrawUnsignedInvoice(ctx, tx, inv.ID, reversal.At)
+			if err != nil {
+				return false, err
+			}
+			if !withdrawn {
+				// Signed between the lock and the write — impossible under
+				// FOR UPDATE, and refused rather than papered over.
+				return false, fmt.Errorf("invoicing: sale invoice %s could not be withdrawn", inv.ID)
+			}
+			s.logger.Info("invoicing: sale invoice withdrawn; its sale was reversed before it was sent", "invoice_id", inv.ID, "route", reversal.Route)
+		case inv.Status == invoicing.InvoiceStatusAnnulled, inv.CreditedByInvoiceID != "":
+			s.logger.Info("invoicing: reversed sale's invoice needs no credit note", "invoice_id", inv.ID, "status", inv.Status, "already_credited", inv.CreditedByInvoiceID != "")
+		default:
+			// authorized, pending, or needs_attention with a number consumed.
+			note := creditNoteOf(inv, reversal, s.clock())
+			id, err := s.repo.OweInvoice(ctx, tx, note)
+			if err != nil {
+				return false, err
+			}
+			waits := inv.Status != invoicing.InvoiceStatusAuthorized
+			s.logger.Info("invoicing: credit note owed", "invoice_id", id, "credits_invoice_id", inv.ID, "route", reversal.Route, "waits", waits, "total_cents", note.TotalCents)
+			due = true
+		}
+	}
+	return due, nil
+}
+
+// creditNoteOf is the Credit Note a Sale Invoice owes on its Sale's
+// reversal: the same document minus everything that needs an Issuer, of
+// kind credit_note, naming what it credits and why. Copied from the Sale
+// Invoice ROW, never from the Sale — the Recipient is fixed once issued
+// (CONTEXT.md, Recipient), and what is credited is what was invoiced.
+// Pure, so the copy is testable without a database.
+func creditNoteOf(factura *invoicing.Invoice, reversal sales.SaleReversal, now time.Time) invoicing.Invoice {
+	note := invoicing.Invoice{
+		Kind:             invoicing.DocumentKindCreditNote,
+		Country:          factura.Country,
+		Status:           invoicing.InvoiceStatusOwed,
+		TicketSaleID:     factura.TicketSaleID,
+		CreditsInvoiceID: factura.ID,
+		ReversalReason:   reversal.Route,
+		IVARate:          factura.IVARate,
+		Recipient:        factura.Recipient,
+		Currency:         factura.Currency,
+		SubtotalCents:    factura.SubtotalCents,
+		DiscountCents:    factura.DiscountCents,
+		IVACents:         factura.IVACents,
+		TotalCents:       factura.TotalCents,
+		PaymentMethod:    factura.PaymentMethod,
+		// Due at once. Whether it may be WORKED at once is the claim's
+		// question, answered by the factura's state (ClaimDueInvoice).
+		NextAttemptAt: &now,
+	}
+	note.Lines = append(note.Lines, factura.Lines...)
+	return note
+}
