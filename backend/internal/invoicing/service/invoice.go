@@ -335,7 +335,8 @@ func (s *Service) attempt(ctx context.Context, invoiceID string, op invoicing.At
 // 24 hours have passed since signing without a definite answer.
 func (s *Service) applyOutcome(ctx context.Context, row *repository.InvoiceRow, o invoicing.Outcome) {
 	inv := &row.Invoice
-	u := repository.OutcomeUpdate{Messages: o.Messages}
+	now := s.clock()
+	u := repository.OutcomeUpdate{Messages: o.Messages, At: now}
 	switch o.State {
 	case invoicing.OutcomeAuthorized:
 		u.Status = invoicing.InvoiceStatusAuthorized
@@ -353,7 +354,6 @@ func (s *Service) applyOutcome(ctx context.Context, row *repository.InvoiceRow, 
 		case invoicing.InvoiceStatusNotAuthorized, invoicing.InvoiceStatusRejected:
 			u.Status = invoicing.InvoiceStatusNeedsAttention
 		case invoicing.InvoiceStatusPending:
-			now := s.clock()
 			u.Status = undecidedStatus(inv, now)
 			next := now.Add(ladderDelay(now.Sub(inv.IssuedAt)))
 			u.NextAttemptAt = &next
@@ -481,9 +481,10 @@ func (s *Service) GetInvoice(ctx context.Context, id string) (*InvoiceDetail, er
 	return invoiceDetailView(row), nil
 }
 
-// ListInvoices returns a page of Tax Invoices, newest first.
-func (s *Service) ListInvoices(ctx context.Context, page, pageSize int) (*InvoiceList, error) {
-	rows, total, err := s.repo.ListInvoices(ctx, page, pageSize)
+// ListInvoices returns a page of Tax Invoices, newest first, narrowed to
+// one document kind when kind is not "" (#477).
+func (s *Service) ListInvoices(ctx context.Context, kind invoicing.DocumentKind, page, pageSize int) (*InvoiceList, error) {
+	rows, total, err := s.repo.ListInvoices(ctx, kind, page, pageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -492,14 +493,18 @@ func (s *Service) ListInvoices(ctx context.Context, page, pageSize int) (*Invoic
 		items = append(items, invoiceListItem(&rows[i]))
 	}
 	return &InvoiceList{
-		Data: items,
-		InvoicePagination: InvoicePagination{
-			Page:       page,
-			PageSize:   pageSize,
-			Total:      total,
-			TotalPages: int(math.Ceil(float64(total) / float64(pageSize))),
-		},
+		Data:              items,
+		InvoicePagination: pagination(page, pageSize, total),
 	}, nil
+}
+
+func pagination(page, pageSize, total int) InvoicePagination {
+	return InvoicePagination{
+		Page:       page,
+		PageSize:   pageSize,
+		Total:      total,
+		TotalPages: int(math.Ceil(float64(total) / float64(pageSize))),
+	}
 }
 
 // ---- views ------------------------------------------------------------
@@ -552,6 +557,10 @@ type InvoiceListItem struct {
 	SaleConfirmationRef *string `json:"sale_confirmation_ref"`
 	TotalCents          int64   `json:"total_cents"`
 	Currency            string  `json:"currency"`
+	// AttentionSince is when the document was parked needs_attention — how
+	// long it has been waiting for an operator (#477); null in every other
+	// state.
+	AttentionSince *time.Time `json:"attention_since"`
 }
 
 // InvoiceList is the ADR-0006 nested envelope for the list.
@@ -649,6 +658,11 @@ type InvoiceDetail struct {
 	NextAttemptAt    *time.Time `json:"next_attempt_at"`
 	CreditsInvoiceID *string    `json:"credits_invoice_id"`
 	ReversalReason   *string    `json:"reversal_reason"`
+	// AnnulledBy and AnnulledAt are the operator who marked the document
+	// annulled after annulling it by hand at the SRI portal, and when (#477).
+	// Both null unless the document is annulled.
+	AnnulledBy *string    `json:"annulled_by"`
+	AnnulledAt *time.Time `json:"annulled_at"`
 	// HasAuthorizationXML says whether the authority's document is on file
 	// (#456 serves it).
 	HasAuthorizationXML bool `json:"has_authorization_xml"`
@@ -683,6 +697,7 @@ func invoiceListItem(row *repository.InvoiceRow) InvoiceListItem {
 		SaleConfirmationRef: optional(inv.SaleConfirmationRef),
 		TotalCents:          inv.TotalCents,
 		Currency:            inv.Currency,
+		AttentionSince:      optionalTime(inv.AttentionSince),
 	}
 	if inv.Signed() {
 		item.Environment = optional(string(inv.Environment))
@@ -705,6 +720,15 @@ func optional(s string) *string {
 	return &s
 }
 
+// optionalTime renders a nil instant as null and any other in UTC.
+func optionalTime(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	u := t.UTC()
+	return &u
+}
+
 func invoiceDetailView(row *repository.InvoiceRow) *InvoiceDetail {
 	inv := &row.Invoice
 	d := &InvoiceDetail{
@@ -721,17 +745,13 @@ func invoiceDetailView(row *repository.InvoiceRow) *InvoiceDetail {
 		IVARate:             optional(string(inv.IVARate)),
 		CreditsInvoiceID:    optional(inv.CreditsInvoiceID),
 		ReversalReason:      optional(inv.ReversalReason),
+		AnnulledBy:          optional(inv.AnnulledBy),
+		AnnulledAt:          optionalTime(inv.AnnulledAt),
 		CreatedAt:           inv.CreatedAt.UTC(),
 		UpdatedAt:           inv.UpdatedAt.UTC(),
 	}
-	if inv.DeliveredAt != nil {
-		t := inv.DeliveredAt.UTC()
-		d.DeliveredAt = &t
-	}
-	if inv.NextAttemptAt != nil {
-		t := inv.NextAttemptAt.UTC()
-		d.NextAttemptAt = &t
-	}
+	d.DeliveredAt = optionalTime(inv.DeliveredAt)
+	d.NextAttemptAt = optionalTime(inv.NextAttemptAt)
 	if e := row.Ecuador; e != nil {
 		d.Ecuador = &EcuadorInvoiceView{
 			AccessKey:  e.AccessKey,

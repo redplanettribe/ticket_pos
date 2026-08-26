@@ -86,7 +86,8 @@ type SignedInvoice struct {
 // The UPDATE is guarded on the row being UNSIGNED — owed, or parked
 // needs_attention while it could not be signed — so two drains that somehow
 // both held the row could never sign it twice: the second finds no row to
-// update and its number rolls back with it.
+// update and its number rolls back with it. A row parked unsignable leaves
+// needs_attention here, and its attention_since with it (#477).
 func (r *Repository) SignOwedInvoice(ctx context.Context, invoiceID string, in SignedInvoice, prepare func(secuencial int64) (*PreparedInvoice, error)) (*InvoiceRow, error) {
 	tx, err := r.db.Pool.BeginTx(ctx, nil)
 	if err != nil {
@@ -116,6 +117,7 @@ func (r *Repository) SignOwedInvoice(ctx context.Context, invoiceID string, in S
 			issued_by = $7,
 			issuer_snapshot = $8,
 			signed_xml = $9,
+			attention_since = NULL,
 			updated_at = NOW()
 		WHERE id = $1 AND signed_xml IS NULL
 	`, invoiceID, in.IssuerID, in.Environment, invoicing.InvoiceStatusPending, in.IssuedOn, in.IssuedAt, in.IssuedBy,
@@ -140,8 +142,10 @@ func (r *Repository) SignOwedInvoice(ctx context.Context, invoiceID string, in S
 // answer from the authority — or could not ask it at all — and when the
 // Drainer looks again. The messages are what the platform has to say about
 // it (why it could not be signed, for instance) and replace the last ones;
-// nil leaves them as they were. Nothing on the signed side is touched.
-func (r *Repository) Reschedule(ctx context.Context, invoiceID string, status invoicing.InvoiceStatus, messages []invoicing.AuthorityMessage, nextAttemptAt *time.Time) error {
+// nil leaves them as they were. Nothing on the signed side is touched. `at`
+// is the round's instant, recorded as attention_since when the round parks
+// the document (#477).
+func (r *Repository) Reschedule(ctx context.Context, invoiceID string, status invoicing.InvoiceStatus, messages []invoicing.AuthorityMessage, nextAttemptAt *time.Time, at time.Time) error {
 	var encoded []byte
 	if messages != nil {
 		var err error
@@ -154,9 +158,10 @@ func (r *Repository) Reschedule(ctx context.Context, invoiceID string, status in
 			status = $2,
 			last_messages = COALESCE($3::jsonb, last_messages),
 			next_attempt_at = $4,
+			attention_since = `+attentionSinceExpr("$2", "$5")+`,
 			updated_at = NOW()
 		WHERE id = $1
-	`, invoiceID, status, encoded, nextAttemptAt)
+	`, invoiceID, status, encoded, nextAttemptAt, at)
 	if err != nil {
 		return fmt.Errorf("reschedule invoice: %w", err)
 	}

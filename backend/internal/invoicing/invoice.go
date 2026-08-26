@@ -211,6 +211,13 @@ type Invoice struct {
 	// NextAttemptAt when the Drainer should next work it. Nil when not.
 	DeliveredAt   *time.Time
 	NextAttemptAt *time.Time
+	// AttentionSince is when the document entered needs_attention — what the
+	// Operator Dashboard's queue orders by (#477); nil in every other state.
+	AttentionSince *time.Time
+	// AnnulledBy and AnnulledAt are the operator who recorded the manual
+	// portal annulment and when (#477); "" and nil unless annulled.
+	AnnulledBy string
+	AnnulledAt *time.Time
 
 	CreatedAt time.Time
 	UpdatedAt time.Time

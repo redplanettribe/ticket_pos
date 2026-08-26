@@ -631,6 +631,13 @@ export type OperatorSaleLookup = {
   sale: OperatorSaleDetail;
   organization: OperatorOrganization;
   re_addressing: OperatorSaleReAddressingBlock;
+  /**
+   * The Tax Invoices about this sale (#477, ADR 0060): the Sale Invoice a paid
+   * House checkout owed and the Credit Note its reversal owed, oldest first.
+   * Empty on every sale outside a House Organization. Each id opens the
+   * document detail under /operator/invoicing.
+   */
+  documents: OperatorInvoiceListItem[];
 };
 
 /**
@@ -1190,6 +1197,8 @@ export type OperatorInvoiceListItem = {
   sale_confirmation_ref: string | null;
   total_cents: number;
   currency: string;
+  /** When the document was parked `needs_attention` (#477); null in every other state. */
+  attention_since: string | null;
 };
 
 /** One line as recorded, with its arithmetic. */
@@ -1287,6 +1296,9 @@ export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
   /** On a Credit Note: the Sale Invoice it credits and the reversal route that made it owed. */
   credits_invoice_id: string | null;
   reversal_reason: string | null;
+  /** The operator who marked the document annulled at the SRI portal, and when (#477); null unless annulled. */
+  annulled_by: string | null;
+  annulled_at: string | null;
   has_authorization_xml: boolean;
   /**
    * True when the invoice is pending and the SRI holds the document —
@@ -1325,13 +1337,72 @@ const INVOICES_PATH = "/api/operator/invoicing/invoices";
 
 export const OPERATOR_INVOICES_PAGE_SIZE = 50;
 
-/** A page of Tax Invoices, newest first. */
-export async function fetchOperatorInvoices(page = 1): Promise<OperatorInvoiceListPage> {
+/** The list's kind filter: one kind, or every kind. */
+export type InvoiceKindFilter = InvoiceKind | "all";
+
+/** A page of Tax Invoices, newest first, narrowed to one kind unless `all` (#477). */
+export async function fetchOperatorInvoices(
+  page = 1,
+  kind: InvoiceKindFilter = "all",
+): Promise<OperatorInvoiceListPage> {
   const params = new URLSearchParams({
     page: String(page),
     page_size: String(OPERATOR_INVOICES_PAGE_SIZE),
   });
+  if (kind !== "all") {
+    params.set("kind", kind);
+  }
   return fetchEventsJSON<OperatorInvoiceListPage>(`${INVOICES_PATH}?${params.toString()}`);
+}
+
+// ---- The documents that need attention (#477, ADR 0060) ----------------
+
+/**
+ * One queued document: the list row plus the SRI's last messages verbatim —
+ * or the platform's own PLATFORM-typed message when the document could not
+ * be signed — so the queue says why without a click through.
+ */
+export type OperatorNeedsAttentionItem = OperatorInvoiceListItem & {
+  messages: OperatorInvoiceMessage[];
+};
+
+/** The queue — the ADR-0006 nested envelope, longest waiting first. */
+export type OperatorNeedsAttentionQueue = {
+  data: OperatorNeedsAttentionItem[];
+  pagination: OperatorPagination;
+};
+
+export type OperatorNeedsAttentionCount = {
+  needs_attention_count: number;
+};
+
+const NEEDS_ATTENTION_PATH = "/api/operator/invoicing/needs-attention";
+
+/** The documents parked `needs_attention`, of every kind, longest waiting first. */
+export async function fetchOperatorNeedsAttention(page = 1): Promise<OperatorNeedsAttentionQueue> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(OPERATOR_INVOICES_PAGE_SIZE),
+  });
+  return fetchEventsJSON<OperatorNeedsAttentionQueue>(`${NEEDS_ATTENTION_PATH}?${params.toString()}`);
+}
+
+/** How many documents need attention: the Operator Dashboard's count, exactly what the queue lists. */
+export async function fetchOperatorNeedsAttentionCount(): Promise<OperatorNeedsAttentionCount> {
+  return fetchEventsJSON<OperatorNeedsAttentionCount>(`${NEEDS_ATTENTION_PATH}/count`);
+}
+
+/**
+ * Records that the operator annulled the document by hand at the SRI portal
+ * (#477) and returns it as it then stands: `annulled`, with who and when.
+ * Nothing is sent to the SRI. Refused with INVOICE_NOT_ANNULLABLE outside
+ * `pending` and `needs_attention`, and with INVOICE_NOT_ISSUED on a document
+ * never signed. Irreversible.
+ */
+export async function annulOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/annul`, {
+    method: "POST",
+  });
 }
 
 /** One Tax Invoice in full. */

@@ -23,7 +23,12 @@ import { useLocale, useMessages, useTranslations } from "next-intl";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { type AppLocale, formatCalendarDay, formatMoney } from "@/lib/format";
-import { type OperatorInvoiceListItem, fetchOperatorInvoices } from "@/lib/operator-api";
+import {
+  type InvoiceKind,
+  type InvoiceKindFilter,
+  type OperatorInvoiceListItem,
+  fetchOperatorInvoices,
+} from "@/lib/operator-api";
 
 import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "./invoice-status";
 
@@ -35,6 +40,13 @@ import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from 
 // and its Sale Confirmation reference beside the manual Tax Invoices, and
 // with no number or date until the Drainer signs it — those cells say so
 // rather than showing a blank, since "not yet" and "unknown" are different.
+// The kind filter (#477) narrows the list to one of the three; the API does
+// the narrowing, so the page's total is the filtered total.
+
+const KIND_FILTERS = ["all", "manual", "sale", "credit_note"] as const satisfies readonly InvoiceKindFilter[];
+
+const SELECT_CLASS =
+  "h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
 function InvoiceRow({ item, locale }: { item: OperatorInvoiceListItem; locale: AppLocale }) {
   const t = useTranslations("operator");
@@ -73,6 +85,7 @@ export function OperatorInvoicesClient() {
   const errorCopy = useMessages().errors;
   const locale = toAppLocale(useLocale());
   const [items, setItems] = useState<OperatorInvoiceListItem[]>([]);
+  const [kind, setKind] = useState<InvoiceKindFilter>("all");
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +94,7 @@ export function OperatorInvoicesClient() {
     setLoading(true);
     setError(null);
     try {
-      const page = await fetchOperatorInvoices();
+      const page = await fetchOperatorInvoices(1, kind);
       setItems(page.data ?? []);
       setForbidden(false);
     } catch (loadError) {
@@ -97,7 +110,7 @@ export function OperatorInvoicesClient() {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [kind]);
 
   useEffect(() => {
     void load();
@@ -140,13 +153,31 @@ export function OperatorInvoicesClient() {
         <p className="text-sm text-muted-foreground">{t("invoicingListLoading")}</p>
       ) : (
         <Card>
-          <CardHeader>
-            <CardTitle>{t("invoicingListTitle")}</CardTitle>
-            <CardDescription>{t("invoicingListDescription")}</CardDescription>
+          <CardHeader className="flex flex-row items-start justify-between gap-4">
+            <div>
+              <CardTitle>{t("invoicingListTitle")}</CardTitle>
+              <CardDescription>{t("invoicingListDescription")}</CardDescription>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">{t("invoicingKindFilterLabel")}</span>
+              <select
+                className={SELECT_CLASS}
+                value={kind}
+                onChange={(event) => setKind(event.target.value as InvoiceKindFilter)}
+              >
+                {KIND_FILTERS.map((option) => (
+                  <option key={option} value={option}>
+                    {option === "all" ? t("invoicingKindFilterAll") : t(INVOICE_KIND_KEYS[option as InvoiceKind])}
+                  </option>
+                ))}
+              </select>
+            </label>
           </CardHeader>
           <CardContent>
             {items.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t("invoicingListEmpty")}</p>
+              <p className="text-sm text-muted-foreground">
+                {kind === "all" ? t("invoicingListEmpty") : t("invoicingListEmptyForKind")}
+              </p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-sm">

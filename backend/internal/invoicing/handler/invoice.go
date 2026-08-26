@@ -156,20 +156,27 @@ func (h *Handler) PreviewTotals(w http.ResponseWriter, r *http.Request) {
 // ListInvoices lists Tax Invoices newest first.
 //
 // @Summary      List Tax Invoices
-// @Description  Returns a page of every Tax Invoice the platform has issued or owes, newest first: the document `kind` (`manual` from the form; `sale` for a Sale Invoice a paid House checkout owed; `credit_note` for its reversal), the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such), and — on a `sale` or `credit_note` — the Ticket Sale id and its Sale Confirmation reference. A document still `owed` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
+// @Description  Returns a page of every Tax Invoice the platform has issued or owes, newest first: the document `kind` (`manual` from the form; `sale` for a Sale Invoice a paid House checkout owed; `credit_note` for its reversal), the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such), and — on a `sale` or `credit_note` — the Ticket Sale id and its Sale Confirmation reference. A document still `owed` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. `attention_since` is when a `needs_attention` document was parked, null otherwise. `kind` narrows the page to one document kind; a value that is not `manual`, `sale` or `credit_note` is refused under VALIDATION_FAILED. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
 // @Tags         operator
 // @Produce      json
 // @Security     BearerAuth
-// @Param        page       query  int  false  "Page number (default 1)"
-// @Param        page_size  query  int  false  "Page size (default 50, max 100)"
+// @Param        kind       query  string  false  "Document kind: manual, sale or credit_note (default every kind)"
+// @Param        page       query  int     false  "Page number (default 1)"
+// @Param        page_size  query  int     false  "Page size (default 50, max 100)"
 // @Success      200  {object}  openapi.EnvelopeInvoiceList
+// @Failure      400  {object}  platform.Envelope
 // @Failure      401  {object}  platform.Envelope
 // @Failure      403  {object}  platform.Envelope
 // @Router       /api/v1/operator/invoicing/invoices [get]
 func (h *Handler) ListInvoices(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
 	query := r.URL.Query()
-	list, err := h.svc.ListInvoices(r.Context(), pageParam(query.Get("page")), pageSizeParam(query.Get("page_size")))
+	kind, fields := kindParam(query.Get("kind"))
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+	list, err := h.svc.ListInvoices(r.Context(), kind, pageParam(query.Get("page")), pageSizeParam(query.Get("page_size")))
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
@@ -337,6 +344,23 @@ func appendText(fields []platform.FieldError, field, value string, isRequired bo
 		return append(fields, platform.FieldError{Field: field, Code: platform.CodeTooLong, Message: "must be a single line"})
 	}
 	return fields
+}
+
+// kindParam parses the `kind` query value: absent is every kind, and
+// anything but the three kinds is refused by name rather than read as
+// "every kind", so a mistyped filter never shows the operator a list that
+// quietly ignores it.
+func kindParam(raw string) (invoicing.DocumentKind, []platform.FieldError) {
+	kind := invoicing.DocumentKind(strings.TrimSpace(raw))
+	switch kind {
+	case "", invoicing.DocumentKindManual, invoicing.DocumentKindSale, invoicing.DocumentKindCreditNote:
+		return kind, nil
+	}
+	return "", []platform.FieldError{{
+		Field:   "kind",
+		Code:    platform.CodeInvalidEnum,
+		Message: "must be one of " + string(invoicing.DocumentKindManual) + ", " + string(invoicing.DocumentKindSale) + ", " + string(invoicing.DocumentKindCreditNote),
+	}}
 }
 
 func pageParam(raw string) int {

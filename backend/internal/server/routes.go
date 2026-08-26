@@ -281,6 +281,15 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// authority again, or send the same document under the same clave.
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/check", operator(http.HandlerFunc(inv.CheckInvoice)))
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/resend", operator(http.HandlerFunc(inv.ResendInvoice)))
+	// Mark annulled (#477): the operator's record of a manual portal act,
+	// allowed from pending or needs_attention, irreversible.
+	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/annul", operator(http.HandlerFunc(inv.AnnulInvoice)))
+	// The documents that need an operator (#477): the Operator Dashboard's
+	// queue, longest waiting first, and its count. Read-only, on the
+	// invoicing module because the documents are its own; the dashboard's
+	// other queues live on the operator module because it composes theirs.
+	mux.Handle("GET /api/v1/operator/invoicing/needs-attention", operator(http.HandlerFunc(inv.ListNeedsAttention)))
+	mux.Handle("GET /api/v1/operator/invoicing/needs-attention/count", operator(http.HandlerFunc(inv.CountNeedsAttention)))
 	// The documents handed over (#456): the signed XML in every status, the
 	// SRI's authorization XML only once authorized. Files, not envelopes.
 	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/xml", operator(http.HandlerFunc(inv.DownloadSignedXML)))

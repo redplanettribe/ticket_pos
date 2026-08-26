@@ -93,6 +93,21 @@ func ErrInvoiceNotIssued() apperror.DomainError {
 	return apperror.New("INVOICE_NOT_ISSUED", "The document has not been issued yet: it is owed, and the Sale Invoice Drainer issues it.", nil)
 }
 
+// ErrInvoiceNotAnnullable: Mark annulled is allowed only on a document that
+// is needs_attention or pending (#477) — one the operator could have annulled
+// by hand at the authority's portal. An authorized one is credited, never
+// annulled here; an annulled or withdrawn one has nothing left to mark.
+func ErrInvoiceNotAnnullable() apperror.DomainError {
+	return apperror.New("INVOICE_NOT_ANNULLABLE", "Only a document that is pending or needs attention can be marked annulled.", nil)
+}
+
+// ErrInvoiceAnnulled: Check status and Resend are refused on an annulled
+// document (#477) — the operator recorded that the authority no longer holds
+// it as valid, and nothing about it is asked or sent again.
+func ErrInvoiceAnnulled() apperror.DomainError {
+	return apperror.New("INVOICE_ANNULLED", "The document has been marked annulled. Nothing can be checked or resent for it.", nil)
+}
+
 // ErrIssuerFieldFrozen: the Issuer detail named in details.field may no
 // longer change — the RUC once any Tax Invoice exists (it is inside every
 // clave de acceso), establecimiento and punto de emisión once a sequence has

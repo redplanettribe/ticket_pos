@@ -181,6 +181,10 @@ func operatorRoutes(orgID string) []struct {
 		// The Tax invoicing surface (#451, ADR 0059) is on the same namespace
 		// behind the same gate; its PUT is asserted in invoicing_test.go.
 		{http.MethodGet, "/api/v1/operator/invoicing/issuers/ec"},
+		// The documents that need an operator (#477): the queue and its count.
+		// Mark annulled is asserted in operator_document_attention_test.go.
+		{http.MethodGet, "/api/v1/operator/invoicing/needs-attention"},
+		{http.MethodGet, "/api/v1/operator/invoicing/needs-attention/count"},
 	}
 }
 

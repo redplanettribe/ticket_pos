@@ -2951,11 +2951,13 @@ export interface paths {
         };
         /**
          * List Tax Invoices
-         * @description Returns a page of every Tax Invoice the platform has issued or owes, newest first: the document `kind` (`manual` from the form; `sale` for a Sale Invoice a paid House checkout owed; `credit_note` for its reversal), the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such), and — on a `sale` or `credit_note` — the Ticket Sale id and its Sale Confirmation reference. A document still `owed` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
+         * @description Returns a page of every Tax Invoice the platform has issued or owes, newest first: the document `kind` (`manual` from the form; `sale` for a Sale Invoice a paid House checkout owed; `credit_note` for its reversal), the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such), and — on a `sale` or `credit_note` — the Ticket Sale id and its Sale Confirmation reference. A document still `owed` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. `attention_since` is when a `needs_attention` document was parked, null otherwise. `kind` narrows the page to one document kind; a value that is not `manual`, `sale` or `credit_note` is refused under VALIDATION_FAILED. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
          */
         get: {
             parameters: {
                 query?: {
+                    /** @description Document kind: manual, sale or credit_note (default every kind) */
+                    kind?: string;
                     /** @description Page number (default 1) */
                     page?: number;
                     /** @description Page size (default 50, max 100) */
@@ -2974,6 +2976,15 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["openapi.EnvelopeInvoiceList"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
                     };
                 };
                 /** @description Unauthorized */
@@ -3149,6 +3160,84 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/invoicing/invoices/{id}/annul": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark a document annulled
+         * @description Records that the Platform Operator annulled the document by hand at the SRI portal — the SRI offers no web service for annulment (ADR 0060) — and answers with the document as it then stands: status `annulled`, `annulled_by` the operator's email from the session and `annulled_at` the moment. Nothing is sent to or asked of the SRI. The row keeps its number, clave de acceso, signed XML and the SRI's last messages; `next_attempt_at` is cleared so the Sale Invoice Drainer never claims it again, and it leaves the needs-attention queue. Allowed only from `pending` or `needs_attention` — the states in which the operator may have acted at the portal — and irreversible: INVOICE_NOT_ANNULLABLE (409) on an authorized, withdrawn or already annulled document, INVOICE_NOT_ISSUED (409) on one still owed or parked unsigned (nothing exists at the SRI to have been annulled), INVOICE_NOT_FOUND (404) otherwise. Afterwards Check status and Resend answer INVOICE_ANNULLED. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Document id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeInvoiceDetail"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -3725,6 +3814,125 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/invoicing/needs-attention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the documents that need attention
+         * @description Returns a page of every document parked `needs_attention` (ADR 0060) — a Sale Invoice or Credit Note the SRI refused, one unanswered for 24 hours and still polled, or one that could not be signed — LONGEST WAITING FIRST by `attention_since`, the instant each was parked. Every row is the invoicing list row (kind, number when signed, Sale Confirmation reference, Recipient, total, status) plus `messages`: the SRI's last messages verbatim, or the platform's own PLATFORM-typed message saying why the document could not be signed. Each row opens the document detail by its id. An empty page is the ordinary answer. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Page number (default 1) */
+                    page?: number;
+                    /** @description Page size (default 50, max 100) */
+                    page_size?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeNeedsAttentionQueue"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/invoicing/needs-attention/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count the documents that need attention
+         * @description Returns needs_attention_count: how many documents are parked `needs_attention` across every kind — the badge the Operator Dashboard shows so that a stuck document is never silent (ADR 0060). It counts exactly what the queue lists, so the two can never disagree. Zero is an ordinary answer. Read-only. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeNeedsAttentionCount"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -12334,6 +12542,16 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeNeedsAttentionCount": {
+            data?: components["schemas"]["service.NeedsAttentionCount"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeNeedsAttentionQueue": {
+            data?: components["schemas"]["service.NeedsAttentionQueue"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeOTPRequest": {
             data?: components["schemas"]["service.OTPRequestResult"];
             error?: components["schemas"]["platform.APIError"];
@@ -13199,6 +13417,46 @@ export interface components {
         "service.DigestSubscriptionView": {
             digest_enabled?: boolean;
         };
+        "service.Document": {
+            /**
+             * @description AttentionSince is when the document was parked needs_attention — how
+             *     long it has been waiting for an operator (#477); null in every other
+             *     state.
+             */
+            attention_since?: string;
+            country?: string;
+            currency?: string;
+            /**
+             * @description Environment is the authority environment the document was signed
+             *     under; null until signed.
+             */
+            environment?: string;
+            id?: string;
+            issued_at?: string;
+            issued_by?: string;
+            /**
+             * @description IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country;
+             *     IssuedAt the instant; IssuedBy the operator (or the Drainer). All null
+             *     until signed.
+             */
+            issued_on?: string;
+            /** @description Kind is why the document exists: manual, sale or credit_note. */
+            kind?: string;
+            /**
+             * @description Number is the document number as printed: estab-ptoEmi-secuencial,
+             *     e.g. 001-001-000000012. Null until signed.
+             */
+            number?: string;
+            recipient?: components["schemas"]["service.RecipientView"];
+            sale_confirmation_ref?: string;
+            status?: string;
+            /**
+             * @description TicketSaleID and SaleConfirmationRef name the Ticket Sale a sale
+             *     document or credit note is about; null on a manual document.
+             */
+            ticket_sale_id?: string;
+            total_cents?: number;
+        };
         "service.DrainResult": {
             /**
              * @description Claimed is how many pending Digests this run took out of the queue. Zero is
@@ -13692,7 +13950,20 @@ export interface components {
         };
         "service.InvoiceDetail": {
             additional_fields?: components["schemas"]["service.AdditionalFieldView"][];
+            annulled_at?: string;
+            /**
+             * @description AnnulledBy and AnnulledAt are the operator who marked the document
+             *     annulled after annulling it by hand at the SRI portal, and when (#477).
+             *     Both null unless the document is annulled.
+             */
+            annulled_by?: string;
             attempts?: components["schemas"]["service.AttemptView"][];
+            /**
+             * @description AttentionSince is when the document was parked needs_attention — how
+             *     long it has been waiting for an operator (#477); null in every other
+             *     state.
+             */
+            attention_since?: string;
             /**
              * @description CheckStatusHint is true when the invoice is pending and the authority
              *     holds the document (received, in processing, or 43/70 on a resend): the
@@ -13764,6 +14035,12 @@ export interface components {
             pagination?: components["schemas"]["service.InvoicePagination"];
         };
         "service.InvoiceListItem": {
+            /**
+             * @description AttentionSince is when the document was parked needs_attention — how
+             *     long it has been waiting for an operator (#477); null in every other
+             *     state.
+             */
+            attention_since?: string;
             country?: string;
             currency?: string;
             /**
@@ -13822,6 +14099,54 @@ export interface components {
             organization_name?: string;
             organization_slug?: string;
             role?: string;
+        };
+        "service.NeedsAttentionCount": {
+            needs_attention_count?: number;
+        };
+        "service.NeedsAttentionItem": {
+            /**
+             * @description AttentionSince is when the document was parked needs_attention — how
+             *     long it has been waiting for an operator (#477); null in every other
+             *     state.
+             */
+            attention_since?: string;
+            country?: string;
+            currency?: string;
+            /**
+             * @description Environment is the authority environment the document was signed
+             *     under; null until signed.
+             */
+            environment?: string;
+            id?: string;
+            issued_at?: string;
+            issued_by?: string;
+            /**
+             * @description IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country;
+             *     IssuedAt the instant; IssuedBy the operator (or the Drainer). All null
+             *     until signed.
+             */
+            issued_on?: string;
+            /** @description Kind is why the document exists: manual, sale or credit_note. */
+            kind?: string;
+            messages?: components["schemas"]["service.AuthorityMessageView"][];
+            /**
+             * @description Number is the document number as printed: estab-ptoEmi-secuencial,
+             *     e.g. 001-001-000000012. Null until signed.
+             */
+            number?: string;
+            recipient?: components["schemas"]["service.RecipientView"];
+            sale_confirmation_ref?: string;
+            status?: string;
+            /**
+             * @description TicketSaleID and SaleConfirmationRef name the Ticket Sale a sale
+             *     document or credit note is about; null on a manual document.
+             */
+            ticket_sale_id?: string;
+            total_cents?: number;
+        };
+        "service.NeedsAttentionQueue": {
+            data?: components["schemas"]["service.NeedsAttentionItem"][];
+            pagination?: components["schemas"]["service.InvoicePagination"];
         };
         "service.OTPRequestResult": {
             message?: string;
@@ -15073,6 +15398,14 @@ export interface components {
             ticket_type_name?: string;
         };
         "service.SaleLookup": {
+            /**
+             * @description Documents are the Tax Invoices about this Sale (#477, ADR 0060): the
+             *     Sale Invoice a paid House checkout owed and the Credit Note its
+             *     reversal owed, oldest first, each with its kind, state and number, and
+             *     its id as the link to the document detail. Empty — never null — on a
+             *     Sale that owes nothing, which is every Sale outside a House Organization.
+             */
+            documents?: components["schemas"]["service.Document"][];
             organization?: components["schemas"]["service.Organization"];
             re_addressing?: components["schemas"]["service.ReAddressingBlock"];
             sale?: components["schemas"]["service.Sale"];

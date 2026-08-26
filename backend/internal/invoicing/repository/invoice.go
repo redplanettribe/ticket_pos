@@ -223,12 +223,17 @@ type OutcomeUpdate struct {
 	// settled one. Written on every answer, so a claim's lease never outlives
 	// the answer it was taken for.
 	NextAttemptAt *time.Time
+	// At is the service clock's instant the answer was applied: what
+	// attention_since records when the answer parks the document (#477).
+	At time.Time
 }
 
 // ApplyOutcome writes the authority's latest answer onto the invoice: its
 // status, the messages verbatim, when the Drainer looks again, and — when
 // authorized — the authorization number, date and XML. The signed document
-// is never touched here.
+// is never touched here. attention_since is set when the answer parks the
+// document and kept while it stays parked; any other answer clears it
+// (#477).
 func (r *Repository) ApplyOutcome(ctx context.Context, invoiceID string, u OutcomeUpdate) error {
 	messages, err := json.Marshal(messagesOrEmpty(u.Messages))
 	if err != nil {
@@ -246,9 +251,10 @@ func (r *Repository) ApplyOutcome(ctx context.Context, invoiceID string, u Outco
 			last_messages = $3,
 			authorization_xml = COALESCE($4, authorization_xml),
 			next_attempt_at = $5,
+			attention_since = `+attentionSinceExpr("$2", "$6")+`,
 			updated_at = NOW()
 		WHERE id = $1
-	`, invoiceID, u.Status, messages, u.AuthorizationXML, u.NextAttemptAt)
+	`, invoiceID, u.Status, messages, u.AuthorizationXML, u.NextAttemptAt, u.At)
 	if err != nil {
 		return fmt.Errorf("apply outcome: %w", err)
 	}
@@ -281,12 +287,51 @@ func (r *Repository) RecordAttempt(ctx context.Context, a invoicing.Attempt) err
 	return nil
 }
 
+// attentionSinceExpr is the one rule for attention_since, stated once for
+// every write that moves a status: set at `at` when the row enters
+// needs_attention, kept while it stays there, NULL in any other state — so
+// the queue's "since when" is the instant the document was parked and not
+// the last time it was polled.
+func attentionSinceExpr(status, at string) string {
+	return `CASE WHEN ` + status + ` = 'needs_attention' THEN COALESCE(attention_since, ` + at + `) ELSE NULL END`
+}
+
+// AnnulInvoice records the operator's manual portal annulment (#477): the
+// status, who and when, and nothing else — the number, the clave, the
+// signed XML and the authority's last messages stay exactly as they were.
+// next_attempt_at is cleared so the Drainer never claims it again, and
+// attention_since with it. Guarded on the two states Mark annulled is
+// allowed from, so a second press, or a press racing a late AUTORIZADO,
+// finds no row to update; the service reads the row back to say which.
+func (r *Repository) AnnulInvoice(ctx context.Context, invoiceID, annulledBy string, annulledAt time.Time) (bool, error) {
+	res, err := r.db.Pool.ExecContext(ctx, `
+		UPDATE invoicing_invoices SET
+			status = $2,
+			annulled_by = $3,
+			annulled_at = $4,
+			next_attempt_at = NULL,
+			attention_since = NULL,
+			updated_at = NOW()
+		WHERE id = $1 AND status IN ($5, $6) AND signed_xml IS NOT NULL
+	`, invoiceID, invoicing.InvoiceStatusAnnulled, annulledBy, annulledAt,
+		invoicing.InvoiceStatusNeedsAttention, invoicing.InvoiceStatusPending)
+	if err != nil {
+		return false, fmt.Errorf("annul invoice: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("annul invoice: %w", err)
+	}
+	return n == 1, nil
+}
+
 const invoiceColumns = `
 	i.id, i.kind, i.issuer_id, i.country, i.environment, i.status, i.issued_on, i.issued_at, i.issued_by,
 	i.recipient_tax_id_type, i.recipient_tax_id, i.recipient_legal_name, i.recipient_address, i.recipient_email,
 	i.issuer_snapshot, i.currency, i.subtotal_cents, i.discount_cents, i.iva_cents, i.total_cents, i.payment_method,
 	i.signed_xml, i.authorization_xml, i.last_messages,
 	i.ticket_sale_id, ts.confirmation_ref, i.credits_invoice_id, i.reversal_reason, i.iva_rate, i.delivered_at, i.next_attempt_at,
+	i.attention_since, i.annulled_by, i.annulled_at,
 	i.created_at, i.updated_at,
 	e.cod_doc, e.estab, e.pto_emi, e.secuencial, e.access_key, e.authorization_number, e.authorization_date`
 
@@ -316,33 +361,100 @@ func (r *Repository) GetInvoice(ctx context.Context, id string) (*InvoiceRow, er
 
 // ListInvoices reads a page of Tax Invoices newest first — by emission
 // instant once signed, by owing instant before — without their lines,
-// fields or attempts, and the total count.
-func (r *Repository) ListInvoices(ctx context.Context, page, pageSize int) ([]InvoiceRow, int, error) {
+// fields or attempts, and the total count. kind narrows the page to one
+// document kind (#477); "" is every kind.
+func (r *Repository) ListInvoices(ctx context.Context, kind invoicing.DocumentKind, page, pageSize int) ([]InvoiceRow, int, error) {
 	var total int
-	if err := r.db.Pool.QueryRowContext(ctx, `SELECT COUNT(*) FROM invoicing_invoices`).Scan(&total); err != nil {
+	if err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM invoicing_invoices WHERE ($1 = '' OR kind = $1)
+	`, string(kind)).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count invoices: %w", err)
 	}
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT `+invoiceColumns+invoiceFrom+`
+		WHERE ($1 = '' OR i.kind = $1)
 		ORDER BY COALESCE(i.issued_at, i.created_at) DESC, i.created_at DESC, i.id DESC
-		LIMIT $1 OFFSET $2
-	`, pageSize, (page-1)*pageSize)
+		LIMIT $2 OFFSET $3
+	`, string(kind), pageSize, (page-1)*pageSize)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list invoices: %w", err)
 	}
 	defer rows.Close()
+	out, err := scanInvoices(rows)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list invoices: %w", err)
+	}
+	return out, total, nil
+}
+
+// ListNeedsAttention reads a page of the documents parked needs_attention,
+// of every kind, LONGEST WAITING FIRST — by the instant each was parked —
+// and how many there are in all (#477). Ties, which the same drain round
+// can produce, break on the row's own age.
+func (r *Repository) ListNeedsAttention(ctx context.Context, page, pageSize int) ([]InvoiceRow, int, error) {
+	total, err := r.CountNeedsAttention(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT `+invoiceColumns+invoiceFrom+`
+		WHERE i.status = $1
+		ORDER BY i.attention_since ASC, i.created_at ASC, i.id ASC
+		LIMIT $2 OFFSET $3
+	`, invoicing.InvoiceStatusNeedsAttention, pageSize, (page-1)*pageSize)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list needs attention: %w", err)
+	}
+	defer rows.Close()
+	out, err := scanInvoices(rows)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list needs attention: %w", err)
+	}
+	return out, total, nil
+}
+
+// CountNeedsAttention counts the documents parked needs_attention: the
+// Operator Dashboard's badge, and exactly what the queue lists.
+func (r *Repository) CountNeedsAttention(ctx context.Context) (int, error) {
+	var n int
+	if err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM invoicing_invoices WHERE status = $1
+	`, invoicing.InvoiceStatusNeedsAttention).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count needs attention: %w", err)
+	}
+	return n, nil
+}
+
+// ListInvoicesBySale reads every document about one Ticket Sale — its Sale
+// Invoice and, later, its Credit Note — oldest first, for the operator's
+// Sale lookup (#477). Without lines, fields or attempts.
+func (r *Repository) ListInvoicesBySale(ctx context.Context, ticketSaleID string) ([]InvoiceRow, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT `+invoiceColumns+invoiceFrom+`
+		WHERE i.ticket_sale_id = $1
+		ORDER BY i.created_at ASC, i.id ASC
+	`, ticketSaleID)
+	if err != nil {
+		return nil, fmt.Errorf("list invoices by sale: %w", err)
+	}
+	defer rows.Close()
+	out, err := scanInvoices(rows)
+	if err != nil {
+		return nil, fmt.Errorf("list invoices by sale: %w", err)
+	}
+	return out, nil
+}
+
+func scanInvoices(rows *sql.Rows) ([]InvoiceRow, error) {
 	var out []InvoiceRow
 	for rows.Next() {
 		row, err := scanInvoice(rows)
 		if err != nil {
-			return nil, 0, fmt.Errorf("scan invoice: %w", err)
+			return nil, fmt.Errorf("scan invoice: %w", err)
 		}
 		out = append(out, *row)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("list invoices: %w", err)
-	}
-	return out, total, nil
+	return out, rows.Err()
 }
 
 func (r *Repository) loadInvoiceChildren(ctx context.Context, row *InvoiceRow) error {
@@ -420,6 +532,8 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 		creditsInvoiceID, reversalReason sql.NullString
 		ivaRate                          sql.NullString
 		deliveredAt, nextAttemptAt       sql.NullTime
+		attentionSince, annulledAt       sql.NullTime
+		annulledBy                       sql.NullString
 		codDoc, estab, ptoEmi, accessKey sql.NullString
 		secuencial                       sql.NullInt64
 		authNumber                       sql.NullString
@@ -431,6 +545,7 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 		&snapshot, &inv.Currency, &inv.SubtotalCents, &inv.DiscountCents, &inv.IVACents, &inv.TotalCents, &inv.PaymentMethod,
 		&inv.SignedXML, &inv.AuthorizationXML, &messages,
 		&ticketSaleID, &confirmationRef, &creditsInvoiceID, &reversalReason, &ivaRate, &deliveredAt, &nextAttemptAt,
+		&attentionSince, &annulledBy, &annulledAt,
 		&inv.CreatedAt, &inv.UpdatedAt,
 		&codDoc, &estab, &ptoEmi, &secuencial, &accessKey, &authNumber, &authDate,
 	); err != nil {
@@ -462,6 +577,15 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 	if nextAttemptAt.Valid {
 		t := nextAttemptAt.Time
 		inv.NextAttemptAt = &t
+	}
+	if attentionSince.Valid {
+		t := attentionSince.Time
+		inv.AttentionSince = &t
+	}
+	inv.AnnulledBy = annulledBy.String
+	if annulledAt.Valid {
+		t := annulledAt.Time
+		inv.AnnulledAt = &t
 	}
 	if accessKey.Valid {
 		row.Ecuador = &invoicing.EcuadorInvoiceDetails{

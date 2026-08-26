@@ -141,6 +141,19 @@ type Money interface {
 	SaleReAddressings(ctx context.Context, sale *salessvc.OperatorSale) (*salessvc.SaleReAddressingBlock, error)
 }
 
+// Documents is what the operator surface needs from invoicing: the Tax
+// Invoices about one Ticket Sale — its Sale Invoice and its Credit Note —
+// for the walk from a buyer's reference to their factura (#477, ADR 0060).
+// The invoicing module keeps its own operator routes (the queue, the list,
+// the detail); this seam exists only so the Sale lookup, which the operator
+// module composes, can name the Sale's documents beside it.
+type Documents interface {
+	// SaleDocuments returns the documents about one Ticket Sale, oldest
+	// first, as the invoicing list shows them; an empty list for a Sale that
+	// owes nothing.
+	SaleDocuments(ctx context.Context, ticketSaleID string) ([]Document, error)
+}
+
 // Service implements the Operator Dashboard's operations.
 type Service struct {
 	organizations Organizations
@@ -150,11 +163,23 @@ type Service struct {
 	// this service composes that is about a person rather than about money
 	// (#271). See consent.go.
 	consents Consents
+	// documents is the invoicing seam (#477); nil is the "no invoicing"
+	// deployment, where every Sale has no documents.
+	documents Documents
 }
 
 // New returns an operator service over the four owning modules.
 func New(organizations Organizations, events Events, money Money, consents Consents) *Service {
 	return &Service{organizations: organizations, events: events, money: money, consents: consents}
+}
+
+// WithDocuments gives this service the invoicing seam the Sale lookup reads
+// a Sale's documents through (#477). Tied on after construction, the way
+// sales takes its Sale Invoicing seam: the invoicing module is built after
+// the operator one, and a build without the line composes nothing.
+func (s *Service) WithDocuments(documents Documents) *Service {
+	s.documents = documents
+	return s
 }
 
 // PlatformSummary is the Operator Dashboard's headline: the platform's money,

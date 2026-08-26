@@ -295,7 +295,7 @@ func (s *Service) settleRound(ctx context.Context, id string) (invoicing.Invoice
 func (s *Service) reschedule(ctx context.Context, row *repository.InvoiceRow) error {
 	now := s.clock()
 	next := now.Add(ladderDelay(now.Sub(row.Invoice.IssuedAt)))
-	return s.repo.Reschedule(context.WithoutCancel(ctx), row.Invoice.ID, undecidedStatus(&row.Invoice, now), nil, &next)
+	return s.repo.Reschedule(context.WithoutCancel(ctx), row.Invoice.ID, undecidedStatus(&row.Invoice, now), nil, &next, now)
 }
 
 // signOwedInvoice turns an owed row into a signed, pending one, consuming a
@@ -308,7 +308,7 @@ func (s *Service) signOwedInvoice(ctx context.Context, row *repository.InvoiceRo
 	park := func(code, message string) (*repository.InvoiceRow, error) {
 		next := now.Add(SaleInvoiceLadder[len(SaleInvoiceLadder)-1])
 		msgs := []invoicing.AuthorityMessage{{Identifier: code, Message: message, Type: platformMessageType}}
-		if err := s.repo.Reschedule(context.WithoutCancel(ctx), inv.ID, invoicing.InvoiceStatusNeedsAttention, msgs, &next); err != nil {
+		if err := s.repo.Reschedule(context.WithoutCancel(ctx), inv.ID, invoicing.InvoiceStatusNeedsAttention, msgs, &next, now); err != nil {
 			return nil, err
 		}
 		s.logger.Warn("invoicing: sale invoice cannot be signed; parked needs_attention with no number consumed", "invoice_id", inv.ID, "reason", code)

@@ -143,7 +143,23 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
         </Card>
       ) : null}
 
-      {signed ? <OperatorInvoiceActions invoice={invoice} onUpdated={setInvoice} /> : null}
+      {invoice.annulled_by && invoice.annulled_at ? (
+        // The annulment trail (#477): who recorded the portal act and when.
+        // The operator's email and the moment are data; the sentence is copy.
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("invoicingAnnulmentTitle")}</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {t("invoicingAnnulmentTrail", {
+              by: invoice.annulled_by,
+              when: formatDateTime(invoice.annulled_at, PLATFORM_TIME_ZONE, locale) ?? invoice.annulled_at,
+            })}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <OperatorInvoiceActions invoice={invoice} onUpdated={setInvoice} />
 
       <Card>
         <CardHeader>

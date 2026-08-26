@@ -2003,6 +2003,34 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeNeedsAttentionCount": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.NeedsAttentionCount"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeNeedsAttentionQueue": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.NeedsAttentionQueue"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeOTPRequest": {
                 "properties": {
                     "data": {
@@ -3418,6 +3446,62 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.Document": {
+                "properties": {
+                    "attention_since": {
+                        "description": "AttentionSince is when the document was parked needs_attention — how\nlong it has been waiting for an operator (#477); null in every other\nstate.",
+                        "type": "string"
+                    },
+                    "country": {
+                        "type": "string"
+                    },
+                    "currency": {
+                        "type": "string"
+                    },
+                    "environment": {
+                        "description": "Environment is the authority environment the document was signed\nunder; null until signed.",
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "issued_at": {
+                        "type": "string"
+                    },
+                    "issued_by": {
+                        "type": "string"
+                    },
+                    "issued_on": {
+                        "description": "IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country;\nIssuedAt the instant; IssuedBy the operator (or the Drainer). All null\nuntil signed.",
+                        "type": "string"
+                    },
+                    "kind": {
+                        "description": "Kind is why the document exists: manual, sale or credit_note.",
+                        "type": "string"
+                    },
+                    "number": {
+                        "description": "Number is the document number as printed: estab-ptoEmi-secuencial,\ne.g. 001-001-000000012. Null until signed.",
+                        "type": "string"
+                    },
+                    "recipient": {
+                        "$ref": "#/components/schemas/service.RecipientView"
+                    },
+                    "sale_confirmation_ref": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
+                        "description": "TicketSaleID and SaleConfirmationRef name the Ticket Sale a sale\ndocument or credit note is about; null on a manual document.",
+                        "type": "string"
+                    },
+                    "total_cents": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "service.DrainResult": {
                 "properties": {
                     "claimed": {
@@ -4020,12 +4104,23 @@ const docTemplate = `{
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "annulled_at": {
+                        "type": "string"
+                    },
+                    "annulled_by": {
+                        "description": "AnnulledBy and AnnulledAt are the operator who marked the document\nannulled after annulling it by hand at the SRI portal, and when (#477).\nBoth null unless the document is annulled.",
+                        "type": "string"
+                    },
                     "attempts": {
                         "items": {
                             "$ref": "#/components/schemas/service.AttemptView"
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "attention_since": {
+                        "description": "AttentionSince is when the document was parked needs_attention — how\nlong it has been waiting for an operator (#477); null in every other\nstate.",
+                        "type": "string"
                     },
                     "check_status_hint": {
                         "description": "CheckStatusHint is true when the invoice is pending and the authority\nholds the document (received, in processing, or 43/70 on a resend): the\npage says \"check status\" rather than showing an error (#455).",
@@ -4154,6 +4249,10 @@ const docTemplate = `{
             },
             "service.InvoiceListItem": {
                 "properties": {
+                    "attention_since": {
+                        "description": "AttentionSince is when the document was parked needs_attention — how\nlong it has been waiting for an operator (#477); null in every other\nstate.",
+                        "type": "string"
+                    },
                     "country": {
                         "type": "string"
                     },
@@ -4273,6 +4372,92 @@ const docTemplate = `{
                     },
                     "role": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.NeedsAttentionCount": {
+                "properties": {
+                    "needs_attention_count": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.NeedsAttentionItem": {
+                "properties": {
+                    "attention_since": {
+                        "description": "AttentionSince is when the document was parked needs_attention — how\nlong it has been waiting for an operator (#477); null in every other\nstate.",
+                        "type": "string"
+                    },
+                    "country": {
+                        "type": "string"
+                    },
+                    "currency": {
+                        "type": "string"
+                    },
+                    "environment": {
+                        "description": "Environment is the authority environment the document was signed\nunder; null until signed.",
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "issued_at": {
+                        "type": "string"
+                    },
+                    "issued_by": {
+                        "type": "string"
+                    },
+                    "issued_on": {
+                        "description": "IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country;\nIssuedAt the instant; IssuedBy the operator (or the Drainer). All null\nuntil signed.",
+                        "type": "string"
+                    },
+                    "kind": {
+                        "description": "Kind is why the document exists: manual, sale or credit_note.",
+                        "type": "string"
+                    },
+                    "messages": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.AuthorityMessageView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "number": {
+                        "description": "Number is the document number as printed: estab-ptoEmi-secuencial,\ne.g. 001-001-000000012. Null until signed.",
+                        "type": "string"
+                    },
+                    "recipient": {
+                        "$ref": "#/components/schemas/service.RecipientView"
+                    },
+                    "sale_confirmation_ref": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
+                        "description": "TicketSaleID and SaleConfirmationRef name the Ticket Sale a sale\ndocument or credit note is about; null on a manual document.",
+                        "type": "string"
+                    },
+                    "total_cents": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.NeedsAttentionQueue": {
+                "properties": {
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.NeedsAttentionItem"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "pagination": {
+                        "$ref": "#/components/schemas/service.InvoicePagination"
                     }
                 },
                 "type": "object"
@@ -5999,6 +6184,14 @@ const docTemplate = `{
             },
             "service.SaleLookup": {
                 "properties": {
+                    "documents": {
+                        "description": "Documents are the Tax Invoices about this Sale (#477, ADR 0060): the\nSale Invoice a paid House checkout owed and the Credit Note its\nreversal owed, oldest first, each with its kind, state and number, and\nits id as the link to the document detail. Empty — never null — on a\nSale that owes nothing, which is every Sale outside a House Organization.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.Document"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "organization": {
                         "$ref": "#/components/schemas/service.Organization"
                     },
@@ -9540,8 +9733,16 @@ const docTemplate = `{
         },
         "/api/v1/operator/invoicing/invoices": {
             "get": {
-                "description": "Returns a page of every Tax Invoice the platform has issued or owes, newest first: the document ` + "`" + `kind` + "`" + ` (` + "`" + `manual` + "`" + ` from the form; ` + "`" + `sale` + "`" + ` for a Sale Invoice a paid House checkout owed; ` + "`" + `credit_note` + "`" + ` for its reversal), the printed number (` + "`" + `001-001-000000012` + "`" + `), emission date, Recipient, total, status, country and the environment it was issued under (` + "`" + `test` + "`" + ` invoices are badged as such), and — on a ` + "`" + `sale` + "`" + ` or ` + "`" + `credit_note` + "`" + ` — the Ticket Sale id and its Sale Confirmation reference. A document still ` + "`" + `owed` + "`" + ` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.",
+                "description": "Returns a page of every Tax Invoice the platform has issued or owes, newest first: the document ` + "`" + `kind` + "`" + ` (` + "`" + `manual` + "`" + ` from the form; ` + "`" + `sale` + "`" + ` for a Sale Invoice a paid House checkout owed; ` + "`" + `credit_note` + "`" + ` for its reversal), the printed number (` + "`" + `001-001-000000012` + "`" + `), emission date, Recipient, total, status, country and the environment it was issued under (` + "`" + `test` + "`" + ` invoices are badged as such), and — on a ` + "`" + `sale` + "`" + ` or ` + "`" + `credit_note` + "`" + ` — the Ticket Sale id and its Sale Confirmation reference. A document still ` + "`" + `owed` + "`" + ` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. ` + "`" + `attention_since` + "`" + ` is when a ` + "`" + `needs_attention` + "`" + ` document was parked, null otherwise. ` + "`" + `kind` + "`" + ` narrows the page to one document kind; a value that is not ` + "`" + `manual` + "`" + `, ` + "`" + `sale` + "`" + ` or ` + "`" + `credit_note` + "`" + ` is refused under VALIDATION_FAILED. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.",
                 "parameters": [
+                    {
+                        "description": "Document kind: manual, sale or credit_note (default every kind)",
+                        "in": "query",
+                        "name": "kind",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
                     {
                         "description": "Page number (default 1)",
                         "in": "query",
@@ -9569,6 +9770,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
                     },
                     "401": {
                         "content": {
@@ -9844,6 +10055,83 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Get a Tax Invoice",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/invoices/{id}/annul": {
+            "post": {
+                "description": "Records that the Platform Operator annulled the document by hand at the SRI portal — the SRI offers no web service for annulment (ADR 0060) — and answers with the document as it then stands: status ` + "`" + `annulled` + "`" + `, ` + "`" + `annulled_by` + "`" + ` the operator's email from the session and ` + "`" + `annulled_at` + "`" + ` the moment. Nothing is sent to or asked of the SRI. The row keeps its number, clave de acceso, signed XML and the SRI's last messages; ` + "`" + `next_attempt_at` + "`" + ` is cleared so the Sale Invoice Drainer never claims it again, and it leaves the needs-attention queue. Allowed only from ` + "`" + `pending` + "`" + ` or ` + "`" + `needs_attention` + "`" + ` — the states in which the operator may have acted at the portal — and irreversible: INVOICE_NOT_ANNULLABLE (409) on an authorized, withdrawn or already annulled document, INVOICE_NOT_ISSUED (409) on one still owed or parked unsigned (nothing exists at the SRI to have been annulled), INVOICE_NOT_FOUND (404) otherwise. Afterwards Check status and Resend answer INVOICE_ANNULLED. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Document id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeInvoiceDetail"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Mark a document annulled",
                 "tags": [
                     "operator"
                 ]
@@ -10363,6 +10651,116 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Upload the Ecuador Issuer's signing certificate",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/needs-attention": {
+            "get": {
+                "description": "Returns a page of every document parked ` + "`" + `needs_attention` + "`" + ` (ADR 0060) — a Sale Invoice or Credit Note the SRI refused, one unanswered for 24 hours and still polled, or one that could not be signed — LONGEST WAITING FIRST by ` + "`" + `attention_since` + "`" + `, the instant each was parked. Every row is the invoicing list row (kind, number when signed, Sale Confirmation reference, Recipient, total, status) plus ` + "`" + `messages` + "`" + `: the SRI's last messages verbatim, or the platform's own PLATFORM-typed message saying why the document could not be signed. Each row opens the document detail by its id. An empty page is the ordinary answer. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Page number (default 1)",
+                        "in": "query",
+                        "name": "page",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Page size (default 50, max 100)",
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeNeedsAttentionQueue"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List the documents that need attention",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/needs-attention/count": {
+            "get": {
+                "description": "Returns needs_attention_count: how many documents are parked ` + "`" + `needs_attention` + "`" + ` across every kind — the badge the Operator Dashboard shows so that a stuck document is never silent (ADR 0060). It counts exactly what the queue lists, so the two can never disagree. Zero is an ordinary answer. Read-only. Platform Operator only.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeNeedsAttentionCount"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Count the documents that need attention",
                 "tags": [
                     "operator"
                 ]

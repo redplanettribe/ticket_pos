@@ -19,6 +19,12 @@ type SaleLookup struct {
 	// beside Reverse, and the page that offers both reads once. It carries no
 	// token and no link, ever.
 	ReAddressing ReAddressingBlock `json:"re_addressing"`
+	// Documents are the Tax Invoices about this Sale (#477, ADR 0060): the
+	// Sale Invoice a paid House checkout owed and the Credit Note its
+	// reversal owed, oldest first, each with its kind, state and number, and
+	// its id as the link to the document detail. Empty — never null — on a
+	// Sale that owes nothing, which is every Sale outside a House Organization.
+	Documents []Document `json:"documents"`
 }
 
 // LookUpSale finds one Ticket Sale by its Sale Confirmation reference, across
@@ -49,5 +55,11 @@ func (s *Service) LookUpSale(ctx context.Context, confirmationRef string) (*Sale
 	if err != nil {
 		return nil, err
 	}
-	return &SaleLookup{Sale: *sale, Organization: *org, ReAddressing: *reAddressing}, nil
+	documents := []Document{}
+	if s.documents != nil {
+		if documents, err = s.documents.SaleDocuments(ctx, sale.ID); err != nil {
+			return nil, err
+		}
+	}
+	return &SaleLookup{Sale: *sale, Organization: *org, ReAddressing: *reAddressing, Documents: documents}, nil
 }

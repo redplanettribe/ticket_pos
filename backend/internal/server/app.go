@@ -555,6 +555,10 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// gap #471 exists to close — but it would fail no sale, because the seam
 	// is nil-safe by design.
 	salesService = salesService.WithSaleInvoicing(invoicingService)
+	// The Sale lookup names a Sale's documents (#477): the operator module
+	// composes the invoicing module's answer the way it composes the other
+	// three, tied on here because invoicing is built after it.
+	operatorService = operatorService.WithDocuments(invoicingService)
 
 	return &App{
 		Config:            cfg,
