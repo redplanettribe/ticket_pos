@@ -236,6 +236,11 @@ type OutcomeUpdate struct {
 	// At is the service clock's instant the answer was applied: what
 	// attention_since records when the answer parks the document (#477).
 	At time.Time
+	// RecipientWarning says the answer carried the authority's warning
+	// about the Recipient's Tax ID (#482). It is ORed onto the row, never
+	// written over it: once raised the warning stands until the document
+	// is superseded, whatever a later answer says.
+	RecipientWarning bool
 }
 
 // ApplyOutcome writes the authority's latest answer onto the invoice: its
@@ -243,7 +248,9 @@ type OutcomeUpdate struct {
 // authorized — the authorization number, date and XML. The signed document
 // is never touched here. attention_since is set when the answer parks the
 // document and kept while it stays parked; any other answer clears it
-// (#477).
+// (#477). recipient_warning is raised when the answer says so and never
+// lowered here (#482): the one write that clears it is the supersession a
+// Sale Invoice Reissue records.
 //
 // GUARDED ON u.From, the status the answer was asked for. An operator may
 // have marked the document annulled while the authority was being asked
@@ -267,9 +274,10 @@ func (r *Repository) ApplyOutcome(ctx context.Context, invoiceID string, u Outco
 			authorization_xml = COALESCE($4, authorization_xml),
 			next_attempt_at = CASE WHEN $7 THEN next_attempt_at ELSE $5::timestamptz END,
 			attention_since = `+attentionSinceExpr("$2", "$6")+`,
+			recipient_warning = recipient_warning OR $9,
 			updated_at = NOW()
 		WHERE id = $1 AND status = $8
-	`, invoiceID, u.Status, messages, u.AuthorizationXML, u.NextAttemptAt, u.At, u.KeepNextAttemptAt, u.From)
+	`, invoiceID, u.Status, messages, u.AuthorizationXML, u.NextAttemptAt, u.At, u.KeepNextAttemptAt, u.From, u.RecipientWarning)
 	if err != nil {
 		return false, fmt.Errorf("apply outcome: %w", err)
 	}
@@ -354,7 +362,7 @@ const invoiceColumns = `
 	i.signed_xml, i.authorization_xml, i.last_messages,
 	i.ticket_sale_id, ts.confirmation_ref, i.credits_invoice_id, i.credit_note_reason, i.iva_rate, i.delivered_at, i.next_attempt_at,
 	(SELECT c.id FROM invoicing_invoices c WHERE c.credits_invoice_id = i.id ORDER BY c.created_at DESC, c.id DESC LIMIT 1),
-	i.attention_since, i.annulled_by, i.annulled_at,
+	i.attention_since, i.annulled_by, i.annulled_at, i.recipient_warning,
 	i.created_at, i.updated_at,
 	e.cod_doc, e.estab, e.pto_emi, e.secuencial, e.access_key, e.authorization_number, e.authorization_date`
 
@@ -384,23 +392,33 @@ func (r *Repository) GetInvoice(ctx context.Context, id string) (*InvoiceRow, er
 	return row, nil
 }
 
+// InvoiceFilter is what narrows the invoices list (#477, #482). The zero
+// value is every document.
+type InvoiceFilter struct {
+	// Kind narrows the page to one document kind; "" is every kind.
+	Kind invoicing.DocumentKind
+	// RecipientWarning narrows the page to the documents carrying a
+	// Recipient Warning.
+	RecipientWarning bool
+}
+
 // ListInvoices reads a page of Tax Invoices newest first — by emission
 // instant once signed, by owing instant before — without their lines,
-// fields or attempts, and the total count. kind narrows the page to one
-// document kind (#477); "" is every kind.
-func (r *Repository) ListInvoices(ctx context.Context, kind invoicing.DocumentKind, page, pageSize int) ([]InvoiceRow, int, error) {
+// fields or attempts, and the total count under the same filter.
+func (r *Repository) ListInvoices(ctx context.Context, filter InvoiceFilter, page, pageSize int) ([]InvoiceRow, int, error) {
 	var total int
 	if err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM invoicing_invoices WHERE ($1 = '' OR kind = $1)
-	`, string(kind)).Scan(&total); err != nil {
+		SELECT COUNT(*) FROM invoicing_invoices
+		WHERE ($1 = '' OR kind = $1) AND (NOT $2 OR recipient_warning)
+	`, string(filter.Kind), filter.RecipientWarning).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count invoices: %w", err)
 	}
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT `+invoiceColumns+invoiceFrom+`
-		WHERE ($1 = '' OR i.kind = $1)
+		WHERE ($1 = '' OR i.kind = $1) AND (NOT $2 OR i.recipient_warning)
 		ORDER BY COALESCE(i.issued_at, i.created_at) DESC, i.created_at DESC, i.id DESC
-		LIMIT $2 OFFSET $3
-	`, string(kind), pageSize, (page-1)*pageSize)
+		LIMIT $3 OFFSET $4
+	`, string(filter.Kind), filter.RecipientWarning, pageSize, (page-1)*pageSize)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list invoices: %w", err)
 	}
@@ -446,6 +464,19 @@ func (r *Repository) CountNeedsAttention(ctx context.Context) (int, error) {
 		SELECT COUNT(*) FROM invoicing_invoices WHERE status = $1
 	`, invoicing.InvoiceStatusNeedsAttention).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count needs attention: %w", err)
+	}
+	return n, nil
+}
+
+// CountRecipientWarnings counts the documents carrying a Recipient Warning
+// (#482): the Operator Dashboard's second badge, beside the needs_attention
+// count, and exactly what the list's filter finds.
+func (r *Repository) CountRecipientWarnings(ctx context.Context) (int, error) {
+	var n int
+	if err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM invoicing_invoices WHERE recipient_warning
+	`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count recipient warnings: %w", err)
 	}
 	return n, nil
 }
@@ -582,7 +613,7 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 		&inv.SignedXML, &inv.AuthorizationXML, &messages,
 		&ticketSaleID, &confirmationRef, &creditsInvoiceID, &creditNoteReason, &ivaRate, &deliveredAt, &nextAttemptAt,
 		&creditedByInvoiceID,
-		&attentionSince, &annulledBy, &annulledAt,
+		&attentionSince, &annulledBy, &annulledAt, &inv.RecipientWarning,
 		&inv.CreatedAt, &inv.UpdatedAt,
 		&codDoc, &estab, &ptoEmi, &secuencial, &accessKey, &authNumber, &authDate,
 	); err != nil {

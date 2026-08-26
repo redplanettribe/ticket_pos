@@ -46,6 +46,27 @@ type NeedsAttentionCount struct {
 	NeedsAttentionCount int `json:"needs_attention_count"`
 }
 
+// RecipientWarningCount is how many documents carry a Recipient Warning
+// (#482, ADR 0061): the Operator Dashboard's badge beside the
+// needs_attention count. It counts exactly what the list's filter finds.
+type RecipientWarningCount struct {
+	RecipientWarningCount int `json:"recipient_warning_count"`
+}
+
+// CountRecipientWarnings returns how many documents carry a Recipient
+// Warning. Behind SALE_INVOICING_ENABLED with the fact itself: closed, it
+// answers SALE_INVOICING_UNAVAILABLE, and the dashboard shows no count.
+func (s *Service) CountRecipientWarnings(ctx context.Context) (*RecipientWarningCount, error) {
+	if !s.saleInvoicingEnabled {
+		return nil, invoicing.ErrSaleInvoicingUnavailable()
+	}
+	n, err := s.repo.CountRecipientWarnings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &RecipientWarningCount{RecipientWarningCount: n}, nil
+}
+
 // ListNeedsAttention returns one page of the documents parked
 // needs_attention, of every kind, longest waiting first.
 func (s *Service) ListNeedsAttention(ctx context.Context, page, pageSize int) (*NeedsAttentionQueue, error) {
@@ -56,7 +77,7 @@ func (s *Service) ListNeedsAttention(ctx context.Context, page, pageSize int) (*
 	items := make([]NeedsAttentionItem, 0, len(rows))
 	for i := range rows {
 		items = append(items, NeedsAttentionItem{
-			InvoiceListItem: invoiceListItem(&rows[i]),
+			InvoiceListItem: s.listItem(&rows[i]),
 			Messages:        messagesView(rows[i].Invoice.Messages),
 		})
 	}
@@ -132,7 +153,7 @@ func (s *Service) SaleDocuments(ctx context.Context, ticketSaleID string) ([]Inv
 	}
 	items := make([]InvoiceListItem, 0, len(rows))
 	for i := range rows {
-		items = append(items, invoiceListItem(&rows[i]))
+		items = append(items, s.listItem(&rows[i]))
 	}
 	return items, nil
 }

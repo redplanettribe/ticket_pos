@@ -415,6 +415,10 @@ func (s *Service) applyOutcome(ctx context.Context, row *repository.InvoiceRow, 
 		switch u.Status {
 		case invoicing.InvoiceStatusAuthorized:
 			u.KeepNextAttemptAt = true
+			// The authority's warning about the Recipient's Tax ID (#482,
+			// ADR 0061) is a Sale Invoice's fact: authorized all the same,
+			// delivered all the same, and the operator's cue to reissue.
+			u.RecipientWarning = inv.Kind == invoicing.DocumentKindSale && invoicing.RecipientWarningIn(o.Messages)
 		case invoicing.InvoiceStatusNotAuthorized, invoicing.InvoiceStatusRejected:
 			u.Status = invoicing.InvoiceStatusNeedsAttention
 		case invoicing.InvoiceStatusPending:
@@ -552,19 +556,30 @@ func (s *Service) GetInvoice(ctx context.Context, id string) (*InvoiceDetail, er
 	if row == nil {
 		return nil, invoicing.ErrInvoiceNotFound()
 	}
-	return invoiceDetailView(row), nil
+	return s.detailView(row), nil
 }
 
-// ListInvoices returns a page of Tax Invoices, newest first, narrowed to
-// one document kind when kind is not "" (#477).
-func (s *Service) ListInvoices(ctx context.Context, kind invoicing.DocumentKind, page, pageSize int) (*InvoiceList, error) {
-	rows, total, err := s.repo.ListInvoices(ctx, kind, page, pageSize)
+// InvoiceFilter is what narrows the list: a kind (#477), the Recipient
+// Warning (#482), both, or neither.
+type InvoiceFilter = repository.InvoiceFilter
+
+// ListInvoices returns a page of Tax Invoices, newest first, under the
+// filter.
+//
+// The Recipient Warning filter is behind SALE_INVOICING_ENABLED with the
+// fact itself: asked for while the flag is closed, the list answers
+// SALE_INVOICING_UNAVAILABLE as the Drainer does.
+func (s *Service) ListInvoices(ctx context.Context, filter InvoiceFilter, page, pageSize int) (*InvoiceList, error) {
+	if filter.RecipientWarning && !s.saleInvoicingEnabled {
+		return nil, invoicing.ErrSaleInvoicingUnavailable()
+	}
+	rows, total, err := s.repo.ListInvoices(ctx, filter, page, pageSize)
 	if err != nil {
 		return nil, err
 	}
 	items := make([]InvoiceListItem, 0, len(rows))
 	for i := range rows {
-		items = append(items, invoiceListItem(&rows[i]))
+		items = append(items, s.listItem(&rows[i]))
 	}
 	return &InvoiceList{
 		Data:              items,
@@ -635,6 +650,12 @@ type InvoiceListItem struct {
 	// long it has been waiting for an operator (#477); null in every other
 	// state.
 	AttentionSince *time.Time `json:"attention_since"`
+	// RecipientWarning is true on an authorized Sale Invoice the SRI warned
+	// about — the Recipient's Tax ID does not exist (advertencia 59) or is
+	// incorrect (62) — until the document is superseded (#482, ADR 0061).
+	// The status is unaffected. Always false while SALE_INVOICING_ENABLED is
+	// closed.
+	RecipientWarning bool `json:"recipient_warning"`
 }
 
 // InvoiceList is the ADR-0006 nested envelope for the list.
@@ -757,6 +778,26 @@ func FormatNumber(estab, ptoEmi string, secuencial int64) string {
 	return fmt.Sprintf("%s-%s-%09d", estab, ptoEmi, secuencial)
 }
 
+// listItem is invoiceListItem under the service's flag: the Recipient
+// Warning (#482) is shown only while SALE_INVOICING_ENABLED is open, so a
+// closed flag means no marker anywhere, whatever the row holds.
+func (s *Service) listItem(row *repository.InvoiceRow) InvoiceListItem {
+	item := invoiceListItem(row)
+	if !s.saleInvoicingEnabled {
+		item.RecipientWarning = false
+	}
+	return item
+}
+
+// detailView is invoiceDetailView under the service's flag (see listItem).
+func (s *Service) detailView(row *repository.InvoiceRow) *InvoiceDetail {
+	d := invoiceDetailView(row)
+	if !s.saleInvoicingEnabled {
+		d.RecipientWarning = false
+	}
+	return d
+}
+
 func invoiceListItem(row *repository.InvoiceRow) InvoiceListItem {
 	inv := &row.Invoice
 	item := InvoiceListItem{
@@ -776,6 +817,7 @@ func invoiceListItem(row *repository.InvoiceRow) InvoiceListItem {
 		TotalCents:          inv.TotalCents,
 		Currency:            inv.Currency,
 		AttentionSince:      optionalTime(inv.AttentionSince),
+		RecipientWarning:    inv.RecipientWarning,
 	}
 	if inv.Signed() {
 		item.Environment = optional(string(inv.Environment))

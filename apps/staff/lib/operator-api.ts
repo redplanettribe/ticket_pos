@@ -1206,6 +1206,13 @@ export type OperatorInvoiceListItem = {
   currency: string;
   /** When the document was parked `needs_attention` (#477); null in every other state. */
   attention_since: string | null;
+  /**
+   * True on an authorized Sale Invoice the SRI warned about — the Recipient's
+   * Tax ID does not exist (advertencia 59) or is incorrect (62) — until the
+   * document is superseded (#482, ADR 0061). The status is unaffected, and
+   * it is always false while SALE_INVOICING_ENABLED is closed.
+   */
+  recipient_warning: boolean;
 };
 
 /** One line as recorded, with its arithmetic. */
@@ -1349,10 +1356,17 @@ export const OPERATOR_INVOICES_PAGE_SIZE = 50;
 /** The list's kind filter: one kind, or every kind. */
 export type InvoiceKindFilter = InvoiceKind | "all";
 
-/** A page of Tax Invoices, newest first, narrowed to one kind unless `all` (#477). */
+/**
+ * A page of Tax Invoices, newest first, narrowed to one kind unless `all`
+ * (#477) and, when asked, to the documents carrying a Recipient Warning
+ * (#482). The API does the narrowing, so the page's total is the filtered
+ * total; the warning filter is 404 SALE_INVOICING_UNAVAILABLE while the
+ * feature is closed.
+ */
 export async function fetchOperatorInvoices(
   page = 1,
   kind: InvoiceKindFilter = "all",
+  recipientWarningOnly = false,
 ): Promise<OperatorInvoiceListPage> {
   const params = new URLSearchParams({
     page: String(page),
@@ -1361,7 +1375,27 @@ export async function fetchOperatorInvoices(
   if (kind !== "all") {
     params.set("kind", kind);
   }
+  if (recipientWarningOnly) {
+    params.set("recipient_warning", "true");
+  }
   return fetchEventsJSON<OperatorInvoiceListPage>(`${INVOICES_PATH}?${params.toString()}`);
+}
+
+// ---- The Recipient Warnings (#482, ADR 0061) ----------------------------
+
+export type OperatorRecipientWarningCount = {
+  recipient_warning_count: number;
+};
+
+/**
+ * How many authorized Sale Invoices the SRI warned about and that have not
+ * been superseded: the Operator Dashboard's count beside the needs_attention
+ * one, and exactly what the list's warning filter finds. Rejected with 404
+ * SALE_INVOICING_UNAVAILABLE while the feature is closed — the caller reads
+ * that as "show no count".
+ */
+export async function fetchOperatorRecipientWarningCount(): Promise<OperatorRecipientWarningCount> {
+  return fetchEventsJSON<OperatorRecipientWarningCount>("/api/operator/invoicing/recipient-warnings/count");
 }
 
 // ---- The documents that need attention (#477, ADR 0060) ----------------

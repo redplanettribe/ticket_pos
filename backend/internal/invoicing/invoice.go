@@ -226,6 +226,11 @@ type Invoice struct {
 	// portal annulment and when (#477); "" and nil unless annulled.
 	AnnulledBy string
 	AnnulledAt *time.Time
+	// RecipientWarning is the authority's word, on an authorized Sale
+	// Invoice, that the Recipient's Tax ID does not exist or is incorrect
+	// (#482, ADR 0061): set from the authorization's messages, cleared only
+	// when the document is superseded. Never true on any other kind.
+	RecipientWarning bool
 
 	CreatedAt time.Time
 	UpdatedAt time.Time

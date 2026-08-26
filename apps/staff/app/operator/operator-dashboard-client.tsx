@@ -28,6 +28,7 @@ import {
   fetchOperatorOrganizations,
   fetchOperatorOutstandingQuestionReviewCount,
   fetchOperatorPendingPayoutRequestCount,
+  fetchOperatorRecipientWarningCount,
   fetchOperatorSummary,
 } from "@/lib/operator-api";
 
@@ -140,6 +141,8 @@ export function OperatorDashboardClient() {
   const [pendingPayoutRequests, setPendingPayoutRequests] = useState(0);
   const [outstandingQuestionReviews, setOutstandingQuestionReviews] = useState(0);
   const [documentsNeedingAttention, setDocumentsNeedingAttention] = useState(0);
+  // null while Sale Invoicing is closed (the count is 404 then): no card.
+  const [recipientWarnings, setRecipientWarnings] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -153,20 +156,31 @@ export function OperatorDashboardClient() {
       // the listing will return rather than a full page it would discard (#194).
       // The Question Review count is read on its own, because it is 404
       // TICKET_QUESTIONS_UNAVAILABLE while the feature is dark (ADR 0045) and
-      // a dark feature must not take the whole Overview down with it.
-      const [summary, organizationsPage, payoutRequestCount, questionReviewCount, attentionCount] =
-        await Promise.all([
-          fetchOperatorSummary(),
-          fetchOperatorOrganizations(1, OPERATOR_ORGANIZATIONS_COUNT_PAGE_SIZE),
-          fetchOperatorPendingPayoutRequestCount(),
-          fetchOperatorOutstandingQuestionReviewCount().catch(() => null),
-          fetchOperatorNeedsAttentionCount(),
-        ]);
+      // a dark feature must not take the whole Overview down with it. The
+      // Recipient Warning count is read the same way: 404
+      // SALE_INVOICING_UNAVAILABLE while Sale Invoicing is closed (ADR 0061),
+      // and then there is no card.
+      const [
+        summary,
+        organizationsPage,
+        payoutRequestCount,
+        questionReviewCount,
+        attentionCount,
+        recipientWarningCount,
+      ] = await Promise.all([
+        fetchOperatorSummary(),
+        fetchOperatorOrganizations(1, OPERATOR_ORGANIZATIONS_COUNT_PAGE_SIZE),
+        fetchOperatorPendingPayoutRequestCount(),
+        fetchOperatorOutstandingQuestionReviewCount().catch(() => null),
+        fetchOperatorNeedsAttentionCount(),
+        fetchOperatorRecipientWarningCount().catch(() => null),
+      ]);
       setTotals(summary.totals);
       setOrganizationCount(organizationsPage.pagination.total);
       setPendingPayoutRequests(payoutRequestCount.pending_count);
       setOutstandingQuestionReviews(questionReviewCount?.outstanding_count ?? 0);
       setDocumentsNeedingAttention(attentionCount.needs_attention_count);
+      setRecipientWarnings(recipientWarningCount?.recipient_warning_count ?? null);
       setForbidden(false);
     } catch (loadError) {
       // The allowlist refusal is its own answer rather than a failure to report,
@@ -252,6 +266,18 @@ export function OperatorDashboardClient() {
           href="/operator/invoicing/attention"
           linkLabel={t("openTheAttentionQueue")}
         />
+        {recipientWarnings !== null ? (
+          // Recipient Warnings beside the attention queue (#482, ADR 0061):
+          // documents the SRI authorized and doubted — declared to a
+          // taxpayer that does not exist — which only a reissue settles.
+          <CountCard
+            title={t("recipientWarningCardTitle")}
+            description={t("recipientWarningCardDescription")}
+            count={formatNumber(recipientWarnings, locale)}
+            href="/operator/invoicing?recipient_warning=true"
+            linkLabel={t("openTheRecipientWarnings")}
+          />
+        ) : null}
         <CountCard
           title={t("organizationsCardTitle")}
           description={t("organizationsCardDescription")}

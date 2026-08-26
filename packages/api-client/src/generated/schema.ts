@@ -3064,13 +3064,15 @@ export interface paths {
         };
         /**
          * List Tax Invoices
-         * @description Returns a page of every Tax Invoice the platform has issued or owes, newest first: the document `kind` (`manual` from the form; `sale` for a Sale Invoice a paid House checkout owed; `credit_note` for its reversal), the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such), and — on a `sale` or `credit_note` — the Ticket Sale id and its Sale Confirmation reference. A document still `owed` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. `attention_since` is when a `needs_attention` document was parked, null otherwise. `kind` narrows the page to one document kind; a value that is not `manual`, `sale` or `credit_note` is refused under VALIDATION_FAILED. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
+         * @description Returns a page of every Tax Invoice the platform has issued or owes, newest first: the document `kind` (`manual` from the form; `sale` for a Sale Invoice a paid House checkout owed; `credit_note` for its reversal), the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such), and — on a `sale` or `credit_note` — the Ticket Sale id and its Sale Confirmation reference. A document still `owed` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. `attention_since` is when a `needs_attention` document was parked, null otherwise. `recipient_warning` is true on an authorized Sale Invoice the SRI warned about — the Recipient's Tax ID does not exist (advertencia 59) or is incorrect (62) — until the document is superseded (ADR 0061); the status is unaffected, and it is always false while SALE_INVOICING_ENABLED is closed. `kind` narrows the page to one document kind; a value that is not `manual`, `sale` or `credit_note` is refused under VALIDATION_FAILED. `recipient_warning=true` narrows the page to the documents carrying a Recipient Warning; any other value is refused under VALIDATION_FAILED, and while SALE_INVOICING_ENABLED is closed the filter answers 404 SALE_INVOICING_UNAVAILABLE. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
          */
         get: {
             parameters: {
                 query?: {
                     /** @description Document kind: manual, sale or credit_note (default every kind) */
                     kind?: string;
+                    /** @description true to list only the documents carrying a Recipient Warning */
+                    recipient_warning?: string;
                     /** @description Page number (default 1) */
                     page?: number;
                     /** @description Page size (default 50, max 100) */
@@ -3111,6 +3113,15 @@ export interface paths {
                 };
                 /** @description Forbidden */
                 403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -4035,6 +4046,72 @@ export interface paths {
                 };
                 /** @description Forbidden */
                 403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/invoicing/recipient-warnings/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count the documents carrying a Recipient Warning
+         * @description Returns recipient_warning_count: how many authorized Sale Invoices the SRI warned about — the Recipient's Tax ID does not exist (advertencia 59) or is incorrect (62) — and that have not been superseded (ADR 0061). The badge the Operator Dashboard shows beside the needs_attention count, so a factura declared to the wrong taxpayer is learned of without a complaint arriving. It counts exactly what the invoicing list's `recipient_warning=true` filter lists. Zero is an ordinary answer. Read-only. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE and the dashboard shows no count. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeRecipientWarningCount"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -12825,6 +12902,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeRecipientWarningCount": {
+            data?: components["schemas"]["service.RecipientWarningCount"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeReversalDrain": {
             data?: components["schemas"]["service.ReversalDrainResult"];
             error?: components["schemas"]["platform.APIError"];
@@ -13585,6 +13667,14 @@ export interface components {
              */
             number?: string;
             recipient?: components["schemas"]["service.RecipientView"];
+            /**
+             * @description RecipientWarning is true on an authorized Sale Invoice the SRI warned
+             *     about — the Recipient's Tax ID does not exist (advertencia 59) or is
+             *     incorrect (62) — until the document is superseded (#482, ADR 0061).
+             *     The status is unaffected. Always false while SALE_INVOICING_ENABLED is
+             *     closed.
+             */
+            recipient_warning?: boolean;
             sale_confirmation_ref?: string;
             status?: string;
             /**
@@ -14160,6 +14250,14 @@ export interface components {
             payment_method?: string;
             payment_method_label?: string;
             recipient?: components["schemas"]["service.RecipientView"];
+            /**
+             * @description RecipientWarning is true on an authorized Sale Invoice the SRI warned
+             *     about — the Recipient's Tax ID does not exist (advertencia 59) or is
+             *     incorrect (62) — until the document is superseded (#482, ADR 0061).
+             *     The status is unaffected. Always false while SALE_INVOICING_ENABLED is
+             *     closed.
+             */
+            recipient_warning?: boolean;
             reversal_reason?: string;
             sale_confirmation_ref?: string;
             status?: string;
@@ -14207,6 +14305,14 @@ export interface components {
              */
             number?: string;
             recipient?: components["schemas"]["service.RecipientView"];
+            /**
+             * @description RecipientWarning is true on an authorized Sale Invoice the SRI warned
+             *     about — the Recipient's Tax ID does not exist (advertencia 59) or is
+             *     incorrect (62) — until the document is superseded (#482, ADR 0061).
+             *     The status is unaffected. Always false while SALE_INVOICING_ENABLED is
+             *     closed.
+             */
+            recipient_warning?: boolean;
             sale_confirmation_ref?: string;
             status?: string;
             /**
@@ -14277,6 +14383,14 @@ export interface components {
              */
             number?: string;
             recipient?: components["schemas"]["service.RecipientView"];
+            /**
+             * @description RecipientWarning is true on an authorized Sale Invoice the SRI warned
+             *     about — the Recipient's Tax ID does not exist (advertencia 59) or is
+             *     incorrect (62) — until the document is superseded (#482, ADR 0061).
+             *     The status is unaffected. Always false while SALE_INVOICING_ENABLED is
+             *     closed.
+             */
+            recipient_warning?: boolean;
             sale_confirmation_ref?: string;
             status?: string;
             /**
@@ -15332,6 +15446,9 @@ export interface components {
             legal_name?: string;
             tax_id?: string;
             tax_id_type?: string;
+        };
+        "service.RecipientWarningCount": {
+            recipient_warning_count?: number;
         };
         "service.ReversalDrainResult": {
             /**
