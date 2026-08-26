@@ -639,12 +639,44 @@ export type OperatorSaleLookup = {
   organization: OperatorOrganization;
   re_addressing: OperatorSaleReAddressingBlock;
   /**
-   * The Tax Invoices about this sale (#477, ADR 0060): the Sale Invoice a paid
-   * House checkout owed and the Credit Note its reversal owed, oldest first.
-   * Empty on every sale outside a House Organization. Each id opens the
-   * document detail under /operator/invoicing.
+   * The Tax Invoices about this sale (#477, ADR 0060; #486, ADR 0061): the
+   * Sale Invoice a paid House checkout owed, the Credit Note its reversal
+   * owed, and after a reissue the superseded factura, its Credit Note and
+   * the corrected one, in chain order, each with its role. Empty on every
+   * sale outside a House Organization. Each id opens the document detail
+   * under /operator/invoicing.
    */
-  documents: OperatorInvoiceListItem[];
+  documents: OperatorSaleDocument[];
+};
+
+/**
+ * A document's place in its sale's chain (#486, ADR 0061), derived by the
+ * API on every read: `current` is the sale's current Sale Invoice — the one
+ * a later reversal credits; `superseded` one a reissue corrected, still
+ * authorized; `credit_note` a Credit Note for a reversal or a reissue;
+ * `not_current` a Sale Invoice withdrawn or annulled, that the sale no
+ * longer has.
+ */
+export type OperatorDocumentRole = "current" | "superseded" | "credit_note" | "not_current";
+
+/**
+ * One document as the Sale lookup lists it (#477, #486): the invoicing list's
+ * own row, its role, its links to its neighbours and the reissue's trail —
+ * on the corrected factura, the superseded one and the reissue's Credit Note
+ * alike — so a buyer's question about their factura is answered from the
+ * one page.
+ */
+export type OperatorSaleDocument = OperatorInvoiceListItem & {
+  role: OperatorDocumentRole;
+  /** On a corrected Sale Invoice, the factura it corrects. */
+  supersedes_invoice_id: string | null;
+  /** On a Credit Note, the factura it credits and why: a reversal route or `reissue`. */
+  credits_invoice_id: string | null;
+  credit_note_reason: string | null;
+  /** Who reissued, when and the note; null where no reissue concerns the document. */
+  reissued_by: string | null;
+  reissued_at: string | null;
+  reissue_note: string | null;
 };
 
 /**
@@ -1213,6 +1245,13 @@ export type OperatorInvoiceListItem = {
    * it is always false while SALE_INVOICING_ENABLED is closed.
    */
   recipient_warning: boolean;
+  /**
+   * On a reissued Sale Invoice, the live corrected one — the list's
+   * superseded marker (#486, ADR 0061). Null on every other row, and always
+   * null while SALE_INVOICING_ENABLED is closed. The status stays
+   * authorized: superseded is a relation, not a state.
+   */
+  superseded_by_invoice_id: string | null;
 };
 
 /** One line as recorded, with its arithmetic. */
@@ -1317,12 +1356,12 @@ export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
   annulled_at: string | null;
   /**
    * The Sale Invoice Reissue's chain (#483, ADR 0061): on a corrected Sale
-   * Invoice, the factura it supersedes; on a reissued factura, the live
-   * corrected one. The current Sale Invoice is the one with neither a
-   * successor nor a withdrawn or annulled state.
+   * Invoice, the factura it supersedes; the row's `superseded_by_invoice_id`
+   * is, on a reissued factura, the live corrected one. The current Sale
+   * Invoice is the one with neither a successor nor a withdrawn or annulled
+   * state.
    */
   supersedes_invoice_id: string | null;
-  superseded_by_invoice_id: string | null;
   /** Who reissued, when and the note — on the corrected factura, the superseded one and the reissue's Credit Note alike. */
   reissued_by: string | null;
   reissued_at: string | null;
