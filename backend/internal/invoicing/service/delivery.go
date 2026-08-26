@@ -61,6 +61,7 @@ func (s *Service) deliverDocument(ctx context.Context, row *repository.InvoiceRo
 		To:           inv.Recipient.Email,
 		Kind:         string(inv.Kind),
 		Reason:       inv.CreditNoteReason,
+		Supersedes:   inv.SupersedesInvoiceID != "",
 		CustomerName: inv.Recipient.LegalName,
 		EventName:    facts.EventName,
 		Reference:    inv.SaleConfirmationRef,

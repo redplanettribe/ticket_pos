@@ -1904,6 +1904,13 @@ var (
 		"Hi %s,\n\nAttached is the credit note (nota de crédito) that cancels the earlier tax invoice (factura) for your purchase for %s, authorized by the SRI, so that its recipient details can be corrected. Your purchase and your tickets are unchanged: a corrected tax invoice (factura) will follow by email.\nReference: %s",
 		"Hola %s:\n\nAdjuntamos la nota de crédito, autorizada por el SRI, que deja sin efecto la factura anterior de su compra de %s para corregir los datos del receptor. Su compra y sus entradas no cambian: recibirá la factura corregida por correo.\nReferencia: %s",
 	)
+	// The corrected factura of a reissue (#485) is delivered as any factura,
+	// with one line more: the reader holds an earlier factura and a nota de
+	// crédito, and must know this one stands in place of that one.
+	taxDocumentSaleInvoiceSupersedesCopy = translated(
+		"This corrected tax invoice (factura) replaces the earlier one for this purchase, which the credit note (nota de crédito) you received cancelled.",
+		"Esta factura corregida sustituye a la anterior de esta compra, que quedó sin efecto con la nota de crédito que recibió.",
+	)
 	taxDocumentAttachmentCopy = translated(
 		"The attached XML is the document itself, exactly as the SRI authorized it.",
 		"El XML adjunto es el documento en sí, tal como lo autorizó el SRI.",
@@ -1937,6 +1944,9 @@ func (d TaxDocumentDelivery) Text() string {
 		}
 	}
 	text := fmt.Sprintf(opening.in(d.Locale), d.CustomerName, d.EventName, d.Reference)
+	if d.Kind != TaxDocumentKindCreditNote && d.Supersedes {
+		text += "\n\n" + taxDocumentSaleInvoiceSupersedesCopy.in(d.Locale)
+	}
 	text += "\n\n" + taxDocumentAttachmentCopy.in(d.Locale)
 	if d.CustomerAreaURL != "" {
 		text += "\n\n" + fmt.Sprintf(taxDocumentLinkCopy.in(d.Locale), d.CustomerAreaURL)

@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 
 import {
   hasSaleDocuments,
+  orderSaleDocuments,
+  saleDocumentBadgeKey,
   saleDocumentDownloadHref,
   saleDocumentLabelKey,
   saleDocumentPendingKey,
@@ -28,6 +30,12 @@ import {
  * a platform problem is the platform's to fix and not the buyer's to be told
  * (#471 story 15). The API already speaks in those two words, so nothing here
  * has a third to show.
+ *
+ * AFTER A SALE INVOICE REISSUE IT DRAWS THE WHOLE CHAIN (#485, ADR 0061):
+ * the corrected factura first, then the credit note that cancelled the earlier
+ * one, then the earlier factura — labelled superseded and still downloadable,
+ * because it is a legal document the buyer received. The API names each
+ * document's role; the order and the label are lib/sale-documents' rules.
  *
  * IT IS FETCHED RATHER THAN SERVER-RENDERED WITH THE REST OF THE CARD, for
  * the reason the Tickets block above it is: the Customer Area lists every
@@ -75,12 +83,18 @@ export function SaleDocuments({ ticketSaleId }: { ticketSaleId: string }) {
     <section className="mt-4 space-y-2 border-t pt-4 text-sm">
       <h3 className="font-medium">{t("documents.title")}</h3>
       <ul className="space-y-2">
-        {documents.map((document) => {
+        {orderSaleDocuments(documents).map((document) => {
           const href = saleDocumentDownloadHref(ticketSaleId, document);
           const pending = saleDocumentPendingKey(document);
+          const badge = saleDocumentBadgeKey(document);
           return (
             <li key={document.id} className="flex flex-wrap items-center justify-between gap-2">
-              <span>{t(`documents.${saleDocumentLabelKey(document)}`)}</span>
+              <span>
+                {t(`documents.${saleDocumentLabelKey(document)}`)}
+                {badge ? (
+                  <span className="text-muted-foreground"> · {t(`documents.${badge}`)}</span>
+                ) : null}
+              </span>
               {href ? (
                 // A plain anchor rather than a Link: the relay answers a file
                 // under a Content-Disposition, and the browser saves it

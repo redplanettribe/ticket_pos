@@ -417,6 +417,7 @@
       "creditNote": "Credit note (nota de crédito)",
       "onItsWay": "Your factura is on its way. We'll email it to you as soon as it's ready, and it will appear here.",
       "creditNoteOnItsWay": "Your credit note is on its way. We'll email it to you as soon as it's ready, and it will appear here.",
+      "superseded": "Superseded by the corrected factura",
       "download": "Download XML"
     },
     "answers": {
