@@ -176,6 +176,13 @@ export type OperatorOrganizationDetail = {
   payouts: OperatorPayout[];
   /** This organization's own asks, newest first — a history, not a work queue. */
   payout_requests: OperatorPayoutRequestRow[];
+  /**
+   * The platform's SALE_INVOICING_ENABLED flag (#471, ADR 0060), not a fact
+   * about this Organization: false hides the House Organization card, whose
+   * two verbs would answer 404. Read from the API rather than a frontend
+   * environment variable so there is one copy of the answer.
+   */
+  sale_invoicing_enabled: boolean;
 };
 
 export type RecordPayoutBody = {

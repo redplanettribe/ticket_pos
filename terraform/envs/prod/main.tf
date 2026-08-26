@@ -87,7 +87,12 @@ module "ticket_pos" {
   # reconciler's terms: it ships paused, is enabled once an Issuer in
   # production exists, and pausing it mid-incident is an apply from this
   # directory that leaves the state agreeing with reality.
-  sale_invoice_drainer_enabled                  = var.sale_invoice_drainer_enabled
+  sale_invoice_drainer_enabled = var.sale_invoice_drainer_enabled
+  # Sale Invoicing itself (#471, ADR 0060), declared on ticket_assignment_enabled's
+  # terms below: a gate somebody must deliberately open, with no entry in
+  # terraform.tfvars, so it is false until somebody writes one. Separate from the
+  # drainer's line above, which only paces a feature this one turns on.
+  sale_invoicing_enabled                        = var.sale_invoicing_enabled
   sale_invoice_drainer_schedule                 = var.sale_invoice_drainer_schedule
   sale_invoice_drainer_attempt_deadline_seconds = var.sale_invoice_drainer_attempt_deadline_seconds
 

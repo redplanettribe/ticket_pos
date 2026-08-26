@@ -4201,6 +4201,15 @@ components:
             $ref: '#/components/schemas/internal_operator_service.Payout'
           type: array
           uniqueItems: false
+        sale_invoicing_enabled:
+          description: |-
+            SaleInvoicingEnabled is the platform's SALE_INVOICING_ENABLED flag
+            (#471, ADR 0060), not a property of this Organization — it rides here
+            the way the Event payload carries the Ticket Question flag: the staff
+            app decides from it whether to show the House Organization card at all,
+            and a frontend environment variable would be a second copy of the
+            answer, free to disagree with the one that matters.
+          type: boolean
         withdrawable_balance_cents:
           type: integer
       type: object
@@ -8393,9 +8402,10 @@ paths:
         retried hourly. Every SRI call is an attempts row. Bounded by its own budget,
         which expires before Cloud Scheduler''s attempt deadline. Internal service-to-service
         only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token
-        (ADR 0008). Safe to call by hand at any time; a no-op on an empty queue. The
-        response tallies what the run did and how many Sale Invoices stand in each
-        state afterwards.'
+        (ADR 0008). Safe to call by hand at any time; a no-op on an empty queue. Behind
+        SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE
+        and signs nothing. The response tallies what the run did and how many Sale
+        Invoices stand in each state afterwards.'
       responses:
         "200":
           content:
@@ -9400,7 +9410,10 @@ paths:
         payout history newest first with the recording operator''s email, null for
         Payouts entered directly in the database before the Operator Dashboard existed.
         Both balances are shown to the operator and neither gates recording a Payout,
-        which stays unconditional (ADR 0015). Platform Operator only.'
+        which stays unconditional (ADR 0015). Carries sale_invoicing_enabled, the
+        platform''s SALE_INVOICING_ENABLED flag rather than a fact about this Organization,
+        so the staff app knows whether to offer the House Organization designation
+        at all. Platform Operator only.'
       parameters:
       - description: Organization ID
         in: path
@@ -9447,8 +9460,9 @@ paths:
         ended arrangement stops producing Sale Invoices, and undesignation affects
         future sales only. Clearing an Organization that was never designated is an
         ordinary 200 rather than a refusal: the state asked for is the state reached.
-        No body. An unknown or malformed id is 404 ORGANIZATION_NOT_FOUND. Platform
-        Operator only.'
+        No body. An unknown or malformed id is 404 ORGANIZATION_NOT_FOUND. Behind
+        SALE_INVOICING_ENABLED like the designation: closed, this answers 404 SALE_INVOICING_UNAVAILABLE.
+        Platform Operator only.'
       parameters:
       - description: Organization ID
         in: path
@@ -9504,8 +9518,10 @@ paths:
         nothing and answers 200 with the original trail: the trail names the act that
         made it a House Organization. Designation affects future sales only, nothing
         is issued retroactively, and nothing is invoiced by this endpoint. An unknown
-        or malformed id is 404 ORGANIZATION_NOT_FOUND. Platform Operator only — an
-        Org Admin has no surface for this anywhere.'
+        or malformed id is 404 ORGANIZATION_NOT_FOUND. Behind SALE_INVOICING_ENABLED:
+        while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE before
+        anything is read. Platform Operator only — an Org Admin has no surface for
+        this anywhere.'
       parameters:
       - description: Organization ID
         in: path

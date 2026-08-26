@@ -127,6 +127,10 @@ func TestMain(m *testing.M) {
 		// from INVOICING_CERTIFICATE_KEY. A test of the deployment that has no
 		// key boots its own app without one.
 		InvoicingCertificateKey: sharedInvoicingKey(),
+		// Sale Invoicing OPEN, which is not how it ships (#471, ADR 0060): the
+		// suite proves the feature, and the one test of the closed flag boots
+		// its own app without this line.
+		SaleInvoicingEnabled: true,
 	}
 
 	app, err := server.NewApp(ctx, cfg,

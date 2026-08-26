@@ -36,6 +36,10 @@ type Service struct {
 	// wires neither delivers nothing and says so in its log.
 	email             platform.EmailSender
 	storefrontBaseURL string
+	// saleInvoicingEnabled is the SALE_INVOICING_ENABLED flag (#471, ADR
+	// 0060). Closed, the Drainer's endpoint answers 404 and works nothing;
+	// the manual Tax Invoices, the Issuer and every read serve as before.
+	saleInvoicingEnabled bool
 }
 
 // New builds the invoicing Service. custody may be unconfigured (built over a

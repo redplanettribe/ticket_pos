@@ -179,6 +179,12 @@ variable "reversal_reconciler_attempt_deadline_seconds" {
 # The Sale Invoice Drainer tick (#474, ADR 0060). Operational levers on the
 # reconciler's terms.
 
+variable "sale_invoicing_enabled" {
+  description = "Whether production invoices the buyer of every paid Online Sale of a House Organization (#471, ADR 0060). STARTS FALSE, and is DELIBERATELY ABSENT FROM terraform.tfvars so that opening it is an addition somebody has to write rather than a value they edit. The prerequisite is an Issuer in `production` holding a live certificate, and the House flow walked end to end on the parity stack against the SRI's test environment. With it false nothing about a sale differs from a build without the feature; with it true every paid House checkout is a tax document the platform signs in its own RUC. It is the first flag to set false and apply if a Sale Invoice is ever suspected of being issued to the wrong person or for the wrong amount; sale_invoice_drainer_enabled below only pauses the tick and leaves the post-commit kick working."
+  type        = bool
+  default     = false
+}
+
 variable "sale_invoice_drainer_enabled" {
   description = "Whether the Sale Invoice Drainer tick fires in production. Starts false: the job ships paused and is enabled once an Issuer in `production` exists and the drain endpoint has been curled by hand against real House sales. Until then the kick after each paid House checkout still works every document once. Also the incident switch — set false and apply to stop the tick without deleting the job."
   type        = bool

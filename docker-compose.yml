@@ -100,6 +100,14 @@ services:
       # In production it waits on a Policy Version describing the platform
       # storing and mailing an address one person supplied for another.
       TICKET_ASSIGNMENT_ENABLED: ${TICKET_ASSIGNMENT_ENABLED:-}
+      # Sale Invoicing (#471, ADR 0060): the platform's Issuer invoicing the
+      # buyer of every paid Online Sale of a House Organization. Empty by
+      # default — no House designation, nothing owed, the Drainer answering
+      # 404 — the shipped state. Set SALE_INVOICING_ENABLED=true in the root
+      # .env to work on it locally. In production it waits on an Issuer in
+      # `production` with a live certificate: what it opens is the platform
+      # declaring sales to the SRI.
+      SALE_INVOICING_ENABLED: ${SALE_INVOICING_ENABLED:-}
       # The `development` Google OAuth client, also from the root .env. Empty (the
       # default) leaves Google Sign-In off and the button hidden; passcode
       # sign-in is unaffected either way. GOOGLE_TOKEN_ENDPOINT is deliberately

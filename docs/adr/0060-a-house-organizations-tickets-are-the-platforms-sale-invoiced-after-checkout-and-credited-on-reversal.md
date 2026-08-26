@@ -94,6 +94,13 @@ platform certifies.
   Organization would be the platform billing itself.
 - Designation affects future sales only. Nothing is issued retroactively and nothing owed is withdrawn
   when an Organization is undesignated.
+- The whole feature ships behind `SALE_INVOICING_ENABLED`, closed, on ADR 0045's terms for a flag:
+  closed, no Organization can be designated House, no sale owes a document, no reversal owes a Credit
+  Note, the Drainer answers 404 and the operator's detail hides the designation, while manual Tax
+  Invoices serve as before. It opens once the Issuer stands in `production` with a live certificate and
+  the flow has been walked on the parity stack; it is also the incident switch, distinct from the
+  scheduler's pause, which only paces the Drainer. A designation recorded while open survives a close
+  and does nothing until the flag opens again.
 - Until the RIDE exists (#456) the buyer's mail carries the XML alone; when it does, the same mail and
   the same Customer Area page carry both.
 - Imported and free House sales, non-House Organizations, and the 0% RUAC rate for cultural shows are

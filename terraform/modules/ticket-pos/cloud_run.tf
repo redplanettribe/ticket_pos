@@ -302,6 +302,17 @@ resource "google_cloud_run_v2_service" "api" {
         value = var.ticket_assignment_enabled ? "true" : "false"
       }
 
+      # The Sale Invoicing flag (#471, ADR 0060). A plain env var on the two
+      # flags' terms above — a product decision whose change should be a
+      # reviewable diff — and closed by default: what it opens is the platform
+      # declaring sales to the SRI in its own RUC. Anything the API cannot
+      # parse as true leaves it closed. It gates the feature; the scheduler's
+      # own sale_invoice_drainer_enabled only paces it.
+      env {
+        name  = "SALE_INVOICING_ENABLED"
+        value = var.sale_invoicing_enabled ? "true" : "false"
+      }
+
       # Required, not optional: without it the API refuses to start in production
       # rather than sign Confirmation Links with a default (confirmation_link.tf).
       env {

@@ -124,3 +124,11 @@ func ErrInvoiceWithdrawn() apperror.DomainError {
 func ErrIssuerFieldFrozen(field string) apperror.DomainError {
 	return apperror.New("ISSUER_FIELD_FROZEN", "The Issuer's "+field+" cannot change any more: documents have been issued under it.", map[string]string{"field": field})
 }
+
+// ErrSaleInvoicingUnavailable: Sale Invoicing was asked for while
+// SALE_INVOICING_ENABLED is closed (#471, ADR 0060) — a House designation or
+// a Drainer run. "Not found." and a 404, on the terms the other feature flags
+// answer on: while the flag is closed there is nothing here.
+func ErrSaleInvoicingUnavailable() apperror.DomainError {
+	return apperror.New("SALE_INVOICING_UNAVAILABLE", "Not found.", nil)
+}

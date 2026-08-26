@@ -275,6 +275,10 @@ func startSRIEnv(ctx context.Context, connStr string, email *platform.CaptureEma
 		InvoicingCertificateKey: sharedInvoicingKey(),
 		// The single base-URL override points every SRI call at the fake.
 		SRIBaseURL: sriStub.server.URL,
+		// Sale Invoicing OPEN, which is not how it ships (#471, ADR 0060): the
+		// suite proves the feature, and the one test of the closed flag boots
+		// its own app without this line.
+		SaleInvoicingEnabled: true,
 	}
 
 	app, err := server.NewApp(ctx, cfg,

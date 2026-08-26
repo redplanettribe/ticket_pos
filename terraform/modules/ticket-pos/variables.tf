@@ -472,6 +472,12 @@ variable "reversal_reconciler_attempt_deadline_seconds" {
 
 # --- Sale Invoice Drainer -----------------------------------------------------
 
+variable "sale_invoicing_enabled" {
+  description = "Whether the platform's Issuer invoices the buyer of every paid Online Sale of a House Organization (#471, ADR 0060). STARTS FALSE. With it false no Organization can be designated House (both verbs answer 404), no paid checkout owes a Sale Invoice, no reversal owes a Credit Note, the Drainer's endpoint answers 404 and the operator's Organization detail hides the designation — a build with it closed sells and reverses exactly as one without the feature, while manual Tax Invoices and the Issuer serve as before. It flips only once an Issuer in `production` holds a live certificate and the flow has been walked on the parity stack: what it opens is the platform signing documents in its own RUC and declaring sales to the SRI, each consuming a secuencial. It is also the incident switch for the feature as a whole — set false and apply, and nothing new is owed or signed; what was owed before waits for an operator. Distinct from sale_invoice_drainer_enabled below, which only pauses the scheduled tick and leaves the post-commit kick working."
+  type        = bool
+  default     = false
+}
+
 variable "sale_invoice_drainer_enabled" {
   description = "Whether the Cloud Scheduler tick driving the Sale Invoice Drainer actually fires (#474, ADR 0060). False leaves the job, its identity and its run.invoker grant in place but paused, which is how it ships: it is enabled once an Issuer in `production` exists and the drain endpoint has been curled by hand. Until then the post-commit kick after every paid House checkout still works each document once, so the state machine is visible on the invoicing list; what stays unworked is only what the kick could not finish. Also the incident switch — set false and apply to stop the tick without deleting anything."
   type        = bool

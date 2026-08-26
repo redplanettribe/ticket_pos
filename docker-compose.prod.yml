@@ -103,6 +103,10 @@ services:
       # "parity-stack-not-a-real-key-0000", so a certificate uploaded to the
       # parity stack is encrypted under a key that is obviously not a secret.
       INVOICING_CERTIFICATE_KEY: cGFyaXR5LXN0YWNrLW5vdC1hLXJlYWwta2V5LTAwMDA=
+      # Sale Invoicing OPEN here (#471, ADR 0060), unlike the shipped default:
+      # the parity stack is where the House flow is walked against the SRI's
+      # test environment before production opens the flag.
+      SALE_INVOICING_ENABLED: "true"
       # Where the parity Storefront answers, so Confirmation Links are followable.
       STOREFRONT_BASE_URL: http://localhost:64603
     healthcheck:

@@ -279,8 +279,11 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
         sales are the platform's own and its Issuer invoices the buyer. The
         card carries the trail — who and when — because the act changes whose
         sale a ticket is, and that deserves a name against it. It is the
-        operator's alone: no Organization surface shows or offers it.
+        operator's alone: no Organization surface shows or offers it. Absent
+        entirely while SALE_INVOICING_ENABLED is closed on the API, which is
+        how it ships: a toggle whose every press would 404 is not offered.
       */}
+      {detail.sale_invoicing_enabled ? (
       <Card>
         <CardHeader>
           <CardTitle>{t("houseTitle")}</CardTitle>
@@ -324,6 +327,7 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
           )}
         </CardContent>
       </Card>
+      ) : null}
 
       {/*
         Both balances, beside each other, because the operator about to transfer

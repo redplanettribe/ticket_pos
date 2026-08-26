@@ -14,6 +14,7 @@ import (
 
 	catalogsvc "github.com/peter/ticket_pos/backend/internal/catalog/service"
 	identitysvc "github.com/peter/ticket_pos/backend/internal/identity/service"
+	"github.com/peter/ticket_pos/backend/internal/invoicing"
 	salessvc "github.com/peter/ticket_pos/backend/internal/sales/service"
 )
 
@@ -166,6 +167,10 @@ type Service struct {
 	// documents is the invoicing seam (#477); nil is the "no invoicing"
 	// deployment, where every Sale has no documents.
 	documents Documents
+	// saleInvoicingEnabled is the SALE_INVOICING_ENABLED flag (#471, ADR
+	// 0060): closed, the House designation answers 404 both ways and the
+	// Organization detail says so, so the staff app offers no toggle.
+	saleInvoicingEnabled bool
 }
 
 // New returns an operator service over the four owning modules.
@@ -179,6 +184,16 @@ func New(organizations Organizations, events Events, money Money, consents Conse
 // the operator one, and a build without the line composes nothing.
 func (s *Service) WithDocuments(documents Documents) *Service {
 	s.documents = documents
+	return s
+}
+
+// WithSaleInvoicing opens or closes the House designation with the
+// SALE_INVOICING_ENABLED flag (#471, ADR 0060). Closed is how it ships:
+// designating and clearing answer SALE_INVOICING_UNAVAILABLE, and the
+// Organization detail carries sale_invoicing_enabled false so the staff app
+// hides the card rather than offer a toggle that would 404.
+func (s *Service) WithSaleInvoicing(enabled bool) *Service {
+	s.saleInvoicingEnabled = enabled
 	return s
 }
 
@@ -230,6 +245,13 @@ type OrganizationDetail struct {
 	// because that is the question it answers: has this Organization been paid
 	// recently, and are they asking again? (ADR 0026)
 	PayoutRequests []PayoutRequestSummary `json:"payout_requests"`
+	// SaleInvoicingEnabled is the platform's SALE_INVOICING_ENABLED flag
+	// (#471, ADR 0060), not a property of this Organization — it rides here
+	// the way the Event payload carries the Ticket Question flag: the staff
+	// app decides from it whether to show the House Organization card at all,
+	// and a frontend environment variable would be a second copy of the
+	// answer, free to disagree with the one that matters.
+	SaleInvoicingEnabled bool `json:"sale_invoicing_enabled"`
 }
 
 // RecordPayoutInput is a validated record-payout request: the amount is already
@@ -324,6 +346,7 @@ func (s *Service) GetOrganization(ctx context.Context, orgID string) (*Organizat
 		Organization:             *org,
 		WithdrawableBalanceCents: balances.WithdrawableBalanceCents,
 		PayableBalanceCents:      balances.PayableBalanceCents,
+		SaleInvoicingEnabled:     s.saleInvoicingEnabled,
 		Events:                   events,
 		Payouts:                  payouts,
 		PayoutRequests:           requests,
@@ -354,12 +377,22 @@ func (s *Service) RecordPayout(ctx context.Context, orgID string, input RecordPa
 // entity runs, stamped with the operator's email (#472, ADR 0060). Identity
 // owns the rule — USD only, no Issuer consulted — and this service only
 // carries the act to it.
+//
+// Behind SALE_INVOICING_ENABLED (#471): closed, both verbs answer
+// SALE_INVOICING_UNAVAILABLE before anything is read, so no designation can be
+// made or cleared while the platform is not invoicing.
 func (s *Service) DesignateHouseOrganization(ctx context.Context, orgID, operator string) (*Organization, error) {
+	if !s.saleInvoicingEnabled {
+		return nil, invoicing.ErrSaleInvoicingUnavailable()
+	}
 	return s.organizations.DesignateHouseOrganization(ctx, orgID, operator)
 }
 
 // UndesignateHouseOrganization takes the designation back, emptying the trail.
 func (s *Service) UndesignateHouseOrganization(ctx context.Context, orgID string) (*Organization, error) {
+	if !s.saleInvoicingEnabled {
+		return nil, invoicing.ErrSaleInvoicingUnavailable()
+	}
 	return s.organizations.UndesignateHouseOrganization(ctx, orgID)
 }
 

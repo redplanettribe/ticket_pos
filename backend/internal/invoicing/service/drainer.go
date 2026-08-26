@@ -157,7 +157,24 @@ type SaleInvoiceDrainResult struct {
 // until the queue is empty or the run reaches its bound. Safe to call by
 // hand at any time; a no-op on an empty queue.
 func (s *Service) DrainSaleInvoices(ctx context.Context) (*SaleInvoiceDrainResult, error) {
+	if !s.saleInvoicingEnabled {
+		return nil, invoicing.ErrSaleInvoicingUnavailable()
+	}
 	return s.drainSaleInvoices(ctx, "")
+}
+
+// WithSaleInvoicingEnabled opens or closes Sale Invoicing on this service
+// with SALE_INVOICING_ENABLED (#471, ADR 0060). Closed is how it ships, and
+// closed means the Drainer's endpoint answers SALE_INVOICING_UNAVAILABLE and
+// signs nothing: the incident switch for a document the platform must stop
+// declaring. Whether a sale OWES a document is decided upstream — the sales
+// module is handed this service as its seam only while the flag is open —
+// so a closed flag leaves nothing new for the Drainer to find; what it
+// leaves unworked is only what was owed before it closed, which waits, and
+// which an operator can still Resend, Check or Mark annulled by hand.
+func (s *Service) WithSaleInvoicingEnabled(enabled bool) *Service {
+	s.saleInvoicingEnabled = enabled
+	return s
 }
 
 // KickSaleInvoiceDrainer implements the sales module's seam for "the

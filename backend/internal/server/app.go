@@ -550,6 +550,15 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		platformLogger.Warn("invoicing: SRI_BASE_URL override in effect; facturas go to a stand-in, not the SRI", "base_url", cfg.SRIBaseURL)
 		invoicingService = invoicingService.WithTaxAuthority(sri.AuthorityFactory(sri.WithBaseURL(cfg.SRIBaseURL)))
 	}
+	// Sale Invoicing, dark unless a deployment has deliberately opened it
+	// (#471, ADR 0060). ONE FLAG READ IN ONE PLACE and handed to the three
+	// modules that act on it, so they cannot disagree: a deployment where an
+	// operator could designate a House Organization whose sales owe nothing —
+	// or the reverse — is a deployment declaring sales, or not, by accident.
+	invoicingService = invoicingService.WithSaleInvoicingEnabled(cfg.SaleInvoicingEnabled)
+	if !cfg.SaleInvoicingEnabled {
+		platformLogger.Warn("invoicing: SALE_INVOICING_ENABLED is closed; no House designation, no Sale Invoice owed, no drain — manual Tax Invoices serve as before")
+	}
 	invoicingHandler := invoicinghandler.New(invoicingService)
 
 	// A paid House sale owes a Sale Invoice in the transaction that records
@@ -559,7 +568,18 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// would sell House tickets and invoice nobody, which is the compliance
 	// gap #471 exists to close — but it would fail no sale, because the seam
 	// is nil-safe by design.
-	salesService = salesService.WithSaleInvoicing(invoicingService)
+	//
+	// And that nil-safety is what the feature flag rides on: with
+	// SALE_INVOICING_ENABLED closed the seam is simply not tied, so the
+	// sale-commit spine owes nothing, a reversal settles nothing and no kick
+	// runs — the checkout and reversal code paths do not know the flag exists.
+	if cfg.SaleInvoicingEnabled {
+		salesService = salesService.WithSaleInvoicing(invoicingService)
+	}
+	// The House designation lives on the operator service and is gated there
+	// by the same value; the Organization detail also states it, for the
+	// staff app.
+	operatorService = operatorService.WithSaleInvoicing(cfg.SaleInvoicingEnabled)
 	// The Sale lookup names a Sale's documents (#477): the operator module
 	// composes the invoicing module's answer the way it composes the other
 	// three, tied on here because invoicing is built after it.

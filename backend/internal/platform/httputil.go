@@ -221,6 +221,12 @@ func domainHTTPStatus(code string) int {
 	// 404 and for the same reason — while the flag is off there is nothing here.
 	case "TICKET_ASSIGNMENT_UNAVAILABLE":
 		return http.StatusNotFound
+	// Sale Invoicing asked for while SALE_INVOICING_ENABLED is off (#471, ADR
+	// 0060): the House designation and the Drainer's endpoint. 404 on the two
+	// flags' terms above — while it is closed there is nothing here — so a
+	// build with the flag closed answers as one without the feature.
+	case "SALE_INVOICING_UNAVAILABLE":
+		return http.StatusNotFound
 	// The Ticket Assignment window refusals (#324). 409 beside the Answer
 	// window's two: the request was well formed and the buyer was entitled to
 	// make it, and what stands in the way is a fact about the sale — it was
