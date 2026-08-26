@@ -279,8 +279,8 @@ func TestReversalDuringAReissueWithdrawsTheUnsentCreditNoteAndCreditsTheOldSaleI
 		t.Fatalf("the Sale's documents = %+v; want the factura, the reissue's Credit Note withdrawn, the corrected factura withdrawn, the reversal's Credit Note owed", docs)
 	}
 	reversalNote := getDrainedInvoice(t, operatorSessionID, reversalNoteID)
-	if reversalNote.CreditsInvoiceID == nil || *reversalNote.CreditsInvoiceID != facturaID || reversalNote.ReversalReason == nil || *reversalNote.ReversalReason != "customer" {
-		t.Fatalf("reversal credit note credits %v for %v; want the old factura, the customer's route", reversalNote.CreditsInvoiceID, reversalNote.ReversalReason)
+	if reversalNote.CreditsInvoiceID == nil || *reversalNote.CreditsInvoiceID != facturaID || reversalNote.CreditNoteReason == nil || *reversalNote.CreditNoteReason != "customer" {
+		t.Fatalf("reversal credit note credits %v for %v; want the old factura, the customer's route", reversalNote.CreditsInvoiceID, reversalNote.CreditNoteReason)
 	}
 	if old := getReissuedInvoice(t, operatorSessionID, facturaID); old.SupersededByInvoiceID != nil {
 		t.Fatalf("old factura superseded by %v; want nothing", *old.SupersededByInvoiceID)
@@ -331,8 +331,8 @@ func TestReversalDuringAReissueWaitsForThePendingReissueCreditNoteThenCreditsOnc
 	if len(docs) != 4 || statusOf(docs, reissueNoteID) != "pending" || statusOf(docs, corrected.ID) != "withdrawn" || statusOf(docs, reversalNoteID) != "owed" {
 		t.Fatalf("the Sale's documents = %+v; want the factura, the reissue's Credit Note still pending, the corrected factura withdrawn, the reversal's Credit Note owed", docs)
 	}
-	if note := getDrainedInvoice(t, operatorSessionID, reversalNoteID); note.CreditsInvoiceID == nil || *note.CreditsInvoiceID != facturaID || note.ReversalReason == nil || *note.ReversalReason != "platform" {
-		t.Fatalf("reversal credit note credits %v for %v; want the old factura, the platform's route", note.CreditsInvoiceID, note.ReversalReason)
+	if note := getDrainedInvoice(t, operatorSessionID, reversalNoteID); note.CreditsInvoiceID == nil || *note.CreditsInvoiceID != facturaID || note.CreditNoteReason == nil || *note.CreditNoteReason != "platform" {
+		t.Fatalf("reversal credit note credits %v for %v; want the old factura, the platform's route", note.CreditsInvoiceID, note.CreditNoteReason)
 	}
 
 	// Still in processing: only the reissue's nota is polled; the reversal's waits.
@@ -536,8 +536,8 @@ func TestSecondReissueChainsFiveDocumentsWithTheThirdSaleInvoiceCurrent(t *testi
 		t.Fatalf("third factura: supersedes %v superseded by %v credited by %v number %v; want the second, nothing, nothing, the 01 sequence's third", current.SupersedesInvoiceID, current.SupersededByInvoiceID, current.CreditedByInvoiceID, current.Number)
 	}
 	for _, pair := range []struct{ note, credits string }{{note2, firstID}, {note4, second.ID}} {
-		if note := getReissuedInvoice(t, operatorSessionID, pair.note); note.CreditsInvoiceID == nil || *note.CreditsInvoiceID != pair.credits || note.ReversalReason == nil || *note.ReversalReason != "reissue" {
-			t.Fatalf("credit note %s credits %v for %v; want %s, reissue", pair.note, note.CreditsInvoiceID, note.ReversalReason, pair.credits)
+		if note := getReissuedInvoice(t, operatorSessionID, pair.note); note.CreditsInvoiceID == nil || *note.CreditsInvoiceID != pair.credits || note.CreditNoteReason == nil || *note.CreditNoteReason != "reissue" {
+			t.Fatalf("credit note %s credits %v for %v; want %s, reissue", pair.note, note.CreditsInvoiceID, note.CreditNoteReason, pair.credits)
 		}
 	}
 	received := sriStub.allReceived()
@@ -563,7 +563,7 @@ func TestSecondReissueChainsFiveDocumentsWithTheThirdSaleInvoiceCurrent(t *testi
 // replacement, and a reissue that dies leaves it current. The moment the
 // corrected factura is authorized the warning is cleared and the count
 // drops; the corrected factura carries none of its own.
-func TestSupersessionClearsTheRecipientWarningWhenTheCorrectedSaleInvoiceIsAuthorized(t *testing.T) {
+func TestCreditingClearsTheRecipientWarningWhenTheReissueCreditNoteIsAuthorized(t *testing.T) {
 	env := setupTest(t)
 	operatorSessionID, facturaID := houseSaleOwed(t, env, 1000, 1)
 	issuerReady(t, operatorSessionID)
@@ -583,8 +583,10 @@ func TestSupersessionClearsTheRecipientWarningWhenTheCorrectedSaleInvoiceIsAutho
 		t.Fatalf("warning count right after the reissue = %d; want still 1", n)
 	}
 
-	// The Credit Note authorizes, the corrected factura is held EN
-	// PROCESAMIENTO: still not superseded.
+	// The Credit Note authorizes and the corrected factura is held EN
+	// PROCESAMIENTO: the old factura is credited — it declares nothing to
+	// the SRI any more — so its warning goes now, not when the corrected
+	// factura authorizes, which an annulled one never does.
 	sriStub.answerAsUsual()
 	hold := 0
 	sriStub.setAuthorization(func(accessKey string) (int, string) {
@@ -597,14 +599,14 @@ func TestSupersessionClearsTheRecipientWarningWhenTheCorrectedSaleInvoiceIsAutho
 	if result := drainSaleInvoices(t); result.Claimed != 2 || result.Authorized != 1 || result.Pending != 1 {
 		t.Fatalf("drain = %+v; want the Credit Note authorized and the corrected factura pending", result)
 	}
-	if d := getRecipientWarningDetail(t, sriEnv, operatorSessionID, facturaID); !d.RecipientWarning {
-		t.Fatal("the Credit Note's authorization cleared the warning; the corrected factura is still undecided")
+	if d := getRecipientWarningDetail(t, sriEnv, operatorSessionID, facturaID); d.RecipientWarning {
+		t.Fatal("the Credit Note's authorization left the warning on a factura that is credited")
 	}
-	if n := getRecipientWarningCount(t, sriEnv, operatorSessionID); n != 1 {
-		t.Fatalf("warning count with the corrected factura pending = %d; want still 1", n)
+	if n := getRecipientWarningCount(t, sriEnv, operatorSessionID); n != 0 {
+		t.Fatalf("warning count once the factura is credited = %d; want 0", n)
 	}
 
-	// The corrected factura authorizes: superseded, and the warning goes.
+	// The corrected factura authorizes: superseded, and the warning stays gone.
 	sriStub.answerAsUsual()
 	atInvoicingClock(t, fixedClock.Add(2*time.Minute))
 	if result := drainSaleInvoices(t); result.Claimed != 1 || result.Authorized != 1 {

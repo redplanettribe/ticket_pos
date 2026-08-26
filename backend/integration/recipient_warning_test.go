@@ -311,12 +311,14 @@ func TestRecipientWarningNeverBlocksTheCreditNote(t *testing.T) {
 	if note.Kind != "credit_note" || note.Status != "authorized" || note.RecipientWarning {
 		t.Fatalf("credit note = %s %s warning %v; want an authorized Credit Note without a warning of its own", note.Kind, note.Status, note.RecipientWarning)
 	}
+	// Credited, the factura declares nothing any more and can never be
+	// reissued: its warning is cleared and it leaves the operator's count.
 	factura := getRecipientWarningDetail(t, sriEnv, operatorSessionID, invoiceID)
-	if factura.CreditedByInvoiceID == nil || *factura.CreditedByInvoiceID != noteID || !factura.RecipientWarning {
-		t.Fatalf("factura credited_by %v warning %v; want credited by %s and still warned", factura.CreditedByInvoiceID, factura.RecipientWarning, noteID)
+	if factura.CreditedByInvoiceID == nil || *factura.CreditedByInvoiceID != noteID || factura.RecipientWarning {
+		t.Fatalf("factura credited_by %v warning %v; want credited by %s with the warning cleared", factura.CreditedByInvoiceID, factura.RecipientWarning, noteID)
 	}
-	if n := getRecipientWarningCount(t, sriEnv, operatorSessionID); n != 1 {
-		t.Fatalf("count = %d; want 1 — the factura's own", n)
+	if n := getRecipientWarningCount(t, sriEnv, operatorSessionID); n != 0 {
+		t.Fatalf("count = %d; want 0 — a credited factura needs no decision", n)
 	}
 }
 

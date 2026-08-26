@@ -760,7 +760,7 @@ type InvoiceDetail struct {
 	DeliveredAt      *time.Time `json:"delivered_at"`
 	NextAttemptAt    *time.Time `json:"next_attempt_at"`
 	CreditsInvoiceID *string    `json:"credits_invoice_id"`
-	ReversalReason   *string    `json:"reversal_reason"`
+	CreditNoteReason *string    `json:"credit_note_reason"`
 	// CreditedByInvoiceID is, on a Sale Invoice, the Credit Note that
 	// credits it (#476); null on every other document and until one does.
 	// A withdrawn or annulled Credit Note credits nothing (#484): the link
@@ -808,14 +808,16 @@ func (s *Service) listItem(row *repository.InvoiceRow) InvoiceListItem {
 	item := invoiceListItem(row)
 	if !s.saleInvoicingEnabled {
 		item.RecipientWarning = false
-		item.SupersededByInvoiceID = nil
 	}
 	return item
 }
 
 // detailView is invoiceDetailView under the service's flag (see listItem).
-// The detail's chain links (#483) are left as read whatever the flag says:
-// they are the document's facts, and superseded_by is among them.
+// The chain links (#483) are left as read whatever the flag says, on the
+// list as on the detail, the Sale lookup and the Customer Area: they are
+// the document's facts, and a closed flag must not make one surface call a
+// superseded factura current while another calls it superseded. Only the
+// Recipient Warning — a surface the flag owns — is masked.
 func (s *Service) detailView(row *repository.InvoiceRow) *InvoiceDetail {
 	d := invoiceDetailView(row)
 	if !s.saleInvoicingEnabled {
@@ -891,7 +893,7 @@ func invoiceDetailView(row *repository.InvoiceRow) *InvoiceDetail {
 		CheckStatusHint:     checkStatusHint(inv, row.Attempts),
 		IVARate:             optional(string(inv.IVARate)),
 		CreditsInvoiceID:    optional(inv.CreditsInvoiceID),
-		ReversalReason:      optional(inv.CreditNoteReason),
+		CreditNoteReason:    optional(inv.CreditNoteReason),
 		CreditedByInvoiceID: optional(inv.CreditedByInvoiceID),
 		AnnulledBy:          optional(inv.AnnulledBy),
 		AnnulledAt:          optionalTime(inv.AnnulledAt),

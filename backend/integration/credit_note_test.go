@@ -218,8 +218,8 @@ func TestReversalCreditsAnAuthorizedSaleInvoice(t *testing.T) {
 			if note.Status != "owed" || note.Number != nil || note.NextAttemptAt == nil {
 				t.Fatalf("credit note right after the reversal = %s number %v next %v; want owed, unsigned, due", note.Status, note.Number, note.NextAttemptAt)
 			}
-			if note.CreditsInvoiceID == nil || *note.CreditsInvoiceID != facturaID || note.ReversalReason == nil || *note.ReversalReason != route.reason {
-				t.Fatalf("credit note credits %v for %v; want %s for %s", note.CreditsInvoiceID, note.ReversalReason, facturaID, route.reason)
+			if note.CreditsInvoiceID == nil || *note.CreditsInvoiceID != facturaID || note.CreditNoteReason == nil || *note.CreditNoteReason != route.reason {
+				t.Fatalf("credit note credits %v for %v; want %s for %s", note.CreditsInvoiceID, note.CreditNoteReason, facturaID, route.reason)
 			}
 			if note.SaleConfirmationRef == nil || *note.SaleConfirmationRef != ref || note.IVARate == nil || *note.IVARate != "15" {
 				t.Fatalf("credit note sale ref %v rate %v; want %s at 15", note.SaleConfirmationRef, note.IVARate, ref)
@@ -425,8 +425,8 @@ func TestCreditNoteIsWithdrawnWhenItsSaleInvoiceDies(t *testing.T) {
 	reversalRoutes[1].reverse(t, env, operatorSessionID, ref)
 
 	noteID := creditNoteOf(t, operatorSessionID)
-	if note := getDrainedInvoice(t, operatorSessionID, noteID); note.Status != "owed" || note.ReversalReason == nil || *note.ReversalReason != "platform" {
-		t.Fatalf("credit note = %s for %v; want owed for the platform route", note.Status, note.ReversalReason)
+	if note := getDrainedInvoice(t, operatorSessionID, noteID); note.Status != "owed" || note.CreditNoteReason == nil || *note.CreditNoteReason != "platform" {
+		t.Fatalf("credit note = %s for %v; want owed for the platform route", note.Status, note.CreditNoteReason)
 	}
 	atInvoicingClock(t, fixedClock.Add(time.Hour))
 	if result := drainSaleInvoices(t); result.Claimed != 0 {
@@ -629,8 +629,8 @@ func TestReissueCreditNoteStatesACorrectionNotAReversal(t *testing.T) {
 	}
 
 	note := getDrainedInvoice(t, operatorSessionID, noteID)
-	if note.Status != "owed" || note.Kind != "credit_note" || note.CreditsInvoiceID == nil || *note.CreditsInvoiceID != facturaID || note.ReversalReason == nil || *note.ReversalReason != "reissue" {
-		t.Fatalf("seeded credit note = %s %s crediting %v for %v; want an owed Credit Note crediting the factura for reissue", note.Kind, note.Status, note.CreditsInvoiceID, note.ReversalReason)
+	if note.Status != "owed" || note.Kind != "credit_note" || note.CreditsInvoiceID == nil || *note.CreditsInvoiceID != facturaID || note.CreditNoteReason == nil || *note.CreditNoteReason != "reissue" {
+		t.Fatalf("seeded credit note = %s %s crediting %v for %v; want an owed Credit Note crediting the factura for reissue", note.Kind, note.Status, note.CreditsInvoiceID, note.CreditNoteReason)
 	}
 	if status, _, _ := saleProvenance(t, env, ref); status == "reversed" {
 		t.Fatalf("the Sale is reversed; a reissue Credit Note has no reversal behind it")
@@ -641,8 +641,8 @@ func TestReissueCreditNoteStatesACorrectionNotAReversal(t *testing.T) {
 		t.Fatalf("drain = %+v; want the reissue Credit Note claimed, authorized and delivered", result)
 	}
 	note = getDrainedInvoice(t, operatorSessionID, noteID)
-	if note.Status != "authorized" || note.Number == nil || *note.Number != "001-001-000000001" || note.DeliveredAt == nil || note.ReversalReason == nil || *note.ReversalReason != "reissue" {
-		t.Fatalf("credit note after the drain = %s %v delivered %v reason %v; want authorized, numbered, delivered, still reissue", note.Status, note.Number, note.DeliveredAt, note.ReversalReason)
+	if note.Status != "authorized" || note.Number == nil || *note.Number != "001-001-000000001" || note.DeliveredAt == nil || note.CreditNoteReason == nil || *note.CreditNoteReason != "reissue" {
+		t.Fatalf("credit note after the drain = %s %v delivered %v reason %v; want authorized, numbered, delivered, still reissue", note.Status, note.Number, note.DeliveredAt, note.CreditNoteReason)
 	}
 
 	// What the SRI received: a nota de crédito whose motivo is the fixed

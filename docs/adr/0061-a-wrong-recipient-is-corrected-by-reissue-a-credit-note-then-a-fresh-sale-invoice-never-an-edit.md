@@ -44,7 +44,7 @@ note, bounded as an Operator Reversal's is, shown on the operator surfaces and n
 
 The authority's advertencias 59 and 62 on an authorized document become a **Recipient Warning**: a marker
 the invoicing list filters on and the Operator Dashboard counts beside the `needs_attention` queue,
-cleared when the document is superseded. The status stays `authorized` — the document is valid and the
+cleared when the document is credited — by the reissue's Credit Note, or a reversal's. The status stays `authorized` — the document is valid and the
 Drainer settled it. A Tax ID that exists and belongs to somebody else raises nothing; only the buyer can
 notice that one.
 

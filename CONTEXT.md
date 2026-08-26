@@ -615,7 +615,7 @@ _Avoid_: Ticket invoice, receipt, automatic invoice, customer invoice
 
 **Credit Note**:
 The document that undoes a Sale Invoice at the Tax Authority — always for the whole amount, naming the same Recipient — when its Ticket Sale is reversed, or when the Sale Invoice is superseded by a Sale Invoice Reissue. Carries which of the two it is as its reason: the reversal's route, or the reissue. Owed by the reversal or the reissue itself and issued afterwards, like the Sale Invoice it refers to.
-Only an authorized Sale Invoice is credited. One never sent is withdrawn instead — the Tax Authority is told nothing about a sale that no longer stands — and one still unanswered waits for its answer before either happens. A Sale Reversal is never refused or delayed by the state of its paperwork. A Sale Invoice is credited at most once: a reversal's Credit Note owed while a reissue's against the same document is still unanswered waits for that answer, and is withdrawn if the reissue's was authorized; a reissue's never sent is withdrawn with the corrected Sale Invoice it was owed for.
+Only an authorized Sale Invoice is credited. One never sent is withdrawn instead — the Tax Authority is told nothing about a sale that no longer stands — and one still unanswered waits for its answer before either happens. A Sale Reversal is never refused or delayed by the state of its paperwork. A Sale Invoice is credited at most once, whichever of a reversal or a reissue gets there first.
 In Spanish, **Nota de crédito**.
 _Avoid_: Refund invoice, cancellation, anulación (the Tax Authority's manual portal act, which this is not), reversal note
 
@@ -629,7 +629,7 @@ What a reissued Sale Invoice is: still authorized and still a legal document the
 _Avoid_: Cancelled, annulled, void, old, replaced (as the term), archived
 
 **Recipient Warning**:
-The Tax Authority's word, on a document it nevertheless authorized, that the Recipient's Tax ID does not exist or is incorrect — the SRI's advertencias 59 and 62. Not a fault of the document, which stands, but the one signal the platform has that a Sale Invoice was declared to the wrong taxpayer; shown wherever the document is listed until the document is superseded — cleared the moment the corrected Sale Invoice is authorized, since until then a reissue that dies would leave this one current. Not raised by a Tax ID that exists and belongs to somebody else, which only the buyer can notice.
+The Tax Authority's word, on a document it nevertheless authorized, that the Recipient's Tax ID does not exist or is incorrect — the SRI's advertencias 59 and 62. Not a fault of the document, which stands, but the one signal the platform has that a Sale Invoice was declared to the wrong taxpayer; shown wherever the document is listed until the document is credited — by a reissue's Credit Note or a reversal's — since a Sale Invoice that no longer stands at the Tax Authority declares nothing to anyone, and can no longer be reissued. Not raised by a Tax ID that exists and belongs to somebody else, which only the buyer can notice.
 _Avoid_: Error, rejection, needs attention (the Drainer's parking, which this is not), invalid Tax ID
 
 **Sale Invoice Drainer**:

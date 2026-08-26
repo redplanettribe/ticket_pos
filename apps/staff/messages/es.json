@@ -1498,7 +1498,7 @@
     "invoicingDetailCredits": "Acredita la factura de venta",
     "invoicingDetailCreditedBy": "Acreditada por la nota de crédito",
     "invoicingDetailOpenDocument": "Abrir documento",
-    "invoicingDetailReversalReason": "Vía de la reversión: {route}",
+    "invoicingDetailCreditNoteReason": "Vía de la reversión: {route}",
     "invoicingDetailReissueReason": "Motivo: reemisión de factura — se corrigieron los datos del receptor; la venta no se revirtió.",
     "invoicingReversalRouteCustomer": "reversión por el comprador",
     "invoicingReversalRoutePlatform": "reversión por el operador",
@@ -1824,7 +1824,8 @@
       "REISSUE_IN_FLIGHT": "Ya hay una reemisión en curso de la factura de esta venta. Espere a que su nota de crédito y su factura corregida estén autorizadas.",
       "INVOICE_SUPERSEDED": "Esta factura de venta fue sustituida por una reemisión. Reemita la factura de venta vigente.",
       "INVOICE_ALREADY_CREDITED": "Esta factura de venta ya está acreditada por una nota de crédito autorizada y no se puede acreditar de nuevo.",
-      "ISSUER_FIELD_FROZEN": "Ese campo ya no puede cambiar: se han emitido documentos con él."
+      "ISSUER_FIELD_FROZEN": "Ese campo ya no puede cambiar: se han emitido documentos con él.",
+      "SALE_INVOICING_UNAVAILABLE": "La facturación de ventas está desactivada en este momento, así que la factura no se puede reemitir."
     },
     "field": {
       "REQUIRED": "es obligatorio",

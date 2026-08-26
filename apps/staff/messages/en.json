@@ -1498,7 +1498,7 @@
     "invoicingDetailCredits": "Credits Sale Invoice",
     "invoicingDetailCreditedBy": "Credited by Credit Note",
     "invoicingDetailOpenDocument": "Open document",
-    "invoicingDetailReversalReason": "Reversal route: {route}",
+    "invoicingDetailCreditNoteReason": "Reversal route: {route}",
     "invoicingDetailReissueReason": "Reason: Sale Invoice Reissue — the recipient's details were corrected; the sale was not reversed.",
     "invoicingReversalRouteCustomer": "the buyer's own undo",
     "invoicingReversalRoutePlatform": "Operator Reversal",
@@ -1824,7 +1824,8 @@
       "REISSUE_IN_FLIGHT": "A reissue of this sale's Sale Invoice is already in progress. Wait until its Credit Note and corrected Sale Invoice are authorized.",
       "INVOICE_SUPERSEDED": "This Sale Invoice was superseded by a reissue. Reissue the current Sale Invoice instead.",
       "INVOICE_ALREADY_CREDITED": "This Sale Invoice is already credited by an authorized Credit Note and cannot be credited again.",
-      "ISSUER_FIELD_FROZEN": "That field can no longer change: documents have been issued under it."
+      "ISSUER_FIELD_FROZEN": "That field can no longer change: documents have been issued under it.",
+      "SALE_INVOICING_UNAVAILABLE": "Sale invoicing is switched off right now, so the Sale Invoice cannot be reissued."
     },
     "field": {
       "REQUIRED": "is required",

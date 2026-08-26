@@ -231,13 +231,13 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
             {invoice.iva_rate ? (
               <p className="text-muted-foreground">{t("invoicingDetailPricedAt", { rate: ivaLabel(invoice.iva_rate) })}</p>
             ) : null}
-            {invoice.reversal_reason === "reissue" ? (
+            {invoice.credit_note_reason === "reissue" ? (
               <p className="text-muted-foreground">{t("invoicingDetailReissueReason")}</p>
-            ) : invoice.reversal_reason ? (
+            ) : invoice.credit_note_reason ? (
               <p className="text-muted-foreground">
-                {t("invoicingDetailReversalReason", {
+                {t("invoicingDetailCreditNoteReason", {
                   route: t(
-                    REVERSAL_ROUTE_KEYS[invoice.reversal_reason as keyof typeof REVERSAL_ROUTE_KEYS] ??
+                    REVERSAL_ROUTE_KEYS[invoice.credit_note_reason as keyof typeof REVERSAL_ROUTE_KEYS] ??
                       "invoicingReversalRoutePlatform",
                   ),
                 })}

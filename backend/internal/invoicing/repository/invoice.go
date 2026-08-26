@@ -256,11 +256,13 @@ type OutcomeUpdate struct {
 // (#477). recipient_warning is raised when the answer says so and never
 // lowered on the row itself (#482). The one write that clears a warning is
 // here too, on ANOTHER row (#484, ADR 0061): an answer that authorizes a
-// Sale Invoice which supersedes another is the moment the superseded
-// factura can never be the Sale's current one again — until then a dead
-// Credit Note could still hand it back — so its warning is cleared in the
-// same transaction. The corrected factura's own warning, if the answer
-// carried one, is raised as any other.
+// Credit Note is the moment the factura it credits stops declaring
+// anything to the authority — whether a reissue's nota or a reversal's —
+// so that factura's warning is cleared in the same transaction. Not at the
+// reissue, whose Credit Note may yet die and hand the factura back; not at
+// the corrected factura's authorization, which an annulled corrected
+// factura or a reversed Sale never reaches. The corrected factura's own
+// warning, if the answer carried one, is raised as any other.
 //
 // GUARDED ON u.From, the status the answer was asked for. An operator may
 // have marked the document annulled while the authority was being asked
@@ -308,11 +310,11 @@ func (r *Repository) ApplyOutcome(ctx context.Context, invoiceID string, u Outco
 	}
 	if u.Status == invoicing.InvoiceStatusAuthorized {
 		if _, err := tx.ExecContext(ctx, `
-			UPDATE invoicing_invoices s SET recipient_warning = FALSE, updated_at = NOW()
+			UPDATE invoicing_invoices f SET recipient_warning = FALSE, updated_at = NOW()
 			FROM invoicing_invoices c
-			WHERE c.id = $1 AND s.id = c.supersedes_invoice_id AND s.recipient_warning
+			WHERE c.id = $1 AND c.kind = 'credit_note' AND f.id = c.credits_invoice_id AND f.recipient_warning
 		`, invoiceID); err != nil {
-			return false, fmt.Errorf("clear superseded recipient warning: %w", err)
+			return false, fmt.Errorf("clear credited recipient warning: %w", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {

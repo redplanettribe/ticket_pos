@@ -4296,6 +4296,9 @@ const docTemplate = `{
                     "created_at": {
                         "type": "string"
                     },
+                    "credit_note_reason": {
+                        "type": "string"
+                    },
                     "credited_by_invoice_id": {
                         "description": "CreditedByInvoiceID is, on a Sale Invoice, the Credit Note that\ncredits it (#476); null on every other document and until one does.\nA withdrawn or annulled Credit Note credits nothing (#484): the link\nnames a live one, and is null again once the only one died.",
                         "type": "string"
@@ -4386,9 +4389,6 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "reissued_by": {
-                        "type": "string"
-                    },
-                    "reversal_reason": {
                         "type": "string"
                     },
                     "sale_confirmation_ref": {

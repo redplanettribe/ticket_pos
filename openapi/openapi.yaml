@@ -3614,6 +3614,8 @@ components:
           type: string
         created_at:
           type: string
+        credit_note_reason:
+          type: string
         credited_by_invoice_id:
           description: |-
             CreditedByInvoiceID is, on a Sale Invoice, the Credit Note that
@@ -3702,8 +3704,6 @@ components:
         reissued_at:
           type: string
         reissued_by:
-          type: string
-        reversal_reason:
           type: string
         sale_confirmation_ref:
           type: string

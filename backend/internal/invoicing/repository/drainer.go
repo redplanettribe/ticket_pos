@@ -325,7 +325,7 @@ func (r *Repository) GetSaleDeliveryFacts(ctx context.Context, ticketSaleID stri
 	var f SaleDeliveryFacts
 	var saleLocale, customerLocale sql.NullString
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT e.name, ts.locale, c.mail_locale, ts.reversed_at IS NOT NULL
+		SELECT e.name, ts.locale, c.mail_locale, ts.status = 'reversed'
 		FROM ticket_sales ts
 		JOIN events e ON e.id = ts.event_id
 		LEFT JOIN customers c ON c.id = ts.customer_id

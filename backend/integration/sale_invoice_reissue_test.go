@@ -202,7 +202,7 @@ func TestReissueOwesACreditNoteAndACorrectedSaleInvoice(t *testing.T) {
 	if corrected.ReissueNote == nil || *corrected.ReissueNote != "buyer wrote in: the factura goes to the company" {
 		t.Fatalf("reissue note = %v; want the note as stated", corrected.ReissueNote)
 	}
-	if corrected.CreditsInvoiceID != nil || corrected.CreditedByInvoiceID != nil || corrected.ReversalReason != nil {
+	if corrected.CreditsInvoiceID != nil || corrected.CreditedByInvoiceID != nil || corrected.CreditNoteReason != nil {
 		t.Fatalf("a corrected factura carries credit facts: %+v", corrected)
 	}
 
@@ -213,8 +213,8 @@ func TestReissueOwesACreditNoteAndACorrectedSaleInvoice(t *testing.T) {
 	}
 	noteID := creditNoteOf(t, operatorSessionID)
 	note := getReissuedInvoice(t, operatorSessionID, noteID)
-	if note.Status != "owed" || note.Number != nil || note.NextAttemptAt == nil || note.CreditsInvoiceID == nil || *note.CreditsInvoiceID != facturaID || note.ReversalReason == nil || *note.ReversalReason != "reissue" {
-		t.Fatalf("credit note = %s number %v next %v credits %v for %v; want owed, unsigned, due, crediting the factura for reissue", note.Status, note.Number, note.NextAttemptAt, note.CreditsInvoiceID, note.ReversalReason)
+	if note.Status != "owed" || note.Number != nil || note.NextAttemptAt == nil || note.CreditsInvoiceID == nil || *note.CreditsInvoiceID != facturaID || note.CreditNoteReason == nil || *note.CreditNoteReason != "reissue" {
+		t.Fatalf("credit note = %s number %v next %v credits %v for %v; want owed, unsigned, due, crediting the factura for reissue", note.Status, note.Number, note.NextAttemptAt, note.CreditsInvoiceID, note.CreditNoteReason)
 	}
 	if note.Recipient != factura.Recipient || note.Recipient.TaxID != validCedula || note.Recipient.LegalName != "Ana Lopez" {
 		t.Fatalf("credit note recipient = %+v; want the superseded factura's %+v, never the corrected one", note.Recipient, factura.Recipient)
@@ -697,8 +697,8 @@ func TestReissueLosesToAReversalItRaces(t *testing.T) {
 		t.Fatalf("the Sale's documents = %+v; want the factura and the reversal's Credit Note alone", docs)
 	}
 	noteID := creditNoteOf(t, operatorSessionID)
-	if note := getReissuedInvoice(t, operatorSessionID, noteID); note.ReversalReason == nil || *note.ReversalReason != "customer" {
-		t.Fatalf("credit note reason = %v; want the reversal's, never reissue", note.ReversalReason)
+	if note := getReissuedInvoice(t, operatorSessionID, noteID); note.CreditNoteReason == nil || *note.CreditNoteReason != "customer" {
+		t.Fatalf("credit note reason = %v; want the reversal's, never reissue", note.CreditNoteReason)
 	}
 	if factura := getReissuedInvoice(t, operatorSessionID, facturaID); factura.SupersededByInvoiceID != nil {
 		t.Fatalf("the factura was superseded by a reissue that lost: %v", *factura.SupersededByInvoiceID)

@@ -14348,6 +14348,7 @@ export interface components {
             check_status_hint?: boolean;
             country?: string;
             created_at?: string;
+            credit_note_reason?: string;
             /**
              * @description CreditedByInvoiceID is, on a Sale Invoice, the Credit Note that
              *     credits it (#476); null on every other document and until one does.
@@ -14413,7 +14414,6 @@ export interface components {
             reissue_note?: string;
             reissued_at?: string;
             reissued_by?: string;
-            reversal_reason?: string;
             sale_confirmation_ref?: string;
             status?: string;
             /**
