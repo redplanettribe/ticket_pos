@@ -51,6 +51,13 @@ import (
 // same reason: an operator who uploads the certificate has fixed it, and the
 // next hour's tick proves so.
 //
+// DELIVERY IS THIS DRAINER'S LAST STEP (#475). An authorized document is
+// mailed to the buyer in the same round that saw it authorized — and, if
+// the sender refused, is claimed again on the same ladder for delivery
+// alone: an authorized document without a delivered_at is due work exactly
+// as an owed one is, and the authorization is never touched by whatever
+// the mail does. Delivery asks the authority nothing. See delivery.go.
+//
 // LOG LINES COUNT DOCUMENTS AND NAME STATES, never buyers (#471 story 35).
 
 // SaleInvoiceLadder is the delay between rounds after the first, second and
@@ -108,6 +115,10 @@ type SaleInvoiceDrainResult struct {
 	Authorized     int `json:"authorized"`
 	Pending        int `json:"pending"`
 	NeedsAttention int `json:"needs_attention"`
+	// Delivered is how many authorized documents this run mailed to their
+	// buyers (#475). Each is counted under Authorized as well; an authorized
+	// document the sender refused is not counted here and is due again.
+	Delivered int `json:"delivered"`
 	// Failed is documents whose round errored on the database itself. Each
 	// logged its own line; the claim lease returns them to the queue.
 	Failed int `json:"failed"`
@@ -192,12 +203,15 @@ func (s *Service) drainSaleInvoices(ctx context.Context, ticketSaleID string) (*
 			break
 		}
 		out.Claimed++
-		status, err := s.workSaleInvoice(ctx, row)
+		status, delivered, err := s.workSaleInvoice(ctx, row)
 		if err != nil {
 			s.logger.Warn("invoicing: the drainer could not finish a document; it stays leased until the claim expires",
 				"invoice_id", row.Invoice.ID, "error", err)
 			out.Failed++
 			continue
+		}
+		if delivered {
+			out.Delivered++
 		}
 		switch status {
 		case invoicing.InvoiceStatusAuthorized:
@@ -217,21 +231,29 @@ func (s *Service) drainSaleInvoices(ctx context.Context, ticketSaleID string) (*
 	}
 	s.logger.Info("invoicing: sale invoices drained",
 		"claimed", out.Claimed, "authorized", out.Authorized, "pending", out.Pending,
-		"needs_attention", out.NeedsAttention, "failed", out.Failed)
+		"needs_attention", out.NeedsAttention, "delivered", out.Delivered, "failed", out.Failed)
 	return out, nil
 }
 
 // workSaleInvoice does one round on one claimed document and reports the
-// state it left it in.
-func (s *Service) workSaleInvoice(ctx context.Context, row *repository.InvoiceRow) (invoicing.InvoiceStatus, error) {
+// state it left it in, and whether this round delivered it to the buyer.
+//
+// A document claimed already authorized is here for delivery alone: an
+// earlier round authorized it and the sender refused (#475). Nothing about
+// it is asked of the authority again.
+func (s *Service) workSaleInvoice(ctx context.Context, row *repository.InvoiceRow) (invoicing.InvoiceStatus, bool, error) {
+	if row.Invoice.Status == invoicing.InvoiceStatusAuthorized {
+		delivered, err := s.deliverDocument(ctx, row)
+		return invoicing.InvoiceStatusAuthorized, delivered, err
+	}
 	if !row.Invoice.Signed() {
 		signed, err := s.signOwedInvoice(ctx, row)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
 		if signed == nil {
 			// Parked unsignable; signOwedInvoice wrote why.
-			return invoicing.InvoiceStatusNeedsAttention, nil
+			return invoicing.InvoiceStatusNeedsAttention, false, nil
 		}
 		row = signed
 		s.submitAndPoll(ctx, row, nil)
@@ -242,7 +264,18 @@ func (s *Service) workSaleInvoice(ctx context.Context, row *repository.InvoiceRo
 		// on file again, under the same clave.
 		s.submitAndPoll(ctx, row, nil)
 	}
-	return s.settleRound(ctx, row.Invoice.ID)
+	status, err := s.settleRound(ctx, row.Invoice.ID)
+	if err != nil || status != invoicing.InvoiceStatusAuthorized {
+		return status, false, err
+	}
+	// Authorized this round: hand it over now rather than on the next tick,
+	// so the buyer's second mail follows the receipt within seconds.
+	authorized, err := s.repo.GetInvoice(ctx, row.Invoice.ID)
+	if err != nil {
+		return status, false, err
+	}
+	delivered, err := s.deliverDocument(ctx, authorized)
+	return status, delivered, err
 }
 
 // pollOnce asks autorización once and applies a definite answer; an

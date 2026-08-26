@@ -64,3 +64,12 @@ type EnvelopeNeedsAttentionCount struct {
 	Error     *platform.APIError          `json:"error"`
 	RequestID string                      `json:"request_id"`
 }
+
+// EnvelopeCustomerDocuments documents GET
+// /customer/ticket-sales/{ticketSaleId}/tax-documents success responses: the
+// Sale's documents in the buyer's words, an empty list when it owes none.
+type EnvelopeCustomerDocuments struct {
+	Data      []service.CustomerDocument `json:"data"`
+	Error     *platform.APIError         `json:"error"`
+	RequestID string                     `json:"request_id"`
+}

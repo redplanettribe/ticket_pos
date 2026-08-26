@@ -3,6 +3,7 @@ package platform
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -66,21 +67,43 @@ func (s *ResendEmailSender) From() string { return s.from }
 // resendRequest is the subset of Resend's send payload this system uses. Plain
 // text only for now: the messages are short, and text/plain sidesteps an HTML
 // templating dependency and the deliverability tuning HTML mail invites.
+//
+// Attachments arrived with the Tax Document delivery (#475): Resend takes
+// them inline on the same POST, the content base64-encoded, and omits the
+// key entirely when there are none so every earlier message's payload is
+// byte for byte what it was.
 type resendRequest struct {
-	From    string   `json:"from"`
-	To      []string `json:"to"`
-	Subject string   `json:"subject"`
-	Text    string   `json:"text"`
+	From        string             `json:"from"`
+	To          []string           `json:"to"`
+	Subject     string             `json:"subject"`
+	Text        string             `json:"text"`
+	Attachments []resendAttachment `json:"attachments,omitempty"`
+}
+
+// resendAttachment is one file as Resend's API takes it: the filename, the
+// bytes as standard base64, and the media type.
+type resendAttachment struct {
+	Filename    string `json:"filename"`
+	Content     string `json:"content"`
+	ContentType string `json:"content_type,omitempty"`
 }
 
 // send performs the one POST every public method funnels through.
-func (s *ResendEmailSender) send(ctx context.Context, to, subject, text string) error {
-	payload, err := json.Marshal(resendRequest{
+func (s *ResendEmailSender) send(ctx context.Context, to, subject, text string, attachments ...EmailAttachment) error {
+	message := resendRequest{
 		From:    s.from,
 		To:      []string{to},
 		Subject: subject,
 		Text:    text,
-	})
+	}
+	for _, a := range attachments {
+		message.Attachments = append(message.Attachments, resendAttachment{
+			Filename:    a.Filename,
+			Content:     base64.StdEncoding.EncodeToString(a.Body),
+			ContentType: a.ContentType,
+		})
+	}
+	payload, err := json.Marshal(message)
 	if err != nil {
 		return fmt.Errorf("marshal resend request: %w", err)
 	}
@@ -129,6 +152,18 @@ func (s *ResendEmailSender) SendOTP(ctx context.Context, to string, code string,
 func (s *ResendEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConfirmation) error {
 	if err := s.send(ctx, c.To, c.Subject(), c.Text()); err != nil {
 		s.logger.Error("resend send sale confirmation failed", "reference", c.Reference, "error", err)
+		return err
+	}
+	return nil
+}
+
+// SendTaxDocumentDelivery hands the buyer their authorized Tax Document with
+// the signed XML attached (#475). The Drainer reads the error: a failed
+// delivery is retried on its ladder, so the truth is all this reports. The
+// log names the reference and the kind, never the recipient.
+func (s *ResendEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDocumentDelivery) error {
+	if err := s.send(ctx, d.To, d.Subject(), d.Text(), d.Attachment); err != nil {
+		s.logger.Error("resend send tax document delivery failed", "kind", d.Kind, "reference", d.Reference, "error", err)
 		return err
 	}
 	return nil

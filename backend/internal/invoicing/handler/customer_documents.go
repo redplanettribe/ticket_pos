@@ -1,0 +1,91 @@
+package handler
+
+import (
+	"net/http"
+
+	"github.com/google/uuid"
+
+	customersmiddleware "github.com/peter/ticket_pos/backend/internal/customers/middleware"
+	"github.com/peter/ticket_pos/backend/internal/invoicing"
+	"github.com/peter/ticket_pos/backend/internal/platform"
+)
+
+// The buyer's routes (#475, ADR 0060), served by this handler under the
+// customer namespace exactly as the sales handler serves the undo there:
+// the credential is a Customer Session, which is that namespace's business,
+// and the document is a Tax Document, which is this module's. The Customer
+// on the session is the only identity either route acts on; the ids in the
+// path say WHICH of that Customer's Sales and documents, and the service
+// narrows a Confirmation Link session to its one Sale.
+
+// ListCustomerSaleDocuments lists a Sale's documents for its buyer.
+//
+// @Summary      List the Tax Documents of one of the Customer's Ticket Sales
+// @Description  The Customer Area's read of a Sale's documents (ADR 0060): every Sale Invoice and Credit Note the Sale owes or was issued, each with its `kind` (`sale` for a factura, `credit_note`), a `status` in the platform's own words — `authorized`, or `on_its_way` for a document still owed, pending at the SRI or parked for an operator — and `download_url`, the path of the signed XML once authorized and null before. Nothing the SRI said ever travels here. An empty list for a Sale that owes no document (a free, imported or non-House sale), for a Sale that is not this Customer's, and for any Sale but the one a Confirmation Link session names: not yours and not there are one answer. Requires a Customer Session; a Confirmation Link session is enough.
+// @Tags         customer
+// @Produce      json
+// @Security     BearerAuth
+// @Param        ticketSaleId  path  string  true  "Ticket Sale id"
+// @Success      200  {object}  openapi.EnvelopeCustomerDocuments
+// @Failure      401  {object}  platform.Envelope
+// @Router       /api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents [get]
+func (h *Handler) ListCustomerSaleDocuments(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+	session, ok := customersmiddleware.SessionFromContext(r.Context())
+	if !ok {
+		_ = platform.WriteUnauthorized(w, reqID, "Missing session")
+		return
+	}
+	saleID := r.PathValue("ticketSaleId")
+	if _, err := uuid.Parse(saleID); err != nil {
+		_ = platform.WriteSuccess(w, reqID, http.StatusOK, []struct{}{})
+		return
+	}
+	docs, err := h.svc.CustomerSaleDocuments(r.Context(), session.CustomerID, session.TicketSaleID, saleID)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, docs)
+}
+
+// DownloadCustomerSaleDocumentXML hands the buyer the signed XML.
+//
+// @Summary      Download the signed XML of one of the Customer's Tax Documents
+// @Description  The buyer's download (ADR 0060): the factura or nota de crédito exactly as it was signed and authorized, as `application/xml` with `Content-Disposition: attachment; filename="<clave de acceso>.xml"` — the same bytes the operator route serves. Gated on the Sale: the Customer Session must own the Ticket Sale in the path, or be a Confirmation Link session naming it. Any other Customer, any other Sale, a document that is not this Sale's, and a document not yet authorized all answer INVOICE_NOT_FOUND (404), one refusal for every case so that ids cannot be probed. No session at all is 401.
+// @Tags         customer
+// @Produce      application/xml
+// @Security     BearerAuth
+// @Param        ticketSaleId  path  string  true  "Ticket Sale id"
+// @Param        id            path  string  true  "Tax Document id"
+// @Success      200
+// @Failure      401  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Router       /api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents/{id}/xml [get]
+func (h *Handler) DownloadCustomerSaleDocumentXML(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+	session, ok := customersmiddleware.SessionFromContext(r.Context())
+	if !ok {
+		_ = platform.WriteUnauthorized(w, reqID, "Missing session")
+		return
+	}
+	saleID, id := r.PathValue("ticketSaleId"), r.PathValue("id")
+	if _, err := uuid.Parse(saleID); err != nil {
+		_ = platform.WriteDomainError(w, reqID, invoicing.ErrInvoiceNotFound())
+		return
+	}
+	if _, err := uuid.Parse(id); err != nil {
+		_ = platform.WriteDomainError(w, reqID, invoicing.ErrInvoiceNotFound())
+		return
+	}
+	doc, err := h.svc.CustomerSaleDocumentXML(r.Context(), session.CustomerID, session.TicketSaleID, saleID, id)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	w.Header().Set("Content-Type", doc.ContentType)
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+doc.Filename+"\"")
+	w.Header().Set("X-Request-ID", reqID)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(doc.Body)
+}

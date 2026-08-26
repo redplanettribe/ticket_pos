@@ -4,6 +4,7 @@ import { Badge } from "@ticket-pos/ui";
 
 import { BuyerTicketAnswers } from "@/components/buyer-ticket-answers";
 import { ReversalWatch } from "@/components/reversal-watch";
+import { SaleDocuments } from "@/components/sale-documents";
 import { UndoPurchase } from "@/components/undo-purchase";
 import { SignInToUndo, UndoWindowNotice } from "@/components/undo-window-notice";
 import { getFormatLocale } from "@/i18n/format-locale.server";
@@ -192,6 +193,14 @@ export async function TicketSaleCard({
             })}
           </p>
       </div>
+
+      {/* The Factura block (#475, ADR 0060): the tax invoice a paid House
+          sale owes, drawn beside the reference and the Tax ID because it is
+          about the same thing they are — the buyer's fiscal record of this
+          purchase. Absent on every sale that owes none, which is nearly all
+          of them; "on its way" until the SRI authorizes it; the XML download
+          after. Fetched per card, like the Tickets block below. */}
+      <SaleDocuments ticketSaleId={sale.id} />
 
       {/* The sentence, its Ecuador-time qualifier and the word "undo" all live in
           UndoWindowNotice, shared with the guest surfaces. What differs is the

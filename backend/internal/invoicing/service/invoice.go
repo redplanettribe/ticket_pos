@@ -332,7 +332,9 @@ func (s *Service) attempt(ctx context.Context, invoiceID string, op invoicing.At
 // authority's messages beside it. An undecided answer leaves a manual
 // document pending until the operator checks; it leaves a Sale Invoice
 // pending AND due again on the ladder — or needs_attention-still-polled once
-// 24 hours have passed since signing without a definite answer.
+// 24 hours have passed since signing without a definite answer. And an
+// authorized Sale Invoice is due again at once, for its delivery (#475);
+// an authorized manual document is the operator's to hand over.
 func (s *Service) applyOutcome(ctx context.Context, row *repository.InvoiceRow, o invoicing.Outcome) {
 	inv := &row.Invoice
 	now := s.clock()
@@ -351,6 +353,12 @@ func (s *Service) applyOutcome(ctx context.Context, row *repository.InvoiceRow, 
 	}
 	if inv.Kind != invoicing.DocumentKindManual {
 		switch u.Status {
+		case invoicing.InvoiceStatusAuthorized:
+			// Due at once, for delivery (#475): the Drainer mails it in this
+			// round or, when the round was an operator's Check status, on
+			// its next tick. MarkDelivered clears it.
+			now := s.clock()
+			u.NextAttemptAt = &now
 		case invoicing.InvoiceStatusNotAuthorized, invoicing.InvoiceStatusRejected:
 			u.Status = invoicing.InvoiceStatusNeedsAttention
 		case invoicing.InvoiceStatusPending:
