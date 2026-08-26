@@ -23,6 +23,7 @@ import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { type AppLocale, PLATFORM_TIME_ZONE, formatCalendarDay, formatDateTime, formatMoney } from "@/lib/format";
 import { type OperatorInvoiceDetail, fetchOperatorInvoice } from "@/lib/operator-api";
+import { recipientWarningMessages } from "@/lib/recipient-warning";
 
 import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "../invoice-status";
 import { OperatorInvoiceActions } from "./operator-invoice-actions";
@@ -68,6 +69,41 @@ const OUTCOME_KEYS = {
   rejected: "invoicingAttemptOutcomeRejected",
   error: "invoicingAttemptOutcomeError",
 } as const;
+
+/**
+ * The Recipient Warning (#482, ADR 0061): the SRI authorized this factura and
+ * said the Recipient's Tax ID does not exist or is incorrect. The document
+ * stands; the card quotes the authority's own words — which of the stored
+ * messages those are is `recipientWarningMessages`' decision — and says what
+ * the warning means. Stays until the document is superseded, whatever else
+ * happens to it.
+ */
+function RecipientWarningCard({ invoice }: { invoice: OperatorInvoiceDetail }) {
+  const t = useTranslations("operator");
+  const quoted = recipientWarningMessages(invoice.messages, invoice.attempts);
+  return (
+    <Alert className="border-amber-500 text-amber-900 [&>svg]:text-amber-700">
+      <AlertTitle>{t("invoicingRecipientWarningTitle")}</AlertTitle>
+      <AlertDescription>
+        <p>{t("invoicingRecipientWarningBody")}</p>
+        {quoted.length === 0 ? (
+          <p className="mt-2 text-muted-foreground">{t("invoicingRecipientWarningNoQuote")}</p>
+        ) : (
+          <ul className="mt-2 space-y-1">
+            {quoted.map((message, index) => (
+              <li key={`${message.identifier}-${index}`}>
+                <span className="font-mono">{message.identifier}</span> {message.message}
+                {message.additional_info ? (
+                  <span className="text-muted-foreground"> — {message.additional_info}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </AlertDescription>
+    </Alert>
+  );
+}
 
 export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
   const t = useTranslations("operator");
@@ -135,6 +171,11 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
             <Badge variant="outline">{kindLabel}</Badge>
             {invoice.environment === "test" ? <Badge variant="outline">{t("invoicingTestBadge")}</Badge> : null}
             <Badge variant={INVOICE_STATUS_VARIANTS[invoice.status]}>{t(INVOICE_STATUS_KEYS[invoice.status])}</Badge>
+            {invoice.recipient_warning ? (
+              <Badge variant="outline" className="border-amber-500 text-amber-700">
+                {t("invoicingRecipientWarningBadge")}
+              </Badge>
+            ) : null}
           </div>
         }
       />
@@ -184,6 +225,8 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
           </CardContent>
         </Card>
       ) : null}
+
+      {invoice.recipient_warning ? <RecipientWarningCard invoice={invoice} /> : null}
 
       {invoice.annulled_by && invoice.annulled_at ? (
         // The annulment trail (#477): who recorded the portal act and when.

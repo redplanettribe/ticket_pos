@@ -290,6 +290,10 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// other queues live on the operator module because it composes theirs.
 	mux.Handle("GET /api/v1/operator/invoicing/needs-attention", operator(http.HandlerFunc(inv.ListNeedsAttention)))
 	mux.Handle("GET /api/v1/operator/invoicing/needs-attention/count", operator(http.HandlerFunc(inv.CountNeedsAttention)))
+	// The Recipient Warnings (#482, ADR 0061): the dashboard's count beside
+	// the needs_attention one; the documents themselves are the invoicing
+	// list under its recipient_warning filter.
+	mux.Handle("GET /api/v1/operator/invoicing/recipient-warnings/count", operator(http.HandlerFunc(inv.CountRecipientWarnings)))
 	// The documents handed over (#456): the signed XML in every status, the
 	// SRI's authorization XML only once authorized. Files, not envelopes.
 	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/xml", operator(http.HandlerFunc(inv.DownloadSignedXML)))

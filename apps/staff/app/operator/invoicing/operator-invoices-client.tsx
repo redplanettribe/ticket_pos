@@ -28,6 +28,7 @@ import {
   type InvoiceKindFilter,
   type OperatorInvoiceListItem,
   fetchOperatorInvoices,
+  fetchOperatorRecipientWarningCount,
 } from "@/lib/operator-api";
 
 import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "./invoice-status";
@@ -42,6 +43,12 @@ import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from 
 // rather than showing a blank, since "not yet" and "unknown" are different.
 // The kind filter (#477) narrows the list to one of the three; the API does
 // the narrowing, so the page's total is the filtered total.
+//
+// The Recipient Warning (#482, ADR 0061): an authorized Sale Invoice the SRI
+// warned about — the Recipient's Tax ID does not exist or is incorrect — is
+// marked in the list and found by a second filter. Both exist only while
+// Sale Invoicing is open: the count endpoint is the tell, answering 404 while
+// the feature is closed, and the filter is drawn only once it has answered.
 
 const KIND_FILTERS = ["all", "manual", "sale", "credit_note"] as const satisfies readonly InvoiceKindFilter[];
 
@@ -74,18 +81,32 @@ function InvoiceRow({ item, locale }: { item: OperatorInvoiceListItem; locale: A
       <td className="py-3 pr-4 text-right tabular-nums">{formatMoney(item.total_cents, item.currency, locale)}</td>
       <td className="py-3 pr-4">
         <Badge variant={INVOICE_STATUS_VARIANTS[item.status]}>{t(INVOICE_STATUS_KEYS[item.status])}</Badge>
+        {item.recipient_warning ? (
+          // Beside the status, never in its place: the document is authorized
+          // and the warning says something else about it.
+          <Badge variant="outline" className="ml-2 border-amber-500 text-amber-700">
+            {t("invoicingRecipientWarningBadge")}
+          </Badge>
+        ) : null}
       </td>
       <td className="py-3 pr-4 uppercase text-muted-foreground">{item.country}</td>
     </tr>
   );
 }
 
-export function OperatorInvoicesClient() {
+export function OperatorInvoicesClient({
+  initialRecipientWarningOnly = false,
+}: {
+  initialRecipientWarningOnly?: boolean;
+}) {
   const t = useTranslations("operator");
   const errorCopy = useMessages().errors;
   const locale = toAppLocale(useLocale());
   const [items, setItems] = useState<OperatorInvoiceListItem[]>([]);
   const [kind, setKind] = useState<InvoiceKindFilter>("all");
+  const [recipientWarningOnly, setRecipientWarningOnly] = useState(initialRecipientWarningOnly);
+  // null while unknown or while the feature is closed: the filter is not drawn.
+  const [recipientWarningCount, setRecipientWarningCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -94,8 +115,15 @@ export function OperatorInvoicesClient() {
     setLoading(true);
     setError(null);
     try {
-      const page = await fetchOperatorInvoices(1, kind);
+      // The count is read beside the page: it says whether Sale Invoicing is
+      // open (404 while closed, read as "no filter") and how many the filter
+      // would find. A closed feature must not take the list down with it.
+      const [page, warningCount] = await Promise.all([
+        fetchOperatorInvoices(1, kind, recipientWarningOnly),
+        fetchOperatorRecipientWarningCount().catch(() => null),
+      ]);
       setItems(page.data ?? []);
+      setRecipientWarningCount(warningCount?.recipient_warning_count ?? null);
       setForbidden(false);
     } catch (loadError) {
       if (loadError instanceof ApiError && loadError.code === "FORBIDDEN") {
@@ -110,7 +138,7 @@ export function OperatorInvoicesClient() {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind]);
+  }, [kind, recipientWarningOnly]);
 
   useEffect(() => {
     void load();
@@ -158,25 +186,42 @@ export function OperatorInvoicesClient() {
               <CardTitle>{t("invoicingListTitle")}</CardTitle>
               <CardDescription>{t("invoicingListDescription")}</CardDescription>
             </div>
-            <label className="flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">{t("invoicingKindFilterLabel")}</span>
-              <select
-                className={SELECT_CLASS}
-                value={kind}
-                onChange={(event) => setKind(event.target.value as InvoiceKindFilter)}
-              >
-                {KIND_FILTERS.map((option) => (
-                  <option key={option} value={option}>
-                    {option === "all" ? t("invoicingKindFilterAll") : t(INVOICE_KIND_KEYS[option as InvoiceKind])}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="flex flex-col items-end gap-2">
+              <label className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">{t("invoicingKindFilterLabel")}</span>
+                <select
+                  className={SELECT_CLASS}
+                  value={kind}
+                  onChange={(event) => setKind(event.target.value as InvoiceKindFilter)}
+                >
+                  {KIND_FILTERS.map((option) => (
+                    <option key={option} value={option}>
+                      {option === "all" ? t("invoicingKindFilterAll") : t(INVOICE_KIND_KEYS[option as InvoiceKind])}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {recipientWarningCount !== null ? (
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={recipientWarningOnly}
+                    onChange={(event) => setRecipientWarningOnly(event.target.checked)}
+                  />
+                  <span>{t("invoicingRecipientWarningFilter", { count: recipientWarningCount })}</span>
+                </label>
+              ) : null}
+            </div>
           </CardHeader>
           <CardContent>
             {items.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                {kind === "all" ? t("invoicingListEmpty") : t("invoicingListEmptyForKind")}
+                {recipientWarningOnly
+                  ? t("invoicingListEmptyForRecipientWarning")
+                  : kind === "all"
+                    ? t("invoicingListEmpty")
+                    : t("invoicingListEmptyForKind")}
               </p>
             ) : (
               <div className="overflow-x-auto">

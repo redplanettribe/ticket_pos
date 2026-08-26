@@ -218,11 +218,24 @@ func returnedSOAP(accessKey string, messages string) string {
 		accessKey, messages))
 }
 
+// authorizedSOAP is AUTORIZADO as the test environment answers it: with
+// advertencia 60 alone, the one every pruebas authorization carries.
 func authorizedSOAP(accessKey string) string {
+	return authorizedSOAPWithMessages(accessKey, testEnvironmentAdvertencia)
+}
+
+// testEnvironmentAdvertencia is the SRI's advertencia 60, on every document
+// authorized in the pruebas environment.
+const testEnvironmentAdvertencia = `<mensaje><identificador>60</identificador><mensaje>ESTE PROCESO FUE REALIZADO EN EL AMBIENTE DE PRUEBAS</mensaje><tipo>ADVERTENCIA</tipo></mensaje>`
+
+// authorizedSOAPWithMessages is AUTORIZADO carrying the given mensajes —
+// how the SRI authorizes a document and still warns about its Recipient
+// (advertencias 59 / 62, #482).
+func authorizedSOAPWithMessages(accessKey string, messages string) string {
 	comprobante := "<![CDATA[<factura id=\"comprobante\" version=\"1.1.0\"/>]]>"
 	return autorizacionEnvelope(accessKey, fmt.Sprintf(
-		`<autorizaciones><autorizacion><estado>AUTORIZADO</estado><numeroAutorizacion>%s</numeroAutorizacion><fechaAutorizacion>2026-07-07T12:00:05-05:00</fechaAutorizacion><ambiente>PRUEBAS</ambiente><comprobante>%s</comprobante><mensajes><mensaje><identificador>60</identificador><mensaje>ESTE PROCESO FUE REALIZADO EN EL AMBIENTE DE PRUEBAS</mensaje><tipo>ADVERTENCIA</tipo></mensaje></mensajes></autorizacion></autorizaciones>`,
-		accessKey, comprobante))
+		`<autorizaciones><autorizacion><estado>AUTORIZADO</estado><numeroAutorizacion>%s</numeroAutorizacion><fechaAutorizacion>2026-07-07T12:00:05-05:00</fechaAutorizacion><ambiente>PRUEBAS</ambiente><comprobante>%s</comprobante><mensajes>%s</mensajes></autorizacion></autorizaciones>`,
+		accessKey, comprobante, messages))
 }
 
 func notAuthorizedSOAP(accessKey string, messages string) string {
