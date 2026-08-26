@@ -22,10 +22,10 @@ import (
 // reason it is never sent twice. Nothing here asks the authority anything.
 //
 // KIND-AGNOSTIC BY CONSTRUCTION. What is mailed is whatever document the
-// row is — the Sale Invoice today, the Credit Note when its ticket lands —
-// and the only place the kind matters is the copy's choice of words, which
-// platform.TaxDocumentDelivery keys on Kind. The Credit Note rides this
-// unchanged.
+// row is — the Sale Invoice, the Credit Note — and the only place the kind
+// matters is the copy's choice of words, which platform.TaxDocumentDelivery
+// keys on Kind and, for a Credit Note, on its Reason (#481): a reissue's
+// says a correction follows, a reversal's says the sale was reversed.
 
 // customerAreaPath is the Customer Area on the Storefront, and the fragment
 // the Sale's card carries there (apps/storefront/lib/destination.ts,
@@ -60,6 +60,7 @@ func (s *Service) deliverDocument(ctx context.Context, row *repository.InvoiceRo
 	delivery := platform.TaxDocumentDelivery{
 		To:           inv.Recipient.Email,
 		Kind:         string(inv.Kind),
+		Reason:       inv.CreditNoteReason,
 		CustomerName: inv.Recipient.LegalName,
 		EventName:    facts.EventName,
 		Reference:    inv.SaleConfirmationRef,

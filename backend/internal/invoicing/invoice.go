@@ -202,9 +202,11 @@ type Invoice struct {
 	// beside the row for the operator surfaces; never stored here.
 	SaleConfirmationRef string
 	// CreditsInvoiceID is the Sale Invoice a Credit Note credits, and
-	// ReversalReason the reversal route that made it owed.
+	// CreditNoteReason why (#481, ADR 0061): a Sale Reversal's route, or
+	// CreditNoteReasonReissue. A reason, not a reversal — a reissue Credit
+	// Note has no reversal behind it.
 	CreditsInvoiceID string
-	ReversalReason   string
+	CreditNoteReason string
 	// CreditedByInvoiceID is, on a Sale Invoice, the Credit Note that
 	// credits it (#476) — the newest, should there ever be more than one —
 	// read beside the row so the two documents link both ways; "" when
@@ -277,15 +279,23 @@ type Attempt struct {
 	Duration  time.Duration
 }
 
+// CreditNoteReasonReissue is the one Credit Note reason that is not a Sale
+// Reversal's route (#481, ADR 0061): the Sale Invoice it credits is being
+// superseded by a Sale Invoice Reissue, and the Sale stands. The five
+// routes are sales.SaleReversal's Route strings, stored as they come.
+const CreditNoteReasonReissue = "reissue"
+
 // CreditNoteMotivo is the reason a Credit Note states to the authority
-// for the reversal route that made it owed (#476, ADR 0060): the route in
-// the document's own language, since the nota de crédito is read by the
-// SRI and the buyer's accountant, never by the Storefront. An unknown
-// route — one added to the schema's CHECK later — is named as such rather
-// than refused: the document is owed by then, and a reason it cannot
-// state must not be the reason it is never issued.
-func CreditNoteMotivo(route string) string {
-	switch route {
+// for the reason it was owed (#476, ADR 0060; #481, ADR 0061): a reversal
+// route, or a reissue, in the document's own language, since the nota de
+// crédito is read by the SRI and the buyer's accountant, never by the
+// Storefront. A reissue's motivo is the fixed correction text and never a
+// reversal's: the sale was not reversed. An unknown reason — one added to
+// the schema's CHECK later — is named as such rather than refused: the
+// document is owed by then, and a reason it cannot state must not be the
+// reason it is never issued.
+func CreditNoteMotivo(reason string) string {
+	switch reason {
 	case "customer":
 		return "Anulación de la venta por el comprador"
 	case "platform":
@@ -296,6 +306,8 @@ func CreditNoteMotivo(route string) string {
 		return "Anulación de la venta por el personal de la organización"
 	case "correction":
 		return "Anulación de la venta por corrección"
+	case CreditNoteReasonReissue:
+		return "Corrección de los datos del receptor"
 	}
 	return "Anulación de la venta"
 }

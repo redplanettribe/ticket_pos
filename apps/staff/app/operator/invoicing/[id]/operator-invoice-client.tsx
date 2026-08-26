@@ -47,7 +47,9 @@ const IVA_RATE_KEYS = {
 } as const;
 
 // The reversal route a Credit Note names as its reason (#476): the five
-// words the Sales Export's reversed_by column uses, one label each.
+// words the Sales Export's reversed_by column uses, one label each. The
+// one reason that is not a route — "reissue" (#481, ADR 0061), a Sale
+// Invoice Reissue with no reversal behind it — is worded on its own below.
 const REVERSAL_ROUTE_KEYS = {
   customer: "invoicingReversalRouteCustomer",
   platform: "invoicingReversalRoutePlatform",
@@ -149,7 +151,9 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
             {invoice.iva_rate ? (
               <p className="text-muted-foreground">{t("invoicingDetailPricedAt", { rate: ivaLabel(invoice.iva_rate) })}</p>
             ) : null}
-            {invoice.reversal_reason ? (
+            {invoice.reversal_reason === "reissue" ? (
+              <p className="text-muted-foreground">{t("invoicingDetailReissueReason")}</p>
+            ) : invoice.reversal_reason ? (
               <p className="text-muted-foreground">
                 {t("invoicingDetailReversalReason", {
                   route: t(

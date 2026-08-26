@@ -196,7 +196,7 @@ func creditNoteOf(factura *invoicing.Invoice, reversal sales.SaleReversal, now t
 		Status:           invoicing.InvoiceStatusOwed,
 		TicketSaleID:     factura.TicketSaleID,
 		CreditsInvoiceID: factura.ID,
-		ReversalReason:   reversal.Route,
+		CreditNoteReason: reversal.Route,
 		IVARate:          factura.IVARate,
 		Recipient:        factura.Recipient,
 		Currency:         factura.Currency,

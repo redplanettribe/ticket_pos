@@ -1499,6 +1499,7 @@
     "invoicingDetailCreditedBy": "Acreditada por la nota de crédito",
     "invoicingDetailOpenDocument": "Abrir documento",
     "invoicingDetailReversalReason": "Vía de la reversión: {route}",
+    "invoicingDetailReissueReason": "Motivo: reemisión de factura — se corrigieron los datos del receptor; la venta no se revirtió.",
     "invoicingReversalRouteCustomer": "reversión por el comprador",
     "invoicingReversalRoutePlatform": "reversión por el operador",
     "invoicingReversalRouteImportUndo": "importación deshecha",

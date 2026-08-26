@@ -983,6 +983,12 @@ const (
 	// TaxDocumentKindCreditNote is a Credit Note: the nota de crédito for a
 	// reversed one.
 	TaxDocumentKindCreditNote = "credit_note"
+	// TaxDocumentReasonReissue is the Credit Note reason that is not a Sale
+	// Reversal's route (#481, ADR 0061): the earlier factura is cancelled
+	// for a correction of its Recipient and a corrected one follows. Any
+	// other reason on a Credit Note is a reversal route, and the copy says
+	// the purchase was reversed.
+	TaxDocumentReasonReissue = "reissue"
 )
 
 // TaxDocumentDelivery is the mail that hands a buyer an authorized Tax
@@ -1007,6 +1013,11 @@ type TaxDocumentDelivery struct {
 	To string
 	// Kind is one of the TaxDocumentKind constants and decides the words.
 	Kind string
+	// Reason is, on a Credit Note, why it was owed — a reversal route, or
+	// TaxDocumentReasonReissue — and decides whether the words say the
+	// purchase was reversed or that a corrected factura follows (#481). ""
+	// on a Sale Invoice.
+	Reason string
 	// CustomerName is the Recipient's legal name as printed on the document.
 	CustomerName string
 	// EventName and Reference name the purchase the document is about, so

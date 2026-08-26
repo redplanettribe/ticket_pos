@@ -725,8 +725,9 @@ type InvoiceDetail struct {
 	// The Sale side (#473): the one IVA rate a platform-priced document was
 	// priced under, when its authorized document was mailed to the buyer,
 	// when the Drainer next works it, and — on a Credit Note — the Sale
-	// Invoice it credits and the reversal route that made it owed. All null
-	// on a manual Tax Invoice.
+	// Invoice it credits and why: a reversal route, or "reissue" (#481, ADR
+	// 0061), under the field name the first reason gave it. All null on a
+	// manual Tax Invoice.
 	IVARate          *string    `json:"iva_rate"`
 	DeliveredAt      *time.Time `json:"delivered_at"`
 	NextAttemptAt    *time.Time `json:"next_attempt_at"`
@@ -821,7 +822,7 @@ func invoiceDetailView(row *repository.InvoiceRow) *InvoiceDetail {
 		CheckStatusHint:     checkStatusHint(inv, row.Attempts),
 		IVARate:             optional(string(inv.IVARate)),
 		CreditsInvoiceID:    optional(inv.CreditsInvoiceID),
-		ReversalReason:      optional(inv.ReversalReason),
+		ReversalReason:      optional(inv.CreditNoteReason),
 		CreditedByInvoiceID: optional(inv.CreditedByInvoiceID),
 		AnnulledBy:          optional(inv.AnnulledBy),
 		AnnulledAt:          optionalTime(inv.AnnulledAt),
