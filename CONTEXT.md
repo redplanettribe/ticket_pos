@@ -21,6 +21,12 @@ An Organization's optional WhatsApp number, set by an Org Admin, published on th
 Stored in canonical E.164 form under the same rule as a Customer's phone number.
 _Avoid_: Support number, helpline, contact number, WhatsApp link
 
+**House Organization**:
+An Organization the platform's own legal entity runs — its Events are the platform's own, so a ticket sold there is the platform's sale for tax purposes, and the platform's Issuer invoices the buyer for it. Designated, and undesignated, by a Platform Operator; an Org Admin cannot make one.
+The one exception to the rule that tickets are the Organization's sale and their taxation stays outside the system: elsewhere the platform sells only its Platform Fee. Otherwise an ordinary Organization — same Members, roles, Events and Sales Channels — and its fee and payout figures still compute, describing money that never leaves the house.
+In Spanish, **Organización propia**.
+_Avoid_: Internal organization, platform organization, own events, first-party organization, test organization
+
 **Member**:
 A person belonging to an Organization who may hold a role such as Org Admin, Event Owner, or Event Staff.
 In Spanish, **Miembro**.
@@ -597,9 +603,25 @@ In Spanish, **Autoridad tributaria**; **el SRI** wherever Ecuador specifically i
 _Avoid_: Government API, tax service, the regulator
 
 **Recipient**:
-Who a Tax Invoice is issued to: a Tax ID, a legal name, an address and an email, entered by the operator and recorded on the invoice as they stood. Not a Customer, and not necessarily an Organization, though an Organization invoiced for its Platform Fee is the usual one.
+Who a Tax Invoice is issued to: a Tax ID, a legal name, an email and optionally an address, recorded on the invoice as they stood — entered by the operator on a manual Tax Invoice, or copied from the Ticket Sale as it was transacted on a Sale Invoice, where the legal name is the buyer's "First Last" and no address is known. Not a Customer, and not necessarily an Organization, though an Organization invoiced for its Platform Fee is the usual manual one. Fixed once issued: a Sale Re-addressing or a Customer editing their stored Tax ID never rewrites it.
 In Spanish, **Receptor**.
 _Avoid_: Client, customer, buyer, adquirente, cliente
+
+**Sale Invoice**:
+A Tax Invoice the platform issues to the buyer of a paid Online Sale of a House Event, for the full amount paid — the platform's own ticket, sold and invoiced by the platform's Issuer. Owed from the moment the Ticket Sale exists and issued afterwards, never in the buyer's checkout: the Sale is recorded and confirmed whether or not the Tax Authority is answering that minute.
+One line per Ticket Sale Line, priced as the buyer paid it with IVA inside the price; the Platform Fee is not a line, being the platform's money either way. Its Recipient is the Sale's buyer as transacted. Nothing else earns one yet: not a free Online Sale, not an imported sale, and never a sale of an Organization that is not a House Organization.
+In Spanish, **Factura de venta**.
+_Avoid_: Ticket invoice, receipt, automatic invoice, customer invoice
+
+**Credit Note**:
+The document that undoes a Sale Invoice at the Tax Authority when its Ticket Sale is reversed — always for the whole amount, naming the same Recipient and the reversal's route as its reason, since a Sale Reversal is always whole-Sale. Owed by the reversal itself and issued afterwards, like the Sale Invoice it refers to.
+Only an authorized Sale Invoice is credited. One never sent is withdrawn instead — the Tax Authority is told nothing about a sale that no longer stands — and one still unanswered waits for its answer before either happens. A Sale Reversal is never refused or delayed by the state of its paperwork.
+In Spanish, **Nota de crédito**.
+_Avoid_: Refund invoice, cancellation, anulación (the Tax Authority's manual portal act, which this is not), reversal note
+
+**Sale Invoice Drainer**:
+The platform pursuing every owed Sale Invoice and Credit Note until the Tax Authority gives a definite answer: signing and submitting what is owed, asking again about what was submitted and not yet answered, and parking what it cannot settle for a Platform Operator to look at — never deleting it, since a signed document has consumed a sequence number. The Reversal Reconciler's sibling: it only finds out and retries; it never decides whether a document is owed.
+_Avoid_: Invoice queue, worker, retry job, SRI poller
 
 ## Customer identity
 
