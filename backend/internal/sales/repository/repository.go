@@ -175,6 +175,12 @@ type RecordedSale struct {
 	// existed — which is what sends the resolution on to the Customer's
 	// remembered language, and then to English.
 	Locale string
+	// SaleInvoiceOwed says the commit wrote a Sale Invoice for this sale in
+	// its own transaction (#473, ADR 0060): a paid online sale of a House
+	// Organization, with the invoicing seam wired. The Sale Confirmation
+	// reads it to promise the factura, and nothing else does. False on every
+	// other channel and every other sale.
+	SaleInvoiceOwed bool
 }
 
 // CommittedBatch is the outcome of a committed (or replayed) Sale Import.
@@ -846,6 +852,11 @@ type ReversedSale struct {
 	CustomerFirstName string
 	CustomerLastName  string
 	ConfirmationRef   string
+	// DocumentsDue says the invoicing seam left the Sale Invoice Drainer
+	// something to work for this sale — a Credit Note owed (#476) — so the
+	// caller kicks it after the commit. False when nothing was wired or
+	// nothing is due.
+	DocumentsDue bool
 	// Locale is the Sale Locale recorded on the sale being voided, read back here
 	// so the void notice can be written in the language the sale was made in
 	// (#246, ADR 0033).
@@ -905,7 +916,33 @@ type ReverseSalesInput struct {
 	// recorded as reversed-by-an-operator without the assertion that justified it
 	// would be a money claim with nobody's name on it.
 	Operator *OperatorReversalMemo
+	// Route is which lever was pulled, one of the sales.ReversalRoute* values
+	// — finer than Actor, which the Sales Export and a Credit Note's reason
+	// both need (#476). Handed to SaleReversed and stored nowhere here.
+	Route string
+	// SaleReversed is the invoicing seam (#476, ADR 0060): told about each
+	// sale this call actually reversed, inside the transaction, right after
+	// the status flip. Nil owes nothing and fails nothing — every route whose
+	// sales can never carry a document leaves it nil.
+	SaleReversed SaleReversed
 }
+
+// SaleReversed is the reversal primitive's invoicing seam (#476, ADR 0060):
+// the sale-commit spine's OweSaleInvoice mirrored. Called once per sale
+// actually reversed, in the transaction that flips it, so whatever the
+// far side decides — withdraw an owed Sale Invoice, owe a Credit Note,
+// nothing at all — lands with the reversal or not at all. It reports
+// whether it left the Sale Invoice Drainer something to work, so the
+// caller can kick the Drainer once the transaction has committed.
+//
+// ITS ERROR FAILS THE REVERSAL, which sounds like the thing ADR 0060 says
+// must never happen and is not: the far side consults neither the Issuer
+// nor the Tax Authority nor anything that can be unavailable, only the
+// Sale's own document rows, so the only failure it has is the database's
+// — and a database that cannot write a row cannot flip a sale either. A
+// reversal is never refused for the STATE of its paperwork; it is refused
+// exactly when the transaction it rides in is.
+type SaleReversed func(ctx context.Context, tx *sql.Tx, reversal sales.SaleReversal) (drainerHasWork bool, err error)
 
 // OperatorReversalMemo is what a Platform Operator asserted when they recorded
 // an out-of-band refund (#125): who they are, what the buyer actually got back,
@@ -1079,6 +1116,20 @@ func reverseSalesTx(ctx context.Context, tx *sql.Tx, in ReverseSalesInput) ([]Re
 		operator, note, refundedAmountCents, platformFeeKept,
 	); err != nil {
 		return nil, err
+	}
+
+	// The paperwork, in the same transaction (#476, ADR 0060): each reversed
+	// sale's documents are settled here or the reversal does not land. After
+	// the status flip so that the far side can read a sale that IS reversed;
+	// per sale, because each has its own documents.
+	if in.SaleReversed != nil {
+		for i := range reversed {
+			due, err := in.SaleReversed(ctx, tx, sales.SaleReversal{TicketSaleID: reversed[i].ID, Route: in.Route, At: in.Now})
+			if err != nil {
+				return nil, err
+			}
+			reversed[i].DocumentsDue = due
+		}
 	}
 
 	return reversed, nil

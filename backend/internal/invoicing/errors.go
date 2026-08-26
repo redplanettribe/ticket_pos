@@ -44,6 +44,14 @@ func ErrCertificateNotUploaded() apperror.DomainError {
 	return apperror.New("CERTIFICATE_NOT_UPLOADED", "The Issuer has no signing certificate. Upload the .p12 first.", nil)
 }
 
+// ErrCertificateExpired: the certificate in custody is past its NotAfter on
+// the platform's clock, and the SRI refuses a signature made with it. The
+// Sale Invoice Drainer parks a document on it rather than consume a number
+// (#474); the remedy is a re-upload.
+func ErrCertificateExpired() apperror.DomainError {
+	return apperror.New("CERTIFICATE_EXPIRED", "The Issuer's signing certificate has expired. Upload a current .p12.", nil)
+}
+
 // ErrCertificateUnreadable: the certificate on file will not open under the
 // current key — the key was rotated, or the row was damaged. The remedy is a
 // re-upload; the message says so.
@@ -78,6 +86,36 @@ func ErrInvoiceAlreadyAuthorized() apperror.DomainError {
 	return apperror.New("INVOICE_ALREADY_AUTHORIZED", "The Tax Invoice is already authorized. Nothing can be checked or resent for it.", nil)
 }
 
+// ErrInvoiceNotIssued: Check status and Resend are refused on a document
+// that is owed and not yet signed (#473) — there is no clave to ask about and
+// nothing to send again. The Drainer is what issues it.
+func ErrInvoiceNotIssued() apperror.DomainError {
+	return apperror.New("INVOICE_NOT_ISSUED", "The document has not been issued yet: it is owed, and the Sale Invoice Drainer issues it.", nil)
+}
+
+// ErrInvoiceNotAnnullable: Mark annulled is allowed only on a document that
+// is needs_attention or pending (#477) — one the operator could have annulled
+// by hand at the authority's portal. An authorized one is credited, never
+// annulled here; an annulled or withdrawn one has nothing left to mark.
+func ErrInvoiceNotAnnullable() apperror.DomainError {
+	return apperror.New("INVOICE_NOT_ANNULLABLE", "Only a document that is pending or needs attention can be marked annulled.", nil)
+}
+
+// ErrInvoiceAnnulled: Check status and Resend are refused on an annulled
+// document (#477) — the operator recorded that the authority no longer holds
+// it as valid, and nothing about it is asked or sent again.
+func ErrInvoiceAnnulled() apperror.DomainError {
+	return apperror.New("INVOICE_ANNULLED", "The document has been marked annulled. Nothing can be checked or resent for it.", nil)
+}
+
+// ErrInvoiceWithdrawn: Check status and Resend are refused on a withdrawn
+// document (#476) — its Ticket Sale was reversed before it was ever sent,
+// so there is nothing at the authority to ask about and nothing that will
+// ever be sent.
+func ErrInvoiceWithdrawn() apperror.DomainError {
+	return apperror.New("INVOICE_WITHDRAWN", "The document was withdrawn: its Ticket Sale was reversed before it was sent, and nothing was ever sent to the Tax Authority.", nil)
+}
+
 // ErrIssuerFieldFrozen: the Issuer detail named in details.field may no
 // longer change — the RUC once any Tax Invoice exists (it is inside every
 // clave de acceso), establecimiento and punto de emisión once a sequence has
@@ -85,4 +123,12 @@ func ErrInvoiceAlreadyAuthorized() apperror.DomainError {
 // still saves (#455, stories 4–6).
 func ErrIssuerFieldFrozen(field string) apperror.DomainError {
 	return apperror.New("ISSUER_FIELD_FROZEN", "The Issuer's "+field+" cannot change any more: documents have been issued under it.", map[string]string{"field": field})
+}
+
+// ErrSaleInvoicingUnavailable: Sale Invoicing was asked for while
+// SALE_INVOICING_ENABLED is closed (#471, ADR 0060) — a House designation or
+// a Drainer run. "Not found." and a 404, on the terms the other feature flags
+// answer on: while the flag is closed there is nothing here.
+func ErrSaleInvoicingUnavailable() apperror.DomainError {
+	return apperror.New("SALE_INVOICING_UNAVAILABLE", "Not found.", nil)
 }

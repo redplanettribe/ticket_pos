@@ -24,3 +24,10 @@ const ContentTypeXML = "application/xml; charset=utf-8"
 func ErrAuthorizationXMLNotFound() apperror.DomainError {
 	return apperror.New("AUTHORIZATION_XML_NOT_FOUND", "The invoice has no authorization XML: the authority has not authorized it.", nil)
 }
+
+// ErrSignedXMLNotFound: the document is owed and not yet signed (#473), so
+// there are no bytes to hand over. The Drainer produces them; until then the
+// operator sees an owed document and nothing to download.
+func ErrSignedXMLNotFound() apperror.DomainError {
+	return apperror.New("SIGNED_XML_NOT_FOUND", "The document has not been signed yet: it is owed and nothing has been sent to the authority.", nil)
+}

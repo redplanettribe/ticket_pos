@@ -185,15 +185,24 @@ func domainHTTPStatus(code string) int {
 		return http.StatusConflict
 	case "INVOICE_INVALID":
 		return http.StatusBadRequest
-	case "INVOICE_NOT_FOUND", "AUTHORIZATION_XML_NOT_FOUND":
+	case "INVOICE_NOT_FOUND", "AUTHORIZATION_XML_NOT_FOUND", "SIGNED_XML_NOT_FOUND":
 		return http.StatusNotFound
 	// Check status / Resend on an authorized invoice, and a save that would
 	// change a frozen Issuer detail (#455): the resource exists and its state
-	// forbids the request.
-	case "INVOICE_ALREADY_AUTHORIZED", "ISSUER_FIELD_FROZEN":
+	// forbids the request. The same for either action on a document still
+	// owed and unsigned (#473), and for Mark annulled on a document in any
+	// state but pending or needs_attention, or either action on one already
+	// annulled (#477) or withdrawn (#476).
+	case "INVOICE_ALREADY_AUTHORIZED", "INVOICE_NOT_ISSUED", "ISSUER_FIELD_FROZEN", "INVOICE_NOT_ANNULLABLE", "INVOICE_ANNULLED", "INVOICE_WITHDRAWN":
 		return http.StatusConflict
 	case "NOT_FOUND", "ORGANIZATION_NOT_FOUND", "MEMBER_NOT_FOUND", "EVENT_NOT_FOUND":
 		return http.StatusNotFound
+	// A House Organization designation refused for the Organization's
+	// currency (#472, ADR 0060): the Organization exists and the request was
+	// well formed, and what stands in the way is a fact about it that no
+	// retry with the same body changes.
+	case "HOUSE_ORGANIZATION_CURRENCY_UNSUPPORTED":
+		return http.StatusConflict
 	case "ORGANIZATION_SLUG_TAKEN", "EVENT_SLUG_TAKEN", "MEMBER_ALREADY_EXISTS", "LAST_ORG_ADMIN", "CANNOT_REMOVE_SELF", "CAPACITY_EXCEEDED", "PURCHASE_LIMIT_EXCEEDED", "IMPORT_BATCH_FAILED", "IMPORT_NOT_LATEST_BATCH", "IMPORT_ALREADY_REVERSED", "EVENT_NOT_DRAFT", "EVENT_DELETE_FORBIDDEN", "EVENT_PUBLISH_REQUIREMENTS_NOT_MET", "EVENT_ALREADY_PUBLISHED", "EVENT_ALREADY_CANCELLED", "EVENT_NOT_PUBLISHED", "TICKET_TYPE_DELETE_FORBIDDEN", "CURRENCY_LOCKED":
 		return http.StatusConflict
 	case "ASSIGNMENT_NOT_FOUND", "TICKET_TYPE_NOT_FOUND", "IMPORT_BATCH_NOT_FOUND", "PAYMENT_NOT_FOUND", "TICKET_SALE_NOT_FOUND", "PROMOTION_NOT_FOUND", "AFFILIATE_LINK_NOT_FOUND", "PAYOUT_REQUEST_NOT_FOUND", "TAG_NOT_FOUND", "TICKET_QUESTION_NOT_FOUND", "TICKET_QUESTION_OPTION_NOT_FOUND", "QUESTION_REVIEW_NOT_FOUND":
@@ -211,6 +220,12 @@ func domainHTTPStatus(code string) int {
 	// would be the first place that separation quietly stopped being true. Same
 	// 404 and for the same reason — while the flag is off there is nothing here.
 	case "TICKET_ASSIGNMENT_UNAVAILABLE":
+		return http.StatusNotFound
+	// Sale Invoicing asked for while SALE_INVOICING_ENABLED is off (#471, ADR
+	// 0060): the House designation and the Drainer's endpoint. 404 on the two
+	// flags' terms above — while it is closed there is nothing here — so a
+	// build with the flag closed answers as one without the feature.
+	case "SALE_INVOICING_UNAVAILABLE":
 		return http.StatusNotFound
 	// The Ticket Assignment window refusals (#324). 409 beside the Answer
 	// window's two: the request was well formed and the buyer was entitled to

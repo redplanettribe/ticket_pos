@@ -1,7 +1,7 @@
 // Package handler exposes the Platform Operator's HTTP endpoints — the
 // Operator Dashboard's reads and its writes: recording a Payout, recording an
-// Operator Reversal, and answering a Payout Request by fulfilling or declining
-// it (#177).
+// Operator Reversal, answering a Payout Request by fulfilling or declining
+// it (#177), and designating a House Organization (#472).
 //
 // Every route under /api/v1/operator/* is gated by the operator middleware,
 // which admits a Staff Session whose email is on the platform operator
@@ -93,7 +93,7 @@ func (h *Handler) ListOrganizations(w http.ResponseWriter, r *http.Request) {
 // GetOrganization returns one Organization's operator drill-down.
 //
 // @Summary      Get one Organization's Events and payout history
-// @Description  Returns the operator's drill-down into one Organization: the Organization itself, its signed Withdrawable Balance, its signed Payable Balance — the same arithmetic counting only sales recorded before today in America/Guayaquil with no Reversal Request still open (ADR 0026), never larger than the Withdrawable Balance and negative when a settlement got ahead of what had cleared — its Events in every status (soonest-last, unscheduled Events last), and its full payout history newest first with the recording operator's email, null for Payouts entered directly in the database before the Operator Dashboard existed. Both balances are shown to the operator and neither gates recording a Payout, which stays unconditional (ADR 0015). Platform Operator only.
+// @Description  Returns the operator's drill-down into one Organization: the Organization itself, its signed Withdrawable Balance, its signed Payable Balance — the same arithmetic counting only sales recorded before today in America/Guayaquil with no Reversal Request still open (ADR 0026), never larger than the Withdrawable Balance and negative when a settlement got ahead of what had cleared — its Events in every status (soonest-last, unscheduled Events last), and its full payout history newest first with the recording operator's email, null for Payouts entered directly in the database before the Operator Dashboard existed. Both balances are shown to the operator and neither gates recording a Payout, which stays unconditional (ADR 0015). Carries sale_invoicing_enabled, the platform's SALE_INVOICING_ENABLED flag rather than a fact about this Organization, so the staff app knows whether to offer the House Organization designation at all. Platform Operator only.
 // @Tags         operator
 // @Produce      json
 // @Security     BearerAuth

@@ -953,12 +953,19 @@ func (s *Service) commitSaleReversal(ctx context.Context, sale *repository.Custo
 	// exactly once however many times the button is pressed — but note that this
 	// guard alone never protected the money, since by the time it runs the
 	// provider has already been called. The advisory lock above is what does.
+	//
+	// The sale's paperwork is settled in the same transaction (#476, ADR
+	// 0060): the seam withdraws an owed Sale Invoice or owes a Credit Note,
+	// and never consults the Tax Authority, so the reversal is never delayed
+	// by it. A free Online Sale owes no document and the seam finds none.
 	reversedSales, err := s.repo.ReverseSales(ctx, repository.ReverseSalesInput{
 		EventID:        sale.EventID,
 		OrganizationID: sale.OrganizationID,
 		SaleIDs:        []string{sale.ID},
 		Actor:          sales.ReversalActorCustomer,
 		Now:            now,
+		Route:          sales.ReversalRouteCustomer,
+		SaleReversed:   s.settleReversedSale(),
 	})
 	if err != nil {
 		// The money is already on its way back and the Ticket Sale still stands:
@@ -1016,6 +1023,10 @@ func (s *Service) commitSaleReversal(ctx context.Context, sale *repository.Custo
 	// above returns an empty set for a sale that was already reversed, so a probe
 	// that resolves a request whose sale somebody else voided sends nothing.
 	reversed := reversedSales[0]
+	// And the Credit Note the reversal may have owed is worked now, in the
+	// background (#476): the buyer's money is already on its way back, and
+	// the paperwork follows it in seconds rather than at the next tick.
+	s.kickSaleInvoiceDrainerForReversal(ctx, reversed)
 	_ = s.email.SendSaleVoided(ctx, platform.SaleVoided{
 		To:           reversed.CustomerEmail,
 		CustomerName: displayName(reversed.CustomerFirstName, reversed.CustomerLastName),

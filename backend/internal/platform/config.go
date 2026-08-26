@@ -131,6 +131,24 @@ type Config struct {
 	// fields at all — a build with the flag closed answers exactly as a build
 	// without the feature.
 	TicketAssignmentEnabled bool
+	// SaleInvoicingEnabled opens Sale Invoicing — the platform's Issuer
+	// invoicing the buyer of every paid Online Sale of a House Organization —
+	// from SALE_INVOICING_ENABLED (#471, ADR 0060).
+	//
+	// IT STARTS FALSE, AND FLIPPING IT IS A DECISION SOMEBODY MUST TAKE ON
+	// PURPOSE. What it opens is the platform signing documents in its own RUC
+	// and submitting them to the SRI in the buyer's name, with a secuencial
+	// consumed for each; a wrong one is a tax declaration, not a bug report.
+	// It flips only once the Issuer stands in `production` with a live
+	// certificate and the flow has been walked on the parity stack.
+	//
+	// With it off no Organization can be designated House (the two endpoints
+	// answer 404), no paid checkout owes a Sale Invoice, no reversal owes a
+	// Credit Note, the Drainer's endpoint answers 404, and the operator's
+	// Organization detail hides the designation — a build with the flag closed
+	// sells and reverses exactly as one without the feature. A designation
+	// already recorded stays recorded and does nothing until the flag opens.
+	SaleInvoicingEnabled bool
 }
 
 // FeeConfig is the platform-wide fee schedule: the Platform Fee rate and the
@@ -444,6 +462,11 @@ func LoadConfig() (Config, error) {
 		// nothing about assignment, and inheriting the answer would be the
 		// separation of the two flags quietly ending at configuration.
 		TicketAssignmentEnabled: envIsTrue("TICKET_ASSIGNMENT_ENABLED"),
+
+		// Read the same permissive way round: unset, empty or misspelt leaves
+		// Sale Invoicing closed, and a typo can never be what starts the
+		// platform declaring sales to the SRI (ADR 0060).
+		SaleInvoicingEnabled: envIsTrue("SALE_INVOICING_ENABLED"),
 	}
 	return cfg, nil
 }

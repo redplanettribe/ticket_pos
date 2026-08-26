@@ -171,6 +171,13 @@ type Line struct {
 	UnitPriceCents int64
 	DiscountCents  int64 // optional, ≤ quantity × unit price
 	IVA            IVACode
+	// IVAInclusive says UnitPriceCents is the price AS PAID, with the IVA
+	// inside it — a Sale Invoice's line (#474, ADR 0060). The base is then
+	// backed out of quantity × unit price (BackOutIVA) so that base + IVA
+	// equals the cents paid, and the document's precioUnitario is the
+	// backed-out unit price to six decimals rather than the paid one. A
+	// discount is refused on such a line: the price paid is the whole story.
+	IVAInclusive bool
 }
 
 // AdditionalField is one campoAdicional of infoAdicional.
@@ -208,6 +215,26 @@ var PaymentMethods = []struct {
 	{"21", "ENDOSO DE TÍTULOS"},
 }
 
+// PaymentMethodCard is "tarjeta de crédito": what a Sale Invoice states
+// for money a card processor collected (#473). PayPhone takes cards and
+// reports the brand, never whether it was credit or debit; the credit code
+// is the one the Ficha lists first for card payments and the one a
+// processor-collected charge is conventionally filed under.
+const PaymentMethodCard PaymentMethod = "19"
+
+// PaymentMethodForProvider maps the Payment Provider that collected an
+// Online Sale's money onto the forma de pago the document states. Every
+// provider the platform has is a card processor; anything unknown falls to
+// the platform's default, "otros con utilización del sistema financiero",
+// which is true of any provider at all.
+func PaymentMethodForProvider(provider string) PaymentMethod {
+	switch provider {
+	case "payphone":
+		return PaymentMethodCard
+	}
+	return PaymentMethodDefault
+}
+
 // PaymentMethodLabel returns the SRI label of a code, or "" when unknown.
 func PaymentMethodLabel(code PaymentMethod) string {
 	for _, m := range PaymentMethods {
@@ -240,6 +267,10 @@ type Factura struct {
 }
 
 // LineTotals is the arithmetic of one line, in cents.
+//
+// On an IVA-inclusive line GrossCents is what was paid, BaseCents the base
+// backed out of it and IVACents the remainder, so the three still sum the
+// same way: base + IVA = gross − discount.
 type LineTotals struct {
 	IVA           IVACode
 	RatePercent   int
@@ -301,8 +332,18 @@ func ComputeTotals(lines []Line) (Totals, error) {
 		if l.DiscountCents > gross {
 			return Totals{}, fmt.Errorf("%w: line %d: discount exceeds the line amount", ErrInvalidFactura, i+1)
 		}
-		base := gross - l.DiscountCents
-		iva := divRoundHalfUp(base*int64(rate), 100)
+		var base, iva int64
+		if l.IVAInclusive {
+			if l.DiscountCents != 0 {
+				return Totals{}, fmt.Errorf("%w: line %d: an IVA-inclusive line takes no discount", ErrInvalidFactura, i+1)
+			}
+			if base, iva, err = BackOutIVA(gross, l.IVA); err != nil {
+				return Totals{}, fmt.Errorf("line %d: %w", i+1, err)
+			}
+		} else {
+			base = gross - l.DiscountCents
+			iva = divRoundHalfUp(base*int64(rate), 100)
+		}
 		t.Lines = append(t.Lines, LineTotals{
 			IVA: l.IVA, RatePercent: rate, GrossCents: gross, DiscountCents: l.DiscountCents, BaseCents: base, IVACents: iva,
 		})
@@ -342,6 +383,27 @@ func divRoundHalfUp(n, d int64) int64 {
 	return (n + d/2) / d
 }
 
+// FormatUnitPrice renders a line's base divided by its quantity as a unit
+// price with up to six decimals, the most the v1.1.0 schema allows on
+// precioUnitario: what an IVA-inclusive line prints, so that cantidad ×
+// precioUnitario reconciles with precioTotalSinImpuesto to within a
+// micro-dollar per unit (SRI error 52). Trailing zeros are trimmed down to
+// two decimals ("8.695652", "8.70").
+func FormatUnitPrice(baseCents int64, q Quantity) string {
+	// micro-dollars = baseCents × 10⁴ ÷ (q ÷ 10⁶) = baseCents × 10¹⁰ ÷ q,
+	// rounded half up.
+	num := new(big.Int).Mul(big.NewInt(baseCents), big.NewInt(10_000_000_000))
+	den := big.NewInt(int64(q))
+	num.Add(num, new(big.Int).Quo(den, big.NewInt(2)))
+	micro := new(big.Int).Quo(num, den)
+	whole, frac := new(big.Int).QuoRem(micro, big.NewInt(1_000_000), new(big.Int))
+	digits := fmt.Sprintf("%06d", frac.Int64())
+	for len(digits) > 2 && digits[len(digits)-1] == '0' {
+		digits = digits[:len(digits)-1]
+	}
+	return whole.String() + "." + digits
+}
+
 // FormatCents renders cents with exactly two decimals ("1234" → "12.34").
 func FormatCents(c int64) string {
 	sign := ""
@@ -366,7 +428,7 @@ type BuiltFactura struct {
 // no namespace prefixes, two-decimal amounts, per-rate totalConImpuestos,
 // one pago for the full total, up to 15 campoAdicional.
 func BuildFactura(f Factura) (*BuiltFactura, error) {
-	if err := validateFactura(&f); err != nil {
+	if err := validateDocument(&f, DocumentTypeFactura); err != nil {
 		return nil, err
 	}
 	totals, err := ComputeTotals(f.Lines)
@@ -445,7 +507,11 @@ func BuildFactura(f Factura) (*BuiltFactura, error) {
 		}
 		text(d, "descripcion", l.Description)
 		text(d, "cantidad", l.Quantity.String())
-		text(d, "precioUnitario", FormatCents(l.UnitPriceCents))
+		if l.IVAInclusive {
+			text(d, "precioUnitario", FormatUnitPrice(lt.BaseCents, l.Quantity))
+		} else {
+			text(d, "precioUnitario", FormatCents(l.UnitPriceCents))
+		}
 		text(d, "descuento", FormatCents(l.DiscountCents))
 		text(d, "precioTotalSinImpuesto", FormatCents(lt.BaseCents))
 		imp := d.CreateElement("impuestos").CreateElement("impuesto")
@@ -500,7 +566,11 @@ func serializeDocument(root *etree.Element) ([]byte, error) {
 
 var noNewline = regexp.MustCompile(`^[^\n]*$`)
 
-func validateFactura(f *Factura) error {
+// validateDocument checks the fields a factura and a nota de crédito share
+// — the Issuer, the Recipient, the number, the clave, the lines and the
+// additional fields — against the two schemas' common rules. docType is
+// the codDoc the clave de acceso must have been computed under.
+func validateDocument(f *Factura, docType string) error {
 	if !f.Environment.Valid() {
 		return fmt.Errorf("%w: environment %q", ErrInvalidFactura, f.Environment)
 	}
@@ -565,7 +635,7 @@ func validateFactura(f *Factura) error {
 		return fmt.Errorf("%w: %v", ErrInvalidFactura, err)
 	}
 	expected := AccessKeyInput{
-		IssuedOn: f.IssuedOn, DocumentType: DocumentTypeFactura, RUC: is.RUC, Environment: f.Environment,
+		IssuedOn: f.IssuedOn, DocumentType: docType, RUC: is.RUC, Environment: f.Environment,
 		Establishment: is.Establishment, EmissionPoint: is.EmissionPoint, Sequential: f.Sequential,
 		NumericCode: parsed.NumericCode,
 	}

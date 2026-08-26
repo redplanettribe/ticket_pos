@@ -83,6 +83,19 @@ module "ticket_pos" {
   reversal_reconciler_schedule                 = var.reversal_reconciler_schedule
   reversal_reconciler_attempt_deadline_seconds = var.reversal_reconciler_attempt_deadline_seconds
 
+  # The Sale Invoice Drainer tick (#474, ADR 0060), threaded through on the
+  # reconciler's terms: it ships paused, is enabled once an Issuer in
+  # production exists, and pausing it mid-incident is an apply from this
+  # directory that leaves the state agreeing with reality.
+  sale_invoice_drainer_enabled = var.sale_invoice_drainer_enabled
+  # Sale Invoicing itself (#471, ADR 0060), declared on ticket_assignment_enabled's
+  # terms below: a gate somebody must deliberately open, with no entry in
+  # terraform.tfvars, so it is false until somebody writes one. Separate from the
+  # drainer's line above, which only paces a feature this one turns on.
+  sale_invoicing_enabled                        = var.sale_invoicing_enabled
+  sale_invoice_drainer_schedule                 = var.sale_invoice_drainer_schedule
+  sale_invoice_drainer_attempt_deadline_seconds = var.sale_invoice_drainer_attempt_deadline_seconds
+
   # The Follow Digest jobs (#226, ADR 0030), threaded through for the same reason
   # the reconciler's are: turning the weekly send off is an incident move, and
   # `terraform apply -var follow_digest_enqueue_enabled=false` from this directory

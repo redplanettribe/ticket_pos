@@ -55,6 +55,13 @@ type ecuadorIssuerWithCertificateView struct {
 // it out so the certificate has no discoverable RUC.
 func throwawayP12(t *testing.T, key any, serial, password string) []byte {
 	t.Helper()
+	return throwawayP12ValidUntil(t, key, serial, password, time.Date(2028, 1, 1, 0, 0, 0, 0, time.UTC))
+}
+
+// throwawayP12ValidUntil is throwawayP12 with the validity's end chosen: an
+// end before the suite's fixed clock is an expired certificate (#474).
+func throwawayP12ValidUntil(t *testing.T, key any, serial, password string, notAfter time.Time) []byte {
+	t.Helper()
 	subject := pkix.Name{
 		CommonName:   "JUAN PEREZ",
 		Organization: []string{"TICKET POS S.A.S."},
@@ -67,7 +74,7 @@ func throwawayP12(t *testing.T, key any, serial, password string) []byte {
 		SerialNumber: big.NewInt(time.Now().UnixNano()),
 		Subject:      subject,
 		NotBefore:    time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
-		NotAfter:     time.Date(2028, 1, 1, 0, 0, 0, 0, time.UTC),
+		NotAfter:     notAfter,
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 	}
 	var public any

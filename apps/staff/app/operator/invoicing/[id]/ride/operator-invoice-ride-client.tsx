@@ -31,7 +31,7 @@ const UNAUTHORIZED_STATUS_KEYS = {
   pending: "invoicingRideStatusPending",
   not_authorized: "invoicingRideStatusNotAuthorized",
   rejected: "invoicingRideStatusRejected",
-} as const satisfies Record<Exclude<InvoiceStatus, "authorized">, string>;
+} as const satisfies Partial<Record<Exclude<InvoiceStatus, "authorized">, string>>;
 
 const REGIMEN_LEGEND_KEYS = {
   rimpe_contribuyente: "invoicingRideRegimenRimpe",
@@ -83,9 +83,25 @@ export function OperatorInvoiceRideClient({ invoiceId }: { invoiceId: string }) 
     );
   }
 
+  // An owed document (#473) has no number, no clave and no Issuer snapshot:
+  // there is no RIDE to render until the Drainer signs it.
+  if (!invoice.ecuador || !invoice.issuer || !invoice.issued_on) {
+    return (
+      <div className="p-6">
+        <Alert>
+          <AlertTitle>{t("invoicingNotIssuedYet")}</AlertTitle>
+          <AlertDescription>{t("invoicingRideNotIssued")}</AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+  const ecuador = invoice.ecuador;
+  const issuer = invoice.issuer;
+  const issuedOn = invoice.issued_on;
+
   const money = (cents: number) => formatMoney(cents, invoice.currency, locale);
-  const authorized = invoice.status === "authorized" && invoice.ecuador.authorization_number;
-  const regimenLegendKey = REGIMEN_LEGEND_KEYS[invoice.issuer.regimen as keyof typeof REGIMEN_LEGEND_KEYS];
+  const authorized = invoice.status === "authorized" && ecuador.authorization_number;
+  const regimenLegendKey = REGIMEN_LEGEND_KEYS[issuer.regimen as keyof typeof REGIMEN_LEGEND_KEYS];
   const taxIdTypeKey = TAX_ID_TYPE_KEYS[invoice.recipient.tax_id_type as keyof typeof TAX_ID_TYPE_KEYS];
 
   return (
@@ -110,25 +126,25 @@ export function OperatorInvoiceRideClient({ invoiceId }: { invoiceId: string }) 
 
       <div className="grid grid-cols-2 gap-3 break-inside-avoid">
         <section className="border border-black p-3" aria-label={t("invoicingDetailIssuer")}>
-          <p className="text-base font-bold">{invoice.issuer.razon_social}</p>
-          {invoice.issuer.nombre_comercial ? <p className="font-semibold">{invoice.issuer.nombre_comercial}</p> : null}
+          <p className="text-base font-bold">{issuer.razon_social}</p>
+          {issuer.nombre_comercial ? <p className="font-semibold">{issuer.nombre_comercial}</p> : null}
           <dl className="mt-2 space-y-1">
             <div>
               <dt className={label}>{t("invoicingDireccionMatrizLabel")}</dt>
-              <dd>{invoice.issuer.direccion_matriz}</dd>
+              <dd>{issuer.direccion_matriz}</dd>
             </div>
             <div>
               <dt className={label}>{t("invoicingDireccionEstablecimientoLabel")}</dt>
-              <dd>{invoice.issuer.direccion_establecimiento}</dd>
+              <dd>{issuer.direccion_establecimiento}</dd>
             </div>
             <div className="flex gap-2">
               <dt className={label}>{t("invoicingObligadoContabilidadLabel")}:</dt>
-              <dd className="font-semibold">{invoice.issuer.obligado_contabilidad ? t("invoicingRideYes") : t("invoicingRideNo")}</dd>
+              <dd className="font-semibold">{issuer.obligado_contabilidad ? t("invoicingRideYes") : t("invoicingRideNo")}</dd>
             </div>
             {regimenLegendKey ? <p className="font-semibold">{t(regimenLegendKey)}</p> : null}
-            {invoice.issuer.agente_retencion ? (
+            {issuer.agente_retencion ? (
               <p>
-                {t("invoicingRideAgenteRetencion")}: {invoice.issuer.agente_retencion}
+                {t("invoicingRideAgenteRetencion")}: {issuer.agente_retencion}
               </p>
             ) : null}
           </dl>
@@ -137,7 +153,7 @@ export function OperatorInvoiceRideClient({ invoiceId }: { invoiceId: string }) 
         <section className="border border-black p-3" aria-label={t("invoicingDetailAuthorization")}>
           <p>
             <span className={label}>{t("invoicingRucLabel")}: </span>
-            <span className="font-mono font-semibold">{invoice.issuer.ruc}</span>
+            <span className="font-mono font-semibold">{issuer.ruc}</span>
           </p>
           <p className="mt-1 text-lg font-bold uppercase">{t("invoicingRideTitle")}</p>
           <p>
@@ -148,7 +164,7 @@ export function OperatorInvoiceRideClient({ invoiceId }: { invoiceId: string }) 
             <p className={label}>{t("invoicingRideAuthorizationNumber")}</p>
             {authorized ? (
               <p className="break-all font-mono text-[11px]" data-testid="ride-authorization-number">
-                {invoice.ecuador.authorization_number}
+                {ecuador.authorization_number}
               </p>
             ) : (
               <p className="italic text-neutral-600">{t("invoicingAuthorizationNone")}</p>
@@ -157,7 +173,7 @@ export function OperatorInvoiceRideClient({ invoiceId }: { invoiceId: string }) 
           {authorized ? (
             <p className="mt-1">
               <span className={label}>{t("invoicingRideAuthorizationDate")}: </span>
-              {formatDateTime(invoice.ecuador.authorization_date, PLATFORM_TIME_ZONE, locale)}
+              {formatDateTime(ecuador.authorization_date, PLATFORM_TIME_ZONE, locale)}
             </p>
           ) : null}
           <p className="mt-1">
@@ -172,9 +188,9 @@ export function OperatorInvoiceRideClient({ invoiceId }: { invoiceId: string }) 
           </p>
           <div className="mt-2">
             <p className={label}>{t("invoicingClave")}</p>
-            <Code128Svg value={invoice.ecuador.access_key} className="h-11 w-full" />
+            <Code128Svg value={ecuador.access_key} className="h-11 w-full" />
             <p className="break-all text-center font-mono text-[10px]" data-testid="ride-access-key">
-              {invoice.ecuador.access_key}
+              {ecuador.access_key}
             </p>
           </div>
         </section>
@@ -194,7 +210,7 @@ export function OperatorInvoiceRideClient({ invoiceId }: { invoiceId: string }) 
           </p>
           <p>
             <span className={label}>{t("invoicingEmissionDate")}: </span>
-            {formatCalendarDay(invoice.issued_on, locale)}
+            {formatCalendarDay(issuedOn, locale)}
           </p>
           {invoice.recipient.address ? (
             <p>

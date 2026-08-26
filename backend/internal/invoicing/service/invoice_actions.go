@@ -40,10 +40,29 @@ func (s *Service) CheckInvoice(ctx context.Context, id string) (*InvoiceDetail, 
 		return authority.QueryOutcome(callCtx, row.Ecuador.AccessKey)
 	})
 	if err == nil && outcome.State != invoicing.OutcomeReceived {
-		s.applyOutcome(ctx, id, outcome)
+		s.applyOutcome(ctx, row, outcome)
 	}
 	s.logger.Info("invoicing: tax invoice checked", "invoice_id", id, "outcome", outcome.State, "error", err)
+	s.dueForDelivery(ctx, row)
 	return s.GetInvoice(ctx, id)
+}
+
+// dueForDelivery makes a Sale-side document the operator's action has just
+// healed due at once, so the Drainer's next round mails it to the buyer
+// (#475). Only a document that was off the queue is touched: one under a
+// round's lease is that round's to deliver (repository.DueForDelivery).
+func (s *Service) dueForDelivery(ctx context.Context, row *repository.InvoiceRow) {
+	if row.Invoice.Kind == invoicing.DocumentKindManual {
+		return
+	}
+	due, err := s.repo.DueForDelivery(context.WithoutCancel(ctx), row.Invoice.ID, s.clock())
+	if err != nil {
+		s.logger.Error("invoicing: could not make the healed document due for delivery", "invoice_id", row.Invoice.ID, "error", err)
+		return
+	}
+	if due {
+		s.logger.Info("invoicing: healed document due for delivery", "invoice_id", row.Invoice.ID, "kind", row.Invoice.Kind)
+	}
 }
 
 // ResendInvoice rebuilds, re-signs and resubmits a non-authorized invoice
@@ -66,8 +85,8 @@ func (s *Service) ResendInvoice(ctx context.Context, id string) (*InvoiceDetail,
 		return nil, err
 	}
 
-	snapshot := refreshedSnapshot(row.Invoice.Issuer, issuer.Details)
-	signed, err := s.rebuildAndSign(row, snapshot, cert)
+	snapshot := refreshedSnapshot(*row.Invoice.Issuer, issuer.Details)
+	signed, err := s.rebuildAndSign(ctx, row, snapshot, cert)
 	if err != nil {
 		return nil, err
 	}
@@ -86,11 +105,18 @@ func (s *Service) ResendInvoice(ctx context.Context, id string) (*InvoiceDetail,
 			s.logger.Error("invoicing: could not replace the signed document after a received resend", "invoice_id", id, "error", err)
 		}
 	})
+	s.dueForDelivery(ctx, row)
 	return s.GetInvoice(ctx, id)
 }
 
 // actionable loads the invoice both actions work on, refusing an authorized
-// one: a legal artifact is neither asked about nor sent again.
+// one — a legal artifact is neither asked about nor sent again — an
+// annulled one (#477): the operator recorded that the authority no longer
+// holds it as valid, and a Check that found a late AUTORIZADO would undo
+// that record — a withdrawn one (#476): never sent, and never will be, its
+// sale having been reversed first — and one not yet signed (#473): an owed
+// document has no clave to ask about and no bytes to send, and the Drainer
+// is what issues it.
 func (s *Service) actionable(ctx context.Context, id string) (*repository.InvoiceRow, error) {
 	row, err := s.repo.GetInvoice(ctx, id)
 	if err != nil {
@@ -99,8 +125,16 @@ func (s *Service) actionable(ctx context.Context, id string) (*repository.Invoic
 	if row == nil {
 		return nil, invoicing.ErrInvoiceNotFound()
 	}
-	if row.Invoice.Status == invoicing.InvoiceStatusAuthorized {
+	switch row.Invoice.Status {
+	case invoicing.InvoiceStatusAuthorized:
 		return nil, invoicing.ErrInvoiceAlreadyAuthorized()
+	case invoicing.InvoiceStatusAnnulled:
+		return nil, invoicing.ErrInvoiceAnnulled()
+	case invoicing.InvoiceStatusWithdrawn:
+		return nil, invoicing.ErrInvoiceWithdrawn()
+	}
+	if !row.Invoice.Signed() || row.Ecuador == nil {
+		return nil, invoicing.ErrInvoiceNotIssued()
 	}
 	return row, nil
 }
@@ -119,9 +153,11 @@ func refreshedSnapshot(stored invoicing.IssuerSnapshot, live invoicing.EcuadorIs
 	return refreshed
 }
 
-// rebuildAndSign builds the factura from what the invoice recorded — the
-// same number, clave and emission instant — and signs it now.
-func (s *Service) rebuildAndSign(row *repository.InvoiceRow, snapshot invoicing.IssuerSnapshot, cert *sri.Certificate) ([]byte, error) {
+// rebuildAndSign builds the document from what the invoice recorded — the
+// same number, clave and emission instant — and signs it now. A Credit
+// Note is rebuilt as the nota de crédito it was (#476), from the factura
+// it credits.
+func (s *Service) rebuildAndSign(ctx context.Context, row *repository.InvoiceRow, snapshot invoicing.IssuerSnapshot, cert *sri.Certificate) ([]byte, error) {
 	inv := &row.Invoice
 	recipient, err := sriRecipient(inv.Recipient)
 	if err != nil {
@@ -139,29 +175,41 @@ func (s *Service) rebuildAndSign(row *repository.InvoiceRow, snapshot invoicing.
 			UnitPriceCents: l.UnitPriceCents,
 			DiscountCents:  l.DiscountCents,
 			IVA:            code,
+			// A platform-priced document's lines are priced as paid, IVA
+			// inside (#474); a resend must render them as the original did.
+			IVAInclusive: inv.Kind != invoicing.DocumentKindManual,
 		})
 	}
 	sequential, err := sri.FormatSequential(row.Ecuador.Secuencial)
 	if err != nil {
 		return nil, invoicing.ErrInvoiceInvalid(reason(err))
 	}
-	f := sri.Factura{
-		Environment:      sri.AmbienteFor(inv.Environment),
-		Issuer:           sri.IssuerFromSnapshot(snapshot),
-		AccessKey:        row.Ecuador.AccessKey,
-		Sequential:       sequential,
-		IssuedOn:         inv.IssuedAt,
-		Recipient:        recipient,
-		Lines:            lines,
-		PaymentMethod:    sri.PaymentMethod(inv.PaymentMethod),
-		AdditionalFields: sriFields(inv.AdditionalFields),
+	parts := facturaParts{
+		base: sri.Factura{
+			Environment:   sri.AmbienteFor(inv.Environment),
+			Issuer:        sri.IssuerFromSnapshot(snapshot),
+			IssuedOn:      inv.IssuedAt,
+			PaymentMethod: sri.PaymentMethod(inv.PaymentMethod),
+		},
+		recipient: recipient,
+		lines:     lines,
+		fields:    sriFields(inv.AdditionalFields),
 	}
-	built, err := sri.BuildFactura(f)
+	if inv.Kind == invoicing.DocumentKindCreditNote {
+		factura, err := s.repo.GetInvoice(ctx, inv.CreditsInvoiceID)
+		if err != nil {
+			return nil, err
+		}
+		if parts, err = creditNoteParts(parts, inv, factura); err != nil {
+			return nil, invoicing.ErrInvoiceInvalid(reason(err))
+		}
+	}
+	unsigned, err := parts.build(row.Ecuador.AccessKey, sequential)
 	if err != nil {
 		// The invoice built once; what can have changed since is the Issuer.
 		return nil, invoicing.ErrIssuerIncomplete(reason(err))
 	}
-	signed, err := sri.Sign(built.XML, cert, sri.SignOptions{SigningTime: s.clock()})
+	signed, err := sri.Sign(unsigned, cert, sri.SignOptions{SigningTime: s.clock()})
 	if err != nil {
 		return nil, err
 	}
@@ -173,8 +221,16 @@ func (s *Service) rebuildAndSign(row *repository.InvoiceRow, snapshot invoicing.
 // invoice is pending and the last thing the authority said was that it holds
 // it (RECIBIDA, EN PROCESAMIENTO, or 43/70 on a resend). A pending invoice
 // whose last call failed carries no hint; a resend is the thing to do there.
+//
+// A Sale Invoice parked needs_attention by the 24-hour rule (#474) is in
+// the same position — the authority holds it and has not decided — and
+// carries the hint too; one parked by a refusal does not, since its last
+// answer was the refusal.
 func checkStatusHint(inv *invoicing.Invoice, attempts []invoicing.Attempt) bool {
-	if inv.Status != invoicing.InvoiceStatusPending || len(attempts) == 0 {
+	if len(attempts) == 0 {
+		return false
+	}
+	if inv.Status != invoicing.InvoiceStatusPending && inv.Status != invoicing.InvoiceStatusNeedsAttention {
 		return false
 	}
 	return attempts[len(attempts)-1].Outcome == string(invoicing.OutcomeReceived)

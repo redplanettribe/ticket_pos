@@ -24,6 +24,7 @@ import { type AppLocale, formatMoney, formatNumber } from "@/lib/format";
 import {
   OPERATOR_ORGANIZATIONS_COUNT_PAGE_SIZE,
   type OperatorCurrencyTotals,
+  fetchOperatorNeedsAttentionCount,
   fetchOperatorOrganizations,
   fetchOperatorOutstandingQuestionReviewCount,
   fetchOperatorPendingPayoutRequestCount,
@@ -138,6 +139,7 @@ export function OperatorDashboardClient() {
   const [organizationCount, setOrganizationCount] = useState(0);
   const [pendingPayoutRequests, setPendingPayoutRequests] = useState(0);
   const [outstandingQuestionReviews, setOutstandingQuestionReviews] = useState(0);
+  const [documentsNeedingAttention, setDocumentsNeedingAttention] = useState(0);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -152,16 +154,19 @@ export function OperatorDashboardClient() {
       // The Question Review count is read on its own, because it is 404
       // TICKET_QUESTIONS_UNAVAILABLE while the feature is dark (ADR 0045) and
       // a dark feature must not take the whole Overview down with it.
-      const [summary, organizationsPage, payoutRequestCount, questionReviewCount] = await Promise.all([
-        fetchOperatorSummary(),
-        fetchOperatorOrganizations(1, OPERATOR_ORGANIZATIONS_COUNT_PAGE_SIZE),
-        fetchOperatorPendingPayoutRequestCount(),
-        fetchOperatorOutstandingQuestionReviewCount().catch(() => null),
-      ]);
+      const [summary, organizationsPage, payoutRequestCount, questionReviewCount, attentionCount] =
+        await Promise.all([
+          fetchOperatorSummary(),
+          fetchOperatorOrganizations(1, OPERATOR_ORGANIZATIONS_COUNT_PAGE_SIZE),
+          fetchOperatorPendingPayoutRequestCount(),
+          fetchOperatorOutstandingQuestionReviewCount().catch(() => null),
+          fetchOperatorNeedsAttentionCount(),
+        ]);
       setTotals(summary.totals);
       setOrganizationCount(organizationsPage.pagination.total);
       setPendingPayoutRequests(payoutRequestCount.pending_count);
       setOutstandingQuestionReviews(questionReviewCount?.outstanding_count ?? 0);
+      setDocumentsNeedingAttention(attentionCount.needs_attention_count);
       setForbidden(false);
     } catch (loadError) {
       // The allowlist refusal is its own answer rather than a failure to report,
@@ -234,6 +239,18 @@ export function OperatorDashboardClient() {
           count={formatNumber(outstandingQuestionReviews, locale)}
           href="/operator/question-reviews"
           linkLabel={t("openTheReviews")}
+        />
+        {/*
+          Documents needing attention: the third queue, and the one where
+          silence is a compliance problem — a Sale Invoice the SRI refused is
+          a buyer without a factura until somebody looks (ADR 0060).
+        */}
+        <CountCard
+          title={t("attentionCardTitle")}
+          description={t("attentionCardDescription")}
+          count={formatNumber(documentsNeedingAttention, locale)}
+          href="/operator/invoicing/attention"
+          linkLabel={t("openTheAttentionQueue")}
         />
         <CountCard
           title={t("organizationsCardTitle")}

@@ -142,7 +142,7 @@ func (s *Service) IssueInvoice(ctx context.Context, in IssueInput) (*InvoiceDeta
 		IssuedAt:      now,
 		IssuedBy:      in.IssuedBy,
 		Recipient:     in.Recipient,
-		Issuer:        snapshot,
+		Issuer:        &snapshot,
 		Currency:      "USD",
 		SubtotalCents: totals.SubtotalCents,
 		DiscountCents: totals.DiscountCents,
@@ -172,44 +172,7 @@ func (s *Service) IssueInvoice(ctx context.Context, in IssueInput) (*InvoiceDeta
 		CodDoc:  sri.DocumentTypeFactura,
 		Estab:   snapshot.Establecimiento,
 		PtoEmi:  snapshot.PuntoEmision,
-	}, func(secuencial int64) (*repository.PreparedInvoice, error) {
-		sequential, err := sri.FormatSequential(secuencial)
-		if err != nil {
-			return nil, err
-		}
-		numericCode, err := sri.RandomNumericCode()
-		if err != nil {
-			return nil, err
-		}
-		key, err := sri.NewAccessKey(sri.AccessKeyInput{
-			IssuedOn:      now,
-			DocumentType:  sri.DocumentTypeFactura,
-			RUC:           snapshot.RUC,
-			Environment:   base.Environment,
-			Establishment: snapshot.Establecimiento,
-			EmissionPoint: snapshot.PuntoEmision,
-			Sequential:    sequential,
-			NumericCode:   numericCode,
-		})
-		if err != nil {
-			return nil, err
-		}
-		f := base
-		f.AccessKey = key
-		f.Sequential = sequential
-		f.Recipient = recipient
-		f.Lines = lines
-		f.AdditionalFields = fields
-		built, err := sri.BuildFactura(f)
-		if err != nil {
-			return nil, err
-		}
-		signed, err := sri.Sign(built.XML, cert, sri.SignOptions{SigningTime: now})
-		if err != nil {
-			return nil, err
-		}
-		return &repository.PreparedInvoice{AccessKey: key, SignedXML: signed}, nil
-	})
+	}, numberAndSign(facturaParts{base: base, recipient: recipient, lines: lines, fields: fields}, cert, now))
 	if err != nil {
 		return nil, err
 	}
@@ -218,6 +181,110 @@ func (s *Service) IssueInvoice(ctx context.Context, in IssueInput) (*InvoiceDeta
 
 	s.submitAndPoll(ctx, row, nil)
 	return s.GetInvoice(ctx, row.Invoice.ID)
+}
+
+// facturaParts is a document minus its number: everything the builder needs
+// that is known before a secuencial is allocated. The manual issue and the
+// Drainer (#474) both assemble one, dry-run it, and hand it to numberAndSign
+// inside the transaction that allocates the number.
+//
+// It is a nota de crédito's parts too (#476): docType says which builder
+// renders it, and modifies and motivo are what only that document has.
+// One shape for both, because everything that surrounds the builder —
+// the clave, the dry run, the signing, the number's transaction — is the
+// same for both, and only the last step differs.
+type facturaParts struct {
+	// docType is the codDoc: DocumentTypeFactura unless set.
+	docType   string
+	base      sri.Factura
+	recipient sri.Recipient
+	lines     []sri.Line
+	fields    []sri.AdditionalField
+	// The nota de crédito's own: the factura it modifies and why.
+	modifies sri.ModifiedDocument
+	motivo   string
+}
+
+// documentType is the parts' codDoc, a factura's when none was named.
+func (p facturaParts) documentType() string {
+	if p.docType == "" {
+		return sri.DocumentTypeFactura
+	}
+	return p.docType
+}
+
+// build renders the unsigned document under the given clave and number:
+// the factura builder or the nota de crédito builder, by docType.
+func (p facturaParts) build(accessKey, sequential string) ([]byte, error) {
+	if p.documentType() == sri.DocumentTypeNotaCredito {
+		built, err := sri.BuildNotaCredito(sri.NotaCredito{
+			Environment:      p.base.Environment,
+			Issuer:           p.base.Issuer,
+			AccessKey:        accessKey,
+			Sequential:       sequential,
+			IssuedOn:         p.base.IssuedOn,
+			Recipient:        p.recipient,
+			Lines:            p.lines,
+			Modifies:         p.modifies,
+			Motivo:           p.motivo,
+			AdditionalFields: p.fields,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return built.XML, nil
+	}
+	f := p.base
+	f.AccessKey = accessKey
+	f.Sequential = sequential
+	f.Recipient = p.recipient
+	f.Lines = p.lines
+	f.AdditionalFields = p.fields
+	built, err := sri.BuildFactura(f)
+	if err != nil {
+		return nil, err
+	}
+	return built.XML, nil
+}
+
+// numberAndSign is the prepare callback both signing writes run with the
+// secuencial they just allocated: the clave de acceso is computed, the
+// factura built and signed, and the two returned for storage. Any failure
+// rolls the allocation back with it.
+func numberAndSign(parts facturaParts, cert *sri.Certificate, now time.Time) func(secuencial int64) (*repository.PreparedInvoice, error) {
+	return func(secuencial int64) (*repository.PreparedInvoice, error) {
+		sequential, err := sri.FormatSequential(secuencial)
+		if err != nil {
+			return nil, err
+		}
+		numericCode, err := sri.RandomNumericCode()
+		if err != nil {
+			return nil, err
+		}
+		base := parts.base
+		key, err := sri.NewAccessKey(sri.AccessKeyInput{
+			IssuedOn:      now,
+			DocumentType:  parts.documentType(),
+			RUC:           base.Issuer.RUC,
+			Environment:   base.Environment,
+			Establishment: base.Issuer.Establishment,
+			EmissionPoint: base.Issuer.EmissionPoint,
+			Sequential:    sequential,
+			NumericCode:   numericCode,
+		})
+		if err != nil {
+			return nil, err
+		}
+		unsigned, err := parts.build(key, sequential)
+		if err != nil {
+			return nil, err
+		}
+		signed, err := sri.Sign(unsigned, cert, sri.SignOptions{SigningTime: now})
+		if err != nil {
+			return nil, err
+		}
+		return &repository.PreparedInvoice{AccessKey: key, SignedXML: signed}, nil
+	}
 }
 
 // submitAndPoll is the second half: hand the document to the authority and,
@@ -242,12 +309,12 @@ func (s *Service) submitAndPoll(ctx context.Context, row *repository.InvoiceRow,
 		return
 	}
 	if outcome.State != invoicing.OutcomeReceived {
-		s.applyOutcome(ctx, id, outcome)
+		s.applyOutcome(ctx, row, outcome)
 		return
 	}
 	// Received: the messages so far (warnings, or the 43/70 "it is there")
 	// are worth keeping while it stays pending.
-	s.applyOutcome(ctx, id, outcome)
+	s.applyOutcome(ctx, row, outcome)
 	if onReceived != nil {
 		onReceived(ctx, outcome)
 	}
@@ -270,7 +337,7 @@ func (s *Service) submitAndPoll(ctx context.Context, row *repository.InvoiceRow,
 		if outcome.State == invoicing.OutcomeReceived {
 			continue
 		}
-		s.applyOutcome(ctx, id, outcome)
+		s.applyOutcome(ctx, row, outcome)
 		return
 	}
 }
@@ -303,8 +370,35 @@ func (s *Service) attempt(ctx context.Context, invoiceID string, op invoicing.At
 }
 
 // applyOutcome maps the authority's verdict onto the invoice's status.
-func (s *Service) applyOutcome(ctx context.Context, invoiceID string, o invoicing.Outcome) {
-	u := repository.OutcomeUpdate{Messages: o.Messages}
+//
+// A MANUAL DOCUMENT AND A SALE INVOICE READ THE SAME VERDICT DIFFERENTLY
+// (#474, ADR 0060). Authorized is authorized for both. A definite refusal
+// leaves a manual document not_authorized or rejected, for the operator who
+// pressed Issue to read and act on; it parks a Sale Invoice needs_attention,
+// the one word the Operator Dashboard's queue is built on, with the
+// authority's messages beside it. An undecided answer leaves a manual
+// document pending until the operator checks; it leaves a Sale Invoice
+// pending AND due again on the ladder — or needs_attention-still-polled once
+// 24 hours have passed since signing without a definite answer.
+//
+// AN AUTHORIZED SALE INVOICE STAYS WHERE IT IS ON THE QUEUE (#475). The
+// round that authorized it delivers it in the same breath, and the row
+// keeps that round's lease until MarkDelivered clears it or a refused send
+// reschedules it: a due time written here would release the lease before
+// the mail goes out, and a second round could claim the document and mail
+// the buyer again. The operator's Check status and Resend, which hold no
+// lease, make a healed document due themselves (dueForDelivery). An
+// authorized manual document is the operator's to hand over.
+//
+// The write is guarded on the status the row was read in: an operator's
+// Mark annulled, or a reversal, may have moved the row while the authority
+// was being asked, and the answer then applies to a document that no
+// longer stands. The row is left to whoever moved it, and the answer is
+// in the attempts ledger.
+func (s *Service) applyOutcome(ctx context.Context, row *repository.InvoiceRow, o invoicing.Outcome) {
+	inv := &row.Invoice
+	now := s.clock()
+	u := repository.OutcomeUpdate{From: inv.Status, Messages: o.Messages, At: now}
 	switch o.State {
 	case invoicing.OutcomeAuthorized:
 		u.Status = invoicing.InvoiceStatusAuthorized
@@ -317,35 +411,56 @@ func (s *Service) applyOutcome(ctx context.Context, invoiceID string, o invoicin
 	default:
 		u.Status = invoicing.InvoiceStatusPending
 	}
-	if err := s.repo.ApplyOutcome(context.WithoutCancel(ctx), invoiceID, u); err != nil {
-		s.logger.Error("invoicing: could not apply outcome", "invoice_id", invoiceID, "status", u.Status, "error", err)
+	if inv.Kind != invoicing.DocumentKindManual {
+		switch u.Status {
+		case invoicing.InvoiceStatusAuthorized:
+			u.KeepNextAttemptAt = true
+		case invoicing.InvoiceStatusNotAuthorized, invoicing.InvoiceStatusRejected:
+			u.Status = invoicing.InvoiceStatusNeedsAttention
+		case invoicing.InvoiceStatusPending:
+			u.Status = undecidedStatus(inv, now)
+			next := now.Add(ladderDelay(now.Sub(inv.IssuedAt)))
+			u.NextAttemptAt = &next
+		}
 	}
+	applied, err := s.repo.ApplyOutcome(context.WithoutCancel(ctx), inv.ID, u)
+	if err != nil {
+		s.logger.Error("invoicing: could not apply outcome", "invoice_id", inv.ID, "status", u.Status, "error", err)
+		return
+	}
+	if !applied {
+		s.logger.Info("invoicing: the document moved while the authority was asked; its answer was not applied",
+			"invoice_id", inv.ID, "read_as", inv.Status, "answer", u.Status)
+		return
+	}
+	// The row as it now stands, so a later answer in the same round is
+	// guarded on what this one wrote.
+	inv.Status = u.Status
 }
 
 // dryRun builds — never signs, never stores — a factura from the pieces with
 // a placeholder number, to learn whether the builder would refuse it.
 func (s *Service) dryRun(base sri.Factura, recipient sri.Recipient, lines []sri.Line, fields []sri.AdditionalField) error {
+	return s.dryRunParts(facturaParts{base: base, recipient: recipient, lines: lines, fields: fields})
+}
+
+// dryRunParts is dryRun for assembled parts of either document type.
+func (s *Service) dryRunParts(parts facturaParts) error {
 	const sequential = "000000001"
 	key, err := sri.NewAccessKey(sri.AccessKeyInput{
-		IssuedOn:      base.IssuedOn,
-		DocumentType:  sri.DocumentTypeFactura,
-		RUC:           base.Issuer.RUC,
-		Environment:   base.Environment,
-		Establishment: base.Issuer.Establishment,
-		EmissionPoint: base.Issuer.EmissionPoint,
+		IssuedOn:      parts.base.IssuedOn,
+		DocumentType:  parts.documentType(),
+		RUC:           parts.base.Issuer.RUC,
+		Environment:   parts.base.Environment,
+		Establishment: parts.base.Issuer.Establishment,
+		EmissionPoint: parts.base.Issuer.EmissionPoint,
 		Sequential:    sequential,
 		NumericCode:   "00000000",
 	})
 	if err != nil {
 		return err
 	}
-	f := base
-	f.AccessKey = key
-	f.Sequential = sequential
-	f.Recipient = recipient
-	f.Lines = lines
-	f.AdditionalFields = fields
-	_, err = sri.BuildFactura(f)
+	_, err = parts.build(key, sequential)
 	return err
 }
 
@@ -399,6 +514,7 @@ func sriFields(in []invoicing.AdditionalField) []sri.AdditionalField {
 // operator reads what was wrong and not which package said so.
 func reason(err error) string {
 	msg := err.Error()
+	msg = strings.TrimPrefix(msg, sri.ErrInvalidNotaCredito.Error()+": ")
 	msg = strings.TrimPrefix(msg, sri.ErrInvalidFactura.Error()+": ")
 	msg = strings.TrimPrefix(msg, sri.ErrInvalidAccessKey.Error()+": ")
 	return msg
@@ -439,9 +555,10 @@ func (s *Service) GetInvoice(ctx context.Context, id string) (*InvoiceDetail, er
 	return invoiceDetailView(row), nil
 }
 
-// ListInvoices returns a page of Tax Invoices, newest first.
-func (s *Service) ListInvoices(ctx context.Context, page, pageSize int) (*InvoiceList, error) {
-	rows, total, err := s.repo.ListInvoices(ctx, page, pageSize)
+// ListInvoices returns a page of Tax Invoices, newest first, narrowed to
+// one document kind when kind is not "" (#477).
+func (s *Service) ListInvoices(ctx context.Context, kind invoicing.DocumentKind, page, pageSize int) (*InvoiceList, error) {
+	rows, total, err := s.repo.ListInvoices(ctx, kind, page, pageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -450,14 +567,18 @@ func (s *Service) ListInvoices(ctx context.Context, page, pageSize int) (*Invoic
 		items = append(items, invoiceListItem(&rows[i]))
 	}
 	return &InvoiceList{
-		Data: items,
-		InvoicePagination: InvoicePagination{
-			Page:       page,
-			PageSize:   pageSize,
-			Total:      total,
-			TotalPages: int(math.Ceil(float64(total) / float64(pageSize))),
-		},
+		Data:              items,
+		InvoicePagination: pagination(page, pageSize, total),
 	}, nil
+}
+
+func pagination(page, pageSize, total int) InvoicePagination {
+	return InvoicePagination{
+		Page:       page,
+		PageSize:   pageSize,
+		Total:      total,
+		TotalPages: int(math.Ceil(float64(total) / float64(pageSize))),
+	}
 }
 
 // ---- views ------------------------------------------------------------
@@ -480,21 +601,40 @@ type RecipientView struct {
 }
 
 // InvoiceListItem is one row of the invoices list.
+//
+// THE ISSUE FACTS ARE NULL UNTIL SIGNED (#473). An owed Sale Invoice has no
+// number, no environment, no emission date and no signer, and the list says
+// null rather than "" so a reader can tell "not yet" from "blank". A manual
+// Tax Invoice is signed at birth and never null here.
 type InvoiceListItem struct {
-	ID          string `json:"id"`
-	Country     string `json:"country"`
-	Environment string `json:"environment"`
-	Status      string `json:"status"`
+	ID string `json:"id"`
+	// Kind is why the document exists: manual, sale or credit_note.
+	Kind    string `json:"kind"`
+	Country string `json:"country"`
+	// Environment is the authority environment the document was signed
+	// under; null until signed.
+	Environment *string `json:"environment"`
+	Status      string  `json:"status"`
 	// Number is the document number as printed: estab-ptoEmi-secuencial,
-	// e.g. 001-001-000000012.
-	Number string `json:"number"`
-	// IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country.
-	IssuedOn   string        `json:"issued_on"`
-	IssuedAt   time.Time     `json:"issued_at"`
-	IssuedBy   string        `json:"issued_by"`
-	Recipient  RecipientView `json:"recipient"`
-	TotalCents int64         `json:"total_cents"`
-	Currency   string        `json:"currency"`
+	// e.g. 001-001-000000012. Null until signed.
+	Number *string `json:"number"`
+	// IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country;
+	// IssuedAt the instant; IssuedBy the operator (or the Drainer). All null
+	// until signed.
+	IssuedOn  *string       `json:"issued_on"`
+	IssuedAt  *time.Time    `json:"issued_at"`
+	IssuedBy  *string       `json:"issued_by"`
+	Recipient RecipientView `json:"recipient"`
+	// TicketSaleID and SaleConfirmationRef name the Ticket Sale a sale
+	// document or credit note is about; null on a manual document.
+	TicketSaleID        *string `json:"ticket_sale_id"`
+	SaleConfirmationRef *string `json:"sale_confirmation_ref"`
+	TotalCents          int64   `json:"total_cents"`
+	Currency            string  `json:"currency"`
+	// AttentionSince is when the document was parked needs_attention — how
+	// long it has been waiting for an operator (#477); null in every other
+	// state.
+	AttentionSince *time.Time `json:"attention_since"`
 }
 
 // InvoiceList is the ADR-0006 nested envelope for the list.
@@ -570,16 +710,36 @@ type AttemptView struct {
 // InvoiceDetail is one Tax Invoice in full.
 type InvoiceDetail struct {
 	InvoiceListItem
-	Issuer             invoicing.IssuerSnapshot `json:"issuer"`
-	Lines              []LineView               `json:"lines"`
-	AdditionalFields   []AdditionalFieldView    `json:"additional_fields"`
-	PaymentMethod      string                   `json:"payment_method"`
-	PaymentMethodLabel string                   `json:"payment_method_label"`
-	Totals             TotalsView               `json:"totals"`
+	// Issuer is the Issuer as snapshotted at signing; null until signed.
+	Issuer             *invoicing.IssuerSnapshot `json:"issuer"`
+	Lines              []LineView                `json:"lines"`
+	AdditionalFields   []AdditionalFieldView     `json:"additional_fields"`
+	PaymentMethod      string                    `json:"payment_method"`
+	PaymentMethodLabel string                    `json:"payment_method_label"`
+	Totals             TotalsView                `json:"totals"`
 	// Messages are the authority's messages from its last answer.
 	Messages []AuthorityMessageView `json:"messages"`
-	Ecuador  EcuadorInvoiceView     `json:"ecuador"`
-	Attempts []AttemptView          `json:"attempts"`
+	// Ecuador is the SRI's numbering and authorization; null until signed.
+	Ecuador  *EcuadorInvoiceView `json:"ecuador"`
+	Attempts []AttemptView       `json:"attempts"`
+	// The Sale side (#473): the one IVA rate a platform-priced document was
+	// priced under, when its authorized document was mailed to the buyer,
+	// when the Drainer next works it, and — on a Credit Note — the Sale
+	// Invoice it credits and the reversal route that made it owed. All null
+	// on a manual Tax Invoice.
+	IVARate          *string    `json:"iva_rate"`
+	DeliveredAt      *time.Time `json:"delivered_at"`
+	NextAttemptAt    *time.Time `json:"next_attempt_at"`
+	CreditsInvoiceID *string    `json:"credits_invoice_id"`
+	ReversalReason   *string    `json:"reversal_reason"`
+	// CreditedByInvoiceID is, on a Sale Invoice, the Credit Note that
+	// credits it (#476); null on every other document and until one does.
+	CreditedByInvoiceID *string `json:"credited_by_invoice_id"`
+	// AnnulledBy and AnnulledAt are the operator who marked the document
+	// annulled after annulling it by hand at the SRI portal, and when (#477).
+	// Both null unless the document is annulled.
+	AnnulledBy *string    `json:"annulled_by"`
+	AnnulledAt *time.Time `json:"annulled_at"`
 	// HasAuthorizationXML says whether the authority's document is on file
 	// (#456 serves it).
 	HasAuthorizationXML bool `json:"has_authorization_xml"`
@@ -598,15 +758,11 @@ func FormatNumber(estab, ptoEmi string, secuencial int64) string {
 
 func invoiceListItem(row *repository.InvoiceRow) InvoiceListItem {
 	inv := &row.Invoice
-	return InvoiceListItem{
-		ID:          inv.ID,
-		Country:     string(inv.Country),
-		Environment: string(inv.Environment),
-		Status:      string(inv.Status),
-		Number:      FormatNumber(row.Ecuador.Estab, row.Ecuador.PtoEmi, row.Ecuador.Secuencial),
-		IssuedOn:    inv.IssuedOn.Format("2006-01-02"),
-		IssuedAt:    inv.IssuedAt.UTC(),
-		IssuedBy:    inv.IssuedBy,
+	item := InvoiceListItem{
+		ID:      inv.ID,
+		Kind:    string(inv.Kind),
+		Country: string(inv.Country),
+		Status:  string(inv.Status),
 		Recipient: RecipientView{
 			TaxIDType: inv.Recipient.TaxIDType,
 			TaxID:     inv.Recipient.TaxID,
@@ -614,9 +770,40 @@ func invoiceListItem(row *repository.InvoiceRow) InvoiceListItem {
 			Address:   inv.Recipient.Address,
 			Email:     inv.Recipient.Email,
 		},
-		TotalCents: inv.TotalCents,
-		Currency:   inv.Currency,
+		TicketSaleID:        optional(inv.TicketSaleID),
+		SaleConfirmationRef: optional(inv.SaleConfirmationRef),
+		TotalCents:          inv.TotalCents,
+		Currency:            inv.Currency,
+		AttentionSince:      optionalTime(inv.AttentionSince),
 	}
+	if inv.Signed() {
+		item.Environment = optional(string(inv.Environment))
+		item.IssuedOn = optional(inv.IssuedOn.Format("2006-01-02"))
+		issuedAt := inv.IssuedAt.UTC()
+		item.IssuedAt = &issuedAt
+		item.IssuedBy = optional(inv.IssuedBy)
+	}
+	if row.Ecuador != nil {
+		item.Number = optional(FormatNumber(row.Ecuador.Estab, row.Ecuador.PtoEmi, row.Ecuador.Secuencial))
+	}
+	return item
+}
+
+// optional renders "" as null: the value is absent, not blank.
+func optional(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// optionalTime renders a nil instant as null and any other in UTC.
+func optionalTime(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	u := t.UTC()
+	return &u
 }
 
 func invoiceDetailView(row *repository.InvoiceRow) *InvoiceDetail {
@@ -632,22 +819,32 @@ func invoiceDetailView(row *repository.InvoiceRow) *InvoiceDetail {
 		Attempts:            []AttemptView{},
 		HasAuthorizationXML: len(inv.AuthorizationXML) > 0,
 		CheckStatusHint:     checkStatusHint(inv, row.Attempts),
+		IVARate:             optional(string(inv.IVARate)),
+		CreditsInvoiceID:    optional(inv.CreditsInvoiceID),
+		ReversalReason:      optional(inv.ReversalReason),
+		CreditedByInvoiceID: optional(inv.CreditedByInvoiceID),
+		AnnulledBy:          optional(inv.AnnulledBy),
+		AnnulledAt:          optionalTime(inv.AnnulledAt),
 		CreatedAt:           inv.CreatedAt.UTC(),
 		UpdatedAt:           inv.UpdatedAt.UTC(),
-		Ecuador: EcuadorInvoiceView{
-			AccessKey:  row.Ecuador.AccessKey,
-			CodDoc:     row.Ecuador.CodDoc,
-			Estab:      row.Ecuador.Estab,
-			PtoEmi:     row.Ecuador.PtoEmi,
-			Secuencial: row.Ecuador.Secuencial,
-			Ambiente:   string(sri.AmbienteFor(inv.Environment)),
-		},
 	}
-	if a := row.Ecuador.Authorization; a != nil {
-		number := a.Number
-		date := a.Date.UTC()
-		d.Ecuador.AuthorizationNumber = &number
-		d.Ecuador.AuthorizationDate = &date
+	d.DeliveredAt = optionalTime(inv.DeliveredAt)
+	d.NextAttemptAt = optionalTime(inv.NextAttemptAt)
+	if e := row.Ecuador; e != nil {
+		d.Ecuador = &EcuadorInvoiceView{
+			AccessKey:  e.AccessKey,
+			CodDoc:     e.CodDoc,
+			Estab:      e.Estab,
+			PtoEmi:     e.PtoEmi,
+			Secuencial: e.Secuencial,
+			Ambiente:   string(sri.AmbienteFor(inv.Environment)),
+		}
+		if a := e.Authorization; a != nil {
+			number := a.Number
+			date := a.Date.UTC()
+			d.Ecuador.AuthorizationNumber = &number
+			d.Ecuador.AuthorizationDate = &date
+		}
 	}
 
 	// The totals are re-derived from the stored per-line arithmetic, never

@@ -10,6 +10,19 @@ factura_V1.1.0.xsd
   "CONTRIBUYENTE RÉGIMEN RIMPE"; the Ficha (Anexo 22) also defines
   "CONTRIBUYENTE NEGOCIO POPULAR - RÉGIMEN RIMPE", which this XSD rejects.
 
+NotaCredito_V1.1.0.xsd
+  Source: SRI, "XML y XSD Nota de Crédito" bundle (NotaCredito_V1.0.0 / 1.1.0)
+  URL:    https://www.sri.gob.ec/o/sri-portlet-biblioteca-alfresco-internet/descargar/dfc944cd-5f18-4433-a626-3cc64cfc4549/XML%20y%20XSD%20Nota%20de%20Cr%c3%a9dito.zip
+  Vendored 2026-08-25; sha256 379e9f270d71ab4578f130a736c9abe5eb1d7969375ecdef55d2973583ec5ab0.
+  The SRI's host reset every download that day, so the bytes were taken from
+  xprl-gjf/sri-efactura-core (sri-efactura-model/src/main/sri/META-INF/schema/v1.1.0),
+  whose vendored factura_V1.1.0.xsd is byte-identical to the one above; three more
+  independent GitHub vendorings (cuymo/facturacion-electronica-ec, nulldoomer/Open-SRI,
+  grisbi-ia/key49) carry the same sha256. Its declaration says XML 1.1, which xmllint
+  warns about and then honours.
+  Same RIMPE lag as the factura schema. Note the schema's totalImpuesto has no
+  tarifa element (the factura's does), and there is no pagos block.
+
 xmldsig-core-schema.xsd
   Source: W3C, XML-Signature Syntax and Processing (2002-02-12 Recommendation)
   URL:    https://www.w3.org/TR/2002/REC-xmldsig-core-20020212/xmldsig-core-schema.xsd

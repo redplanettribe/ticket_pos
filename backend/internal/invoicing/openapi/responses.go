@@ -39,3 +39,37 @@ type EnvelopeInvoiceTotals struct {
 	Error     *platform.APIError `json:"error"`
 	RequestID string             `json:"request_id"`
 }
+
+// EnvelopeSaleInvoiceDrain documents POST /internal/sale-invoices/drain
+// success responses.
+type EnvelopeSaleInvoiceDrain struct {
+	Data      service.SaleInvoiceDrainResult `json:"data"`
+	Error     *platform.APIError             `json:"error"`
+	RequestID string                         `json:"request_id"`
+}
+
+// EnvelopeNeedsAttentionQueue documents GET /operator/invoicing/needs-attention
+// success responses: the ADR-0006 nested envelope inside the standard one
+// (#477).
+type EnvelopeNeedsAttentionQueue struct {
+	Data      service.NeedsAttentionQueue `json:"data"`
+	Error     *platform.APIError          `json:"error"`
+	RequestID string                      `json:"request_id"`
+}
+
+// EnvelopeNeedsAttentionCount documents GET
+// /operator/invoicing/needs-attention/count success responses (#477).
+type EnvelopeNeedsAttentionCount struct {
+	Data      service.NeedsAttentionCount `json:"data"`
+	Error     *platform.APIError          `json:"error"`
+	RequestID string                      `json:"request_id"`
+}
+
+// EnvelopeCustomerDocuments documents GET
+// /customer/ticket-sales/{ticketSaleId}/tax-documents success responses: the
+// Sale's documents in the buyer's words, an empty list when it owes none.
+type EnvelopeCustomerDocuments struct {
+	Data      []service.CustomerDocument `json:"data"`
+	Error     *platform.APIError         `json:"error"`
+	RequestID string                     `json:"request_id"`
+}

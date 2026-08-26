@@ -1,6 +1,11 @@
 package repository
 
-import "context"
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"time"
+)
 
 // IsPlatformOperator reports whether an email is on the platform operator
 // allowlist (ADR 0015). The allowlist is the whole of operator authority: there
@@ -66,7 +71,7 @@ func (r *Repository) OrganizationsByIDs(ctx context.Context, ids []string) ([]Or
 	}
 
 	rows, err := r.db.Pool.QueryContext(ctx, `
-		SELECT id, name, slug, currency, logo_image_key, created_at
+		SELECT id, name, slug, currency, logo_image_key, house_designated_by, house_designated_at, created_at
 		FROM organizations
 		WHERE id = ANY($1)
 	`, ids)
@@ -77,7 +82,7 @@ func (r *Repository) OrganizationsByIDs(ctx context.Context, ids []string) ([]Or
 
 	for rows.Next() {
 		var o Organization
-		if err := rows.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.CreatedAt); err != nil {
+		if err := rows.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.HouseDesignatedBy, &o.HouseDesignatedAt, &o.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, o)
@@ -92,7 +97,7 @@ func (r *Repository) OrganizationsByIDs(ctx context.Context, ids []string) ([]Or
 // reaches it, and the gate for that lives in the middleware.
 func (r *Repository) ListAllOrganizations(ctx context.Context, limit, offset int) ([]Organization, int, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `
-		SELECT id, name, slug, currency, logo_image_key, created_at, COUNT(*) OVER() AS total
+		SELECT id, name, slug, currency, logo_image_key, house_designated_by, house_designated_at, created_at, COUNT(*) OVER() AS total
 		FROM organizations
 		ORDER BY name ASC, id ASC
 		LIMIT $1 OFFSET $2
@@ -108,10 +113,52 @@ func (r *Repository) ListAllOrganizations(ctx context.Context, limit, offset int
 	)
 	for rows.Next() {
 		var o Organization
-		if err := rows.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.CreatedAt, &total); err != nil {
+		if err := rows.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.HouseDesignatedBy, &o.HouseDesignatedAt, &o.CreatedAt, &total); err != nil {
 			return nil, 0, err
 		}
 		out = append(out, o)
 	}
 	return out, total, rows.Err()
+}
+
+// DesignateHouseOrganization stamps the House Organization designation on an
+// Organization that does not carry one, and leaves one that does exactly as it
+// is (#472, ADR 0060). The trail names the act that made it a House
+// Organization, so a second designation by a colleague — the same toggle
+// pressed while already on — rewrites nothing. Returns the Organization as it
+// now stands, nil for an unknown id.
+func (r *Repository) DesignateHouseOrganization(ctx context.Context, orgID, operator string, at time.Time) (*Organization, error) {
+	row := r.db.Pool.QueryRowContext(ctx, `
+		UPDATE organizations
+		SET house_designated_by = COALESCE(house_designated_by, $2),
+		    house_designated_at = COALESCE(house_designated_at, $3)
+		WHERE id = $1
+		RETURNING id, name, slug, currency, logo_image_key, support_whatsapp, house_designated_by, house_designated_at, created_at
+	`, orgID, operator, at)
+	return scanOrganization(row)
+}
+
+// ClearHouseDesignation takes the designation back, emptying both halves of
+// the trail together. Clearing what is already clear is not a refusal: the
+// Organization is returned as it stands either way, nil for an unknown id.
+func (r *Repository) ClearHouseDesignation(ctx context.Context, orgID string) (*Organization, error) {
+	row := r.db.Pool.QueryRowContext(ctx, `
+		UPDATE organizations
+		SET house_designated_by = NULL,
+		    house_designated_at = NULL
+		WHERE id = $1
+		RETURNING id, name, slug, currency, logo_image_key, support_whatsapp, house_designated_by, house_designated_at, created_at
+	`, orgID)
+	return scanOrganization(row)
+}
+
+func scanOrganization(row *sql.Row) (*Organization, error) {
+	var o Organization
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.HouseDesignatedBy, &o.HouseDesignatedAt, &o.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &o, nil
 }

@@ -26,6 +26,20 @@ type Service struct {
 	authority  func(invoicing.Environment) invoicing.TaxAuthority
 	pollDelays []time.Duration
 	pollBudget time.Duration
+	// kick says whether a committed Sale Invoice is worked at once in the
+	// background (#474); drainBatch narrows one drain's bound (tests).
+	kick       bool
+	drainBatch int
+	// email is the transactional sender the Drainer hands an authorized
+	// document to the buyer through (#475); storefrontBaseURL is where the
+	// Customer Area lives, for the link in that mail. A deployment that
+	// wires neither delivers nothing and says so in its log.
+	email             platform.EmailSender
+	storefrontBaseURL string
+	// saleInvoicingEnabled is the SALE_INVOICING_ENABLED flag (#471, ADR
+	// 0060). Closed, the Drainer's endpoint answers 404 and works nothing;
+	// the manual Tax Invoices, the Issuer and every read serve as before.
+	saleInvoicingEnabled bool
 }
 
 // New builds the invoicing Service. custody may be unconfigured (built over a
@@ -43,7 +57,25 @@ func New(repo *repository.Repository, custody *invoicing.Custody, logger platfor
 		authority:  sri.AuthorityFactory(),
 		pollDelays: DefaultPollDelays,
 		pollBudget: DefaultPollBudget,
+		kick:       true,
+		email:      platform.NoopEmailSender{},
 	}
+}
+
+// WithEmailSender replaces the sender the Tax Document delivery goes out
+// through: the transactional identity, never the Digest's (#475).
+func (s *Service) WithEmailSender(sender platform.EmailSender) *Service {
+	if sender != nil {
+		s.email = sender
+	}
+	return s
+}
+
+// WithStorefrontBaseURL sets the Storefront's public origin, which the
+// delivery mail's Customer Area link is built on.
+func (s *Service) WithStorefrontBaseURL(baseURL string) *Service {
+	s.storefrontBaseURL = baseURL
+	return s
 }
 
 // EcuadorIssuer is the Ecuador Issuer as the operator surface reads it: the

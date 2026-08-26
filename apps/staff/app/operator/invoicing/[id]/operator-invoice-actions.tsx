@@ -12,15 +12,23 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   toast,
 } from "@ticket-pos/ui";
 import { useMessages, useTranslations } from "next-intl";
 
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
+import { hasInvoiceLevers, invoiceLevers } from "@/lib/invoice-actions";
 import {
   type InvoiceStatus,
   type OperatorInvoiceDetail,
+  annulOperatorInvoice,
   checkOperatorInvoice,
   resendOperatorInvoice,
 } from "@/lib/operator-api";
@@ -41,6 +49,12 @@ import {
  * RECIBIDA, or after a resend the SRI met with "clave already registered"
  * (43) or "in processing" (70) — the API says so with `check_status_hint`,
  * and the card shows "it is there, check status" instead of an error.
+ *
+ * MARK ANNULLED (#477) is the third lever, offered only on a pending or
+ * needs_attention document — where the operator may have annulled it by
+ * hand at the SRI portal, which the SRI offers no web service for. It is a
+ * record, not a request: nothing goes to the SRI, and it is irreversible,
+ * so it is confirmed first. Which levers show is `invoiceLevers`' decision.
  */
 
 const OUTCOME_KEYS = {
@@ -48,7 +62,7 @@ const OUTCOME_KEYS = {
   not_authorized: "invoicingCheckedNotAuthorized",
   rejected: "invoicingCheckedRejected",
   pending: "invoicingCheckedPending",
-} as const satisfies Record<InvoiceStatus, string>;
+} as const satisfies Partial<Record<InvoiceStatus, string>>;
 
 export function OperatorInvoiceActions({
   invoice,
@@ -59,10 +73,12 @@ export function OperatorInvoiceActions({
 }) {
   const t = useTranslations("operator");
   const errorCopy = useMessages().errors;
-  const [busy, setBusy] = useState<"check" | "resend" | null>(null);
+  const [busy, setBusy] = useState<"check" | "resend" | "annul" | null>(null);
+  const [confirmingAnnulment, setConfirmingAnnulment] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (invoice.status === "authorized") {
+  const levers = invoiceLevers(invoice.status, invoice.ecuador !== null);
+  if (!hasInvoiceLevers(levers)) {
     return null;
   }
 
@@ -76,12 +92,29 @@ export function OperatorInvoiceActions({
       if (updated.status === "authorized") {
         toast.success(t(OUTCOME_KEYS.authorized));
       } else {
-        toast.info(t(OUTCOME_KEYS[updated.status]));
+        toast.info(t(OUTCOME_KEYS[updated.status as keyof typeof OUTCOME_KEYS] ?? "invoicingCheckedPending"));
       }
     } catch (actionError) {
       setError(
         (actionError instanceof ApiError ? apiErrorMessage(errorCopy, actionError) : null) ??
           t(action === "check" ? "invoicingCheckFailed" : "invoicingResendFailed"),
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function annul() {
+    setConfirmingAnnulment(false);
+    setBusy("annul");
+    setError(null);
+    try {
+      onUpdated(await annulOperatorInvoice(invoice.id));
+      toast.success(t("invoicingMarkAnnulledDone"));
+    } catch (actionError) {
+      setError(
+        (actionError instanceof ApiError ? apiErrorMessage(errorCopy, actionError) : null) ??
+          t("invoicingMarkAnnulledFailed"),
       );
     } finally {
       setBusy(null);
@@ -108,14 +141,46 @@ export function OperatorInvoiceActions({
           </Alert>
         ) : null}
         <div className="flex flex-wrap gap-2">
-          <Button type="button" disabled={busy !== null} onClick={() => void run("check")}>
-            {busy === "check" ? t("invoicingCheckingStatus") : t("invoicingCheckStatus")}
-          </Button>
-          <Button type="button" variant="outline" disabled={busy !== null} onClick={() => void run("resend")}>
-            {busy === "resend" ? t("invoicingResending") : t("invoicingResend")}
-          </Button>
+          {levers.check ? (
+            <Button type="button" disabled={busy !== null} onClick={() => void run("check")}>
+              {busy === "check" ? t("invoicingCheckingStatus") : t("invoicingCheckStatus")}
+            </Button>
+          ) : null}
+          {levers.resend ? (
+            <Button type="button" variant="outline" disabled={busy !== null} onClick={() => void run("resend")}>
+              {busy === "resend" ? t("invoicingResending") : t("invoicingResend")}
+            </Button>
+          ) : null}
+          {levers.annul ? (
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={busy !== null}
+              onClick={() => setConfirmingAnnulment(true)}
+            >
+              {busy === "annul" ? t("invoicingMarkingAnnulled") : t("invoicingMarkAnnulled")}
+            </Button>
+          ) : null}
         </div>
+        {levers.annul ? <p className="text-xs text-muted-foreground">{t("invoicingMarkAnnulledHint")}</p> : null}
       </CardContent>
+
+      <Dialog open={confirmingAnnulment} onOpenChange={setConfirmingAnnulment}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("invoicingMarkAnnulledConfirmTitle")}</DialogTitle>
+            <DialogDescription>{t("invoicingMarkAnnulledConfirm")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmingAnnulment(false)}>
+              {t("invoicingMarkAnnulledCancel")}
+            </Button>
+            <Button type="button" variant="destructive" onClick={() => void annul()}>
+              {t("invoicingMarkAnnulled")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

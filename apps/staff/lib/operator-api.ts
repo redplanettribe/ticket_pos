@@ -47,6 +47,8 @@ export type OperatorOrganizationRow = {
   events_count: number;
   /** Signed: negative after a post-settlement reversal. */
   withdrawable_balance_cents: number;
+  /** Whether the platform's own entity runs it (#472, ADR 0060). */
+  is_house_organization: boolean;
 };
 
 export type OperatorPagination = {
@@ -68,6 +70,14 @@ export type OperatorOrganization = {
   slug: string;
   currency: string;
   created_at: string;
+  /**
+   * The House Organization designation (#472, ADR 0060): whether the
+   * platform's own entity runs this Organization, and who designated it and
+   * when. The trail is null when it is not one, and never half-set.
+   */
+  is_house_organization: boolean;
+  house_designated_by: string | null;
+  house_designated_at: string | null;
 };
 
 export type OperatorEventRow = {
@@ -166,6 +176,13 @@ export type OperatorOrganizationDetail = {
   payouts: OperatorPayout[];
   /** This organization's own asks, newest first — a history, not a work queue. */
   payout_requests: OperatorPayoutRequestRow[];
+  /**
+   * The platform's SALE_INVOICING_ENABLED flag (#471, ADR 0060), not a fact
+   * about this Organization: false hides the House Organization card, whose
+   * two verbs would answer 404. Read from the API rather than a frontend
+   * environment variable so there is one copy of the answer.
+   */
+  sale_invoicing_enabled: boolean;
 };
 
 export type RecordPayoutBody = {
@@ -228,6 +245,33 @@ export async function recordOperatorPayout(
   return fetchEventsJSON<OperatorPayout>(`/api/operator/organizations/${organizationId}/payouts`, {
     method: "POST",
     body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Designates an Organization a House Organization (#472, ADR 0060). No body:
+ * the API stamps who and when from the session. Refused with
+ * HOUSE_ORGANIZATION_CURRENCY_UNSUPPORTED for an Organization trading in a
+ * currency other than USD; no Issuer state is consulted. The result is the
+ * Organization as it now stands, trail included.
+ */
+export async function designateHouseOrganization(
+  organizationId: string,
+): Promise<OperatorOrganization> {
+  return fetchEventsJSON<OperatorOrganization>(`/api/operator/organizations/${organizationId}/house`, {
+    method: "PUT",
+  });
+}
+
+/**
+ * Clears the House designation, emptying who and when together. Nothing
+ * already owed or issued is touched; clearing what is clear is not a refusal.
+ */
+export async function undesignateHouseOrganization(
+  organizationId: string,
+): Promise<OperatorOrganization> {
+  return fetchEventsJSON<OperatorOrganization>(`/api/operator/organizations/${organizationId}/house`, {
+    method: "DELETE",
   });
 }
 
@@ -594,6 +638,13 @@ export type OperatorSaleLookup = {
   sale: OperatorSaleDetail;
   organization: OperatorOrganization;
   re_addressing: OperatorSaleReAddressingBlock;
+  /**
+   * The Tax Invoices about this sale (#477, ADR 0060): the Sale Invoice a paid
+   * House checkout owed and the Credit Note its reversal owed, oldest first.
+   * Empty on every sale outside a House Organization. Each id opens the
+   * document detail under /operator/invoicing.
+   */
+  documents: OperatorInvoiceListItem[];
 };
 
 /**
@@ -1079,8 +1130,24 @@ export async function uploadOperatorEcuadorIssuerCertificate(
 
 // ---- Tax Invoices (#454, ADR 0059) ------------------------------------
 
-/** Where a Tax Invoice stands with the SRI. */
-export type InvoiceStatus = "pending" | "authorized" | "not_authorized" | "rejected";
+/**
+ * Where a Tax Invoice stands with the SRI. `owed`, `needs_attention`,
+ * `withdrawn` and `annulled` are the states of a document the platform owes
+ * itself — a Sale Invoice or a Credit Note (#473, ADR 0060); a manual Tax
+ * Invoice is born `pending` and never sees them.
+ */
+export type InvoiceStatus =
+  | "owed"
+  | "pending"
+  | "authorized"
+  | "not_authorized"
+  | "rejected"
+  | "needs_attention"
+  | "withdrawn"
+  | "annulled";
+
+/** Why a document exists: an operator typed it, a paid House checkout owed it, or such a Sale's reversal did. */
+export type InvoiceKind = "manual" | "sale" | "credit_note";
 
 /** The IVA rate on a line: the platform's words, not the SRI's codes. */
 export type InvoiceIVARate = "15" | "0" | "exento" | "no_objeto";
@@ -1113,21 +1180,32 @@ export type InvoiceRecipient = {
   email: string;
 };
 
-/** One row of the invoices list. */
+/**
+ * One row of the invoices list. The issue facts — number, environment,
+ * emission date, signer — are null until the document is signed (#473): an
+ * owed Sale Invoice has none of them yet, and a manual Tax Invoice is signed
+ * at birth and never null here.
+ */
 export type OperatorInvoiceListItem = {
   id: string;
+  kind: InvoiceKind;
   country: string;
-  environment: EcuadorIssuerEnvironment;
+  environment: EcuadorIssuerEnvironment | null;
   status: InvoiceStatus;
-  /** The printed document number, e.g. `001-001-000000012`. */
-  number: string;
-  /** Emission date, `YYYY-MM-DD` in the Issuer's country. */
-  issued_on: string;
-  issued_at: string;
-  issued_by: string;
+  /** The printed document number, e.g. `001-001-000000012`; null until signed. */
+  number: string | null;
+  /** Emission date, `YYYY-MM-DD` in the Issuer's country; null until signed. */
+  issued_on: string | null;
+  issued_at: string | null;
+  issued_by: string | null;
   recipient: InvoiceRecipient;
+  /** The Ticket Sale a Sale Invoice or Credit Note is about; null on a manual document. */
+  ticket_sale_id: string | null;
+  sale_confirmation_ref: string | null;
   total_cents: number;
   currency: string;
+  /** When the document was parked `needs_attention` (#477); null in every other state. */
+  attention_since: string | null;
 };
 
 /** One line as recorded, with its arithmetic. */
@@ -1206,17 +1284,30 @@ export type OperatorInvoiceEcuador = {
   authorization_date: string | null;
 };
 
-/** One Tax Invoice in full. */
+/** One Tax Invoice in full. `issuer` and `ecuador` are null until the document is signed (#473). */
 export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
-  issuer: OperatorInvoiceIssuerSnapshot;
+  issuer: OperatorInvoiceIssuerSnapshot | null;
   lines: OperatorInvoiceLine[];
   additional_fields: { name: string; value: string }[];
   payment_method: string;
   payment_method_label: string;
   totals: OperatorInvoiceTotals;
   messages: OperatorInvoiceMessage[];
-  ecuador: OperatorInvoiceEcuador;
+  ecuador: OperatorInvoiceEcuador | null;
   attempts: OperatorInvoiceAttempt[];
+  /** The one IVA rate a platform-priced document was priced under; null on a manual one. */
+  iva_rate: InvoiceIVARate | null;
+  /** When the authorized document was mailed to the buyer, and when the Drainer next works it. */
+  delivered_at: string | null;
+  next_attempt_at: string | null;
+  /** On a Credit Note: the Sale Invoice it credits and the reversal route that made it owed. */
+  credits_invoice_id: string | null;
+  reversal_reason: string | null;
+  /** On a Sale Invoice: the Credit Note that credits it (#476); null until one does. */
+  credited_by_invoice_id: string | null;
+  /** The operator who marked the document annulled at the SRI portal, and when (#477); null unless annulled. */
+  annulled_by: string | null;
+  annulled_at: string | null;
   has_authorization_xml: boolean;
   /**
    * True when the invoice is pending and the SRI holds the document —
@@ -1255,13 +1346,72 @@ const INVOICES_PATH = "/api/operator/invoicing/invoices";
 
 export const OPERATOR_INVOICES_PAGE_SIZE = 50;
 
-/** A page of Tax Invoices, newest first. */
-export async function fetchOperatorInvoices(page = 1): Promise<OperatorInvoiceListPage> {
+/** The list's kind filter: one kind, or every kind. */
+export type InvoiceKindFilter = InvoiceKind | "all";
+
+/** A page of Tax Invoices, newest first, narrowed to one kind unless `all` (#477). */
+export async function fetchOperatorInvoices(
+  page = 1,
+  kind: InvoiceKindFilter = "all",
+): Promise<OperatorInvoiceListPage> {
   const params = new URLSearchParams({
     page: String(page),
     page_size: String(OPERATOR_INVOICES_PAGE_SIZE),
   });
+  if (kind !== "all") {
+    params.set("kind", kind);
+  }
   return fetchEventsJSON<OperatorInvoiceListPage>(`${INVOICES_PATH}?${params.toString()}`);
+}
+
+// ---- The documents that need attention (#477, ADR 0060) ----------------
+
+/**
+ * One queued document: the list row plus the SRI's last messages verbatim —
+ * or the platform's own PLATFORM-typed message when the document could not
+ * be signed — so the queue says why without a click through.
+ */
+export type OperatorNeedsAttentionItem = OperatorInvoiceListItem & {
+  messages: OperatorInvoiceMessage[];
+};
+
+/** The queue — the ADR-0006 nested envelope, longest waiting first. */
+export type OperatorNeedsAttentionQueue = {
+  data: OperatorNeedsAttentionItem[];
+  pagination: OperatorPagination;
+};
+
+export type OperatorNeedsAttentionCount = {
+  needs_attention_count: number;
+};
+
+const NEEDS_ATTENTION_PATH = "/api/operator/invoicing/needs-attention";
+
+/** The documents parked `needs_attention`, of every kind, longest waiting first. */
+export async function fetchOperatorNeedsAttention(page = 1): Promise<OperatorNeedsAttentionQueue> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(OPERATOR_INVOICES_PAGE_SIZE),
+  });
+  return fetchEventsJSON<OperatorNeedsAttentionQueue>(`${NEEDS_ATTENTION_PATH}?${params.toString()}`);
+}
+
+/** How many documents need attention: the Operator Dashboard's count, exactly what the queue lists. */
+export async function fetchOperatorNeedsAttentionCount(): Promise<OperatorNeedsAttentionCount> {
+  return fetchEventsJSON<OperatorNeedsAttentionCount>(`${NEEDS_ATTENTION_PATH}/count`);
+}
+
+/**
+ * Records that the operator annulled the document by hand at the SRI portal
+ * (#477) and returns it as it then stands: `annulled`, with who and when.
+ * Nothing is sent to the SRI. Refused with INVOICE_NOT_ANNULLABLE outside
+ * `pending` and `needs_attention`, and with INVOICE_NOT_ISSUED on a document
+ * never signed. Irreversible.
+ */
+export async function annulOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/annul`, {
+    method: "POST",
+  });
 }
 
 /** One Tax Invoice in full. */
@@ -1289,7 +1439,9 @@ export async function previewOperatorInvoiceTotals(
 
 /**
  * Asks the SRI again about a non-authorized invoice (#455) and returns it as
- * it then stands. Refused with INVOICE_ALREADY_AUTHORIZED on an authorized one.
+ * it then stands. Refused with INVOICE_ALREADY_AUTHORIZED on an authorized
+ * one, INVOICE_ANNULLED on an annulled one, INVOICE_WITHDRAWN on a withdrawn
+ * one, and INVOICE_NOT_ISSUED on one still owed and unsigned.
  */
 export async function checkOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
   return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/check`, {
@@ -1300,7 +1452,9 @@ export async function checkOperatorInvoice(id: string): Promise<OperatorInvoiceD
 /**
  * Resends a non-authorized invoice under the same clave de acceso, re-signed
  * with the current certificate (#455), and returns it as it then stands.
- * Refused with INVOICE_ALREADY_AUTHORIZED on an authorized one.
+ * Refused with INVOICE_ALREADY_AUTHORIZED on an authorized one,
+ * INVOICE_ANNULLED on an annulled one, INVOICE_WITHDRAWN on a withdrawn one,
+ * and INVOICE_NOT_ISSUED on one still owed and unsigned.
  */
 export async function resendOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
   return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/resend`, {

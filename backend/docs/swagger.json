@@ -1277,6 +1277,7 @@
                 "type": "object"
             },
             "invoicing.IssuerSnapshot": {
+                "description": "Issuer is the Issuer as snapshotted at signing; null until signed.",
                 "properties": {
                     "agente_retencion": {
                         "type": "string"
@@ -1595,6 +1596,24 @@
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/service.DigestSubscriptionView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeCustomerDocuments": {
+                "properties": {
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.CustomerDocument"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -1995,6 +2014,34 @@
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeNeedsAttentionCount": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.NeedsAttentionCount"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeNeedsAttentionQueue": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.NeedsAttentionQueue"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeOTPRequest": {
                 "properties": {
                     "data": {
@@ -2013,6 +2060,20 @@
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/service.OperatorCustomerConsentView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeOperatorOrganization": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.Organization"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -2427,6 +2488,20 @@
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/service.ReversalDrainResult"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeSaleInvoiceDrain": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.SaleInvoiceDrainResult"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -3299,6 +3374,37 @@
                 },
                 "type": "object"
             },
+            "service.CustomerDocument": {
+                "properties": {
+                    "download_url": {
+                        "description": "DownloadURL is the API path of the signed XML once authorized, null\nbefore: the card draws the download exactly where this is set.",
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "description": "Kind is `sale` (a factura) or `credit_note`; the card names each by\nits own word.",
+                        "type": "string"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/service.CustomerDocumentStatus"
+                    }
+                },
+                "type": "object"
+            },
+            "service.CustomerDocumentStatus": {
+                "description": "Status is `authorized` or `on_its_way`, and nothing else.",
+                "enum": [
+                    "authorized",
+                    "on_its_way"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "CustomerDocumentAuthorized",
+                    "CustomerDocumentOnItsWay"
+                ]
+            },
             "service.CustomerOTPRequestResult": {
                 "properties": {
                     "message": {
@@ -3382,6 +3488,62 @@
                 },
                 "type": "object"
             },
+            "service.Document": {
+                "properties": {
+                    "attention_since": {
+                        "description": "AttentionSince is when the document was parked needs_attention — how\nlong it has been waiting for an operator (#477); null in every other\nstate.",
+                        "type": "string"
+                    },
+                    "country": {
+                        "type": "string"
+                    },
+                    "currency": {
+                        "type": "string"
+                    },
+                    "environment": {
+                        "description": "Environment is the authority environment the document was signed\nunder; null until signed.",
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "issued_at": {
+                        "type": "string"
+                    },
+                    "issued_by": {
+                        "type": "string"
+                    },
+                    "issued_on": {
+                        "description": "IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country;\nIssuedAt the instant; IssuedBy the operator (or the Drainer). All null\nuntil signed.",
+                        "type": "string"
+                    },
+                    "kind": {
+                        "description": "Kind is why the document exists: manual, sale or credit_note.",
+                        "type": "string"
+                    },
+                    "number": {
+                        "description": "Number is the document number as printed: estab-ptoEmi-secuencial,\ne.g. 001-001-000000012. Null until signed.",
+                        "type": "string"
+                    },
+                    "recipient": {
+                        "$ref": "#/components/schemas/service.RecipientView"
+                    },
+                    "sale_confirmation_ref": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
+                        "description": "TicketSaleID and SaleConfirmationRef name the Ticket Sale a sale\ndocument or credit note is about; null on a manual document.",
+                        "type": "string"
+                    },
+                    "total_cents": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "service.DrainResult": {
                 "properties": {
                     "claimed": {
@@ -3423,6 +3585,7 @@
                 "type": "object"
             },
             "service.EcuadorInvoiceView": {
+                "description": "Ecuador is the SRI's numbering and authorization; null until signed.",
                 "properties": {
                     "access_key": {
                         "type": "string"
@@ -3983,12 +4146,23 @@
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "annulled_at": {
+                        "type": "string"
+                    },
+                    "annulled_by": {
+                        "description": "AnnulledBy and AnnulledAt are the operator who marked the document\nannulled after annulling it by hand at the SRI portal, and when (#477).\nBoth null unless the document is annulled.",
+                        "type": "string"
+                    },
                     "attempts": {
                         "items": {
                             "$ref": "#/components/schemas/service.AttemptView"
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "attention_since": {
+                        "description": "AttentionSince is when the document was parked needs_attention — how\nlong it has been waiting for an operator (#477); null in every other\nstate.",
+                        "type": "string"
                     },
                     "check_status_hint": {
                         "description": "CheckStatusHint is true when the invoice is pending and the authority\nholds the document (received, in processing, or 43/70 on a resend): the\npage says \"check status\" rather than showing an error (#455).",
@@ -4000,13 +4174,24 @@
                     "created_at": {
                         "type": "string"
                     },
+                    "credited_by_invoice_id": {
+                        "description": "CreditedByInvoiceID is, on a Sale Invoice, the Credit Note that\ncredits it (#476); null on every other document and until one does.",
+                        "type": "string"
+                    },
+                    "credits_invoice_id": {
+                        "type": "string"
+                    },
                     "currency": {
+                        "type": "string"
+                    },
+                    "delivered_at": {
                         "type": "string"
                     },
                     "ecuador": {
                         "$ref": "#/components/schemas/service.EcuadorInvoiceView"
                     },
                     "environment": {
+                        "description": "Environment is the authority environment the document was signed\nunder; null until signed.",
                         "type": "string"
                     },
                     "has_authorization_xml": {
@@ -4023,11 +4208,19 @@
                         "type": "string"
                     },
                     "issued_on": {
-                        "description": "IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country.",
+                        "description": "IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country;\nIssuedAt the instant; IssuedBy the operator (or the Drainer). All null\nuntil signed.",
                         "type": "string"
                     },
                     "issuer": {
                         "$ref": "#/components/schemas/invoicing.IssuerSnapshot"
+                    },
+                    "iva_rate": {
+                        "description": "The Sale side (#473): the one IVA rate a platform-priced document was\npriced under, when its authorized document was mailed to the buyer,\nwhen the Drainer next works it, and — on a Credit Note — the Sale\nInvoice it credits and the reversal route that made it owed. All null\non a manual Tax Invoice.",
+                        "type": "string"
+                    },
+                    "kind": {
+                        "description": "Kind is why the document exists: manual, sale or credit_note.",
+                        "type": "string"
                     },
                     "lines": {
                         "items": {
@@ -4044,8 +4237,11 @@
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "next_attempt_at": {
+                        "type": "string"
+                    },
                     "number": {
-                        "description": "Number is the document number as printed: estab-ptoEmi-secuencial,\ne.g. 001-001-000000012.",
+                        "description": "Number is the document number as printed: estab-ptoEmi-secuencial,\ne.g. 001-001-000000012. Null until signed.",
                         "type": "string"
                     },
                     "payment_method": {
@@ -4057,7 +4253,17 @@
                     "recipient": {
                         "$ref": "#/components/schemas/service.RecipientView"
                     },
+                    "reversal_reason": {
+                        "type": "string"
+                    },
+                    "sale_confirmation_ref": {
+                        "type": "string"
+                    },
                     "status": {
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
+                        "description": "TicketSaleID and SaleConfirmationRef name the Ticket Sale a sale\ndocument or credit note is about; null on a manual document.",
                         "type": "string"
                     },
                     "total_cents": {
@@ -4089,6 +4295,10 @@
             },
             "service.InvoiceListItem": {
                 "properties": {
+                    "attention_since": {
+                        "description": "AttentionSince is when the document was parked needs_attention — how\nlong it has been waiting for an operator (#477); null in every other\nstate.",
+                        "type": "string"
+                    },
                     "country": {
                         "type": "string"
                     },
@@ -4096,6 +4306,7 @@
                         "type": "string"
                     },
                     "environment": {
+                        "description": "Environment is the authority environment the document was signed\nunder; null until signed.",
                         "type": "string"
                     },
                     "id": {
@@ -4108,17 +4319,28 @@
                         "type": "string"
                     },
                     "issued_on": {
-                        "description": "IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country.",
+                        "description": "IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country;\nIssuedAt the instant; IssuedBy the operator (or the Drainer). All null\nuntil signed.",
+                        "type": "string"
+                    },
+                    "kind": {
+                        "description": "Kind is why the document exists: manual, sale or credit_note.",
                         "type": "string"
                     },
                     "number": {
-                        "description": "Number is the document number as printed: estab-ptoEmi-secuencial,\ne.g. 001-001-000000012.",
+                        "description": "Number is the document number as printed: estab-ptoEmi-secuencial,\ne.g. 001-001-000000012. Null until signed.",
                         "type": "string"
                     },
                     "recipient": {
                         "$ref": "#/components/schemas/service.RecipientView"
                     },
+                    "sale_confirmation_ref": {
+                        "type": "string"
+                    },
                     "status": {
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
+                        "description": "TicketSaleID and SaleConfirmationRef name the Ticket Sale a sale\ndocument or credit note is about; null on a manual document.",
                         "type": "string"
                     },
                     "total_cents": {
@@ -4196,6 +4418,92 @@
                     },
                     "role": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.NeedsAttentionCount": {
+                "properties": {
+                    "needs_attention_count": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.NeedsAttentionItem": {
+                "properties": {
+                    "attention_since": {
+                        "description": "AttentionSince is when the document was parked needs_attention — how\nlong it has been waiting for an operator (#477); null in every other\nstate.",
+                        "type": "string"
+                    },
+                    "country": {
+                        "type": "string"
+                    },
+                    "currency": {
+                        "type": "string"
+                    },
+                    "environment": {
+                        "description": "Environment is the authority environment the document was signed\nunder; null until signed.",
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "issued_at": {
+                        "type": "string"
+                    },
+                    "issued_by": {
+                        "type": "string"
+                    },
+                    "issued_on": {
+                        "description": "IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country;\nIssuedAt the instant; IssuedBy the operator (or the Drainer). All null\nuntil signed.",
+                        "type": "string"
+                    },
+                    "kind": {
+                        "description": "Kind is why the document exists: manual, sale or credit_note.",
+                        "type": "string"
+                    },
+                    "messages": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.AuthorityMessageView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "number": {
+                        "description": "Number is the document number as printed: estab-ptoEmi-secuencial,\ne.g. 001-001-000000012. Null until signed.",
+                        "type": "string"
+                    },
+                    "recipient": {
+                        "$ref": "#/components/schemas/service.RecipientView"
+                    },
+                    "sale_confirmation_ref": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
+                        "description": "TicketSaleID and SaleConfirmationRef name the Ticket Sale a sale\ndocument or credit note is about; null on a manual document.",
+                        "type": "string"
+                    },
+                    "total_cents": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.NeedsAttentionQueue": {
+                "properties": {
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.NeedsAttentionItem"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "pagination": {
+                        "$ref": "#/components/schemas/service.InvoicePagination"
                     }
                 },
                 "type": "object"
@@ -4585,8 +4893,18 @@
                     "currency": {
                         "type": "string"
                     },
+                    "house_designated_at": {
+                        "type": "string"
+                    },
+                    "house_designated_by": {
+                        "type": "string"
+                    },
                     "id": {
                         "type": "string"
+                    },
+                    "is_house_organization": {
+                        "description": "The House Organization designation (#472, ADR 0060): whether the\nplatform's own entity runs this Organization, and the trail of the act\n— which operator designated it and when. Both trail fields are null\nwhen it is not one; they are never set without the other.",
+                        "type": "boolean"
                     },
                     "name": {
                         "type": "string"
@@ -4628,6 +4946,10 @@
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "sale_invoicing_enabled": {
+                        "description": "SaleInvoicingEnabled is the platform's SALE_INVOICING_ENABLED flag\n(#471, ADR 0060), not a property of this Organization — it rides here\nthe way the Event payload carries the Ticket Question flag: the staff\napp decides from it whether to show the House Organization card at all,\nand a frontend environment variable would be a second copy of the\nanswer, free to disagree with the one that matters.",
+                        "type": "boolean"
+                    },
                     "withdrawable_balance_cents": {
                         "type": "integer"
                     }
@@ -4660,6 +4982,10 @@
                     },
                     "id": {
                         "type": "string"
+                    },
+                    "is_house_organization": {
+                        "description": "IsHouseOrganization says whether the platform's own entity runs this\nOrganization (#472, ADR 0060). The flag alone: the trail is on the detail.",
+                        "type": "boolean"
                     },
                     "name": {
                         "type": "string"
@@ -5861,6 +6187,44 @@
                 },
                 "type": "object"
             },
+            "service.SaleInvoiceDrainResult": {
+                "properties": {
+                    "authorized": {
+                        "description": "Authorized, Pending and NeedsAttention are where those documents\nended: authorized this run; still undecided and due again on the\nladder; parked for an operator (refused, unsignable, or 24 h without an\nanswer). With Failed they sum to Claimed.",
+                        "type": "integer"
+                    },
+                    "claimed": {
+                        "description": "Claimed is how many documents this run took up. Zero is the ordinary\nanswer: nothing was due.",
+                        "type": "integer"
+                    },
+                    "delivered": {
+                        "description": "Delivered is how many authorized documents this run mailed to their\nbuyers (#475). Each is counted under Authorized as well; an authorized\ndocument the sender refused is not counted here and is due again.",
+                        "type": "integer"
+                    },
+                    "failed": {
+                        "description": "Failed is documents whose round errored on the database itself. Each\nlogged its own line; the claim lease returns them to the queue. With\nAuthorized, Pending, NeedsAttention and Withdrawn it sums to Claimed.",
+                        "type": "integer"
+                    },
+                    "needs_attention": {
+                        "type": "integer"
+                    },
+                    "pending": {
+                        "type": "integer"
+                    },
+                    "standing": {
+                        "additionalProperties": {
+                            "type": "integer"
+                        },
+                        "description": "Standing is how many Sale Invoices sit in each state once this run\nfinished, so two curls apart say whether a backlog is shrinking.",
+                        "type": "object"
+                    },
+                    "withdrawn": {
+                        "description": "Withdrawn is how many documents this run found dead under it: Credit\nNotes it withdrew because the factura they would have credited died\n(#476), and documents a reversal withdrew or an operator marked\nannulled while the round was working them. Counted beside the three\nabove rather than under any of them.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "service.SaleLine": {
                 "properties": {
                     "quantity": {
@@ -5878,6 +6242,14 @@
             },
             "service.SaleLookup": {
                 "properties": {
+                    "documents": {
+                        "description": "Documents are the Tax Invoices about this Sale (#477, ADR 0060): the\nSale Invoice a paid House checkout owed and the Credit Note its\nreversal owed, oldest first, each with its kind, state and number, and\nits id as the link to the document detail. Empty — never null — on a\nSale that owes nothing, which is every Sale outside a House Organization.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.Document"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "organization": {
                         "$ref": "#/components/schemas/service.Organization"
                     },
@@ -8694,6 +9066,119 @@
                 ]
             }
         },
+        "/api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents": {
+            "get": {
+                "description": "The Customer Area's read of a Sale's documents (ADR 0060): every Sale Invoice and Credit Note the Sale owes or was issued, each with its `kind` (`sale` for a factura, `credit_note`), a `status` in the platform's own words — `authorized`, or `on_its_way` for a document still owed, pending at the SRI or parked for an operator — and `download_url`, the path of the signed XML once authorized and null before. Nothing the SRI said ever travels here. An empty list for a Sale that owes no document (a free, imported or non-House sale), for a Sale that is not this Customer's, and for any Sale but the one a Confirmation Link session names: not yours and not there are one answer. Requires a Customer Session; a Confirmation Link session is enough.",
+                "parameters": [
+                    {
+                        "description": "Ticket Sale id",
+                        "in": "path",
+                        "name": "ticketSaleId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerDocuments"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List the Tax Documents of one of the Customer's Ticket Sales",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
+        "/api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents/{id}/xml": {
+            "get": {
+                "description": "The buyer's download (ADR 0060): the factura or nota de crédito exactly as it was signed and authorized, as `application/xml` with `Content-Disposition: attachment; filename=\"\u003cclave de acceso\u003e.xml\"` — the same bytes the operator route serves. Gated on the Sale: the Customer Session must own the Ticket Sale in the path, or be a Confirmation Link session naming it. Any other Customer, any other Sale, a document that is not this Sale's, and a document not yet authorized all answer INVOICE_NOT_FOUND (404), one refusal for every case so that ids cannot be probed. No session at all is 401.",
+                "parameters": [
+                    {
+                        "description": "Ticket Sale id",
+                        "in": "path",
+                        "name": "ticketSaleId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Tax Document id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/xml": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/xml": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/xml": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Download the signed XML of one of the Customer's Tax Documents",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
         "/api/v1/customer/ticket-sales/{ticketSaleId}/tickets": {
             "get": {
                 "description": "Returns every Ticket of one of the signed-in Customer's own Ticket Sales — its position, its Ticket Type and its Ticket Assignment state (unassigned, assigned, accepted) with the address the buyer gave it. It carries NO Ticket Questions, Answers, outstanding counts or Answer Links for any Ticket (ADR 0049): an Answer is given only by a Ticket's Holder, and the buyer reads and answers the one Ticket they hold through `/api/v1/customer/held-tickets`. This is the page behind the Confirmation Link and the Customer Area, which are one surface: a Confirmation Link session is narrowed to the single Ticket Sale it names and sees only that one. Authorization is the Customer Session and nothing else — the Ticket Sale id in the path names which of the caller's OWN sales, and a sale belonging to somebody else returns an empty list rather than a refusal, so that ids cannot be probed. A reversed sale's Tickets are still listed. Answers 404 while the Ticket Question feature flag is off.",
@@ -9155,6 +9640,37 @@
                 ]
             }
         },
+        "/api/v1/internal/sale-invoices/drain": {
+            "post": {
+                "description": "Runs the Sale Invoice Drainer (ADR 0060): claims the Sale Invoices due for work one at a time under a `next_attempt_at` lease, signs each `owed` one from its stored snapshot — consuming a secuencial only then, under the Issuer's current environment, with `fechaEmision` the signing date in America/Guayaquil — submits it to the SRI and polls autorización; polls a `pending` one the SRI already holds without resubmitting it; resends only a document the SRI never acknowledged. Transport failures and RECIBIDA / EN PROCESAMIENTO reschedule on the ladder 1 min, 5 min, 15 min, then hourly from the signing instant. A definite refusal parks the document `needs_attention` with the SRI's messages; 24 hours without a definite answer parks it `needs_attention` while polling continues, and a late AUTORIZADO heals it. A document that cannot be signed — no Issuer, no certificate, an expired certificate, an Issuer the schema refuses — is parked `needs_attention` at once with no number consumed and retried hourly. Every SRI call is an attempts row. Bounded by its own budget, which expires before Cloud Scheduler's attempt deadline. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token (ADR 0008). Safe to call by hand at any time; a no-op on an empty queue. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE and signs nothing. The response tallies what the run did and how many Sale Invoices stand in each state afterwards.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeSaleInvoiceDrain"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Work the owed Sale Invoices",
+                "tags": [
+                    "internal"
+                ]
+            }
+        },
         "/api/v1/operator/customers/{email}/consent": {
             "get": {
                 "description": "Returns the Customer at an email address and their CURRENT consent state, across every Organization on the platform — Customer identity is global and separate from staff (ADR 0010), so a Customer's consents are the platform's relationship with them and no Organization may inspect them. The payload identifies the person before anybody acts on their behalf (id, email, name) and reports what a withdrawal would actually change: marketing_consent and networking_consent as granted, denied or pending_confirmation, and NULL where the Customer has never been asked — null is UNANSWERED and is a different fact from denied, published as the different fact it is so that nobody is shown a refusal they never made. pending_confirmation is a tick from somebody who never proved the address: standing against it, denied for sending, never expiring. policy_accepted_at is when they last accepted a Policy Version, null if never; it is shown and is NOT actionable, because Policy Acceptance is not withdrawable — it is absent from the withdrawal form, it gates the platform on a basis other than consent, and clearing it would re-gate the person rather than free them. withdrew is null here: a lookup takes nothing away. The address is matched on its normalised form, so case does not matter. READING WRITES NOTHING — no consent is captured and no Consent Record appears, because a lookup that recorded something would put an act in the evidence log that nobody performed. An address no Customer holds is 404 CUSTOMER_NOT_FOUND: an Operator is entitled to know, and that candour is bought by the door rather than granted by the answer — every caller the operator allowlist has not admitted is refused identically for an address that exists and one that does not. Platform Operator only.",
@@ -9388,8 +9904,16 @@
         },
         "/api/v1/operator/invoicing/invoices": {
             "get": {
-                "description": "Returns a page of every Tax Invoice the platform has issued, newest first: the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such). Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.",
+                "description": "Returns a page of every Tax Invoice the platform has issued or owes, newest first: the document `kind` (`manual` from the form; `sale` for a Sale Invoice a paid House checkout owed; `credit_note` for its reversal), the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such), and — on a `sale` or `credit_note` — the Ticket Sale id and its Sale Confirmation reference. A document still `owed` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. `attention_since` is when a `needs_attention` document was parked, null otherwise. `kind` narrows the page to one document kind; a value that is not `manual`, `sale` or `credit_note` is refused under VALIDATION_FAILED. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.",
                 "parameters": [
+                    {
+                        "description": "Document kind: manual, sale or credit_note (default every kind)",
+                        "in": "query",
+                        "name": "kind",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
                     {
                         "description": "Page number (default 1)",
                         "in": "query",
@@ -9417,6 +9941,16 @@
                             }
                         },
                         "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
                     },
                     "401": {
                         "content": {
@@ -9632,7 +10166,7 @@
         },
         "/api/v1/operator/invoicing/invoices/{id}": {
             "get": {
-                "description": "Returns one Tax Invoice in full: Recipient, the Issuer as snapshotted at issue time, lines with their arithmetic, totals, status, the SRI's last messages verbatim (identifier, message, additional information, type), the clave de acceso and — once authorized — the authorization number and date, and the attempts ledger with one row per SRI call (operation, outcome, messages, duration). INVOICE_NOT_FOUND (404) otherwise. Platform Operator only.",
+                "description": "Returns one Tax Invoice in full: its kind, Recipient, the Issuer as snapshotted at issue time, lines with their arithmetic, totals, status, the SRI's last messages verbatim (identifier, message, additional information, type), the clave de acceso and — once authorized — the authorization number and date, and the attempts ledger with one row per SRI call (operation, outcome, messages, duration). A `sale` or `credit_note` document also carries its Ticket Sale id and Sale Confirmation reference, the IVA rate it was priced under, when it was delivered to the buyer and when the Drainer next works it; a `credit_note` names the Sale Invoice it credits and the reversal route. On a document still `owed` the `issuer` and `ecuador` objects and every issue fact are null. INVOICE_NOT_FOUND (404) otherwise. Platform Operator only.",
                 "parameters": [
                     {
                         "description": "Tax Invoice id",
@@ -9692,6 +10226,83 @@
                     }
                 ],
                 "summary": "Get a Tax Invoice",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/invoices/{id}/annul": {
+            "post": {
+                "description": "Records that the Platform Operator annulled the document by hand at the SRI portal — the SRI offers no web service for annulment (ADR 0060) — and answers with the document as it then stands: status `annulled`, `annulled_by` the operator's email from the session and `annulled_at` the moment. Nothing is sent to or asked of the SRI. The row keeps its number, clave de acceso, signed XML and the SRI's last messages; `next_attempt_at` is cleared so the Sale Invoice Drainer never claims it again, and it leaves the needs-attention queue. Allowed only from `pending` or `needs_attention` — the states in which the operator may have acted at the portal — and irreversible: INVOICE_NOT_ANNULLABLE (409) on an authorized, withdrawn or already annulled document, INVOICE_NOT_ISSUED (409) on one still owed or parked unsigned (nothing exists at the SRI to have been annulled), INVOICE_NOT_FOUND (404) otherwise. Afterwards Check status and Resend answer INVOICE_ANNULLED. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Document id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeInvoiceDetail"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Mark a document annulled",
                 "tags": [
                     "operator"
                 ]
@@ -9766,7 +10377,7 @@
         },
         "/api/v1/operator/invoicing/invoices/{id}/check": {
             "post": {
-                "description": "Asks the SRI's autorización service again about a Tax Invoice that is `pending`, `rejected` or `not_authorized`, and updates it from the answer: `AUTORIZADO` stores the authorization number, date and XML; `NO AUTORIZADO` stores the SRI's messages; an answer that decides nothing (still in processing, or nothing known under the clave) leaves the status as it was. Nothing is sent. Exactly one attempts row is written. INVOICE_ALREADY_AUTHORIZED (409) on an authorized invoice; INVOICE_NOT_FOUND (404) otherwise. Returns the invoice as it then stands, with `check_status_hint` true when it is pending and the SRI holds it. Platform Operator only.",
+                "description": "Asks the SRI's autorización service again about a Tax Invoice that is `pending`, `rejected` or `not_authorized`, and updates it from the answer: `AUTORIZADO` stores the authorization number, date and XML; `NO AUTORIZADO` stores the SRI's messages; an answer that decides nothing (still in processing, or nothing known under the clave) leaves the status as it was. Nothing is sent. Exactly one attempts row is written. INVOICE_ALREADY_AUTHORIZED (409) on an authorized invoice; INVOICE_ANNULLED (409) on one marked annulled; INVOICE_WITHDRAWN (409) on a withdrawn Sale Invoice or Credit Note, which was never sent; INVOICE_NOT_ISSUED (409) on one still owed and unsigned; INVOICE_NOT_FOUND (404) otherwise. Returns the invoice as it then stands, with `check_status_hint` true when it is pending and the SRI holds it. A Sale Invoice or Credit Note this check finds authorized is made due for the Sale Invoice Drainer to deliver. Platform Operator only.",
                 "parameters": [
                     {
                         "description": "Tax Invoice id",
@@ -9843,7 +10454,7 @@
         },
         "/api/v1/operator/invoicing/invoices/{id}/resend": {
             "post": {
-                "description": "Rebuilds the factura of a `pending`, `rejected` or `not_authorized` Tax Invoice from its recorded Recipient, lines and fields — with the Issuer's editable details as they now stand, under the SAME clave de acceso and secuencial — re-signs it with the certificate now in custody, submits it to recepción and polls autorización as an issue does. The signed XML on file is replaced by the re-signed bytes only when the SRI answered `RECIBIDA`, so the artifact the platform holds is always the one the SRI holds. SRI errors 43 (clave already registered) and 70 (in processing) mean the SRI has it: the invoice is `pending` with `check_status_hint` true and the messages kept, never an error. One attempts row per SRI call. INVOICE_ALREADY_AUTHORIZED (409) on an authorized invoice; INVOICE_NOT_FOUND (404); ISSUER_NOT_FOUND (404), CERTIFICATE_NOT_UPLOADED (409), CERTIFICATE_KEY_NOT_CONFIGURED (503) and ISSUER_INCOMPLETE (409) before anything is sent. Returns the invoice as it then stands. Platform Operator only.",
+                "description": "Rebuilds the factura of a `pending`, `rejected` or `not_authorized` Tax Invoice from its recorded Recipient, lines and fields — with the Issuer's editable details as they now stand, under the SAME clave de acceso and secuencial — re-signs it with the certificate now in custody, submits it to recepción and polls autorización as an issue does. The signed XML on file is replaced by the re-signed bytes only when the SRI answered `RECIBIDA`, so the artifact the platform holds is always the one the SRI holds. SRI errors 43 (clave already registered) and 70 (in processing) mean the SRI has it: the invoice is `pending` with `check_status_hint` true and the messages kept, never an error. One attempts row per SRI call. INVOICE_ALREADY_AUTHORIZED (409) on an authorized invoice; INVOICE_ANNULLED (409) on one marked annulled; INVOICE_WITHDRAWN (409) on a withdrawn Sale Invoice or Credit Note; INVOICE_NOT_ISSUED (409) on one still owed and unsigned; INVOICE_NOT_FOUND (404); ISSUER_NOT_FOUND (404), CERTIFICATE_NOT_UPLOADED (409), CERTIFICATE_KEY_NOT_CONFIGURED (503) and ISSUER_INCOMPLETE (409) before anything is sent. Returns the invoice as it then stands. A Sale Invoice or Credit Note the resend gets authorized is delivered by the Sale Invoice Drainer on its next round. Platform Operator only.",
                 "parameters": [
                     {
                         "description": "Tax Invoice id",
@@ -10216,6 +10827,116 @@
                 ]
             }
         },
+        "/api/v1/operator/invoicing/needs-attention": {
+            "get": {
+                "description": "Returns a page of every document parked `needs_attention` (ADR 0060) — a Sale Invoice or Credit Note the SRI refused, one unanswered for 24 hours and still polled, or one that could not be signed — LONGEST WAITING FIRST by `attention_since`, the instant each was parked. Every row is the invoicing list row (kind, number when signed, Sale Confirmation reference, Recipient, total, status) plus `messages`: the SRI's last messages verbatim, or the platform's own PLATFORM-typed message saying why the document could not be signed. Each row opens the document detail by its id. An empty page is the ordinary answer. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Page number (default 1)",
+                        "in": "query",
+                        "name": "page",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Page size (default 50, max 100)",
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeNeedsAttentionQueue"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List the documents that need attention",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/needs-attention/count": {
+            "get": {
+                "description": "Returns needs_attention_count: how many documents are parked `needs_attention` across every kind — the badge the Operator Dashboard shows so that a stuck document is never silent (ADR 0060). It counts exactly what the queue lists, so the two can never disagree. Zero is an ordinary answer. Read-only. Platform Operator only.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeNeedsAttentionCount"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Count the documents that need attention",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
         "/api/v1/operator/organizations": {
             "get": {
                 "description": "Returns a page of every Organization on the platform — name, slug, currency, Event count across all statuses, and withdrawable_balance_cents, which is SIGNED (negative when the Organization owes the platform after a sale was reversed post-settlement). Sorted by name ascending with an id tiebreaker so equal names keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100) and page floors at 1. Platform Operator only.",
@@ -10282,7 +11003,7 @@
         },
         "/api/v1/operator/organizations/{orgID}": {
             "get": {
-                "description": "Returns the operator's drill-down into one Organization: the Organization itself, its signed Withdrawable Balance, its signed Payable Balance — the same arithmetic counting only sales recorded before today in America/Guayaquil with no Reversal Request still open (ADR 0026), never larger than the Withdrawable Balance and negative when a settlement got ahead of what had cleared — its Events in every status (soonest-last, unscheduled Events last), and its full payout history newest first with the recording operator's email, null for Payouts entered directly in the database before the Operator Dashboard existed. Both balances are shown to the operator and neither gates recording a Payout, which stays unconditional (ADR 0015). Platform Operator only.",
+                "description": "Returns the operator's drill-down into one Organization: the Organization itself, its signed Withdrawable Balance, its signed Payable Balance — the same arithmetic counting only sales recorded before today in America/Guayaquil with no Reversal Request still open (ADR 0026), never larger than the Withdrawable Balance and negative when a settlement got ahead of what had cleared — its Events in every status (soonest-last, unscheduled Events last), and its full payout history newest first with the recording operator's email, null for Payouts entered directly in the database before the Operator Dashboard existed. Both balances are shown to the operator and neither gates recording a Payout, which stays unconditional (ADR 0015). Carries sale_invoicing_enabled, the platform's SALE_INVOICING_ENABLED flag rather than a fact about this Organization, so the staff app knows whether to offer the House Organization designation at all. Platform Operator only.",
                 "parameters": [
                     {
                         "description": "Organization ID",
@@ -10342,6 +11063,148 @@
                     }
                 ],
                 "summary": "Get one Organization's Events and payout history",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/organizations/{orgID}/house": {
+            "delete": {
+                "description": "Takes the House Organization designation back (ADR 0060), emptying house_designated_by and house_designated_at together, and returns the Organization as it now stands. From then on the Organization's sales are its own again and owe nothing; nothing already owed or issued is touched — a mistaken or ended arrangement stops producing Sale Invoices, and undesignation affects future sales only. Clearing an Organization that was never designated is an ordinary 200 rather than a refusal: the state asked for is the state reached. No body. An unknown or malformed id is 404 ORGANIZATION_NOT_FOUND. Behind SALE_INVOICING_ENABLED like the designation: closed, this answers 404 SALE_INVOICING_UNAVAILABLE. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "in": "path",
+                        "name": "orgID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorOrganization"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Clear an Organization's House designation",
+                "tags": [
+                    "operator"
+                ]
+            },
+            "put": {
+                "description": "Marks the Organization as one the platform's own legal entity runs (ADR 0060): from then on every paid Online Sale of one of its Events is the platform's own sale for tax purposes and will owe a Sale Invoice from the platform's Issuer to the buyer. The designation is stamped with the designating operator's email (taken from the Staff Session, never from a body — there is none) and the server's clock, and the response is the Organization as it now stands with house_designated_by and house_designated_at filled. REFUSED with 409 HOUSE_ORGANIZATION_CURRENCY_UNSUPPORTED, naming the currency in the message and in details.currency, when the Organization trades in a currency the Issuer does not invoice in (USD is the only one): no document could ever be built for its sales. NOT refused for a missing Issuer, an Issuer in the test environment or an expired certificate — none of that is consulted; the platform's compliance is the operator's to see and fix, never the buyer's to wait for. Designating an Organization that is already designated changes nothing and answers 200 with the original trail: the trail names the act that made it a House Organization. Designation affects future sales only, nothing is issued retroactively, and nothing is invoiced by this endpoint. An unknown or malformed id is 404 ORGANIZATION_NOT_FOUND. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE before anything is read. Platform Operator only — an Org Admin has no surface for this anywhere.",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "in": "path",
+                        "name": "orgID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorOrganization"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Designate an Organization a House Organization",
                 "tags": [
                     "operator"
                 ]

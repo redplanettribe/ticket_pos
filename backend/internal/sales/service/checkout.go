@@ -864,6 +864,10 @@ func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.Chec
 		ConfirmationRef: ref,
 		Terms:           s.commitTerms(now),
 		CaptureConsent:  s.captureCheckoutConsent,
+		// Handed over even though a free claim never owes: the spine decides
+		// what qualifies, and a settlement that omitted the seam would be a
+		// settlement that could be paid one day and forgotten.
+		OweSaleInvoice: s.oweSaleInvoice(),
 	})
 	if err != nil {
 		// Nothing was collected, so there is no incident here — only a checkout
@@ -896,6 +900,7 @@ func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.Chec
 	}
 
 	s.sendSaleConfirmation(ctx, event.OrganizationID, event.ID, approved.Sale)
+	s.kickSaleInvoiceDrainer(ctx, approved.Sale)
 
 	return &BeginCheckoutResult{
 		ClientTransactionID: clientTransactionID,
@@ -960,7 +965,12 @@ func (s *Service) sendSaleConfirmation(ctx context.Context, organizationID, even
 		// nothing by the time this runs, and gets the receipt they always got.
 		HasOutstandingAnswers: s.hasOutstandingAnswers(ctx, sale.ID),
 		TaxID:                 sale.CustomerTaxID,
-		Locale:                s.mailLocale(ctx, sale.ID, sale.Locale, sale.CustomerEmail),
+		// Echoed off the commit rather than re-derived: the receipt promises a
+		// factura exactly when the transaction that recorded this sale owed
+		// one (#473), and a re-read of the designation here could disagree
+		// with what that transaction saw.
+		SaleInvoiceFollows: sale.SaleInvoiceOwed,
+		Locale:             s.mailLocale(ctx, sale.ID, sale.Locale, sale.CustomerEmail),
 	})
 }
 
@@ -1074,6 +1084,7 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 		ConfirmationRef:       ref,
 		Terms:                 s.commitTerms(s.now()),
 		CaptureConsent:        s.captureCheckoutConsent,
+		OweSaleInvoice:        s.oweSaleInvoice(),
 	})
 	if err != nil {
 		// The provider has the money and the sale could not be recorded — the one
@@ -1101,6 +1112,7 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 	}
 
 	s.sendSaleConfirmation(ctx, payment.OrganizationID, payment.EventID, approved.Sale)
+	s.kickSaleInvoiceDrainer(ctx, approved.Sale)
 
 	return &ConfirmCheckoutResult{
 		ClientTransactionID: clientTransactionID,

@@ -451,6 +451,15 @@ func startPayPhoneEnv(ctx context.Context, connStr string, email *platform.Captu
 			StoreID:  payphoneTestStoreID,
 			BaseURL:  payphoneStub.server.URL,
 		},
+		// A paid House checkout made here kicks the Sale Invoice Drainer
+		// (#474), which signs with the certificate the suite keeps under the
+		// shared key and talks to the fake SRI — never the real one.
+		InvoicingCertificateKey: sharedInvoicingKey(),
+		SRIBaseURL:              sriStub.server.URL,
+		// Sale Invoicing OPEN, which is not how it ships (#471, ADR 0060): the
+		// suite proves the feature, and the one test of the closed flag boots
+		// its own app without this line.
+		SaleInvoicingEnabled: true,
 	}
 
 	app, err := server.NewApp(ctx, cfg,
@@ -461,6 +470,7 @@ func startPayPhoneEnv(ctx context.Context, connStr string, email *platform.Captu
 	if err != nil {
 		return fmt.Errorf("new payphone app: %w", err)
 	}
+	app.InvoicingService.WithPollSchedule(testPollDelays, testPollBudget).WithSaleInvoiceKick(false)
 	payphoneApp = app
 
 	mux := http.NewServeMux()

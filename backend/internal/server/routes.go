@@ -58,6 +58,12 @@ func registerInternalRoutes(mux *http.ServeMux, app *App) {
 	// same reversal primitive and the same per-sale lock.
 	mux.HandleFunc("POST /api/v1/internal/reversals/drain", app.SalesHandler.DrainReversalRequests)
 
+	// The Sale Invoice Drainer's tick (#474, ADR 0060): signs, submits and
+	// polls the Sale Invoices a paid House checkout owed, on the reconciler's
+	// terms — a scheduler ticks it, an operator can curl it, and the
+	// post-commit kick runs the same round for one Sale in the background.
+	mux.HandleFunc("POST /api/v1/internal/sale-invoices/drain", app.InvoicingHandler.DrainSaleInvoices)
+
 	// The weekly Follow Digest, in two halves (#220, ADR 0030). The split is
 	// deliberate and is not an implementation detail leaking into the API: the
 	// mail provider will not take a whole platform's Digests inside one request
@@ -167,6 +173,14 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// Recording a Payout, which used to mean an INSERT typed by hand into the
 	// production database (ADR 0015).
 	mux.Handle("POST /api/v1/operator/organizations/{orgID}/payouts", operator(http.HandlerFunc(h.RecordPayout)))
+	// The House Organization designation (#472, ADR 0060): PUT makes the
+	// Organization one the platform's own entity runs, DELETE takes it back.
+	// A noun and two verbs rather than a body with a boolean, because the
+	// designation is a fact the operator asserts or withdraws, not a setting
+	// they edit — and it is the operator's alone; no Organization-scoped
+	// route offers it.
+	mux.Handle("PUT /api/v1/operator/organizations/{orgID}/house", operator(http.HandlerFunc(h.DesignateHouseOrganization)))
+	mux.Handle("DELETE /api/v1/operator/organizations/{orgID}/house", operator(http.HandlerFunc(h.UndesignateHouseOrganization)))
 	// Who is waiting to be paid: the second cross-Organization view on this
 	// surface, and not nested under an Organization for the same reason the sale
 	// lookup is not — the request is the reason to open the dashboard, and which
@@ -267,6 +281,15 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// authority again, or send the same document under the same clave.
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/check", operator(http.HandlerFunc(inv.CheckInvoice)))
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/resend", operator(http.HandlerFunc(inv.ResendInvoice)))
+	// Mark annulled (#477): the operator's record of a manual portal act,
+	// allowed from pending or needs_attention, irreversible.
+	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/annul", operator(http.HandlerFunc(inv.AnnulInvoice)))
+	// The documents that need an operator (#477): the Operator Dashboard's
+	// queue, longest waiting first, and its count. Read-only, on the
+	// invoicing module because the documents are its own; the dashboard's
+	// other queues live on the operator module because it composes theirs.
+	mux.Handle("GET /api/v1/operator/invoicing/needs-attention", operator(http.HandlerFunc(inv.ListNeedsAttention)))
+	mux.Handle("GET /api/v1/operator/invoicing/needs-attention/count", operator(http.HandlerFunc(inv.CountNeedsAttention)))
 	// The documents handed over (#456): the signed XML in every status, the
 	// SRI's authorization XML only once authorized. Files, not envelopes.
 	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/xml", operator(http.HandlerFunc(inv.DownloadSignedXML)))
@@ -416,6 +439,18 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// asking about any other Ticket Sale is answered as if it did not exist.
 	mux.Handle("GET /api/v1/customer/ticket-sales/{ticketSaleId}/tickets",
 		signedIn(http.HandlerFunc(app.CatalogHandler.ListBuyerTicketAnswers)))
+	// The Sale's Tax Documents and their download (#475, ADR 0060). Served by
+	// the INVOICING handler under this namespace, as the undo is served by
+	// the sales one: the credential is a Customer Session, the document is
+	// the invoicing module's. Behind the same gate and not one more — a
+	// Confirmation Link session is the buyer of the one Sale it names, and
+	// a forwarded receipt is exactly where "where is my factura" is asked
+	// from. The service narrows it to that Sale; another Customer's Sale
+	// lists nothing and downloads INVOICE_NOT_FOUND, never a different word.
+	mux.Handle("GET /api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents",
+		signedIn(http.HandlerFunc(app.InvoicingHandler.ListCustomerSaleDocuments)))
+	mux.Handle("GET /api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents/{id}/xml",
+		signedIn(http.HandlerFunc(app.InvoicingHandler.DownloadCustomerSaleDocumentXML)))
 	// The Tickets the Customer HOLDS, and the one write on them (#343, ADR
 	// 0049): the buyer's Self-held Ticket and every Ticket they accepted by
 	// Assignment Link, through one route, keyed on the holder customer id of

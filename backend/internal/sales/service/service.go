@@ -254,6 +254,48 @@ type StaffLocales interface {
 	StaffLocale(ctx context.Context, email string) (string, error)
 }
 
+// SaleInvoicer is what sales owes the invoicing module when it records a
+// paid online sale of a House Organization: the fact, inside the
+// transaction, so the Sale Invoice is owed in the same breath as the sale
+// (#473, parent #471, ADR 0060).
+//
+// ONE DIRECTION, TWO FACTS. Sales knows nothing about facturas, Issuers,
+// sequence numbers or the SRI; it states what it just sold — the buyer as
+// transacted, the lines as paid, the Sale's reference — or what it just
+// reversed (#476), and the invoicing module decides what document that
+// makes owed, withdrawn or waited on. It is the ConsentCapturer's
+// shape (a write offered inside the sale's own transaction) with the
+// DisplacedHolderNotifier's failure rule reversed: this write MAY refuse the
+// sale, because ADR 0060's invariant is that nothing can be sold and
+// forgotten, and at that point nothing has been charged that a rollback
+// would strand.
+//
+// OPTIONAL, like the reminder sources. A deployment that never wires it
+// records every sale exactly as before and owes nothing — the correct
+// behaviour for a build without an invoicing module, and the safe behaviour
+// if somebody forgets: no document is owed by accident, and no buyer is
+// promised one. Whether a given sale QUALIFIES (paid, online, House at that
+// moment) is decided on this side, in the transaction; the far side is only
+// ever told about sales that do.
+type SaleInvoicer interface {
+	// OwePaidOnlineSale writes the Sale Invoice the sale owes, in tx. Its
+	// error fails the commit.
+	OwePaidOnlineSale(ctx context.Context, tx *sql.Tx, sale sales.PaidOnlineSale) error
+	// KickSaleInvoiceDrainer is told, once the transaction that owed a
+	// document has committed, that the Sale's documents may be worked now
+	// (#474). Fire-and-forget on the far side: it returns at once, and
+	// nothing about the checkout waits on it or can fail because of it.
+	KickSaleInvoiceDrainer(ctx context.Context, ticketSaleID string)
+	// SettleReversedSale is the seam's other direction (#476): a Ticket
+	// Sale was just marked reversed, in tx, and its documents are settled
+	// there — an owed Sale Invoice withdrawn, an issued one credited, a
+	// pending one waited on — by the far side's rules. It reports whether
+	// the Drainer now has work for this Sale. Nil-safe at the call site
+	// exactly as OwePaidOnlineSale is; see repository.SaleReversed for why
+	// its error fails the reversal and why that is not a refusal.
+	SettleReversedSale(ctx context.Context, tx *sql.Tx, reversal sales.SaleReversal) (bool, error)
+}
+
 // Service implements sales business rules.
 type Service struct {
 	repo      *repository.Repository
@@ -317,6 +359,11 @@ type Service struct {
 	// reversed either way, and the far side reads the assignment feature flag, so
 	// a dark deployment mails nobody however many sales are reversed (ADR 0045).
 	displacedHolders DisplacedHolderNotifier
+	// saleInvoices owes a Sale Invoice for a paid House sale inside the
+	// sale's own transaction (#473, ADR 0060). Optional and nil on any
+	// deployment that has not wired it, which owes nothing and promises
+	// nothing on the receipt.
+	saleInvoices SaleInvoicer
 	// ticketQuestionsEnabled decides whether the checkout collects Answers at
 	// all (ADR 0045). It is the SAME environment variable the catalog service
 	// reads for the authoring surface, and one variable rather than two on
@@ -533,6 +580,66 @@ type DisplacedHolderNotifier interface {
 func (s *Service) WithDisplacedHolders(notifier DisplacedHolderNotifier) *Service {
 	s.displacedHolders = notifier
 	return s
+}
+
+// WithSaleInvoicing gives this service the seam that owes a Sale Invoice for
+// a paid House sale (#473). Tied on after construction like the seams beside
+// it, because the invoicing service is built after this one; a deployment
+// that forgets it sells exactly as before and invoices nothing.
+func (s *Service) WithSaleInvoicing(invoicer SaleInvoicer) *Service {
+	s.saleInvoices = invoicer
+	return s
+}
+
+// oweSaleInvoice is the sale-commit spine's invoicing seam as the two online
+// settlements hand it over: nil when nothing is wired, so the spine owes
+// nothing, and otherwise the invoicing service's write. A method on the
+// service for captureCheckoutConsent's reason — both settlements reach the
+// same seam with no chance of one being wired and the other forgotten.
+func (s *Service) oweSaleInvoice() repository.OweSaleInvoice {
+	if s.saleInvoices == nil {
+		return nil
+	}
+	return s.saleInvoices.OwePaidOnlineSale
+}
+
+// settleReversedSale is the reversal primitive's invoicing seam as the two
+// online reversal routes hand it over (#476): nil when nothing is wired,
+// so the primitive settles nothing, and otherwise the invoicing service's
+// write. A method for oweSaleInvoice's reason — both routes reach the
+// same seam with no chance of one being wired and the other forgotten.
+// The import-channel routes do not hand it over at all: an imported sale
+// never owes a document (ADR 0060), so there is nothing to settle.
+func (s *Service) settleReversedSale() repository.SaleReversed {
+	if s.saleInvoices == nil {
+		return nil
+	}
+	return s.saleInvoices.SettleReversedSale
+}
+
+// kickSaleInvoiceDrainerForReversal is kickSaleInvoiceDrainer for a Sale
+// Reversal (#476): once the transaction that settled the sale's documents
+// has committed, the Credit Note it may have owed is worked at once rather
+// than at the next scheduled tick. A reversal that owed nothing — a
+// withdrawn Sale Invoice, a non-House sale — kicks nothing.
+func (s *Service) kickSaleInvoiceDrainerForReversal(ctx context.Context, reversed repository.ReversedSale) {
+	if s.saleInvoices == nil || !reversed.DocumentsDue {
+		return
+	}
+	s.saleInvoices.KickSaleInvoiceDrainer(ctx, reversed.ID)
+}
+
+// kickSaleInvoiceDrainer tells the invoicing module, after the commit, that
+// a Sale Invoice was just owed for this sale — the immediate attempt right
+// after checkout (ADR 0060), so the buyer's factura follows in seconds
+// rather than at the next scheduled tick. Called after the Sale
+// Confirmation for the same reason that mail is sent after the commit: only
+// then is there a document to work. A sale that owed nothing kicks nothing.
+func (s *Service) kickSaleInvoiceDrainer(ctx context.Context, sale *repository.RecordedSale) {
+	if s.saleInvoices == nil || sale == nil || !sale.SaleInvoiceOwed {
+		return
+	}
+	s.saleInvoices.KickSaleInvoiceDrainer(ctx, sale.ID)
 }
 
 // commitTerms is the Sale Commit Terms this service records a Ticket Sale on,

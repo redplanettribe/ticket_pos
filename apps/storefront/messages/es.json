@@ -411,6 +411,14 @@
     "refundPendingNoteLink": "Estamos confirmando su reembolso con el proveedor de pagos. Sus entradas siguen siendo válidas hasta que se complete.",
     "undoFailed": "No se pudo deshacer esta compra. Inténtelo de nuevo.",
     "undoNetworkFailed": "No se pudo deshacer esta compra. Revise su conexión e inténtelo de nuevo.",
+    "documents": {
+      "title": "Factura",
+      "invoice": "Factura",
+      "creditNote": "Nota de crédito",
+      "onItsWay": "Su factura está en camino. Se la enviaremos por correo en cuanto esté lista, y aparecerá aquí.",
+      "creditNoteOnItsWay": "Su nota de crédito está en camino. Se la enviaremos por correo en cuanto esté lista, y aparecerá aquí.",
+      "download": "Descargar XML"
+    },
     "answers": {
       "title": "Preguntas sobre estas entradas",
       "outstanding": "{count, plural, one {Falta responder # pregunta.} other {Faltan responder # preguntas.}}",

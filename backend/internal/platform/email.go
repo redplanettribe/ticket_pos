@@ -94,6 +94,18 @@ type SaleConfirmation struct {
 	// and on imported sales that never carried one, in which case the receipt
 	// simply has no such line.
 	TaxID SaleTaxID
+	// SaleInvoiceFollows says a Sale Invoice was owed for this sale — a paid
+	// Online Sale of a House Organization's Event (#473, ADR 0060) — and adds
+	// ONE sentence telling the buyer a factura will arrive by a separate
+	// email. False, the zero value and what every other sale passes, changes
+	// nothing, and the byte-identical test keeps that true.
+	//
+	// It is set from the commit's own answer and never re-derived at send
+	// time, so a receipt can only ever promise a document that exists as
+	// owed. It says nothing about WHEN: the document is issued by a Drainer
+	// on the Tax Authority's timetable, and a receipt that named a delay
+	// would be wrong one way or the other.
+	SaleInvoiceFollows bool
 	// Locale is the language this receipt is written in, ALREADY RESOLVED by the
 	// caller through platform.ResolveMailLocale (#245, ADR 0033): the Sale
 	// Locale, then the Customer's Mail Locale, then English.
@@ -947,6 +959,72 @@ type FollowDigestEvent struct {
 	TicketSaleURL string
 }
 
+// EmailAttachment is one file carried by a message: the bytes exactly as
+// stored, the filename the reader saves them under, and their media type.
+//
+// It exists for the Tax Document delivery below and for nothing before it:
+// every earlier message is prose with links in it, and the platform's first
+// attachment is the one the SRI obliges the emisor to hand the buyer (ADR
+// 0060). Nothing here is rendered or logged; the bytes are a legal artifact
+// and the logging sender prints their length alone.
+type EmailAttachment struct {
+	Filename    string
+	ContentType string
+	Body        []byte
+}
+
+// The kinds of Tax Document a buyer can be handed, as the delivery mail
+// names them. They are the invoicing module's document kinds spelled here
+// so this package need not import it; the mail's copy is keyed on them.
+const (
+	// TaxDocumentKindSaleInvoice is a Sale Invoice: the factura for a paid
+	// House sale (ADR 0060).
+	TaxDocumentKindSaleInvoice = "sale"
+	// TaxDocumentKindCreditNote is a Credit Note: the nota de crédito for a
+	// reversed one.
+	TaxDocumentKindCreditNote = "credit_note"
+)
+
+// TaxDocumentDelivery is the mail that hands a buyer an authorized Tax
+// Document (#475, ADR 0060): the second mail about a paid House sale, after
+// the receipt that promised it.
+//
+// ONE MESSAGE TYPE FOR EVERY KIND OF DOCUMENT, on purpose. A Sale Invoice
+// and a Credit Note differ in what the reader is holding and in nothing
+// about how it reaches them — same attachment, same link, same Locale — so
+// Kind is a field the copy is keyed on rather than a second message that
+// would drift. The Sale Invoice Drainer sends it for whichever document it
+// has just seen authorized, and a later ticket's Credit Note rides it
+// unchanged.
+//
+// IT CARRIES THE DOCUMENT ITSELF, which no earlier message does: the SRI's
+// rule is that the emisor delivers the XML (and, once #456 lands, the RIDE)
+// to the buyer's email, and a link alone would not be delivery. The link is
+// the buyer's way back to the same file once the mail is gone.
+type TaxDocumentDelivery struct {
+	// To is the Recipient's email as the document was issued to it — the
+	// Sale's snapshot, never the Customer's current address.
+	To string
+	// Kind is one of the TaxDocumentKind constants and decides the words.
+	Kind string
+	// CustomerName is the Recipient's legal name as printed on the document.
+	CustomerName string
+	// EventName and Reference name the purchase the document is about, so
+	// the reader can match this mail to the receipt they already hold.
+	EventName string
+	Reference string
+	// CustomerAreaURL points at the Sale's own card in the Customer Area,
+	// behind a sign-in. Never a Confirmation Link: that is a bearer
+	// credential, and this mail is a document a reader will forward to an
+	// accountant.
+	CustomerAreaURL string
+	// Attachment is the signed XML the authority authorized.
+	Attachment EmailAttachment
+	// Locale is the Sale's language, resolved by the caller through
+	// ResolveMailLocale exactly as the receipt's was.
+	Locale Locale
+}
+
 // EmailSender delivers transactional email: staff one-time passcodes,
 // Customer Sale Confirmations, Sale void/cancellation notices, the notice
 // that a refund the Customer was told was being processed could not be made, and
@@ -967,6 +1045,15 @@ type EmailSender interface {
 	SendSaleConfirmation(ctx context.Context, confirmation SaleConfirmation) error
 	SendSaleVoided(ctx context.Context, voided SaleVoided) error
 	SendSaleReversalRefused(ctx context.Context, refused SaleReversalRefused) error
+	// SendTaxDocumentDelivery hands a buyer an authorized Tax Document
+	// (#475, ADR 0060): the signed XML attached, and a link to the Sale.
+	//
+	// TRANSACTIONAL, beside the receipt that promised it: it is the document
+	// the law obliges the seller to deliver, sent to somebody who bought
+	// something, and no consent state is anywhere near it. The Drainer
+	// records delivered_at only after this returns nil, and retries on its
+	// own ladder when it does not.
+	SendTaxDocumentDelivery(ctx context.Context, delivery TaxDocumentDelivery) error
 	// SendConsentWithdrawalConfirmation delivers the confirmation of a Consent
 	// Withdrawal that actually took something away (#267). It is on the
 	// transactional half of this interface deliberately: it is sent to somebody
@@ -1073,6 +1160,14 @@ func (s *LoggingEmailSender) SendSaleConfirmation(_ context.Context, c SaleConfi
 // SendSaleVoided logs the Sale void notice for local development and testing.
 func (s *LoggingEmailSender) SendSaleVoided(_ context.Context, v SaleVoided) error {
 	s.Logger.Info("sale voided notice sent", "email", v.To, "reference", v.Reference, "event", v.EventName)
+	return nil
+}
+
+// SendTaxDocumentDelivery logs the Tax Document delivery for local
+// development: the reference, the kind and the attachment's size, never its
+// bytes.
+func (s *LoggingEmailSender) SendTaxDocumentDelivery(_ context.Context, d TaxDocumentDelivery) error {
+	s.Logger.Info("tax document delivery sent", "email", d.To, "kind", d.Kind, "reference", d.Reference, "event", d.EventName, "attachment", d.Attachment.Filename, "attachment_bytes", len(d.Attachment.Body), "customer_area", d.CustomerAreaURL)
 	return nil
 }
 
@@ -1228,6 +1323,11 @@ func (NoopEmailSender) SendSaleReversalRefused(_ context.Context, _ SaleReversal
 	return nil
 }
 
+// SendTaxDocumentDelivery does nothing.
+func (NoopEmailSender) SendTaxDocumentDelivery(_ context.Context, _ TaxDocumentDelivery) error {
+	return nil
+}
+
 // SendConsentWithdrawalConfirmation discards the Consent Withdrawal confirmation.
 func (NoopEmailSender) SendConsentWithdrawalConfirmation(_ context.Context, _ ConsentWithdrawalConfirmation) error {
 	return nil
@@ -1319,6 +1419,12 @@ type CaptureEmailSender struct {
 	SaleConfirmations []SaleConfirmation
 	VoidedSales       []SaleVoided
 	RefusedReversals  []SaleReversalRefused
+	// The Tax Document deliveries (#475, ADR 0060). Kept whole so a test can
+	// render Subject() and Text() in the Sale Locale and read the attached
+	// bytes against what the fake SRI received; asserted on by LENGTH as much
+	// as by contents, since "sent exactly once" and "nothing was sent while
+	// the sender was down" are facts about how many there are.
+	TaxDocumentDeliveries []TaxDocumentDelivery
 	// The Consent Withdrawal confirmations (#267), kept whole so a test can
 	// render Subject() and Text() and assert on the words the recipient reads —
 	// which is the only way the language, and the promise the copy is forbidden
@@ -1407,6 +1513,24 @@ type CaptureEmailSender struct {
 	// must already hold the sessions it needs. Cleared by Reset, so a failure
 	// never leaks into the next test.
 	failure error
+	// delay, when set, makes the Tax Document delivery take that long before
+	// it is recorded — a slow provider, as the calling code would meet one.
+	//
+	// It exists for one property: that a document is mailed ONCE when two
+	// Sale Invoice Drainer rounds overlap (#475). The window in which a
+	// second round could claim a document the first is still mailing is a
+	// few milliseconds wide against a sender that answers at once, and a
+	// test that cannot hold it open cannot prove it is closed. Cleared by
+	// Reset.
+	delay time.Duration
+}
+
+// SlowTaxDocumentDeliveryBy makes every subsequent Tax Document delivery
+// take d before it is recorded, or restores instant delivery when d is 0.
+func (s *CaptureEmailSender) SlowTaxDocumentDeliveryBy(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.delay = d
 }
 
 // FailWith makes every subsequent send fail with err, or restores ordinary
@@ -1458,6 +1582,23 @@ func (s *CaptureEmailSender) SendSaleVoided(_ context.Context, v SaleVoided) err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.VoidedSales = append(s.VoidedSales, v)
+	return nil
+}
+
+// SendTaxDocumentDelivery records a delivered Tax Document.
+func (s *CaptureEmailSender) SendTaxDocumentDelivery(_ context.Context, d TaxDocumentDelivery) error {
+	if err := s.failed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	delay := s.delay
+	s.mu.Unlock()
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.TaxDocumentDeliveries = append(s.TaxDocumentDeliveries, d)
 	return nil
 }
 
@@ -1697,6 +1838,16 @@ func (s *CaptureEmailSender) TicketAssignmentsSent() []TicketAssignment {
 	return out
 }
 
+// TaxDocumentDeliveriesSent returns the Tax Document deliveries so far, in
+// the order they were sent.
+func (s *CaptureEmailSender) TaxDocumentDeliveriesSent() []TaxDocumentDelivery {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]TaxDocumentDelivery, len(s.TaxDocumentDeliveries))
+	copy(out, s.TaxDocumentDeliveries)
+	return out
+}
+
 // SaleReAddressingsSent returns the Re-addressing mails delivered so far, in
 // the order they were sent. Tests assert on the LENGTH as much as on the
 // contents: "the wrong address was told nothing" and "a refused recording
@@ -1863,6 +2014,8 @@ func (s *CaptureEmailSender) Reset() {
 	s.SaleConfirmations = nil
 	s.VoidedSales = nil
 	s.RefusedReversals = nil
+	s.TaxDocumentDeliveries = nil
+	s.delay = 0
 	s.WithdrawalConfirmations = nil
 	s.HolderAnswerReminders = nil
 	s.TicketAssignments = nil

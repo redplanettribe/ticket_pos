@@ -24,7 +24,7 @@ import { ApiError } from "@/lib/events-api";
 import { type AppLocale, PLATFORM_TIME_ZONE, formatCalendarDay, formatDateTime, formatMoney } from "@/lib/format";
 import { type OperatorInvoiceDetail, fetchOperatorInvoice } from "@/lib/operator-api";
 
-import { INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "../invoice-status";
+import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "../invoice-status";
 import { OperatorInvoiceActions } from "./operator-invoice-actions";
 import { InvoiceDownloads } from "./invoice-downloads";
 
@@ -32,12 +32,28 @@ import { InvoiceDownloads } from "./invoice-downloads";
 // lines and totals, the SRI's messages verbatim, the authorization number and
 // date once authorized, and the attempts ledger. Check status and Resend are
 // #455's card (operator-invoice-actions.tsx); downloads are #456.
+//
+// From #473 the document may be OWED and not yet signed — a Sale Invoice
+// the checkout just wrote, waiting for the Drainer. Then there is no number,
+// no clave, no Issuer snapshot, nothing to check, resend or download, and
+// the page says so in each place rather than rendering an empty card: the
+// kind badge and the Sale Confirmation reference are what identify it.
 
 const IVA_RATE_KEYS = {
   "15": "invoicingIvaRate15",
   "0": "invoicingIvaRate0",
   exento: "invoicingIvaRateExento",
   no_objeto: "invoicingIvaRateNoObjeto",
+} as const;
+
+// The reversal route a Credit Note names as its reason (#476): the five
+// words the Sales Export's reversed_by column uses, one label each.
+const REVERSAL_ROUTE_KEYS = {
+  customer: "invoicingReversalRouteCustomer",
+  platform: "invoicingReversalRoutePlatform",
+  import_undo: "invoicingReversalRouteImportUndo",
+  staff_reversal: "invoicingReversalRouteStaffReversal",
+  correction: "invoicingReversalRouteCorrection",
 } as const;
 
 const OPERATION_KEYS = {
@@ -96,6 +112,11 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
   const money = (cents: number) => formatMoney(cents, invoice.currency, locale as AppLocale);
   const ivaLabel = (rate: string) =>
     t(IVA_RATE_KEYS[rate as keyof typeof IVA_RATE_KEYS] ?? "invoicingIvaRate0");
+  const kindLabel = t(INVOICE_KIND_KEYS[invoice.kind]);
+  const signed = invoice.ecuador !== null;
+  const title = invoice.number
+    ? t("invoicingDetailTitle", { number: invoice.number })
+    : t("invoicingDetailTitleUnissued", { kind: kindLabel });
 
   return (
     <div className="space-y-6">
@@ -103,19 +124,82 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
         items={[
           { label: t("breadcrumbOperator"), href: "/operator" },
           { label: t("invoicingBreadcrumbList"), href: "/operator/invoicing" },
-          { label: invoice.number },
+          { label: invoice.number ?? kindLabel },
         ]}
       />
       <PageHeader
-        title={t("invoicingDetailTitle", { number: invoice.number })}
-        description={formatCalendarDay(invoice.issued_on, locale)}
+        title={title}
+        description={invoice.issued_on ? formatCalendarDay(invoice.issued_on, locale) : t("invoicingNotIssuedYet")}
         actions={
           <div className="flex items-center gap-2">
+            <Badge variant="outline">{kindLabel}</Badge>
             {invoice.environment === "test" ? <Badge variant="outline">{t("invoicingTestBadge")}</Badge> : null}
             <Badge variant={INVOICE_STATUS_VARIANTS[invoice.status]}>{t(INVOICE_STATUS_KEYS[invoice.status])}</Badge>
           </div>
         }
       />
+
+      {invoice.sale_confirmation_ref ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("invoicingDetailSale")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1 text-sm">
+            <p className="font-mono font-medium">{invoice.sale_confirmation_ref}</p>
+            {invoice.iva_rate ? (
+              <p className="text-muted-foreground">{t("invoicingDetailPricedAt", { rate: ivaLabel(invoice.iva_rate) })}</p>
+            ) : null}
+            {invoice.reversal_reason ? (
+              <p className="text-muted-foreground">
+                {t("invoicingDetailReversalReason", {
+                  route: t(
+                    REVERSAL_ROUTE_KEYS[invoice.reversal_reason as keyof typeof REVERSAL_ROUTE_KEYS] ??
+                      "invoicingReversalRoutePlatform",
+                  ),
+                })}
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {invoice.credits_invoice_id || invoice.credited_by_invoice_id ? (
+        // The two documents of a reversed sale link each other (#476): a
+        // Credit Note names the Sale Invoice it credits, and a credited Sale
+        // Invoice names its Credit Note. One card either way; which sentence
+        // it opens with says which side the reader is on.
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              {invoice.credits_invoice_id ? t("invoicingDetailCredits") : t("invoicingDetailCreditedBy")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm">
+            <Link
+              href={`/operator/invoicing/${invoice.credits_invoice_id ?? invoice.credited_by_invoice_id}`}
+              className="font-medium underline underline-offset-4"
+            >
+              {t("invoicingDetailOpenDocument")}
+            </Link>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {invoice.annulled_by && invoice.annulled_at ? (
+        // The annulment trail (#477): who recorded the portal act and when.
+        // The operator's email and the moment are data; the sentence is copy.
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("invoicingAnnulmentTitle")}</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {t("invoicingAnnulmentTrail", {
+              by: invoice.annulled_by,
+              when: formatDateTime(invoice.annulled_at, PLATFORM_TIME_ZONE, locale) ?? invoice.annulled_at,
+            })}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <OperatorInvoiceActions invoice={invoice} onUpdated={setInvoice} />
 
@@ -188,12 +272,16 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
       <Card>
         <CardHeader>
           <CardTitle>{t("invoicingDetailAuthorization")}</CardTitle>
-          <CardDescription className="break-all font-mono text-xs">
-            {t("invoicingClave")}: {invoice.ecuador.access_key}
-          </CardDescription>
+          {invoice.ecuador ? (
+            <CardDescription className="break-all font-mono text-xs">
+              {t("invoicingClave")}: {invoice.ecuador.access_key}
+            </CardDescription>
+          ) : null}
         </CardHeader>
         <CardContent className="space-y-1 text-sm">
-          {invoice.ecuador.authorization_number ? (
+          {!invoice.ecuador ? (
+            <p className="text-muted-foreground">{t("invoicingAuthorizationNotIssued")}</p>
+          ) : invoice.ecuador.authorization_number ? (
             <>
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">{t("invoicingAuthorizationNumber")}</dt>
@@ -212,7 +300,7 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
         </CardContent>
       </Card>
 
-      <InvoiceDownloads invoice={invoice} />
+      {signed ? <InvoiceDownloads invoice={invoice} /> : null}
 
       <Card>
         <CardHeader>

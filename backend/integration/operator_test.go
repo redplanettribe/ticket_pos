@@ -173,9 +173,18 @@ func operatorRoutes(orgID string) []struct {
 		{http.MethodGet, "/api/v1/operator/organizations"},
 		{http.MethodGet, "/api/v1/operator/organizations/" + orgID},
 		{http.MethodPost, "/api/v1/operator/organizations/" + orgID + "/payouts"},
+		// The House Organization designation and its clearing (#472,
+		// ADR 0060): the dashboard's first Organization writes after the
+		// Payout. Exercised in operator_house_organization_test.go.
+		{http.MethodPut, "/api/v1/operator/organizations/" + orgID + "/house"},
+		{http.MethodDelete, "/api/v1/operator/organizations/" + orgID + "/house"},
 		// The Tax invoicing surface (#451, ADR 0059) is on the same namespace
 		// behind the same gate; its PUT is asserted in invoicing_test.go.
 		{http.MethodGet, "/api/v1/operator/invoicing/issuers/ec"},
+		// The documents that need an operator (#477): the queue and its count.
+		// Mark annulled is asserted in operator_document_attention_test.go.
+		{http.MethodGet, "/api/v1/operator/invoicing/needs-attention"},
+		{http.MethodGet, "/api/v1/operator/invoicing/needs-attention/count"},
 	}
 }
 
@@ -185,8 +194,13 @@ func (env *testEnv) operatorCall(t *testing.T, method, path, sessionID string) (
 	if sessionID != "" {
 		headers = authHeader(sessionID)
 	}
-	if method == http.MethodPost {
+	switch method {
+	case http.MethodPost:
 		return env.post(t, path, map[string]any{"amount_cents": 100, "paid_at": "2026-07-01"}, headers)
+	case http.MethodPut:
+		return env.put(t, path, nil, headers)
+	case http.MethodDelete:
+		return env.deleteJSON(t, path, nil, headers)
 	}
 	return env.get(t, path, headers)
 }

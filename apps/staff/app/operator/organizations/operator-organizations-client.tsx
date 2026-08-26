@@ -8,6 +8,7 @@ import {
   Alert,
   AlertDescription,
   AlertTitle,
+  Badge,
   Button,
   Card,
   CardContent,
@@ -144,12 +145,19 @@ export function OperatorOrganizationsClient() {
                       {/* The Organization's name and slug are data, and read as
                           coined in both languages (ADR 0041). */}
                       <td className="py-3 pr-4">
-                        <Link
-                          href={`/operator/organizations/${organization.id}`}
-                          className="font-medium hover:underline"
-                        >
-                          {organization.name}
-                        </Link>
+                        <span className="inline-flex items-center gap-2">
+                          <Link
+                            href={`/operator/organizations/${organization.id}`}
+                            className="font-medium hover:underline"
+                          >
+                            {organization.name}
+                          </Link>
+                          {/* A House Organization is the platform's own, and
+                              the roll says so beside the name (#472, ADR 0060). */}
+                          {organization.is_house_organization ? (
+                            <Badge className="w-fit">{t("houseBadge")}</Badge>
+                          ) : null}
+                        </span>
                       </td>
                       <td className="py-3 pr-4 font-mono text-xs text-muted-foreground">
                         {organization.slug}

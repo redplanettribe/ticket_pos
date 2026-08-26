@@ -14,6 +14,7 @@ import (
 
 	catalogsvc "github.com/peter/ticket_pos/backend/internal/catalog/service"
 	identitysvc "github.com/peter/ticket_pos/backend/internal/identity/service"
+	"github.com/peter/ticket_pos/backend/internal/invoicing"
 	salessvc "github.com/peter/ticket_pos/backend/internal/sales/service"
 )
 
@@ -28,6 +29,12 @@ type Organizations interface {
 	// for a cross-Organization list whose rows arrive from another module (#176).
 	// Ids that name nothing are absent from the map rather than an error.
 	OrganizationsForOperator(ctx context.Context, orgIDs []string) (map[string]identitysvc.OperatorOrganization, error)
+	// The House Organization designation and its clearing (#472, ADR 0060):
+	// the dashboard's first Organization writes after the Payout. Designation
+	// answers HOUSE_ORGANIZATION_CURRENCY_UNSUPPORTED for an Organization the
+	// Issuer could never invoice for, and both answer ORGANIZATION_NOT_FOUND.
+	DesignateHouseOrganization(ctx context.Context, orgID, operator string) (*identitysvc.OperatorOrganization, error)
+	UndesignateHouseOrganization(ctx context.Context, orgID string) (*identitysvc.OperatorOrganization, error)
 }
 
 // Events is what the operator surface needs from catalog: what each
@@ -135,6 +142,19 @@ type Money interface {
 	SaleReAddressings(ctx context.Context, sale *salessvc.OperatorSale) (*salessvc.SaleReAddressingBlock, error)
 }
 
+// Documents is what the operator surface needs from invoicing: the Tax
+// Invoices about one Ticket Sale — its Sale Invoice and its Credit Note —
+// for the walk from a buyer's reference to their factura (#477, ADR 0060).
+// The invoicing module keeps its own operator routes (the queue, the list,
+// the detail); this seam exists only so the Sale lookup, which the operator
+// module composes, can name the Sale's documents beside it.
+type Documents interface {
+	// SaleDocuments returns the documents about one Ticket Sale, oldest
+	// first, as the invoicing list shows them; an empty list for a Sale that
+	// owes nothing.
+	SaleDocuments(ctx context.Context, ticketSaleID string) ([]Document, error)
+}
+
 // Service implements the Operator Dashboard's operations.
 type Service struct {
 	organizations Organizations
@@ -144,11 +164,37 @@ type Service struct {
 	// this service composes that is about a person rather than about money
 	// (#271). See consent.go.
 	consents Consents
+	// documents is the invoicing seam (#477); nil is the "no invoicing"
+	// deployment, where every Sale has no documents.
+	documents Documents
+	// saleInvoicingEnabled is the SALE_INVOICING_ENABLED flag (#471, ADR
+	// 0060): closed, the House designation answers 404 both ways and the
+	// Organization detail says so, so the staff app offers no toggle.
+	saleInvoicingEnabled bool
 }
 
 // New returns an operator service over the four owning modules.
 func New(organizations Organizations, events Events, money Money, consents Consents) *Service {
 	return &Service{organizations: organizations, events: events, money: money, consents: consents}
+}
+
+// WithDocuments gives this service the invoicing seam the Sale lookup reads
+// a Sale's documents through (#477). Tied on after construction, the way
+// sales takes its Sale Invoicing seam: the invoicing module is built after
+// the operator one, and a build without the line composes nothing.
+func (s *Service) WithDocuments(documents Documents) *Service {
+	s.documents = documents
+	return s
+}
+
+// WithSaleInvoicing opens or closes the House designation with the
+// SALE_INVOICING_ENABLED flag (#471, ADR 0060). Closed is how it ships:
+// designating and clearing answer SALE_INVOICING_UNAVAILABLE, and the
+// Organization detail carries sale_invoicing_enabled false so the staff app
+// hides the card rather than offer a toggle that would 404.
+func (s *Service) WithSaleInvoicing(enabled bool) *Service {
+	s.saleInvoicingEnabled = enabled
+	return s
 }
 
 // PlatformSummary is the Operator Dashboard's headline: the platform's money,
@@ -170,6 +216,9 @@ type OrganizationListItem struct {
 	// the platform after a sale was reversed post-settlement, and the list says
 	// so rather than clamping it to zero.
 	WithdrawableBalanceCents int `json:"withdrawable_balance_cents"`
+	// IsHouseOrganization says whether the platform's own entity runs this
+	// Organization (#472, ADR 0060). The flag alone: the trail is on the detail.
+	IsHouseOrganization bool `json:"is_house_organization"`
 }
 
 // OrganizationList is the ADR-0006 nested envelope for the Organization list.
@@ -196,6 +245,13 @@ type OrganizationDetail struct {
 	// because that is the question it answers: has this Organization been paid
 	// recently, and are they asking again? (ADR 0026)
 	PayoutRequests []PayoutRequestSummary `json:"payout_requests"`
+	// SaleInvoicingEnabled is the platform's SALE_INVOICING_ENABLED flag
+	// (#471, ADR 0060), not a property of this Organization — it rides here
+	// the way the Event payload carries the Ticket Question flag: the staff
+	// app decides from it whether to show the House Organization card at all,
+	// and a frontend environment variable would be a second copy of the
+	// answer, free to disagree with the one that matters.
+	SaleInvoicingEnabled bool `json:"sale_invoicing_enabled"`
 }
 
 // RecordPayoutInput is a validated record-payout request: the amount is already
@@ -249,6 +305,7 @@ func (s *Service) ListOrganizations(ctx context.Context, page, pageSize int) (*O
 			Currency:                 o.Currency,
 			EventsCount:              counts[o.ID],
 			WithdrawableBalanceCents: balances[o.ID],
+			IsHouseOrganization:      o.IsHouseOrganization,
 		})
 	}
 
@@ -289,6 +346,7 @@ func (s *Service) GetOrganization(ctx context.Context, orgID string) (*Organizat
 		Organization:             *org,
 		WithdrawableBalanceCents: balances.WithdrawableBalanceCents,
 		PayableBalanceCents:      balances.PayableBalanceCents,
+		SaleInvoicingEnabled:     s.saleInvoicingEnabled,
 		Events:                   events,
 		Payouts:                  payouts,
 		PayoutRequests:           requests,
@@ -313,6 +371,29 @@ func (s *Service) RecordPayout(ctx context.Context, orgID string, input RecordPa
 		Note:        input.Note,
 		RecordedBy:  input.RecordedBy,
 	})
+}
+
+// DesignateHouseOrganization marks an Organization as one the platform's own
+// entity runs, stamped with the operator's email (#472, ADR 0060). Identity
+// owns the rule — USD only, no Issuer consulted — and this service only
+// carries the act to it.
+//
+// Behind SALE_INVOICING_ENABLED (#471): closed, both verbs answer
+// SALE_INVOICING_UNAVAILABLE before anything is read, so no designation can be
+// made or cleared while the platform is not invoicing.
+func (s *Service) DesignateHouseOrganization(ctx context.Context, orgID, operator string) (*Organization, error) {
+	if !s.saleInvoicingEnabled {
+		return nil, invoicing.ErrSaleInvoicingUnavailable()
+	}
+	return s.organizations.DesignateHouseOrganization(ctx, orgID, operator)
+}
+
+// UndesignateHouseOrganization takes the designation back, emptying the trail.
+func (s *Service) UndesignateHouseOrganization(ctx context.Context, orgID string) (*Organization, error) {
+	if !s.saleInvoicingEnabled {
+		return nil, invoicing.ErrSaleInvoicingUnavailable()
+	}
+	return s.organizations.UndesignateHouseOrganization(ctx, orgID)
 }
 
 func totalPages(total, pageSize int) int {

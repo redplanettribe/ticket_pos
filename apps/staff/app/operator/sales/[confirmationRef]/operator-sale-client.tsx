@@ -33,6 +33,7 @@ import { useLocale, useMessages, useTranslations } from "next-intl";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError, parsePriceToCents } from "@/lib/events-api";
 import { PLATFORM_TIME_ZONE, formatDateTime, formatMoney, formatNumber } from "@/lib/format";
+import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "../../invoicing/invoice-status";
 import {
   type OperatorSaleLookup,
   type OperatorSaleReAddressing,
@@ -820,6 +821,44 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
               {organization.name}
             </Link>
           </Fact>
+        </CardContent>
+      </Card>
+
+      {/*
+        The Sale's tax documents (#477, ADR 0060): the walk from a buyer's
+        question to their factura. Every row is the invoicing list's own
+        description of the document, and opens it.
+      */}
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("saleDocumentsTitle")}</CardTitle>
+          <CardDescription>{t("saleDocumentsDescription")}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {lookup.documents.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("saleDocumentsNone")}</p>
+          ) : (
+            <ul className="divide-y text-sm">
+              {lookup.documents.map((document) => (
+                <li key={document.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                  <div>
+                    <Link href={`/operator/invoicing/${document.id}`} className="font-medium hover:underline">
+                      {t(INVOICE_KIND_KEYS[document.kind])}
+                    </Link>
+                    <p className="font-mono text-xs text-muted-foreground">
+                      {document.number ?? t("invoicingNotIssuedYet")}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="tabular-nums">{money(document.total_cents)}</span>
+                    <Badge variant={INVOICE_STATUS_VARIANTS[document.status]}>
+                      {t(INVOICE_STATUS_KEYS[document.status])}
+                    </Badge>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </CardContent>
       </Card>
 
