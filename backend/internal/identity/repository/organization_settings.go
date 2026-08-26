@@ -19,7 +19,13 @@ type Organization struct {
 	// E.164 form, null when it has none (migration 049). Published on its public
 	// Event pages; see ADR 0029.
 	SupportWhatsApp sql.NullString
-	CreatedAt       time.Time
+	// HouseDesignatedBy and HouseDesignatedAt are the House Organization
+	// designation (migration 097, ADR 0060): the operator's email and the
+	// instant, both set or both null. An Organization is a House Organization
+	// exactly when they are set; there is no separate flag to disagree with.
+	HouseDesignatedBy sql.NullString
+	HouseDesignatedAt sql.NullTime
+	CreatedAt         time.Time
 }
 
 // Member is a person belonging to an Organization.
@@ -53,13 +59,13 @@ type EventAssignment struct {
 // GetOrganizationByID loads an organization by ID.
 func (r *Repository) GetOrganizationByID(ctx context.Context, orgID string) (*Organization, error) {
 	row := r.db.Pool.QueryRowContext(ctx, `
-		SELECT id, name, slug, currency, logo_image_key, support_whatsapp, created_at
+		SELECT id, name, slug, currency, logo_image_key, support_whatsapp, house_designated_by, house_designated_at, created_at
 		FROM organizations
 		WHERE id = $1
 	`, orgID)
 
 	var o Organization
-	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.CreatedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.HouseDesignatedBy, &o.HouseDesignatedAt, &o.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -71,13 +77,13 @@ func (r *Repository) GetOrganizationByID(ctx context.Context, orgID string) (*Or
 // GetOrganizationBySlug loads an organization by its public slug.
 func (r *Repository) GetOrganizationBySlug(ctx context.Context, slug string) (*Organization, error) {
 	row := r.db.Pool.QueryRowContext(ctx, `
-		SELECT id, name, slug, currency, logo_image_key, support_whatsapp, created_at
+		SELECT id, name, slug, currency, logo_image_key, support_whatsapp, house_designated_by, house_designated_at, created_at
 		FROM organizations
 		WHERE slug = $1
 	`, slug)
 
 	var o Organization
-	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.CreatedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.HouseDesignatedBy, &o.HouseDesignatedAt, &o.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -92,11 +98,11 @@ func (r *Repository) UpdateOrganizationName(ctx context.Context, orgID, name str
 		UPDATE organizations
 		SET name = $2
 		WHERE id = $1
-		RETURNING id, name, slug, currency, logo_image_key, support_whatsapp, created_at
+		RETURNING id, name, slug, currency, logo_image_key, support_whatsapp, house_designated_by, house_designated_at, created_at
 	`, orgID, name)
 
 	var o Organization
-	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.CreatedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.HouseDesignatedBy, &o.HouseDesignatedAt, &o.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -111,11 +117,11 @@ func (r *Repository) UpdateOrganizationCurrency(ctx context.Context, orgID, curr
 		UPDATE organizations
 		SET currency = $2
 		WHERE id = $1
-		RETURNING id, name, slug, currency, logo_image_key, support_whatsapp, created_at
+		RETURNING id, name, slug, currency, logo_image_key, support_whatsapp, house_designated_by, house_designated_at, created_at
 	`, orgID, currency)
 
 	var o Organization
-	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.CreatedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.HouseDesignatedBy, &o.HouseDesignatedAt, &o.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -135,11 +141,11 @@ func (r *Repository) UpdateOrganizationLogoKey(ctx context.Context, orgID string
 		UPDATE organizations
 		SET logo_image_key = $2
 		WHERE id = $1
-		RETURNING id, name, slug, currency, logo_image_key, support_whatsapp, created_at
+		RETURNING id, name, slug, currency, logo_image_key, support_whatsapp, house_designated_by, house_designated_at, created_at
 	`, orgID, key)
 
 	var o Organization
-	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.CreatedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.HouseDesignatedBy, &o.HouseDesignatedAt, &o.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -164,11 +170,11 @@ func (r *Repository) UpdateOrganizationSupportWhatsApp(ctx context.Context, orgI
 		UPDATE organizations
 		SET support_whatsapp = $2
 		WHERE id = $1
-		RETURNING id, name, slug, currency, logo_image_key, support_whatsapp, created_at
+		RETURNING id, name, slug, currency, logo_image_key, support_whatsapp, house_designated_by, house_designated_at, created_at
 	`, orgID, number)
 
 	var o Organization
-	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.CreatedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.HouseDesignatedBy, &o.HouseDesignatedAt, &o.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}

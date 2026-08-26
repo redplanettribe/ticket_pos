@@ -47,6 +47,8 @@ export type OperatorOrganizationRow = {
   events_count: number;
   /** Signed: negative after a post-settlement reversal. */
   withdrawable_balance_cents: number;
+  /** Whether the platform's own entity runs it (#472, ADR 0060). */
+  is_house_organization: boolean;
 };
 
 export type OperatorPagination = {
@@ -68,6 +70,14 @@ export type OperatorOrganization = {
   slug: string;
   currency: string;
   created_at: string;
+  /**
+   * The House Organization designation (#472, ADR 0060): whether the
+   * platform's own entity runs this Organization, and who designated it and
+   * when. The trail is null when it is not one, and never half-set.
+   */
+  is_house_organization: boolean;
+  house_designated_by: string | null;
+  house_designated_at: string | null;
 };
 
 export type OperatorEventRow = {
@@ -228,6 +238,33 @@ export async function recordOperatorPayout(
   return fetchEventsJSON<OperatorPayout>(`/api/operator/organizations/${organizationId}/payouts`, {
     method: "POST",
     body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Designates an Organization a House Organization (#472, ADR 0060). No body:
+ * the API stamps who and when from the session. Refused with
+ * HOUSE_ORGANIZATION_CURRENCY_UNSUPPORTED for an Organization trading in a
+ * currency other than USD; no Issuer state is consulted. The result is the
+ * Organization as it now stands, trail included.
+ */
+export async function designateHouseOrganization(
+  organizationId: string,
+): Promise<OperatorOrganization> {
+  return fetchEventsJSON<OperatorOrganization>(`/api/operator/organizations/${organizationId}/house`, {
+    method: "PUT",
+  });
+}
+
+/**
+ * Clears the House designation, emptying who and when together. Nothing
+ * already owed or issued is touched; clearing what is clear is not a refusal.
+ */
+export async function undesignateHouseOrganization(
+  organizationId: string,
+): Promise<OperatorOrganization> {
+  return fetchEventsJSON<OperatorOrganization>(`/api/operator/organizations/${organizationId}/house`, {
+    method: "DELETE",
   });
 }
 

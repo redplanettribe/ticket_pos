@@ -21,6 +21,39 @@ type OperatorOrganization struct {
 	Slug      string    `json:"slug"`
 	Currency  string    `json:"currency"`
 	CreatedAt time.Time `json:"created_at"`
+	// The House Organization designation (#472, ADR 0060): whether the
+	// platform's own entity runs this Organization, and the trail of the act
+	// — which operator designated it and when. Both trail fields are null
+	// when it is not one; they are never set without the other.
+	IsHouseOrganization bool       `json:"is_house_organization"`
+	HouseDesignatedBy   *string    `json:"house_designated_by"`
+	HouseDesignatedAt   *time.Time `json:"house_designated_at"`
+}
+
+// houseOrganizationCurrency is the one currency the platform's Issuer invoices
+// in, and so the one a House Organization may trade in: every paid Online
+// Sale of a House Event owes a Sale Invoice, and one in another currency could
+// never be built (ADR 0060). Stated here, where the designation is made, and
+// pointedly not read from the invoicing module: whether an Issuer exists, in
+// which environment, or with what certificate is no part of the decision.
+const houseOrganizationCurrency = "USD"
+
+// toOperatorOrganization projects a row onto the operator's view of it.
+func toOperatorOrganization(o *repository.Organization) OperatorOrganization {
+	out := OperatorOrganization{
+		ID:        o.ID,
+		Name:      o.Name,
+		Slug:      o.Slug,
+		Currency:  o.Currency,
+		CreatedAt: o.CreatedAt,
+	}
+	if o.HouseDesignatedBy.Valid && o.HouseDesignatedAt.Valid {
+		out.IsHouseOrganization = true
+		out.HouseDesignatedBy = &o.HouseDesignatedBy.String
+		at := o.HouseDesignatedAt.Time
+		out.HouseDesignatedAt = &at
+	}
+	return out
 }
 
 // IsPlatformOperator reports whether an email is on the platform operator
@@ -72,13 +105,7 @@ func (s *Service) ListOrganizationsForOperator(ctx context.Context, page, pageSi
 	}
 	out := make([]OperatorOrganization, 0, len(rows))
 	for _, o := range rows {
-		out = append(out, OperatorOrganization{
-			ID:        o.ID,
-			Name:      o.Name,
-			Slug:      o.Slug,
-			Currency:  o.Currency,
-			CreatedAt: o.CreatedAt,
-		})
+		out = append(out, toOperatorOrganization(&o))
 	}
 	return out, total, nil
 }
@@ -103,13 +130,7 @@ func (s *Service) OrganizationsForOperator(ctx context.Context, orgIDs []string)
 	}
 	out := make(map[string]OperatorOrganization, len(rows))
 	for _, o := range rows {
-		out[o.ID] = OperatorOrganization{
-			ID:        o.ID,
-			Name:      o.Name,
-			Slug:      o.Slug,
-			Currency:  o.Currency,
-			CreatedAt: o.CreatedAt,
-		}
+		out[o.ID] = toOperatorOrganization(&o)
 	}
 	return out, nil
 }
@@ -129,11 +150,53 @@ func (s *Service) GetOrganizationForOperator(ctx context.Context, orgID string) 
 	if org == nil {
 		return nil, identity.ErrOrganizationNotFound()
 	}
-	return &OperatorOrganization{
-		ID:        org.ID,
-		Name:      org.Name,
-		Slug:      org.Slug,
-		Currency:  org.Currency,
-		CreatedAt: org.CreatedAt,
-	}, nil
+	view := toOperatorOrganization(org)
+	return &view, nil
+}
+
+// DesignateHouseOrganization marks an Organization as one the platform's own
+// entity runs, stamped with the operator's email and the server's clock
+// (#472, ADR 0060). Refused when the Organization trades in a currency the
+// Issuer does not invoice in, with the currency named; NOT refused for a
+// missing, test-environment or expired Issuer, because the platform's
+// compliance is the operator's to see and fix rather than the buyer's to wait
+// for. Designating an Organization already designated leaves its trail as it
+// was. Designation affects future sales only; nothing is invoiced here.
+func (s *Service) DesignateHouseOrganization(ctx context.Context, orgID, operator string) (*OperatorOrganization, error) {
+	org, err := s.GetOrganizationForOperator(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if org.Currency != houseOrganizationCurrency {
+		return nil, identity.ErrHouseOrganizationCurrencyUnsupported(org.Currency)
+	}
+	updated, err := s.repo.DesignateHouseOrganization(ctx, org.ID, operator, s.now())
+	if err != nil {
+		return nil, err
+	}
+	if updated == nil {
+		return nil, identity.ErrOrganizationNotFound()
+	}
+	view := toOperatorOrganization(updated)
+	return &view, nil
+}
+
+// UndesignateHouseOrganization takes the designation back, emptying who and
+// when together. It touches nothing already owed or issued — undesignation
+// affects future sales only (ADR 0060) — and clearing an Organization that
+// was never designated is an ordinary answer rather than a refusal.
+func (s *Service) UndesignateHouseOrganization(ctx context.Context, orgID string) (*OperatorOrganization, error) {
+	org, err := s.GetOrganizationForOperator(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	updated, err := s.repo.ClearHouseDesignation(ctx, org.ID)
+	if err != nil {
+		return nil, err
+	}
+	if updated == nil {
+		return nil, identity.ErrOrganizationNotFound()
+	}
+	view := toOperatorOrganization(updated)
+	return &view, nil
 }

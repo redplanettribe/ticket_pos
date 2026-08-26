@@ -31,6 +31,15 @@ type EnvelopeOperatorOrganizationDetail struct {
 	RequestID string                     `json:"request_id"`
 }
 
+// EnvelopeOperatorOrganization documents PUT and DELETE
+// /operator/organizations/{orgID}/house success responses: the Organization as
+// it now stands, with its House designation and trail (#472).
+type EnvelopeOperatorOrganization struct {
+	Data      service.Organization `json:"data"`
+	Error     *platform.APIError   `json:"error"`
+	RequestID string               `json:"request_id"`
+}
+
 // EnvelopeOperatorSaleLookup documents GET /operator/sales/{confirmationRef}
 // success responses.
 type EnvelopeOperatorSaleLookup struct {

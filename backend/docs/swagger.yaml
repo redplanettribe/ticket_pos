@@ -1528,6 +1528,15 @@ components:
         request_id:
           type: string
       type: object
+    openapi.EnvelopeOperatorOrganization:
+      properties:
+        data:
+          $ref: '#/components/schemas/service.Organization'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
     openapi.EnvelopeOperatorOrganizationDetail:
       properties:
         data:
@@ -3881,8 +3890,19 @@ components:
           type: string
         currency:
           type: string
+        house_designated_at:
+          type: string
+        house_designated_by:
+          type: string
         id:
           type: string
+        is_house_organization:
+          description: |-
+            The House Organization designation (#472, ADR 0060): whether the
+            platform's own entity runs this Organization, and the trail of the act
+            — which operator designated it and when. Both trail fields are null
+            when it is not one; they are never set without the other.
+          type: boolean
         name:
           type: string
         slug:
@@ -3941,6 +3961,11 @@ components:
           type: integer
         id:
           type: string
+        is_house_organization:
+          description: |-
+            IsHouseOrganization says whether the platform's own entity runs this
+            Organization (#472, ADR 0060). The flag alone: the trail is on the detail.
+          type: boolean
         name:
           type: string
         slug:
@@ -8805,6 +8830,117 @@ paths:
       security:
       - BearerAuth: []
       summary: Get one Organization's Events and payout history
+      tags:
+      - operator
+  /api/v1/operator/organizations/{orgID}/house:
+    delete:
+      description: 'Takes the House Organization designation back (ADR 0060), emptying
+        house_designated_by and house_designated_at together, and returns the Organization
+        as it now stands. From then on the Organization''s sales are its own again
+        and owe nothing; nothing already owed or issued is touched — a mistaken or
+        ended arrangement stops producing Sale Invoices, and undesignation affects
+        future sales only. Clearing an Organization that was never designated is an
+        ordinary 200 rather than a refusal: the state asked for is the state reached.
+        No body. An unknown or malformed id is 404 ORGANIZATION_NOT_FOUND. Platform
+        Operator only.'
+      parameters:
+      - description: Organization ID
+        in: path
+        name: orgID
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeOperatorOrganization'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
+      security:
+      - BearerAuth: []
+      summary: Clear an Organization's House designation
+      tags:
+      - operator
+    put:
+      description: 'Marks the Organization as one the platform''s own legal entity
+        runs (ADR 0060): from then on every paid Online Sale of one of its Events
+        is the platform''s own sale for tax purposes and will owe a Sale Invoice from
+        the platform''s Issuer to the buyer. The designation is stamped with the designating
+        operator''s email (taken from the Staff Session, never from a body — there
+        is none) and the server''s clock, and the response is the Organization as
+        it now stands with house_designated_by and house_designated_at filled. REFUSED
+        with 409 HOUSE_ORGANIZATION_CURRENCY_UNSUPPORTED, naming the currency in the
+        message and in details.currency, when the Organization trades in a currency
+        the Issuer does not invoice in (USD is the only one): no document could ever
+        be built for its sales. NOT refused for a missing Issuer, an Issuer in the
+        test environment or an expired certificate — none of that is consulted; the
+        platform''s compliance is the operator''s to see and fix, never the buyer''s
+        to wait for. Designating an Organization that is already designated changes
+        nothing and answers 200 with the original trail: the trail names the act that
+        made it a House Organization. Designation affects future sales only, nothing
+        is issued retroactively, and nothing is invoiced by this endpoint. An unknown
+        or malformed id is 404 ORGANIZATION_NOT_FOUND. Platform Operator only — an
+        Org Admin has no surface for this anywhere.'
+      parameters:
+      - description: Organization ID
+        in: path
+        name: orgID
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeOperatorOrganization'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Conflict
+      security:
+      - BearerAuth: []
+      summary: Designate an Organization a House Organization
       tags:
       - operator
   /api/v1/operator/organizations/{orgID}/payouts:

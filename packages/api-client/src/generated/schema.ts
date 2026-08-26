@@ -3814,6 +3814,137 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/organizations/{orgID}/house": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Designate an Organization a House Organization
+         * @description Marks the Organization as one the platform's own legal entity runs (ADR 0060): from then on every paid Online Sale of one of its Events is the platform's own sale for tax purposes and will owe a Sale Invoice from the platform's Issuer to the buyer. The designation is stamped with the designating operator's email (taken from the Staff Session, never from a body — there is none) and the server's clock, and the response is the Organization as it now stands with house_designated_by and house_designated_at filled. REFUSED with 409 HOUSE_ORGANIZATION_CURRENCY_UNSUPPORTED, naming the currency in the message and in details.currency, when the Organization trades in a currency the Issuer does not invoice in (USD is the only one): no document could ever be built for its sales. NOT refused for a missing Issuer, an Issuer in the test environment or an expired certificate — none of that is consulted; the platform's compliance is the operator's to see and fix, never the buyer's to wait for. Designating an Organization that is already designated changes nothing and answers 200 with the original trail: the trail names the act that made it a House Organization. Designation affects future sales only, nothing is issued retroactively, and nothing is invoiced by this endpoint. An unknown or malformed id is 404 ORGANIZATION_NOT_FOUND. Platform Operator only — an Org Admin has no surface for this anywhere.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Organization ID */
+                    orgID: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorOrganization"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        /**
+         * Clear an Organization's House designation
+         * @description Takes the House Organization designation back (ADR 0060), emptying house_designated_by and house_designated_at together, and returns the Organization as it now stands. From then on the Organization's sales are its own again and owe nothing; nothing already owed or issued is touched — a mistaken or ended arrangement stops producing Sale Invoices, and undesignation affects future sales only. Clearing an Organization that was never designated is an ordinary 200 rather than a refusal: the state asked for is the state reached. No body. An unknown or malformed id is 404 ORGANIZATION_NOT_FOUND. Platform Operator only.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Organization ID */
+                    orgID: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorOrganization"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/organizations/{orgID}/payouts": {
         parameters: {
             query?: never;
@@ -12164,6 +12295,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeOperatorOrganization": {
+            data?: components["schemas"]["service.Organization"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeOperatorOrganizationDetail": {
             data?: components["schemas"]["service.OrganizationDetail"];
             error?: components["schemas"]["platform.APIError"];
@@ -13877,7 +14013,16 @@ export interface components {
         "service.Organization": {
             created_at?: string;
             currency?: string;
+            house_designated_at?: string;
+            house_designated_by?: string;
             id?: string;
+            /**
+             * @description The House Organization designation (#472, ADR 0060): whether the
+             *     platform's own entity runs this Organization, and the trail of the act
+             *     — which operator designated it and when. Both trail fields are null
+             *     when it is not one; they are never set without the other.
+             */
+            is_house_organization?: boolean;
             name?: string;
             slug?: string;
         };
@@ -13910,6 +14055,11 @@ export interface components {
             /** @description EventsCount counts the Organization's Events in every status. */
             events_count?: number;
             id?: string;
+            /**
+             * @description IsHouseOrganization says whether the platform's own entity runs this
+             *     Organization (#472, ADR 0060). The flag alone: the trail is on the detail.
+             */
+            is_house_organization?: boolean;
             name?: string;
             slug?: string;
             /**

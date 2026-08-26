@@ -167,6 +167,14 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// Recording a Payout, which used to mean an INSERT typed by hand into the
 	// production database (ADR 0015).
 	mux.Handle("POST /api/v1/operator/organizations/{orgID}/payouts", operator(http.HandlerFunc(h.RecordPayout)))
+	// The House Organization designation (#472, ADR 0060): PUT makes the
+	// Organization one the platform's own entity runs, DELETE takes it back.
+	// A noun and two verbs rather than a body with a boolean, because the
+	// designation is a fact the operator asserts or withdraws, not a setting
+	// they edit — and it is the operator's alone; no Organization-scoped
+	// route offers it.
+	mux.Handle("PUT /api/v1/operator/organizations/{orgID}/house", operator(http.HandlerFunc(h.DesignateHouseOrganization)))
+	mux.Handle("DELETE /api/v1/operator/organizations/{orgID}/house", operator(http.HandlerFunc(h.UndesignateHouseOrganization)))
 	// Who is waiting to be paid: the second cross-Organization view on this
 	// surface, and not nested under an Organization for the same reason the sale
 	// lookup is not — the request is the reason to open the dashboard, and which

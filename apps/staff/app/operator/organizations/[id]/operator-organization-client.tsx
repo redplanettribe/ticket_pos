@@ -39,11 +39,14 @@ import {
   formatDateTime,
   formatMoney,
 } from "@/lib/format";
+import { houseDesignation } from "@/lib/house-organization";
 import {
   type OperatorOrganizationDetail,
   type OperatorPayoutRequestRow,
+  designateHouseOrganization,
   fetchOperatorOrganization,
   recordOperatorPayout,
+  undesignateHouseOrganization,
 } from "@/lib/operator-api";
 import { isOutstanding, resolutionNotice } from "@/lib/payout-requests";
 import { exceedsWithdrawableBalance, outstandingPayoutRequest, todayISODate } from "@/lib/payouts";
@@ -97,6 +100,7 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
   // Set only while the operator is being asked to confirm; carrying the parsed
   // cents avoids re-parsing the field behind them.
   const [pending, setPending] = useState<PendingPayout | null>(null);
+  const [houseSubmitting, setHouseSubmitting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -145,6 +149,30 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
       );
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // The House toggle (#472, ADR 0060). No confirmation dialog on either
+  // direction: the act is reversible in one press, nothing is invoiced by it,
+  // and undesignation touches nothing already owed. The API is the gate — the
+  // currency refusal is shown by code if the page's own reading was stale.
+  async function toggleHouse(designate: boolean) {
+    setHouseSubmitting(true);
+    try {
+      const organization = designate
+        ? await designateHouseOrganization(organizationId)
+        : await undesignateHouseOrganization(organizationId);
+      // The response is the whole Organization: swap it in rather than
+      // re-reading everything, since nothing else on this page moved.
+      setDetail((current) => (current ? { ...current, organization } : current));
+      toast.success(designate ? t("houseDesignated") : t("houseCleared"));
+    } catch (toggleError) {
+      toast.error(
+        (toggleError instanceof ApiError ? apiErrorMessage(errorCopy, toggleError) : null) ??
+          t("houseFailed"),
+      );
+    } finally {
+      setHouseSubmitting(false);
     }
   }
 
@@ -225,6 +253,7 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
   // Payout — nothing here auto-closes a request (ADR 0026) — so an operator who
   // records one settlement and comes back for another is warned both times.
   const outstanding = outstandingPayoutRequest(payoutRequests);
+  const house = houseDesignation(organization);
 
   return (
     <div className="space-y-6">
@@ -243,6 +272,58 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
           date: day(organization.created_at) ?? "",
         })}
       />
+
+      {/*
+        The House Organization designation (#472, ADR 0060): whether the
+        platform's own entity runs this Organization, so that its paid online
+        sales are the platform's own and its Issuer invoices the buyer. The
+        card carries the trail — who and when — because the act changes whose
+        sale a ticket is, and that deserves a name against it. It is the
+        operator's alone: no Organization surface shows or offers it.
+      */}
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("houseTitle")}</CardTitle>
+          <CardDescription>{t("houseDescription")}</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <Badge variant={house.kind === "house" ? "default" : "secondary"} className="w-fit">
+              {house.kind === "house" ? t("houseStatusDesignated") : t("houseStatusOrdinary")}
+            </Badge>
+            {house.kind === "house" ? (
+              <p className="text-sm text-muted-foreground">
+                {t("houseTrail", {
+                  who: house.by,
+                  date: formatDateTime(house.at, PLATFORM_TIME_ZONE, locale) ?? "",
+                })}
+              </p>
+            ) : house.blockedByCurrency ? (
+              <p className="text-sm text-muted-foreground">
+                {t("houseCurrencyBlocked", { currency: house.blockedByCurrency })}
+              </p>
+            ) : null}
+          </div>
+          {house.kind === "house" ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={houseSubmitting}
+              onClick={() => void toggleHouse(false)}
+            >
+              {houseSubmitting ? t("houseWorking") : t("houseClear")}
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              disabled={houseSubmitting || house.blockedByCurrency !== null}
+              onClick={() => void toggleHouse(true)}
+            >
+              {houseSubmitting ? t("houseWorking") : t("houseDesignate")}
+            </Button>
+          )}
+        </CardContent>
+      </Card>
 
       {/*
         Both balances, beside each other, because the operator about to transfer

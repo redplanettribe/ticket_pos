@@ -28,6 +28,12 @@ type Organizations interface {
 	// for a cross-Organization list whose rows arrive from another module (#176).
 	// Ids that name nothing are absent from the map rather than an error.
 	OrganizationsForOperator(ctx context.Context, orgIDs []string) (map[string]identitysvc.OperatorOrganization, error)
+	// The House Organization designation and its clearing (#472, ADR 0060):
+	// the dashboard's first Organization writes after the Payout. Designation
+	// answers HOUSE_ORGANIZATION_CURRENCY_UNSUPPORTED for an Organization the
+	// Issuer could never invoice for, and both answer ORGANIZATION_NOT_FOUND.
+	DesignateHouseOrganization(ctx context.Context, orgID, operator string) (*identitysvc.OperatorOrganization, error)
+	UndesignateHouseOrganization(ctx context.Context, orgID string) (*identitysvc.OperatorOrganization, error)
 }
 
 // Events is what the operator surface needs from catalog: what each
@@ -170,6 +176,9 @@ type OrganizationListItem struct {
 	// the platform after a sale was reversed post-settlement, and the list says
 	// so rather than clamping it to zero.
 	WithdrawableBalanceCents int `json:"withdrawable_balance_cents"`
+	// IsHouseOrganization says whether the platform's own entity runs this
+	// Organization (#472, ADR 0060). The flag alone: the trail is on the detail.
+	IsHouseOrganization bool `json:"is_house_organization"`
 }
 
 // OrganizationList is the ADR-0006 nested envelope for the Organization list.
@@ -249,6 +258,7 @@ func (s *Service) ListOrganizations(ctx context.Context, page, pageSize int) (*O
 			Currency:                 o.Currency,
 			EventsCount:              counts[o.ID],
 			WithdrawableBalanceCents: balances[o.ID],
+			IsHouseOrganization:      o.IsHouseOrganization,
 		})
 	}
 
@@ -313,6 +323,19 @@ func (s *Service) RecordPayout(ctx context.Context, orgID string, input RecordPa
 		Note:        input.Note,
 		RecordedBy:  input.RecordedBy,
 	})
+}
+
+// DesignateHouseOrganization marks an Organization as one the platform's own
+// entity runs, stamped with the operator's email (#472, ADR 0060). Identity
+// owns the rule — USD only, no Issuer consulted — and this service only
+// carries the act to it.
+func (s *Service) DesignateHouseOrganization(ctx context.Context, orgID, operator string) (*Organization, error) {
+	return s.organizations.DesignateHouseOrganization(ctx, orgID, operator)
+}
+
+// UndesignateHouseOrganization takes the designation back, emptying the trail.
+func (s *Service) UndesignateHouseOrganization(ctx context.Context, orgID string) (*Organization, error) {
+	return s.organizations.UndesignateHouseOrganization(ctx, orgID)
 }
 
 func totalPages(total, pageSize int) int {
