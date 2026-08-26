@@ -160,13 +160,14 @@ func insertEcuadorDetails(ctx context.Context, tx execer, id, issuerID string, e
 // in later; if this insert fails, the sale it rides with is not recorded.
 //
 // Kind, ticket_sale_id, iva_rate and — for a Credit Note — what it credits
-// and why come from the Invoice; country comes from it too, since the Sale
-// is invoiced by the country's Issuer whether or not one exists yet.
+// and why (a reversal route or a reissue, #481) come from the Invoice;
+// country comes from it too, since the Sale is invoiced by the country's
+// Issuer whether or not one exists yet.
 func (r *Repository) OweInvoice(ctx context.Context, tx *sql.Tx, inv invoicing.Invoice) (string, error) {
 	var id string
 	if err := tx.QueryRowContext(ctx, `
 		INSERT INTO invoicing_invoices
-			(kind, country, status, ticket_sale_id, credits_invoice_id, reversal_reason, iva_rate,
+			(kind, country, status, ticket_sale_id, credits_invoice_id, credit_note_reason, iva_rate,
 			 recipient_tax_id_type, recipient_tax_id, recipient_legal_name, recipient_address, recipient_email,
 			 currency, subtotal_cents, discount_cents, iva_cents, total_cents, payment_method,
 			 next_attempt_at, last_messages)
@@ -176,7 +177,7 @@ func (r *Repository) OweInvoice(ctx context.Context, tx *sql.Tx, inv invoicing.I
 		        $19, '[]'::jsonb)
 		RETURNING id
 	`,
-		inv.Kind, inv.Country, invoicing.InvoiceStatusOwed, inv.TicketSaleID, inv.CreditsInvoiceID, inv.ReversalReason, inv.IVARate,
+		inv.Kind, inv.Country, invoicing.InvoiceStatusOwed, inv.TicketSaleID, inv.CreditsInvoiceID, inv.CreditNoteReason, inv.IVARate,
 		inv.Recipient.TaxIDType, inv.Recipient.TaxID, inv.Recipient.LegalName, inv.Recipient.Address, inv.Recipient.Email,
 		inv.Currency, inv.SubtotalCents, inv.DiscountCents, inv.IVACents, inv.TotalCents, inv.PaymentMethod,
 		inv.NextAttemptAt,
@@ -351,7 +352,7 @@ const invoiceColumns = `
 	i.recipient_tax_id_type, i.recipient_tax_id, i.recipient_legal_name, i.recipient_address, i.recipient_email,
 	i.issuer_snapshot, i.currency, i.subtotal_cents, i.discount_cents, i.iva_cents, i.total_cents, i.payment_method,
 	i.signed_xml, i.authorization_xml, i.last_messages,
-	i.ticket_sale_id, ts.confirmation_ref, i.credits_invoice_id, i.reversal_reason, i.iva_rate, i.delivered_at, i.next_attempt_at,
+	i.ticket_sale_id, ts.confirmation_ref, i.credits_invoice_id, i.credit_note_reason, i.iva_rate, i.delivered_at, i.next_attempt_at,
 	(SELECT c.id FROM invoicing_invoices c WHERE c.credits_invoice_id = i.id ORDER BY c.created_at DESC, c.id DESC LIMIT 1),
 	i.attention_since, i.annulled_by, i.annulled_at,
 	i.created_at, i.updated_at,
@@ -559,27 +560,27 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 	var row InvoiceRow
 	inv := &row.Invoice
 	var (
-		issuerID, environment, issuedBy  sql.NullString
-		issuedOn, issuedAt               sql.NullTime
-		snapshot, messages               []byte
-		ticketSaleID, confirmationRef    sql.NullString
-		creditsInvoiceID, reversalReason sql.NullString
-		creditedByInvoiceID              sql.NullString
-		ivaRate                          sql.NullString
-		deliveredAt, nextAttemptAt       sql.NullTime
-		attentionSince, annulledAt       sql.NullTime
-		annulledBy                       sql.NullString
-		codDoc, estab, ptoEmi, accessKey sql.NullString
-		secuencial                       sql.NullInt64
-		authNumber                       sql.NullString
-		authDate                         sql.NullTime
+		issuerID, environment, issuedBy    sql.NullString
+		issuedOn, issuedAt                 sql.NullTime
+		snapshot, messages                 []byte
+		ticketSaleID, confirmationRef      sql.NullString
+		creditsInvoiceID, creditNoteReason sql.NullString
+		creditedByInvoiceID                sql.NullString
+		ivaRate                            sql.NullString
+		deliveredAt, nextAttemptAt         sql.NullTime
+		attentionSince, annulledAt         sql.NullTime
+		annulledBy                         sql.NullString
+		codDoc, estab, ptoEmi, accessKey   sql.NullString
+		secuencial                         sql.NullInt64
+		authNumber                         sql.NullString
+		authDate                           sql.NullTime
 	)
 	if err := scanner.Scan(
 		&inv.ID, &inv.Kind, &issuerID, &inv.Country, &environment, &inv.Status, &issuedOn, &issuedAt, &issuedBy,
 		&inv.Recipient.TaxIDType, &inv.Recipient.TaxID, &inv.Recipient.LegalName, &inv.Recipient.Address, &inv.Recipient.Email,
 		&snapshot, &inv.Currency, &inv.SubtotalCents, &inv.DiscountCents, &inv.IVACents, &inv.TotalCents, &inv.PaymentMethod,
 		&inv.SignedXML, &inv.AuthorizationXML, &messages,
-		&ticketSaleID, &confirmationRef, &creditsInvoiceID, &reversalReason, &ivaRate, &deliveredAt, &nextAttemptAt,
+		&ticketSaleID, &confirmationRef, &creditsInvoiceID, &creditNoteReason, &ivaRate, &deliveredAt, &nextAttemptAt,
 		&creditedByInvoiceID,
 		&attentionSince, &annulledBy, &annulledAt,
 		&inv.CreatedAt, &inv.UpdatedAt,
@@ -604,7 +605,7 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 	inv.TicketSaleID = ticketSaleID.String
 	inv.SaleConfirmationRef = confirmationRef.String
 	inv.CreditsInvoiceID = creditsInvoiceID.String
-	inv.ReversalReason = reversalReason.String
+	inv.CreditNoteReason = creditNoteReason.String
 	inv.CreditedByInvoiceID = creditedByInvoiceID.String
 	inv.IVARate = invoicing.IVARate(ivaRate.String)
 	if deliveredAt.Valid {

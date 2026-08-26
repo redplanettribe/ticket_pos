@@ -568,7 +568,8 @@ func (s *Service) saleDocumentParts(ctx context.Context, base sri.Factura, row *
 
 // creditNoteParts turns a Credit Note's factura-shaped parts into a nota
 // de crédito's: codDoc 04, the credited factura's printed number and
-// emission date, and the reversal route as the motivo. The credited
+// emission date, and the Credit Note's reason as the motivo — a reversal
+// route's words or the reissue's fixed correction text (#481). The credited
 // factura must be signed and authorized; anything else is a document the
 // Drainer should never have reached here with.
 func creditNoteParts(parts facturaParts, note *invoicing.Invoice, factura *repository.InvoiceRow) (facturaParts, error) {
@@ -589,7 +590,7 @@ func creditNoteParts(parts facturaParts, note *invoicing.Invoice, factura *repos
 		Number:       FormatNumber(factura.Ecuador.Estab, factura.Ecuador.PtoEmi, factura.Ecuador.Secuencial),
 		IssuedOn:     time.Date(y, m, d, 12, 0, 0, 0, sri.Guayaquil),
 	}
-	parts.motivo = invoicing.CreditNoteMotivo(note.ReversalReason)
+	parts.motivo = invoicing.CreditNoteMotivo(note.CreditNoteReason)
 	return parts, nil
 }
 
