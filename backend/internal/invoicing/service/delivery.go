@@ -57,10 +57,21 @@ func (s *Service) deliverDocument(ctx context.Context, row *repository.InvoiceRo
 		return false, s.rescheduleDelivery(ctx, inv, nil, now)
 	}
 
+	// A reissue's Credit Note promises a corrected factura. When the Sale was
+	// reversed while that nota was still unanswered (#484), the corrected
+	// factura was withdrawn and the reversal's own Credit Note stood down
+	// because this one already credits the factura — so this mail is the
+	// buyer's only word that the purchase is undone, and it reads as a
+	// reversal's would. The document itself is unchanged: the SRI holds the
+	// correction motivo it was signed with.
+	reason := inv.CreditNoteReason
+	if reason == invoicing.CreditNoteReasonReissue && facts.Reversed {
+		reason = ""
+	}
 	delivery := platform.TaxDocumentDelivery{
 		To:           inv.Recipient.Email,
 		Kind:         string(inv.Kind),
-		Reason:       inv.CreditNoteReason,
+		Reason:       reason,
 		Supersedes:   inv.SupersedesInvoiceID != "",
 		CustomerName: inv.Recipient.LegalName,
 		EventName:    facts.EventName,

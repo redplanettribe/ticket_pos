@@ -313,6 +313,10 @@ type SaleDeliveryFacts struct {
 	EventName      string
 	SaleLocale     string
 	CustomerLocale string
+	// Reversed says the Sale no longer stands. A reissue's Credit Note that
+	// authorizes after the reversal is the last document the buyer will
+	// receive — no corrected factura follows — and its mail must say so.
+	Reversed bool
 }
 
 // GetSaleDeliveryFacts reads the delivery facts of one Ticket Sale, or nil
@@ -321,12 +325,12 @@ func (r *Repository) GetSaleDeliveryFacts(ctx context.Context, ticketSaleID stri
 	var f SaleDeliveryFacts
 	var saleLocale, customerLocale sql.NullString
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT e.name, ts.locale, c.mail_locale
+		SELECT e.name, ts.locale, c.mail_locale, ts.reversed_at IS NOT NULL
 		FROM ticket_sales ts
 		JOIN events e ON e.id = ts.event_id
 		LEFT JOIN customers c ON c.id = ts.customer_id
 		WHERE ts.id = $1
-	`, ticketSaleID).Scan(&f.EventName, &saleLocale, &customerLocale)
+	`, ticketSaleID).Scan(&f.EventName, &saleLocale, &customerLocale, &f.Reversed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

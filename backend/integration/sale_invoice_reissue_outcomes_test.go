@@ -373,6 +373,18 @@ func TestReversalDuringAReissueWaitsForThePendingReissueCreditNoteThenCreditsOnc
 	if status, _, _ := saleProvenance(t, env, ref); status != "reversed" {
 		t.Fatalf("sale status = %s; want reversed", status)
 	}
+
+	// The reissue's nota is the only Credit Note the buyer will ever receive
+	// for this Sale, and by now the Sale is reversed: no corrected factura
+	// follows. The mail says the purchase was reversed, not that a corrected
+	// factura is on its way.
+	sent := deliveriesSent(t, env)
+	if len(sent) != 2 || sent[1].Kind != "credit_note" {
+		t.Fatalf("deliveries = %d (%v); want the factura's and then the Credit Note's", len(sent), sent)
+	}
+	if text := sent[1].Text(); strings.Contains(text, "corrected tax invoice") || !strings.Contains(text, "reversed purchase") {
+		t.Fatalf("credit note mail after the reversal reads:\n%s\nwant the reversed-purchase wording, never a corrected factura to follow", text)
+	}
 }
 
 // TestReversalDuringAReissueCreditsTheOldSaleInvoiceWhenTheReissueCreditNoteDies:
