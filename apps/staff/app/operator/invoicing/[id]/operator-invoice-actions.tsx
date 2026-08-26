@@ -55,6 +55,9 @@ import {
  * hand at the SRI portal, which the SRI offers no web service for. It is a
  * record, not a request: nothing goes to the SRI, and it is irreversible,
  * so it is confirmed first. Which levers show is `invoiceLevers`' decision.
+ * Reissue (#483) is that decision's fourth lever and its own card
+ * (operator-invoice-reissue.tsx): it belongs to an authorized document,
+ * which this card — the SRI's remedies — never renders for.
  */
 
 const OUTCOME_KEYS = {

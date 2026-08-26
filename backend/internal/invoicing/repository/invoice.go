@@ -162,7 +162,9 @@ func insertEcuadorDetails(ctx context.Context, tx execer, id, issuerID string, e
 // Kind, ticket_sale_id, iva_rate and — for a Credit Note — what it credits
 // and why (a reversal route or a reissue, #481) come from the Invoice;
 // country comes from it too, since the Sale is invoiced by the country's
-// Issuer whether or not one exists yet.
+// Issuer whether or not one exists yet. A Sale Invoice a reissue produced
+// (#483) carries the factura it supersedes and the reissue's trail the same
+// way; on every other document those are "" and nil, written as NULL.
 func (r *Repository) OweInvoice(ctx context.Context, tx *sql.Tx, inv invoicing.Invoice) (string, error) {
 	var id string
 	if err := tx.QueryRowContext(ctx, `
@@ -170,17 +172,20 @@ func (r *Repository) OweInvoice(ctx context.Context, tx *sql.Tx, inv invoicing.I
 			(kind, country, status, ticket_sale_id, credits_invoice_id, credit_note_reason, iva_rate,
 			 recipient_tax_id_type, recipient_tax_id, recipient_legal_name, recipient_address, recipient_email,
 			 currency, subtotal_cents, discount_cents, iva_cents, total_cents, payment_method,
-			 next_attempt_at, last_messages)
+			 next_attempt_at, last_messages,
+			 supersedes_invoice_id, reissued_by, reissued_at, reissue_note)
 		VALUES ($1, $2, $3, $4, NULLIF($5, '')::uuid, NULLIF($6, ''), $7,
 		        $8, $9, $10, $11, $12,
 		        $13, $14, $15, $16, $17, $18,
-		        $19, '[]'::jsonb)
+		        $19, '[]'::jsonb,
+		        NULLIF($20, '')::uuid, NULLIF($21, ''), $22, NULLIF($23, ''))
 		RETURNING id
 	`,
 		inv.Kind, inv.Country, invoicing.InvoiceStatusOwed, inv.TicketSaleID, inv.CreditsInvoiceID, inv.CreditNoteReason, inv.IVARate,
 		inv.Recipient.TaxIDType, inv.Recipient.TaxID, inv.Recipient.LegalName, inv.Recipient.Address, inv.Recipient.Email,
 		inv.Currency, inv.SubtotalCents, inv.DiscountCents, inv.IVACents, inv.TotalCents, inv.PaymentMethod,
 		inv.NextAttemptAt,
+		inv.SupersedesInvoiceID, inv.ReissuedBy, inv.ReissuedAt, inv.ReissueNote,
 	).Scan(&id); err != nil {
 		return "", fmt.Errorf("owe invoice: %w", err)
 	}
@@ -363,6 +368,9 @@ const invoiceColumns = `
 	i.ticket_sale_id, ts.confirmation_ref, i.credits_invoice_id, i.credit_note_reason, i.iva_rate, i.delivered_at, i.next_attempt_at,
 	(SELECT c.id FROM invoicing_invoices c WHERE c.credits_invoice_id = i.id ORDER BY c.created_at DESC, c.id DESC LIMIT 1),
 	i.attention_since, i.annulled_by, i.annulled_at, i.recipient_warning,
+	i.supersedes_invoice_id,
+	(SELECT s.id FROM invoicing_invoices s WHERE s.supersedes_invoice_id = i.id AND s.status <> 'withdrawn' ORDER BY s.created_at DESC, s.id DESC LIMIT 1),
+	rr.reissued_by, rr.reissued_at, rr.reissue_note,
 	i.created_at, i.updated_at,
 	e.cod_doc, e.estab, e.pto_emi, e.secuencial, e.access_key, e.authorization_number, e.authorization_date`
 
@@ -372,10 +380,33 @@ const invoiceColumns = `
 // it is the Sale's fact, and the operator surfaces want it on every read.
 // The Credit Note crediting a Sale Invoice is read the same way (#476): the
 // link is stored once, on the Credit Note, and walked back here.
+//
+// The Sale Invoice Reissue's links are read the same way again (#483, ADR
+// 0061). supersedes_invoice_id is stored once, on the corrected factura;
+// the superseded factura's "superseded by" is walked back from it, taking
+// the live successor — one not withdrawn — of which the schema allows one.
+// The reissue's trail (who, when, the note) is stored on the corrected
+// factura too, and the lateral join reads it beside every document the
+// reissue concerns: the corrected factura's own, the superseded factura's
+// live successor, and — for a reissue Credit Note — the successor of the
+// factura it credits. A document's own trail wins over one that later
+// superseded it.
 const invoiceFrom = `
 	FROM invoicing_invoices i
 	LEFT JOIN invoicing_invoices_ec e ON e.invoice_id = i.id
-	LEFT JOIN ticket_sales ts ON ts.id = i.ticket_sale_id`
+	LEFT JOIN ticket_sales ts ON ts.id = i.ticket_sale_id
+	LEFT JOIN LATERAL (
+		SELECT r.reissued_by, r.reissued_at, r.reissue_note
+		FROM invoicing_invoices r
+		WHERE r.supersedes_invoice_id IS NOT NULL
+		  AND (r.id = i.id
+		       OR (r.status <> 'withdrawn'
+		           AND (r.supersedes_invoice_id = i.id
+		                OR (i.kind = 'credit_note' AND i.credit_note_reason = 'reissue'
+		                    AND r.supersedes_invoice_id = i.credits_invoice_id))))
+		ORDER BY (r.id = i.id) DESC, r.created_at DESC, r.id DESC
+		LIMIT 1
+	) rr ON TRUE`
 
 // GetInvoice reads one Tax Invoice in full, or nil when none has the id.
 func (r *Repository) GetInvoice(ctx context.Context, id string) (*InvoiceRow, error) {
@@ -601,6 +632,9 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 		deliveredAt, nextAttemptAt         sql.NullTime
 		attentionSince, annulledAt         sql.NullTime
 		annulledBy                         sql.NullString
+		supersedesID, supersededByID       sql.NullString
+		reissuedBy, reissueNote            sql.NullString
+		reissuedAt                         sql.NullTime
 		codDoc, estab, ptoEmi, accessKey   sql.NullString
 		secuencial                         sql.NullInt64
 		authNumber                         sql.NullString
@@ -614,6 +648,7 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 		&ticketSaleID, &confirmationRef, &creditsInvoiceID, &creditNoteReason, &ivaRate, &deliveredAt, &nextAttemptAt,
 		&creditedByInvoiceID,
 		&attentionSince, &annulledBy, &annulledAt, &inv.RecipientWarning,
+		&supersedesID, &supersededByID, &reissuedBy, &reissuedAt, &reissueNote,
 		&inv.CreatedAt, &inv.UpdatedAt,
 		&codDoc, &estab, &ptoEmi, &secuencial, &accessKey, &authNumber, &authDate,
 	); err != nil {
@@ -655,6 +690,14 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 	if annulledAt.Valid {
 		t := annulledAt.Time
 		inv.AnnulledAt = &t
+	}
+	inv.SupersedesInvoiceID = supersedesID.String
+	inv.SupersededByInvoiceID = supersededByID.String
+	inv.ReissuedBy = reissuedBy.String
+	inv.ReissueNote = reissueNote.String
+	if reissuedAt.Valid {
+		t := reissuedAt.Time
+		inv.ReissuedAt = &t
 	}
 	if accessKey.Valid {
 		row.Ecuador = &invoicing.EcuadorInvoiceDetails{

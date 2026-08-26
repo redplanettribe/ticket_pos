@@ -284,6 +284,11 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// Mark annulled (#477): the operator's record of a manual portal act,
 	// allowed from pending or needs_attention, irreversible.
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/annul", operator(http.HandlerFunc(inv.AnnulInvoice)))
+	// The Sale Invoice Reissue (#483, ADR 0061): a Credit Note and a
+	// corrected Sale Invoice owed in one act against an authorized factura
+	// whose Recipient is wrong. Operator-only; 404 while Sale Invoicing is
+	// closed.
+	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/reissue", operator(http.HandlerFunc(inv.ReissueInvoice)))
 	// The documents that need an operator (#477): the Operator Dashboard's
 	// queue, longest waiting first, and its count. Read-only, on the
 	// invoicing module because the documents are its own; the dashboard's

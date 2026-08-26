@@ -1315,6 +1315,18 @@ export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
   /** The operator who marked the document annulled at the SRI portal, and when (#477); null unless annulled. */
   annulled_by: string | null;
   annulled_at: string | null;
+  /**
+   * The Sale Invoice Reissue's chain (#483, ADR 0061): on a corrected Sale
+   * Invoice, the factura it supersedes; on a reissued factura, the live
+   * corrected one. The current Sale Invoice is the one with neither a
+   * successor nor a withdrawn or annulled state.
+   */
+  supersedes_invoice_id: string | null;
+  superseded_by_invoice_id: string | null;
+  /** Who reissued, when and the note — on the corrected factura, the superseded one and the reissue's Credit Note alike. */
+  reissued_by: string | null;
+  reissued_at: string | null;
+  reissue_note: string | null;
   has_authorization_xml: boolean;
   /**
    * True when the invoice is pending and the SRI holds the document —
@@ -1445,6 +1457,33 @@ export async function fetchOperatorNeedsAttentionCount(): Promise<OperatorNeedsA
 export async function annulOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
   return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/annul`, {
     method: "POST",
+  });
+}
+
+/** The corrected Recipient as the reissue form submits it (#483). No email: the Sale's is taken. */
+export type ReissueInvoiceBody = {
+  recipient: {
+    tax_id_type: InvoiceRecipient["tax_id_type"];
+    tax_id: string;
+    legal_name: string;
+    address: string;
+  };
+  note: string | null;
+};
+
+/**
+ * Reissues an authorized Sale Invoice to a corrected Recipient (#483, ADR
+ * 0061): owes a Credit Note against it and a corrected Sale Invoice in one
+ * act, and returns the CORRECTED document — a new id — as it stands, owed.
+ * Refused with INVOICE_MANUAL_NOT_REISSUABLE, CREDIT_NOTE_NOT_REISSUABLE,
+ * INVOICE_NOT_AUTHORIZED, INVOICE_SALE_REVERSED, REISSUE_IN_FLIGHT,
+ * INVOICE_SUPERSEDED or INVOICE_ALREADY_CREDITED, each by code, and with
+ * VALIDATION_FAILED naming the fields.
+ */
+export async function reissueOperatorInvoice(id: string, body: ReissueInvoiceBody): Promise<OperatorInvoiceDetail> {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/reissue`, {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 }
 

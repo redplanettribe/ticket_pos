@@ -846,6 +846,34 @@
                 },
                 "type": "object"
             },
+            "handler.reissueInvoiceBody": {
+                "properties": {
+                    "note": {
+                        "type": "string"
+                    },
+                    "recipient": {
+                        "$ref": "#/components/schemas/handler.reissueRecipientBody"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.reissueRecipientBody": {
+                "properties": {
+                    "address": {
+                        "type": "string"
+                    },
+                    "legal_name": {
+                        "type": "string"
+                    },
+                    "tax_id": {
+                        "type": "string"
+                    },
+                    "tax_id_type": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.reorderTicketQuestionsBody": {
                 "properties": {
                     "question_ids": {
@@ -4233,7 +4261,7 @@
                         "$ref": "#/components/schemas/invoicing.IssuerSnapshot"
                     },
                     "iva_rate": {
-                        "description": "The Sale side (#473): the one IVA rate a platform-priced document was\npriced under, when its authorized document was mailed to the buyer,\nwhen the Drainer next works it, and — on a Credit Note — the Sale\nInvoice it credits and the reversal route that made it owed. All null\non a manual Tax Invoice.",
+                        "description": "The Sale side (#473): the one IVA rate a platform-priced document was\npriced under, when its authorized document was mailed to the buyer,\nwhen the Drainer next works it, and — on a Credit Note — the Sale\nInvoice it credits and why: a reversal route, or \"reissue\" (#481, ADR\n0061), under the field name the first reason gave it. All null on a\nmanual Tax Invoice.",
                         "type": "string"
                     },
                     "kind": {
@@ -4275,6 +4303,15 @@
                         "description": "RecipientWarning is true on an authorized Sale Invoice the SRI warned\nabout — the Recipient's Tax ID does not exist (advertencia 59) or is\nincorrect (62) — until the document is superseded (#482, ADR 0061).\nThe status is unaffected. Always false while SALE_INVOICING_ENABLED is\nclosed.",
                         "type": "boolean"
                     },
+                    "reissue_note": {
+                        "type": "string"
+                    },
+                    "reissued_at": {
+                        "type": "string"
+                    },
+                    "reissued_by": {
+                        "type": "string"
+                    },
                     "reversal_reason": {
                         "type": "string"
                     },
@@ -4282,6 +4319,13 @@
                         "type": "string"
                     },
                     "status": {
+                        "type": "string"
+                    },
+                    "superseded_by_invoice_id": {
+                        "type": "string"
+                    },
+                    "supersedes_invoice_id": {
+                        "description": "The Sale Invoice Reissue's chain and trail (#483, ADR 0061).\nSupersedesInvoiceID is, on a corrected Sale Invoice, the factura it\ncorrects; SupersededByInvoiceID is, on a reissued factura, the live\ncorrected one — the current Sale Invoice is the one with neither a\nsuccessor nor a withdrawn or annulled state. ReissuedBy, ReissuedAt\nand ReissueNote are who reissued, when and the optional note, shown on\nthe corrected factura, the superseded one and the reissue's Credit\nNote alike. All null where no reissue concerns the document.",
                         "type": "string"
                     },
                     "ticket_sale_id": {
@@ -10503,6 +10547,113 @@
                     }
                 ],
                 "summary": "Check a Tax Invoice's status with the SRI",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/invoices/{id}/reissue": {
+            "post": {
+                "description": "Corrects an authorized Sale Invoice whose Recipient is wrong (ADR 0061) by owing, in one transaction, a Credit Note for the full amount against it — the same Recipient as the factura, reason `reissue`, motivo \"Corrección de los datos del receptor\" — and a corrected Sale Invoice to the Recipient as entered: `recipient.tax_id_type` (`cedula`, `ruc` or `passport`), `recipient.tax_id` validated exactly as a checkout Tax ID with the same field-level errors, `recipient.legal_name` required, `recipient.address` optional. The corrected document's email is the one the Ticket Sale carries at that moment (after any Sale Re-addressing) and is never taken from the body; its lines, totals and IVA rate are the factura's; it names the factura it supersedes and records who reissued (the session's email), when, and the optional `note` (at most 500 characters). The superseded factura stays authorized and on file; the Sale, its buyer, its Tickets and the Customer's stored Tax ID are untouched. The Sale Invoice Drainer is kicked as after a checkout and works the Credit Note first; the corrected factura is signed only once that Credit Note is authorized. Answers 201 with the corrected document's detail, `owed` and unsigned. Refused with INVOICE_MANUAL_NOT_REISSUABLE (409) on a manual Tax Invoice, CREDIT_NOTE_NOT_REISSUABLE (409) on a Credit Note, INVOICE_NOT_AUTHORIZED (409, `details.status`) on a document that is owed, pending, needs_attention, withdrawn or annulled, INVOICE_SALE_REVERSED (409) when the Ticket Sale was reversed, REISSUE_IN_FLIGHT (409) while another reissue on the Sale has not settled, INVOICE_SUPERSEDED (409) on a factura already superseded, INVOICE_ALREADY_CREDITED (409) on one an authorized Credit Note already stands against, INVOICE_NOT_FOUND (404) otherwise. The decision is made under the Sale's lock, so a reissue racing a reversal is refused rather than double-written. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Sale Invoice id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.reissueInvoiceBody",
+                                        "summary": "body",
+                                        "description": "The corrected Recipient and an optional note"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The corrected Recipient and an optional note",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeInvoiceDetail"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Reissue a Sale Invoice to a corrected Recipient",
                 "tags": [
                     "operator"
                 ]

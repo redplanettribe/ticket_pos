@@ -61,6 +61,16 @@ import (
 // consumed, nothing sent, because a nota de crédito can name only an
 // authorized factura (#471 story 29).
 //
+// A CORRECTED FACTURA FOLLOWS ITS CREDIT NOTE (#483, ADR 0061). A Sale
+// Invoice Reissue owes a Credit Note against the old factura and a fresh
+// Sale Invoice that supersedes it, both due at once. The claim
+// (repository.ClaimDueInvoice) hands out the Credit Note first and the
+// corrected factura only once that Credit Note is authorized, so the SRI
+// sees the cancellation before the replacement and a Sale never holds two
+// authorized facturas; once claimed, the corrected factura is signed,
+// submitted, polled and delivered exactly as the first one was. A Credit
+// Note that dies instead leaves it waiting, unsigned (#484).
+//
 // DELIVERY IS THIS DRAINER'S LAST STEP (#475). An authorized document is
 // mailed to the buyer in the same round that saw it authorized — under the
 // same claim, which the authorization leaves in place — and, if the sender

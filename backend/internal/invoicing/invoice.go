@@ -232,9 +232,29 @@ type Invoice struct {
 	// when the document is superseded. Never true on any other kind.
 	RecipientWarning bool
 
+	// The Sale Invoice Reissue (#483, ADR 0061). SupersedesInvoiceID is, on
+	// a Sale Invoice a reissue produced, the factura it corrects; stored
+	// here and nowhere else. SupersededByInvoiceID is the reverse link read
+	// beside the row — the live successor (one not withdrawn) of a
+	// reissued factura, "" when it is current. ReissuedBy, ReissuedAt and
+	// ReissueNote are the reissue's trail: stored on the corrected factura,
+	// and read beside the superseded factura and the reissue Credit Note so
+	// every document concerned shows who, when and why.
+	SupersedesInvoiceID   string
+	SupersededByInvoiceID string
+	ReissuedBy            string
+	ReissuedAt            *time.Time
+	ReissueNote           string
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
+
+// MaxReissueNoteLength bounds the operator's note on a Sale Invoice Reissue
+// (#483): a sentence for a colleague, bounded as an Operator Reversal's note
+// is and by the schema (migration 102), stated here so the caller is told
+// which field is wrong rather than shown a constraint violation.
+const MaxReissueNoteLength = 500
 
 // Signed reports whether the document has been built and signed — the seven
 // issue-time facts are present and an Ecuador detail row exists — as opposed

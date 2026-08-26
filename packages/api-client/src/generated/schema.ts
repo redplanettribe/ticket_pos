@@ -3515,6 +3515,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/invoicing/invoices/{id}/reissue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reissue a Sale Invoice to a corrected Recipient
+         * @description Corrects an authorized Sale Invoice whose Recipient is wrong (ADR 0061) by owing, in one transaction, a Credit Note for the full amount against it — the same Recipient as the factura, reason `reissue`, motivo "Corrección de los datos del receptor" — and a corrected Sale Invoice to the Recipient as entered: `recipient.tax_id_type` (`cedula`, `ruc` or `passport`), `recipient.tax_id` validated exactly as a checkout Tax ID with the same field-level errors, `recipient.legal_name` required, `recipient.address` optional. The corrected document's email is the one the Ticket Sale carries at that moment (after any Sale Re-addressing) and is never taken from the body; its lines, totals and IVA rate are the factura's; it names the factura it supersedes and records who reissued (the session's email), when, and the optional `note` (at most 500 characters). The superseded factura stays authorized and on file; the Sale, its buyer, its Tickets and the Customer's stored Tax ID are untouched. The Sale Invoice Drainer is kicked as after a checkout and works the Credit Note first; the corrected factura is signed only once that Credit Note is authorized. Answers 201 with the corrected document's detail, `owed` and unsigned. Refused with INVOICE_MANUAL_NOT_REISSUABLE (409) on a manual Tax Invoice, CREDIT_NOTE_NOT_REISSUABLE (409) on a Credit Note, INVOICE_NOT_AUTHORIZED (409, `details.status`) on a document that is owed, pending, needs_attention, withdrawn or annulled, INVOICE_SALE_REVERSED (409) when the Ticket Sale was reversed, REISSUE_IN_FLIGHT (409) while another reissue on the Sale has not settled, INVOICE_SUPERSEDED (409) on a factura already superseded, INVOICE_ALREADY_CREDITED (409) on one an authorized Credit Note already stands against, INVOICE_NOT_FOUND (404) otherwise. The decision is made under the Sale's lock, so a reissue racing a reversal is refused rather than double-written. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Sale Invoice id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description The corrected Recipient and an optional note */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.reissueInvoiceBody"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeInvoiceDetail"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/invoicing/invoices/{id}/resend": {
         parameters: {
             query?: never;
@@ -12241,6 +12333,16 @@ export interface components {
             note?: string;
             paid_at?: string;
         };
+        "handler.reissueInvoiceBody": {
+            note?: string;
+            recipient?: components["schemas"]["handler.reissueRecipientBody"];
+        };
+        "handler.reissueRecipientBody": {
+            address?: string;
+            legal_name?: string;
+            tax_id?: string;
+            tax_id_type?: string;
+        };
         "handler.reorderTicketQuestionsBody": {
             question_ids?: string[];
         };
@@ -14232,8 +14334,9 @@ export interface components {
              * @description The Sale side (#473): the one IVA rate a platform-priced document was
              *     priced under, when its authorized document was mailed to the buyer,
              *     when the Drainer next works it, and — on a Credit Note — the Sale
-             *     Invoice it credits and the reversal route that made it owed. All null
-             *     on a manual Tax Invoice.
+             *     Invoice it credits and why: a reversal route, or "reissue" (#481, ADR
+             *     0061), under the field name the first reason gave it. All null on a
+             *     manual Tax Invoice.
              */
             iva_rate?: string;
             /** @description Kind is why the document exists: manual, sale or credit_note. */
@@ -14258,9 +14361,24 @@ export interface components {
              *     closed.
              */
             recipient_warning?: boolean;
+            reissue_note?: string;
+            reissued_at?: string;
+            reissued_by?: string;
             reversal_reason?: string;
             sale_confirmation_ref?: string;
             status?: string;
+            superseded_by_invoice_id?: string;
+            /**
+             * @description The Sale Invoice Reissue's chain and trail (#483, ADR 0061).
+             *     SupersedesInvoiceID is, on a corrected Sale Invoice, the factura it
+             *     corrects; SupersededByInvoiceID is, on a reissued factura, the live
+             *     corrected one — the current Sale Invoice is the one with neither a
+             *     successor nor a withdrawn or annulled state. ReissuedBy, ReissuedAt
+             *     and ReissueNote are who reissued, when and the optional note, shown on
+             *     the corrected factura, the superseded one and the reissue's Credit
+             *     Note alike. All null where no reissue concerns the document.
+             */
+            supersedes_invoice_id?: string;
             /**
              * @description TicketSaleID and SaleConfirmationRef name the Ticket Sale a sale
              *     document or credit note is about; null on a manual document.

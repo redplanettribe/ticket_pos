@@ -331,3 +331,14 @@ func stopSRIEnv() {
 		sriStub.server.Close()
 	}
 }
+
+// allReceived is every document the fake took at recepción, in the order it
+// took them: what a test asserts when the ORDER of two submissions is the
+// rule under test (#483, ADR 0061).
+func (f *fakeSRI) allReceived() []receivedComprobante {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]receivedComprobante, len(f.received))
+	copy(out, f.received)
+	return out
+}
