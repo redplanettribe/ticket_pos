@@ -14351,6 +14351,8 @@ export interface components {
             /**
              * @description CreditedByInvoiceID is, on a Sale Invoice, the Credit Note that
              *     credits it (#476); null on every other document and until one does.
+             *     A withdrawn or annulled Credit Note credits nothing (#484): the link
+             *     names a live one, and is null again once the only one died.
              */
             credited_by_invoice_id?: string;
             credits_invoice_id?: string;

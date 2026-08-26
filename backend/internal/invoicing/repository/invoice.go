@@ -254,8 +254,13 @@ type OutcomeUpdate struct {
 // is never touched here. attention_since is set when the answer parks the
 // document and kept while it stays parked; any other answer clears it
 // (#477). recipient_warning is raised when the answer says so and never
-// lowered here (#482): the one write that clears it is the supersession a
-// Sale Invoice Reissue records.
+// lowered on the row itself (#482). The one write that clears a warning is
+// here too, on ANOTHER row (#484, ADR 0061): an answer that authorizes a
+// Sale Invoice which supersedes another is the moment the superseded
+// factura can never be the Sale's current one again — until then a dead
+// Credit Note could still hand it back — so its warning is cleared in the
+// same transaction. The corrected factura's own warning, if the answer
+// carried one, is raised as any other.
 //
 // GUARDED ON u.From, the status the answer was asked for. An operator may
 // have marked the document annulled while the authority was being asked
@@ -301,6 +306,15 @@ func (r *Repository) ApplyOutcome(ctx context.Context, invoiceID string, u Outco
 			return false, fmt.Errorf("apply authorization: %w", err)
 		}
 	}
+	if u.Status == invoicing.InvoiceStatusAuthorized {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE invoicing_invoices s SET recipient_warning = FALSE, updated_at = NOW()
+			FROM invoicing_invoices c
+			WHERE c.id = $1 AND s.id = c.supersedes_invoice_id AND s.recipient_warning
+		`, invoiceID); err != nil {
+			return false, fmt.Errorf("clear superseded recipient warning: %w", err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return false, fmt.Errorf("commit apply outcome: %w", err)
 	}
@@ -338,8 +352,32 @@ func attentionSinceExpr(status, at string) string {
 // attention_since with it. Guarded on the two states Mark annulled is
 // allowed from, so a second press, or a press racing a late AUTORIZADO,
 // finds no row to update; the service reads the row back to say which.
-func (r *Repository) AnnulInvoice(ctx context.Context, invoiceID, annulledBy string, annulledAt time.Time) (bool, error) {
-	res, err := r.db.Pool.ExecContext(ctx, `
+//
+// A DEAD CREDIT NOTE TAKES ITS CORRECTED FACTURA WITH IT (#484, ADR 0061).
+// A Sale Invoice Reissue's corrected factura waits, owed and unsigned, for
+// the Credit Note against the factura it supersedes to be authorized; an
+// annulled Credit Note never will be, and a corrected factura issued after
+// it would leave the Sale with two authorized facturas. So in the same
+// transaction, an unsigned successor (owed, or parked unsignable) of the
+// factura the annulled Credit Note credits is withdrawn — no number consumed, nothing sent, off
+// the queue — carrying successorMessages as the platform's word on why. The
+// superseded factura is then current again, credited by nothing live (the
+// credited_by read skips dead Credit Notes), and reissuable. The
+// withdrawn successor's id is returned, "" when there was none: a Credit
+// Note owed by a reversal has no successor to take, and one whose
+// successor a reversal already withdrew finds nothing to do.
+func (r *Repository) AnnulInvoice(ctx context.Context, invoiceID, annulledBy string, annulledAt time.Time, successorMessages []invoicing.AuthorityMessage) (annulled bool, withdrawnSuccessorID string, err error) {
+	encoded, err := json.Marshal(messagesOrEmpty(successorMessages))
+	if err != nil {
+		return false, "", fmt.Errorf("marshal messages: %w", err)
+	}
+	tx, err := r.db.Pool.BeginTx(ctx, nil)
+	if err != nil {
+		return false, "", fmt.Errorf("begin annul invoice: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx, `
 		UPDATE invoicing_invoices SET
 			status = $2,
 			annulled_by = $3,
@@ -351,13 +389,35 @@ func (r *Repository) AnnulInvoice(ctx context.Context, invoiceID, annulledBy str
 	`, invoiceID, invoicing.InvoiceStatusAnnulled, annulledBy, annulledAt,
 		invoicing.InvoiceStatusNeedsAttention, invoicing.InvoiceStatusPending)
 	if err != nil {
-		return false, fmt.Errorf("annul invoice: %w", err)
+		return false, "", fmt.Errorf("annul invoice: %w", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return false, fmt.Errorf("annul invoice: %w", err)
+		return false, "", fmt.Errorf("annul invoice: %w", err)
 	}
-	return n == 1, nil
+	if n != 1 {
+		return false, "", nil
+	}
+	err = tx.QueryRowContext(ctx, `
+		UPDATE invoicing_invoices s SET
+			status = $3,
+			last_messages = $4,
+			next_attempt_at = NULL,
+			attention_since = NULL,
+			updated_at = $5
+		FROM invoicing_invoices n
+		WHERE n.id = $1 AND n.kind = 'credit_note'
+		  AND s.kind = 'sale' AND s.supersedes_invoice_id = n.credits_invoice_id
+		  AND s.status IN ($2, $6) AND s.signed_xml IS NULL
+		RETURNING s.id
+	`, invoiceID, invoicing.InvoiceStatusOwed, invoicing.InvoiceStatusWithdrawn, encoded, annulledAt, invoicing.InvoiceStatusNeedsAttention).Scan(&withdrawnSuccessorID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, "", fmt.Errorf("withdraw the annulled credit note's successor: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, "", fmt.Errorf("commit annul invoice: %w", err)
+	}
+	return true, withdrawnSuccessorID, nil
 }
 
 const invoiceColumns = `
@@ -366,7 +426,7 @@ const invoiceColumns = `
 	i.issuer_snapshot, i.currency, i.subtotal_cents, i.discount_cents, i.iva_cents, i.total_cents, i.payment_method,
 	i.signed_xml, i.authorization_xml, i.last_messages,
 	i.ticket_sale_id, ts.confirmation_ref, i.credits_invoice_id, i.credit_note_reason, i.iva_rate, i.delivered_at, i.next_attempt_at,
-	(SELECT c.id FROM invoicing_invoices c WHERE c.credits_invoice_id = i.id ORDER BY c.created_at DESC, c.id DESC LIMIT 1),
+	(SELECT c.id FROM invoicing_invoices c WHERE c.credits_invoice_id = i.id AND c.status NOT IN ('withdrawn', 'annulled') ORDER BY c.created_at DESC, c.id DESC LIMIT 1),
 	i.attention_since, i.annulled_by, i.annulled_at, i.recipient_warning,
 	i.supersedes_invoice_id,
 	(SELECT s.id FROM invoicing_invoices s WHERE s.supersedes_invoice_id = i.id AND s.status <> 'withdrawn' ORDER BY s.created_at DESC, s.id DESC LIMIT 1),
@@ -379,7 +439,11 @@ const invoiceColumns = `
 // Confirmation reference is read beside the row rather than copied onto it:
 // it is the Sale's fact, and the operator surfaces want it on every read.
 // The Credit Note crediting a Sale Invoice is read the same way (#476): the
-// link is stored once, on the Credit Note, and walked back here.
+// link is stored once, on the Credit Note, and walked back here — taking
+// the newest LIVE one (#484): a Credit Note that died, withdrawn or
+// annulled, credits nothing, and a factura it alone names is uncredited,
+// current again and reissuable; the dead Credit Note stays on file beside
+// it, listed with the Sale's documents and readable by its own id.
 //
 // The Sale Invoice Reissue's links are read the same way again (#483, ADR
 // 0061). supersedes_invoice_id is stored once, on the corrected factura;

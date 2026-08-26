@@ -70,6 +70,15 @@ test("reissue is not offered on a superseded or credited Sale Invoice", () => {
   );
 });
 
+// A reissue that died (#484): the API reports the factura credited by no
+// live Credit Note and superseded by nothing — the annulled Credit Note and
+// the withdrawn corrected factura stay on file without a link — and the
+// lever is offered again exactly as on a factura never reissued.
+test("reissue is offered again once the reissue's Credit Note died", () => {
+  const afterADeadReissue = { kind: "sale", superseded_by_invoice_id: null, credited_by_invoice_id: null } as const;
+  assert.deepEqual(invoiceLevers("authorized", true, afterADeadReissue), { ...NONE, reissue: true });
+});
+
 // An owed document, and one parked because it could not be signed, has no
 // number at the SRI: nothing to check, resend or annul until the Drainer
 // signs it.

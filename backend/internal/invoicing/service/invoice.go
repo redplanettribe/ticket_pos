@@ -763,6 +763,8 @@ type InvoiceDetail struct {
 	ReversalReason   *string    `json:"reversal_reason"`
 	// CreditedByInvoiceID is, on a Sale Invoice, the Credit Note that
 	// credits it (#476); null on every other document and until one does.
+	// A withdrawn or annulled Credit Note credits nothing (#484): the link
+	// names a live one, and is null again once the only one died.
 	CreditedByInvoiceID *string `json:"credited_by_invoice_id"`
 	// AnnulledBy and AnnulledAt are the operator who marked the document
 	// annulled after annulling it by hand at the SRI portal, and when (#477).

@@ -26,9 +26,10 @@ import type { InvoiceKind, InvoiceStatus } from "./operator-api";
  * `reissue` is the one lever an AUTHORIZED document has (#483): a Sale
  * Invoice Reissue, offered on a Sale Invoice that is the Sale's current one
  * — authorized, not superseded by a corrected factura, and not credited by
- * any Credit Note, which is what a reversal, a reissue in flight and a
- * settled reissue all leave behind. A manual Tax Invoice is issued again by
- * hand and a Credit Note is never credited, so neither is offered it.
+ * any live Credit Note, which is what a reversal, a reissue in flight and a
+ * settled reissue all leave behind (a reissue that died leaves none, #484).
+ * A manual Tax Invoice is issued again by hand and a Credit Note is never
+ * credited, so neither is offered it.
  */
 export type InvoiceLevers = {
   check: boolean;
@@ -75,11 +76,11 @@ export function invoiceLevers(
 }
 
 /**
- * Whether Reissue is offered: exactly where the API would allow it, as far
- * as the detail can tell. A dead Credit Note (withdrawn, annulled) still
- * names the factura as credited here and hides the lever; the API decides
- * that case on the Credit Note's state (#484), and an operator who reaches
- * it is refused by code rather than misled.
+ * Whether Reissue is offered: exactly where the API would allow it. The
+ * detail's `credited_by_invoice_id` names a LIVE Credit Note only (#484):
+ * one that died — the reissue's, refused by the SRI and marked annulled —
+ * credits nothing, the corrected factura was withdrawn with it, and the
+ * factura is current again with the link null, so the lever is back.
  */
 function reissueOffered(status: InvoiceStatus, chain: InvoiceChainFacts): boolean {
   return (

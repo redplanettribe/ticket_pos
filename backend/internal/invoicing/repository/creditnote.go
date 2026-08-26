@@ -17,19 +17,20 @@ import (
 // document never sent. Owing the Credit Note itself is OweInvoice, which
 // already takes the transaction.
 
-// LockSaleInvoicesForReversal reads the Sale Invoices (kind `sale`) of one
-// Ticket Sale in full — lines included, since a Credit Note copies them —
-// under FOR UPDATE, in tx. The lock is what serialises the reversal against
+// LockSaleDocumentsForReversal reads every document of one Ticket Sale —
+// its Sale Invoices and, since a reissue may be in flight (#484), their
+// Credit Notes — in full, lines included since a Credit Note copies them,
+// oldest first, under FOR UPDATE, in tx. The lock is what serialises the reversal against
 // the Drainer: a round that holds the row's claim still has to UPDATE it to
 // sign it, and that UPDATE waits on this lock and then finds the row
 // withdrawn (SignOwedInvoice is guarded on the row being unsigned, and a
 // withdrawn row is never signed because it is never claimed again).
 //
 // Ordinarily one row; the shape allows for what the schema allows.
-func (r *Repository) LockSaleInvoicesForReversal(ctx context.Context, tx *sql.Tx, ticketSaleID string) ([]InvoiceRow, error) {
+func (r *Repository) LockSaleDocumentsForReversal(ctx context.Context, tx *sql.Tx, ticketSaleID string) ([]InvoiceRow, error) {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT `+invoiceColumns+invoiceFrom+`
-		WHERE i.ticket_sale_id = $1 AND i.kind = 'sale'
+		WHERE i.ticket_sale_id = $1
 		ORDER BY i.created_at, i.id
 		FOR UPDATE OF i
 	`, ticketSaleID)
@@ -50,7 +51,9 @@ func (r *Repository) LockSaleInvoicesForReversal(ctx context.Context, tx *sql.Tx
 }
 
 // WithdrawUnsignedInvoice records that a document never sent never will
-// be (#476): its Sale was reversed first. Written in tx, guarded on the
+// be (#476): its Sale was reversed first — the Sale Invoice, or, when a
+// reissue was in flight, its unsent Credit Note and corrected factura too
+// (#484). Written in tx, guarded on the
 // row being unsigned — a withdrawn document has consumed no number and
 // holds no bytes, which is what the state means (migration 098) — and it
 // leaves the queue: next_attempt_at cleared, attention_since cleared with

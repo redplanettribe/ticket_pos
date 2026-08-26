@@ -69,7 +69,18 @@ import (
 // sees the cancellation before the replacement and a Sale never holds two
 // authorized facturas; once claimed, the corrected factura is signed,
 // submitted, polled and delivered exactly as the first one was. A Credit
-// Note that dies instead leaves it waiting, unsigned (#484).
+// Note that dies instead — annulled at the portal — takes the corrected
+// factura with it (#484): Mark annulled withdraws it in its own act, and
+// the claim admits a corrected factura no live Credit Note precedes so that
+// a round withdraws it unsigned as this round withdraws an owed Credit Note
+// whose factura died. Either way the old factura is current again.
+//
+// ONE CREDIT NOTE PER FACTURA REACHES THE AUTHORITY (#484). A reversal
+// during a reissue owes a second Credit Note against the old factura,
+// which waits (repository.ClaimDueInvoice) while the reissue's is signed
+// and undecided; claimed once that one is answered, it is withdrawn here
+// if the sibling was authorized — the factura is credited already — and
+// signed if the sibling died.
 //
 // DELIVERY IS THIS DRAINER'S LAST STEP (#475). An authorized document is
 // mailed to the buyer in the same round that saw it authorized — under the
@@ -303,10 +314,22 @@ func (s *Service) workSaleInvoice(ctx context.Context, row *repository.InvoiceRo
 	}
 	if !row.Invoice.Signed() {
 		if row.Invoice.Kind == invoicing.DocumentKindCreditNote {
-			// Its factura is terminal, or it would not have been claimed.
-			// Dead factura: the Credit Note goes with it, and there is
-			// nothing further to do this round.
+			// Its factura is terminal and no sibling is undecided, or it
+			// would not have been claimed. Dead factura, or a sibling that
+			// credited the factura already: the Credit Note is withdrawn,
+			// and there is nothing further to do this round.
 			withdrawn, err := s.withdrawCreditNoteOfADeadFactura(ctx, row)
+			if err != nil || withdrawn {
+				return invoicing.InvoiceStatusWithdrawn, false, err
+			}
+			if withdrawn, err = s.withdrawRedundantCreditNote(ctx, row); err != nil || withdrawn {
+				return invoicing.InvoiceStatusWithdrawn, false, err
+			}
+		}
+		if row.Invoice.SupersedesInvoiceID != "" {
+			// Its Credit Note is authorized or dead, or it would not have
+			// been claimed. Dead: the corrected factura goes with it.
+			withdrawn, err := s.withdrawCorrectedFacturaOfADeadCreditNote(ctx, row)
 			if err != nil || withdrawn {
 				return invoicing.InvoiceStatusWithdrawn, false, err
 			}
@@ -367,28 +390,116 @@ func (s *Service) withdrawCreditNoteOfADeadFactura(ctx context.Context, row *rep
 	default:
 		return false, fmt.Errorf("invoicing: credit note %s was claimed while its factura is %s", row.Invoice.ID, factura.Invoice.Status)
 	}
+	return s.withdrawUnsigned(ctx, row, creditNoteWithdrawnCode,
+		fmt.Sprintf("The Sale Invoice this Credit Note would have credited is %s; nothing was sent to the SRI.", factura.Invoice.Status),
+		"credit note withdrawn; the factura it credits died unauthorized")
+}
+
+// withdrawRedundantCreditNote reads the other Credit Notes against the
+// factura an owed Credit Note credits (#484) and, if one of them is
+// authorized — a reissue's, answered after the reversal owed this one —
+// withdraws this one, off the queue, with a platform message saying why,
+// and reports so. No authorized sibling reports false: the Credit Note is
+// signed next. A sibling still signed and undecided is a claim that should
+// not have happened and is left leased to expire.
+func (s *Service) withdrawRedundantCreditNote(ctx context.Context, row *repository.InvoiceRow) (bool, error) {
+	siblings, err := s.creditNotesAgainst(ctx, row.Invoice.TicketSaleID, row.Invoice.CreditsInvoiceID, row.Invoice.ID)
+	if err != nil {
+		return false, err
+	}
+	credited := false
+	for _, sibling := range siblings {
+		switch sibling.Status {
+		case invoicing.InvoiceStatusAuthorized:
+			credited = true
+		case invoicing.InvoiceStatusPending, invoicing.InvoiceStatusNeedsAttention:
+			return false, fmt.Errorf("invoicing: credit note %s was claimed while credit note %s against the same factura is %s", row.Invoice.ID, sibling.ID, sibling.Status)
+		}
+	}
+	if !credited {
+		return false, nil
+	}
+	return s.withdrawUnsigned(ctx, row, creditNoteRedundantCode,
+		"The Sale Invoice this Credit Note would have credited is credited already by another Credit Note; nothing was sent to the SRI.",
+		"credit note withdrawn; the factura it credits is credited already")
+}
+
+// withdrawCorrectedFacturaOfADeadCreditNote reads the Credit Notes against
+// the factura an owed corrected Sale Invoice supersedes (#484) and, if none
+// of them is live any more — the reissue's died, annulled at the portal —
+// withdraws the corrected factura, unsigned, off the queue, with a
+// platform message saying why, and reports so: the old factura stands
+// current. An authorized Credit Note reports false: the corrected factura
+// is signed next. One still owed or undecided is a claim that should not
+// have happened and is left leased to expire.
+func (s *Service) withdrawCorrectedFacturaOfADeadCreditNote(ctx context.Context, row *repository.InvoiceRow) (bool, error) {
+	notes, err := s.creditNotesAgainst(ctx, row.Invoice.TicketSaleID, row.Invoice.SupersedesInvoiceID, "")
+	if err != nil {
+		return false, err
+	}
+	for _, note := range notes {
+		switch note.Status {
+		case invoicing.InvoiceStatusAuthorized:
+			return false, nil
+		case invoicing.InvoiceStatusOwed, invoicing.InvoiceStatusPending, invoicing.InvoiceStatusNeedsAttention:
+			return false, fmt.Errorf("invoicing: corrected sale invoice %s was claimed while credit note %s against the factura it supersedes is %s", row.Invoice.ID, note.ID, note.Status)
+		}
+	}
+	return s.withdrawUnsigned(ctx, row, correctedInvoiceWithdrawnCode, correctedInvoiceWithdrawnMessage,
+		"corrected sale invoice withdrawn; the credit note it follows died unauthorized")
+}
+
+// creditNotesAgainst is the Sale's Credit Notes crediting one factura,
+// except the one with excludeID.
+func (s *Service) creditNotesAgainst(ctx context.Context, ticketSaleID, facturaID, excludeID string) ([]*invoicing.Invoice, error) {
+	docs, err := s.repo.ListInvoicesBySale(ctx, ticketSaleID)
+	if err != nil {
+		return nil, err
+	}
+	var out []*invoicing.Invoice
+	for i := range docs {
+		inv := &docs[i].Invoice
+		if inv.Kind == invoicing.DocumentKindCreditNote && inv.CreditsInvoiceID == facturaID && inv.ID != excludeID {
+			out = append(out, inv)
+		}
+	}
+	return out, nil
+}
+
+// withdrawUnsigned withdraws the claimed, unsigned document with one
+// platform message, guarded on the state the round read it in, and reports
+// true either way: written, or moved under the round by whoever got there
+// first, in which case the row is theirs.
+func (s *Service) withdrawUnsigned(ctx context.Context, row *repository.InvoiceRow, code, message, logLine string) (bool, error) {
 	now := s.clock()
-	msgs := []invoicing.AuthorityMessage{{
-		Identifier: creditNoteWithdrawnCode,
-		Message:    fmt.Sprintf("The Sale Invoice this Credit Note would have credited is %s; nothing was sent to the SRI.", factura.Invoice.Status),
-		Type:       platformMessageType,
-	}}
+	msgs := []invoicing.AuthorityMessage{{Identifier: code, Message: message, Type: platformMessageType}}
 	written, err := s.repo.Reschedule(context.WithoutCancel(ctx), row.Invoice.ID, row.Invoice.Status, invoicing.InvoiceStatusWithdrawn, msgs, nil, now)
 	if err != nil {
 		return false, err
 	}
 	if !written {
-		s.logger.Info("invoicing: the credit note moved under the drainer; not withdrawn by this round", "invoice_id", row.Invoice.ID, "read_as", row.Invoice.Status)
+		s.logger.Info("invoicing: the document moved under the drainer; not withdrawn by this round", "invoice_id", row.Invoice.ID, "kind", row.Invoice.Kind, "read_as", row.Invoice.Status)
 		return true, nil
 	}
-	s.logger.Info("invoicing: credit note withdrawn; the factura it credits died unauthorized",
-		"invoice_id", row.Invoice.ID, "credits_invoice_id", factura.Invoice.ID, "factura_status", factura.Invoice.Status)
+	s.logger.Info("invoicing: "+logLine, "invoice_id", row.Invoice.ID, "kind", row.Invoice.Kind)
 	return true, nil
 }
 
 // creditNoteWithdrawnCode is the platform message a withdrawn Credit Note
 // carries, in the operator's vocabulary beside the authority's codes.
 const creditNoteWithdrawnCode = "CREDIT_NOTE_FACTURA_NOT_AUTHORIZED"
+
+// creditNoteRedundantCode is the platform message a Credit Note withdrawn
+// because another already credits its factura carries (#484).
+const creditNoteRedundantCode = "CREDIT_NOTE_FACTURA_ALREADY_CREDITED"
+
+// correctedInvoiceWithdrawnCode and its message are what a corrected Sale
+// Invoice withdrawn because its Credit Note died carries (#484), whether
+// Mark annulled withdrew it or the Drainer did.
+const (
+	correctedInvoiceWithdrawnCode    = "SALE_INVOICE_CREDIT_NOTE_NOT_AUTHORIZED"
+	correctedInvoiceWithdrawnMessage = "The Credit Note this corrected Sale Invoice follows was not authorized; nothing was sent to the SRI, and the Sale Invoice it would have superseded stands."
+)
 
 // pollOnce asks autorización once and applies a definite answer; an
 // undecided one only reschedules.
