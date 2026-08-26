@@ -125,6 +125,56 @@ func ErrIssuerFieldFrozen(field string) apperror.DomainError {
 	return apperror.New("ISSUER_FIELD_FROZEN", "The Issuer's "+field+" cannot change any more: documents have been issued under it.", map[string]string{"field": field})
 }
 
+// The Sale Invoice Reissue's refusals (#483, ADR 0061), one code each, so
+// the operator's surface names what stood in the way rather than "cannot
+// reissue". Each is a fact about the document or its Sale that no retry
+// with the same body changes.
+
+// ErrInvoiceManualNotReissuable: a manual Tax Invoice is not reissued — the
+// operator issues another by hand.
+func ErrInvoiceManualNotReissuable() apperror.DomainError {
+	return apperror.New("INVOICE_MANUAL_NOT_REISSUABLE", "A manual Tax Invoice is not reissued. Issue another one by hand.", nil)
+}
+
+// ErrCreditNoteNotReissuable: a Credit Note is never itself credited.
+func ErrCreditNoteNotReissuable() apperror.DomainError {
+	return apperror.New("CREDIT_NOTE_NOT_REISSUABLE", "A Credit Note cannot be reissued: only a Sale Invoice can.", nil)
+}
+
+// ErrInvoiceNotAuthorized: only an authorized Sale Invoice is reissued. One
+// still owed, pending or parked has Resend and Mark annulled as its path;
+// one withdrawn or annulled no longer stands.
+func ErrInvoiceNotAuthorized(status InvoiceStatus) apperror.DomainError {
+	return apperror.New("INVOICE_NOT_AUTHORIZED", "Only an authorized Sale Invoice can be reissued; this one is "+string(status)+".", map[string]string{"status": string(status)})
+}
+
+// ErrInvoiceSaleReversed: the Sale no longer stands, so income that no
+// longer stands is never re-declared.
+func ErrInvoiceSaleReversed() apperror.DomainError {
+	return apperror.New("INVOICE_SALE_REVERSED", "The Ticket Sale was reversed. Its Sale Invoice is credited by the reversal and cannot be reissued.", nil)
+}
+
+// ErrReissueInFlight: another reissue on the same Sale has not settled —
+// its Credit Note or its corrected factura is not yet authorized — and a
+// chain never forks.
+func ErrReissueInFlight() apperror.DomainError {
+	return apperror.New("REISSUE_IN_FLIGHT", "A reissue of this sale's Sale Invoice is already in progress. Wait until its Credit Note and corrected Sale Invoice are authorized.", nil)
+}
+
+// ErrInvoiceSuperseded: the factura is no longer the Sale's current one;
+// the corrected factura is what a further reissue corrects.
+func ErrInvoiceSuperseded() apperror.DomainError {
+	return apperror.New("INVOICE_SUPERSEDED", "This Sale Invoice was superseded by a reissue. Reissue the current Sale Invoice instead.", nil)
+}
+
+// ErrInvoiceAlreadyCredited: an authorized Credit Note already stands
+// against the factura and no live successor exists — the Sale has no
+// current factura (#480's gap), and a second Credit Note would credit it
+// twice.
+func ErrInvoiceAlreadyCredited() apperror.DomainError {
+	return apperror.New("INVOICE_ALREADY_CREDITED", "This Sale Invoice is already credited by an authorized Credit Note and cannot be credited again.", nil)
+}
+
 // ErrSaleInvoicingUnavailable: Sale Invoicing was asked for while
 // SALE_INVOICING_ENABLED is closed (#471, ADR 0060) — a House designation or
 // a Drainer run. "Not found." and a 404, on the terms the other feature flags

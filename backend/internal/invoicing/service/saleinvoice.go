@@ -170,7 +170,7 @@ func (s *Service) SettleReversedSale(ctx context.Context, tx *sql.Tx, reversal s
 			s.logger.Info("invoicing: reversed sale's invoice needs no credit note", "invoice_id", inv.ID, "status", inv.Status, "already_credited", inv.CreditedByInvoiceID != "")
 		default:
 			// authorized, pending, or needs_attention with a number consumed.
-			note := creditNoteOf(inv, reversal, s.clock())
+			note := creditNoteOf(inv, reversal.Route, s.clock())
 			id, err := s.repo.OweInvoice(ctx, tx, note)
 			if err != nil {
 				return false, err
@@ -183,20 +183,21 @@ func (s *Service) SettleReversedSale(ctx context.Context, tx *sql.Tx, reversal s
 	return due, nil
 }
 
-// creditNoteOf is the Credit Note a Sale Invoice owes on its Sale's
-// reversal: the same document minus everything that needs an Issuer, of
-// kind credit_note, naming what it credits and why. Copied from the Sale
+// creditNoteOf is the Credit Note a Sale Invoice owes — on its Sale's
+// reversal, or on its reissue (#483): the same document minus everything
+// that needs an Issuer, of kind credit_note, naming what it credits and
+// why (a reversal route, or CreditNoteReasonReissue). Copied from the Sale
 // Invoice ROW, never from the Sale — the Recipient is fixed once issued
 // (CONTEXT.md, Recipient), and what is credited is what was invoiced.
 // Pure, so the copy is testable without a database.
-func creditNoteOf(factura *invoicing.Invoice, reversal sales.SaleReversal, now time.Time) invoicing.Invoice {
+func creditNoteOf(factura *invoicing.Invoice, reason string, now time.Time) invoicing.Invoice {
 	note := invoicing.Invoice{
 		Kind:             invoicing.DocumentKindCreditNote,
 		Country:          factura.Country,
 		Status:           invoicing.InvoiceStatusOwed,
 		TicketSaleID:     factura.TicketSaleID,
 		CreditsInvoiceID: factura.ID,
-		CreditNoteReason: reversal.Route,
+		CreditNoteReason: reason,
 		IVARate:          factura.IVARate,
 		Recipient:        factura.Recipient,
 		Currency:         factura.Currency,

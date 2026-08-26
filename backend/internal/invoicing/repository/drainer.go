@@ -43,6 +43,17 @@ import (
 // by an operator's Mark annulled, and a claim that reads the factura's
 // state on every tick needs none of them to remember the Credit Note. A
 // signed Credit Note is past the wait and is polled like any other.
+//
+// A CORRECTED FACTURA WAITS FOR ITS CREDIT NOTE (#483, ADR 0061), the
+// sibling wait. An owed Sale Invoice that supersedes another is claimable
+// only once a Credit Note crediting the factura it supersedes is
+// authorized: the SRI must see the cancellation before the replacement,
+// and a Sale must never hold two authorized facturas. Decided here at
+// claim time for the same reason as the Credit Note's wait, and the reason
+// the Credit Note is always worked first — both are due at once, and only
+// one of them is claimable. A Credit Note that dies instead (annulled at
+// the portal) leaves the corrected factura waiting here; withdrawing it
+// unsigned and leaving the old factura current is #484's.
 func (r *Repository) ClaimDueInvoice(ctx context.Context, now, leaseUntil time.Time, ticketSaleID string) (*InvoiceRow, error) {
 	var id string
 	err := r.db.Pool.QueryRowContext(ctx, `
@@ -59,6 +70,11 @@ func (r *Repository) ClaimDueInvoice(ctx context.Context, now, leaseUntil time.T
 			        SELECT 1 FROM invoicing_invoices f
 			        WHERE f.id = i.credits_invoice_id
 			          AND f.status IN ('authorized', 'withdrawn', 'annulled')))
+			  AND (i.supersedes_invoice_id IS NULL OR i.signed_xml IS NOT NULL OR EXISTS (
+			        SELECT 1 FROM invoicing_invoices n
+			        WHERE n.kind = 'credit_note'
+			          AND n.credits_invoice_id = i.supersedes_invoice_id
+			          AND n.status = 'authorized'))
 			  AND ($3 = '' OR i.ticket_sale_id = NULLIF($3, '')::uuid)
 			ORDER BY i.next_attempt_at
 			FOR UPDATE SKIP LOCKED

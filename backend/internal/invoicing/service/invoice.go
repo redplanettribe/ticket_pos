@@ -741,6 +741,19 @@ type InvoiceDetail struct {
 	// Both null unless the document is annulled.
 	AnnulledBy *string    `json:"annulled_by"`
 	AnnulledAt *time.Time `json:"annulled_at"`
+	// The Sale Invoice Reissue's chain and trail (#483, ADR 0061).
+	// SupersedesInvoiceID is, on a corrected Sale Invoice, the factura it
+	// corrects; SupersededByInvoiceID is, on a reissued factura, the live
+	// corrected one — the current Sale Invoice is the one with neither a
+	// successor nor a withdrawn or annulled state. ReissuedBy, ReissuedAt
+	// and ReissueNote are who reissued, when and the optional note, shown on
+	// the corrected factura, the superseded one and the reissue's Credit
+	// Note alike. All null where no reissue concerns the document.
+	SupersedesInvoiceID   *string    `json:"supersedes_invoice_id"`
+	SupersededByInvoiceID *string    `json:"superseded_by_invoice_id"`
+	ReissuedBy            *string    `json:"reissued_by"`
+	ReissuedAt            *time.Time `json:"reissued_at"`
+	ReissueNote           *string    `json:"reissue_note"`
 	// HasAuthorizationXML says whether the authority's document is on file
 	// (#456 serves it).
 	HasAuthorizationXML bool `json:"has_authorization_xml"`
@@ -810,24 +823,29 @@ func optionalTime(t *time.Time) *time.Time {
 func invoiceDetailView(row *repository.InvoiceRow) *InvoiceDetail {
 	inv := &row.Invoice
 	d := &InvoiceDetail{
-		InvoiceListItem:     invoiceListItem(row),
-		Issuer:              inv.Issuer,
-		Lines:               []LineView{},
-		AdditionalFields:    []AdditionalFieldView{},
-		PaymentMethod:       inv.PaymentMethod,
-		PaymentMethodLabel:  sri.PaymentMethodLabel(sri.PaymentMethod(inv.PaymentMethod)),
-		Messages:            messagesView(inv.Messages),
-		Attempts:            []AttemptView{},
-		HasAuthorizationXML: len(inv.AuthorizationXML) > 0,
-		CheckStatusHint:     checkStatusHint(inv, row.Attempts),
-		IVARate:             optional(string(inv.IVARate)),
-		CreditsInvoiceID:    optional(inv.CreditsInvoiceID),
-		ReversalReason:      optional(inv.CreditNoteReason),
-		CreditedByInvoiceID: optional(inv.CreditedByInvoiceID),
-		AnnulledBy:          optional(inv.AnnulledBy),
-		AnnulledAt:          optionalTime(inv.AnnulledAt),
-		CreatedAt:           inv.CreatedAt.UTC(),
-		UpdatedAt:           inv.UpdatedAt.UTC(),
+		InvoiceListItem:       invoiceListItem(row),
+		Issuer:                inv.Issuer,
+		Lines:                 []LineView{},
+		AdditionalFields:      []AdditionalFieldView{},
+		PaymentMethod:         inv.PaymentMethod,
+		PaymentMethodLabel:    sri.PaymentMethodLabel(sri.PaymentMethod(inv.PaymentMethod)),
+		Messages:              messagesView(inv.Messages),
+		Attempts:              []AttemptView{},
+		HasAuthorizationXML:   len(inv.AuthorizationXML) > 0,
+		CheckStatusHint:       checkStatusHint(inv, row.Attempts),
+		IVARate:               optional(string(inv.IVARate)),
+		CreditsInvoiceID:      optional(inv.CreditsInvoiceID),
+		ReversalReason:        optional(inv.CreditNoteReason),
+		CreditedByInvoiceID:   optional(inv.CreditedByInvoiceID),
+		AnnulledBy:            optional(inv.AnnulledBy),
+		AnnulledAt:            optionalTime(inv.AnnulledAt),
+		SupersedesInvoiceID:   optional(inv.SupersedesInvoiceID),
+		SupersededByInvoiceID: optional(inv.SupersededByInvoiceID),
+		ReissuedBy:            optional(inv.ReissuedBy),
+		ReissuedAt:            optionalTime(inv.ReissuedAt),
+		ReissueNote:           optional(inv.ReissueNote),
+		CreatedAt:             inv.CreatedAt.UTC(),
+		UpdatedAt:             inv.UpdatedAt.UTC(),
 	}
 	d.DeliveredAt = optionalTime(inv.DeliveredAt)
 	d.NextAttemptAt = optionalTime(inv.NextAttemptAt)
