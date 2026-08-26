@@ -72,16 +72,9 @@ func (r *Repository) CreateInvoice(ctx context.Context, in NewInvoice, prepare f
 	defer func() { _ = tx.Rollback() }()
 
 	inv := in.Invoice
-	var secuencial int64
-	if err := tx.QueryRowContext(ctx, `
-		INSERT INTO invoicing_sequences_ec (issuer_id, environment, cod_doc, estab, pto_emi, last_secuencial)
-		VALUES ($1, $2, $3, $4, $5, 1)
-		ON CONFLICT (issuer_id, environment, cod_doc, estab, pto_emi) DO UPDATE SET
-			last_secuencial = invoicing_sequences_ec.last_secuencial + 1,
-			updated_at = NOW()
-		RETURNING last_secuencial
-	`, inv.IssuerID, inv.Environment, in.CodDoc, in.Estab, in.PtoEmi).Scan(&secuencial); err != nil {
-		return nil, fmt.Errorf("allocate secuencial: %w", err)
+	secuencial, err := allocateSecuencial(ctx, tx, inv.IssuerID, inv.Environment, in.CodDoc, in.Estab, in.PtoEmi)
+	if err != nil {
+		return nil, err
 	}
 
 	prepared, err := prepare(secuencial)
@@ -118,17 +111,45 @@ func (r *Repository) CreateInvoice(ctx context.Context, in NewInvoice, prepare f
 		return nil, err
 	}
 
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO invoicing_invoices_ec (invoice_id, issuer_id, environment, cod_doc, estab, pto_emi, secuencial, access_key)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, id, inv.IssuerID, inv.Environment, in.CodDoc, in.Estab, in.PtoEmi, secuencial, prepared.AccessKey); err != nil {
-		return nil, fmt.Errorf("insert ecuador invoice details: %w", err)
+	if err := insertEcuadorDetails(ctx, tx, id, inv.IssuerID, inv.Environment, in, secuencial, prepared.AccessKey); err != nil {
+		return nil, err
 	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit create invoice: %w", err)
 	}
 	return r.GetInvoice(ctx, id)
+}
+
+// allocateSecuencial takes the next number under the Issuer's sequence for
+// the document type, establecimiento and punto de emisión, in the caller's
+// transaction: a single INSERT … ON CONFLICT DO UPDATE … RETURNING on the
+// sequence row — created on first use, bumped after — whose row lock
+// serialises two signers at the same moment into distinct consecutive
+// numbers. If the transaction rolls back the number is not consumed.
+func allocateSecuencial(ctx context.Context, tx *sql.Tx, issuerID string, env invoicing.Environment, codDoc, estab, ptoEmi string) (int64, error) {
+	var secuencial int64
+	if err := tx.QueryRowContext(ctx, `
+		INSERT INTO invoicing_sequences_ec (issuer_id, environment, cod_doc, estab, pto_emi, last_secuencial)
+		VALUES ($1, $2, $3, $4, $5, 1)
+		ON CONFLICT (issuer_id, environment, cod_doc, estab, pto_emi) DO UPDATE SET
+			last_secuencial = invoicing_sequences_ec.last_secuencial + 1,
+			updated_at = NOW()
+		RETURNING last_secuencial
+	`, issuerID, env, codDoc, estab, ptoEmi).Scan(&secuencial); err != nil {
+		return 0, fmt.Errorf("allocate secuencial: %w", err)
+	}
+	return secuencial, nil
+}
+
+func insertEcuadorDetails(ctx context.Context, tx execer, id, issuerID string, env invoicing.Environment, in NewInvoice, secuencial int64, accessKey string) error {
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO invoicing_invoices_ec (invoice_id, issuer_id, environment, cod_doc, estab, pto_emi, secuencial, access_key)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, id, issuerID, env, in.CodDoc, in.Estab, in.PtoEmi, secuencial, accessKey); err != nil {
+		return fmt.Errorf("insert ecuador invoice details: %w", err)
+	}
+	return nil
 }
 
 // OweInvoice records a document the platform owes — a Sale Invoice, or later
@@ -197,11 +218,17 @@ type OutcomeUpdate struct {
 	// authorized.
 	Authorization    *invoicing.Authorization
 	AuthorizationXML []byte
+	// NextAttemptAt is when the Sale Invoice Drainer should look again (#474);
+	// nil when nothing is due, which is every manual document and every
+	// settled one. Written on every answer, so a claim's lease never outlives
+	// the answer it was taken for.
+	NextAttemptAt *time.Time
 }
 
 // ApplyOutcome writes the authority's latest answer onto the invoice: its
-// status, the messages verbatim, and — when authorized — the authorization
-// number, date and XML. The signed document is never touched here.
+// status, the messages verbatim, when the Drainer looks again, and — when
+// authorized — the authorization number, date and XML. The signed document
+// is never touched here.
 func (r *Repository) ApplyOutcome(ctx context.Context, invoiceID string, u OutcomeUpdate) error {
 	messages, err := json.Marshal(messagesOrEmpty(u.Messages))
 	if err != nil {
@@ -218,9 +245,10 @@ func (r *Repository) ApplyOutcome(ctx context.Context, invoiceID string, u Outco
 			status = $2,
 			last_messages = $3,
 			authorization_xml = COALESCE($4, authorization_xml),
+			next_attempt_at = $5,
 			updated_at = NOW()
 		WHERE id = $1
-	`, invoiceID, u.Status, messages, u.AuthorizationXML)
+	`, invoiceID, u.Status, messages, u.AuthorizationXML, u.NextAttemptAt)
 	if err != nil {
 		return fmt.Errorf("apply outcome: %w", err)
 	}

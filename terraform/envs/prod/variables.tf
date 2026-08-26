@@ -176,6 +176,27 @@ variable "reversal_reconciler_attempt_deadline_seconds" {
   default     = 90
 }
 
+# The Sale Invoice Drainer tick (#474, ADR 0060). Operational levers on the
+# reconciler's terms.
+
+variable "sale_invoice_drainer_enabled" {
+  description = "Whether the Sale Invoice Drainer tick fires in production. Starts false: the job ships paused and is enabled once an Issuer in `production` exists and the drain endpoint has been curled by hand against real House sales. Until then the kick after each paid House checkout still works every document once. Also the incident switch — set false and apply to stop the tick without deleting the job."
+  type        = bool
+  default     = false
+}
+
+variable "sale_invoice_drainer_schedule" {
+  description = "Unix cron for the production drain tick. Every five minutes; the module variable of the same name carries why."
+  type        = string
+  default     = "*/5 * * * *"
+}
+
+variable "sale_invoice_drainer_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one production drain. One term of a chain that must be read before it is moved; the module variable of the same name says where the chain is written down."
+  type        = number
+  default     = 120
+}
+
 # The Follow Digest jobs (#226, ADR 0030). Operational levers, like the
 # reconciler's above, and declared here for the same reason: pausing has to be an
 # apply from this directory rather than a module edit or a console click the next

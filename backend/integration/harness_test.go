@@ -154,6 +154,16 @@ func TestMain(m *testing.M) {
 		service:    app.IdentityService,
 	}
 
+	// The Sale Invoice Drainer's post-commit kick is off in every app the
+	// suite boots: a drain is something a test drives through the endpoint,
+	// and the one test that proves the kick turns it on for itself (#474).
+	app.InvoicingService.WithSaleInvoiceKick(false)
+
+	// The fake SRI is started before the PayPhone app so that app can be
+	// pointed at it too: a paid House checkout kicks the invoicing module,
+	// and no app in this suite may ever reach the real SRI.
+	sriStub = startSRIStub()
+
 	// A second app over the SAME database, wired with PayPhone credentials and
 	// the base-URL override pointed at a fake PayPhone server, so the real
 	// provider is selected exactly as production selects it. Started after the
@@ -247,6 +257,11 @@ func setupTest(t *testing.T) *testEnv {
 	// The fake-SRI app carries the invoicing service clock; keep it on the
 	// same fixed clock every reset restores everywhere else.
 	sriApp.InvoicingService.WithClock(func() time.Time { return fixedClock })
+	// The post-commit kick stays off unless a test turns it on (#474), in
+	// every app a checkout can be made through.
+	sharedApp.InvoicingService.WithSaleInvoiceKick(false)
+	payphoneApp.InvoicingService.WithSaleInvoiceKick(false)
+	sriApp.InvoicingService.WithSaleInvoiceKick(false)
 	// The checkout helpers cache one Customer Session per buyer, and the
 	// truncation above has just invalidated every one of them.
 	clear(buyerSessions)

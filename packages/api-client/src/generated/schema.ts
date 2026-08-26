@@ -2673,6 +2673,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/internal/sale-invoices/drain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Work the owed Sale Invoices
+         * @description Runs the Sale Invoice Drainer (ADR 0060): claims the Sale Invoices due for work one at a time under a `next_attempt_at` lease, signs each `owed` one from its stored snapshot — consuming a secuencial only then, under the Issuer's current environment, with `fechaEmision` the signing date in America/Guayaquil — submits it to the SRI and polls autorización; polls a `pending` one the SRI already holds without resubmitting it; resends only a document the SRI never acknowledged. Transport failures and RECIBIDA / EN PROCESAMIENTO reschedule on the ladder 1 min, 5 min, 15 min, then hourly from the signing instant. A definite refusal parks the document `needs_attention` with the SRI's messages; 24 hours without a definite answer parks it `needs_attention` while polling continues, and a late AUTORIZADO heals it. A document that cannot be signed — no Issuer, no certificate, an expired certificate, an Issuer the schema refuses — is parked `needs_attention` at once with no number consumed and retried hourly. Every SRI call is an attempts row. Bounded by its own budget, which expires before Cloud Scheduler's attempt deadline. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token (ADR 0008). Safe to call by hand at any time; a no-op on an empty queue. The response tallies what the run did and how many Sale Invoices stand in each state afterwards.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeSaleInvoiceDrain"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/customers/{email}/consent": {
         parameters: {
             query?: never;
@@ -12446,6 +12494,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeSaleInvoiceDrain": {
+            data?: components["schemas"]["service.SaleInvoiceDrainResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeSaleReversal": {
             data?: components["schemas"]["service.SaleReversalResult"];
             error?: components["schemas"]["platform.APIError"];
@@ -14980,6 +15033,34 @@ export interface components {
             status?: string;
             ticket_count?: number;
             ticket_types?: components["schemas"]["service.SaleLine"][];
+        };
+        "service.SaleInvoiceDrainResult": {
+            /**
+             * @description Authorized, Pending and NeedsAttention are where those documents
+             *     ended: authorized this run; still undecided and due again on the
+             *     ladder; parked for an operator (refused, unsignable, or 24 h without an
+             *     answer). With Failed they sum to Claimed.
+             */
+            authorized?: number;
+            /**
+             * @description Claimed is how many documents this run took up. Zero is the ordinary
+             *     answer: nothing was due.
+             */
+            claimed?: number;
+            /**
+             * @description Failed is documents whose round errored on the database itself. Each
+             *     logged its own line; the claim lease returns them to the queue.
+             */
+            failed?: number;
+            needs_attention?: number;
+            pending?: number;
+            /**
+             * @description Standing is how many Sale Invoices sit in each state once this run
+             *     finished, so two curls apart say whether a backlog is shrinking.
+             */
+            standing?: {
+                [key: string]: number;
+            };
         };
         "service.SaleLine": {
             quantity?: number;

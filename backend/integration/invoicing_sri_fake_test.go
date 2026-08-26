@@ -130,6 +130,17 @@ func (f *fakeSRI) reset() {
 	f.authorization = func(accessKey string) (int, string) { return http.StatusOK, authorizedSOAP(accessKey) }
 }
 
+// answerAsUsual restores the default answers — RECIBIDA then AUTORIZADO —
+// without forgetting what was received, for a test that changes the SRI's
+// mind mid-way (#474).
+func (f *fakeSRI) answerAsUsual() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sleep = 0
+	f.reception = func(accessKey string) (int, string) { return http.StatusOK, receivedSOAP(accessKey) }
+	f.authorization = func(accessKey string) (int, string) { return http.StatusOK, authorizedSOAP(accessKey) }
+}
+
 func (f *fakeSRI) setReception(fn func(accessKey string) (int, string)) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -216,7 +227,9 @@ func sriMessage(identifier, message, additional, kind string) string {
 // ---- the second app over the shared DB --------------------------------
 
 func startSRIEnv(ctx context.Context, connStr string, email *platform.CaptureEmailSender) error {
-	sriStub = startSRIStub()
+	if sriStub == nil {
+		sriStub = startSRIStub()
+	}
 
 	cfg := platform.Config{
 		DatabaseURL:       connStr,
@@ -243,7 +256,7 @@ func startSRIEnv(ctx context.Context, connStr string, email *platform.CaptureEma
 	}
 	// Milliseconds, not the production ~15 s: the tests prove the state
 	// machine, not that Go can wait.
-	app.InvoicingService.WithPollSchedule(testPollDelays, testPollBudget)
+	app.InvoicingService.WithPollSchedule(testPollDelays, testPollBudget).WithSaleInvoiceKick(false)
 	sriApp = app
 
 	mux := http.NewServeMux()

@@ -58,6 +58,12 @@ func registerInternalRoutes(mux *http.ServeMux, app *App) {
 	// same reversal primitive and the same per-sale lock.
 	mux.HandleFunc("POST /api/v1/internal/reversals/drain", app.SalesHandler.DrainReversalRequests)
 
+	// The Sale Invoice Drainer's tick (#474, ADR 0060): signs, submits and
+	// polls the Sale Invoices a paid House checkout owed, on the reconciler's
+	// terms — a scheduler ticks it, an operator can curl it, and the
+	// post-commit kick runs the same round for one Sale in the background.
+	mux.HandleFunc("POST /api/v1/internal/sale-invoices/drain", app.InvoicingHandler.DrainSaleInvoices)
+
 	// The weekly Follow Digest, in two halves (#220, ADR 0030). The split is
 	// deliberate and is not an implementation detail leaking into the API: the
 	// mail provider will not take a whole platform's Digests inside one request

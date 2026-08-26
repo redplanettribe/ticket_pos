@@ -44,6 +44,14 @@ func ErrCertificateNotUploaded() apperror.DomainError {
 	return apperror.New("CERTIFICATE_NOT_UPLOADED", "The Issuer has no signing certificate. Upload the .p12 first.", nil)
 }
 
+// ErrCertificateExpired: the certificate in custody is past its NotAfter on
+// the platform's clock, and the SRI refuses a signature made with it. The
+// Sale Invoice Drainer parks a document on it rather than consume a number
+// (#474); the remedy is a re-upload.
+func ErrCertificateExpired() apperror.DomainError {
+	return apperror.New("CERTIFICATE_EXPIRED", "The Issuer's signing certificate has expired. Upload a current .p12.", nil)
+}
+
 // ErrCertificateUnreadable: the certificate on file will not open under the
 // current key — the key was rotated, or the row was damaged. The remedy is a
 // re-upload; the message says so.

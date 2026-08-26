@@ -26,6 +26,10 @@ type Service struct {
 	authority  func(invoicing.Environment) invoicing.TaxAuthority
 	pollDelays []time.Duration
 	pollBudget time.Duration
+	// kick says whether a committed Sale Invoice is worked at once in the
+	// background (#474); drainBatch narrows one drain's bound (tests).
+	kick       bool
+	drainBatch int
 }
 
 // New builds the invoicing Service. custody may be unconfigured (built over a
@@ -43,6 +47,7 @@ func New(repo *repository.Repository, custody *invoicing.Custody, logger platfor
 		authority:  sri.AuthorityFactory(),
 		pollDelays: DefaultPollDelays,
 		pollBudget: DefaultPollBudget,
+		kick:       true,
 	}
 }
 

@@ -40,7 +40,7 @@ func (s *Service) CheckInvoice(ctx context.Context, id string) (*InvoiceDetail, 
 		return authority.QueryOutcome(callCtx, row.Ecuador.AccessKey)
 	})
 	if err == nil && outcome.State != invoicing.OutcomeReceived {
-		s.applyOutcome(ctx, id, outcome)
+		s.applyOutcome(ctx, row, outcome)
 	}
 	s.logger.Info("invoicing: tax invoice checked", "invoice_id", id, "outcome", outcome.State, "error", err)
 	return s.GetInvoice(ctx, id)
@@ -178,8 +178,16 @@ func (s *Service) rebuildAndSign(row *repository.InvoiceRow, snapshot invoicing.
 // invoice is pending and the last thing the authority said was that it holds
 // it (RECIBIDA, EN PROCESAMIENTO, or 43/70 on a resend). A pending invoice
 // whose last call failed carries no hint; a resend is the thing to do there.
+//
+// A Sale Invoice parked needs_attention by the 24-hour rule (#474) is in
+// the same position — the authority holds it and has not decided — and
+// carries the hint too; one parked by a refusal does not, since its last
+// answer was the refusal.
 func checkStatusHint(inv *invoicing.Invoice, attempts []invoicing.Attempt) bool {
-	if inv.Status != invoicing.InvoiceStatusPending || len(attempts) == 0 {
+	if len(attempts) == 0 {
+		return false
+	}
+	if inv.Status != invoicing.InvoiceStatusPending && inv.Status != invoicing.InvoiceStatusNeedsAttention {
 		return false
 	}
 	return attempts[len(attempts)-1].Outcome == string(invoicing.OutcomeReceived)

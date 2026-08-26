@@ -172,7 +172,34 @@ func (s *Service) IssueInvoice(ctx context.Context, in IssueInput) (*InvoiceDeta
 		CodDoc:  sri.DocumentTypeFactura,
 		Estab:   snapshot.Establecimiento,
 		PtoEmi:  snapshot.PuntoEmision,
-	}, func(secuencial int64) (*repository.PreparedInvoice, error) {
+	}, numberAndSign(facturaParts{base: base, recipient: recipient, lines: lines, fields: fields}, cert, now))
+	if err != nil {
+		return nil, err
+	}
+	s.logger.Info("invoicing: tax invoice issued",
+		"invoice_id", row.Invoice.ID, "environment", env, "secuencial", row.Ecuador.Secuencial, "issued_by", in.IssuedBy)
+
+	s.submitAndPoll(ctx, row, nil)
+	return s.GetInvoice(ctx, row.Invoice.ID)
+}
+
+// facturaParts is a factura minus its number: everything the builder needs
+// that is known before a secuencial is allocated. The manual issue and the
+// Drainer (#474) both assemble one, dry-run it, and hand it to numberAndSign
+// inside the transaction that allocates the number.
+type facturaParts struct {
+	base      sri.Factura
+	recipient sri.Recipient
+	lines     []sri.Line
+	fields    []sri.AdditionalField
+}
+
+// numberAndSign is the prepare callback both signing writes run with the
+// secuencial they just allocated: the clave de acceso is computed, the
+// factura built and signed, and the two returned for storage. Any failure
+// rolls the allocation back with it.
+func numberAndSign(parts facturaParts, cert *sri.Certificate, now time.Time) func(secuencial int64) (*repository.PreparedInvoice, error) {
+	return func(secuencial int64) (*repository.PreparedInvoice, error) {
 		sequential, err := sri.FormatSequential(secuencial)
 		if err != nil {
 			return nil, err
@@ -181,13 +208,14 @@ func (s *Service) IssueInvoice(ctx context.Context, in IssueInput) (*InvoiceDeta
 		if err != nil {
 			return nil, err
 		}
+		base := parts.base
 		key, err := sri.NewAccessKey(sri.AccessKeyInput{
 			IssuedOn:      now,
 			DocumentType:  sri.DocumentTypeFactura,
-			RUC:           snapshot.RUC,
+			RUC:           base.Issuer.RUC,
 			Environment:   base.Environment,
-			Establishment: snapshot.Establecimiento,
-			EmissionPoint: snapshot.PuntoEmision,
+			Establishment: base.Issuer.Establishment,
+			EmissionPoint: base.Issuer.EmissionPoint,
 			Sequential:    sequential,
 			NumericCode:   numericCode,
 		})
@@ -197,9 +225,9 @@ func (s *Service) IssueInvoice(ctx context.Context, in IssueInput) (*InvoiceDeta
 		f := base
 		f.AccessKey = key
 		f.Sequential = sequential
-		f.Recipient = recipient
-		f.Lines = lines
-		f.AdditionalFields = fields
+		f.Recipient = parts.recipient
+		f.Lines = parts.lines
+		f.AdditionalFields = parts.fields
 		built, err := sri.BuildFactura(f)
 		if err != nil {
 			return nil, err
@@ -209,15 +237,7 @@ func (s *Service) IssueInvoice(ctx context.Context, in IssueInput) (*InvoiceDeta
 			return nil, err
 		}
 		return &repository.PreparedInvoice{AccessKey: key, SignedXML: signed}, nil
-	})
-	if err != nil {
-		return nil, err
 	}
-	s.logger.Info("invoicing: tax invoice issued",
-		"invoice_id", row.Invoice.ID, "environment", env, "secuencial", row.Ecuador.Secuencial, "issued_by", in.IssuedBy)
-
-	s.submitAndPoll(ctx, row, nil)
-	return s.GetInvoice(ctx, row.Invoice.ID)
 }
 
 // submitAndPoll is the second half: hand the document to the authority and,
@@ -242,12 +262,12 @@ func (s *Service) submitAndPoll(ctx context.Context, row *repository.InvoiceRow,
 		return
 	}
 	if outcome.State != invoicing.OutcomeReceived {
-		s.applyOutcome(ctx, id, outcome)
+		s.applyOutcome(ctx, row, outcome)
 		return
 	}
 	// Received: the messages so far (warnings, or the 43/70 "it is there")
 	// are worth keeping while it stays pending.
-	s.applyOutcome(ctx, id, outcome)
+	s.applyOutcome(ctx, row, outcome)
 	if onReceived != nil {
 		onReceived(ctx, outcome)
 	}
@@ -270,7 +290,7 @@ func (s *Service) submitAndPoll(ctx context.Context, row *repository.InvoiceRow,
 		if outcome.State == invoicing.OutcomeReceived {
 			continue
 		}
-		s.applyOutcome(ctx, id, outcome)
+		s.applyOutcome(ctx, row, outcome)
 		return
 	}
 }
@@ -303,7 +323,18 @@ func (s *Service) attempt(ctx context.Context, invoiceID string, op invoicing.At
 }
 
 // applyOutcome maps the authority's verdict onto the invoice's status.
-func (s *Service) applyOutcome(ctx context.Context, invoiceID string, o invoicing.Outcome) {
+//
+// A MANUAL DOCUMENT AND A SALE INVOICE READ THE SAME VERDICT DIFFERENTLY
+// (#474, ADR 0060). Authorized is authorized for both. A definite refusal
+// leaves a manual document not_authorized or rejected, for the operator who
+// pressed Issue to read and act on; it parks a Sale Invoice needs_attention,
+// the one word the Operator Dashboard's queue is built on, with the
+// authority's messages beside it. An undecided answer leaves a manual
+// document pending until the operator checks; it leaves a Sale Invoice
+// pending AND due again on the ladder — or needs_attention-still-polled once
+// 24 hours have passed since signing without a definite answer.
+func (s *Service) applyOutcome(ctx context.Context, row *repository.InvoiceRow, o invoicing.Outcome) {
+	inv := &row.Invoice
 	u := repository.OutcomeUpdate{Messages: o.Messages}
 	switch o.State {
 	case invoicing.OutcomeAuthorized:
@@ -317,8 +348,19 @@ func (s *Service) applyOutcome(ctx context.Context, invoiceID string, o invoicin
 	default:
 		u.Status = invoicing.InvoiceStatusPending
 	}
-	if err := s.repo.ApplyOutcome(context.WithoutCancel(ctx), invoiceID, u); err != nil {
-		s.logger.Error("invoicing: could not apply outcome", "invoice_id", invoiceID, "status", u.Status, "error", err)
+	if inv.Kind != invoicing.DocumentKindManual {
+		switch u.Status {
+		case invoicing.InvoiceStatusNotAuthorized, invoicing.InvoiceStatusRejected:
+			u.Status = invoicing.InvoiceStatusNeedsAttention
+		case invoicing.InvoiceStatusPending:
+			now := s.clock()
+			u.Status = undecidedStatus(inv, now)
+			next := now.Add(ladderDelay(now.Sub(inv.IssuedAt)))
+			u.NextAttemptAt = &next
+		}
+	}
+	if err := s.repo.ApplyOutcome(context.WithoutCancel(ctx), inv.ID, u); err != nil {
+		s.logger.Error("invoicing: could not apply outcome", "invoice_id", inv.ID, "status", u.Status, "error", err)
 	}
 }
 

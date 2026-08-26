@@ -470,6 +470,40 @@ variable "reversal_reconciler_attempt_deadline_seconds" {
   }
 }
 
+# --- Sale Invoice Drainer -----------------------------------------------------
+
+variable "sale_invoice_drainer_enabled" {
+  description = "Whether the Cloud Scheduler tick driving the Sale Invoice Drainer actually fires (#474, ADR 0060). False leaves the job, its identity and its run.invoker grant in place but paused, which is how it ships: it is enabled once an Issuer in `production` exists and the drain endpoint has been curled by hand. Until then the post-commit kick after every paid House checkout still works each document once, so the state machine is visible on the invoicing list; what stays unworked is only what the kick could not finish. Also the incident switch — set false and apply to stop the tick without deleting anything."
+  type        = bool
+  default     = false
+}
+
+variable "sale_invoice_drainer_schedule" {
+  description = "Unix cron for the drain tick, read in America/Guayaquil. Every five minutes: the normal path is the kick right after checkout, so the tick only catches what that could not finish, and the backend's own ladder (1 min, 5 min, 15 min, then hourly in invoicing_invoices.next_attempt_at) is what says when a document is due — a tick this often means a document is never more than a few minutes later than its rung. Changing it changes how promptly a stuck document is picked up, never whether it is: overlapping and skipped runs are both harmless for the reason sale_invoice_drainer.tf gives beside attempt_deadline."
+  type        = string
+  default     = "*/5 * * * *"
+
+  validation {
+    condition     = can(regex("^\\S+( \\S+){4}$", var.sale_invoice_drainer_schedule))
+    error_message = "sale_invoice_drainer_schedule must be five space-separated cron fields, e.g. \"*/5 * * * *\"."
+  }
+}
+
+variable "sale_invoice_drainer_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one drain before abandoning it. The middle term of a chain — the backend's own drain budget must expire first, this second, api_request_timeout_seconds last — written down once, with what breaks when a term moves alone, in backend/internal/invoicing/service/drainer.go beside saleInvoiceDrainBudget. Read that before moving this. A backend test reads this default and fails if the chain stops holding."
+  type        = number
+  default     = 120
+
+  validation {
+    # The floor is the backend's drain budget plus the poll budget a document
+    # already being submitted can still be paying; the ceiling is Cloud
+    # Scheduler's own limit for an HTTP target. The backend test named above
+    # is what holds the relationship exactly.
+    condition     = var.sale_invoice_drainer_attempt_deadline_seconds >= 90 && var.sale_invoice_drainer_attempt_deadline_seconds <= 1800
+    error_message = "sale_invoice_drainer_attempt_deadline_seconds must be between 90 and 1800: at least 90 so it outlives the backend's drain budget plus a submission in flight, and at most 1800 because Cloud Scheduler rejects more for an HTTP target."
+  }
+}
+
 # --- Follow Digest ------------------------------------------------------------
 #
 # Two jobs, two switches, two schedules and two deadlines (#226, ADR 0030). They

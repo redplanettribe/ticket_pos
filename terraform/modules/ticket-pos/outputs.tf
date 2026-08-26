@@ -179,6 +179,11 @@ output "reversal_reconciler_job_name" {
   value       = google_cloud_scheduler_job.reversal_reconciler.name
 }
 
+output "sale_invoice_drainer_job_name" {
+  description = "Cloud Scheduler job driving the Sale Invoice Drainer (ADR 0060). It ships PAUSED (sale_invoice_drainer_enabled defaults false); the launch is the tfvar plus an apply once an Issuer in `production` exists. `gcloud scheduler jobs run <name> --location <region>` forces one run by hand. It presents its own service account, google_service_account.sale_invoice_drainer."
+  value       = google_cloud_scheduler_job.sale_invoice_drainer.name
+}
+
 output "reversal_reconciler_service_account_email" {
   description = "Identity Cloud Scheduler presents to the API. Holds run.invoker on the API service and nothing else."
   value       = google_service_account.reversal_reconciler.email

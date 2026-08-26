@@ -900,6 +900,7 @@ func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.Chec
 	}
 
 	s.sendSaleConfirmation(ctx, event.OrganizationID, event.ID, approved.Sale)
+	s.kickSaleInvoiceDrainer(ctx, approved.Sale)
 
 	return &BeginCheckoutResult{
 		ClientTransactionID: clientTransactionID,
@@ -1111,6 +1112,7 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 	}
 
 	s.sendSaleConfirmation(ctx, payment.OrganizationID, payment.EventID, approved.Sale)
+	s.kickSaleInvoiceDrainer(ctx, approved.Sale)
 
 	return &ConfirmCheckoutResult{
 		ClientTransactionID: clientTransactionID,

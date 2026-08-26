@@ -39,3 +39,11 @@ type EnvelopeInvoiceTotals struct {
 	Error     *platform.APIError `json:"error"`
 	RequestID string             `json:"request_id"`
 }
+
+// EnvelopeSaleInvoiceDrain documents POST /internal/sale-invoices/drain
+// success responses.
+type EnvelopeSaleInvoiceDrain struct {
+	Data      service.SaleInvoiceDrainResult `json:"data"`
+	Error     *platform.APIError             `json:"error"`
+	RequestID string                         `json:"request_id"`
+}

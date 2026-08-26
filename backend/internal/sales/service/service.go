@@ -280,6 +280,11 @@ type SaleInvoicer interface {
 	// OwePaidOnlineSale writes the Sale Invoice the sale owes, in tx. Its
 	// error fails the commit.
 	OwePaidOnlineSale(ctx context.Context, tx *sql.Tx, sale sales.PaidOnlineSale) error
+	// KickSaleInvoiceDrainer is told, once the transaction that owed a
+	// document has committed, that the Sale's documents may be worked now
+	// (#474). Fire-and-forget on the far side: it returns at once, and
+	// nothing about the checkout waits on it or can fail because of it.
+	KickSaleInvoiceDrainer(ctx context.Context, ticketSaleID string)
 }
 
 // Service implements sales business rules.
@@ -587,6 +592,19 @@ func (s *Service) oweSaleInvoice() repository.OweSaleInvoice {
 		return nil
 	}
 	return s.saleInvoices.OwePaidOnlineSale
+}
+
+// kickSaleInvoiceDrainer tells the invoicing module, after the commit, that
+// a Sale Invoice was just owed for this sale — the immediate attempt right
+// after checkout (ADR 0060), so the buyer's factura follows in seconds
+// rather than at the next scheduled tick. Called after the Sale
+// Confirmation for the same reason that mail is sent after the commit: only
+// then is there a document to work. A sale that owed nothing kicks nothing.
+func (s *Service) kickSaleInvoiceDrainer(ctx context.Context, sale *repository.RecordedSale) {
+	if s.saleInvoices == nil || sale == nil || !sale.SaleInvoiceOwed {
+		return
+	}
+	s.saleInvoices.KickSaleInvoiceDrainer(ctx, sale.ID)
 }
 
 // commitTerms is the Sale Commit Terms this service records a Ticket Sale on,
