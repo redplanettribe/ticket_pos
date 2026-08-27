@@ -636,6 +636,11 @@ _Avoid_: Error, rejection, needs attention (the Drainer's parking, which this is
 The platform pursuing every owed Sale Invoice and Credit Note until the Tax Authority gives a definite answer: signing and submitting what is owed, asking again about what was submitted and not yet answered, and parking what it cannot settle for a Platform Operator to look at — never deleting it, since a signed document has consumed a sequence number. The Reversal Reconciler's sibling: it only finds out and retries; it never decides whether a document is owed.
 _Avoid_: Invoice queue, worker, retry job, SRI poller
 
+**RIDE**:
+The human-readable rendering of an authorized Tax Invoice or Credit Note, carrying the same authorization number and date the Tax Authority gave the signed document; delivered to the Recipient beside the signed document and offered wherever that document is offered. Exists only for an authorized document — without the authorization it has no validity — and is produced from the signed document each time it is asked for, never kept: the signed document is the record, the RIDE is its reading. A Credit Note's RIDE names the Sale Invoice it credits and why; a Sale Invoice's names how it was paid.
+In Spanish, **RIDE** (Representación Impresa del Documento Electrónico).
+_Avoid_: PDF (the format, not the document), printable invoice, print view, receipt, the factura (which is the signed document)
+
 ## Customer identity
 
 **Verified Customer**:
