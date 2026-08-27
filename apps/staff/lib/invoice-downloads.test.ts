@@ -4,11 +4,13 @@ import test from "node:test";
 
 import { rideOffer } from "./invoice-downloads.ts";
 
-// WHAT THESE ASSERT (#494, ADR 0062). The RIDE download is offered for an
-// authorized factura and for nothing else: the API refuses the PDF for an
-// unauthorized document, and the page must not offer what will be refused.
-// The Credit Note keeps its print view until #495. The last test keeps the
-// download's words from reaching an operator empty in either language.
+// WHAT THESE ASSERT (#494, #495, ADR 0062). The RIDE download is offered
+// for an authorized document of every kind and for nothing else: the API
+// refuses the PDF for an unauthorized document, and the page must not
+// offer what will be refused. The last test keeps the download's words from
+// reaching an operator empty in either language.
+
+const kinds = ["manual", "sale", "credit_note"] as const;
 
 const statuses = [
   "owed",
@@ -20,21 +22,18 @@ const statuses = [
   "annulled",
 ] as const;
 
-test("an authorized manual Tax Invoice and Sale Invoice offer the PDF download", () => {
-  assert.equal(rideOffer({ status: "authorized", kind: "manual" }), "download");
-  assert.equal(rideOffer({ status: "authorized", kind: "sale" }), "download");
-});
-
-test("a factura in any other status offers no RIDE at all", () => {
-  for (const status of statuses) {
-    assert.equal(rideOffer({ status, kind: "manual" }), null, `manual ${status}`);
-    assert.equal(rideOffer({ status, kind: "sale" }), null, `sale ${status}`);
+test("an authorized document of every kind offers the PDF download", () => {
+  for (const kind of kinds) {
+    assert.equal(rideOffer({ status: "authorized", kind }), "download", kind);
   }
 });
 
-test("a Credit Note keeps the print view until #495, whatever its status", () => {
-  assert.equal(rideOffer({ status: "authorized", kind: "credit_note" }), "print_view");
-  assert.equal(rideOffer({ status: "pending", kind: "credit_note" }), "print_view");
+test("a document in any other status offers no RIDE at all", () => {
+  for (const kind of kinds) {
+    for (const status of statuses) {
+      assert.equal(rideOffer({ status, kind }), null, `${kind} ${status}`);
+    }
+  }
 });
 
 test("the download has its words in both languages", () => {

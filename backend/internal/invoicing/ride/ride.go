@@ -1,5 +1,6 @@
 // Package ride renders the RIDE — the Representación Impresa del Documento
-// Electrónico — of an authorized Tax Invoice (#494, #489, ADR 0062).
+// Electrónico — of an authorized Tax Invoice or Credit Note (#494, #495,
+// #489, ADR 0062).
 //
 // The RIDE is the authorized document's reading, not its record: it is
 // produced from the stored data each time it is asked for, never persisted,
@@ -9,7 +10,10 @@
 // lines with the arithmetic the document carries for them, the totals, the
 // clave, the authorization number and date — and the formatters are the
 // `sri` kit's, so a figure on the RIDE is the figure in the XML to the cent
-// and nothing here recomputes one.
+// and nothing here recomputes one. What the Invoice row does not carry —
+// the factura a Credit Note modifies, its motivo and valor de modificación
+// — is read out of the stored signed XML itself (ADR 0062 §1), never from
+// a second row.
 //
 // The page is drawn with go-pdf/fpdf and the clave's Code 128 barcode with
 // boombuler/barcode, both pure Go: the Cloud Run image has no browser and
@@ -35,6 +39,7 @@ import (
 	"image/png"
 	"time"
 
+	"github.com/beevik/etree"
 	"github.com/boombuler/barcode"
 	"github.com/boombuler/barcode/code128"
 	"github.com/go-pdf/fpdf"
@@ -52,6 +57,11 @@ import (
 // The document is `<clave>.pdf`, served as application/pdf, the filename
 // following the XML downloads' so the three files of one factura sort
 // together.
+//
+// A Credit Note whose signed XML cannot be read is a render error, not a
+// refusal: the document is authorized and its RIDE is owed, so the caller
+// (the delivery step, #496) gets a wrapped error to log rather than a 404
+// that would pass for "nothing to hand over".
 func Render(inv *invoicing.Invoice, ec *invoicing.EcuadorInvoiceDetails) (*invoicing.Document, error) {
 	if inv == nil || inv.Status != invoicing.InvoiceStatusAuthorized || ec == nil || ec.Authorization == nil || !inv.Signed() || inv.Issuer == nil {
 		return nil, invoicing.ErrRIDENotFound()
@@ -64,11 +74,7 @@ func Render(inv *invoicing.Invoice, ec *invoicing.EcuadorInvoiceDetails) (*invoi
 	p := newPage(ec.Authorization.Date)
 	switch inv.Kind {
 	case invoicing.DocumentKindCreditNote:
-		// TODO(#495): the Credit Note has its own layout — headed "NOTA DE
-		// CRÉDITO", naming the credited factura, its motivo and valor de
-		// modificación, no forma de pago. Until it lands the factura layout
-		// stands in, as the print view it replaces did.
-		fallthrough
+		err = p.creditNote(inv, ec, number)
 	case invoicing.DocumentKindManual, invoicing.DocumentKindSale:
 		err = p.factura(inv, ec, number)
 	default:
@@ -205,11 +211,139 @@ func (p *page) factura(inv *invoicing.Invoice, ec *invoicing.EcuadorInvoiceDetai
 	return p.pdf.Error()
 }
 
+// ---- The Credit Note layout --------------------------------------------
+
+// creditNote draws the Ficha's nota de crédito RIDE (#495, ADR 0062 §3):
+// the same emisor, authorization, Recipient, lines and totals sections as
+// the factura, headed "NOTA DE CRÉDITO", with the documento modificado
+// band — the factura it credits, the motivo and the valor de modificación
+// — between the Recipient and the lines, and no forma de pago: a Credit
+// Note returns money, it is not paid for.
+func (p *page) creditNote(inv *invoicing.Invoice, ec *invoicing.EcuadorInvoiceDetails, number string) error {
+	modified, err := parseModifiedDocument(inv.SignedXML)
+	if err != nil {
+		return err
+	}
+	p.pdf.SetTitle("NOTA DE CRÉDITO "+number, true)
+
+	p.beginBand()
+	p.column(pageMargin, columnW, func() { p.emisorBlock(inv.Issuer) })
+	if err := p.columnErr(rightColumn, columnW, func() error {
+		return p.authorizationBlock("NOTA DE CRÉDITO", number, inv, ec)
+	}); err != nil {
+		return err
+	}
+	p.endBand(box{pageMargin, columnW}, box{rightColumn, columnW})
+
+	p.beginBand()
+	p.column(pageMargin, contentW, func() { p.recipientBlock(inv) })
+	p.endBand(box{pageMargin, contentW})
+
+	p.beginBand()
+	p.column(pageMargin, contentW, func() { p.modifiedDocumentBlock(modified) })
+	p.endBand(box{pageMargin, contentW})
+
+	if err := p.linesTable(inv.Lines); err != nil {
+		return err
+	}
+	p.pdf.Ln(bandGap)
+
+	// The footer: información adicional on the left, the totals on the
+	// right, from the same top; the taller one sets where the page
+	// continues.
+	top := p.pdf.GetY()
+	p.beginBand()
+	p.column(pageMargin, columnW, func() { p.additionalInfoBlock(inv) })
+	p.endBand(box{pageMargin, columnW})
+	leftBottom := p.pdf.GetY()
+
+	p.pdf.SetXY(rightColumn, top)
+	if err := p.totalsBlock(rightColumn, columnW, inv); err != nil {
+		return err
+	}
+	if p.pdf.GetY() < leftBottom {
+		p.pdf.SetY(leftBottom)
+	}
+	return p.pdf.Error()
+}
+
+// modifiedDocument is what a Credit Note's infoNotaCredito says about the
+// factura it modifies and why, in the strings the XML carries: the date is
+// already dd/mm/yyyy and the valor already two-decimal, so the RIDE prints
+// them as they stand rather than parsing and re-formatting a figure the
+// document has stated.
+type modifiedDocument struct {
+	docType  string // codDocModificado, "01" for a factura
+	number   string // numDocModificado, estab-ptoEmi-secuencial
+	issuedOn string // fechaEmisionDocSustento, dd/mm/yyyy
+	motivo   string
+	valor    string // valorModificacion
+}
+
+// parseModifiedDocument reads the modified document out of the Credit
+// Note's stored signed XML — the one place the platform keeps it, since the
+// Invoice row names the credited document by ID only and the RIDE must be
+// deterministic from stored data without a second load (ADR 0062 §1). The
+// elements are the ones sri.BuildNotaCredito writes under infoNotaCredito;
+// the enveloped signature is a sibling of that block and is not looked at,
+// so an unsigned body parses the same. A missing element is a render
+// error: the XML was validated against the XSD when it was built, so one
+// absent here is a corrupted record, not a document to render without it.
+func parseModifiedDocument(signed []byte) (modifiedDocument, error) {
+	doc := etree.NewDocument()
+	if err := doc.ReadFromBytes(signed); err != nil {
+		return modifiedDocument{}, fmt.Errorf("ride: parse credit note xml: %w", err)
+	}
+	info := doc.FindElement("/notaCredito/infoNotaCredito")
+	if info == nil {
+		return modifiedDocument{}, fmt.Errorf("ride: credit note xml has no infoNotaCredito")
+	}
+	var m modifiedDocument
+	for _, f := range []struct {
+		tag string
+		dst *string
+	}{
+		{"codDocModificado", &m.docType},
+		{"numDocModificado", &m.number},
+		{"fechaEmisionDocSustento", &m.issuedOn},
+		{"motivo", &m.motivo},
+		{"valorModificacion", &m.valor},
+	} {
+		el := info.SelectElement(f.tag)
+		if el == nil || el.Text() == "" {
+			return modifiedDocument{}, fmt.Errorf("ride: credit note xml has no %s", f.tag)
+		}
+		*f.dst = el.Text()
+	}
+	return m, nil
+}
+
+// modifiedDocumentBlock is the Ficha's "comprobante que se modifica"
+// section: the modified document's type and number, its fecha de emisión,
+// the razón de modificación and the valor de modificación, each as a
+// "Label: value" line a reader — or a test — finds verbatim.
+func (p *page) modifiedDocumentBlock(m modifiedDocument) {
+	p.labelled("Comprobante que se modifica", modifiedDocumentTypeLabel(m.docType)+" No. "+m.number)
+	p.labelled("Fecha emisión (doc. sustento)", m.issuedOn)
+	p.labelled("Razón de modificación", m.motivo)
+	p.labelled("Valor de modificación", m.valor)
+}
+
+// modifiedDocumentTypeLabel names the modified document's codDoc. The
+// platform only ever credits a factura; any other code is printed as the
+// code rather than guessed at.
+func modifiedDocumentTypeLabel(code string) string {
+	if code == sri.DocumentTypeFactura {
+		return "FACTURA"
+	}
+	return code
+}
+
 // ---- Shared sections ---------------------------------------------------
 //
 // Each block draws inside the column the caller opened (see column) and
-// leaves the cursor below what it drew. The Credit Note layout (#495)
-// reuses every one of them but paymentBlock.
+// leaves the cursor below what it drew. The Credit Note layout reuses
+// every one of them but paymentBlock.
 
 // emisorBlock is the Issuer as it stood at signing: razón social, nombre
 // comercial, both addresses, whether it keeps books, the RIMPE legend its

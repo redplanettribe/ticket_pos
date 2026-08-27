@@ -1587,15 +1587,11 @@ export function operatorInvoiceAuthorizationXmlUrl(id: string): string {
 }
 
 /**
- * Where the browser downloads the RIDE (PDF) from (#494, ADR 0062); only an
- * authorized document has one. Rendered by the API on each request from the
- * stored document, never kept — the same bytes the buyer receives.
+ * Where the browser downloads the RIDE (PDF) from (#494, #495, ADR 0062);
+ * only an authorized document has one, of every kind. Rendered by the API
+ * on each request from the stored document, never kept — the same bytes
+ * the buyer receives.
  */
 export function operatorInvoiceRideUrl(id: string): string {
   return `${INVOICES_PATH}/${encodeURIComponent(id)}/ride`;
-}
-
-/** The RIDE page: a print-styled rendering of a Credit Note, until #495 replaces it with the PDF. */
-export function operatorInvoiceRidePath(id: string): string {
-  return `/operator/invoicing/${encodeURIComponent(id)}/ride`;
 }
