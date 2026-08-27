@@ -300,9 +300,12 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// list under its recipient_warning filter.
 	mux.Handle("GET /api/v1/operator/invoicing/recipient-warnings/count", operator(http.HandlerFunc(inv.CountRecipientWarnings)))
 	// The documents handed over (#456): the signed XML in every status, the
-	// SRI's authorization XML only once authorized. Files, not envelopes.
+	// SRI's authorization XML only once authorized, and the RIDE (#494, ADR
+	// 0062), rendered on each request and likewise only once authorized.
+	// Files, not envelopes.
 	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/xml", operator(http.HandlerFunc(inv.DownloadSignedXML)))
 	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/authorization-xml", operator(http.HandlerFunc(inv.DownloadAuthorizationXML)))
+	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/ride", operator(http.HandlerFunc(inv.DownloadRIDE)))
 }
 
 // registerCustomerRoutes wires the Storefront's Customer identity surface.

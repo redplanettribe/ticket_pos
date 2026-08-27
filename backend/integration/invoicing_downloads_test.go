@@ -19,6 +19,7 @@ import (
 
 func signedXMLPath(id string) string        { return invoicesPath + "/" + id + "/xml" }
 func authorizationXMLPath(id string) string { return invoicesPath + "/" + id + "/authorization-xml" }
+func ridePath(id string) string             { return invoicesPath + "/" + id + "/ride" }
 
 // getRaw fetches a path without decoding an envelope: downloads are bytes,
 // not JSON.
@@ -208,7 +209,88 @@ func TestDownloadAuthorizationXMLRefusedUnlessAuthorized(t *testing.T) {
 	}
 }
 
-// TestInvoiceDownloadsAreOperatorOnly: both downloads refuse a missing
+// TestDownloadRIDEIsAPDFNamedAfterTheClave (#494, ADR 0062): an authorized
+// invoice hands over its RIDE as a PDF under the clave's name, rendered on
+// the request — and rendered the same way twice, since nothing is stored
+// and the buyer's copy must be the operator's.
+func TestDownloadRIDEIsAPDFNamedAfterTheClave(t *testing.T) {
+	env := setupTest(t)
+	sessionID := operatorSession(t, env, "operator@example.com")
+	issuerReady(t, sessionID)
+
+	view := issueOK(t, sessionID, validInvoiceBody())
+	if view.Status != "authorized" {
+		t.Fatalf("status=%q, want authorized", view.Status)
+	}
+
+	resp, body := sriEnv.getRaw(t, ridePath(view.ID), authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%.200s, want 200", resp.StatusCode, body)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/pdf" {
+		t.Fatalf("Content-Type=%q, want application/pdf", ct)
+	}
+	if cd, want := resp.Header.Get("Content-Disposition"), `attachment; filename="`+view.Ecuador.AccessKey+`.pdf"`; cd != want {
+		t.Fatalf("Content-Disposition=%q, want %q", cd, want)
+	}
+	if !bytes.HasPrefix(body, []byte("%PDF-")) {
+		t.Fatalf("body is not a PDF: %.40q", body)
+	}
+
+	_, again := sriEnv.getRaw(t, ridePath(view.ID), authHeader(sessionID))
+	if !bytes.Equal(body, again) {
+		t.Fatal("two downloads of the same RIDE differ")
+	}
+}
+
+// TestDownloadRIDERefusedUnlessAuthorized: a rejected, a not-authorized and
+// a pending invoice have no RIDE — one without the authorization number has
+// no validity — and say so with the same not-found-style refusal the
+// authorization XML gives, never a placeholder PDF.
+func TestDownloadRIDERefusedUnlessAuthorized(t *testing.T) {
+	env := setupTest(t)
+	sessionID := operatorSession(t, env, "operator@example.com")
+	issuerReady(t, sessionID)
+
+	cases := []struct {
+		status string
+		setup  func()
+	}{
+		{"rejected", func() {
+			sriStub.setReception(func(accessKey string) (int, string) {
+				return http.StatusOK, returnedSOAP(accessKey, sriMessage("35", "DOCUMENTO INVALIDO", "", "ERROR"))
+			})
+		}},
+		{"not_authorized", func() {
+			sriStub.setAuthorization(func(accessKey string) (int, string) {
+				return http.StatusOK, notAuthorizedSOAP(accessKey, sriMessage("39", "FIRMA INVALIDA", "", "ERROR"))
+			})
+		}},
+		{"pending", func() {
+			sriStub.setAuthorization(func(accessKey string) (int, string) {
+				return http.StatusOK, inProcessingSOAP(accessKey)
+			})
+		}},
+	}
+	for _, c := range cases {
+		sriStub.reset()
+		c.setup()
+		view := issueOK(t, sessionID, validInvoiceBody())
+		if view.Status != c.status {
+			t.Fatalf("status=%q, want %s", view.Status, c.status)
+		}
+		resp, body := sriEnv.getRaw(t, ridePath(view.ID), authHeader(sessionID))
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("%s: status=%d body=%.200s, want 404", c.status, resp.StatusCode, body)
+		}
+		errEnv := decodeErrorEnvelope(t, body)
+		if errEnv.Error == nil || errEnv.Error.Code != "RIDE_NOT_FOUND" || string(errEnv.Data) != "null" {
+			t.Fatalf("%s: envelope=%+v, want RIDE_NOT_FOUND with null data", c.status, errEnv)
+		}
+	}
+}
+
+// TestInvoiceDownloadsAreOperatorOnly: all three downloads refuse a missing
 // session with 401, a signed-in Org Admin with 403 — org roles grant nothing
 // platform-wide — and an operator asking for an invoice that does not exist
 // with 404, as JSON envelopes and never as a file.
@@ -219,7 +301,7 @@ func TestInvoiceDownloadsAreOperatorOnly(t *testing.T) {
 	issuerReady(t, operatorSessionID)
 	view := issueOK(t, operatorSessionID, validInvoiceBody())
 
-	for _, path := range []string{signedXMLPath(view.ID), authorizationXMLPath(view.ID)} {
+	for _, path := range []string{signedXMLPath(view.ID), authorizationXMLPath(view.ID), ridePath(view.ID)} {
 		resp, body := sriEnv.getRaw(t, path, nil)
 		if errEnv := decodeErrorEnvelope(t, body); resp.StatusCode != http.StatusUnauthorized || errEnv.Error == nil || errEnv.Error.Code != "UNAUTHORIZED" {
 			t.Fatalf("%s unauthenticated status=%d body=%s, want 401 UNAUTHORIZED", path, resp.StatusCode, body)
@@ -230,7 +312,7 @@ func TestInvoiceDownloadsAreOperatorOnly(t *testing.T) {
 		}
 	}
 
-	for _, path := range []string{signedXMLPath(uuid.NewString()), authorizationXMLPath(uuid.NewString()), signedXMLPath("not-a-uuid")} {
+	for _, path := range []string{signedXMLPath(uuid.NewString()), authorizationXMLPath(uuid.NewString()), ridePath(uuid.NewString()), signedXMLPath("not-a-uuid"), ridePath("not-a-uuid")} {
 		resp, body := sriEnv.getRaw(t, path, authHeader(operatorSessionID))
 		if errEnv := decodeErrorEnvelope(t, body); resp.StatusCode != http.StatusNotFound || errEnv.Error == nil || errEnv.Error.Code != "INVOICE_NOT_FOUND" {
 			t.Fatalf("%s status=%d body=%s, want 404 INVOICE_NOT_FOUND", path, resp.StatusCode, body)
