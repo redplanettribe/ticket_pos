@@ -22,10 +22,10 @@ import (
 // reason it is never sent twice. Nothing here asks the authority anything.
 //
 // KIND-AGNOSTIC BY CONSTRUCTION. What is mailed is whatever document the
-// row is — the Sale Invoice today, the Credit Note when its ticket lands —
-// and the only place the kind matters is the copy's choice of words, which
-// platform.TaxDocumentDelivery keys on Kind. The Credit Note rides this
-// unchanged.
+// row is — the Sale Invoice, the Credit Note — and the only place the kind
+// matters is the copy's choice of words, which platform.TaxDocumentDelivery
+// keys on Kind and, for a Credit Note, on its Reason (#481): a reissue's
+// says a correction follows, a reversal's says the sale was reversed.
 
 // customerAreaPath is the Customer Area on the Storefront, and the fragment
 // the Sale's card carries there (apps/storefront/lib/destination.ts,
@@ -57,9 +57,22 @@ func (s *Service) deliverDocument(ctx context.Context, row *repository.InvoiceRo
 		return false, s.rescheduleDelivery(ctx, inv, nil, now)
 	}
 
+	// A reissue's Credit Note promises a corrected factura. When the Sale was
+	// reversed while that nota was still unanswered (#484), the corrected
+	// factura was withdrawn and the reversal's own Credit Note stood down
+	// because this one already credits the factura — so this mail is the
+	// buyer's only word that the purchase is undone, and it reads as a
+	// reversal's would. The document itself is unchanged: the SRI holds the
+	// correction motivo it was signed with.
+	reason := inv.CreditNoteReason
+	if reason == invoicing.CreditNoteReasonReissue && facts.Reversed {
+		reason = ""
+	}
 	delivery := platform.TaxDocumentDelivery{
 		To:           inv.Recipient.Email,
 		Kind:         string(inv.Kind),
+		Reason:       reason,
+		Supersedes:   inv.SupersedesInvoiceID != "",
 		CustomerName: inv.Recipient.LegalName,
 		EventName:    facts.EventName,
 		Reference:    inv.SaleConfirmationRef,

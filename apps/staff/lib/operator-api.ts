@@ -639,12 +639,44 @@ export type OperatorSaleLookup = {
   organization: OperatorOrganization;
   re_addressing: OperatorSaleReAddressingBlock;
   /**
-   * The Tax Invoices about this sale (#477, ADR 0060): the Sale Invoice a paid
-   * House checkout owed and the Credit Note its reversal owed, oldest first.
-   * Empty on every sale outside a House Organization. Each id opens the
-   * document detail under /operator/invoicing.
+   * The Tax Invoices about this sale (#477, ADR 0060; #486, ADR 0061): the
+   * Sale Invoice a paid House checkout owed, the Credit Note its reversal
+   * owed, and after a reissue the superseded factura, its Credit Note and
+   * the corrected one, in chain order, each with its role. Empty on every
+   * sale outside a House Organization. Each id opens the document detail
+   * under /operator/invoicing.
    */
-  documents: OperatorInvoiceListItem[];
+  documents: OperatorSaleDocument[];
+};
+
+/**
+ * A document's place in its sale's chain (#486, ADR 0061), derived by the
+ * API on every read: `current` is the sale's current Sale Invoice — the one
+ * a later reversal credits; `superseded` one a reissue corrected, still
+ * authorized; `credit_note` a Credit Note for a reversal or a reissue;
+ * `not_current` a Sale Invoice withdrawn or annulled, that the sale no
+ * longer has.
+ */
+export type OperatorDocumentRole = "current" | "superseded" | "credit_note" | "not_current";
+
+/**
+ * One document as the Sale lookup lists it (#477, #486): the invoicing list's
+ * own row, its role, its links to its neighbours and the reissue's trail —
+ * on the corrected factura, the superseded one and the reissue's Credit Note
+ * alike — so a buyer's question about their factura is answered from the
+ * one page.
+ */
+export type OperatorSaleDocument = OperatorInvoiceListItem & {
+  role: OperatorDocumentRole;
+  /** On a corrected Sale Invoice, the factura it corrects. */
+  supersedes_invoice_id: string | null;
+  /** On a Credit Note, the factura it credits and why: a reversal route or `reissue`. */
+  credits_invoice_id: string | null;
+  credit_note_reason: string | null;
+  /** Who reissued, when and the note; null where no reissue concerns the document. */
+  reissued_by: string | null;
+  reissued_at: string | null;
+  reissue_note: string | null;
 };
 
 /**
@@ -1206,6 +1238,20 @@ export type OperatorInvoiceListItem = {
   currency: string;
   /** When the document was parked `needs_attention` (#477); null in every other state. */
   attention_since: string | null;
+  /**
+   * True on an authorized Sale Invoice the SRI warned about — the Recipient's
+   * Tax ID does not exist (advertencia 59) or is incorrect (62) — until the
+   * document is superseded (#482, ADR 0061). The status is unaffected, and
+   * it is always false while SALE_INVOICING_ENABLED is closed.
+   */
+  recipient_warning: boolean;
+  /**
+   * On a reissued Sale Invoice, the live corrected one — the list's
+   * superseded marker (#486, ADR 0061). Null on every other row, and always
+   * null while SALE_INVOICING_ENABLED is closed. The status stays
+   * authorized: superseded is a relation, not a state.
+   */
+  superseded_by_invoice_id: string | null;
 };
 
 /** One line as recorded, with its arithmetic. */
@@ -1302,12 +1348,24 @@ export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
   next_attempt_at: string | null;
   /** On a Credit Note: the Sale Invoice it credits and the reversal route that made it owed. */
   credits_invoice_id: string | null;
-  reversal_reason: string | null;
+  credit_note_reason: string | null;
   /** On a Sale Invoice: the Credit Note that credits it (#476); null until one does. */
   credited_by_invoice_id: string | null;
   /** The operator who marked the document annulled at the SRI portal, and when (#477); null unless annulled. */
   annulled_by: string | null;
   annulled_at: string | null;
+  /**
+   * The Sale Invoice Reissue's chain (#483, ADR 0061): on a corrected Sale
+   * Invoice, the factura it supersedes; the row's `superseded_by_invoice_id`
+   * is, on a reissued factura, the live corrected one. The current Sale
+   * Invoice is the one with neither a successor nor a withdrawn or annulled
+   * state.
+   */
+  supersedes_invoice_id: string | null;
+  /** Who reissued, when and the note — on the corrected factura, the superseded one and the reissue's Credit Note alike. */
+  reissued_by: string | null;
+  reissued_at: string | null;
+  reissue_note: string | null;
   has_authorization_xml: boolean;
   /**
    * True when the invoice is pending and the SRI holds the document —
@@ -1349,10 +1407,17 @@ export const OPERATOR_INVOICES_PAGE_SIZE = 50;
 /** The list's kind filter: one kind, or every kind. */
 export type InvoiceKindFilter = InvoiceKind | "all";
 
-/** A page of Tax Invoices, newest first, narrowed to one kind unless `all` (#477). */
+/**
+ * A page of Tax Invoices, newest first, narrowed to one kind unless `all`
+ * (#477) and, when asked, to the documents carrying a Recipient Warning
+ * (#482). The API does the narrowing, so the page's total is the filtered
+ * total; the warning filter is 404 SALE_INVOICING_UNAVAILABLE while the
+ * feature is closed.
+ */
 export async function fetchOperatorInvoices(
   page = 1,
   kind: InvoiceKindFilter = "all",
+  recipientWarningOnly = false,
 ): Promise<OperatorInvoiceListPage> {
   const params = new URLSearchParams({
     page: String(page),
@@ -1361,7 +1426,27 @@ export async function fetchOperatorInvoices(
   if (kind !== "all") {
     params.set("kind", kind);
   }
+  if (recipientWarningOnly) {
+    params.set("recipient_warning", "true");
+  }
   return fetchEventsJSON<OperatorInvoiceListPage>(`${INVOICES_PATH}?${params.toString()}`);
+}
+
+// ---- The Recipient Warnings (#482, ADR 0061) ----------------------------
+
+export type OperatorRecipientWarningCount = {
+  recipient_warning_count: number;
+};
+
+/**
+ * How many authorized Sale Invoices the SRI warned about and that have not
+ * been superseded: the Operator Dashboard's count beside the needs_attention
+ * one, and exactly what the list's warning filter finds. Rejected with 404
+ * SALE_INVOICING_UNAVAILABLE while the feature is closed — the caller reads
+ * that as "show no count".
+ */
+export async function fetchOperatorRecipientWarningCount(): Promise<OperatorRecipientWarningCount> {
+  return fetchEventsJSON<OperatorRecipientWarningCount>("/api/operator/invoicing/recipient-warnings/count");
 }
 
 // ---- The documents that need attention (#477, ADR 0060) ----------------
@@ -1411,6 +1496,33 @@ export async function fetchOperatorNeedsAttentionCount(): Promise<OperatorNeedsA
 export async function annulOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
   return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/annul`, {
     method: "POST",
+  });
+}
+
+/** The corrected Recipient as the reissue form submits it (#483). No email: the Sale's is taken. */
+export type ReissueInvoiceBody = {
+  recipient: {
+    tax_id_type: InvoiceRecipient["tax_id_type"];
+    tax_id: string;
+    legal_name: string;
+    address: string;
+  };
+  note: string | null;
+};
+
+/**
+ * Reissues an authorized Sale Invoice to a corrected Recipient (#483, ADR
+ * 0061): owes a Credit Note against it and a corrected Sale Invoice in one
+ * act, and returns the CORRECTED document — a new id — as it stands, owed.
+ * Refused with INVOICE_MANUAL_NOT_REISSUABLE, CREDIT_NOTE_NOT_REISSUABLE,
+ * INVOICE_NOT_AUTHORIZED, INVOICE_SALE_REVERSED, REISSUE_IN_FLIGHT,
+ * INVOICE_SUPERSEDED or INVOICE_ALREADY_CREDITED, each by code, and with
+ * VALIDATION_FAILED naming the fields.
+ */
+export async function reissueOperatorInvoice(id: string, body: ReissueInvoiceBody): Promise<OperatorInvoiceDetail> {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/reissue`, {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 }
 

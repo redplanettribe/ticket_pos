@@ -160,26 +160,32 @@ func insertEcuadorDetails(ctx context.Context, tx execer, id, issuerID string, e
 // in later; if this insert fails, the sale it rides with is not recorded.
 //
 // Kind, ticket_sale_id, iva_rate and — for a Credit Note — what it credits
-// and why come from the Invoice; country comes from it too, since the Sale
-// is invoiced by the country's Issuer whether or not one exists yet.
+// and why (a reversal route or a reissue, #481) come from the Invoice;
+// country comes from it too, since the Sale is invoiced by the country's
+// Issuer whether or not one exists yet. A Sale Invoice a reissue produced
+// (#483) carries the factura it supersedes and the reissue's trail the same
+// way; on every other document those are "" and nil, written as NULL.
 func (r *Repository) OweInvoice(ctx context.Context, tx *sql.Tx, inv invoicing.Invoice) (string, error) {
 	var id string
 	if err := tx.QueryRowContext(ctx, `
 		INSERT INTO invoicing_invoices
-			(kind, country, status, ticket_sale_id, credits_invoice_id, reversal_reason, iva_rate,
+			(kind, country, status, ticket_sale_id, credits_invoice_id, credit_note_reason, iva_rate,
 			 recipient_tax_id_type, recipient_tax_id, recipient_legal_name, recipient_address, recipient_email,
 			 currency, subtotal_cents, discount_cents, iva_cents, total_cents, payment_method,
-			 next_attempt_at, last_messages)
+			 next_attempt_at, last_messages,
+			 supersedes_invoice_id, reissued_by, reissued_at, reissue_note)
 		VALUES ($1, $2, $3, $4, NULLIF($5, '')::uuid, NULLIF($6, ''), $7,
 		        $8, $9, $10, $11, $12,
 		        $13, $14, $15, $16, $17, $18,
-		        $19, '[]'::jsonb)
+		        $19, '[]'::jsonb,
+		        NULLIF($20, '')::uuid, NULLIF($21, ''), $22, NULLIF($23, ''))
 		RETURNING id
 	`,
-		inv.Kind, inv.Country, invoicing.InvoiceStatusOwed, inv.TicketSaleID, inv.CreditsInvoiceID, inv.ReversalReason, inv.IVARate,
+		inv.Kind, inv.Country, invoicing.InvoiceStatusOwed, inv.TicketSaleID, inv.CreditsInvoiceID, inv.CreditNoteReason, inv.IVARate,
 		inv.Recipient.TaxIDType, inv.Recipient.TaxID, inv.Recipient.LegalName, inv.Recipient.Address, inv.Recipient.Email,
 		inv.Currency, inv.SubtotalCents, inv.DiscountCents, inv.IVACents, inv.TotalCents, inv.PaymentMethod,
 		inv.NextAttemptAt,
+		inv.SupersedesInvoiceID, inv.ReissuedBy, inv.ReissuedAt, inv.ReissueNote,
 	).Scan(&id); err != nil {
 		return "", fmt.Errorf("owe invoice: %w", err)
 	}
@@ -235,6 +241,11 @@ type OutcomeUpdate struct {
 	// At is the service clock's instant the answer was applied: what
 	// attention_since records when the answer parks the document (#477).
 	At time.Time
+	// RecipientWarning says the answer carried the authority's warning
+	// about the Recipient's Tax ID (#482). It is ORed onto the row, never
+	// written over it: once raised the warning stands until the document
+	// is superseded, whatever a later answer says.
+	RecipientWarning bool
 }
 
 // ApplyOutcome writes the authority's latest answer onto the invoice: its
@@ -242,7 +253,16 @@ type OutcomeUpdate struct {
 // authorized — the authorization number, date and XML. The signed document
 // is never touched here. attention_since is set when the answer parks the
 // document and kept while it stays parked; any other answer clears it
-// (#477).
+// (#477). recipient_warning is raised when the answer says so and never
+// lowered on the row itself (#482). The one write that clears a warning is
+// here too, on ANOTHER row (#484, ADR 0061): an answer that authorizes a
+// Credit Note is the moment the factura it credits stops declaring
+// anything to the authority — whether a reissue's nota or a reversal's —
+// so that factura's warning is cleared in the same transaction. Not at the
+// reissue, whose Credit Note may yet die and hand the factura back; not at
+// the corrected factura's authorization, which an annulled corrected
+// factura or a reversed Sale never reaches. The corrected factura's own
+// warning, if the answer carried one, is raised as any other.
 //
 // GUARDED ON u.From, the status the answer was asked for. An operator may
 // have marked the document annulled while the authority was being asked
@@ -266,9 +286,10 @@ func (r *Repository) ApplyOutcome(ctx context.Context, invoiceID string, u Outco
 			authorization_xml = COALESCE($4, authorization_xml),
 			next_attempt_at = CASE WHEN $7 THEN next_attempt_at ELSE $5::timestamptz END,
 			attention_since = `+attentionSinceExpr("$2", "$6")+`,
+			recipient_warning = recipient_warning OR $9,
 			updated_at = NOW()
 		WHERE id = $1 AND status = $8
-	`, invoiceID, u.Status, messages, u.AuthorizationXML, u.NextAttemptAt, u.At, u.KeepNextAttemptAt, u.From)
+	`, invoiceID, u.Status, messages, u.AuthorizationXML, u.NextAttemptAt, u.At, u.KeepNextAttemptAt, u.From, u.RecipientWarning)
 	if err != nil {
 		return false, fmt.Errorf("apply outcome: %w", err)
 	}
@@ -285,6 +306,15 @@ func (r *Repository) ApplyOutcome(ctx context.Context, invoiceID string, u Outco
 			WHERE invoice_id = $1
 		`, invoiceID, u.Authorization.Number, u.Authorization.Date); err != nil {
 			return false, fmt.Errorf("apply authorization: %w", err)
+		}
+	}
+	if u.Status == invoicing.InvoiceStatusAuthorized {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE invoicing_invoices f SET recipient_warning = FALSE, updated_at = NOW()
+			FROM invoicing_invoices c
+			WHERE c.id = $1 AND c.kind = 'credit_note' AND f.id = c.credits_invoice_id AND f.recipient_warning
+		`, invoiceID); err != nil {
+			return false, fmt.Errorf("clear credited recipient warning: %w", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -324,8 +354,32 @@ func attentionSinceExpr(status, at string) string {
 // attention_since with it. Guarded on the two states Mark annulled is
 // allowed from, so a second press, or a press racing a late AUTORIZADO,
 // finds no row to update; the service reads the row back to say which.
-func (r *Repository) AnnulInvoice(ctx context.Context, invoiceID, annulledBy string, annulledAt time.Time) (bool, error) {
-	res, err := r.db.Pool.ExecContext(ctx, `
+//
+// A DEAD CREDIT NOTE TAKES ITS CORRECTED FACTURA WITH IT (#484, ADR 0061).
+// A Sale Invoice Reissue's corrected factura waits, owed and unsigned, for
+// the Credit Note against the factura it supersedes to be authorized; an
+// annulled Credit Note never will be, and a corrected factura issued after
+// it would leave the Sale with two authorized facturas. So in the same
+// transaction, an unsigned successor (owed, or parked unsignable) of the
+// factura the annulled Credit Note credits is withdrawn — no number consumed, nothing sent, off
+// the queue — carrying successorMessages as the platform's word on why. The
+// superseded factura is then current again, credited by nothing live (the
+// credited_by read skips dead Credit Notes), and reissuable. The
+// withdrawn successor's id is returned, "" when there was none: a Credit
+// Note owed by a reversal has no successor to take, and one whose
+// successor a reversal already withdrew finds nothing to do.
+func (r *Repository) AnnulInvoice(ctx context.Context, invoiceID, annulledBy string, annulledAt time.Time, successorMessages []invoicing.AuthorityMessage) (annulled bool, withdrawnSuccessorID string, err error) {
+	encoded, err := json.Marshal(messagesOrEmpty(successorMessages))
+	if err != nil {
+		return false, "", fmt.Errorf("marshal messages: %w", err)
+	}
+	tx, err := r.db.Pool.BeginTx(ctx, nil)
+	if err != nil {
+		return false, "", fmt.Errorf("begin annul invoice: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx, `
 		UPDATE invoicing_invoices SET
 			status = $2,
 			annulled_by = $3,
@@ -337,13 +391,35 @@ func (r *Repository) AnnulInvoice(ctx context.Context, invoiceID, annulledBy str
 	`, invoiceID, invoicing.InvoiceStatusAnnulled, annulledBy, annulledAt,
 		invoicing.InvoiceStatusNeedsAttention, invoicing.InvoiceStatusPending)
 	if err != nil {
-		return false, fmt.Errorf("annul invoice: %w", err)
+		return false, "", fmt.Errorf("annul invoice: %w", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return false, fmt.Errorf("annul invoice: %w", err)
+		return false, "", fmt.Errorf("annul invoice: %w", err)
 	}
-	return n == 1, nil
+	if n != 1 {
+		return false, "", nil
+	}
+	err = tx.QueryRowContext(ctx, `
+		UPDATE invoicing_invoices s SET
+			status = $3,
+			last_messages = $4,
+			next_attempt_at = NULL,
+			attention_since = NULL,
+			updated_at = $5
+		FROM invoicing_invoices n
+		WHERE n.id = $1 AND n.kind = 'credit_note'
+		  AND s.kind = 'sale' AND s.supersedes_invoice_id = n.credits_invoice_id
+		  AND s.status IN ($2, $6) AND s.signed_xml IS NULL
+		RETURNING s.id
+	`, invoiceID, invoicing.InvoiceStatusOwed, invoicing.InvoiceStatusWithdrawn, encoded, annulledAt, invoicing.InvoiceStatusNeedsAttention).Scan(&withdrawnSuccessorID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, "", fmt.Errorf("withdraw the annulled credit note's successor: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, "", fmt.Errorf("commit annul invoice: %w", err)
+	}
+	return true, withdrawnSuccessorID, nil
 }
 
 const invoiceColumns = `
@@ -351,9 +427,12 @@ const invoiceColumns = `
 	i.recipient_tax_id_type, i.recipient_tax_id, i.recipient_legal_name, i.recipient_address, i.recipient_email,
 	i.issuer_snapshot, i.currency, i.subtotal_cents, i.discount_cents, i.iva_cents, i.total_cents, i.payment_method,
 	i.signed_xml, i.authorization_xml, i.last_messages,
-	i.ticket_sale_id, ts.confirmation_ref, i.credits_invoice_id, i.reversal_reason, i.iva_rate, i.delivered_at, i.next_attempt_at,
-	(SELECT c.id FROM invoicing_invoices c WHERE c.credits_invoice_id = i.id ORDER BY c.created_at DESC, c.id DESC LIMIT 1),
-	i.attention_since, i.annulled_by, i.annulled_at,
+	i.ticket_sale_id, ts.confirmation_ref, i.credits_invoice_id, i.credit_note_reason, i.iva_rate, i.delivered_at, i.next_attempt_at,
+	(SELECT c.id FROM invoicing_invoices c WHERE c.credits_invoice_id = i.id AND c.status NOT IN ('withdrawn', 'annulled') ORDER BY c.created_at DESC, c.id DESC LIMIT 1),
+	i.attention_since, i.annulled_by, i.annulled_at, i.recipient_warning,
+	i.supersedes_invoice_id,
+	(SELECT s.id FROM invoicing_invoices s WHERE s.supersedes_invoice_id = i.id AND s.status <> 'withdrawn' ORDER BY s.created_at DESC, s.id DESC LIMIT 1),
+	rr.reissued_by, rr.reissued_at, rr.reissue_note,
 	i.created_at, i.updated_at,
 	e.cod_doc, e.estab, e.pto_emi, e.secuencial, e.access_key, e.authorization_number, e.authorization_date`
 
@@ -362,11 +441,38 @@ const invoiceColumns = `
 // Confirmation reference is read beside the row rather than copied onto it:
 // it is the Sale's fact, and the operator surfaces want it on every read.
 // The Credit Note crediting a Sale Invoice is read the same way (#476): the
-// link is stored once, on the Credit Note, and walked back here.
+// link is stored once, on the Credit Note, and walked back here — taking
+// the newest LIVE one (#484): a Credit Note that died, withdrawn or
+// annulled, credits nothing, and a factura it alone names is uncredited,
+// current again and reissuable; the dead Credit Note stays on file beside
+// it, listed with the Sale's documents and readable by its own id.
+//
+// The Sale Invoice Reissue's links are read the same way again (#483, ADR
+// 0061). supersedes_invoice_id is stored once, on the corrected factura;
+// the superseded factura's "superseded by" is walked back from it, taking
+// the live successor — one not withdrawn — of which the schema allows one.
+// The reissue's trail (who, when, the note) is stored on the corrected
+// factura too, and the lateral join reads it beside every document the
+// reissue concerns: the corrected factura's own, the superseded factura's
+// live successor, and — for a reissue Credit Note — the successor of the
+// factura it credits. A document's own trail wins over one that later
+// superseded it.
 const invoiceFrom = `
 	FROM invoicing_invoices i
 	LEFT JOIN invoicing_invoices_ec e ON e.invoice_id = i.id
-	LEFT JOIN ticket_sales ts ON ts.id = i.ticket_sale_id`
+	LEFT JOIN ticket_sales ts ON ts.id = i.ticket_sale_id
+	LEFT JOIN LATERAL (
+		SELECT r.reissued_by, r.reissued_at, r.reissue_note
+		FROM invoicing_invoices r
+		WHERE r.supersedes_invoice_id IS NOT NULL
+		  AND (r.id = i.id
+		       OR (r.status <> 'withdrawn'
+		           AND (r.supersedes_invoice_id = i.id
+		                OR (i.kind = 'credit_note' AND i.credit_note_reason = 'reissue'
+		                    AND r.supersedes_invoice_id = i.credits_invoice_id))))
+		ORDER BY (r.id = i.id) DESC, r.created_at DESC, r.id DESC
+		LIMIT 1
+	) rr ON TRUE`
 
 // GetInvoice reads one Tax Invoice in full, or nil when none has the id.
 func (r *Repository) GetInvoice(ctx context.Context, id string) (*InvoiceRow, error) {
@@ -383,23 +489,33 @@ func (r *Repository) GetInvoice(ctx context.Context, id string) (*InvoiceRow, er
 	return row, nil
 }
 
+// InvoiceFilter is what narrows the invoices list (#477, #482). The zero
+// value is every document.
+type InvoiceFilter struct {
+	// Kind narrows the page to one document kind; "" is every kind.
+	Kind invoicing.DocumentKind
+	// RecipientWarning narrows the page to the documents carrying a
+	// Recipient Warning.
+	RecipientWarning bool
+}
+
 // ListInvoices reads a page of Tax Invoices newest first — by emission
 // instant once signed, by owing instant before — without their lines,
-// fields or attempts, and the total count. kind narrows the page to one
-// document kind (#477); "" is every kind.
-func (r *Repository) ListInvoices(ctx context.Context, kind invoicing.DocumentKind, page, pageSize int) ([]InvoiceRow, int, error) {
+// fields or attempts, and the total count under the same filter.
+func (r *Repository) ListInvoices(ctx context.Context, filter InvoiceFilter, page, pageSize int) ([]InvoiceRow, int, error) {
 	var total int
 	if err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM invoicing_invoices WHERE ($1 = '' OR kind = $1)
-	`, string(kind)).Scan(&total); err != nil {
+		SELECT COUNT(*) FROM invoicing_invoices
+		WHERE ($1 = '' OR kind = $1) AND (NOT $2 OR recipient_warning)
+	`, string(filter.Kind), filter.RecipientWarning).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count invoices: %w", err)
 	}
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT `+invoiceColumns+invoiceFrom+`
-		WHERE ($1 = '' OR i.kind = $1)
+		WHERE ($1 = '' OR i.kind = $1) AND (NOT $2 OR i.recipient_warning)
 		ORDER BY COALESCE(i.issued_at, i.created_at) DESC, i.created_at DESC, i.id DESC
-		LIMIT $2 OFFSET $3
-	`, string(kind), pageSize, (page-1)*pageSize)
+		LIMIT $3 OFFSET $4
+	`, string(filter.Kind), filter.RecipientWarning, pageSize, (page-1)*pageSize)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list invoices: %w", err)
 	}
@@ -445,6 +561,19 @@ func (r *Repository) CountNeedsAttention(ctx context.Context) (int, error) {
 		SELECT COUNT(*) FROM invoicing_invoices WHERE status = $1
 	`, invoicing.InvoiceStatusNeedsAttention).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count needs attention: %w", err)
+	}
+	return n, nil
+}
+
+// CountRecipientWarnings counts the documents carrying a Recipient Warning
+// (#482): the Operator Dashboard's second badge, beside the needs_attention
+// count, and exactly what the list's filter finds.
+func (r *Repository) CountRecipientWarnings(ctx context.Context) (int, error) {
+	var n int
+	if err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM invoicing_invoices WHERE recipient_warning
+	`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count recipient warnings: %w", err)
 	}
 	return n, nil
 }
@@ -559,29 +688,33 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 	var row InvoiceRow
 	inv := &row.Invoice
 	var (
-		issuerID, environment, issuedBy  sql.NullString
-		issuedOn, issuedAt               sql.NullTime
-		snapshot, messages               []byte
-		ticketSaleID, confirmationRef    sql.NullString
-		creditsInvoiceID, reversalReason sql.NullString
-		creditedByInvoiceID              sql.NullString
-		ivaRate                          sql.NullString
-		deliveredAt, nextAttemptAt       sql.NullTime
-		attentionSince, annulledAt       sql.NullTime
-		annulledBy                       sql.NullString
-		codDoc, estab, ptoEmi, accessKey sql.NullString
-		secuencial                       sql.NullInt64
-		authNumber                       sql.NullString
-		authDate                         sql.NullTime
+		issuerID, environment, issuedBy    sql.NullString
+		issuedOn, issuedAt                 sql.NullTime
+		snapshot, messages                 []byte
+		ticketSaleID, confirmationRef      sql.NullString
+		creditsInvoiceID, creditNoteReason sql.NullString
+		creditedByInvoiceID                sql.NullString
+		ivaRate                            sql.NullString
+		deliveredAt, nextAttemptAt         sql.NullTime
+		attentionSince, annulledAt         sql.NullTime
+		annulledBy                         sql.NullString
+		supersedesID, supersededByID       sql.NullString
+		reissuedBy, reissueNote            sql.NullString
+		reissuedAt                         sql.NullTime
+		codDoc, estab, ptoEmi, accessKey   sql.NullString
+		secuencial                         sql.NullInt64
+		authNumber                         sql.NullString
+		authDate                           sql.NullTime
 	)
 	if err := scanner.Scan(
 		&inv.ID, &inv.Kind, &issuerID, &inv.Country, &environment, &inv.Status, &issuedOn, &issuedAt, &issuedBy,
 		&inv.Recipient.TaxIDType, &inv.Recipient.TaxID, &inv.Recipient.LegalName, &inv.Recipient.Address, &inv.Recipient.Email,
 		&snapshot, &inv.Currency, &inv.SubtotalCents, &inv.DiscountCents, &inv.IVACents, &inv.TotalCents, &inv.PaymentMethod,
 		&inv.SignedXML, &inv.AuthorizationXML, &messages,
-		&ticketSaleID, &confirmationRef, &creditsInvoiceID, &reversalReason, &ivaRate, &deliveredAt, &nextAttemptAt,
+		&ticketSaleID, &confirmationRef, &creditsInvoiceID, &creditNoteReason, &ivaRate, &deliveredAt, &nextAttemptAt,
 		&creditedByInvoiceID,
-		&attentionSince, &annulledBy, &annulledAt,
+		&attentionSince, &annulledBy, &annulledAt, &inv.RecipientWarning,
+		&supersedesID, &supersededByID, &reissuedBy, &reissuedAt, &reissueNote,
 		&inv.CreatedAt, &inv.UpdatedAt,
 		&codDoc, &estab, &ptoEmi, &secuencial, &accessKey, &authNumber, &authDate,
 	); err != nil {
@@ -604,7 +737,7 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 	inv.TicketSaleID = ticketSaleID.String
 	inv.SaleConfirmationRef = confirmationRef.String
 	inv.CreditsInvoiceID = creditsInvoiceID.String
-	inv.ReversalReason = reversalReason.String
+	inv.CreditNoteReason = creditNoteReason.String
 	inv.CreditedByInvoiceID = creditedByInvoiceID.String
 	inv.IVARate = invoicing.IVARate(ivaRate.String)
 	if deliveredAt.Valid {
@@ -623,6 +756,14 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 	if annulledAt.Valid {
 		t := annulledAt.Time
 		inv.AnnulledAt = &t
+	}
+	inv.SupersedesInvoiceID = supersedesID.String
+	inv.SupersededByInvoiceID = supersededByID.String
+	inv.ReissuedBy = reissuedBy.String
+	inv.ReissueNote = reissueNote.String
+	if reissuedAt.Valid {
+		t := reissuedAt.Time
+		inv.ReissuedAt = &t
 	}
 	if accessKey.Valid {
 		row.Ecuador = &invoicing.EcuadorInvoiceDetails{

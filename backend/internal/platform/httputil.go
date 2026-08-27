@@ -195,6 +195,15 @@ func domainHTTPStatus(code string) int {
 	// annulled (#477) or withdrawn (#476).
 	case "INVOICE_ALREADY_AUTHORIZED", "INVOICE_NOT_ISSUED", "ISSUER_FIELD_FROZEN", "INVOICE_NOT_ANNULLABLE", "INVOICE_ANNULLED", "INVOICE_WITHDRAWN":
 		return http.StatusConflict
+	// The Sale Invoice Reissue's refusals (#483, ADR 0061): the document
+	// exists and the request was well formed, and what stands in the way is
+	// a fact about the document or its Sale — its kind, its state, a reversed
+	// Sale, a reissue still in flight, a successor already standing, a
+	// Credit Note already authorized against it. None becomes the answer by
+	// being retried with the same body.
+	case "INVOICE_MANUAL_NOT_REISSUABLE", "CREDIT_NOTE_NOT_REISSUABLE", "INVOICE_NOT_AUTHORIZED",
+		"INVOICE_SALE_REVERSED", "REISSUE_IN_FLIGHT", "INVOICE_SUPERSEDED", "INVOICE_ALREADY_CREDITED":
+		return http.StatusConflict
 	case "NOT_FOUND", "ORGANIZATION_NOT_FOUND", "MEMBER_NOT_FOUND", "EVENT_NOT_FOUND":
 		return http.StatusNotFound
 	// A House Organization designation refused for the Organization's

@@ -1895,6 +1895,22 @@ var (
 		"Hi %s,\n\nAttached is the credit note (nota de crédito) for your reversed purchase for %s, authorized by the SRI.\nReference: %s",
 		"Hola %s:\n\nAdjuntamos la nota de crédito de su compra anulada de %s, autorizada por el SRI.\nReferencia: %s",
 	)
+	// A reissue's Credit Note (#481, ADR 0061) is about the document, not the
+	// purchase: the earlier factura is cancelled to correct its Recipient's
+	// details, and a corrected factura follows by mail. The purchase and the
+	// tickets stand, and the copy says so, because a reader holding a nota
+	// de crédito will otherwise assume they were refunded.
+	taxDocumentCreditNoteReissueOpeningCopy = translated(
+		"Hi %s,\n\nAttached is the credit note (nota de crédito) that cancels the earlier tax invoice (factura) for your purchase for %s, authorized by the SRI, so that its recipient details can be corrected. Your purchase and your tickets are unchanged: a corrected tax invoice (factura) will follow by email.\nReference: %s",
+		"Hola %s:\n\nAdjuntamos la nota de crédito, autorizada por el SRI, que deja sin efecto la factura anterior de su compra de %s para corregir los datos del receptor. Su compra y sus entradas no cambian: recibirá la factura corregida por correo.\nReferencia: %s",
+	)
+	// The corrected factura of a reissue (#485) is delivered as any factura,
+	// with one line more: the reader holds an earlier factura and a nota de
+	// crédito, and must know this one stands in place of that one.
+	taxDocumentSaleInvoiceSupersedesCopy = translated(
+		"This corrected tax invoice (factura) replaces the earlier one for this purchase, which the credit note (nota de crédito) you received cancelled.",
+		"Esta factura corregida sustituye a la anterior de esta compra, que quedó sin efecto con la nota de crédito que recibió.",
+	)
 	taxDocumentAttachmentCopy = translated(
 		"The attached XML is the document itself, exactly as the SRI authorized it.",
 		"El XML adjunto es el documento en sí, tal como lo autorizó el SRI.",
@@ -1923,8 +1939,14 @@ func (d TaxDocumentDelivery) Text() string {
 	opening := taxDocumentSaleInvoiceOpeningCopy
 	if d.Kind == TaxDocumentKindCreditNote {
 		opening = taxDocumentCreditNoteOpeningCopy
+		if d.Reason == TaxDocumentReasonReissue {
+			opening = taxDocumentCreditNoteReissueOpeningCopy
+		}
 	}
 	text := fmt.Sprintf(opening.in(d.Locale), d.CustomerName, d.EventName, d.Reference)
+	if d.Kind != TaxDocumentKindCreditNote && d.Supersedes {
+		text += "\n\n" + taxDocumentSaleInvoiceSupersedesCopy.in(d.Locale)
+	}
 	text += "\n\n" + taxDocumentAttachmentCopy.in(d.Locale)
 	if d.CustomerAreaURL != "" {
 		text += "\n\n" + fmt.Sprintf(taxDocumentLinkCopy.in(d.Locale), d.CustomerAreaURL)

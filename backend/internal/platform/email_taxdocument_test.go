@@ -85,6 +85,74 @@ func TestTaxDocumentDeliveryNamesACreditNoteByItsOwnWord(t *testing.T) {
 	}
 }
 
+// TestTaxDocumentDeliveryForAReissueSaysACorrectionFollows (#481, ADR
+// 0061): a Credit Note owed by a Sale Invoice Reissue has no reversal
+// behind it, and its words say so in either language — the earlier factura
+// is cancelled to correct the recipient's details and a corrected one
+// follows — never that the purchase was reversed. The subject is the
+// Credit Note's as ever: what the reader holds is still a nota de crédito.
+func TestTaxDocumentDeliveryForAReissueSaysACorrectionFollows(t *testing.T) {
+	d := spanishDelivery()
+	d.Kind = TaxDocumentKindCreditNote
+	d.Reason = TaxDocumentReasonReissue
+
+	if got := d.Subject(); got != "Su nota de crédito de Noche de Jazz" {
+		t.Fatalf("subject = %q, want the credit note named", got)
+	}
+	text := d.Text()
+	for _, want := range []string{
+		"Hola Ana Lopez:",
+		"Adjuntamos la nota de crédito, autorizada por el SRI, que deja sin efecto la factura anterior de su compra de Noche de Jazz para corregir los datos del receptor.",
+		"Su compra y sus entradas no cambian: recibirá la factura corregida por correo.",
+		"Referencia: ABC123",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text = %q, want it to contain %q", text, want)
+		}
+	}
+	if strings.Contains(text, "anulada") {
+		t.Fatalf("text = %q, says the purchase was reversed", text)
+	}
+
+	d.Locale = LocaleEN
+	if got := d.Subject(); got != "Your credit note (nota de crédito) for Noche de Jazz" {
+		t.Fatalf("subject = %q, want the English credit note subject", got)
+	}
+	text = d.Text()
+	for _, want := range []string{
+		"Hi Ana Lopez,",
+		"Attached is the credit note (nota de crédito) that cancels the earlier tax invoice (factura) for your purchase for Noche de Jazz, authorized by the SRI, so that its recipient details can be corrected.",
+		"Your purchase and your tickets are unchanged: a corrected tax invoice (factura) will follow by email.",
+		"Reference: ABC123",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text = %q, want it to contain %q", text, want)
+		}
+	}
+	if strings.Contains(text, "reversed") {
+		t.Fatalf("text = %q, says the purchase was reversed", text)
+	}
+}
+
+// TestTaxDocumentDeliveryForAReversalStillSaysReversed: every reversal
+// route's Credit Note reads exactly as it did before a reason could be a
+// reissue, and a Sale Invoice ignores Reason altogether.
+func TestTaxDocumentDeliveryForAReversalStillSaysReversed(t *testing.T) {
+	for _, reason := range []string{"customer", "platform", "import_undo", "staff_reversal", "correction", ""} {
+		d := spanishDelivery()
+		d.Kind = TaxDocumentKindCreditNote
+		d.Reason = reason
+		if text := d.Text(); !strings.Contains(text, "Adjuntamos la nota de crédito de su compra anulada de Noche de Jazz") || strings.Contains(text, "corregir") {
+			t.Fatalf("reason %q: text = %q, want the reversal wording", reason, text)
+		}
+	}
+	d := spanishDelivery()
+	d.Reason = TaxDocumentReasonReissue
+	if text := d.Text(); !strings.Contains(text, "Adjuntamos la factura de su compra de Noche de Jazz") {
+		t.Fatalf("a Sale Invoice with a stray reason: text = %q, want the factura wording", text)
+	}
+}
+
 // TestTaxDocumentDeliveryWithoutAnOriginOffersNoLink: a deployment that knows
 // no Storefront origin still delivers the document; it simply has nowhere
 // to point.

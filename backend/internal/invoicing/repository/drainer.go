@@ -43,6 +43,29 @@ import (
 // by an operator's Mark annulled, and a claim that reads the factura's
 // state on every tick needs none of them to remember the Credit Note. A
 // signed Credit Note is past the wait and is polled like any other.
+//
+// A CREDIT NOTE WAITS FOR ITS SIBLING TOO (#484). Two Credit Notes may be
+// owed against one factura — a reissue's, and then a reversal's while the
+// reissue was in flight — and the SRI must see at most one: an owed Credit
+// Note is claimable only while no OTHER Credit Note crediting the same
+// factura is signed and undecided (pending, needs_attention). Once the
+// sibling is answered, the claim admits it and the service decides:
+// sibling authorized → this one is withdrawn, the factura is credited
+// already; sibling dead → this one is issued.
+//
+// A CORRECTED FACTURA WAITS FOR ITS CREDIT NOTE (#483, ADR 0061), the
+// sibling wait. An owed Sale Invoice that supersedes another is claimable
+// only once a Credit Note crediting the factura it supersedes is
+// authorized: the SRI must see the cancellation before the replacement,
+// and a Sale must never hold two authorized facturas. Decided here at
+// claim time for the same reason as the Credit Note's wait, and the reason
+// the Credit Note is always worked first — both are due at once, and only
+// one of them is claimable. It is claimable as well once NO Credit Note
+// crediting the superseded factura is live any more (#484) — its Credit
+// Note died, annulled at the portal — so that the service can withdraw it
+// unsigned and leave the old factura current, exactly as an owed Credit
+// Note is claimed to be withdrawn once its factura has died. Mark annulled
+// withdraws it in its own act already; this is the Drainer's own net.
 func (r *Repository) ClaimDueInvoice(ctx context.Context, now, leaseUntil time.Time, ticketSaleID string) (*InvoiceRow, error) {
 	var id string
 	err := r.db.Pool.QueryRowContext(ctx, `
@@ -55,10 +78,21 @@ func (r *Repository) ClaimDueInvoice(ctx context.Context, now, leaseUntil time.T
 			  AND i.kind IN ('sale', 'credit_note')
 			  AND (i.status IN ('owed', 'pending', 'needs_attention')
 			       OR (i.status = 'authorized' AND i.delivered_at IS NULL))
-			  AND (i.kind <> 'credit_note' OR i.signed_xml IS NOT NULL OR EXISTS (
-			        SELECT 1 FROM invoicing_invoices f
-			        WHERE f.id = i.credits_invoice_id
-			          AND f.status IN ('authorized', 'withdrawn', 'annulled')))
+			  AND (i.kind <> 'credit_note' OR i.signed_xml IS NOT NULL OR (
+			        EXISTS (
+			          SELECT 1 FROM invoicing_invoices f
+			          WHERE f.id = i.credits_invoice_id
+			            AND f.status IN ('authorized', 'withdrawn', 'annulled'))
+			        AND NOT EXISTS (
+			          SELECT 1 FROM invoicing_invoices o
+			          WHERE o.kind = 'credit_note' AND o.id <> i.id
+			            AND o.credits_invoice_id = i.credits_invoice_id
+			            AND o.status IN ('pending', 'needs_attention'))))
+			  AND (i.supersedes_invoice_id IS NULL OR i.signed_xml IS NOT NULL OR NOT EXISTS (
+			        SELECT 1 FROM invoicing_invoices n
+			        WHERE n.kind = 'credit_note'
+			          AND n.credits_invoice_id = i.supersedes_invoice_id
+			          AND n.status IN ('owed', 'pending', 'needs_attention')))
 			  AND ($3 = '' OR i.ticket_sale_id = NULLIF($3, '')::uuid)
 			ORDER BY i.next_attempt_at
 			FOR UPDATE SKIP LOCKED
@@ -279,6 +313,10 @@ type SaleDeliveryFacts struct {
 	EventName      string
 	SaleLocale     string
 	CustomerLocale string
+	// Reversed says the Sale no longer stands. A reissue's Credit Note that
+	// authorizes after the reversal is the last document the buyer will
+	// receive — no corrected factura follows — and its mail must say so.
+	Reversed bool
 }
 
 // GetSaleDeliveryFacts reads the delivery facts of one Ticket Sale, or nil
@@ -287,12 +325,12 @@ func (r *Repository) GetSaleDeliveryFacts(ctx context.Context, ticketSaleID stri
 	var f SaleDeliveryFacts
 	var saleLocale, customerLocale sql.NullString
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT e.name, ts.locale, c.mail_locale
+		SELECT e.name, ts.locale, c.mail_locale, ts.status = 'reversed'
 		FROM ticket_sales ts
 		JOIN events e ON e.id = ts.event_id
 		LEFT JOIN customers c ON c.id = ts.customer_id
 		WHERE ts.id = $1
-	`, ticketSaleID).Scan(&f.EventName, &saleLocale, &customerLocale)
+	`, ticketSaleID).Scan(&f.EventName, &saleLocale, &customerLocale, &f.Reversed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

@@ -48,6 +48,8 @@ type saleInvoiceListView struct {
 		} `json:"recipient"`
 		TotalCents int64  `json:"total_cents"`
 		Currency   string `json:"currency"`
+		// SupersededByInvoiceID is the list's superseded marker (#486).
+		SupersededByInvoiceID *string `json:"superseded_by_invoice_id"`
 	} `json:"data"`
 	Pagination struct {
 		Total int `json:"total"`
@@ -65,7 +67,7 @@ type saleInvoiceDetailView struct {
 	DeliveredAt         *string `json:"delivered_at"`
 	NextAttemptAt       *string `json:"next_attempt_at"`
 	CreditsInvoiceID    *string `json:"credits_invoice_id"`
-	ReversalReason      *string `json:"reversal_reason"`
+	CreditNoteReason    *string `json:"credit_note_reason"`
 	PaymentMethod       string  `json:"payment_method"`
 	Issuer              *struct {
 		RUC string `json:"ruc"`
@@ -248,7 +250,7 @@ func TestPaidHouseCheckoutOwesASaleInvoice(t *testing.T) {
 	if detail.Ecuador != nil || detail.Issuer != nil {
 		t.Fatalf("owed document has an Ecuador row or an Issuer snapshot: ecuador=%+v issuer=%+v; want neither before signing", detail.Ecuador, detail.Issuer)
 	}
-	if detail.DeliveredAt != nil || detail.CreditsInvoiceID != nil || detail.ReversalReason != nil {
+	if detail.DeliveredAt != nil || detail.CreditsInvoiceID != nil || detail.CreditNoteReason != nil {
 		t.Fatalf("owed Sale Invoice carries delivery or credit facts: %+v", detail)
 	}
 	// Due at once: the Drainer's first attempt is the immediate one right

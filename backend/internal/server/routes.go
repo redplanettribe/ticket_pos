@@ -284,12 +284,21 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// Mark annulled (#477): the operator's record of a manual portal act,
 	// allowed from pending or needs_attention, irreversible.
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/annul", operator(http.HandlerFunc(inv.AnnulInvoice)))
+	// The Sale Invoice Reissue (#483, ADR 0061): a Credit Note and a
+	// corrected Sale Invoice owed in one act against an authorized factura
+	// whose Recipient is wrong. Operator-only; 404 while Sale Invoicing is
+	// closed.
+	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/reissue", operator(http.HandlerFunc(inv.ReissueInvoice)))
 	// The documents that need an operator (#477): the Operator Dashboard's
 	// queue, longest waiting first, and its count. Read-only, on the
 	// invoicing module because the documents are its own; the dashboard's
 	// other queues live on the operator module because it composes theirs.
 	mux.Handle("GET /api/v1/operator/invoicing/needs-attention", operator(http.HandlerFunc(inv.ListNeedsAttention)))
 	mux.Handle("GET /api/v1/operator/invoicing/needs-attention/count", operator(http.HandlerFunc(inv.CountNeedsAttention)))
+	// The Recipient Warnings (#482, ADR 0061): the dashboard's count beside
+	// the needs_attention one; the documents themselves are the invoicing
+	// list under its recipient_warning filter.
+	mux.Handle("GET /api/v1/operator/invoicing/recipient-warnings/count", operator(http.HandlerFunc(inv.CountRecipientWarnings)))
 	// The documents handed over (#456): the signed XML in every status, the
 	// SRI's authorization XML only once authorized. Files, not envelopes.
 	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/xml", operator(http.HandlerFunc(inv.DownloadSignedXML)))

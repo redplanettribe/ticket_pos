@@ -121,7 +121,7 @@ func lineDescription(ticketType, event string) string {
 // The Sale's paperwork on reversal (#476, parent #471, ADR 0060): the sales
 // module has just marked a Ticket Sale reversed and, still inside that
 // transaction, tells this module so. What happens is decided by the state
-// of the Sale Invoice, read under a lock, and by nothing outside the
+// of each Sale Invoice, read under a lock, and by nothing outside the
 // database:
 //
 //   - NEVER SENT (owed, or parked needs_attention while unsignable — no
@@ -138,6 +138,28 @@ func lineDescription(ticketType, event string) string {
 //   - ANNULLED, or already credited: nothing. The factura is already
 //     undone at the authority, or a Credit Note already stands.
 //
+// A REVERSAL DURING A REISSUE (#484, ADR 0061) is neither refused nor
+// delayed, and ONE Credit Note ends up crediting the old factura at the
+// authority. The reissue's corrected factura, unsent, is withdrawn by the
+// first rule. The reissue's Credit Note against the old factura decides
+// the rest, by ITS state:
+//
+//   - UNSENT (owed, unsigned): withdrawn with the corrected factura — the
+//     authority hears nothing of a correction to a sale that no longer
+//     stands — and the reversal's own Credit Note credits the old factura
+//     with the reversal's reason, worked at once.
+//   - SIGNED AND UNDECIDED (pending, needs_attention): the reversal's
+//     Credit Note is owed and WAITS for the reissue Credit Note's answer
+//     (repository.ClaimDueInvoice, the sibling wait): authorized → the
+//     reversal's is withdrawn, the factura being credited already
+//     (drainer.go, withdrawRedundantCreditNote); annulled → the reversal's
+//     is issued.
+//   - AUTHORIZED: nothing owed; the old factura is credited already.
+//
+// A reversal AFTER a settled reissue credits the corrected factura alone:
+// the superseded one is credited by the reissue's Credit Note and left as
+// it is.
+//
 // Never refused for the Issuer's sake, never delayed by the authority: the
 // only failures are the rows' own constraints, which fail the reversal's
 // transaction exactly as they would fail any write in it.
@@ -145,37 +167,59 @@ func lineDescription(ticketType, event string) string {
 // SettleReversedSale implements the sales module's SaleInvoicer seam for a
 // Sale Reversal. It reports whether the Drainer now has work for the Sale.
 func (s *Service) SettleReversedSale(ctx context.Context, tx *sql.Tx, reversal sales.SaleReversal) (bool, error) {
-	facturas, err := s.repo.LockSaleInvoicesForReversal(ctx, tx, reversal.TicketSaleID)
+	docs, err := s.repo.LockSaleDocumentsForReversal(ctx, tx, reversal.TicketSaleID)
 	if err != nil {
 		return false, err
 	}
+	var facturas []*invoicing.Invoice
+	notesOf := map[string][]*invoicing.Invoice{}
+	for i := range docs {
+		inv := &docs[i].Invoice
+		switch inv.Kind {
+		case invoicing.DocumentKindSale:
+			facturas = append(facturas, inv)
+		case invoicing.DocumentKindCreditNote:
+			notesOf[inv.CreditsInvoiceID] = append(notesOf[inv.CreditsInvoiceID], inv)
+		}
+	}
 	due := false
-	for i := range facturas {
-		row := &facturas[i]
-		inv := &row.Invoice
+	for _, inv := range facturas {
 		switch {
 		case !inv.Signed():
 			// owed, or needs_attention with nothing signed: never sent.
-			withdrawn, err := s.repo.WithdrawUnsignedInvoice(ctx, tx, inv.ID, reversal.At)
-			if err != nil {
+			if err := s.withdrawNeverSent(ctx, tx, inv, reversal); err != nil {
 				return false, err
 			}
-			if !withdrawn {
-				// Signed between the lock and the write — impossible under
-				// FOR UPDATE, and refused rather than papered over.
-				return false, fmt.Errorf("invoicing: sale invoice %s could not be withdrawn", inv.ID)
-			}
-			s.logger.Info("invoicing: sale invoice withdrawn; its sale was reversed before it was sent", "invoice_id", inv.ID, "route", reversal.Route)
-		case inv.Status == invoicing.InvoiceStatusAnnulled, inv.CreditedByInvoiceID != "":
-			s.logger.Info("invoicing: reversed sale's invoice needs no credit note", "invoice_id", inv.ID, "status", inv.Status, "already_credited", inv.CreditedByInvoiceID != "")
+		case inv.Status == invoicing.InvoiceStatusAnnulled:
+			s.logger.Info("invoicing: reversed sale's invoice needs no credit note", "invoice_id", inv.ID, "status", inv.Status)
 		default:
 			// authorized, pending, or needs_attention with a number consumed.
-			note := creditNoteOf(inv, reversal, s.clock())
+			// What already stands against it decides whether one more is owed.
+			credited, undecided := false, false
+			for _, note := range notesOf[inv.ID] {
+				switch {
+				case !note.Signed() && note.Status != invoicing.InvoiceStatusWithdrawn:
+					// A reissue's Credit Note nothing was sent for: withdrawn
+					// with the corrected factura it was owed for.
+					if err := s.withdrawNeverSent(ctx, tx, note, reversal); err != nil {
+						return false, err
+					}
+				case note.Status == invoicing.InvoiceStatusAuthorized:
+					credited = true
+				case note.Status == invoicing.InvoiceStatusPending, note.Status == invoicing.InvoiceStatusNeedsAttention:
+					undecided = true
+				}
+			}
+			if credited {
+				s.logger.Info("invoicing: reversed sale's invoice needs no credit note", "invoice_id", inv.ID, "status", inv.Status, "already_credited", true)
+				continue
+			}
+			note := creditNoteOf(inv, reversal.Route, s.clock())
 			id, err := s.repo.OweInvoice(ctx, tx, note)
 			if err != nil {
 				return false, err
 			}
-			waits := inv.Status != invoicing.InvoiceStatusAuthorized
+			waits := inv.Status != invoicing.InvoiceStatusAuthorized || undecided
 			s.logger.Info("invoicing: credit note owed", "invoice_id", id, "credits_invoice_id", inv.ID, "route", reversal.Route, "waits", waits, "total_cents", note.TotalCents)
 			due = true
 		}
@@ -183,20 +227,37 @@ func (s *Service) SettleReversedSale(ctx context.Context, tx *sql.Tx, reversal s
 	return due, nil
 }
 
-// creditNoteOf is the Credit Note a Sale Invoice owes on its Sale's
-// reversal: the same document minus everything that needs an Issuer, of
-// kind credit_note, naming what it credits and why. Copied from the Sale
+// withdrawNeverSent withdraws a document of the reversed Sale that was
+// never sent, in the reversal's transaction, refusing rather than papering
+// over a row that was signed between the lock and the write — impossible
+// under FOR UPDATE.
+func (s *Service) withdrawNeverSent(ctx context.Context, tx *sql.Tx, inv *invoicing.Invoice, reversal sales.SaleReversal) error {
+	withdrawn, err := s.repo.WithdrawUnsignedInvoice(ctx, tx, inv.ID, reversal.At)
+	if err != nil {
+		return err
+	}
+	if !withdrawn {
+		return fmt.Errorf("invoicing: %s %s could not be withdrawn", inv.Kind, inv.ID)
+	}
+	s.logger.Info("invoicing: document withdrawn; its sale was reversed before it was sent", "invoice_id", inv.ID, "kind", inv.Kind, "route", reversal.Route)
+	return nil
+}
+
+// creditNoteOf is the Credit Note a Sale Invoice owes — on its Sale's
+// reversal, or on its reissue (#483): the same document minus everything
+// that needs an Issuer, of kind credit_note, naming what it credits and
+// why (a reversal route, or CreditNoteReasonReissue). Copied from the Sale
 // Invoice ROW, never from the Sale — the Recipient is fixed once issued
 // (CONTEXT.md, Recipient), and what is credited is what was invoiced.
 // Pure, so the copy is testable without a database.
-func creditNoteOf(factura *invoicing.Invoice, reversal sales.SaleReversal, now time.Time) invoicing.Invoice {
+func creditNoteOf(factura *invoicing.Invoice, reason string, now time.Time) invoicing.Invoice {
 	note := invoicing.Invoice{
 		Kind:             invoicing.DocumentKindCreditNote,
 		Country:          factura.Country,
 		Status:           invoicing.InvoiceStatusOwed,
 		TicketSaleID:     factura.TicketSaleID,
 		CreditsInvoiceID: factura.ID,
-		ReversalReason:   reversal.Route,
+		CreditNoteReason: reason,
 		IVARate:          factura.IVARate,
 		Recipient:        factura.Recipient,
 		Currency:         factura.Currency,

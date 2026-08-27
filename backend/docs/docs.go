@@ -853,6 +853,34 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.reissueInvoiceBody": {
+                "properties": {
+                    "note": {
+                        "type": "string"
+                    },
+                    "recipient": {
+                        "$ref": "#/components/schemas/handler.reissueRecipientBody"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.reissueRecipientBody": {
+                "properties": {
+                    "address": {
+                        "type": "string"
+                    },
+                    "legal_name": {
+                        "type": "string"
+                    },
+                    "tax_id": {
+                        "type": "string"
+                    },
+                    "tax_id_type": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.reorderTicketQuestionsBody": {
                 "properties": {
                     "question_ids": {
@@ -2491,6 +2519,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeRecipientWarningCount": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.RecipientWarningCount"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeReversalDrain": {
                 "properties": {
                     "data": {
@@ -3383,6 +3425,9 @@ const docTemplate = `{
             },
             "service.CustomerDocument": {
                 "properties": {
+                    "credits_invoice_id": {
+                        "type": "string"
+                    },
                     "download_url": {
                         "description": "DownloadURL is the API path of the signed XML once authorized, null\nbefore: the card draws the download exactly where this is set.",
                         "type": "string"
@@ -3394,11 +3439,35 @@ const docTemplate = `{
                         "description": "Kind is ` + "`" + `sale` + "`" + ` (a factura) or ` + "`" + `credit_note` + "`" + `; the card names each by\nits own word.",
                         "type": "string"
                     },
+                    "role": {
+                        "$ref": "#/components/schemas/service.CustomerDocumentRole"
+                    },
                     "status": {
                         "$ref": "#/components/schemas/service.CustomerDocumentStatus"
+                    },
+                    "superseded_by_invoice_id": {
+                        "type": "string"
+                    },
+                    "supersedes_invoice_id": {
+                        "description": "SupersedesInvoiceID is, on a factura a reissue produced, the factura\nit corrects; SupersededByInvoiceID, on a superseded factura, the one\nthat corrects it; CreditsInvoiceID, on a Credit Note, the factura it\ncredits. Each names another document of this same list, null when\nthere is none.",
+                        "type": "string"
                     }
                 },
                 "type": "object"
+            },
+            "service.CustomerDocumentRole": {
+                "description": "Role is ` + "`" + `current` + "`" + `, ` + "`" + `superseded` + "`" + ` or ` + "`" + `credit_note` + "`" + ` (#485): the card\norders the chain by it and labels a superseded factura.",
+                "enum": [
+                    "current",
+                    "superseded",
+                    "credit_note"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "CustomerDocumentCurrent",
+                    "CustomerDocumentSuperseded",
+                    "CustomerDocumentCreditNote"
+                ]
             },
             "service.CustomerDocumentStatus": {
                 "description": "Status is ` + "`" + `authorized` + "`" + ` or ` + "`" + `on_its_way` + "`" + `, and nothing else.",
@@ -3504,6 +3573,12 @@ const docTemplate = `{
                     "country": {
                         "type": "string"
                     },
+                    "credit_note_reason": {
+                        "type": "string"
+                    },
+                    "credits_invoice_id": {
+                        "type": "string"
+                    },
                     "currency": {
                         "type": "string"
                     },
@@ -3535,10 +3610,35 @@ const docTemplate = `{
                     "recipient": {
                         "$ref": "#/components/schemas/service.RecipientView"
                     },
+                    "recipient_warning": {
+                        "description": "RecipientWarning is true on an authorized Sale Invoice the SRI warned\nabout — the Recipient's Tax ID does not exist (advertencia 59) or is\nincorrect (62) — until the document is superseded (#482, ADR 0061).\nThe status is unaffected. Always false while SALE_INVOICING_ENABLED is\nclosed.",
+                        "type": "boolean"
+                    },
+                    "reissue_note": {
+                        "type": "string"
+                    },
+                    "reissued_at": {
+                        "type": "string"
+                    },
+                    "reissued_by": {
+                        "description": "ReissuedBy, ReissuedAt and ReissueNote are the reissue's trail, on the\ncorrected factura, the superseded one and the reissue's Credit Note\nalike; a document's own reissue wins over one that later superseded\nit. Null where no reissue concerns the document.",
+                        "type": "string"
+                    },
+                    "role": {
+                        "$ref": "#/components/schemas/service.DocumentRole"
+                    },
                     "sale_confirmation_ref": {
                         "type": "string"
                     },
                     "status": {
+                        "type": "string"
+                    },
+                    "superseded_by_invoice_id": {
+                        "description": "SupersededByInvoiceID is, on a reissued Sale Invoice, the live\ncorrected one — the list's superseded marker (#486, ADR 0061), so an\noperator tells a superseded factura from the current one without\nopening it. Null on every other row, and always null while\nSALE_INVOICING_ENABLED is closed. The status stays authorized:\nsuperseded is a relation, not a state.",
+                        "type": "string"
+                    },
+                    "supersedes_invoice_id": {
+                        "description": "SupersedesInvoiceID is, on a corrected Sale Invoice, the factura it\ncorrects; CreditsInvoiceID and CreditNoteReason are, on a Credit\nNote, the factura it credits and why — a reversal route or \"reissue\".\nNull where they do not apply.",
                         "type": "string"
                     },
                     "ticket_sale_id": {
@@ -3550,6 +3650,21 @@ const docTemplate = `{
                     }
                 },
                 "type": "object"
+            },
+            "service.DocumentRole": {
+                "enum": [
+                    "current",
+                    "superseded",
+                    "credit_note",
+                    "not_current"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "DocumentRoleCurrent",
+                    "DocumentRoleSuperseded",
+                    "DocumentRoleCreditNote",
+                    "DocumentRoleNotCurrent"
+                ]
             },
             "service.DrainResult": {
                 "properties": {
@@ -4181,8 +4296,11 @@ const docTemplate = `{
                     "created_at": {
                         "type": "string"
                     },
+                    "credit_note_reason": {
+                        "type": "string"
+                    },
                     "credited_by_invoice_id": {
-                        "description": "CreditedByInvoiceID is, on a Sale Invoice, the Credit Note that\ncredits it (#476); null on every other document and until one does.",
+                        "description": "CreditedByInvoiceID is, on a Sale Invoice, the Credit Note that\ncredits it (#476); null on every other document and until one does.\nA withdrawn or annulled Credit Note credits nothing (#484): the link\nnames a live one, and is null again once the only one died.",
                         "type": "string"
                     },
                     "credits_invoice_id": {
@@ -4222,7 +4340,7 @@ const docTemplate = `{
                         "$ref": "#/components/schemas/invoicing.IssuerSnapshot"
                     },
                     "iva_rate": {
-                        "description": "The Sale side (#473): the one IVA rate a platform-priced document was\npriced under, when its authorized document was mailed to the buyer,\nwhen the Drainer next works it, and — on a Credit Note — the Sale\nInvoice it credits and the reversal route that made it owed. All null\non a manual Tax Invoice.",
+                        "description": "The Sale side (#473): the one IVA rate a platform-priced document was\npriced under, when its authorized document was mailed to the buyer,\nwhen the Drainer next works it, and — on a Credit Note — the Sale\nInvoice it credits and why: a reversal route, or \"reissue\" (#481, ADR\n0061), under the field name the first reason gave it. All null on a\nmanual Tax Invoice.",
                         "type": "string"
                     },
                     "kind": {
@@ -4260,13 +4378,31 @@ const docTemplate = `{
                     "recipient": {
                         "$ref": "#/components/schemas/service.RecipientView"
                     },
-                    "reversal_reason": {
+                    "recipient_warning": {
+                        "description": "RecipientWarning is true on an authorized Sale Invoice the SRI warned\nabout — the Recipient's Tax ID does not exist (advertencia 59) or is\nincorrect (62) — until the document is superseded (#482, ADR 0061).\nThe status is unaffected. Always false while SALE_INVOICING_ENABLED is\nclosed.",
+                        "type": "boolean"
+                    },
+                    "reissue_note": {
+                        "type": "string"
+                    },
+                    "reissued_at": {
+                        "type": "string"
+                    },
+                    "reissued_by": {
                         "type": "string"
                     },
                     "sale_confirmation_ref": {
                         "type": "string"
                     },
                     "status": {
+                        "type": "string"
+                    },
+                    "superseded_by_invoice_id": {
+                        "description": "SupersededByInvoiceID is, on a reissued Sale Invoice, the live\ncorrected one — the list's superseded marker (#486, ADR 0061), so an\noperator tells a superseded factura from the current one without\nopening it. Null on every other row, and always null while\nSALE_INVOICING_ENABLED is closed. The status stays authorized:\nsuperseded is a relation, not a state.",
+                        "type": "string"
+                    },
+                    "supersedes_invoice_id": {
+                        "description": "The Sale Invoice Reissue's chain and trail (#483, ADR 0061).\nSupersedesInvoiceID is, on a corrected Sale Invoice, the factura it\ncorrects; the list row's SupersededByInvoiceID is, on a reissued\nfactura, the live corrected one — the current Sale Invoice is the one\nwith neither a successor nor a withdrawn or annulled state. ReissuedBy,\nReissuedAt and ReissueNote are who reissued, when and the optional\nnote, shown on the corrected factura, the superseded one and the\nreissue's Credit Note alike. All null where no reissue concerns the\ndocument.",
                         "type": "string"
                     },
                     "ticket_sale_id": {
@@ -4340,10 +4476,18 @@ const docTemplate = `{
                     "recipient": {
                         "$ref": "#/components/schemas/service.RecipientView"
                     },
+                    "recipient_warning": {
+                        "description": "RecipientWarning is true on an authorized Sale Invoice the SRI warned\nabout — the Recipient's Tax ID does not exist (advertencia 59) or is\nincorrect (62) — until the document is superseded (#482, ADR 0061).\nThe status is unaffected. Always false while SALE_INVOICING_ENABLED is\nclosed.",
+                        "type": "boolean"
+                    },
                     "sale_confirmation_ref": {
                         "type": "string"
                     },
                     "status": {
+                        "type": "string"
+                    },
+                    "superseded_by_invoice_id": {
+                        "description": "SupersededByInvoiceID is, on a reissued Sale Invoice, the live\ncorrected one — the list's superseded marker (#486, ADR 0061), so an\noperator tells a superseded factura from the current one without\nopening it. Null on every other row, and always null while\nSALE_INVOICING_ENABLED is closed. The status stays authorized:\nsuperseded is a relation, not a state.",
                         "type": "string"
                     },
                     "ticket_sale_id": {
@@ -4484,10 +4628,18 @@ const docTemplate = `{
                     "recipient": {
                         "$ref": "#/components/schemas/service.RecipientView"
                     },
+                    "recipient_warning": {
+                        "description": "RecipientWarning is true on an authorized Sale Invoice the SRI warned\nabout — the Recipient's Tax ID does not exist (advertencia 59) or is\nincorrect (62) — until the document is superseded (#482, ADR 0061).\nThe status is unaffected. Always false while SALE_INVOICING_ENABLED is\nclosed.",
+                        "type": "boolean"
+                    },
                     "sale_confirmation_ref": {
                         "type": "string"
                     },
                     "status": {
+                        "type": "string"
+                    },
+                    "superseded_by_invoice_id": {
+                        "description": "SupersededByInvoiceID is, on a reissued Sale Invoice, the live\ncorrected one — the list's superseded marker (#486, ADR 0061), so an\noperator tells a superseded factura from the current one without\nopening it. Null on every other row, and always null while\nSALE_INVOICING_ENABLED is closed. The status stays authorized:\nsuperseded is a relation, not a state.",
                         "type": "string"
                     },
                     "ticket_sale_id": {
@@ -5988,6 +6140,14 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.RecipientWarningCount": {
+                "properties": {
+                    "recipient_warning_count": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "service.ReversalDrainResult": {
                 "properties": {
                     "failed": {
@@ -6250,7 +6410,7 @@ const docTemplate = `{
             "service.SaleLookup": {
                 "properties": {
                     "documents": {
-                        "description": "Documents are the Tax Invoices about this Sale (#477, ADR 0060): the\nSale Invoice a paid House checkout owed and the Credit Note its\nreversal owed, oldest first, each with its kind, state and number, and\nits id as the link to the document detail. Empty — never null — on a\nSale that owes nothing, which is every Sale outside a House Organization.",
+                        "description": "Documents are the Tax Invoices about this Sale (#477, ADR 0060; #486,\nADR 0061): the Sale Invoice a paid House checkout owed, the Credit\nNote its reversal owed, and — after a Sale Invoice Reissue — the\nsuperseded factura, its Credit Note and the corrected factura, in chain\norder, each with its kind, state, number and role, the current one\nmarked as such, and its id as the link to the document detail. Empty —\nnever null — on a Sale that owes nothing, which is every Sale outside a\nHouse Organization.",
                         "items": {
                             "$ref": "#/components/schemas/service.Document"
                         },
@@ -9075,7 +9235,7 @@ const docTemplate = `{
         },
         "/api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents": {
             "get": {
-                "description": "The Customer Area's read of a Sale's documents (ADR 0060): every Sale Invoice and Credit Note the Sale owes or was issued, each with its ` + "`" + `kind` + "`" + ` (` + "`" + `sale` + "`" + ` for a factura, ` + "`" + `credit_note` + "`" + `), a ` + "`" + `status` + "`" + ` in the platform's own words — ` + "`" + `authorized` + "`" + `, or ` + "`" + `on_its_way` + "`" + ` for a document still owed, pending at the SRI or parked for an operator — and ` + "`" + `download_url` + "`" + `, the path of the signed XML once authorized and null before. Nothing the SRI said ever travels here. An empty list for a Sale that owes no document (a free, imported or non-House sale), for a Sale that is not this Customer's, and for any Sale but the one a Confirmation Link session names: not yours and not there are one answer. Requires a Customer Session; a Confirmation Link session is enough.",
+                "description": "The Customer Area's read of a Sale's documents (ADR 0060): every Sale Invoice and Credit Note the Sale owes or was issued, each with its ` + "`" + `kind` + "`" + ` (` + "`" + `sale` + "`" + ` for a factura, ` + "`" + `credit_note` + "`" + `), a ` + "`" + `status` + "`" + ` in the platform's own words — ` + "`" + `authorized` + "`" + `, or ` + "`" + `on_its_way` + "`" + ` for a document still owed, pending at the SRI or parked for an operator — and ` + "`" + `download_url` + "`" + `, the path of the signed XML once authorized and null before. After a Sale Invoice Reissue (ADR 0061) the list holds the whole chain, and each document carries its ` + "`" + `role` + "`" + ` — ` + "`" + `current` + "`" + ` for the factura that stands, ` + "`" + `superseded` + "`" + ` for one a reissue corrected (still authorized and downloadable), ` + "`" + `credit_note` + "`" + ` — and the ids it points at: ` + "`" + `supersedes_invoice_id` + "`" + `, ` + "`" + `superseded_by_invoice_id` + "`" + `, ` + "`" + `credits_invoice_id` + "`" + `, each another document of this list or null. Nothing the SRI said ever travels here. An empty list for a Sale that owes no document (a free, imported or non-House sale), for a Sale that is not this Customer's, and for any Sale but the one a Confirmation Link session names: not yours and not there are one answer. Requires a Customer Session; a Confirmation Link session is enough.",
                 "parameters": [
                     {
                         "description": "Ticket Sale id",
@@ -9911,12 +10071,20 @@ const docTemplate = `{
         },
         "/api/v1/operator/invoicing/invoices": {
             "get": {
-                "description": "Returns a page of every Tax Invoice the platform has issued or owes, newest first: the document ` + "`" + `kind` + "`" + ` (` + "`" + `manual` + "`" + ` from the form; ` + "`" + `sale` + "`" + ` for a Sale Invoice a paid House checkout owed; ` + "`" + `credit_note` + "`" + ` for its reversal), the printed number (` + "`" + `001-001-000000012` + "`" + `), emission date, Recipient, total, status, country and the environment it was issued under (` + "`" + `test` + "`" + ` invoices are badged as such), and — on a ` + "`" + `sale` + "`" + ` or ` + "`" + `credit_note` + "`" + ` — the Ticket Sale id and its Sale Confirmation reference. A document still ` + "`" + `owed` + "`" + ` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. ` + "`" + `attention_since` + "`" + ` is when a ` + "`" + `needs_attention` + "`" + ` document was parked, null otherwise. ` + "`" + `kind` + "`" + ` narrows the page to one document kind; a value that is not ` + "`" + `manual` + "`" + `, ` + "`" + `sale` + "`" + ` or ` + "`" + `credit_note` + "`" + ` is refused under VALIDATION_FAILED. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.",
+                "description": "Returns a page of every Tax Invoice the platform has issued or owes, newest first: the document ` + "`" + `kind` + "`" + ` (` + "`" + `manual` + "`" + ` from the form; ` + "`" + `sale` + "`" + ` for a Sale Invoice a paid House checkout owed; ` + "`" + `credit_note` + "`" + ` for its reversal), the printed number (` + "`" + `001-001-000000012` + "`" + `), emission date, Recipient, total, status, country and the environment it was issued under (` + "`" + `test` + "`" + ` invoices are badged as such), and — on a ` + "`" + `sale` + "`" + ` or ` + "`" + `credit_note` + "`" + ` — the Ticket Sale id and its Sale Confirmation reference. A document still ` + "`" + `owed` + "`" + ` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. ` + "`" + `attention_since` + "`" + ` is when a ` + "`" + `needs_attention` + "`" + ` document was parked, null otherwise. ` + "`" + `recipient_warning` + "`" + ` is true on an authorized Sale Invoice the SRI warned about — the Recipient's Tax ID does not exist (advertencia 59) or is incorrect (62) — until the document is superseded (ADR 0061); the status is unaffected, and it is always false while SALE_INVOICING_ENABLED is closed. ` + "`" + `kind` + "`" + ` narrows the page to one document kind; a value that is not ` + "`" + `manual` + "`" + `, ` + "`" + `sale` + "`" + ` or ` + "`" + `credit_note` + "`" + ` is refused under VALIDATION_FAILED. ` + "`" + `recipient_warning=true` + "`" + ` narrows the page to the documents carrying a Recipient Warning; any other value is refused under VALIDATION_FAILED, and while SALE_INVOICING_ENABLED is closed the filter answers 404 SALE_INVOICING_UNAVAILABLE. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.",
                 "parameters": [
                     {
                         "description": "Document kind: manual, sale or credit_note (default every kind)",
                         "in": "query",
                         "name": "kind",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "true to list only the documents carrying a Recipient Warning",
+                        "in": "query",
+                        "name": "recipient_warning",
                         "schema": {
                             "type": "string"
                         }
@@ -9978,6 +10146,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
                     }
                 },
                 "security": [
@@ -10454,6 +10632,113 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Check a Tax Invoice's status with the SRI",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/invoices/{id}/reissue": {
+            "post": {
+                "description": "Corrects an authorized Sale Invoice whose Recipient is wrong (ADR 0061) by owing, in one transaction, a Credit Note for the full amount against it — the same Recipient as the factura, reason ` + "`" + `reissue` + "`" + `, motivo \"Corrección de los datos del receptor\" — and a corrected Sale Invoice to the Recipient as entered: ` + "`" + `recipient.tax_id_type` + "`" + ` (` + "`" + `cedula` + "`" + `, ` + "`" + `ruc` + "`" + ` or ` + "`" + `passport` + "`" + `), ` + "`" + `recipient.tax_id` + "`" + ` validated exactly as a checkout Tax ID with the same field-level errors, ` + "`" + `recipient.legal_name` + "`" + ` required, ` + "`" + `recipient.address` + "`" + ` optional. The corrected document's email is the one the Ticket Sale carries at that moment (after any Sale Re-addressing) and is never taken from the body; its lines, totals and IVA rate are the factura's; it names the factura it supersedes and records who reissued (the session's email), when, and the optional ` + "`" + `note` + "`" + ` (at most 500 characters). The superseded factura stays authorized and on file; the Sale, its buyer, its Tickets and the Customer's stored Tax ID are untouched. The Sale Invoice Drainer is kicked as after a checkout and works the Credit Note first; the corrected factura is signed only once that Credit Note is authorized. Answers 201 with the corrected document's detail, ` + "`" + `owed` + "`" + ` and unsigned. Refused with INVOICE_MANUAL_NOT_REISSUABLE (409) on a manual Tax Invoice, CREDIT_NOTE_NOT_REISSUABLE (409) on a Credit Note, INVOICE_NOT_AUTHORIZED (409, ` + "`" + `details.status` + "`" + `) on a document that is owed, pending, needs_attention, withdrawn or annulled, INVOICE_SALE_REVERSED (409) when the Ticket Sale was reversed, REISSUE_IN_FLIGHT (409) while another reissue on the Sale has not settled, INVOICE_SUPERSEDED (409) on a factura already superseded, INVOICE_ALREADY_CREDITED (409) on one an authorized Credit Note already stands against, INVOICE_NOT_FOUND (404) otherwise. The decision is made under the Sale's lock, so a reissue racing a reversal is refused rather than double-written. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Sale Invoice id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.reissueInvoiceBody",
+                                        "summary": "body",
+                                        "description": "The corrected Recipient and an optional note"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The corrected Recipient and an optional note",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeInvoiceDetail"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Reissue a Sale Invoice to a corrected Recipient",
                 "tags": [
                     "operator"
                 ]
@@ -10939,6 +11224,62 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Count the documents that need attention",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/recipient-warnings/count": {
+            "get": {
+                "description": "Returns recipient_warning_count: how many authorized Sale Invoices the SRI warned about — the Recipient's Tax ID does not exist (advertencia 59) or is incorrect (62) — and that have not been superseded (ADR 0061). The badge the Operator Dashboard shows beside the needs_attention count, so a factura declared to the wrong taxpayer is learned of without a complaint arriving. It counts exactly what the invoicing list's ` + "`" + `recipient_warning=true` + "`" + ` filter lists. Zero is an ordinary answer. Read-only. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE and the dashboard shows no count. Platform Operator only.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeRecipientWarningCount"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Count the documents carrying a Recipient Warning",
                 "tags": [
                     "operator"
                 ]

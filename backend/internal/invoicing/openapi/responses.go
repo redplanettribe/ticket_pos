@@ -65,6 +65,14 @@ type EnvelopeNeedsAttentionCount struct {
 	RequestID string                      `json:"request_id"`
 }
 
+// EnvelopeRecipientWarningCount documents GET
+// /operator/invoicing/recipient-warnings/count success responses (#482).
+type EnvelopeRecipientWarningCount struct {
+	Data      service.RecipientWarningCount `json:"data"`
+	Error     *platform.APIError            `json:"error"`
+	RequestID string                        `json:"request_id"`
+}
+
 // EnvelopeCustomerDocuments documents GET
 // /customer/ticket-sales/{ticketSaleId}/tax-documents success responses: the
 // Sale's documents in the buyer's words, an empty list when it owes none.

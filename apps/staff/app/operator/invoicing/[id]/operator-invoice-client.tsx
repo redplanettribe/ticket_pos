@@ -22,10 +22,13 @@ import { useLocale, useMessages, useTranslations } from "next-intl";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { type AppLocale, PLATFORM_TIME_ZONE, formatCalendarDay, formatDateTime, formatMoney } from "@/lib/format";
+import { invoiceLevers } from "@/lib/invoice-actions";
 import { type OperatorInvoiceDetail, fetchOperatorInvoice } from "@/lib/operator-api";
+import { recipientWarningMessages } from "@/lib/recipient-warning";
 
 import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "../invoice-status";
 import { OperatorInvoiceActions } from "./operator-invoice-actions";
+import { OperatorInvoiceReissue } from "./operator-invoice-reissue";
 import { InvoiceDownloads } from "./invoice-downloads";
 
 // One Tax Invoice in full (#454): Recipient, the Issuer as snapshotted, the
@@ -38,6 +41,15 @@ import { InvoiceDownloads } from "./invoice-downloads";
 // no clave, no Issuer snapshot, nothing to check, resend or download, and
 // the page says so in each place rather than rendering an empty card: the
 // kind badge and the Sale Confirmation reference are what identify it.
+//
+// From #483 (ADR 0061) a Sale Invoice may be part of a REISSUE CHAIN: a
+// corrected factura names the one it supersedes, a superseded factura names
+// its corrected one, and the reissue's Credit Note credits the superseded
+// one. The chain card links every direction the document has; the reissue
+// trail card says who reissued, when and why; and a superseded factura is
+// badged so, beside its still-authorized status — superseded is a relation,
+// not a state. Reissue itself is operator-invoice-reissue.tsx's card, shown
+// on the current authorized Sale Invoice alone.
 
 const IVA_RATE_KEYS = {
   "15": "invoicingIvaRate15",
@@ -47,7 +59,9 @@ const IVA_RATE_KEYS = {
 } as const;
 
 // The reversal route a Credit Note names as its reason (#476): the five
-// words the Sales Export's reversed_by column uses, one label each.
+// words the Sales Export's reversed_by column uses, one label each. The
+// one reason that is not a route — "reissue" (#481, ADR 0061), a Sale
+// Invoice Reissue with no reversal behind it — is worded on its own below.
 const REVERSAL_ROUTE_KEYS = {
   customer: "invoicingReversalRouteCustomer",
   platform: "invoicingReversalRoutePlatform",
@@ -55,6 +69,13 @@ const REVERSAL_ROUTE_KEYS = {
   staff_reversal: "invoicingReversalRouteStaffReversal",
   correction: "invoicingReversalRouteCorrection",
 } as const;
+
+// The four directions a document may link in (#476, #483), one sentence each.
+type ChainLabel =
+  | "invoicingDetailSupersedes"
+  | "invoicingDetailSupersededBy"
+  | "invoicingDetailCreditsLink"
+  | "invoicingDetailCreditedByLink";
 
 const OPERATION_KEYS = {
   submit: "invoicingAttemptSubmit",
@@ -68,6 +89,41 @@ const OUTCOME_KEYS = {
   rejected: "invoicingAttemptOutcomeRejected",
   error: "invoicingAttemptOutcomeError",
 } as const;
+
+/**
+ * The Recipient Warning (#482, ADR 0061): the SRI authorized this factura and
+ * said the Recipient's Tax ID does not exist or is incorrect. The document
+ * stands; the card quotes the authority's own words — which of the stored
+ * messages those are is `recipientWarningMessages`' decision — and says what
+ * the warning means. Stays until the document is superseded, whatever else
+ * happens to it.
+ */
+function RecipientWarningCard({ invoice }: { invoice: OperatorInvoiceDetail }) {
+  const t = useTranslations("operator");
+  const quoted = recipientWarningMessages(invoice.messages, invoice.attempts);
+  return (
+    <Alert className="border-amber-500 text-amber-900 [&>svg]:text-amber-700">
+      <AlertTitle>{t("invoicingRecipientWarningTitle")}</AlertTitle>
+      <AlertDescription>
+        <p>{t("invoicingRecipientWarningBody")}</p>
+        {quoted.length === 0 ? (
+          <p className="mt-2 text-muted-foreground">{t("invoicingRecipientWarningNoQuote")}</p>
+        ) : (
+          <ul className="mt-2 space-y-1">
+            {quoted.map((message, index) => (
+              <li key={`${message.identifier}-${index}`}>
+                <span className="font-mono">{message.identifier}</span> {message.message}
+                {message.additional_info ? (
+                  <span className="text-muted-foreground"> — {message.additional_info}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </AlertDescription>
+    </Alert>
+  );
+}
 
 export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
   const t = useTranslations("operator");
@@ -114,6 +170,24 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
     t(IVA_RATE_KEYS[rate as keyof typeof IVA_RATE_KEYS] ?? "invoicingIvaRate0");
   const kindLabel = t(INVOICE_KIND_KEYS[invoice.kind]);
   const signed = invoice.ecuador !== null;
+  const levers = invoiceLevers(invoice.status, signed, {
+    kind: invoice.kind,
+    superseded_by_invoice_id: invoice.superseded_by_invoice_id,
+    credited_by_invoice_id: invoice.credited_by_invoice_id,
+  });
+  const chainLinks: { key: string; id: string; label: ChainLabel }[] = [];
+  if (invoice.supersedes_invoice_id) {
+    chainLinks.push({ key: "supersedes", id: invoice.supersedes_invoice_id, label: "invoicingDetailSupersedes" });
+  }
+  if (invoice.superseded_by_invoice_id) {
+    chainLinks.push({ key: "superseded_by", id: invoice.superseded_by_invoice_id, label: "invoicingDetailSupersededBy" });
+  }
+  if (invoice.credits_invoice_id) {
+    chainLinks.push({ key: "credits", id: invoice.credits_invoice_id, label: "invoicingDetailCreditsLink" });
+  }
+  if (invoice.credited_by_invoice_id) {
+    chainLinks.push({ key: "credited_by", id: invoice.credited_by_invoice_id, label: "invoicingDetailCreditedByLink" });
+  }
   const title = invoice.number
     ? t("invoicingDetailTitle", { number: invoice.number })
     : t("invoicingDetailTitleUnissued", { kind: kindLabel });
@@ -135,6 +209,14 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
             <Badge variant="outline">{kindLabel}</Badge>
             {invoice.environment === "test" ? <Badge variant="outline">{t("invoicingTestBadge")}</Badge> : null}
             <Badge variant={INVOICE_STATUS_VARIANTS[invoice.status]}>{t(INVOICE_STATUS_KEYS[invoice.status])}</Badge>
+            {invoice.recipient_warning ? (
+              <Badge variant="outline" className="border-amber-500 text-amber-700">
+                {t("invoicingRecipientWarningBadge")}
+              </Badge>
+            ) : null}
+            {invoice.superseded_by_invoice_id ? (
+              <Badge variant="secondary">{t("invoicingSupersededBadge")}</Badge>
+            ) : null}
           </div>
         }
       />
@@ -149,11 +231,13 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
             {invoice.iva_rate ? (
               <p className="text-muted-foreground">{t("invoicingDetailPricedAt", { rate: ivaLabel(invoice.iva_rate) })}</p>
             ) : null}
-            {invoice.reversal_reason ? (
+            {invoice.credit_note_reason === "reissue" ? (
+              <p className="text-muted-foreground">{t("invoicingDetailReissueReason")}</p>
+            ) : invoice.credit_note_reason ? (
               <p className="text-muted-foreground">
-                {t("invoicingDetailReversalReason", {
+                {t("invoicingDetailCreditNoteReason", {
                   route: t(
-                    REVERSAL_ROUTE_KEYS[invoice.reversal_reason as keyof typeof REVERSAL_ROUTE_KEYS] ??
+                    REVERSAL_ROUTE_KEYS[invoice.credit_note_reason as keyof typeof REVERSAL_ROUTE_KEYS] ??
                       "invoicingReversalRoutePlatform",
                   ),
                 })}
@@ -163,27 +247,58 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
         </Card>
       ) : null}
 
-      {invoice.credits_invoice_id || invoice.credited_by_invoice_id ? (
-        // The two documents of a reversed sale link each other (#476): a
-        // Credit Note names the Sale Invoice it credits, and a credited Sale
-        // Invoice names its Credit Note. One card either way; which sentence
-        // it opens with says which side the reader is on.
+      {chainLinks.length > 0 ? (
+        // The documents of a Sale link each other (#476, #483): a Credit
+        // Note names the Sale Invoice it credits and a credited Sale Invoice
+        // names its Credit Note; a corrected Sale Invoice names the one it
+        // supersedes and a superseded one names its corrected one. One card,
+        // one line per direction the document has.
         <Card>
           <CardHeader>
-            <CardTitle>
-              {invoice.credits_invoice_id ? t("invoicingDetailCredits") : t("invoicingDetailCreditedBy")}
-            </CardTitle>
+            <CardTitle>{t("invoicingDetailChainTitle")}</CardTitle>
           </CardHeader>
-          <CardContent className="text-sm">
-            <Link
-              href={`/operator/invoicing/${invoice.credits_invoice_id ?? invoice.credited_by_invoice_id}`}
-              className="font-medium underline underline-offset-4"
-            >
-              {t("invoicingDetailOpenDocument")}
-            </Link>
+          <CardContent>
+            <ul className="space-y-2 text-sm">
+              {chainLinks.map((link) => (
+                <li key={link.key} className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="text-muted-foreground">{t(link.label)}</span>
+                  <Link href={`/operator/invoicing/${link.id}`} className="font-medium underline underline-offset-4">
+                    {t("invoicingDetailOpenDocument")}
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
       ) : null}
+
+      {invoice.reissued_by && invoice.reissued_at ? (
+        // The reissue trail (#483): who reissued, when, and the note — shown
+        // on the corrected factura, the superseded one and the Credit Note
+        // alike. The operator's email and the moment are data; the sentence
+        // is copy; the note is the operator's own words.
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("invoicingReissueTrailTitle")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <p>
+              {t("invoicingReissueTrail", {
+                by: invoice.reissued_by,
+                when: formatDateTime(invoice.reissued_at, PLATFORM_TIME_ZONE, locale) ?? invoice.reissued_at,
+              })}
+            </p>
+            {invoice.reissue_note ? (
+              <p>
+                <span className="font-medium text-foreground">{t("invoicingReissueTrailNote")}</span>{" "}
+                <span className="whitespace-pre-wrap">{invoice.reissue_note}</span>
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {invoice.recipient_warning ? <RecipientWarningCard invoice={invoice} /> : null}
 
       {invoice.annulled_by && invoice.annulled_at ? (
         // The annulment trail (#477): who recorded the portal act and when.
@@ -202,6 +317,7 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
       ) : null}
 
       <OperatorInvoiceActions invoice={invoice} onUpdated={setInvoice} />
+      {levers.reissue ? <OperatorInvoiceReissue invoice={invoice} /> : null}
 
       <Card>
         <CardHeader>

@@ -34,6 +34,7 @@ import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError, parsePriceToCents } from "@/lib/events-api";
 import { PLATFORM_TIME_ZONE, formatDateTime, formatMoney, formatNumber } from "@/lib/format";
 import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "../../invoicing/invoice-status";
+import { documentRoleKey, reissueTrailOf } from "@/lib/sale-documents";
 import {
   type OperatorSaleLookup,
   type OperatorSaleReAddressing,
@@ -825,9 +826,14 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
       </Card>
 
       {/*
-        The Sale's tax documents (#477, ADR 0060): the walk from a buyer's
-        question to their factura. Every row is the invoicing list's own
-        description of the document, and opens it.
+        The Sale's tax documents (#477, ADR 0060; #486, ADR 0061): the walk
+        from a buyer's question to their factura. Every row is the invoicing
+        list's own description of the document, and opens it. After a
+        reissue the API lists the chain in order — superseded factura, its
+        Credit Note, the corrected factura — and says which is which: the
+        role is badged where it adds to the kind and the status, and the
+        reissue's who, when and note sit under the corrected factura, once,
+        the other two documents pointing at it from their own details.
       */}
       <Card>
         <CardHeader>
@@ -839,24 +845,48 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
             <p className="text-sm text-muted-foreground">{t("saleDocumentsNone")}</p>
           ) : (
             <ul className="divide-y text-sm">
-              {lookup.documents.map((document) => (
-                <li key={document.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                  <div>
-                    <Link href={`/operator/invoicing/${document.id}`} className="font-medium hover:underline">
-                      {t(INVOICE_KIND_KEYS[document.kind])}
-                    </Link>
-                    <p className="font-mono text-xs text-muted-foreground">
-                      {document.number ?? t("invoicingNotIssuedYet")}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="tabular-nums">{money(document.total_cents)}</span>
-                    <Badge variant={INVOICE_STATUS_VARIANTS[document.status]}>
-                      {t(INVOICE_STATUS_KEYS[document.status])}
-                    </Badge>
-                  </div>
-                </li>
-              ))}
+              {lookup.documents.map((document) => {
+                const roleKey = documentRoleKey(document.role);
+                const trail = reissueTrailOf(document);
+                return (
+                  <li key={document.id} className="py-2" data-document-role={document.role}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <Link href={`/operator/invoicing/${document.id}`} className="font-medium hover:underline">
+                          {t(INVOICE_KIND_KEYS[document.kind])}
+                        </Link>
+                        <p className="font-mono text-xs text-muted-foreground">
+                          {document.number ?? t("invoicingNotIssuedYet")}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="tabular-nums">{money(document.total_cents)}</span>
+                        <Badge variant={INVOICE_STATUS_VARIANTS[document.status]}>
+                          {t(INVOICE_STATUS_KEYS[document.status])}
+                        </Badge>
+                        {roleKey ? (
+                          <Badge variant={document.role === "current" ? "default" : "secondary"}>{t(roleKey)}</Badge>
+                        ) : null}
+                      </div>
+                    </div>
+                    {trail ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t("invoicingReissueTrail", {
+                          by: trail.by,
+                          when: formatDateTime(trail.at, PLATFORM_TIME_ZONE, locale) ?? trail.at,
+                        })}
+                        {trail.note ? (
+                          <>
+                            {" "}
+                            <span className="font-medium text-foreground">{t("invoicingReissueTrailNote")}</span>{" "}
+                            {trail.note}
+                          </>
+                        ) : null}
+                      </p>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </CardContent>

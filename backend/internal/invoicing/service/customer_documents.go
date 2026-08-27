@@ -19,6 +19,14 @@ import (
 // is never shown: to the buyer it does not exist, exactly as the sale it
 // belonged to no longer stands.
 //
+// THE CHAIN IS SHOWN, IN THE BUYER'S WORDS (#485, ADR 0061). After a Sale
+// Invoice Reissue the Sale has more than one factura, and the buyer must
+// find every document they were delivered and know which one stands: each
+// document carries a Role — `current`, `superseded`, `credit_note` — and
+// the ids it points at, so the storefront can order and label the chain
+// without knowing why it exists. The superseded factura stays authorized
+// and downloadable: it is a legal document the buyer received.
+//
 // SCOPED TWICE. The repository returns a document only to the Customer whose
 // Sale it is; and a Confirmation Link session is narrowed to the one Sale it
 // names before the repository is asked, as every other buyer read is
@@ -38,6 +46,21 @@ const (
 	CustomerDocumentOnItsWay CustomerDocumentStatus = "on_its_way"
 )
 
+// CustomerDocumentRole is what a document is to the Sale today.
+type CustomerDocumentRole string
+
+const (
+	// CustomerDocumentCurrent: the Sale's current factura — the one that
+	// stands, or the only one there ever was.
+	CustomerDocumentCurrent CustomerDocumentRole = "current"
+	// CustomerDocumentSuperseded: a factura a Sale Invoice Reissue
+	// corrected; still authorized, still the buyer's, no longer current.
+	CustomerDocumentSuperseded CustomerDocumentRole = "superseded"
+	// CustomerDocumentCreditNote: a nota de crédito, whatever it was owed
+	// for; the buyer is told why by mail, never here.
+	CustomerDocumentCreditNote CustomerDocumentRole = "credit_note"
+)
+
 // CustomerDocument is one document as the Sale's card lists it.
 type CustomerDocument struct {
 	ID string `json:"id"`
@@ -49,6 +72,17 @@ type CustomerDocument struct {
 	// DownloadURL is the API path of the signed XML once authorized, null
 	// before: the card draws the download exactly where this is set.
 	DownloadURL *string `json:"download_url"`
+	// Role is `current`, `superseded` or `credit_note` (#485): the card
+	// orders the chain by it and labels a superseded factura.
+	Role CustomerDocumentRole `json:"role"`
+	// SupersedesInvoiceID is, on a factura a reissue produced, the factura
+	// it corrects; SupersededByInvoiceID, on a superseded factura, the one
+	// that corrects it; CreditsInvoiceID, on a Credit Note, the factura it
+	// credits. Each names another document of this same list, null when
+	// there is none.
+	SupersedesInvoiceID   *string `json:"supersedes_invoice_id"`
+	SupersededByInvoiceID *string `json:"superseded_by_invoice_id"`
+	CreditsInvoiceID      *string `json:"credits_invoice_id"`
 }
 
 // CustomerSaleDocuments lists the documents of one of the Customer's Ticket
@@ -98,7 +132,14 @@ func (s *Service) CustomerSaleDocumentXML(ctx context.Context, customerID, sessi
 // document the buyer is never shown.
 func customerDocumentView(row *repository.InvoiceRow) (CustomerDocument, bool) {
 	inv := &row.Invoice
-	doc := CustomerDocument{ID: inv.ID, Kind: string(inv.Kind)}
+	doc := CustomerDocument{
+		ID:                    inv.ID,
+		Kind:                  string(inv.Kind),
+		Role:                  customerDocumentRole(inv),
+		SupersedesInvoiceID:   optionalID(inv.SupersedesInvoiceID),
+		SupersededByInvoiceID: optionalID(inv.SupersededByInvoiceID),
+		CreditsInvoiceID:      optionalID(inv.CreditsInvoiceID),
+	}
 	switch inv.Status {
 	case invoicing.InvoiceStatusAuthorized:
 		doc.Status = CustomerDocumentAuthorized
@@ -112,6 +153,27 @@ func customerDocumentView(row *repository.InvoiceRow) (CustomerDocument, bool) {
 		return CustomerDocument{}, false
 	}
 	return doc, true
+}
+
+// customerDocumentRole reads a document's place in the Sale's chain: a
+// Credit Note is one whatever it was owed for; a factura with a live
+// successor is superseded; any other factura is the Sale's current one.
+func customerDocumentRole(inv *invoicing.Invoice) CustomerDocumentRole {
+	switch {
+	case inv.Kind == invoicing.DocumentKindCreditNote:
+		return CustomerDocumentCreditNote
+	case inv.SupersededByInvoiceID != "":
+		return CustomerDocumentSuperseded
+	default:
+		return CustomerDocumentCurrent
+	}
+}
+
+func optionalID(id string) *string {
+	if id == "" {
+		return nil
+	}
+	return &id
 }
 
 // CustomerDocumentXMLPath is the API path of a Sale document's XML for the

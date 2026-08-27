@@ -417,6 +417,7 @@
       "creditNote": "Nota de crédito",
       "onItsWay": "Su factura está en camino. Se la enviaremos por correo en cuanto esté lista, y aparecerá aquí.",
       "creditNoteOnItsWay": "Su nota de crédito está en camino. Se la enviaremos por correo en cuanto esté lista, y aparecerá aquí.",
+      "superseded": "Sustituida por la factura corregida",
       "download": "Descargar XML"
     },
     "answers": {

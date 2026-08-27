@@ -603,7 +603,7 @@ In Spanish, **Autoridad tributaria**; **el SRI** wherever Ecuador specifically i
 _Avoid_: Government API, tax service, the regulator
 
 **Recipient**:
-Who a Tax Invoice is issued to: a Tax ID, a legal name, an email and optionally an address, recorded on the invoice as they stood — entered by the operator on a manual Tax Invoice, or copied from the Ticket Sale as it was transacted on a Sale Invoice, where the legal name is the buyer's "First Last" and no address is known. Not a Customer, and not necessarily an Organization, though an Organization invoiced for its Platform Fee is the usual manual one. Fixed once issued: a Sale Re-addressing or a Customer editing their stored Tax ID never rewrites it.
+Who a Tax Invoice is issued to: a Tax ID, a legal name, an email and optionally an address, recorded on the invoice as they stood — entered by the operator on a manual Tax Invoice, or copied from the Ticket Sale as it was transacted on a Sale Invoice, where the legal name is the buyer's "First Last" and no address is known. Not a Customer, and not necessarily an Organization, though an Organization invoiced for its Platform Fee is the usual manual one. Fixed once issued: a Sale Re-addressing or a Customer editing their stored Tax ID never rewrites it, and a wrong one is corrected only by a Sale Invoice Reissue, which issues a new document rather than rewriting this one.
 In Spanish, **Receptor**.
 _Avoid_: Client, customer, buyer, adquirente, cliente
 
@@ -614,10 +614,23 @@ In Spanish, **Factura de venta**.
 _Avoid_: Ticket invoice, receipt, automatic invoice, customer invoice
 
 **Credit Note**:
-The document that undoes a Sale Invoice at the Tax Authority when its Ticket Sale is reversed — always for the whole amount, naming the same Recipient and the reversal's route as its reason, since a Sale Reversal is always whole-Sale. Owed by the reversal itself and issued afterwards, like the Sale Invoice it refers to.
-Only an authorized Sale Invoice is credited. One never sent is withdrawn instead — the Tax Authority is told nothing about a sale that no longer stands — and one still unanswered waits for its answer before either happens. A Sale Reversal is never refused or delayed by the state of its paperwork.
+The document that undoes a Sale Invoice at the Tax Authority — always for the whole amount, naming the same Recipient — when its Ticket Sale is reversed, or when the Sale Invoice is superseded by a Sale Invoice Reissue. Carries which of the two it is as its reason: the reversal's route, or the reissue. Owed by the reversal or the reissue itself and issued afterwards, like the Sale Invoice it refers to.
+Only an authorized Sale Invoice is credited. One never sent is withdrawn instead — the Tax Authority is told nothing about a sale that no longer stands — and one still unanswered waits for its answer before either happens. A Sale Reversal is never refused or delayed by the state of its paperwork. A Sale Invoice is credited at most once, whichever of a reversal or a reissue gets there first.
 In Spanish, **Nota de crédito**.
 _Avoid_: Refund invoice, cancellation, anulación (the Tax Authority's manual portal act, which this is not), reversal note
+
+**Sale Invoice Reissue**:
+A Platform Operator's correction of an authorized Sale Invoice whose Recipient is wrong — a buyer's well-formed but mistaken Tax ID, or a name that is not the taxpayer's — by owing, in one act, a Credit Note against it and a fresh Sale Invoice to the corrected Recipient: Tax ID Type, number and legal name as the operator entered them, an address if one was given, and the email the Ticket Sale carries at that moment. Never an edit: the Ticket Sale, its money, its Tickets and its Reversal Window are untouched, and the superseded document stays on file. The fresh Sale Invoice follows the Credit Note and never precedes it, so a Sale has one current Sale Invoice at a time; a second reissue corrects the current one. Only a current, authorized Sale Invoice of a Ticket Sale that still stands is reissued, and one at a time. Operator-only: the buyer writes in.
+In Spanish, **Reemisión de factura**.
+_Avoid_: Correct, edit, amend, rectify, re-address (a Sale Re-addressing moves the buyer's email and never a Recipient), re-invoice, replace
+
+**Superseded**:
+What a reissued Sale Invoice is: still authorized and still a legal document the buyer received, but no longer the Ticket Sale's current Sale Invoice — that is the one the reissue produced. A relation between documents, not a state of one: a later Sale Reversal credits the current Sale Invoice alone.
+_Avoid_: Cancelled, annulled, void, old, replaced (as the term), archived
+
+**Recipient Warning**:
+The Tax Authority's word, on a document it nevertheless authorized, that the Recipient's Tax ID does not exist or is incorrect — the SRI's advertencias 59 and 62. Not a fault of the document, which stands, but the one signal the platform has that a Sale Invoice was declared to the wrong taxpayer; shown wherever the document is listed until the document is credited — by a reissue's Credit Note or a reversal's — since a Sale Invoice that no longer stands at the Tax Authority declares nothing to anyone, and can no longer be reissued. Not raised by a Tax ID that exists and belongs to somebody else, which only the buyer can notice.
+_Avoid_: Error, rejection, needs attention (the Drainer's parking, which this is not), invalid Tax ID
 
 **Sale Invoice Drainer**:
 The platform pursuing every owed Sale Invoice and Credit Note until the Tax Authority gives a definite answer: signing and submitting what is owed, asking again about what was submitted and not yet answered, and parking what it cannot settle for a Platform Operator to look at — never deleting it, since a signed document has consumed a sequence number. The Reversal Reconciler's sibling: it only finds out and retries; it never decides whether a document is owed.

@@ -19,11 +19,14 @@ type SaleLookup struct {
 	// beside Reverse, and the page that offers both reads once. It carries no
 	// token and no link, ever.
 	ReAddressing ReAddressingBlock `json:"re_addressing"`
-	// Documents are the Tax Invoices about this Sale (#477, ADR 0060): the
-	// Sale Invoice a paid House checkout owed and the Credit Note its
-	// reversal owed, oldest first, each with its kind, state and number, and
-	// its id as the link to the document detail. Empty — never null — on a
-	// Sale that owes nothing, which is every Sale outside a House Organization.
+	// Documents are the Tax Invoices about this Sale (#477, ADR 0060; #486,
+	// ADR 0061): the Sale Invoice a paid House checkout owed, the Credit
+	// Note its reversal owed, and — after a Sale Invoice Reissue — the
+	// superseded factura, its Credit Note and the corrected factura, in chain
+	// order, each with its kind, state, number and role, the current one
+	// marked as such, and its id as the link to the document detail. Empty —
+	// never null — on a Sale that owes nothing, which is every Sale outside a
+	// House Organization.
 	Documents []Document `json:"documents"`
 }
 

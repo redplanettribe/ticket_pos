@@ -202,12 +202,15 @@ type Invoice struct {
 	// beside the row for the operator surfaces; never stored here.
 	SaleConfirmationRef string
 	// CreditsInvoiceID is the Sale Invoice a Credit Note credits, and
-	// ReversalReason the reversal route that made it owed.
+	// CreditNoteReason why (#481, ADR 0061): a Sale Reversal's route, or
+	// CreditNoteReasonReissue. A reason, not a reversal — a reissue Credit
+	// Note has no reversal behind it.
 	CreditsInvoiceID string
-	ReversalReason   string
+	CreditNoteReason string
 	// CreditedByInvoiceID is, on a Sale Invoice, the Credit Note that
-	// credits it (#476) — the newest, should there ever be more than one —
-	// read beside the row so the two documents link both ways; "" when
+	// credits it (#476) — the newest LIVE one, should there ever be more
+	// than one: a withdrawn or annulled Credit Note credits nothing (#484)
+	// — read beside the row so the two documents link both ways; "" when
 	// none does.
 	CreditedByInvoiceID string
 	// IVARate is the one rate a platform-priced document was priced under;
@@ -224,10 +227,36 @@ type Invoice struct {
 	// portal annulment and when (#477); "" and nil unless annulled.
 	AnnulledBy string
 	AnnulledAt *time.Time
+	// RecipientWarning is the authority's word, on an authorized Sale
+	// Invoice, that the Recipient's Tax ID does not exist or is incorrect
+	// (#482, ADR 0061): set from the authorization's messages, cleared only
+	// when the document is superseded — the moment the corrected factura
+	// that supersedes it is authorized (#484). Never true on any other kind.
+	RecipientWarning bool
+
+	// The Sale Invoice Reissue (#483, ADR 0061). SupersedesInvoiceID is, on
+	// a Sale Invoice a reissue produced, the factura it corrects; stored
+	// here and nowhere else. SupersededByInvoiceID is the reverse link read
+	// beside the row — the live successor (one not withdrawn) of a
+	// reissued factura, "" when it is current. ReissuedBy, ReissuedAt and
+	// ReissueNote are the reissue's trail: stored on the corrected factura,
+	// and read beside the superseded factura and the reissue Credit Note so
+	// every document concerned shows who, when and why.
+	SupersedesInvoiceID   string
+	SupersededByInvoiceID string
+	ReissuedBy            string
+	ReissuedAt            *time.Time
+	ReissueNote           string
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
+
+// MaxReissueNoteLength bounds the operator's note on a Sale Invoice Reissue
+// (#483): a sentence for a colleague, bounded as an Operator Reversal's note
+// is and by the schema (migration 102), stated here so the caller is told
+// which field is wrong rather than shown a constraint violation.
+const MaxReissueNoteLength = 500
 
 // Signed reports whether the document has been built and signed — the seven
 // issue-time facts are present and an Ecuador detail row exists — as opposed
@@ -277,15 +306,23 @@ type Attempt struct {
 	Duration  time.Duration
 }
 
+// CreditNoteReasonReissue is the one Credit Note reason that is not a Sale
+// Reversal's route (#481, ADR 0061): the Sale Invoice it credits is being
+// superseded by a Sale Invoice Reissue, and the Sale stands. The five
+// routes are sales.SaleReversal's Route strings, stored as they come.
+const CreditNoteReasonReissue = "reissue"
+
 // CreditNoteMotivo is the reason a Credit Note states to the authority
-// for the reversal route that made it owed (#476, ADR 0060): the route in
-// the document's own language, since the nota de crédito is read by the
-// SRI and the buyer's accountant, never by the Storefront. An unknown
-// route — one added to the schema's CHECK later — is named as such rather
-// than refused: the document is owed by then, and a reason it cannot
-// state must not be the reason it is never issued.
-func CreditNoteMotivo(route string) string {
-	switch route {
+// for the reason it was owed (#476, ADR 0060; #481, ADR 0061): a reversal
+// route, or a reissue, in the document's own language, since the nota de
+// crédito is read by the SRI and the buyer's accountant, never by the
+// Storefront. A reissue's motivo is the fixed correction text and never a
+// reversal's: the sale was not reversed. An unknown reason — one added to
+// the schema's CHECK later — is named as such rather than refused: the
+// document is owed by then, and a reason it cannot state must not be the
+// reason it is never issued.
+func CreditNoteMotivo(reason string) string {
+	switch reason {
 	case "customer":
 		return "Anulación de la venta por el comprador"
 	case "platform":
@@ -296,6 +333,8 @@ func CreditNoteMotivo(route string) string {
 		return "Anulación de la venta por el personal de la organización"
 	case "correction":
 		return "Anulación de la venta por corrección"
+	case CreditNoteReasonReissue:
+		return "Corrección de los datos del receptor"
 	}
 	return "Anulación de la venta"
 }

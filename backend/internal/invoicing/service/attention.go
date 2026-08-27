@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/invoicing"
+	"github.com/peter/ticket_pos/backend/internal/invoicing/repository"
 )
 
 // The documents that need an operator (#477, parent #471, ADR 0060): the
@@ -23,6 +25,14 @@ import (
 // document is credited, never annulled here, and an owed or unsigned one
 // was never at the authority. It is irreversible, and it takes the
 // document out of the Drainer's claim set and the queue in the same write.
+//
+// MARK ANNULLED ON A REISSUE'S CREDIT NOTE UNDOES THE REISSUE (#484, ADR
+// 0061). The corrected factura was waiting, unsigned, for that Credit Note
+// to be authorized; it never will be, so the same transaction withdraws
+// the corrected factura — no number consumed, nothing sent — and the old
+// factura is the Sale's current one again, credited by nothing live and
+// open to another reissue. The Drainer would do the same on its next round
+// (drainer.go); doing it here is what lets the operator reissue at once.
 
 // NeedsAttentionQueue is one page of the documents parked for an operator,
 // longest waiting first, with the total: the ADR-0006 nested envelope.
@@ -46,6 +56,27 @@ type NeedsAttentionCount struct {
 	NeedsAttentionCount int `json:"needs_attention_count"`
 }
 
+// RecipientWarningCount is how many documents carry a Recipient Warning
+// (#482, ADR 0061): the Operator Dashboard's badge beside the
+// needs_attention count. It counts exactly what the list's filter finds.
+type RecipientWarningCount struct {
+	RecipientWarningCount int `json:"recipient_warning_count"`
+}
+
+// CountRecipientWarnings returns how many documents carry a Recipient
+// Warning. Behind SALE_INVOICING_ENABLED with the fact itself: closed, it
+// answers SALE_INVOICING_UNAVAILABLE, and the dashboard shows no count.
+func (s *Service) CountRecipientWarnings(ctx context.Context) (*RecipientWarningCount, error) {
+	if !s.saleInvoicingEnabled {
+		return nil, invoicing.ErrSaleInvoicingUnavailable()
+	}
+	n, err := s.repo.CountRecipientWarnings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &RecipientWarningCount{RecipientWarningCount: n}, nil
+}
+
 // ListNeedsAttention returns one page of the documents parked
 // needs_attention, of every kind, longest waiting first.
 func (s *Service) ListNeedsAttention(ctx context.Context, page, pageSize int) (*NeedsAttentionQueue, error) {
@@ -56,7 +87,7 @@ func (s *Service) ListNeedsAttention(ctx context.Context, page, pageSize int) (*
 	items := make([]NeedsAttentionItem, 0, len(rows))
 	for i := range rows {
 		items = append(items, NeedsAttentionItem{
-			InvoiceListItem: invoiceListItem(&rows[i]),
+			InvoiceListItem: s.listItem(&rows[i]),
 			Messages:        messagesView(rows[i].Invoice.Messages),
 		})
 	}
@@ -92,7 +123,10 @@ func (s *Service) AnnulInvoice(ctx context.Context, id, annulledBy string) (*Inv
 		return nil, err
 	}
 	now := s.clock()
-	done, err := s.repo.AnnulInvoice(ctx, id, annulledBy, now)
+	successorMessages := []invoicing.AuthorityMessage{{
+		Identifier: correctedInvoiceWithdrawnCode, Message: correctedInvoiceWithdrawnMessage, Type: platformMessageType,
+	}}
+	done, withdrawnSuccessorID, err := s.repo.AnnulInvoice(ctx, id, annulledBy, now, successorMessages)
 	if err != nil {
 		return nil, err
 	}
@@ -101,6 +135,10 @@ func (s *Service) AnnulInvoice(ctx context.Context, id, annulledBy string) (*Inv
 	}
 	s.logger.Info("invoicing: document marked annulled",
 		"invoice_id", id, "kind", row.Invoice.Kind, "from_status", row.Invoice.Status, "annulled_by", annulledBy)
+	if withdrawnSuccessorID != "" {
+		s.logger.Info("invoicing: corrected sale invoice withdrawn; the credit note it follows was marked annulled",
+			"invoice_id", withdrawnSuccessorID, "credit_note_id", id, "superseded_invoice_id", row.Invoice.CreditsInvoiceID)
+	}
 	return s.GetInvoice(ctx, id)
 }
 
@@ -121,18 +159,150 @@ func annullable(inv *invoicing.Invoice) error {
 	}
 }
 
-// SaleDocuments returns every document about one Ticket Sale — its Sale
-// Invoice and, once one exists, its Credit Note — oldest first, as list
-// rows: what the operator's Sale lookup shows beside the Sale (#477). An
-// empty list, never nil, for a Sale that owes nothing.
-func (s *Service) SaleDocuments(ctx context.Context, ticketSaleID string) ([]InvoiceListItem, error) {
+// DocumentRole is a document's place in its Ticket Sale's chain (#486, ADR
+// 0061), derived on every read and stored nowhere.
+type DocumentRole string
+
+const (
+	// DocumentRoleCurrent: the Sale's current Sale Invoice — sale-kind,
+	// no live successor, neither withdrawn nor annulled. A later Sale
+	// Reversal credits this one.
+	DocumentRoleCurrent DocumentRole = "current"
+	// DocumentRoleSuperseded: a Sale Invoice a reissue corrected; still
+	// authorized and on file, no longer the Sale's current one.
+	DocumentRoleSuperseded DocumentRole = "superseded"
+	// DocumentRoleCreditNote: a Credit Note, for a reversal or a reissue;
+	// its reason says which.
+	DocumentRoleCreditNote DocumentRole = "credit_note"
+	// DocumentRoleNotCurrent: a Sale Invoice that is neither current nor
+	// superseded — withdrawn before it was sent, or annulled at the portal
+	// — a Sale Invoice the Sale no longer has (#477, #480).
+	DocumentRoleNotCurrent DocumentRole = "not_current"
+)
+
+// SaleDocument is one document as the operator's Sale lookup lists it
+// (#477, #486): the invoicing list's own row, its role in the chain, the
+// links to its neighbours and the reissue's trail — who, when, the note —
+// read beside every document a reissue concerns, exactly as the detail
+// shows them. A buyer's question about their factura is answered from the
+// one page.
+type SaleDocument struct {
+	InvoiceListItem
+	Role DocumentRole `json:"role"`
+	// SupersedesInvoiceID is, on a corrected Sale Invoice, the factura it
+	// corrects; CreditsInvoiceID and CreditNoteReason are, on a Credit
+	// Note, the factura it credits and why — a reversal route or "reissue".
+	// Null where they do not apply.
+	SupersedesInvoiceID *string `json:"supersedes_invoice_id"`
+	CreditsInvoiceID    *string `json:"credits_invoice_id"`
+	CreditNoteReason    *string `json:"credit_note_reason"`
+	// ReissuedBy, ReissuedAt and ReissueNote are the reissue's trail, on the
+	// corrected factura, the superseded one and the reissue's Credit Note
+	// alike; a document's own reissue wins over one that later superseded
+	// it. Null where no reissue concerns the document.
+	ReissuedBy  *string    `json:"reissued_by"`
+	ReissuedAt  *time.Time `json:"reissued_at"`
+	ReissueNote *string    `json:"reissue_note"`
+}
+
+// SaleDocuments returns every document about one Ticket Sale in CHAIN
+// ORDER — a factura, the Credit Notes crediting it, then the factura that
+// superseded it, and onward — with each document's role and the reissue
+// trail beside it: what the operator's Sale lookup shows beside the Sale
+// (#477, #486). An empty list, never nil, for a Sale that owes nothing.
+//
+// The order is the chain's and never the clock's: a reissue writes its
+// Credit Note and its corrected factura in one transaction, so their
+// timestamps tie and their ids say nothing. Creation order breaks the
+// remaining ties — two Credit Notes on one factura, a withdrawn successor
+// before the live one.
+func (s *Service) SaleDocuments(ctx context.Context, ticketSaleID string) ([]SaleDocument, error) {
 	rows, err := s.repo.ListInvoicesBySale(ctx, ticketSaleID)
 	if err != nil {
 		return nil, err
 	}
-	items := make([]InvoiceListItem, 0, len(rows))
-	for i := range rows {
-		items = append(items, invoiceListItem(&rows[i]))
+	ordered := chainOrder(rows)
+	items := make([]SaleDocument, 0, len(ordered))
+	for i := range ordered {
+		items = append(items, s.saleDocument(&ordered[i]))
 	}
 	return items, nil
+}
+
+func (s *Service) saleDocument(row *repository.InvoiceRow) SaleDocument {
+	inv := &row.Invoice
+	item := s.listItem(row)
+	return SaleDocument{
+		InvoiceListItem:     item,
+		Role:                documentRole(&item),
+		SupersedesInvoiceID: optional(inv.SupersedesInvoiceID),
+		CreditsInvoiceID:    optional(inv.CreditsInvoiceID),
+		CreditNoteReason:    optional(inv.CreditNoteReason),
+		ReissuedBy:          optional(inv.ReissuedBy),
+		ReissuedAt:          optionalTime(inv.ReissuedAt),
+		ReissueNote:         optional(inv.ReissueNote),
+	}
+}
+
+// documentRole derives a document's role from the list row as shown — so
+// a row whose superseded marker the flag hides is never called superseded
+// beside a null marker.
+func documentRole(item *InvoiceListItem) DocumentRole {
+	switch {
+	case item.Kind == string(invoicing.DocumentKindCreditNote):
+		return DocumentRoleCreditNote
+	case item.SupersededByInvoiceID != nil:
+		return DocumentRoleSuperseded
+	case item.Status == string(invoicing.InvoiceStatusWithdrawn), item.Status == string(invoicing.InvoiceStatusAnnulled):
+		return DocumentRoleNotCurrent
+	default:
+		return DocumentRoleCurrent
+	}
+}
+
+// chainOrder walks a Sale's documents, given oldest first, in chain order:
+// each root factura (one that supersedes nothing), then the Credit Notes
+// crediting it, then its successors — a withdrawn one before the live one,
+// by creation — each walked the same way. A document whose link points
+// outside the Sale, which the schema does not allow, is appended at the
+// end rather than dropped.
+func chainOrder(rows []repository.InvoiceRow) []repository.InvoiceRow {
+	successors := map[string][]int{}
+	credits := map[string][]int{}
+	var roots []int
+	for i := range rows {
+		inv := &rows[i].Invoice
+		switch {
+		case inv.Kind == invoicing.DocumentKindCreditNote && inv.CreditsInvoiceID != "":
+			credits[inv.CreditsInvoiceID] = append(credits[inv.CreditsInvoiceID], i)
+		case inv.SupersedesInvoiceID != "":
+			successors[inv.SupersedesInvoiceID] = append(successors[inv.SupersedesInvoiceID], i)
+		default:
+			roots = append(roots, i)
+		}
+	}
+	out := make([]repository.InvoiceRow, 0, len(rows))
+	seen := make([]bool, len(rows))
+	var walk func(i int)
+	walk = func(i int) {
+		if seen[i] {
+			return
+		}
+		seen[i] = true
+		out = append(out, rows[i])
+		id := rows[i].Invoice.ID
+		for _, c := range credits[id] {
+			walk(c)
+		}
+		for _, next := range successors[id] {
+			walk(next)
+		}
+	}
+	for _, r := range roots {
+		walk(r)
+	}
+	for i := range rows {
+		walk(i)
+	}
+	return out
 }

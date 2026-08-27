@@ -61,6 +61,28 @@ func (h *Handler) CountNeedsAttention(w http.ResponseWriter, r *http.Request) {
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, count)
 }
 
+// CountRecipientWarnings returns how many documents carry a Recipient Warning.
+//
+// @Summary      Count the documents carrying a Recipient Warning
+// @Description  Returns recipient_warning_count: how many authorized Sale Invoices the SRI warned about — the Recipient's Tax ID does not exist (advertencia 59) or is incorrect (62) — and that have not been superseded (ADR 0061). The badge the Operator Dashboard shows beside the needs_attention count, so a factura declared to the wrong taxpayer is learned of without a complaint arriving. It counts exactly what the invoicing list's `recipient_warning=true` filter lists. Zero is an ordinary answer. Read-only. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE and the dashboard shows no count. Platform Operator only.
+// @Tags         operator
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  openapi.EnvelopeRecipientWarningCount
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Router       /api/v1/operator/invoicing/recipient-warnings/count [get]
+func (h *Handler) CountRecipientWarnings(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+	count, err := h.svc.CountRecipientWarnings(r.Context())
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, count)
+}
+
 // AnnulInvoice marks a document annulled.
 //
 // @Summary      Mark a document annulled

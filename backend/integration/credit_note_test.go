@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/beevik/etree"
+
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // A reversed House sale is credited with a Credit Note (#476, parent #471,
@@ -216,8 +218,8 @@ func TestReversalCreditsAnAuthorizedSaleInvoice(t *testing.T) {
 			if note.Status != "owed" || note.Number != nil || note.NextAttemptAt == nil {
 				t.Fatalf("credit note right after the reversal = %s number %v next %v; want owed, unsigned, due", note.Status, note.Number, note.NextAttemptAt)
 			}
-			if note.CreditsInvoiceID == nil || *note.CreditsInvoiceID != facturaID || note.ReversalReason == nil || *note.ReversalReason != route.reason {
-				t.Fatalf("credit note credits %v for %v; want %s for %s", note.CreditsInvoiceID, note.ReversalReason, facturaID, route.reason)
+			if note.CreditsInvoiceID == nil || *note.CreditsInvoiceID != facturaID || note.CreditNoteReason == nil || *note.CreditNoteReason != route.reason {
+				t.Fatalf("credit note credits %v for %v; want %s for %s", note.CreditsInvoiceID, note.CreditNoteReason, facturaID, route.reason)
 			}
 			if note.SaleConfirmationRef == nil || *note.SaleConfirmationRef != ref || note.IVARate == nil || *note.IVARate != "15" {
 				t.Fatalf("credit note sale ref %v rate %v; want %s at 15", note.SaleConfirmationRef, note.IVARate, ref)
@@ -423,8 +425,8 @@ func TestCreditNoteIsWithdrawnWhenItsSaleInvoiceDies(t *testing.T) {
 	reversalRoutes[1].reverse(t, env, operatorSessionID, ref)
 
 	noteID := creditNoteOf(t, operatorSessionID)
-	if note := getDrainedInvoice(t, operatorSessionID, noteID); note.Status != "owed" || note.ReversalReason == nil || *note.ReversalReason != "platform" {
-		t.Fatalf("credit note = %s for %v; want owed for the platform route", note.Status, note.ReversalReason)
+	if note := getDrainedInvoice(t, operatorSessionID, noteID); note.Status != "owed" || note.CreditNoteReason == nil || *note.CreditNoteReason != "platform" {
+		t.Fatalf("credit note = %s for %v; want owed for the platform route", note.Status, note.CreditNoteReason)
 	}
 	atInvoicingClock(t, fixedClock.Add(time.Hour))
 	if result := drainSaleInvoices(t); result.Claimed != 0 {
@@ -580,5 +582,128 @@ func TestReversalWinsAgainstADrainerParkingAnUnsignableDocument(t *testing.T) {
 	}
 	if n := sequenceRows(t, env); n != 0 {
 		t.Fatalf("sequence rows = %d; want none", n)
+	}
+}
+
+// TestReissueCreditNoteStatesACorrectionNotAReversal (#481, parent #478,
+// ADR 0061): a Credit Note's reason is a reason, not a reversal route. A
+// `reissue` Credit Note has no Sale Reversal behind it — the Sale stands,
+// paid — and every reader keys on the reason: the SRI receives the fixed
+// motivo "Corrección de los datos del receptor", the operator's detail
+// names `reissue`, and the buyer's mail says the earlier factura was
+// cancelled for a correction and a corrected one follows, never that the
+// sale was reversed. The five reversal routes' Credit Notes are unchanged
+// (TestReversalCreditsAnAuthorizedSaleInvoice).
+func TestReissueCreditNoteStatesACorrectionNotAReversal(t *testing.T) {
+	env := setupTest(t)
+	operatorSessionID, facturaID, saleID := houseSaleAuthorized(t, env)
+	ref := lastConfirmation(t, env).Reference
+	env.email.Reset()
+
+	// Seeded directly: the reissue endpoint that owes this document is a
+	// later ticket of #478, and no API can yet owe a Credit Note without a
+	// reversal. The row is what that act will write — the factura copied
+	// whole, of kind credit_note, crediting the factura, reason `reissue`,
+	// due at once — as houseSaleOwed's checkout writes the factura's.
+	var noteID string
+	if err := env.db.QueryRow(`
+		INSERT INTO invoicing_invoices
+			(kind, country, status, ticket_sale_id, credits_invoice_id, credit_note_reason, iva_rate,
+			 recipient_tax_id_type, recipient_tax_id, recipient_legal_name, recipient_address, recipient_email,
+			 currency, subtotal_cents, discount_cents, iva_cents, total_cents, payment_method,
+			 next_attempt_at, last_messages)
+		SELECT 'credit_note', country, 'owed', ticket_sale_id, id, 'reissue', iva_rate,
+		       recipient_tax_id_type, recipient_tax_id, recipient_legal_name, recipient_address, recipient_email,
+		       currency, subtotal_cents, discount_cents, iva_cents, total_cents, payment_method,
+		       $2, '[]'::jsonb
+		FROM invoicing_invoices WHERE id = $1
+		RETURNING id`, facturaID, fixedClock).Scan(&noteID); err != nil {
+		t.Fatalf("seed the reissue Credit Note: %v", err)
+	}
+	if _, err := env.db.Exec(`
+		INSERT INTO invoicing_invoice_lines
+			(invoice_id, position, description, quantity_millionths, unit_price_cents, discount_cents, iva_rate, base_cents, iva_cents)
+		SELECT $2, position, description, quantity_millionths, unit_price_cents, discount_cents, iva_rate, base_cents, iva_cents
+		FROM invoicing_invoice_lines WHERE invoice_id = $1`, facturaID, noteID); err != nil {
+		t.Fatalf("seed the reissue Credit Note's lines: %v", err)
+	}
+
+	note := getDrainedInvoice(t, operatorSessionID, noteID)
+	if note.Status != "owed" || note.Kind != "credit_note" || note.CreditsInvoiceID == nil || *note.CreditsInvoiceID != facturaID || note.CreditNoteReason == nil || *note.CreditNoteReason != "reissue" {
+		t.Fatalf("seeded credit note = %s %s crediting %v for %v; want an owed Credit Note crediting the factura for reissue", note.Kind, note.Status, note.CreditsInvoiceID, note.CreditNoteReason)
+	}
+	if status, _, _ := saleProvenance(t, env, ref); status == "reversed" {
+		t.Fatalf("the Sale is reversed; a reissue Credit Note has no reversal behind it")
+	}
+
+	result := drainSaleInvoices(t)
+	if result.Claimed != 1 || result.Authorized != 1 || result.Delivered != 1 {
+		t.Fatalf("drain = %+v; want the reissue Credit Note claimed, authorized and delivered", result)
+	}
+	note = getDrainedInvoice(t, operatorSessionID, noteID)
+	if note.Status != "authorized" || note.Number == nil || *note.Number != "001-001-000000001" || note.DeliveredAt == nil || note.CreditNoteReason == nil || *note.CreditNoteReason != "reissue" {
+		t.Fatalf("credit note after the drain = %s %v delivered %v reason %v; want authorized, numbered, delivered, still reissue", note.Status, note.Number, note.DeliveredAt, note.CreditNoteReason)
+	}
+
+	// What the SRI received: a nota de crédito whose motivo is the fixed
+	// correction text, never a reversal's.
+	if n := sriStub.receptionCount(); n != 2 {
+		t.Fatalf("the SRI received %d documents; want the factura and the nota de crédito", n)
+	}
+	received, _ := sriStub.lastReceived()
+	validateReceivedAgainstXSD(t, received.signedXML)
+	doc := receivedNotaCredito(t)
+	for path, want := range map[string]string{
+		"/notaCredito/infoTributaria/codDoc":             "04",
+		"/notaCredito/infoNotaCredito/motivo":            "Corrección de los datos del receptor",
+		"/notaCredito/infoNotaCredito/numDocModificado":  "001-001-000000001",
+		"/notaCredito/infoNotaCredito/valorModificacion": "11.15",
+	} {
+		if got := xmlText(t, doc, path); got != want {
+			t.Fatalf("%s = %q; want %q", path, got, want)
+		}
+	}
+
+	// The buyer's mail: a credit note, in words about a correction.
+	sent := deliveriesSent(t, env)
+	if len(sent) != 1 || sent[0].Kind != "credit_note" || sent[0].To != "guest@example.com" || sent[0].Reference != ref {
+		t.Fatalf("deliveries = %+v; want the Credit Note's alone, to the buyer", sent)
+	}
+	mail := sent[0]
+	if mail.Reason != "reissue" {
+		t.Fatalf("delivery reason = %q; want reissue", mail.Reason)
+	}
+	for _, c := range []struct {
+		locale platform.Locale
+		wants  []string
+		nevers []string
+	}{
+		{platform.LocaleES, []string{"nota de crédito", "corregir los datos del receptor", "factura corregida"}, []string{"anulada", "reversi", "revertid"}},
+		{platform.LocaleEN, []string{"credit note", "recipient details can be corrected", "corrected tax invoice"}, []string{"reversed", "reversal", "cancelled purchase"}},
+	} {
+		mail.Locale = c.locale
+		text := strings.ToLower(mail.Text())
+		for _, want := range c.wants {
+			if !strings.Contains(text, want) {
+				t.Fatalf("%s reissue mail = %q; want it to say %q", c.locale, mail.Text(), want)
+			}
+		}
+		for _, never := range c.nevers {
+			if strings.Contains(text, never) {
+				t.Fatalf("%s reissue mail = %q; must never say %q — the sale was not reversed", c.locale, mail.Text(), never)
+			}
+		}
+	}
+	if !bytes.Equal(mail.Attachment.Body, received.signedXML) {
+		t.Fatalf("the attached XML is not the nota de crédito the SRI received")
+	}
+
+	// The buyer's Sale carries both, and still stands.
+	buyer := buyerSession(t, env, "guest@example.com")
+	if docs, _ := listCustomerDocuments(t, buyer, saleID); len(docs) != 2 || docs[1].Kind != "credit_note" || docs[1].Status != "authorized" {
+		t.Fatalf("the buyer's documents = %+v; want the factura and the authorized Credit Note", docs)
+	}
+	if status, _, _ := saleProvenance(t, env, ref); status == "reversed" {
+		t.Fatalf("the Sale was reversed by a paperwork correction")
 	}
 }
