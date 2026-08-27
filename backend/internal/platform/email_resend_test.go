@@ -175,9 +175,9 @@ func TestResendFailureLogNamesNoRecipient(t *testing.T) {
 	}
 }
 
-// TestResendSendTaxDocumentDeliveryAttachesTheDocument: the attachment
-// travels inline on the one POST, base64-encoded under its filename and
-// media type, beside the rendered subject and text.
+// TestResendSendTaxDocumentDeliveryAttachesTheDocument: both attachments
+// travel inline on the one POST, in order, each base64-encoded under its
+// filename and media type, beside the rendered subject and text (#496).
 func TestResendSendTaxDocumentDeliveryAttachesTheDocument(t *testing.T) {
 	var gotBody string
 	sender := newTestSender(t, func(w http.ResponseWriter, r *http.Request) {
@@ -194,8 +194,11 @@ func TestResendSendTaxDocumentDeliveryAttachesTheDocument(t *testing.T) {
 		EventName:       "House Fest",
 		Reference:       "REF1",
 		CustomerAreaURL: "https://example.test/tickets#sale-1",
-		Attachment:      EmailAttachment{Filename: "clave.xml", ContentType: "application/xml; charset=utf-8", Body: []byte("<factura/>")},
-		Locale:          LocaleEN,
+		Attachments: []EmailAttachment{
+			{Filename: "clave.xml", ContentType: "application/xml; charset=utf-8", Body: []byte("<factura/>")},
+			{Filename: "clave.pdf", ContentType: "application/pdf", Body: []byte("%PDF-1.3")},
+		},
+		Locale: LocaleEN,
 	}
 	if err := sender.SendTaxDocumentDelivery(context.Background(), d); err != nil {
 		t.Fatalf("SendTaxDocumentDelivery returned error: %v", err)
@@ -208,12 +211,16 @@ func TestResendSendTaxDocumentDeliveryAttachesTheDocument(t *testing.T) {
 	if len(payload.To) != 1 || payload.To[0] != "buyer@example.com" || payload.Subject != d.Subject() || payload.Text != d.Text() {
 		t.Fatalf("payload = %+v, want the rendered message to the buyer", payload)
 	}
-	if len(payload.Attachments) != 1 {
-		t.Fatalf("attachments = %+v, want one", payload.Attachments)
+	if len(payload.Attachments) != 2 {
+		t.Fatalf("attachments = %+v, want the XML and the RIDE", payload.Attachments)
 	}
 	a := payload.Attachments[0]
 	if a.Filename != "clave.xml" || a.ContentType != "application/xml; charset=utf-8" || a.Content != base64.StdEncoding.EncodeToString([]byte("<factura/>")) {
 		t.Fatalf("attachment = %+v, want the XML base64-encoded under its filename", a)
+	}
+	r := payload.Attachments[1]
+	if r.Filename != "clave.pdf" || r.ContentType != "application/pdf" || r.Content != base64.StdEncoding.EncodeToString([]byte("%PDF-1.3")) {
+		t.Fatalf("attachment = %+v, want the RIDE base64-encoded under its filename", r)
 	}
 }
 

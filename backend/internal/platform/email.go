@@ -997,16 +997,16 @@ const (
 //
 // ONE MESSAGE TYPE FOR EVERY KIND OF DOCUMENT, on purpose. A Sale Invoice
 // and a Credit Note differ in what the reader is holding and in nothing
-// about how it reaches them — same attachment, same link, same Locale — so
+// about how it reaches them — same attachments, same link, same Locale — so
 // Kind is a field the copy is keyed on rather than a second message that
 // would drift. The Sale Invoice Drainer sends it for whichever document it
 // has just seen authorized, and a later ticket's Credit Note rides it
 // unchanged.
 //
 // IT CARRIES THE DOCUMENT ITSELF, which no earlier message does: the SRI's
-// rule is that the emisor delivers the XML (and, once #456 lands, the RIDE)
-// to the buyer's email, and a link alone would not be delivery. The link is
-// the buyer's way back to the same file once the mail is gone.
+// rule is that the emisor delivers the XML and the RIDE to the buyer's
+// email (#496, ADR 0062), and a link alone would not be delivery. The link
+// is the buyer's way back to the same files once the mail is gone.
 type TaxDocumentDelivery struct {
 	// To is the Recipient's email as the document was issued to it — the
 	// Sale's snapshot, never the Customer's current address.
@@ -1034,8 +1034,12 @@ type TaxDocumentDelivery struct {
 	// credential, and this mail is a document a reader will forward to an
 	// accountant.
 	CustomerAreaURL string
-	// Attachment is the signed XML the authority authorized.
-	Attachment EmailAttachment
+	// Attachments are the document in both forms the SRI obliges the emisor
+	// to hand over (ADR 0062): the signed XML the authority authorized
+	// first, then its RIDE, the same document rendered as a PDF. Always
+	// both — the Drainer renders the RIDE before it sends and never mails
+	// the XML alone (#496).
+	Attachments []EmailAttachment
 	// Locale is the Sale's language, resolved by the caller through
 	// ResolveMailLocale exactly as the receipt's was.
 	Locale Locale
@@ -1062,7 +1066,8 @@ type EmailSender interface {
 	SendSaleVoided(ctx context.Context, voided SaleVoided) error
 	SendSaleReversalRefused(ctx context.Context, refused SaleReversalRefused) error
 	// SendTaxDocumentDelivery hands a buyer an authorized Tax Document
-	// (#475, ADR 0060): the signed XML attached, and a link to the Sale.
+	// (#475, ADR 0060): the signed XML and its RIDE attached (#496, ADR
+	// 0062), and a link to the Sale.
 	//
 	// TRANSACTIONAL, beside the receipt that promised it: it is the document
 	// the law obliges the seller to deliver, sent to somebody who bought
@@ -1180,10 +1185,15 @@ func (s *LoggingEmailSender) SendSaleVoided(_ context.Context, v SaleVoided) err
 }
 
 // SendTaxDocumentDelivery logs the Tax Document delivery for local
-// development: the reference, the kind and the attachment's size, never its
-// bytes.
+// development: the reference, the kind and each attachment's filename and
+// size, never its bytes.
 func (s *LoggingEmailSender) SendTaxDocumentDelivery(_ context.Context, d TaxDocumentDelivery) error {
-	s.Logger.Info("tax document delivery sent", "email", d.To, "kind", d.Kind, "reference", d.Reference, "event", d.EventName, "attachment", d.Attachment.Filename, "attachment_bytes", len(d.Attachment.Body), "customer_area", d.CustomerAreaURL)
+	attrs := []any{"email", d.To, "kind", d.Kind, "reference", d.Reference, "event", d.EventName}
+	for _, a := range d.Attachments {
+		attrs = append(attrs, "attachment", a.Filename, "attachment_bytes", len(a.Body))
+	}
+	attrs = append(attrs, "customer_area", d.CustomerAreaURL)
+	s.Logger.Info("tax document delivery sent", attrs...)
 	return nil
 }
 

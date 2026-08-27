@@ -1911,9 +1911,12 @@ var (
 		"This corrected tax invoice (factura) replaces the earlier one for this purchase, which the credit note (nota de crédito) you received cancelled.",
 		"Esta factura corregida sustituye a la anterior de esta compra, que quedó sin efecto con la nota de crédito que recibió.",
 	)
+	// Both forms the SRI obliges the emisor to deliver (#496, ADR 0062),
+	// named in the order they are attached: the XML is the record, the RIDE
+	// its reading.
 	taxDocumentAttachmentCopy = translated(
-		"The attached XML is the document itself, exactly as the SRI authorized it.",
-		"El XML adjunto es el documento en sí, tal como lo autorizó el SRI.",
+		"Attached are the XML — the document itself, exactly as the SRI authorized it — and its RIDE, the same document in printable form (PDF).",
+		"Adjuntamos el XML — el documento en sí, tal como lo autorizó el SRI — y su RIDE, el mismo documento en formato imprimible (PDF).",
 	)
 	// The way back to the file once the mail is gone: the Sale in the
 	// Customer Area, behind a sign-in. It says "sign in" outright, because

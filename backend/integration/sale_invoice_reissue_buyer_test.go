@@ -103,8 +103,8 @@ func TestReissueMailsTheCreditNoteThenTheCorrectedSaleInvoiceEachOnce(t *testing
 		t.Fatalf("%d mails after the Credit Note authorized; want exactly one", len(sent))
 	}
 	noteMail := sent[0]
-	if noteMail.Kind != "credit_note" || noteMail.Reason != "reissue" || noteMail.To != "guest@example.com" || noteMail.Reference != ref || noteMail.Attachment.Filename != noteKey+".xml" {
-		t.Fatalf("credit note mail = kind %s reason %s to %s ref %s file %s; want the reissue Credit Note to the buyer with its own XML", noteMail.Kind, noteMail.Reason, noteMail.To, noteMail.Reference, noteMail.Attachment.Filename)
+	if noteMail.Kind != "credit_note" || noteMail.Reason != "reissue" || noteMail.To != "guest@example.com" || noteMail.Reference != ref || len(noteMail.Attachments) != 2 || noteMail.Attachments[0].Filename != noteKey+".xml" || noteMail.Attachments[1].Filename != noteKey+".pdf" {
+		t.Fatalf("credit note mail = kind %s reason %s to %s ref %s files %v; want the reissue Credit Note to the buyer with its own XML and RIDE", noteMail.Kind, noteMail.Reason, noteMail.To, noteMail.Reference, attachmentNames(noteMail))
 	}
 	if text := strings.ToLower(noteMail.Text()); !strings.Contains(text, "recipient details can be corrected") || !strings.Contains(text, "corrected tax invoice") || strings.Contains(text, "reversed") || strings.Contains(text, "reversal") {
 		t.Fatalf("credit note mail says:\n%s\nwant a correction with a corrected factura to follow, never a reversal", noteMail.Text())
@@ -125,8 +125,8 @@ func TestReissueMailsTheCreditNoteThenTheCorrectedSaleInvoiceEachOnce(t *testing
 	}
 	after := getReissuedInvoice(t, operatorSessionID, corrected.ID)
 	facturaMail := sent[1]
-	if facturaMail.Kind != "sale" || facturaMail.Reason != "" || facturaMail.To != "guest@example.com" || facturaMail.Reference != ref || facturaMail.Attachment.Filename != after.EcuadorFull.AccessKey+".xml" {
-		t.Fatalf("factura mail = kind %s reason %q to %s ref %s file %s; want the ordinary factura delivery to the buyer with the corrected XML", facturaMail.Kind, facturaMail.Reason, facturaMail.To, facturaMail.Reference, facturaMail.Attachment.Filename)
+	if facturaMail.Kind != "sale" || facturaMail.Reason != "" || facturaMail.To != "guest@example.com" || facturaMail.Reference != ref || len(facturaMail.Attachments) != 2 || facturaMail.Attachments[0].Filename != after.EcuadorFull.AccessKey+".xml" || facturaMail.Attachments[1].Filename != after.EcuadorFull.AccessKey+".pdf" {
+		t.Fatalf("factura mail = kind %s reason %q to %s ref %s files %v; want the ordinary factura delivery to the buyer with the corrected XML and its RIDE", facturaMail.Kind, facturaMail.Reason, facturaMail.To, facturaMail.Reference, attachmentNames(facturaMail))
 	}
 	if subject := facturaMail.Subject(); !strings.Contains(subject, "factura") || !strings.Contains(subject, "House Fest") || strings.Contains(strings.ToLower(subject), "credit") {
 		t.Fatalf("factura mail subject = %q; want the ordinary factura subject", subject)

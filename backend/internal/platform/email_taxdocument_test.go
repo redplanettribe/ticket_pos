@@ -18,8 +18,11 @@ func spanishDelivery() TaxDocumentDelivery {
 		EventName:       "Noche de Jazz",
 		Reference:       "ABC123",
 		CustomerAreaURL: "https://example.test/tickets#sale-1",
-		Attachment:      EmailAttachment{Filename: "0707202601.xml", ContentType: "application/xml; charset=utf-8", Body: []byte("<factura/>")},
-		Locale:          LocaleES,
+		Attachments: []EmailAttachment{
+			{Filename: "0707202601.xml", ContentType: "application/xml; charset=utf-8", Body: []byte("<factura/>")},
+			{Filename: "0707202601.pdf", ContentType: "application/pdf", Body: []byte("%PDF-1.3")},
+		},
+		Locale: LocaleES,
 	}
 }
 
@@ -35,7 +38,7 @@ func TestTaxDocumentDeliveryIsWrittenInEnglishWhenNothingNamedALanguage(t *testi
 		"Hi Ana Lopez,",
 		"Attached is the tax invoice (factura) for your purchase for Noche de Jazz, authorized by the SRI.",
 		"Reference: ABC123",
-		"The attached XML is the document itself",
+		"Attached are the XML — the document itself, exactly as the SRI authorized it — and its RIDE, the same document in printable form (PDF).",
 		"after signing in:\nhttps://example.test/tickets#sale-1",
 	} {
 		if !strings.Contains(text, want) {
@@ -55,7 +58,7 @@ func TestTaxDocumentDeliveryIsWrittenInSpanishForASpanishSale(t *testing.T) {
 		"Hola Ana Lopez:",
 		"Adjuntamos la factura de su compra de Noche de Jazz, autorizada por el SRI.",
 		"Referencia: ABC123",
-		"El XML adjunto es el documento en sí",
+		"Adjuntamos el XML — el documento en sí, tal como lo autorizó el SRI — y su RIDE, el mismo documento en formato imprimible (PDF).",
 		"después de iniciar sesión:\nhttps://example.test/tickets#sale-1",
 	} {
 		if !strings.Contains(text, want) {
