@@ -228,7 +228,7 @@ func (p *page) document(inv *invoicing.Invoice, ec *invoicing.EcuadorInvoiceDeta
 		p.endBand(box{pageMargin, contentW})
 	}
 
-	if err := p.linesTable(inv.Lines); err != nil {
+	if err := p.linesTable(inv.Lines, inv.Kind != invoicing.DocumentKindManual); err != nil {
 		return err
 	}
 	p.pdf.Ln(bandGap)
@@ -415,7 +415,16 @@ var lineColumns = []struct {
 // stored cents, tarifa the rate's percent, precio total the stored base —
 // quantity × unit price − discount as the document carries it, never
 // multiplied out again here.
-func (p *page) linesTable(lines []invoicing.InvoiceLine) error {
+// linesTable draws the detalle. Its precio unitario is the XML's: a Manual
+// Tax Invoice's lines store the unit price the operator typed, which is the
+// precioUnitario the factura carries; a Sale Invoice's and a Credit Note's
+// lines store the price AS PAID, IVA included (`IVAInclusive` at the two
+// XML builders' call sites), and the XML prints base ÷ cantidad for those
+// so that cantidad × precioUnitario reconciles with precioTotalSinImpuesto.
+// The RIDE prints the same figure by the same formatter, so the row adds
+// up on paper the way it does in the XML — the price paid is the valor
+// total, not the unit price.
+func (p *page) linesTable(lines []invoicing.InvoiceLine, ivaInclusive bool) error {
 	pdf := p.pdf
 	h := lineHeight(bodySize)
 
@@ -433,10 +442,15 @@ func (p *page) linesTable(lines []invoicing.InvoiceLine) error {
 		if err != nil {
 			return fmt.Errorf("ride: line %d: %w", l.Position, err)
 		}
+		qty := sri.Quantity(l.QuantityMillionths)
+		unitPrice := sri.FormatCents(l.UnitPriceCents)
+		if ivaInclusive {
+			unitPrice = sri.FormatUnitPrice(l.BaseCents, qty)
+		}
 		cells := []string{
 			l.Description,
-			sri.Quantity(l.QuantityMillionths).String(),
-			sri.FormatCents(l.UnitPriceCents),
+			qty.String(),
+			unitPrice,
 			sri.FormatCents(l.DiscountCents),
 			rate,
 			sri.FormatCents(l.BaseCents),
