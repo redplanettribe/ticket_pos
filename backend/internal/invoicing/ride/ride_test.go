@@ -355,6 +355,39 @@ func TestSaleInvoiceRIDE(t *testing.T) {
 	}
 }
 
+// TestInclusiveLinePrintsTheXMLsUnitPrice (#489 human check): a Sale
+// Invoice's line stores the price as paid, IVA included, and its XML prints
+// precioUnitario as base ÷ cantidad so the row reconciles (sri.FormatUnitPrice,
+// up to six decimals). The RIDE prints that same figure, not the stored
+// inclusive price — three tickets at 11.15 paid are 3 × 9.696667 = 29.09 sin
+// impuestos, and "11.15" appears nowhere on the page. A Manual Tax Invoice's
+// stored unit price IS its precioUnitario and prints as stored.
+func TestInclusiveLinePrintsTheXMLsUnitPrice(t *testing.T) {
+	inv, ec := authorizedSale()
+	base, iva, err := sri.BackOutIVA(3*1115, sri.IVACode15)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv.Lines = []invoicing.InvoiceLine{{Position: 1, Description: "GA — House Fest", QuantityMillionths: 3_000_000, UnitPriceCents: 1115, IVARate: invoicing.IVARate15, BaseCents: base, IVACents: iva}}
+	inv.SubtotalCents, inv.IVACents, inv.TotalCents = base, iva, 3*1115
+	doc, err := Render(inv, ec)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	text := pdfStreams(t, doc.Body)
+	assertAll(t, text, "3.00", sri.FormatUnitPrice(base, sri.Quantity(3_000_000)), "29.09", "33.45")
+	if strings.Contains(text, "11.15") {
+		t.Errorf("Sale Invoice RIDE prints the IVA-inclusive price 11.15 as a unit price; the XML's precioUnitario is %s", sri.FormatUnitPrice(base, sri.Quantity(3_000_000)))
+	}
+
+	manual, mec := authorizedManual()
+	doc, err = Render(manual, mec)
+	if err != nil {
+		t.Fatalf("render manual: %v", err)
+	}
+	assertAll(t, pdfStreams(t, doc.Body), "100.00", "10.00")
+}
+
 // TestCreditNoteRIDEIsItsOwnDocument (#495, ADR 0062 §3): an authorized
 // Credit Note's RIDE is headed "NOTA DE CRÉDITO", names the factura it
 // modifies by type, number and fecha de emisión, states the motivo and the
