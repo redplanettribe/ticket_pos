@@ -9,6 +9,7 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/invoicing"
 	"github.com/peter/ticket_pos/backend/internal/invoicing/repository"
 	"github.com/peter/ticket_pos/backend/internal/invoicing/sri"
+	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/platform/apperror"
 )
 
@@ -579,6 +580,22 @@ func (s *Service) currentStatus(ctx context.Context, id string) (invoicing.Invoi
 	return row.Invoice.Status, nil
 }
 
+// certificateExpiredMessage is the message a document parks under when the
+// certificate in custody has expired (#501, ADR 0063): CERTIFICATE_EXPIRED
+// with its usual text, and the certificate's not-after as an Ecuador calendar
+// date in additional_info. Written at park time from the certificate that was
+// in custody then, so a re-upload leaves the row saying what was true when it
+// parked — the attention list renders additional_info as it is.
+func certificateExpiredMessage(notAfter time.Time) invoicing.AuthorityMessage {
+	e := invoicing.ErrCertificateExpired()
+	return invoicing.AuthorityMessage{
+		Identifier:     e.Code(),
+		Message:        e.Message(),
+		AdditionalInfo: platform.EcuadorDate(notAfter),
+		Type:           platformMessageType,
+	}
+}
+
 // signOwedInvoice turns an owed row into a signed, pending one, consuming a
 // secuencial — or parks it needs_attention when it cannot be signed and
 // returns nil. Everything that can refuse does so before the number is
@@ -586,9 +603,10 @@ func (s *Service) currentStatus(ctx context.Context, id string) (invoicing.Invoi
 func (s *Service) signOwedInvoice(ctx context.Context, row *repository.InvoiceRow) (*repository.InvoiceRow, error) {
 	inv := &row.Invoice
 	now := s.clock()
-	park := func(code, message string) (*repository.InvoiceRow, error) {
+	parkWith := func(msg invoicing.AuthorityMessage) (*repository.InvoiceRow, error) {
+		code := msg.Identifier
 		next := now.Add(SaleInvoiceLadder[len(SaleInvoiceLadder)-1])
-		msgs := []invoicing.AuthorityMessage{{Identifier: code, Message: message, Type: platformMessageType}}
+		msgs := []invoicing.AuthorityMessage{msg}
 		// Guarded on the state the row was claimed in: a reversal that
 		// withdrew it since (#476) wins, and the park writes nothing — a
 		// withdrawn document parked needs_attention would be signed on the
@@ -603,6 +621,9 @@ func (s *Service) signOwedInvoice(ctx context.Context, row *repository.InvoiceRo
 		}
 		s.logger.Warn("invoicing: sale invoice cannot be signed; parked needs_attention with no number consumed", "invoice_id", inv.ID, "reason", code)
 		return nil, nil
+	}
+	park := func(code, message string) (*repository.InvoiceRow, error) {
+		return parkWith(invoicing.AuthorityMessage{Identifier: code, Message: message, Type: platformMessageType})
 	}
 
 	issuer, err := s.repo.GetEcuadorIssuer(ctx)
@@ -622,8 +643,7 @@ func (s *Service) signOwedInvoice(ctx context.Context, row *repository.InvoiceRo
 		return nil, err
 	}
 	if !cert.Metadata.NotAfter.After(now) {
-		e := invoicing.ErrCertificateExpired()
-		return park(e.Code(), e.Message())
+		return parkWith(certificateExpiredMessage(cert.Metadata.NotAfter))
 	}
 
 	// The Issuer's CURRENT environment and details: an Issuer moved from

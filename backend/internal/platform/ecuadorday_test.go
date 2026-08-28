@@ -50,3 +50,30 @@ func TestStartOfEcuadorDay(t *testing.T) {
 		})
 	}
 }
+
+// The date a record names, read in Ecuador's zone: the in-between instant is
+// again the one that matters, since a UTC reading would name the wrong day.
+func TestEcuadorDate(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		instant string
+		want    string
+	}{
+		{"2026-10-01T19:00:00Z", "2026-10-01"},
+		{"2026-10-02T03:00:00Z", "2026-10-01"},
+		{"2026-10-02T05:00:00Z", "2026-10-02"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.instant, func(t *testing.T) {
+			t.Parallel()
+			instant, err := time.Parse(time.RFC3339, tc.instant)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := platform.EcuadorDate(instant); got != tc.want {
+				t.Fatalf("EcuadorDate(%s) = %q; want %q", tc.instant, got, tc.want)
+			}
+		})
+	}
+}

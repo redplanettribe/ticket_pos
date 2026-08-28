@@ -25,3 +25,13 @@ func StartOfEcuadorDay(instant time.Time) time.Time {
 	local := instant.In(loc)
 	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
 }
+
+// EcuadorDate is the calendar date, Ecuador time, an instant falls on, as
+// YYYY-MM-DD — the form a record keeps when it names a day rather than a
+// moment. It reads the date the same way StartOfEcuadorDay does: converted
+// into Ecuador's zone first, so an instant at 03:00 UTC names the previous
+// Ecuadorian day. Locale-free by design; where words are wanted the mail
+// templates have their own rendering.
+func EcuadorDate(instant time.Time) string {
+	return instant.In(ecuadorLocation()).Format("2006-01-02")
+}
