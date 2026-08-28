@@ -3,7 +3,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@ticket-pos/ui";
 import { useTranslations } from "next-intl";
 
-import { rideOffer } from "@/lib/invoice-downloads";
+import { offersRide } from "@/lib/invoice-downloads";
 import {
   type OperatorInvoiceDetail,
   operatorInvoiceAuthorizationXmlUrl,
@@ -22,7 +22,6 @@ const linkClass = "inline-flex items-center rounded-md border px-3 py-1.5 text-s
 
 export function InvoiceDownloads({ invoice }: { invoice: OperatorInvoiceDetail }) {
   const t = useTranslations("operator");
-  const ride = rideOffer(invoice);
   return (
     <Card>
       <CardHeader>
@@ -39,7 +38,7 @@ export function InvoiceDownloads({ invoice }: { invoice: OperatorInvoiceDetail }
               {t("invoicingDownloadAuthorizationXml")}
             </a>
           ) : null}
-          {ride === "download" ? (
+          {offersRide(invoice.status) ? (
             <a className={linkClass} href={operatorInvoiceRideUrl(invoice.id)} download>
               {t("invoicingDownloadRide")}
             </a>

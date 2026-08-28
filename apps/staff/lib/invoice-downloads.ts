@@ -12,15 +12,13 @@
  * Credit Note's is gone.
  */
 
-import type { InvoiceKind, InvoiceStatus } from "./operator-api";
-
-export type RideOffer = "download" | null;
+import type { InvoiceStatus } from "./operator-api";
 
 /**
- * What the downloads card offers for the RIDE: the PDF download for an
- * authorized document, nothing otherwise. The kind is taken and not read —
- * that it makes no difference is the rule.
+ * Whether the downloads card offers the RIDE: yes for an authorized
+ * document, no otherwise. The kind is not asked for — that it makes no
+ * difference is the rule.
  */
-export function rideOffer(invoice: { status: InvoiceStatus; kind: InvoiceKind }): RideOffer {
-  return invoice.status === "authorized" ? "download" : null;
+export function offersRide(status: InvoiceStatus): boolean {
+  return status === "authorized";
 }

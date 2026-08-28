@@ -46,6 +46,7 @@ import (
 
 	"github.com/peter/ticket_pos/backend/internal/invoicing"
 	"github.com/peter/ticket_pos/backend/internal/invoicing/sri"
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // Render renders the RIDE of an authorized document from stored data only,
@@ -163,73 +164,55 @@ func newPage(authorizedAt time.Time) *page {
 	return &page{pdf: pdf, tr: pdf.UnicodeTranslatorFromDescriptor("")}
 }
 
-// ---- The factura layout ------------------------------------------------
+// ---- The two layouts ---------------------------------------------------
+
+// layout is what tells a Credit Note's RIDE from a factura's; everything
+// else on the page is the one document layout below. The two differ in
+// three places the Ficha names: the title, the documento modificado band a
+// Credit Note carries between the Recipient and the lines, and the forma
+// de pago a factura carries under the información adicional.
+type layout struct {
+	title string
+	// modified is the documento modificado band, drawn when set: only a
+	// Credit Note has a document it modifies.
+	modified *modifiedDocument
+	// payment draws the forma de pago band. A Credit Note returns money, it
+	// is not paid for, so it has none.
+	payment bool
+}
 
 // factura draws the Ficha's factura RIDE: the emisor beside the
 // authorization block, the Recipient, the lines, and a footer with the
 // información adicional and forma de pago beside the totals.
 func (p *page) factura(inv *invoicing.Invoice, ec *invoicing.EcuadorInvoiceDetails, number string) error {
-	p.pdf.SetTitle("FACTURA "+number, true)
-
-	p.beginBand()
-	p.column(pageMargin, columnW, func() { p.emisorBlock(inv.Issuer) })
-	if err := p.columnErr(rightColumn, columnW, func() error {
-		return p.authorizationBlock("FACTURA", number, inv, ec)
-	}); err != nil {
-		return err
-	}
-	p.endBand(box{pageMargin, columnW}, box{rightColumn, columnW})
-
-	p.beginBand()
-	p.column(pageMargin, contentW, func() { p.recipientBlock(inv) })
-	p.endBand(box{pageMargin, contentW})
-
-	if err := p.linesTable(inv.Lines); err != nil {
-		return err
-	}
-	p.pdf.Ln(bandGap)
-
-	// The footer: información adicional and forma de pago on the left, the
-	// totals on the right. The two are drawn from the same top and the
-	// taller one sets where the page continues.
-	top := p.pdf.GetY()
-	p.beginBand()
-	p.column(pageMargin, columnW, func() { p.additionalInfoBlock(inv) })
-	p.endBand(box{pageMargin, columnW})
-	p.beginBand()
-	p.column(pageMargin, columnW, func() { p.paymentBlock(inv) })
-	p.endBand(box{pageMargin, columnW})
-	leftBottom := p.pdf.GetY()
-
-	p.pdf.SetXY(rightColumn, top)
-	if err := p.totalsBlock(rightColumn, columnW, inv); err != nil {
-		return err
-	}
-	if p.pdf.GetY() < leftBottom {
-		p.pdf.SetY(leftBottom)
-	}
-	return p.pdf.Error()
+	return p.document(inv, ec, number, layout{title: "FACTURA", payment: true})
 }
-
-// ---- The Credit Note layout --------------------------------------------
 
 // creditNote draws the Ficha's nota de crédito RIDE (#495, ADR 0062 §3):
 // the same emisor, authorization, Recipient, lines and totals sections as
 // the factura, headed "NOTA DE CRÉDITO", with the documento modificado
 // band — the factura it credits, the motivo and the valor de modificación
-// — between the Recipient and the lines, and no forma de pago: a Credit
-// Note returns money, it is not paid for.
+// — between the Recipient and the lines, and no forma de pago.
 func (p *page) creditNote(inv *invoicing.Invoice, ec *invoicing.EcuadorInvoiceDetails, number string) error {
 	modified, err := parseModifiedDocument(inv.SignedXML)
 	if err != nil {
 		return err
 	}
-	p.pdf.SetTitle("NOTA DE CRÉDITO "+number, true)
+	return p.document(inv, ec, number, layout{title: "NOTA DE CRÉDITO", modified: &modified})
+}
+
+// document draws the one RIDE page, the layout naming what the kind adds:
+// the emisor beside the authorization block, the Recipient, the documento
+// modificado band where there is one, the lines, and a footer with the
+// información adicional (and the forma de pago where there is one) beside
+// the totals.
+func (p *page) document(inv *invoicing.Invoice, ec *invoicing.EcuadorInvoiceDetails, number string, l layout) error {
+	p.pdf.SetTitle(l.title+" "+number, true)
 
 	p.beginBand()
 	p.column(pageMargin, columnW, func() { p.emisorBlock(inv.Issuer) })
 	if err := p.columnErr(rightColumn, columnW, func() error {
-		return p.authorizationBlock("NOTA DE CRÉDITO", number, inv, ec)
+		return p.authorizationBlock(l.title, number, inv, ec)
 	}); err != nil {
 		return err
 	}
@@ -239,22 +222,29 @@ func (p *page) creditNote(inv *invoicing.Invoice, ec *invoicing.EcuadorInvoiceDe
 	p.column(pageMargin, contentW, func() { p.recipientBlock(inv) })
 	p.endBand(box{pageMargin, contentW})
 
-	p.beginBand()
-	p.column(pageMargin, contentW, func() { p.modifiedDocumentBlock(modified) })
-	p.endBand(box{pageMargin, contentW})
+	if l.modified != nil {
+		p.beginBand()
+		p.column(pageMargin, contentW, func() { p.modifiedDocumentBlock(*l.modified) })
+		p.endBand(box{pageMargin, contentW})
+	}
 
 	if err := p.linesTable(inv.Lines); err != nil {
 		return err
 	}
 	p.pdf.Ln(bandGap)
 
-	// The footer: información adicional on the left, the totals on the
-	// right, from the same top; the taller one sets where the page
-	// continues.
+	// The footer: información adicional (and forma de pago) on the left,
+	// the totals on the right. The two are drawn from the same top and the
+	// taller one sets where the page continues.
 	top := p.pdf.GetY()
 	p.beginBand()
 	p.column(pageMargin, columnW, func() { p.additionalInfoBlock(inv) })
 	p.endBand(box{pageMargin, columnW})
+	if l.payment {
+		p.beginBand()
+		p.column(pageMargin, columnW, func() { p.paymentBlock(inv) })
+		p.endBand(box{pageMargin, columnW})
+	}
 	leftBottom := p.pdf.GetY()
 
 	p.pdf.SetXY(rightColumn, top)
@@ -342,8 +332,8 @@ func modifiedDocumentTypeLabel(code string) string {
 // ---- Shared sections ---------------------------------------------------
 //
 // Each block draws inside the column the caller opened (see column) and
-// leaves the cursor below what it drew. The Credit Note layout reuses
-// every one of them but paymentBlock.
+// leaves the cursor below what it drew. document draws them in the Ficha's
+// order; the layout says which of the optional ones appear.
 
 // emisorBlock is the Issuer as it stood at signing: razón social, nombre
 // comercial, both addresses, whether it keeps books, the RIMPE legend its
@@ -578,14 +568,16 @@ func ambienteLabel(env invoicing.Environment) string {
 }
 
 // taxIDLabel is the Recipient's identification named by its kind, as the
-// print view named it.
+// print view named it. The kinds are the platform's three Tax ID Types; a
+// stored type outside them cannot happen (the column is CHECKed) and would
+// print under the generic caption rather than under the raw value.
 func taxIDLabel(taxIDType string) string {
 	switch taxIDType {
-	case "ruc":
+	case platform.TaxIDTypeRUC:
 		return "RUC"
-	case "cedula":
+	case platform.TaxIDTypeCedula:
 		return "Cédula"
-	case "passport":
+	case platform.TaxIDTypePassport:
 		return "Pasaporte"
 	}
 	return "Identificación"
