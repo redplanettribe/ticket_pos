@@ -1,4 +1,4 @@
-.PHONY: dev down prod prod-down prod-to-local seed-dev test test-integration test-parity ci ci-go migrate swagger api-client openapi openapi-sync-check infra-graph infra-graph-zip infra-plan-json
+.PHONY: dev down prod prod-down prod-to-local seed-dev deploy test test-integration test-parity ci ci-go migrate swagger api-client openapi openapi-sync-check infra-graph infra-graph-zip infra-plan-json
 
 export GOTOOLCHAIN := local
 
@@ -93,6 +93,18 @@ ci: ci-go
 
 migrate:
 	cd backend && go run ./cmd/migrate
+
+# Production deploy from this machine, for when GitHub Actions cannot run (out
+# of minutes). Same sequence as .github/workflows/deploy.yml -- build and push
+# the three SHA-tagged images, run the migrate Job to completion, then roll the
+# three services -- against a `main` that is clean and fast-forwarded to
+# origin/main first, so what ships is a commit that is on GitHub. Needs Docker
+# and a `gcloud auth login` with deploy rights on the prod project.
+#
+# `make deploy ARGS=--no-pull` deploys the current HEAD of main without
+# fetching. See scripts/deploy.sh for the details and for DEPLOY_IMPERSONATE.
+deploy:
+	./scripts/deploy.sh $(ARGS)
 
 # Interactive Terraform dependency graph via Rover (github.com/im2nguyen/rover).
 # Runs a read-only `terraform plan` for TF_ENV, then serves the graph until Ctrl-C.
