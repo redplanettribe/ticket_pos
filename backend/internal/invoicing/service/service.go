@@ -36,6 +36,13 @@ type Service struct {
 	// wires neither delivers nothing and says so in its log.
 	email             platform.EmailSender
 	storefrontBaseURL string
+	// operators, staffLocales and staffBaseURL serve the Certificate Expiry
+	// Warning (#503, ADR 0063): the allowlist the Drainer's tick warns, the
+	// language each address reads, and the origin the Issuer-page link is
+	// built on. A deployment that wires no reader warns nobody and says so.
+	operators    PlatformOperators
+	staffLocales StaffLocales
+	staffBaseURL string
 	// saleInvoicingEnabled is the SALE_INVOICING_ENABLED flag (#471, ADR
 	// 0060). Closed, the Drainer's endpoint answers 404 and works nothing;
 	// the manual Tax Invoices, the Issuer and every read serve as before.
@@ -75,6 +82,47 @@ func (s *Service) WithEmailSender(sender platform.EmailSender) *Service {
 // delivery mail's Customer Area link is built on.
 func (s *Service) WithStorefrontBaseURL(baseURL string) *Service {
 	s.storefrontBaseURL = baseURL
+	return s
+}
+
+// PlatformOperators is what invoicing needs from identity in order to warn
+// the Platform Operators that the signing certificate is about to lapse
+// (#503, ADR 0063 §4): the allowlist, read as a list of addresses. The
+// sales module's seam of the same name, for the same reason: presence on
+// the allowlist is the whole of operator authority (ADR 0015), and asking
+// identity rather than reading `platform_operators` here keeps who is
+// WARNED and who is AUTHORISED the same set, decided in one module.
+type PlatformOperators interface {
+	PlatformOperatorEmails(ctx context.Context) ([]string, error)
+}
+
+// StaffLocales is what invoicing needs from identity in order to write the
+// Certificate Expiry Warning in the language its reader uses (ADR 0041): the
+// Staff Locale stored against one email address. "" is absence rather than
+// English; platform.ResolveStaffLocale owns the floor.
+type StaffLocales interface {
+	StaffLocale(ctx context.Context, email string) (string, error)
+}
+
+// WithPlatformOperators supplies the operator allowlist reader the
+// Certificate Expiry Warning fans out to. Tied on after construction, as
+// the sales module ties its own, because it serves one notice.
+func (s *Service) WithPlatformOperators(operators PlatformOperators) *Service {
+	s.operators = operators
+	return s
+}
+
+// WithStaffLocales supplies the Staff Locale reader, so each Certificate
+// Expiry Warning is written in the language its recipient reads.
+func (s *Service) WithStaffLocales(locales StaffLocales) *Service {
+	s.staffLocales = locales
+	return s
+}
+
+// WithStaffBaseURL sets the staff application's public origin, which the
+// Certificate Expiry Warning's Issuer-page link is built on.
+func (s *Service) WithStaffBaseURL(baseURL string) *Service {
+	s.staffBaseURL = baseURL
 	return s
 }
 

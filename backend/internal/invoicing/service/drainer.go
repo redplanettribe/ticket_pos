@@ -178,7 +178,13 @@ type SaleInvoiceDrainResult struct {
 // DrainSaleInvoices works the Sale Invoices that are due, one at a time,
 // until the queue is empty or the run reaches its bound. Safe to call by
 // hand at any time; a no-op on an empty queue.
+//
+// It first works the Certificate Expiry Warning's ladder, ABOVE the flag
+// (#503, ADR 0063 §1): a closed flag still answers SALE_INVOICING_UNAVAILABLE
+// and signs nothing, but the certificate uploaded ahead of launch is watched
+// from the day this deploys. See certificate_expiry_warning.go.
 func (s *Service) DrainSaleInvoices(ctx context.Context) (*SaleInvoiceDrainResult, error) {
+	s.warnOfCertificateExpiry(ctx)
 	if !s.saleInvoicingEnabled {
 		return nil, invoicing.ErrSaleInvoicingUnavailable()
 	}

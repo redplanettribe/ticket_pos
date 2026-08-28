@@ -15,6 +15,12 @@ import (
 // is still using it.
 const DevStorefrontBaseURL = "http://localhost:64300"
 
+// DevStaffBaseURL is where the staff application answers on the local Compose
+// stack, the Storefront's sibling on the next port. A development fallback on
+// the same terms: a link to the Issuer page built on it is useless anywhere
+// else, and NewApp says so if production is still using it.
+const DevStaffBaseURL = "http://localhost:64301"
+
 // GoogleTokenEndpoint is Google's own token endpoint, where every authorization
 // code is redeemed unless a non-production deployment says otherwise.
 const GoogleTokenEndpoint = "https://oauth2.googleapis.com/token"
@@ -56,6 +62,12 @@ type Config struct {
 	// points at the Storefront, not at this API, because a Customer must land on a
 	// page and no browser may address the API directly (ADR 0008).
 	StorefrontBaseURL string
+	// StaffBaseURL is the staff application's own public origin. The API needs
+	// it for the one link a staff-facing mail carries: the Issuer page the
+	// Certificate Expiry Warning points a Platform Operator at (#503, ADR
+	// 0063). The Storefront's rule applies — the link lands on a page, never
+	// on this API (ADR 0008).
+	StaffBaseURL string
 	// ConfirmationLinkSecret is the HMAC key every Confirmation Link is signed
 	// with. It is the whole of that credential's security: anyone holding it can
 	// mint a link to any Ticket Sale, so it is read from the environment like
@@ -441,6 +453,7 @@ func LoadConfig() (Config, error) {
 		// already does for the Storefront container itself; until a custom domain
 		// is mapped it has none to inject, which NewApp warns about at startup.
 		StorefrontBaseURL:      strings.TrimRight(envOrDefault("STOREFRONT_BASE_URL", DevStorefrontBaseURL), "/"),
+		StaffBaseURL:           strings.TrimRight(envOrDefault("STAFF_BASE_URL", DevStaffBaseURL), "/"),
 		ConfirmationLinkSecret: confirmationLinkSecret,
 
 		InvoicingCertificateKey: invoicingCertificateKey,

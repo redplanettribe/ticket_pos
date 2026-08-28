@@ -2135,6 +2135,7 @@ func (s *CaptureEmailSender) Reset() {
 	s.RevokedTicketQuestions = nil
 	s.TransferSentPayoutRequests = nil
 	s.FailedPayoutRequests = nil
+	s.CertificateExpiryWarnings = nil
 	s.FollowDigests = nil
 	s.failure = nil
 }

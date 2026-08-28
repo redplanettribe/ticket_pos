@@ -218,6 +218,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	if cfg.AppEnv == "production" && cfg.StorefrontBaseURL == platform.DevStorefrontBaseURL {
 		platformLogger.Warn("storefront base url: falling back to the development origin (no STOREFRONT_BASE_URL set); Confirmation Links will point at localhost")
 	}
+	if cfg.AppEnv == "production" && cfg.StaffBaseURL == platform.DevStaffBaseURL {
+		platformLogger.Warn("staff base url: falling back to the development origin (no STAFF_BASE_URL set); the Certificate Expiry Warning's Issuer-page link will point at localhost")
+	}
 
 	// Consent (#250, #251, parent #249). It depends on nothing but the database
 	// and the Privacy Policy text embedded in this binary, so it is built FIRST
@@ -540,7 +543,17 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		// (#475) — emailSender is the split sender, which routes only the
 		// Digest away — and links the buyer into the Customer Area.
 		WithEmailSender(emailSender).
-		WithStorefrontBaseURL(cfg.StorefrontBaseURL)
+		WithStorefrontBaseURL(cfg.StorefrontBaseURL).
+		// The Certificate Expiry Warning (#503, ADR 0063) goes out on the
+		// same transactional sender to the operator allowlist, in each
+		// address's Staff Locale — identity's two readers, handed over
+		// exactly as sales is handed them above, for the same reason: who
+		// is warned and who is authorised must be one set, and the
+		// language belongs to a person. The link it carries is the Issuer
+		// page on the staff application.
+		WithPlatformOperators(identityService).
+		WithStaffLocales(identityService).
+		WithStaffBaseURL(cfg.StaffBaseURL)
 	if options.clock != nil {
 		invoicingService = invoicingService.WithClock(options.clock)
 	}

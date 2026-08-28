@@ -32,7 +32,10 @@ while nobody is looking.
 2. **The ladder is 30, 7, 1 and 0 days, counted in Ecuadorian calendar days,** between today in
    `America/Guayaquil` and the Ecuadorian date `NotAfter` falls on — never elapsed hours. A tick fires **the
    highest threshold not yet fired that the day count has reached, and only that one**: a certificate uploaded
-   with five days left fires 30 and nothing else; one uploaded already expired fires 0 alone. Expiry fires
+   with five days left fires 30 and nothing else; one uploaded already expired fires 0 alone. The rungs the
+   day count has reached *below* the one fired are recorded as covered by that same mail — otherwise the tick
+   five minutes later would send "seven days" about the same date, the three-mails outcome spread out. Past
+   `NotAfter` only the 0 rung is a candidate; a missed countdown is never sent late. Expiry fires
    once; there is no daily nag afterwards, because the banner and the parked documents' own message carry the
    ongoing state.
 3. **Once per threshold per certificate, kept in a ledger of sends keyed on the certificate's SHA-256
