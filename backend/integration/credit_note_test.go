@@ -522,6 +522,14 @@ func TestReversalWinsAgainstADrainerParkingAnUnsignableDocument(t *testing.T) {
 	operatorSessionID, invoiceID := houseSaleOwed(t, env, 1000, 1)
 	ref := lastConfirmation(t, env).Reference
 
+	// The Certificate Expiry Warning's ladder (#503, ADR 0063) reads the
+	// Issuer BEFORE the round claims anything, and would wait on the lock
+	// below before the claim this test needs to see. With no operator reader
+	// the ladder skips without touching the database, and the lock holds the
+	// round exactly where it did before: between its claim and its park.
+	sriApp.InvoicingService.WithPlatformOperators(nil)
+	t.Cleanup(func() { sriApp.InvoicingService.WithPlatformOperators(sriApp.IdentityService) })
+
 	hold, err := env.db.Begin()
 	if err != nil {
 		t.Fatalf("begin hold: %v", err)

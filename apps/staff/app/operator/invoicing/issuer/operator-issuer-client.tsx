@@ -37,6 +37,8 @@ import {
   uploadOperatorEcuadorIssuerCertificate,
 } from "@/lib/operator-api";
 
+import { CertificateExpiryWarning } from "../certificate-expiry-warning";
+
 /**
  * The Ecuador Issuer page (#451, parent #450, ADR 0059): where a Platform
  * Operator records the platform's own registration with the SRI.
@@ -561,7 +563,14 @@ function CertificateCard({
             <dt className="text-muted-foreground">{t("invoicingCertificateValidFrom")}</dt>
             <dd>{formatDateTime(certificate.not_before, PLATFORM_TIME_ZONE, locale)}</dd>
             <dt className="text-muted-foreground">{t("invoicingCertificateValidUntil")}</dt>
-            <dd>{formatDateTime(certificate.not_after, PLATFORM_TIME_ZONE, locale)}</dd>
+            <dd>
+              {formatDateTime(certificate.not_after, PLATFORM_TIME_ZONE, locale)}
+              {/* The Certificate Expiry Warning (#500, ADR 0063 §5), unlinked: the
+                  remedy is the form underneath. */}
+              {issuer ? (
+                <CertificateExpiryWarning expiry={issuer.certificate_expiry} className="mt-2" />
+              ) : null}
+            </dd>
             <dt className="text-muted-foreground">{t("invoicingCertificateFingerprint")}</dt>
             <dd className="break-all font-mono text-xs">{certificate.fingerprint_sha256}</dd>
             <dt className="text-muted-foreground">{t("invoicingCertificateUploadedAt")}</dt>

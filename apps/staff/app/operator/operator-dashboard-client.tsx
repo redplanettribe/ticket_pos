@@ -32,6 +32,8 @@ import {
   fetchOperatorSummary,
 } from "@/lib/operator-api";
 
+import { CertificateExpiryBanner } from "./invoicing/certificate-expiry-warning";
+
 /**
  * The one place platform revenue stops being "active sales only": fees kept on
  * sales an operator reversed out of band (#127). The disclosure appears only
@@ -230,6 +232,14 @@ export function OperatorDashboardClient() {
   return (
     <div className="space-y-6">
       <PageHeader title={t("title")} description={t("description")} />
+
+      {/*
+        The Certificate Expiry Warning (#504, ADR 0063): above the queues,
+        because a lapsed certificate is what fills the attention queue. It
+        reads the Issuer on its own, alive while Sale Invoicing is closed,
+        and draws nothing while the certificate is valid or absent.
+      */}
+      <CertificateExpiryBanner />
 
       <div className="grid gap-6 sm:grid-cols-2">
         {/*

@@ -76,3 +76,38 @@ func terraformSecondsDefault(t *testing.T, path, name string) time.Duration {
 	}
 	return time.Duration(seconds) * time.Second
 }
+
+// The park on an expired certificate names the date (#501, ADR 0063): the
+// certificate's NotAfter as an Ecuador calendar date in additional_info, with
+// the code and text unchanged. The zone is the case worth pinning — a
+// certificate expiring at 03:00 UTC on the 2nd is still the 1st in Ecuador,
+// and reading the date in UTC would name a day the operator never saw it
+// expire on.
+func TestCertificateExpiredParkNamesTheEcuadorDate(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		notAfter time.Time
+		want     string
+	}{
+		{"mid-afternoon in Ecuador", time.Date(2026, 10, 1, 19, 0, 0, 0, time.UTC), "2026-10-01"},
+		{"already tomorrow in UTC, still the previous day in Ecuador", time.Date(2026, 10, 2, 3, 0, 0, 0, time.UTC), "2026-10-01"},
+		{"Ecuadorian midnight opens the next day", time.Date(2026, 10, 2, 5, 0, 0, 0, time.UTC), "2026-10-02"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			msg := certificateExpiredMessage(tc.notAfter)
+			if msg.Identifier != "CERTIFICATE_EXPIRED" || msg.Type != platformMessageType {
+				t.Fatalf("message = %s/%s; want CERTIFICATE_EXPIRED from the platform", msg.Identifier, msg.Type)
+			}
+			if msg.Message != "The Issuer's signing certificate has expired. Upload a current .p12." {
+				t.Fatalf("message text changed: %q", msg.Message)
+			}
+			if msg.AdditionalInfo != tc.want {
+				t.Fatalf("additional_info = %q; want %q", msg.AdditionalInfo, tc.want)
+			}
+		})
+	}
+}

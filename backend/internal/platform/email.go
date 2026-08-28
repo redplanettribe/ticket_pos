@@ -1045,6 +1045,36 @@ type TaxDocumentDelivery struct {
 	Locale Locale
 }
 
+// CertificateExpiryWarning tells one Platform Operator that the Issuer's
+// signing certificate is about to lapse, or has (#502, ADR 0063). One is sent
+// per address on the operator allowlist, in that address's Staff Locale, on
+// the Payout Request's terms: the allowlist is the whole of operator
+// authority (ADR 0015), and the people told are the people who can re-upload.
+//
+// It is the platform's first mail about its own machinery rather than about a
+// sale, and it carries nothing but the machinery: no document counts, no
+// buyer, no Sale. What the reader needs is the date, whose certificate it is,
+// what lapsing costs, and where the remedy is — and the remedy is one link.
+type CertificateExpiryWarning struct {
+	To     string
+	Locale Locale
+	// Threshold is the rung of the ladder this mail is: 30, 7, 1 or 0 days
+	// before NotAfter, counted in Ecuadorian calendar days by the Drainer's
+	// tick, which sends each rung once per certificate. It decides the
+	// subject and the tense: 0 is the day the certificate has lapsed.
+	Threshold int
+	// NotAfter is the certificate's own expiry instant. It is rendered as the
+	// Ecuadorian date it falls on, in either language — the reader counts
+	// days from it, and the UTC day can be a day late.
+	NotAfter time.Time
+	// RUC is the Issuer's Tax ID, so a reader with more than one .p12 on a
+	// desk knows which one this is about.
+	RUC string
+	// IssuerURL is the Issuer page on the staff application, where the
+	// renewed .p12 is uploaded.
+	IssuerURL string
+}
+
 // EmailSender delivers transactional email: staff one-time passcodes,
 // Customer Sale Confirmations, Sale void/cancellation notices, the notice
 // that a refund the Customer was told was being processed could not be made, and
@@ -1150,6 +1180,15 @@ type EmailSender interface {
 	SendPayoutRequestDeclined(ctx context.Context, declined PayoutRequestDeclined) error
 	SendPayoutRequestTransferSent(ctx context.Context, sent PayoutRequestTransferSent) error
 	SendPayoutRequestTransferFailed(ctx context.Context, failed PayoutRequestTransferFailed) error
+	// SendCertificateExpiryWarning tells one Platform Operator that the
+	// Issuer's signing certificate is about to lapse, or has (#502, ADR 0063).
+	//
+	// TRANSACTIONAL, beside the Payout Request notices on the staff channel
+	// and never the Digest's: it is about the platform's own ability to sign
+	// what the law obliges it to sign, and no consent state is anywhere near
+	// it. What bounds it is the Drainer's ledger of sends, written only after
+	// at least one address accepted the mail.
+	SendCertificateExpiryWarning(ctx context.Context, warning CertificateExpiryWarning) error
 	// SendFollowDigest delivers the one weekly Follow Digest. The only
 	// non-transactional message on this interface, and the only one whose
 	// language depends on its reader.
@@ -1317,6 +1356,15 @@ func (s *LoggingEmailSender) SendPayoutRequestTransferFailed(_ context.Context, 
 	return nil
 }
 
+// SendCertificateExpiryWarning logs the Operator's notice that the signing
+// certificate is about to lapse, or has. The threshold, the RUC and the
+// date are logged: locally there is no mailbox, and the ladder's rung is
+// the whole of what a developer watching a closed-flag tick wants to see.
+func (s *LoggingEmailSender) SendCertificateExpiryWarning(_ context.Context, w CertificateExpiryWarning) error {
+	s.Logger.Info("certificate expiry warning sent", "email", w.To, "threshold_days", w.Threshold, "ruc", w.RUC, "not_after", w.NotAfter, "locale", string(w.Locale))
+	return nil
+}
+
 // SendFollowDigest logs the weekly Follow Digest for local development. The
 // Event count and the Locale are logged rather than the Events themselves: what
 // a local developer needs from this line is that a Digest went out, to whom, in
@@ -1424,6 +1472,11 @@ func (NoopEmailSender) SendPayoutRequestTransferFailed(_ context.Context, _ Payo
 	return nil
 }
 
+// SendCertificateExpiryWarning discards the Operator's certificate notice.
+func (NoopEmailSender) SendCertificateExpiryWarning(_ context.Context, _ CertificateExpiryWarning) error {
+	return nil
+}
+
 // SendFollowDigest discards the weekly Follow Digest.
 func (NoopEmailSender) SendFollowDigest(_ context.Context, _ FollowDigest) error {
 	return nil
@@ -1518,6 +1571,11 @@ type CaptureEmailSender struct {
 	DeclinedPayoutRequests     []PayoutRequestDeclined
 	TransferSentPayoutRequests []PayoutRequestTransferSent
 	FailedPayoutRequests       []PayoutRequestTransferFailed
+	// The Certificate Expiry Warnings (#502, ADR 0063), one per allowlisted
+	// Operator per rung of the ladder, kept whole so a test can render each
+	// in its recipient's Staff Locale; asserted on by LENGTH as much as by
+	// contents, since "once per threshold" is a fact about how many there are.
+	CertificateExpiryWarnings []CertificateExpiryWarning
 	// The weekly Follow Digests (#220). Kept as the whole value rather than as a
 	// rendered string, so a test can assert on the message a Customer would read
 	// by calling Subject() and Text() itself — which is what makes the Digest
@@ -1772,6 +1830,17 @@ func (s *CaptureEmailSender) SendPayoutRequestTransferFailed(_ context.Context, 
 	return nil
 }
 
+// SendCertificateExpiryWarning records a delivered Certificate Expiry Warning.
+func (s *CaptureEmailSender) SendCertificateExpiryWarning(_ context.Context, w CertificateExpiryWarning) error {
+	if err := s.failed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.CertificateExpiryWarnings = append(s.CertificateExpiryWarnings, w)
+	return nil
+}
+
 // SendFollowDigest records a delivered weekly Follow Digest.
 func (s *CaptureEmailSender) SendFollowDigest(_ context.Context, d FollowDigest) error {
 	if err := s.failed(); err != nil {
@@ -1871,6 +1940,16 @@ func (s *CaptureEmailSender) TaxDocumentDeliveriesSent() []TaxDocumentDelivery {
 	defer s.mu.Unlock()
 	out := make([]TaxDocumentDelivery, len(s.TaxDocumentDeliveries))
 	copy(out, s.TaxDocumentDeliveries)
+	return out
+}
+
+// CertificateExpiryWarningsSent returns the Certificate Expiry Warnings
+// delivered so far, in the order they were sent.
+func (s *CaptureEmailSender) CertificateExpiryWarningsSent() []CertificateExpiryWarning {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]CertificateExpiryWarning, len(s.CertificateExpiryWarnings))
+	copy(out, s.CertificateExpiryWarnings)
 	return out
 }
 
@@ -2056,6 +2135,7 @@ func (s *CaptureEmailSender) Reset() {
 	s.RevokedTicketQuestions = nil
 	s.TransferSentPayoutRequests = nil
 	s.FailedPayoutRequests = nil
+	s.CertificateExpiryWarnings = nil
 	s.FollowDigests = nil
 	s.failure = nil
 }

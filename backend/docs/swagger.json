@@ -3742,6 +3742,9 @@
                     "certificate": {
                         "$ref": "#/components/schemas/service.EcuadorIssuerCertificate"
                     },
+                    "certificate_expiry": {
+                        "$ref": "#/components/schemas/service.EcuadorIssuerCertificateExpiry"
+                    },
                     "certificate_ruc_mismatch": {
                         "description": "CertificateRUCMismatch is true only when the certificate carries a RUC\nand it is not the Issuer's. A warning for the page, never a refusal: the\nSRI's own check is the final word.",
                         "type": "boolean"
@@ -3820,6 +3823,29 @@
                         "type": "string"
                     },
                     "uploaded_at": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.EcuadorIssuerCertificateExpiry": {
+                "description": "CertificateExpiry is the Certificate Expiry Warning's state (#500, ADR\n0063 §5), derived on the server by the rule the Drainer's ladder uses,\nso the banners never count days from a date. Served whether or not\nSALE_INVOICING_ENABLED is open.",
+                "properties": {
+                    "days_before": {
+                        "description": "DaysBefore counts Ecuadorian calendar days from today to the date\nNotAfter falls on: zero on the day of expiry, negative once past.",
+                        "type": "integer"
+                    },
+                    "not_after": {
+                        "description": "NotAfter is the certificate's own end of validity, UTC.",
+                        "type": "string"
+                    },
+                    "state": {
+                        "enum": [
+                            "none",
+                            "valid",
+                            "expiring",
+                            "expired"
+                        ],
                         "type": "string"
                     }
                 },
@@ -11032,7 +11058,7 @@
         },
         "/api/v1/operator/invoicing/issuers/ec": {
             "get": {
-                "description": "Returns the platform's registration with the SRI (ADR 0059): the environment it points at (`test` = SRI pruebas, `production` = SRI producción) and the details every factura carries — RUC, razón social, nombre comercial, dirección matriz, dirección del establecimiento, establecimiento and punto de emisión codes, obligado a llevar contabilidad, régimen and the optional agente de retención resolution number. The data payload is `null` when no Issuer has been recorded, which is an ordinary state rather than an error. Platform Operator only.",
+                "description": "Returns the platform's registration with the SRI (ADR 0059): the environment it points at (`test` = SRI pruebas, `production` = SRI producción) and the details every factura carries — RUC, razón social, nombre comercial, dirección matriz, dirección del establecimiento, establecimiento and punto de emisión codes, obligado a llevar contabilidad, régimen and the optional agente de retención resolution number — with the signing certificate's metadata (never its bytes or password) and a `certificate_expiry` block (ADR 0063): `state` is `none` (no certificate), `valid`, `expiring` (30 Ecuadorian calendar days or fewer to go, the day itself included) or `expired`; `not_after` and `days_before` (days from today in America/Guayaquil to the date `not_after` falls on, negative once past) are null under `none`. The block is derived on the server by the rule the Certificate Expiry Warning's mails use; no page counts days from the date. Served whether or not SALE_INVOICING_ENABLED is open. The data payload is `null` when no Issuer has been recorded, which is an ordinary state rather than an error. Platform Operator only.",
                 "responses": {
                     "200": {
                         "content": {

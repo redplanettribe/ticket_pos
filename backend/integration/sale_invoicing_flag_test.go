@@ -32,6 +32,7 @@ func startAppWithSaleInvoicingClosed(t *testing.T) *testEnv {
 		DatabaseURL:       sharedConnStr,
 		RunMigrations:     false,
 		StorefrontBaseURL: "http://storefront.example",
+		StaffBaseURL:      "http://staff.example",
 		Fees: platform.FeeConfig{
 			FeeBasisPoints:    platform.DefaultPlatformFeeBasisPoints,
 			FeeIVABasisPoints: platform.DefaultPlatformFeeIVABasisPoints,

@@ -109,6 +109,8 @@ services:
       SALE_INVOICING_ENABLED: "true"
       # Where the parity Storefront answers, so Confirmation Links are followable.
       STOREFRONT_BASE_URL: http://localhost:64603
+      # Where the parity staff app answers, so the Certificate Expiry Warning's Issuer-page link is followable.
+      STAFF_BASE_URL: http://localhost:64604
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
       interval: 5s

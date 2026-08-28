@@ -36,6 +36,13 @@ type Service struct {
 	// wires neither delivers nothing and says so in its log.
 	email             platform.EmailSender
 	storefrontBaseURL string
+	// operators, staffLocales and staffBaseURL serve the Certificate Expiry
+	// Warning (#503, ADR 0063): the allowlist the Drainer's tick warns, the
+	// language each address reads, and the origin the Issuer-page link is
+	// built on. A deployment that wires no reader warns nobody and says so.
+	operators    PlatformOperators
+	staffLocales StaffLocales
+	staffBaseURL string
 	// saleInvoicingEnabled is the SALE_INVOICING_ENABLED flag (#471, ADR
 	// 0060). Closed, the Drainer's endpoint answers 404 and works nothing;
 	// the manual Tax Invoices, the Issuer and every read serve as before.
@@ -78,6 +85,47 @@ func (s *Service) WithStorefrontBaseURL(baseURL string) *Service {
 	return s
 }
 
+// PlatformOperators is what invoicing needs from identity in order to warn
+// the Platform Operators that the signing certificate is about to lapse
+// (#503, ADR 0063 §4): the allowlist, read as a list of addresses. The
+// sales module's seam of the same name, for the same reason: presence on
+// the allowlist is the whole of operator authority (ADR 0015), and asking
+// identity rather than reading `platform_operators` here keeps who is
+// WARNED and who is AUTHORISED the same set, decided in one module.
+type PlatformOperators interface {
+	PlatformOperatorEmails(ctx context.Context) ([]string, error)
+}
+
+// StaffLocales is what invoicing needs from identity in order to write the
+// Certificate Expiry Warning in the language its reader uses (ADR 0041): the
+// Staff Locale stored against one email address. "" is absence rather than
+// English; platform.ResolveStaffLocale owns the floor.
+type StaffLocales interface {
+	StaffLocale(ctx context.Context, email string) (string, error)
+}
+
+// WithPlatformOperators supplies the operator allowlist reader the
+// Certificate Expiry Warning fans out to. Tied on after construction, as
+// the sales module ties its own, because it serves one notice.
+func (s *Service) WithPlatformOperators(operators PlatformOperators) *Service {
+	s.operators = operators
+	return s
+}
+
+// WithStaffLocales supplies the Staff Locale reader, so each Certificate
+// Expiry Warning is written in the language its recipient reads.
+func (s *Service) WithStaffLocales(locales StaffLocales) *Service {
+	s.staffLocales = locales
+	return s
+}
+
+// WithStaffBaseURL sets the staff application's public origin, which the
+// Certificate Expiry Warning's Issuer-page link is built on.
+func (s *Service) WithStaffBaseURL(baseURL string) *Service {
+	s.staffBaseURL = baseURL
+	return s
+}
+
 // EcuadorIssuer is the Ecuador Issuer as the operator surface reads it: the
 // core row and the SRI details flattened into one payload, because there is
 // exactly one of each and the page shows them as one form.
@@ -106,6 +154,11 @@ type EcuadorIssuer struct {
 	// and it is not the Issuer's. A warning for the page, never a refusal: the
 	// SRI's own check is the final word.
 	CertificateRUCMismatch bool `json:"certificate_ruc_mismatch"`
+	// CertificateExpiry is the Certificate Expiry Warning's state (#500, ADR
+	// 0063 §5), derived on the server by the rule the Drainer's ladder uses,
+	// so the banners never count days from a date. Served whether or not
+	// SALE_INVOICING_ENABLED is open.
+	CertificateExpiry EcuadorIssuerCertificateExpiry `json:"certificate_expiry"`
 	// FrozenFields names the details that may no longer change (#455): "ruc"
 	// once any Tax Invoice exists in either environment, "establecimiento"
 	// and "punto_emision" once a sequence has started under them. Empty
@@ -149,6 +202,27 @@ type EcuadorIssuerCertificate struct {
 	// FingerprintSHA256 is lowercase hex.
 	FingerprintSHA256 string    `json:"fingerprint_sha256"`
 	UploadedAt        time.Time `json:"uploaded_at"`
+}
+
+// EcuadorIssuerCertificateExpiry is invoicing.CertificateExpiry on the wire:
+// `state` is `none`, `valid`, `expiring` or `expired`; `not_after` and
+// `days_before` are null exactly under `none`.
+type EcuadorIssuerCertificateExpiry struct {
+	State string `json:"state" enums:"none,valid,expiring,expired"`
+	// NotAfter is the certificate's own end of validity, UTC.
+	NotAfter *time.Time `json:"not_after"`
+	// DaysBefore counts Ecuadorian calendar days from today to the date
+	// NotAfter falls on: zero on the day of expiry, negative once past.
+	DaysBefore *int `json:"days_before"`
+}
+
+func certificateExpiryView(expiry invoicing.CertificateExpiry) EcuadorIssuerCertificateExpiry {
+	view := EcuadorIssuerCertificateExpiry{State: string(expiry.State), DaysBefore: expiry.DaysBefore}
+	if expiry.NotAfter != nil {
+		notAfter := expiry.NotAfter.UTC()
+		view.NotAfter = &notAfter
+	}
+	return view
 }
 
 // SaveEcuadorIssuerInput is what a save carries: the environment on the core
@@ -237,7 +311,7 @@ func (s *Service) ecuadorIssuerViewWithFreezes(ctx context.Context, row *reposit
 	if err != nil {
 		return nil, err
 	}
-	view := ecuadorIssuerView(row)
+	view := ecuadorIssuerView(s.clock(), row)
 	view.FrozenFields = make([]string, 0, len(frozen))
 	for _, field := range frozen {
 		view.FrozenFields = append(view.FrozenFields, field.name)
@@ -355,7 +429,7 @@ func (s *Service) unreadable(issuerID string, cause error) error {
 	return invoicing.ErrCertificateUnreadable()
 }
 
-func ecuadorIssuerView(row *repository.EcuadorIssuerRow) *EcuadorIssuer {
+func ecuadorIssuerView(now time.Time, row *repository.EcuadorIssuerRow) *EcuadorIssuer {
 	updatedAt := row.Issuer.UpdatedAt
 	if row.DetailsUpdatedAt.After(updatedAt) {
 		updatedAt = row.DetailsUpdatedAt
@@ -391,6 +465,7 @@ func ecuadorIssuerView(row *repository.EcuadorIssuerRow) *EcuadorIssuer {
 		AgenteRetencion:          row.Details.AgenteRetencion,
 		Certificate:              certificate,
 		CertificateRUCMismatch:   mismatch,
+		CertificateExpiry:        certificateExpiryView(invoicing.CertificateExpiryAt(now, row.Issuer.Certificate)),
 		CreatedAt:                row.Issuer.CreatedAt,
 		UpdatedAt:                updatedAt,
 	}

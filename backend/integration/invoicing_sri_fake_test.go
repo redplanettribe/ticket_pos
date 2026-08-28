@@ -279,6 +279,7 @@ func startSRIEnv(ctx context.Context, connStr string, email *platform.CaptureEma
 		DatabaseURL:       connStr,
 		RunMigrations:     false,
 		StorefrontBaseURL: "http://storefront.example",
+		StaffBaseURL:      "http://staff.example",
 		Fees: platform.FeeConfig{
 			FeeBasisPoints:    platform.DefaultPlatformFeeBasisPoints,
 			FeeIVABasisPoints: platform.DefaultPlatformFeeIVABasisPoints,

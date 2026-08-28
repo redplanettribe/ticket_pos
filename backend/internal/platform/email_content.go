@@ -1956,3 +1956,76 @@ func (d TaxDocumentDelivery) Text() string {
 	}
 	return text
 }
+
+// The Certificate Expiry Warning (#502, ADR 0063): the Operator learns the
+// signing certificate is about to lapse, on the channel ADR 0026 opened.
+//
+// Four rungs, four subjects. The rung is what the reader sees in a mailbox
+// list, and "in 30 days" and "tomorrow" ask for different evenings; the body
+// changes tense at 0, because on that day the date is behind the reader and
+// "expires on" would send them to a calendar that says today. What never
+// changes is the shape: the date in Ecuador, whose certificate, what lapsing
+// costs, and where the .p12 goes. No count of documents — the attention
+// queue has that — and nobody's name, because nothing here is about a buyer.
+var (
+	certificateExpiryInDaysSubjectCopy = translated(
+		"Signing certificate expires in %d days",
+		"El certificado de firma vence en %d días",
+	)
+	certificateExpiryTomorrowSubjectCopy = translated(
+		"Signing certificate expires tomorrow",
+		"El certificado de firma vence mañana",
+	)
+	certificateExpiredSubjectCopy = translated(
+		"Signing certificate has expired",
+		"El certificado de firma ha vencido",
+	)
+	certificateExpiryHeadingCopy = translated(
+		"Certificate expiry warning",
+		"Aviso de vencimiento del certificado",
+	)
+	// The date and the consequence in one block per tense: the sentence
+	// after the date is what the date is for, and a translation carrying one
+	// without the other would be worse than none.
+	certificateExpiringBodyCopy = translated(
+		"The signing certificate of the Issuer with RUC %s expires on %s (Ecuador time).\n\nOnce it lapses, every Sale Invoice owed is parked unsigned — no sequential number, no submission — while the SRI's 24-hour window for transmitting each one keeps running.",
+		"El certificado de firma del Emisor con RUC %s vence el %s (hora de Ecuador).\n\nCuando venza, toda Factura de venta pendiente queda detenida sin firmar — sin secuencial y sin envío — mientras el plazo de 24 horas del SRI para transmitir cada una sigue corriendo.",
+	)
+	certificateExpiredBodyCopy = translated(
+		"The signing certificate of the Issuer with RUC %s expired on %s (Ecuador time).\n\nEvery Sale Invoice owed is now parked unsigned — no sequential number, no submission — while the SRI's 24-hour window for transmitting each one keeps running.",
+		"El certificado de firma del Emisor con RUC %s venció el %s (hora de Ecuador).\n\nToda Factura de venta pendiente queda ahora detenida sin firmar — sin secuencial y sin envío — mientras el plazo de 24 horas del SRI para transmitir cada una sigue corriendo.",
+	)
+	certificateExpiryActionCopy = translated(
+		"Upload the renewed .p12 on the Issuer page:\n%s",
+		"Suba el .p12 renovado en la página del Emisor:\n%s",
+	)
+)
+
+// Subject names the rung: how long is left, or that nothing is.
+func (w CertificateExpiryWarning) Subject() string {
+	switch {
+	case w.Threshold <= 0:
+		return certificateExpiredSubjectCopy.in(w.Locale)
+	case w.Threshold == 1:
+		return certificateExpiryTomorrowSubjectCopy.in(w.Locale)
+	default:
+		return fmt.Sprintf(certificateExpiryInDaysSubjectCopy.in(w.Locale), w.Threshold)
+	}
+}
+
+// Text is the body: the heading the glossary names it by, the date in
+// Ecuador and whose certificate it is, what lapsing costs, and the link.
+//
+// The date goes through formatEcuadorDate for the reason the transfer-sent
+// notice's does: a NotAfter at 03:00 UTC is the previous evening in
+// Guayaquil, and the reader counting days needs the day it is there.
+func (w CertificateExpiryWarning) Text() string {
+	body := certificateExpiringBodyCopy
+	if w.Threshold <= 0 {
+		body = certificateExpiredBodyCopy
+	}
+	text := certificateExpiryHeadingCopy.in(w.Locale)
+	text += "\n\n" + fmt.Sprintf(body.in(w.Locale), w.RUC, formatEcuadorDate(w.NotAfter, w.Locale))
+	text += "\n\n" + fmt.Sprintf(certificateExpiryActionCopy.in(w.Locale), w.IssuerURL)
+	return text
+}
