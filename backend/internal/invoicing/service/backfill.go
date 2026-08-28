@@ -200,9 +200,11 @@ func (s *Service) BackfillSaleInvoices(ctx context.Context, ticketSaleIDs []stri
 	s.logger.Info("invoicing: sale invoice backfill", "requested", len(ticketSaleIDs), "owed", len(out.Owed), "refused", len(out.Refused))
 	if len(out.Owed) > 0 {
 		// ONE kick for the whole selection: with no Sale named, the round
-		// claims every document due — the ones just owed, all due at once —
-		// exactly as the scheduled drain would. Fire-and-forget: the answer
-		// goes back now, and the Drainer's outcome is the list's to show.
+		// claims the documents due — the ones just owed, all due at once —
+		// within one round's batch and budget, exactly as the scheduled drain
+		// would; a selection larger than a round leaves the tail to the next
+		// tick. Fire-and-forget: the answer goes back now, and the Drainer's
+		// outcome is the list's to show.
 		s.KickSaleInvoiceDrainer(ctx, "")
 	}
 	return out, nil

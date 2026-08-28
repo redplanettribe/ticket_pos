@@ -80,8 +80,8 @@ const uninvoicedHouseSaleFrom = `
 		SELECT 1 FROM invoicing_invoices i
 		WHERE i.ticket_sale_id = ts.id AND i.kind = 'sale')`
 
-// rowQuerier is what the single-sale read needs of a connection: the pool,
-// or the backfill's transaction, which must see the sale row it has locked.
+// rowQuerier is what the single-sale read needs of a connection: the
+// backfill's transaction, which must see the sale row it has locked.
 type rowQuerier interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
@@ -133,9 +133,6 @@ func (r *Repository) CountUninvoicedHouseSales(ctx context.Context) (int, error)
 // transaction, after locking the ticket_sales row, and see the sale as
 // locked.
 func (r *Repository) GetUninvoicedHouseSale(ctx context.Context, q rowQuerier, ticketSaleID string) (*UninvoicedHouseSaleRow, error) {
-	if q == nil {
-		q = r.db.Pool
-	}
 	row, err := scanUninvoicedHouseSale(q.QueryRowContext(ctx, `
 		SELECT `+uninvoicedHouseSaleColumns+uninvoicedHouseSaleFrom+`
 		  AND ts.id = $1

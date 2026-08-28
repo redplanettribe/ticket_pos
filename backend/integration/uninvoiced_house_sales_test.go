@@ -290,6 +290,8 @@ func TestUninvoicedHouseSalesExcludeSalesThatOweNothingOrAlreadyHaveADocument(t 
 		t.Fatalf("annul = %s; want annulled", annulled.Status)
 	}
 	assertUninvoicedRefs(t, operatorSessionID, "sale invoice annulled", control, inFlightRef)
+	// SQL: only a Sale Reversal withdraws an owed document, and this one is
+	// already annulled; no endpoint moves it to withdrawn from here.
 	if _, err := env.db.Exec(`UPDATE invoicing_invoices SET status = 'withdrawn', annulled_by = NULL, annulled_at = NULL WHERE id = $1`, invoices.Data[0].ID); err != nil {
 		t.Fatalf("set the document withdrawn: %v", err)
 	}

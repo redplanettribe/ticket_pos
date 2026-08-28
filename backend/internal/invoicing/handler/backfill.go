@@ -15,7 +15,7 @@ import (
 // The Uninvoiced House Sales (#507, parent #506, ADR 0064): the operator's
 // platform-wide backlog of paid House sales with no Sale Invoice, listed
 // oldest first, and its count. Read-only; the Sale Invoice Backfill act is
-// #508. Both take nothing but a page.
+// #508. The list takes nothing but a page; the count takes nothing.
 
 // ListUninvoicedHouseSales lists the Uninvoiced House Sales, oldest first.
 //

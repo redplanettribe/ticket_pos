@@ -1717,7 +1717,7 @@
     "invoicingUninvoicedBackfillFailed": "No se facturó nada. Vuelva a intentarlo en un momento.",
     "invoicingUninvoicedBackfillUnavailable": "La facturación de ventas está desactivada en este momento, así que no se facturó nada.",
     "invoicingBackfillTrailTitle": "Facturación de ventas pasadas",
-    "invoicingBackfillTrail": "Emitida por {by} el {when} (Facturación de ventas pasadas). El documento no nació en el checkout: se emitió por una venta pasada, con la fecha del día en que se emitió."
+    "invoicingBackfillTrail": "Puesta por emitir por {by} el {when} (Facturación de ventas pasadas). El documento no nació en el checkout: un operador lo generó por una venta pasada, y lleva la fecha del día en que se emitió."
   },
   "errors": {
     "envelope": {
