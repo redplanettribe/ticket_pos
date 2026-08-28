@@ -300,6 +300,23 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
 
       {invoice.recipient_warning ? <RecipientWarningCard invoice={invoice} /> : null}
 
+      {invoice.backfilled_by && invoice.backfilled_at ? (
+        // The backfill trail (#509, ADR 0064): who owed the document by a
+        // Sale Invoice Backfill and when, so the audit trail tells it from
+        // one born at checkout. Absent on every other document.
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("invoicingBackfillTrailTitle")}</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {t("invoicingBackfillTrail", {
+              by: invoice.backfilled_by,
+              when: formatDateTime(invoice.backfilled_at, PLATFORM_TIME_ZONE, locale) ?? invoice.backfilled_at,
+            })}
+          </CardContent>
+        </Card>
+      ) : null}
+
       {invoice.annulled_by && invoice.annulled_at ? (
         // The annulment trail (#477): who recorded the portal act and when.
         // The operator's email and the moment are data; the sentence is copy.

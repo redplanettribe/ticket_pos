@@ -1366,6 +1366,12 @@ export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
   reissued_by: string | null;
   reissued_at: string | null;
   reissue_note: string | null;
+  /**
+   * On a Sale Invoice owed by a Sale Invoice Backfill (#509, ADR 0064): the
+   * operator who owed it and when. Both null on a document born at checkout.
+   */
+  backfilled_by: string | null;
+  backfilled_at: string | null;
   has_authorization_xml: boolean;
   /**
    * True when the invoice is pending and the SRI holds the document —
@@ -1447,6 +1453,86 @@ export type OperatorRecipientWarningCount = {
  */
 export async function fetchOperatorRecipientWarningCount(): Promise<OperatorRecipientWarningCount> {
   return fetchEventsJSON<OperatorRecipientWarningCount>("/api/operator/invoicing/recipient-warnings/count");
+}
+
+// ---- The Uninvoiced House Sales (#507-#509, ADR 0064) ------------------
+
+/**
+ * One Uninvoiced House Sale: a paid, active Online Sale of an Organization
+ * that is House now, with no Reversal Request in flight and no Sale Invoice
+ * row of any status. The buyer's Tax ID is whatever the sale recorded —
+ * absent on a sale taken before it was asked for.
+ */
+export type OperatorUninvoicedHouseSale = {
+  ticket_sale_id: string;
+  confirmation_ref: string;
+  sold_at: string;
+  organization_id: string;
+  organization_name: string;
+  event_id: string;
+  event_name: string;
+  buyer_name: string;
+  buyer_tax_id_type: "cedula" | "ruc" | "passport" | null;
+  buyer_tax_id_number: string | null;
+  total_cents: number;
+  currency: string;
+};
+
+/** The Uninvoiced House Sales, oldest sale first — the ADR-0006 nested envelope. */
+export type OperatorUninvoicedHouseSalePage = {
+  data: OperatorUninvoicedHouseSale[];
+  pagination: OperatorPagination;
+};
+
+export type OperatorUninvoicedHouseSaleCount = {
+  uninvoiced_house_sale_count: number;
+};
+
+/** Why the backfill refused one sale. */
+export type BackfillRefusalCode = "not_a_candidate" | "unsupported_sale";
+
+/** The Sale Invoice Backfill's outcome, in request order. */
+export type OperatorBackfillResult = {
+  owed: { ticket_sale_id: string; invoice_id: string }[];
+  refused: { ticket_sale_id: string; code: BackfillRefusalCode }[];
+};
+
+const UNINVOICED_SALES_PATH = "/api/operator/invoicing/uninvoiced-sales";
+
+/**
+ * A page of Uninvoiced House Sales platform-wide, oldest first (#507). 404
+ * SALE_INVOICING_UNAVAILABLE while the feature is closed.
+ */
+export async function fetchOperatorUninvoicedHouseSales(page = 1): Promise<OperatorUninvoicedHouseSalePage> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(OPERATOR_INVOICES_PAGE_SIZE),
+  });
+  return fetchEventsJSON<OperatorUninvoicedHouseSalePage>(`${UNINVOICED_SALES_PATH}?${params.toString()}`);
+}
+
+/**
+ * How many Uninvoiced House Sales there are: the invoicing list's count
+ * beside the Recipient Warning one (#509), exactly what the page lists. 404
+ * SALE_INVOICING_UNAVAILABLE while the feature is closed — the caller reads
+ * that as "show no count".
+ */
+export async function fetchOperatorUninvoicedHouseSaleCount(): Promise<OperatorUninvoicedHouseSaleCount> {
+  return fetchEventsJSON<OperatorUninvoicedHouseSaleCount>(`${UNINVOICED_SALES_PATH}/count`);
+}
+
+/**
+ * The Sale Invoice Backfill (#508, ADR 0064): owes an ordinary Sale Invoice
+ * to each selected sale that is still a candidate and kicks the Drainer.
+ * Answers 200 with the owed and refused sales whenever the request itself
+ * is valid; 1..200 ids, else 400 VALIDATION_FAILED. A page holds 50, so a
+ * page-wide selection is always within the bound.
+ */
+export async function backfillOperatorUninvoicedHouseSales(ticketSaleIds: string[]): Promise<OperatorBackfillResult> {
+  return fetchEventsJSON<OperatorBackfillResult>(`${UNINVOICED_SALES_PATH}/backfill`, {
+    method: "POST",
+    body: JSON.stringify({ ticket_sale_ids: ticketSaleIds }),
+  });
 }
 
 // ---- The documents that need attention (#477, ADR 0060) ----------------

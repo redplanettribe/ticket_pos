@@ -29,6 +29,7 @@ import {
   type OperatorInvoiceListItem,
   fetchOperatorInvoices,
   fetchOperatorRecipientWarningCount,
+  fetchOperatorUninvoicedHouseSaleCount,
 } from "@/lib/operator-api";
 
 import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "./invoice-status";
@@ -49,6 +50,11 @@ import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from 
 // marked in the list and found by a second filter. Both exist only while
 // Sale Invoicing is open: the count endpoint is the tell, answering 404 while
 // the feature is closed, and the filter is drawn only once it has answered.
+//
+// The Uninvoiced House Sales count (#509, ADR 0064) sits beside it under the
+// same rule: read with the page, hidden while its endpoint answers 404, and
+// shown as "0" when the backlog is clear — a zero is an answer, not an
+// absence. It opens Ventas sin factura, where the backfill lives.
 
 const KIND_FILTERS = ["all", "manual", "sale", "credit_note"] as const satisfies readonly InvoiceKindFilter[];
 
@@ -116,6 +122,8 @@ export function OperatorInvoicesClient({
   const [recipientWarningOnly, setRecipientWarningOnly] = useState(initialRecipientWarningOnly);
   // null while unknown or while the feature is closed: the filter is not drawn.
   const [recipientWarningCount, setRecipientWarningCount] = useState<number | null>(null);
+  // null while unknown or while the feature is closed: the link is not drawn.
+  const [uninvoicedCount, setUninvoicedCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -127,12 +135,14 @@ export function OperatorInvoicesClient({
       // The count is read beside the page: it says whether Sale Invoicing is
       // open (404 while closed, read as "no filter") and how many the filter
       // would find. A closed feature must not take the list down with it.
-      const [page, warningCount] = await Promise.all([
+      const [page, warningCount, uninvoiced] = await Promise.all([
         fetchOperatorInvoices(1, kind, recipientWarningOnly),
         fetchOperatorRecipientWarningCount().catch(() => null),
+        fetchOperatorUninvoicedHouseSaleCount().catch(() => null),
       ]);
       setItems(page.data ?? []);
       setRecipientWarningCount(warningCount?.recipient_warning_count ?? null);
+      setUninvoicedCount(uninvoiced?.uninvoiced_house_sale_count ?? null);
       setForbidden(false);
     } catch (loadError) {
       if (loadError instanceof ApiError && loadError.code === "FORBIDDEN") {
@@ -220,6 +230,11 @@ export function OperatorInvoicesClient({
                   />
                   <span>{t("invoicingRecipientWarningFilter", { count: recipientWarningCount })}</span>
                 </label>
+              ) : null}
+              {uninvoicedCount !== null ? (
+                <Link href="/operator/invoicing/uninvoiced" className="text-sm hover:underline">
+                  {t("invoicingUninvoicedCountLink", { count: uninvoicedCount })}
+                </Link>
               ) : null}
             </div>
           </CardHeader>

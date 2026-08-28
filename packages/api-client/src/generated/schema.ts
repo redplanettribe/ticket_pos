@@ -4352,6 +4352,143 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/invoicing/uninvoiced-sales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the Uninvoiced House Sales
+         * @description Returns a page of every Uninvoiced House Sale platform-wide (ADR 0064): a paid Online Sale — approved Payment above zero — that is `active` with no Reversal Request in flight or parked, has NO Sale Invoice row of any status (a sale whose factura was annulled or withdrawn had one and is not listed), and belongs to an Organization that is House NOW — when it was designated is irrelevant, and an Organization no longer House contributes nothing. Free, imported and Manually Recorded sales are never listed. OLDEST SALE FIRST by `sold_at`, then id. Each row carries the sale's own date, the Organization and Event, the buyer's name and Tax ID as the checkout was transacted, the total paid and the Sale Confirmation reference; a factura owed from this list will be dated the day of the act, never `sold_at`. An empty page means the backlog is clear. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Page number (default 1) */
+                    page?: number;
+                    /** @description Page size (default 50, max 100) */
+                    page_size?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeUninvoicedHouseSaleList"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/invoicing/uninvoiced-sales/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count the Uninvoiced House Sales
+         * @description Returns uninvoiced_house_sale_count: how many Uninvoiced House Sales there are platform-wide (ADR 0064) — the count shown beside the invoicing list's other counts. It counts exactly what the list shows, so the two can never disagree. Zero is an ordinary answer: the backlog is clear. Read-only. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE and no count is shown. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeUninvoicedHouseSaleCount"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/organizations": {
         parameters: {
             query?: never;
@@ -13215,6 +13352,16 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeUninvoicedHouseSaleCount": {
+            data?: components["schemas"]["service.UninvoicedHouseSaleCount"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeUninvoicedHouseSaleList": {
+            data?: components["schemas"]["service.UninvoicedHouseSaleList"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeVerifyGoogle": {
             data?: components["schemas"]["openapi.VerifyOTPData"];
             error?: components["schemas"]["platform.APIError"];
@@ -16483,6 +16630,38 @@ export interface components {
             id?: string;
             name?: string;
             sort_order?: number;
+        };
+        "service.UninvoicedHouseSale": {
+            /** @description BuyerName is the buyer as the Sale transacted them, "First Last". */
+            buyer_name?: string;
+            buyer_tax_id_number?: string;
+            /**
+             * @description BuyerTaxIDType and BuyerTaxIDNumber are the Tax ID the checkout was
+             *     transacted under (cedula, ruc or passport), null when it carried none.
+             */
+            buyer_tax_id_type?: string;
+            confirmation_ref?: string;
+            currency?: string;
+            event_id?: string;
+            event_name?: string;
+            organization_id?: string;
+            organization_name?: string;
+            /**
+             * @description SoldAt is the sale's own instant — the date the page shows beside
+             *     every row, because a factura issued from here will be dated the day
+             *     of the act and never this one.
+             */
+            sold_at?: string;
+            ticket_sale_id?: string;
+            /** @description TotalCents is what the buyer paid, fees included. */
+            total_cents?: number;
+        };
+        "service.UninvoicedHouseSaleCount": {
+            uninvoiced_house_sale_count?: number;
+        };
+        "service.UninvoicedHouseSaleList": {
+            data?: components["schemas"]["service.UninvoicedHouseSale"][];
+            pagination?: components["schemas"]["service.InvoicePagination"];
         };
         "service.UnresolvedReversal": {
             attempt_count?: number;

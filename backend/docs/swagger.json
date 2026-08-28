@@ -2752,6 +2752,34 @@
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeUninvoicedHouseSaleCount": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.UninvoicedHouseSaleCount"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeUninvoicedHouseSaleList": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.UninvoicedHouseSaleList"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeVerifyGoogle": {
                 "properties": {
                     "data": {
@@ -7061,6 +7089,74 @@
                     },
                     "sort_order": {
                         "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.UninvoicedHouseSale": {
+                "properties": {
+                    "buyer_name": {
+                        "description": "BuyerName is the buyer as the Sale transacted them, \"First Last\".",
+                        "type": "string"
+                    },
+                    "buyer_tax_id_number": {
+                        "type": "string"
+                    },
+                    "buyer_tax_id_type": {
+                        "description": "BuyerTaxIDType and BuyerTaxIDNumber are the Tax ID the checkout was\ntransacted under (cedula, ruc or passport), null when it carried none.",
+                        "type": "string"
+                    },
+                    "confirmation_ref": {
+                        "type": "string"
+                    },
+                    "currency": {
+                        "type": "string"
+                    },
+                    "event_id": {
+                        "type": "string"
+                    },
+                    "event_name": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "organization_name": {
+                        "type": "string"
+                    },
+                    "sold_at": {
+                        "description": "SoldAt is the sale's own instant — the date the page shows beside\nevery row, because a factura issued from here will be dated the day\nof the act and never this one.",
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
+                        "type": "string"
+                    },
+                    "total_cents": {
+                        "description": "TotalCents is what the buyer paid, fees included.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.UninvoicedHouseSaleCount": {
+                "properties": {
+                    "uninvoiced_house_sale_count": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.UninvoicedHouseSaleList": {
+                "properties": {
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.UninvoicedHouseSale"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "pagination": {
+                        "$ref": "#/components/schemas/service.InvoicePagination"
                     }
                 },
                 "type": "object"
@@ -11412,6 +11508,136 @@
                     }
                 ],
                 "summary": "Count the documents carrying a Recipient Warning",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/uninvoiced-sales": {
+            "get": {
+                "description": "Returns a page of every Uninvoiced House Sale platform-wide (ADR 0064): a paid Online Sale — approved Payment above zero — that is `active` with no Reversal Request in flight or parked, has NO Sale Invoice row of any status (a sale whose factura was annulled or withdrawn had one and is not listed), and belongs to an Organization that is House NOW — when it was designated is irrelevant, and an Organization no longer House contributes nothing. Free, imported and Manually Recorded sales are never listed. OLDEST SALE FIRST by `sold_at`, then id. Each row carries the sale's own date, the Organization and Event, the buyer's name and Tax ID as the checkout was transacted, the total paid and the Sale Confirmation reference; a factura owed from this list will be dated the day of the act, never `sold_at`. An empty page means the backlog is clear. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Page number (default 1)",
+                        "in": "query",
+                        "name": "page",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Page size (default 50, max 100)",
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeUninvoicedHouseSaleList"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List the Uninvoiced House Sales",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/uninvoiced-sales/count": {
+            "get": {
+                "description": "Returns uninvoiced_house_sale_count: how many Uninvoiced House Sales there are platform-wide (ADR 0064) — the count shown beside the invoicing list's other counts. It counts exactly what the list shows, so the two can never disagree. Zero is an ordinary answer: the backlog is clear. Read-only. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE and no count is shown. Platform Operator only.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeUninvoicedHouseSaleCount"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Count the Uninvoiced House Sales",
                 "tags": [
                     "operator"
                 ]
