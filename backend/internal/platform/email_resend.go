@@ -170,6 +170,19 @@ func (s *ResendEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDo
 	return nil
 }
 
+// SendCertificateExpiryWarning delivers one Platform Operator's notice that
+// the signing certificate is about to lapse, or has (#502, ADR 0063). The
+// Drainer reads the error: its ledger row is written only once an address
+// accepted the mail, so a failure here is a retry on the next tick rather
+// than a lost threshold.
+func (s *ResendEmailSender) SendCertificateExpiryWarning(ctx context.Context, w CertificateExpiryWarning) error {
+	if err := s.send(ctx, w.To, w.Subject(), w.Text()); err != nil {
+		s.logger.Error("resend send certificate expiry warning failed", "threshold_days", w.Threshold, "ruc", w.RUC, "error", err)
+		return err
+	}
+	return nil
+}
+
 // SendSaleVoided delivers a cancellation notice referencing the original Sale
 // Confirmation. Best-effort, as above.
 func (s *ResendEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) error {
