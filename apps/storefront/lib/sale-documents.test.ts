@@ -8,6 +8,7 @@ import {
   saleDocumentDownloadHref,
   saleDocumentLabelKey,
   saleDocumentPendingKey,
+  saleDocumentRideHref,
   saleDocumentRole,
   type SaleDocument,
 } from "./sale-documents.ts";
@@ -21,12 +22,43 @@ function authorized(kind = "sale"): SaleDocument {
     kind,
     status: "authorized",
     download_url: `/api/v1/customer/ticket-sales/${SALE_ID}/tax-documents/${DOC_ID}/xml`,
+    ride_url: `/api/v1/customer/ticket-sales/${SALE_ID}/tax-documents/${DOC_ID}/ride`,
   };
 }
 
 function onItsWay(kind = "sale"): SaleDocument {
-  return { id: DOC_ID, kind, status: "on_its_way", download_url: null };
+  return { id: DOC_ID, kind, status: "on_its_way", download_url: null, ride_url: null };
 }
+
+// The RIDE beside the XML (#497, ADR 0062): the sibling relay, offered exactly
+// when the API offers it.
+test("saleDocumentRideHref points at the BFF relay once authorized", () => {
+  assert.equal(
+    saleDocumentRideHref(SALE_ID, authorized()),
+    `/api/customer/ticket-sales/${SALE_ID}/tax-documents/${DOC_ID}/ride`,
+  );
+  // A credit note's RIDE is offered as a factura's is.
+  assert.equal(
+    saleDocumentRideHref(SALE_ID, authorized("credit_note")),
+    `/api/customer/ticket-sales/${SALE_ID}/tax-documents/${DOC_ID}/ride`,
+  );
+});
+
+test("saleDocumentRideHref offers nothing while the document is on its way", () => {
+  assert.equal(saleDocumentRideHref(SALE_ID, onItsWay()), null);
+  assert.equal(saleDocumentRideHref(SALE_ID, onItsWay("credit_note")), null);
+  // Authorized in word but with no RIDE path from the API — a payload from
+  // before the RIDE existed: the XML alone, never a link to a 404.
+  assert.equal(saleDocumentRideHref(SALE_ID, { ...authorized(), ride_url: null }), null);
+  const preRide: SaleDocument = {
+    id: DOC_ID,
+    kind: "sale",
+    status: "authorized",
+    download_url: `/api/v1/customer/ticket-sales/${SALE_ID}/tax-documents/${DOC_ID}/xml`,
+  };
+  assert.equal(saleDocumentRideHref(SALE_ID, preRide), null);
+  assert.notEqual(saleDocumentDownloadHref(SALE_ID, preRide), null);
+});
 
 // The download goes through this app's own relay, never to the API's path the
 // payload names (ADR 0008).
@@ -90,6 +122,8 @@ function chained(
     status,
     download_url:
       status === "authorized" ? `/api/v1/customer/ticket-sales/${SALE_ID}/tax-documents/${id}/xml` : null,
+    ride_url:
+      status === "authorized" ? `/api/v1/customer/ticket-sales/${SALE_ID}/tax-documents/${id}/ride` : null,
     role,
     supersedes_invoice_id: null,
     superseded_by_invoice_id: null,

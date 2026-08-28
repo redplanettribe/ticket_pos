@@ -40,14 +40,60 @@ func customerDocumentXMLPath(saleID, documentID string) string {
 	return customerDocumentsPath(saleID) + "/" + documentID + "/xml"
 }
 
+func customerDocumentRIDEPath(saleID, documentID string) string {
+	return customerDocumentsPath(saleID) + "/" + documentID + "/ride"
+}
+
 // customerDocumentView is one document as the buyer reads it: the kind, a
 // state in the platform's words and never the authority's, and where to
-// download it once there is something to download.
+// download it — the signed XML and its RIDE (#497) — once there is
+// something to download.
 type customerDocumentView struct {
 	ID          string  `json:"id"`
 	Kind        string  `json:"kind"`
 	Status      string  `json:"status"`
 	DownloadURL *string `json:"download_url"`
+	RideURL     *string `json:"ride_url"`
+}
+
+// assertCustomerDownloads holds a listed document's two download paths to
+// the state it is in: both offered, at the buyer's own paths, once
+// authorized; neither before.
+func assertCustomerDownloads(t *testing.T, label string, doc customerDocumentView, saleID string, offered bool) {
+	t.Helper()
+	if offered != (doc.DownloadURL != nil) || offered != (doc.RideURL != nil) {
+		t.Fatalf("%s: download_url=%v ride_url=%v; want both offered=%v", label, doc.DownloadURL, doc.RideURL, offered)
+	}
+	if !offered {
+		return
+	}
+	if *doc.DownloadURL != customerDocumentXMLPath(saleID, doc.ID) {
+		t.Fatalf("%s: download_url = %s; want %s", label, *doc.DownloadURL, customerDocumentXMLPath(saleID, doc.ID))
+	}
+	if *doc.RideURL != customerDocumentRIDEPath(saleID, doc.ID) {
+		t.Fatalf("%s: ride_url = %s; want %s", label, *doc.RideURL, customerDocumentRIDEPath(saleID, doc.ID))
+	}
+}
+
+// assertRIDEDownload is a buyer's RIDE download held against the operator's
+// (#497, ADR 0062 §4): a PDF under the clave's filename, and the same bytes.
+func assertRIDEDownload(t *testing.T, resp *http.Response, body []byte, filename string, want []byte) {
+	t.Helper()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%.200s, want 200", resp.StatusCode, body)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/pdf" {
+		t.Fatalf("Content-Type=%q, want application/pdf", ct)
+	}
+	if cd := resp.Header.Get("Content-Disposition"); cd != `attachment; filename="`+filename+`"` {
+		t.Fatalf("Content-Disposition=%q, want attachment; filename=%q", cd, filename)
+	}
+	if !bytes.HasPrefix(body, []byte("%PDF-")) {
+		t.Fatalf("body is not a PDF: %.40q", body)
+	}
+	if !bytes.Equal(body, want) {
+		t.Fatalf("the buyer's RIDE (%d bytes) differs from the operator's (%d bytes)", len(body), len(want))
+	}
 }
 
 func listCustomerDocuments(t *testing.T, sessionID, saleID string) ([]customerDocumentView, json.RawMessage) {
@@ -381,12 +427,7 @@ func TestCustomerSaleDocumentsFollowTheDocumentState(t *testing.T) {
 		if len(docs) != 1 || docs[0].ID != invoiceID || docs[0].Kind != "sale" || docs[0].Status != status {
 			t.Fatalf("%s: documents = %+v; want one sale document %s", state, docs, status)
 		}
-		if download != (docs[0].DownloadURL != nil) {
-			t.Fatalf("%s: download_url = %v; want offered=%v", state, docs[0].DownloadURL, download)
-		}
-		if download && *docs[0].DownloadURL != customerDocumentXMLPath(saleID, invoiceID) {
-			t.Fatalf("%s: download_url = %s; want %s", state, *docs[0].DownloadURL, customerDocumentXMLPath(saleID, invoiceID))
-		}
+		assertCustomerDownloads(t, state, docs[0], saleID, download)
 		if strings.Contains(string(raw), "FECHA EMISION") || strings.Contains(string(raw), "messages") {
 			t.Fatalf("%s: the buyer's read carries the authority's words:\n%s", state, raw)
 		}
@@ -518,6 +559,80 @@ func TestCustomerSaleDocumentDownloadIsGatedOnTheSale(t *testing.T) {
 	resp, body = sriEnv.getRaw(t, signedXMLPath(invoiceID), authHeader(owner))
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("a Customer Session on the operator download: status=%d body=%s; want 401", resp.StatusCode, body)
+	}
+}
+
+// TestCustomerSaleDocumentRIDEIsGatedOnTheSale (#497, ADR 0062): the RIDE
+// stands behind the gate the XML does and refuses with the same one word.
+// The owning Customer Session and a Confirmation Link to the Sale download
+// a PDF under the clave's filename that is byte for byte the operator's;
+// the link session cannot reach another Sale of the same buyer; an owed
+// document has no RIDE yet; another Customer is told INVOICE_NOT_FOUND —
+// never RIDE_NOT_FOUND, a word the XML download would not say; nobody at
+// all is refused at the door; and an id that is not this Sale's, or not an
+// id, is the same not-found.
+func TestCustomerSaleDocumentRIDEIsGatedOnTheSale(t *testing.T) {
+	env := setupTest(t)
+	operatorSessionID, invoiceID, saleID := houseSaleAuthorized(t, env)
+	filename := getDrainedInvoice(t, operatorSessionID, invoiceID).EcuadorFull.AccessKey + ".pdf"
+	want := operatorRIDE(t, operatorSessionID, invoiceID)
+	path := customerDocumentRIDEPath(saleID, invoiceID)
+
+	// The owner.
+	owner := buyerSession(t, env, "guest@example.com")
+	resp, body := sriEnv.getRaw(t, path, authHeader(owner))
+	assertRIDEDownload(t, resp, body, filename, want)
+
+	// A Confirmation Link to this Sale, redeemed through the app that signed it.
+	_, link := redeemConfirmationLinkOK(t, payphoneEnv, lastConfirmationLinkToken(t, env), "")
+	resp, body = sriEnv.getRaw(t, path, authHeader(link))
+	assertRIDEDownload(t, resp, body, filename, want)
+
+	// The same buyer's OTHER Sale, through that link: invisible. And through
+	// the owner's own session: owed, so nothing to render yet.
+	otherRef := paidCheckoutApproved(t, "house-fest", checkoutBody("guest@example.com", "Ana", "Lopez", cartLine(ticketTypeIDBySlug(t, env, "house-fest"), 1)))
+	otherSaleID := saleIDByRef(t, env, otherRef)
+	otherInvoiceID := ""
+	for _, row := range getSaleInvoiceList(t, operatorSessionID).Data {
+		if row.ID != invoiceID {
+			otherInvoiceID = row.ID
+		}
+	}
+	for label, session := range map[string]string{"link session on another Sale's document": link, "owner on an owed document": owner} {
+		resp, body = sriEnv.getRaw(t, customerDocumentRIDEPath(otherSaleID, otherInvoiceID), authHeader(session))
+		if errEnv := decodeErrorEnvelope(t, body); resp.StatusCode != http.StatusNotFound || errEnv.Error == nil || errEnv.Error.Code != "INVOICE_NOT_FOUND" {
+			t.Fatalf("%s: status=%d body=%s; want 404 INVOICE_NOT_FOUND", label, resp.StatusCode, body)
+		}
+	}
+	if docs, _ := listCustomerDocuments(t, owner, otherSaleID); len(docs) != 1 || docs[0].RideURL != nil || docs[0].DownloadURL != nil {
+		t.Fatalf("the owed document lists %+v; want it on its way with neither download", docs)
+	}
+
+	// Another Customer.
+	other := customerSignIn(t, env, "other@example.com")
+	resp, body = sriEnv.getRaw(t, path, authHeader(other))
+	if errEnv := decodeErrorEnvelope(t, body); resp.StatusCode != http.StatusNotFound || errEnv.Error == nil || errEnv.Error.Code != "INVOICE_NOT_FOUND" {
+		t.Fatalf("another Customer's RIDE download: status=%d body=%s; want 404 INVOICE_NOT_FOUND", resp.StatusCode, body)
+	}
+
+	// Nobody.
+	resp, body = sriEnv.getRaw(t, path, nil)
+	if errEnv := decodeErrorEnvelope(t, body); resp.StatusCode != http.StatusUnauthorized || errEnv.Error == nil || errEnv.Error.Code != "UNAUTHORIZED" {
+		t.Fatalf("anonymous RIDE download: status=%d body=%s; want 401 UNAUTHORIZED", resp.StatusCode, body)
+	}
+
+	// A document that is not this Sale's, and a path that is not an id.
+	for _, p := range []string{customerDocumentRIDEPath(saleID, uuid.NewString()), customerDocumentRIDEPath(saleID, "not-a-uuid"), customerDocumentRIDEPath(uuid.NewString(), invoiceID)} {
+		resp, body = sriEnv.getRaw(t, p, authHeader(owner))
+		if errEnv := decodeErrorEnvelope(t, body); resp.StatusCode != http.StatusNotFound || errEnv.Error == nil || errEnv.Error.Code != "INVOICE_NOT_FOUND" {
+			t.Fatalf("%s: status=%d body=%s; want 404 INVOICE_NOT_FOUND", p, resp.StatusCode, body)
+		}
+	}
+
+	// The buyer's session does not open the operator's RIDE route.
+	resp, body = sriEnv.getRaw(t, ridePath(invoiceID), authHeader(owner))
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("a Customer Session on the operator RIDE: status=%d body=%s; want 401", resp.StatusCode, body)
 	}
 }
 

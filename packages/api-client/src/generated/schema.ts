@@ -2121,7 +2121,7 @@ export interface paths {
         };
         /**
          * List the Tax Documents of one of the Customer's Ticket Sales
-         * @description The Customer Area's read of a Sale's documents (ADR 0060): every Sale Invoice and Credit Note the Sale owes or was issued, each with its `kind` (`sale` for a factura, `credit_note`), a `status` in the platform's own words — `authorized`, or `on_its_way` for a document still owed, pending at the SRI or parked for an operator — and `download_url`, the path of the signed XML once authorized and null before. After a Sale Invoice Reissue (ADR 0061) the list holds the whole chain, and each document carries its `role` — `current` for the factura that stands, `superseded` for one a reissue corrected (still authorized and downloadable), `credit_note` — and the ids it points at: `supersedes_invoice_id`, `superseded_by_invoice_id`, `credits_invoice_id`, each another document of this list or null. Nothing the SRI said ever travels here. An empty list for a Sale that owes no document (a free, imported or non-House sale), for a Sale that is not this Customer's, and for any Sale but the one a Confirmation Link session names: not yours and not there are one answer. Requires a Customer Session; a Confirmation Link session is enough.
+         * @description The Customer Area's read of a Sale's documents (ADR 0060): every Sale Invoice and Credit Note the Sale owes or was issued, each with its `kind` (`sale` for a factura, `credit_note`), a `status` in the platform's own words — `authorized`, or `on_its_way` for a document still owed, pending at the SRI or parked for an operator — and two download paths, `download_url` for the signed XML and `ride_url` for the RIDE (PDF), each set once authorized and null before (ADR 0062: the RIDE is rendered on request, so a document authorized before it existed carries one too). After a Sale Invoice Reissue (ADR 0061) the list holds the whole chain, and each document carries its `role` — `current` for the factura that stands, `superseded` for one a reissue corrected (still authorized and downloadable), `credit_note` — and the ids it points at: `supersedes_invoice_id`, `superseded_by_invoice_id`, `credits_invoice_id`, each another document of this list or null. Nothing the SRI said ever travels here. An empty list for a Sale that owes no document (a free, imported or non-House sale), for a Sale that is not this Customer's, and for any Sale but the one a Confirmation Link session names: not yours and not there are one answer. Requires a Customer Session; a Confirmation Link session is enough.
          */
         get: {
             parameters: {
@@ -2151,6 +2151,68 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents/{id}/ride": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download the RIDE (PDF) of one of the Customer's Tax Documents
+         * @description The buyer's download of the RIDE — the Representación Impresa del Documento Electrónico — of an authorized factura or nota de crédito, as `application/pdf` with `Content-Disposition: attachment; filename="<clave de acceso>.pdf"`: the same bytes the operator route serves and the delivery mail carries, rendered afresh from the stored document on every request and stored nowhere. A document authorized before the RIDE existed renders on its first request; nothing is re-mailed. Gated exactly as the XML download: the Customer Session must own the Ticket Sale in the path, or be a Confirmation Link session naming it. Any other Customer, any other Sale, a document that is not this Sale's, and a document not yet authorized all answer INVOICE_NOT_FOUND (404), one refusal for every case so that ids cannot be probed. No session at all is 401.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Ticket Sale id */
+                    ticketSaleId: string;
+                    /** @description Tax Document id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/pdf": string;
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/pdf": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/pdf": components["schemas"]["platform.Envelope"];
                     };
                 };
             };
@@ -13735,6 +13797,12 @@ export interface components {
              *     its own word.
              */
             kind?: string;
+            /**
+             * @description RideURL is the API path of the RIDE once authorized, null before
+             *     (#497, ADR 0062): set exactly when DownloadURL is, since the RIDE is
+             *     rendered from the same authorized row the XML is read from.
+             */
+            ride_url?: string;
             role?: components["schemas"]["service.CustomerDocumentRole"];
             status?: components["schemas"]["service.CustomerDocumentStatus"];
             superseded_by_invoice_id?: string;

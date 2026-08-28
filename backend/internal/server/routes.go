@@ -463,6 +463,10 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 		signedIn(http.HandlerFunc(app.InvoicingHandler.ListCustomerSaleDocuments)))
 	mux.Handle("GET /api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents/{id}/xml",
 		signedIn(http.HandlerFunc(app.InvoicingHandler.DownloadCustomerSaleDocumentXML)))
+	// The RIDE beside the XML (#497, ADR 0062): the same gate, the same
+	// narrowing, the same one refusal, rendered on request from the same row.
+	mux.Handle("GET /api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents/{id}/ride",
+		signedIn(http.HandlerFunc(app.InvoicingHandler.DownloadCustomerSaleDocumentRIDE)))
 	// The Tickets the Customer HOLDS, and the one write on them (#343, ADR
 	// 0049): the buyer's Self-held Ticket and every Ticket they accepted by
 	// Assignment Link, through one route, keyed on the holder customer id of

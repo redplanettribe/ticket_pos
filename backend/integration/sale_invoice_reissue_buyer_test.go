@@ -200,24 +200,36 @@ func TestCustomerSaleDocumentsNameEachDocumentsRoleInTheChain(t *testing.T) {
 	if old.Kind != "sale" || old.Role != "superseded" || old.Status != "authorized" || old.DownloadURL == nil || !strEq(old.SupersededByInvoiceID, corrected.ID) || old.SupersedesInvoiceID != nil || old.CreditsInvoiceID != nil {
 		t.Fatalf("superseded factura = %+v; want role superseded, still authorized and downloadable, superseded by the corrected one", old)
 	}
+	assertCustomerDownloads(t, "superseded factura", old.customerDocumentView, saleID, true)
 	note := chainDocument(t, docs, noteID)
 	if note.Kind != "credit_note" || note.Role != "credit_note" || note.Status != "on_its_way" || note.DownloadURL != nil || !strEq(note.CreditsInvoiceID, facturaID) || note.SupersedesInvoiceID != nil || note.SupersededByInvoiceID != nil {
 		t.Fatalf("credit note = %+v; want role credit_note, on its way, crediting the old factura", note)
 	}
+	assertCustomerDownloads(t, "credit note on its way", note.customerDocumentView, saleID, false)
 	cur := chainDocument(t, docs, corrected.ID)
 	if cur.Kind != "sale" || cur.Role != "current" || cur.Status != "on_its_way" || cur.DownloadURL != nil || !strEq(cur.SupersedesInvoiceID, facturaID) || cur.SupersededByInvoiceID != nil || cur.CreditsInvoiceID != nil {
 		t.Fatalf("corrected factura = %+v; want role current, on its way, superseding the old factura", cur)
 	}
+	assertCustomerDownloads(t, "corrected factura on its way", cur.customerDocumentView, saleID, false)
 
-	// Drained: all three authorized, the superseded XML still downloads.
+	// Drained: all three authorized, each with its XML and its RIDE (#497,
+	// ADR 0062) — the superseded factura's still downloads.
 	if result := drainSaleInvoices(t); result.Authorized != 2 || result.Delivered != 2 {
 		t.Fatalf("drain = %+v; want the Credit Note and the corrected factura authorized and delivered", result)
 	}
 	docs = listCustomerChain(t, buyer, saleID)
 	for _, d := range docs {
-		if d.Status != "authorized" || d.DownloadURL == nil {
-			t.Fatalf("after the drain: %+v; want every document authorized and downloadable", d)
+		if d.Status != "authorized" {
+			t.Fatalf("after the drain: %+v; want every document authorized", d)
 		}
+		assertCustomerDownloads(t, "after the drain, "+d.Role, d.customerDocumentView, saleID, true)
+	}
+	// Every document's RIDE, on `current`, `superseded` and `credit_note`
+	// alike, is the operator's byte for byte under `<clave>.pdf`.
+	for _, id := range []string{facturaID, noteID, corrected.ID} {
+		filename := getDrainedInvoice(t, operatorSessionID, id).EcuadorFull.AccessKey + ".pdf"
+		resp, body := sriEnv.getRaw(t, customerDocumentRIDEPath(saleID, id), authHeader(buyer))
+		assertRIDEDownload(t, resp, body, filename, operatorRIDE(t, operatorSessionID, id))
 	}
 	if chainDocument(t, docs, facturaID).Role != "superseded" || chainDocument(t, docs, corrected.ID).Role != "current" || chainDocument(t, docs, noteID).Role != "credit_note" {
 		t.Fatalf("after the drain the roles moved: %+v", docs)

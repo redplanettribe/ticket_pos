@@ -10,6 +10,7 @@ import {
   saleDocumentDownloadHref,
   saleDocumentLabelKey,
   saleDocumentPendingKey,
+  saleDocumentRideHref,
   type SaleDocument,
 } from "@/lib/sale-documents";
 
@@ -24,8 +25,9 @@ import {
  * (#471 story 16, 17). Only a Sale with a document shows the block.
  *
  * WHAT IT SAYS IS TWO THINGS. A document authorized by the SRI is a download —
- * the signed XML, served through this app's relay under the clave's filename.
- * Anything before that — owed, pending at the SRI, or parked for a Platform
+ * two, in fact: the signed XML and its RIDE (#497, ADR 0062), each served
+ * through this app's own relay under the clave's filename, on the current
+ * factura, a superseded one and a credit note alike. Anything before that — owed, pending at the SRI, or parked for a Platform
  * Operator — is "your factura is on its way", and never a word the SRI said:
  * a platform problem is the platform's to fix and not the buyer's to be told
  * (#471 story 15). The API already speaks in those two words, so nothing here
@@ -84,7 +86,8 @@ export function SaleDocuments({ ticketSaleId }: { ticketSaleId: string }) {
       <h3 className="font-medium">{t("documents.title")}</h3>
       <ul className="space-y-2">
         {orderSaleDocuments(documents).map((document) => {
-          const href = saleDocumentDownloadHref(ticketSaleId, document);
+          const xmlHref = saleDocumentDownloadHref(ticketSaleId, document);
+          const rideHref = saleDocumentRideHref(ticketSaleId, document);
           const pending = saleDocumentPendingKey(document);
           const badge = saleDocumentBadgeKey(document);
           return (
@@ -95,13 +98,22 @@ export function SaleDocuments({ ticketSaleId }: { ticketSaleId: string }) {
                   <span className="text-muted-foreground"> · {t(`documents.${badge}`)}</span>
                 ) : null}
               </span>
-              {href ? (
-                // A plain anchor rather than a Link: the relay answers a file
+              {xmlHref ? (
+                // Plain anchors rather than Links: each relay answers a file
                 // under a Content-Disposition, and the browser saves it
-                // without leaving the page.
-                <a href={href} className="font-medium underline underline-offset-4" download>
-                  {t("documents.download")}
-                </a>
+                // without leaving the page. The RIDE sits beside the XML
+                // whenever the API offers it; a payload from before the RIDE
+                // existed draws the XML alone.
+                <span className="flex flex-wrap items-center gap-3">
+                  <a href={xmlHref} className="font-medium underline underline-offset-4" download>
+                    {t("documents.downloadXml")}
+                  </a>
+                  {rideHref ? (
+                    <a href={rideHref} className="font-medium underline underline-offset-4" download>
+                      {t("documents.downloadRide")}
+                    </a>
+                  ) : null}
+                </span>
               ) : pending ? (
                 <span className="text-muted-foreground">{t(`documents.${pending}`)}</span>
               ) : null}

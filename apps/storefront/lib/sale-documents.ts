@@ -31,6 +31,10 @@ export type SaleDocument = {
    * this app fetches — a browser never addresses the Go API (ADR 0008) — but
    * the fact that decides whether a download is drawn. */
   download_url: string | null;
+  /** The API's path of the RIDE (PDF) once authorized, null before (#497, ADR
+   * 0062); set exactly when `download_url` is. Optional so a payload from
+   * before the RIDE existed still reads: absent, no RIDE is drawn. */
+  ride_url?: string | null;
   /** `current` for the factura that stands, `superseded` for one a reissue
    * corrected, `credit_note`. Optional so a payload from before the chain
    * existed still reads: absent, a factura is current. */
@@ -109,6 +113,25 @@ export function saleDocumentDownloadHref(
     return null;
   }
   return `/api/customer/ticket-sales/${encodeURIComponent(ticketSaleId)}/tax-documents/${encodeURIComponent(document.id)}/xml`;
+}
+
+/**
+ * saleDocumentRideHref is where the browser downloads one document's RIDE
+ * from (#497, ADR 0062): the sibling BFF relay, and only once the API offers
+ * the RIDE — which it does for every authorized document, `current`,
+ * `superseded` and `credit_note` alike, and for none before. Built from the
+ * ids for the reason saleDocumentDownloadHref is; `ride_url` is read only as
+ * the fact that a RIDE is offered, so a payload from before the RIDE existed
+ * draws the XML alone rather than a link to a 404.
+ */
+export function saleDocumentRideHref(
+  ticketSaleId: string,
+  document: SaleDocument,
+): string | null {
+  if (document.status !== "authorized" || !document.ride_url) {
+    return null;
+  }
+  return `/api/customer/ticket-sales/${encodeURIComponent(ticketSaleId)}/tax-documents/${encodeURIComponent(document.id)}/ride`;
 }
 
 /**

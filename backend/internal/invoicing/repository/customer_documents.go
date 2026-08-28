@@ -40,7 +40,11 @@ func (r *Repository) ListSaleDocumentsForCustomer(ctx context.Context, customerI
 
 // GetSaleDocumentForCustomer reads one document by id, provided it is the
 // named Ticket Sale's and that Sale is the Customer's; nil otherwise, for
-// the reason above.
+// the reason above. The row comes whole — lines, additional fields and
+// attempts, as GetInvoice reads it — because it is what the buyer's
+// downloads are served from, and the RIDE (#497, ADR 0062) draws the lines
+// and fields: the same row the operator's RIDE is rendered from, so the two
+// are the same bytes.
 func (r *Repository) GetSaleDocumentForCustomer(ctx context.Context, customerID, ticketSaleID, invoiceID string) (*InvoiceRow, error) {
 	row, err := scanInvoice(r.db.Pool.QueryRowContext(ctx, `
 		SELECT `+invoiceColumns+invoiceFrom+`
@@ -51,6 +55,9 @@ func (r *Repository) GetSaleDocumentForCustomer(ctx context.Context, customerID,
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get sale document for customer: %w", err)
+	}
+	if err := r.loadInvoiceChildren(ctx, row); err != nil {
+		return nil, err
 	}
 	return row, nil
 }

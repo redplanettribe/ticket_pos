@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -21,7 +22,7 @@ import (
 // ListCustomerSaleDocuments lists a Sale's documents for its buyer.
 //
 // @Summary      List the Tax Documents of one of the Customer's Ticket Sales
-// @Description  The Customer Area's read of a Sale's documents (ADR 0060): every Sale Invoice and Credit Note the Sale owes or was issued, each with its `kind` (`sale` for a factura, `credit_note`), a `status` in the platform's own words — `authorized`, or `on_its_way` for a document still owed, pending at the SRI or parked for an operator — and `download_url`, the path of the signed XML once authorized and null before. After a Sale Invoice Reissue (ADR 0061) the list holds the whole chain, and each document carries its `role` — `current` for the factura that stands, `superseded` for one a reissue corrected (still authorized and downloadable), `credit_note` — and the ids it points at: `supersedes_invoice_id`, `superseded_by_invoice_id`, `credits_invoice_id`, each another document of this list or null. Nothing the SRI said ever travels here. An empty list for a Sale that owes no document (a free, imported or non-House sale), for a Sale that is not this Customer's, and for any Sale but the one a Confirmation Link session names: not yours and not there are one answer. Requires a Customer Session; a Confirmation Link session is enough.
+// @Description  The Customer Area's read of a Sale's documents (ADR 0060): every Sale Invoice and Credit Note the Sale owes or was issued, each with its `kind` (`sale` for a factura, `credit_note`), a `status` in the platform's own words — `authorized`, or `on_its_way` for a document still owed, pending at the SRI or parked for an operator — and two download paths, `download_url` for the signed XML and `ride_url` for the RIDE (PDF), each set once authorized and null before (ADR 0062: the RIDE is rendered on request, so a document authorized before it existed carries one too). After a Sale Invoice Reissue (ADR 0061) the list holds the whole chain, and each document carries its `role` — `current` for the factura that stands, `superseded` for one a reissue corrected (still authorized and downloadable), `credit_note` — and the ids it points at: `supersedes_invoice_id`, `superseded_by_invoice_id`, `credits_invoice_id`, each another document of this list or null. Nothing the SRI said ever travels here. An empty list for a Sale that owes no document (a free, imported or non-House sale), for a Sale that is not this Customer's, and for any Sale but the one a Confirmation Link session names: not yours and not there are one answer. Requires a Customer Session; a Confirmation Link session is enough.
 // @Tags         customer
 // @Produce      json
 // @Security     BearerAuth
@@ -63,6 +64,33 @@ func (h *Handler) ListCustomerSaleDocuments(w http.ResponseWriter, r *http.Reque
 // @Failure      404  {object}  platform.Envelope
 // @Router       /api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents/{id}/xml [get]
 func (h *Handler) DownloadCustomerSaleDocumentXML(w http.ResponseWriter, r *http.Request) {
+	h.serveCustomerDocument(w, r, h.svc.CustomerSaleDocumentXML)
+}
+
+// DownloadCustomerSaleDocumentRIDE hands the buyer the RIDE (#497, ADR 0062).
+//
+// @Summary      Download the RIDE (PDF) of one of the Customer's Tax Documents
+// @Description  The buyer's download of the RIDE — the Representación Impresa del Documento Electrónico — of an authorized factura or nota de crédito, as `application/pdf` with `Content-Disposition: attachment; filename="<clave de acceso>.pdf"`: the same bytes the operator route serves and the delivery mail carries, rendered afresh from the stored document on every request and stored nowhere. A document authorized before the RIDE existed renders on its first request; nothing is re-mailed. Gated exactly as the XML download: the Customer Session must own the Ticket Sale in the path, or be a Confirmation Link session naming it. Any other Customer, any other Sale, a document that is not this Sale's, and a document not yet authorized all answer INVOICE_NOT_FOUND (404), one refusal for every case so that ids cannot be probed. No session at all is 401.
+// @Tags         customer
+// @Produce      application/pdf
+// @Security     BearerAuth
+// @Param        ticketSaleId  path  string  true  "Ticket Sale id"
+// @Param        id            path  string  true  "Tax Document id"
+// @Success      200
+// @Failure      401  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Router       /api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents/{id}/ride [get]
+func (h *Handler) DownloadCustomerSaleDocumentRIDE(w http.ResponseWriter, r *http.Request) {
+	h.serveCustomerDocument(w, r, h.svc.CustomerSaleDocumentRIDE)
+}
+
+// serveCustomerDocument is the buyer's download, whichever file: the session
+// is the identity, the two path ids say which of that Customer's Sales and
+// documents, and an id that is not one answers INVOICE_NOT_FOUND before the
+// service is asked, the same refusal it gives for everything else. A
+// document leaves as a file under its own filename; a refusal is the
+// ordinary JSON envelope, never an empty file.
+func (h *Handler) serveCustomerDocument(w http.ResponseWriter, r *http.Request, load func(ctx context.Context, customerID, sessionTicketSaleID, ticketSaleID, invoiceID string) (*invoicing.Document, error)) {
 	reqID := platform.RequestID(r.Context())
 	session, ok := customersmiddleware.SessionFromContext(r.Context())
 	if !ok {
@@ -78,7 +106,7 @@ func (h *Handler) DownloadCustomerSaleDocumentXML(w http.ResponseWriter, r *http
 		_ = platform.WriteDomainError(w, reqID, invoicing.ErrInvoiceNotFound())
 		return
 	}
-	doc, err := h.svc.CustomerSaleDocumentXML(r.Context(), session.CustomerID, session.TicketSaleID, saleID, id)
+	doc, err := load(r.Context(), session.CustomerID, session.TicketSaleID, saleID, id)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
