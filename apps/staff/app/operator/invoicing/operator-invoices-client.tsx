@@ -31,6 +31,7 @@ import {
   fetchOperatorRecipientWarningCount,
 } from "@/lib/operator-api";
 
+import { CertificateExpiryBanner } from "./certificate-expiry-alert";
 import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "./invoice-status";
 
 // The invoices list (#454): every factura the platform issued, newest first —
@@ -175,6 +176,13 @@ export function OperatorInvoicesClient({
           </>
         }
       />
+
+      {/*
+        The Certificate Expiry Warning (#504, ADR 0063), where the documents
+        are: the same banner the Operator Dashboard carries, read on its own
+        so a failed Issuer read never takes the list down with it.
+      */}
+      <CertificateExpiryBanner />
 
       {forbidden ? (
         <Alert variant="destructive">
