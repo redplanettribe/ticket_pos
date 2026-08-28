@@ -784,6 +784,12 @@ type InvoiceDetail struct {
 	ReissuedBy          *string    `json:"reissued_by"`
 	ReissuedAt          *time.Time `json:"reissued_at"`
 	ReissueNote         *string    `json:"reissue_note"`
+	// The Sale Invoice Backfill's trail (#509, ADR 0064): on a Sale Invoice
+	// a Platform Operator owed to an Uninvoiced House Sale, who and when,
+	// so the detail page tells it from one born at checkout. Both null on a
+	// checkout-born document and on every other kind.
+	BackfilledBy *string    `json:"backfilled_by"`
+	BackfilledAt *time.Time `json:"backfilled_at"`
 	// HasAuthorizationXML says whether the authority's document is on file
 	// (#456 serves it).
 	HasAuthorizationXML bool `json:"has_authorization_xml"`
@@ -901,6 +907,8 @@ func invoiceDetailView(row *repository.InvoiceRow) *InvoiceDetail {
 		ReissuedBy:          optional(inv.ReissuedBy),
 		ReissuedAt:          optionalTime(inv.ReissuedAt),
 		ReissueNote:         optional(inv.ReissueNote),
+		BackfilledBy:        optional(inv.BackfilledBy),
+		BackfilledAt:        optionalTime(inv.BackfilledAt),
 		CreatedAt:           inv.CreatedAt.UTC(),
 		UpdatedAt:           inv.UpdatedAt.UTC(),
 	}

@@ -90,6 +90,15 @@ type EnvelopeUninvoicedHouseSaleCount struct {
 	RequestID string                           `json:"request_id"`
 }
 
+// EnvelopeSaleInvoiceBackfillResult documents POST
+// /operator/invoicing/uninvoiced-sales/backfill success responses: the
+// owed and refused sales, in request order (#508).
+type EnvelopeSaleInvoiceBackfillResult struct {
+	Data      service.SaleInvoiceBackfillResult `json:"data"`
+	Error     *platform.APIError                `json:"error"`
+	RequestID string                            `json:"request_id"`
+}
+
 // EnvelopeCustomerDocuments documents GET
 // /customer/ticket-sales/{ticketSaleId}/tax-documents success responses: the
 // Sale's documents in the buyer's words, an empty list when it owes none.

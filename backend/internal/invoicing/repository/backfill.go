@@ -161,3 +161,32 @@ func scanUninvoicedHouseSale(s interface{ Scan(dest ...any) error }) (*Uninvoice
 	}
 	return &row, nil
 }
+
+// BeginBackfillTx opens the transaction a Sale Invoice Backfill owes ONE
+// document in (#508): one per sale, so a refused sale blocks nothing and a
+// repeated request is harmless.
+func (r *Repository) BeginBackfillTx(ctx context.Context) (*sql.Tx, error) {
+	tx, err := r.db.Pool.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin backfill transaction: %w", err)
+	}
+	return tx, nil
+}
+
+// LockTicketSale takes a row lock on the Ticket Sale for the rest of the
+// backfill's transaction (#508), so two requests naming the same sale are
+// serialized: the second waits, then asks the predicate of a sale that
+// already has its document, and is refused. It reports whether the row
+// exists at all — an unknown id is the same answer as a sale that is not
+// a candidate.
+func (r *Repository) LockTicketSale(ctx context.Context, tx *sql.Tx, ticketSaleID string) (bool, error) {
+	var id string
+	err := tx.QueryRowContext(ctx, `SELECT id FROM ticket_sales WHERE id = $1 FOR UPDATE`, ticketSaleID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("lock ticket sale: %w", err)
+	}
+	return true, nil
+}

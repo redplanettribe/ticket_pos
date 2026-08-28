@@ -158,6 +158,18 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.backfillBody": {
+                "properties": {
+                    "ticket_sale_ids": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "handler.beginCustomerCheckoutBody": {
                 "properties": {
                     "affiliate_codes": {
@@ -2547,6 +2559,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeSaleInvoiceBackfillResult": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.SaleInvoiceBackfillResult"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeSaleInvoiceDrain": {
                 "properties": {
                     "data": {
@@ -3237,6 +3263,17 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "type": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.BackfilledSale": {
+                "properties": {
+                    "invoice_id": {
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
                         "type": "string"
                     }
                 },
@@ -4316,6 +4353,13 @@ const docTemplate = `{
                     },
                     "attention_since": {
                         "description": "AttentionSince is when the document was parked needs_attention — how\nlong it has been waiting for an operator (#477); null in every other\nstate.",
+                        "type": "string"
+                    },
+                    "backfilled_at": {
+                        "type": "string"
+                    },
+                    "backfilled_by": {
+                        "description": "The Sale Invoice Backfill's trail (#509, ADR 0064): on a Sale Invoice\na Platform Operator owed to an Uninvoiced House Sale, who and when,\nso the detail page tells it from one born at checkout. Both null on a\ncheckout-born document and on every other kind.",
                         "type": "string"
                     },
                     "check_status_hint": {
@@ -6180,6 +6224,17 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.RefusedBackfillSale": {
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.ReversalDrainResult": {
                 "properties": {
                     "failed": {
@@ -6379,6 +6434,25 @@ const docTemplate = `{
                     "ticket_types": {
                         "items": {
                             "$ref": "#/components/schemas/service.SaleLine"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "service.SaleInvoiceBackfillResult": {
+                "properties": {
+                    "owed": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.BackfilledSale"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "refused": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.RefusedBackfillSale"
                         },
                         "type": "array",
                         "uniqueItems": false
@@ -11589,6 +11663,92 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "List the Uninvoiced House Sales",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/uninvoiced-sales/backfill": {
+            "post": {
+                "description": "Performs a Sale Invoice Backfill (ADR 0064): for each ` + "`" + `ticket_sale_ids` + "`" + ` entry, in request order and EACH IN ITS OWN TRANSACTION, locks the Ticket Sale row, re-checks that it is still an Uninvoiced House Sale, describes it exactly as the checkout does and owes it an ordinary Sale Invoice through the checkout's own builder, stamped with ` + "`" + `backfilled_by` + "`" + ` (the operator, from the session) and ` + "`" + `backfilled_at` + "`" + ` (now). The document is DATED THE DAY OF THE ACT, never the day of the sale — the SRI refuses a past ` + "`" + `fechaEmision` + "`" + ` — and from then on it is drained, delivered to the buyer with the standard mail (XML + RIDE), credited on reversal and reissuable like any Sale Invoice. Then the Sale Invoice Drainer is kicked ONCE for everything owed; the answer does not wait for it. Answers 200 whenever the request is valid, with ` + "`" + `owed` + "`" + ` ({ticket_sale_id, invoice_id}) and ` + "`" + `refused` + "`" + ` ({ticket_sale_id, code}) in request order: ` + "`" + `not_a_candidate` + "`" + ` for an unknown id or a sale that is not (or no longer) an Uninvoiced House Sale — already invoiced, reversed, not House, not online, free — and ` + "`" + `unsupported_sale` + "`" + ` when the builder refuses the sale because its lines do not match its Payment, in which case nothing was written and no sequence number consumed. A refused sale never blocks the others; the same id twice is refused the second time. 1 to 200 ids; empty, missing, more than 200 or a non-UUID → 400 VALIDATION_FAILED. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE. Platform Operator only.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.backfillBody",
+                                        "summary": "body",
+                                        "description": "The selected Ticket Sale ids (1–200)"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The selected Ticket Sale ids (1–200)",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeSaleInvoiceBackfillResult"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Backfill Sale Invoices for the selected Uninvoiced House Sales",
                 "tags": [
                     "operator"
                 ]
