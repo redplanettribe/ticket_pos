@@ -632,6 +632,16 @@ _Avoid_: Cancelled, annulled, void, old, replaced (as the term), archived
 The Tax Authority's word, on a document it nevertheless authorized, that the Recipient's Tax ID does not exist or is incorrect — the SRI's advertencias 59 and 62. Not a fault of the document, which stands, but the one signal the platform has that a Sale Invoice was declared to the wrong taxpayer; shown wherever the document is listed until the document is credited — by a reissue's Credit Note or a reversal's — since a Sale Invoice that no longer stands at the Tax Authority declares nothing to anyone, and can no longer be reissued. Not raised by a Tax ID that exists and belongs to somebody else, which only the buyer can notice.
 _Avoid_: Error, rejection, needs attention (the Drainer's parking, which this is not), invalid Tax ID
 
+**Uninvoiced House Sale**:
+A paid Online Sale of a House Event that still stands — active, with no Reversal Request open — and has no Sale Invoice at all, because it was transacted before the platform began invoicing House sales, or before its Organization was designated House. Judged against the Organization as it is now: a sale of an Organization no longer House is not one, whatever it was at the time. Not a sale whose Sale Invoice was annulled or withdrawn, which had one; not a free, imported or Manually Recorded sale, which owe none.
+In Spanish, **Venta sin factura**.
+_Avoid_: Pending invoice, missing factura, backlog sale, retroactive sale
+
+**Sale Invoice Backfill**:
+A Platform Operator's act of owing a Sale Invoice to one or many Uninvoiced House Sales, dated the day of the act and never the day of the sale — the Tax Authority refuses a document dated in the past. From the moment it is owed the document is an ordinary Sale Invoice: drained, delivered to the buyer, credited on reversal and reissued like one born at checkout, and the document records that an operator owed it. Never automatic: which sales to declare late, and when, is the operator's call, sale by sale; a sale the platform cannot invoice as it was transacted is refused on its own and the rest proceed.
+In Spanish, **Facturación de ventas pasadas**.
+_Avoid_: Retroactive invoice, catch-up invoicing, bulk invoicing, re-invoice, backdated invoice
+
 **Sale Invoice Drainer**:
 The platform pursuing every owed Sale Invoice and Credit Note until the Tax Authority gives a definite answer: signing and submitting what is owed, asking again about what was submitted and not yet answered, and parking what it cannot settle for a Platform Operator to look at — never deleting it, since a signed document has consumed a sequence number. The Reversal Reconciler's sibling: it only finds out and retries; it never decides whether a document is owed.
 _Avoid_: Invoice queue, worker, retry job, SRI poller
