@@ -48,6 +48,23 @@ func (h *Handler) DownloadAuthorizationXML(w http.ResponseWriter, r *http.Reques
 	h.serveDocument(w, r, h.svc.AuthorizationXML)
 }
 
+// DownloadRIDE hands over the RIDE (#494, ADR 0062).
+//
+// @Summary      Download a Tax Invoice's RIDE (PDF)
+// @Description  Renders the RIDE — the Representación Impresa del Documento Electrónico — of an authorized document from its stored data, as `application/pdf` with `Content-Disposition: attachment; filename="<clave de acceso>.pdf"`. It carries the authorization number and date the SRI granted, and is rendered afresh on every request: nothing is stored, and two downloads are byte-identical. A document that is not authorized has no RIDE and answers RIDE_NOT_FOUND (404); INVOICE_NOT_FOUND (404) when there is no such invoice. Platform Operator only.
+// @Tags         operator
+// @Produce      application/pdf
+// @Security     BearerAuth
+// @Param        id  path  string  true  "Tax Invoice id"
+// @Success      200
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Router       /api/v1/operator/invoicing/invoices/{id}/ride [get]
+func (h *Handler) DownloadRIDE(w http.ResponseWriter, r *http.Request) {
+	h.serveDocument(w, r, h.svc.RIDE)
+}
+
 func (h *Handler) serveDocument(w http.ResponseWriter, r *http.Request, load func(context.Context, string) (*invoicing.Document, error)) {
 	reqID := platform.RequestID(r.Context())
 	id := r.PathValue("id")

@@ -185,7 +185,7 @@ func domainHTTPStatus(code string) int {
 		return http.StatusConflict
 	case "INVOICE_INVALID":
 		return http.StatusBadRequest
-	case "INVOICE_NOT_FOUND", "AUTHORIZATION_XML_NOT_FOUND", "SIGNED_XML_NOT_FOUND":
+	case "INVOICE_NOT_FOUND", "AUTHORIZATION_XML_NOT_FOUND", "SIGNED_XML_NOT_FOUND", "RIDE_NOT_FOUND":
 		return http.StatusNotFound
 	// Check status / Resend on an authorized invoice, and a save that would
 	// change a frozen Issuer detail (#455): the resource exists and its state

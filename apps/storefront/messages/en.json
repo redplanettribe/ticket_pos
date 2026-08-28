@@ -418,7 +418,8 @@
       "onItsWay": "Your factura is on its way. We'll email it to you as soon as it's ready, and it will appear here.",
       "creditNoteOnItsWay": "Your credit note is on its way. We'll email it to you as soon as it's ready, and it will appear here.",
       "superseded": "Superseded by the corrected factura",
-      "download": "Download XML"
+      "downloadXml": "Download XML",
+      "downloadRide": "Download PDF (RIDE)"
     },
     "answers": {
       "title": "Questions about these tickets",

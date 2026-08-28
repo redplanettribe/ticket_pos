@@ -2,9 +2,12 @@ package service
 
 import (
 	"context"
+	"errors"
 
 	"github.com/peter/ticket_pos/backend/internal/invoicing"
 	"github.com/peter/ticket_pos/backend/internal/invoicing/repository"
+	"github.com/peter/ticket_pos/backend/internal/invoicing/ride"
+	"github.com/peter/ticket_pos/backend/internal/platform/apperror"
 )
 
 // The Customer Area's view of a Sale's documents (#475, ADR 0060): what the
@@ -34,6 +37,14 @@ import (
 // buyer's — answers as if it had no documents, and another Customer's
 // download answers as if there were no such document, because "not yours"
 // and "not there" must be one answer.
+//
+// TWO DOWNLOADS PER AUTHORIZED DOCUMENT (#497, ADR 0062). Beside the signed
+// XML the buyer is offered the RIDE, rendered from that same row each time
+// it is asked for and stored nowhere, so a document authorized before the
+// RIDE existed gets one the first time somebody asks and nothing is
+// re-mailed. Both downloads stand behind one gate and refuse identically:
+// the RIDE is the XML's reading, and a buyer who may not have the one may
+// not have the other.
 
 // CustomerDocumentStatus is where a document stands, in the buyer's words.
 type CustomerDocumentStatus string
@@ -72,6 +83,10 @@ type CustomerDocument struct {
 	// DownloadURL is the API path of the signed XML once authorized, null
 	// before: the card draws the download exactly where this is set.
 	DownloadURL *string `json:"download_url"`
+	// RideURL is the API path of the RIDE once authorized, null before
+	// (#497, ADR 0062): set exactly when DownloadURL is, since the RIDE is
+	// rendered from the same authorized row the XML is read from.
+	RideURL *string `json:"ride_url"`
 	// Role is `current`, `superseded` or `credit_note` (#485): the card
 	// orders the chain by it and labels a superseded factura.
 	Role CustomerDocumentRole `json:"role"`
@@ -111,6 +126,53 @@ func (s *Service) CustomerSaleDocuments(ctx context.Context, customerID, session
 // else — another Sale, another Customer, a document not yet authorized —
 // with one refusal for all of them.
 func (s *Service) CustomerSaleDocumentXML(ctx context.Context, customerID, sessionTicketSaleID, ticketSaleID, invoiceID string) (*invoicing.Document, error) {
+	row, err := s.customerSaleAuthorizedDocument(ctx, customerID, sessionTicketSaleID, ticketSaleID, invoiceID)
+	if err != nil {
+		return nil, err
+	}
+	return &invoicing.Document{
+		Filename:    row.Ecuador.AccessKey + ".xml",
+		ContentType: invoicing.ContentTypeXML,
+		Body:        row.Invoice.SignedXML,
+	}, nil
+}
+
+// CustomerSaleDocumentRIDE hands the buyer the RIDE of one of their Sale's
+// authorized documents, rendered on request from the stored row (#497, ADR
+// 0062), and answers INVOICE_NOT_FOUND for everything else — another Sale,
+// another Customer, a document not yet authorized — exactly as the XML
+// download does: one refusal shape for both downloads, so neither can be
+// used to probe ids the other refuses.
+//
+// The renderer's own refusal, RIDE_NOT_FOUND, is folded into that same
+// answer: the gate already refused an unauthorized document, so the
+// renderer refusing is belt and braces, and the buyer never hears a word
+// the XML download would not say. A genuine render error — stored XML that
+// cannot be read — is NOT folded: the document is authorized and its RIDE
+// is owed, so that is a bug to surface as an error, not a "not found" that
+// would pass for nothing to hand over (the delivery step, #496, treats it
+// the same way).
+func (s *Service) CustomerSaleDocumentRIDE(ctx context.Context, customerID, sessionTicketSaleID, ticketSaleID, invoiceID string) (*invoicing.Document, error) {
+	row, err := s.customerSaleAuthorizedDocument(ctx, customerID, sessionTicketSaleID, ticketSaleID, invoiceID)
+	if err != nil {
+		return nil, err
+	}
+	doc, err := ride.Render(&row.Invoice, row.Ecuador)
+	if err != nil {
+		var domain apperror.DomainError
+		if errors.As(err, &domain) && domain.Code() == invoicing.ErrRIDENotFound().Code() {
+			return nil, invoicing.ErrInvoiceNotFound()
+		}
+		return nil, err
+	}
+	return doc, nil
+}
+
+// customerSaleAuthorizedDocument is the one gate both buyer downloads stand
+// behind: the Confirmation Link narrowing, the Customer-scoped read, and the
+// "authorized, with signed bytes" check, with INVOICE_NOT_FOUND for every
+// way through that fails.
+func (s *Service) customerSaleAuthorizedDocument(ctx context.Context, customerID, sessionTicketSaleID, ticketSaleID, invoiceID string) (*repository.InvoiceRow, error) {
 	if sessionTicketSaleID != "" && sessionTicketSaleID != ticketSaleID {
 		return nil, invoicing.ErrInvoiceNotFound()
 	}
@@ -121,11 +183,7 @@ func (s *Service) CustomerSaleDocumentXML(ctx context.Context, customerID, sessi
 	if row == nil || row.Invoice.Status != invoicing.InvoiceStatusAuthorized || row.Ecuador == nil || !row.Invoice.Signed() {
 		return nil, invoicing.ErrInvoiceNotFound()
 	}
-	return &invoicing.Document{
-		Filename:    row.Ecuador.AccessKey + ".xml",
-		ContentType: invoicing.ContentTypeXML,
-		Body:        row.Invoice.SignedXML,
-	}, nil
+	return row, nil
 }
 
 // customerDocumentView is one row in the buyer's words, or nothing for a
@@ -145,6 +203,8 @@ func customerDocumentView(row *repository.InvoiceRow) (CustomerDocument, bool) {
 		doc.Status = CustomerDocumentAuthorized
 		url := CustomerDocumentXMLPath(inv.TicketSaleID, inv.ID)
 		doc.DownloadURL = &url
+		rideURL := CustomerDocumentRIDEPath(inv.TicketSaleID, inv.ID)
+		doc.RideURL = &rideURL
 	case invoicing.InvoiceStatusOwed, invoicing.InvoiceStatusPending, invoicing.InvoiceStatusNeedsAttention:
 		doc.Status = CustomerDocumentOnItsWay
 	default:
@@ -180,4 +240,10 @@ func optionalID(id string) *string {
 // buyer, spelled once for the view and the route.
 func CustomerDocumentXMLPath(ticketSaleID, invoiceID string) string {
 	return "/api/v1/customer/ticket-sales/" + ticketSaleID + "/tax-documents/" + invoiceID + "/xml"
+}
+
+// CustomerDocumentRIDEPath is the API path of a Sale document's RIDE for the
+// buyer (#497), spelled once for the view and the route, beside the XML's.
+func CustomerDocumentRIDEPath(ticketSaleID, invoiceID string) string {
+	return "/api/v1/customer/ticket-sales/" + ticketSaleID + "/tax-documents/" + invoiceID + "/ride"
 }

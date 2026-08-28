@@ -300,9 +300,12 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// list under its recipient_warning filter.
 	mux.Handle("GET /api/v1/operator/invoicing/recipient-warnings/count", operator(http.HandlerFunc(inv.CountRecipientWarnings)))
 	// The documents handed over (#456): the signed XML in every status, the
-	// SRI's authorization XML only once authorized. Files, not envelopes.
+	// SRI's authorization XML only once authorized, and the RIDE (#494, ADR
+	// 0062), rendered on each request and likewise only once authorized.
+	// Files, not envelopes.
 	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/xml", operator(http.HandlerFunc(inv.DownloadSignedXML)))
 	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/authorization-xml", operator(http.HandlerFunc(inv.DownloadAuthorizationXML)))
+	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/ride", operator(http.HandlerFunc(inv.DownloadRIDE)))
 }
 
 // registerCustomerRoutes wires the Storefront's Customer identity surface.
@@ -460,6 +463,10 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 		signedIn(http.HandlerFunc(app.InvoicingHandler.ListCustomerSaleDocuments)))
 	mux.Handle("GET /api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents/{id}/xml",
 		signedIn(http.HandlerFunc(app.InvoicingHandler.DownloadCustomerSaleDocumentXML)))
+	// The RIDE beside the XML (#497, ADR 0062): the same gate, the same
+	// narrowing, the same one refusal, rendered on request from the same row.
+	mux.Handle("GET /api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents/{id}/ride",
+		signedIn(http.HandlerFunc(app.InvoicingHandler.DownloadCustomerSaleDocumentRIDE)))
 	// The Tickets the Customer HOLDS, and the one write on them (#343, ADR
 	// 0049): the buyer's Self-held Ticket and every Ticket they accepted by
 	// Assignment Link, through one route, keyed on the holder customer id of

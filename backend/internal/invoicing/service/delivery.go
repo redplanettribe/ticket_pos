@@ -6,20 +6,30 @@ import (
 
 	"github.com/peter/ticket_pos/backend/internal/invoicing"
 	"github.com/peter/ticket_pos/backend/internal/invoicing/repository"
+	"github.com/peter/ticket_pos/backend/internal/invoicing/ride"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // Delivery (#475, parent #471, ADR 0060): the Drainer's last step, where an
 // authorized document reaches the buyer it was issued to. One mail in the
-// Sale's Locale through the transactional sender, the signed XML attached,
-// a link to the Sale's card in the Customer Area, and delivered_at recorded
-// only once the sender took it.
+// Sale's Locale through the transactional sender, the signed XML and its
+// RIDE attached (#496, ADR 0062), a link to the Sale's card in the Customer
+// Area, and delivered_at recorded only once the sender took it.
 //
 // THE AUTHORIZATION IS NEVER TOUCHED BY WHAT THE MAIL DOES. A sender that
 // refuses leaves the document authorized and undelivered, due again on the
 // same ladder for delivery alone (repository.ClaimDueInvoice claims it by
 // that pair of facts); a sender that took it makes MarkDelivered's guard the
 // reason it is never sent twice. Nothing here asks the authority anything.
+//
+// THE LADDER IS FOR THE TRANSPORT ALONE (ADR 0062 §2). The RIDE is rendered
+// before anything is sent, and a RIDE that cannot be rendered is a
+// deterministic failure over stored data — a bug, not weather — so it does
+// not retry: the document stays authorized and undelivered and leaves the
+// queue, the same dead end as a document with no Sale or no signed bytes,
+// logged for an operator. Neither does the platform degrade to mailing the
+// XML by itself: delivered_at vouches for a compliant delivery, both files,
+// or for nothing.
 //
 // KIND-AGNOSTIC BY CONSTRUCTION. What is mailed is whatever document the
 // row is — the Sale Invoice, the Credit Note — and the only place the kind
@@ -57,6 +67,17 @@ func (s *Service) deliverDocument(ctx context.Context, row *repository.InvoiceRo
 		return false, s.rescheduleDelivery(ctx, inv, nil, now)
 	}
 
+	// The RIDE, before the send: the mail carries both files or goes out
+	// not at all. A render failure is the same dead end as above — off the
+	// queue, not on the ladder — because retrying a deterministic render
+	// hourly forever would only hide the bug.
+	rideDoc, err := ride.Render(inv, row.Ecuador)
+	if err != nil {
+		s.logger.Error("invoicing: an authorized document cannot be delivered; its RIDE could not be rendered",
+			"invoice_id", inv.ID, "kind", inv.Kind, "error", err)
+		return false, s.rescheduleDelivery(ctx, inv, nil, now)
+	}
+
 	// A reissue's Credit Note promises a corrected factura. When the Sale was
 	// reversed while that nota was still unanswered (#484), the corrected
 	// factura was withdrawn and the reversal's own Credit Note stood down
@@ -76,10 +97,17 @@ func (s *Service) deliverDocument(ctx context.Context, row *repository.InvoiceRo
 		CustomerName: inv.Recipient.LegalName,
 		EventName:    facts.EventName,
 		Reference:    inv.SaleConfirmationRef,
-		Attachment: platform.EmailAttachment{
-			Filename:    row.Ecuador.AccessKey + ".xml",
-			ContentType: invoicing.ContentTypeXML,
-			Body:        inv.SignedXML,
+		Attachments: []platform.EmailAttachment{
+			{
+				Filename:    row.Ecuador.AccessKey + ".xml",
+				ContentType: invoicing.ContentTypeXML,
+				Body:        inv.SignedXML,
+			},
+			{
+				Filename:    rideDoc.Filename,
+				ContentType: rideDoc.ContentType,
+				Body:        rideDoc.Body,
+			},
 		},
 		Locale: platform.ResolveMailLocale(facts.SaleLocale, facts.CustomerLocale),
 	}

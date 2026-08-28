@@ -300,7 +300,8 @@ func TestReversalCreditsAnAuthorizedSaleInvoice(t *testing.T) {
 				t.Fatalf("factura number = %s; the nota de crédito's numDocModificado must be it", *factura.Number)
 			}
 
-			// The buyer's mail: once, a credit note, the received bytes attached.
+			// The buyer's mail: once, a credit note, the received bytes and the
+			// nota de crédito's own RIDE attached (#496).
 			sent := deliveriesSent(t, env)
 			if len(sent) != 2 || sent[1].Kind != "credit_note" || sent[1].To != "guest@example.com" || sent[1].Reference != ref {
 				t.Fatalf("deliveries = %d, last %+v; want the factura's and then the Credit Note's to the buyer", len(sent), sent[len(sent)-1])
@@ -308,9 +309,7 @@ func TestReversalCreditsAnAuthorizedSaleInvoice(t *testing.T) {
 			if !strings.Contains(strings.ToLower(sent[1].Subject()), "nota de crédito") && !strings.Contains(strings.ToLower(sent[1].Subject()), "credit note") {
 				t.Fatalf("credit note mail subject = %q; want the document named", sent[1].Subject())
 			}
-			if !bytes.Equal(sent[1].Attachment.Body, received.signedXML) || sent[1].Attachment.Filename != note.EcuadorFull.AccessKey+".xml" {
-				t.Fatalf("the attached XML is not the nota de crédito the SRI received (%s)", sent[1].Attachment.Filename)
-			}
+			assertDeliveryCarriesXMLAndRIDE(t, sent[1], note.EcuadorFull.AccessKey, received.signedXML, operatorRIDE(t, operatorSessionID, noteID))
 
 			// The buyer's Sale: both documents, both downloadable.
 			docs, _ := listCustomerDocuments(t, buyer, saleID)
@@ -694,7 +693,7 @@ func TestReissueCreditNoteStatesACorrectionNotAReversal(t *testing.T) {
 			}
 		}
 	}
-	if !bytes.Equal(mail.Attachment.Body, received.signedXML) {
+	if len(mail.Attachments) != 2 || !bytes.Equal(mail.Attachments[0].Body, received.signedXML) {
 		t.Fatalf("the attached XML is not the nota de crédito the SRI received")
 	}
 

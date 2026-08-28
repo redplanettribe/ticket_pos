@@ -158,11 +158,12 @@ func (s *ResendEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConf
 }
 
 // SendTaxDocumentDelivery hands the buyer their authorized Tax Document with
-// the signed XML attached (#475). The Drainer reads the error: a failed
-// delivery is retried on its ladder, so the truth is all this reports. The
-// log names the reference and the kind, never the recipient.
+// the signed XML and its RIDE attached (#475, #496). The Drainer reads the
+// error: a failed delivery is retried on its ladder, so the truth is all
+// this reports. The log names the reference and the kind, never the
+// recipient.
 func (s *ResendEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDocumentDelivery) error {
-	if err := s.send(ctx, d.To, d.Subject(), d.Text(), d.Attachment); err != nil {
+	if err := s.send(ctx, d.To, d.Subject(), d.Text(), d.Attachments...); err != nil {
 		s.logger.Error("resend send tax document delivery failed", "kind", d.Kind, "reference", d.Reference, "error", err)
 		return err
 	}

@@ -103,8 +103,8 @@ func TestReissueMailsTheCreditNoteThenTheCorrectedSaleInvoiceEachOnce(t *testing
 		t.Fatalf("%d mails after the Credit Note authorized; want exactly one", len(sent))
 	}
 	noteMail := sent[0]
-	if noteMail.Kind != "credit_note" || noteMail.Reason != "reissue" || noteMail.To != "guest@example.com" || noteMail.Reference != ref || noteMail.Attachment.Filename != noteKey+".xml" {
-		t.Fatalf("credit note mail = kind %s reason %s to %s ref %s file %s; want the reissue Credit Note to the buyer with its own XML", noteMail.Kind, noteMail.Reason, noteMail.To, noteMail.Reference, noteMail.Attachment.Filename)
+	if noteMail.Kind != "credit_note" || noteMail.Reason != "reissue" || noteMail.To != "guest@example.com" || noteMail.Reference != ref || len(noteMail.Attachments) != 2 || noteMail.Attachments[0].Filename != noteKey+".xml" || noteMail.Attachments[1].Filename != noteKey+".pdf" {
+		t.Fatalf("credit note mail = kind %s reason %s to %s ref %s files %v; want the reissue Credit Note to the buyer with its own XML and RIDE", noteMail.Kind, noteMail.Reason, noteMail.To, noteMail.Reference, attachmentNames(noteMail))
 	}
 	if text := strings.ToLower(noteMail.Text()); !strings.Contains(text, "recipient details can be corrected") || !strings.Contains(text, "corrected tax invoice") || strings.Contains(text, "reversed") || strings.Contains(text, "reversal") {
 		t.Fatalf("credit note mail says:\n%s\nwant a correction with a corrected factura to follow, never a reversal", noteMail.Text())
@@ -125,8 +125,8 @@ func TestReissueMailsTheCreditNoteThenTheCorrectedSaleInvoiceEachOnce(t *testing
 	}
 	after := getReissuedInvoice(t, operatorSessionID, corrected.ID)
 	facturaMail := sent[1]
-	if facturaMail.Kind != "sale" || facturaMail.Reason != "" || facturaMail.To != "guest@example.com" || facturaMail.Reference != ref || facturaMail.Attachment.Filename != after.EcuadorFull.AccessKey+".xml" {
-		t.Fatalf("factura mail = kind %s reason %q to %s ref %s file %s; want the ordinary factura delivery to the buyer with the corrected XML", facturaMail.Kind, facturaMail.Reason, facturaMail.To, facturaMail.Reference, facturaMail.Attachment.Filename)
+	if facturaMail.Kind != "sale" || facturaMail.Reason != "" || facturaMail.To != "guest@example.com" || facturaMail.Reference != ref || len(facturaMail.Attachments) != 2 || facturaMail.Attachments[0].Filename != after.EcuadorFull.AccessKey+".xml" || facturaMail.Attachments[1].Filename != after.EcuadorFull.AccessKey+".pdf" {
+		t.Fatalf("factura mail = kind %s reason %q to %s ref %s files %v; want the ordinary factura delivery to the buyer with the corrected XML and its RIDE", facturaMail.Kind, facturaMail.Reason, facturaMail.To, facturaMail.Reference, attachmentNames(facturaMail))
 	}
 	if subject := facturaMail.Subject(); !strings.Contains(subject, "factura") || !strings.Contains(subject, "House Fest") || strings.Contains(strings.ToLower(subject), "credit") {
 		t.Fatalf("factura mail subject = %q; want the ordinary factura subject", subject)
@@ -200,24 +200,36 @@ func TestCustomerSaleDocumentsNameEachDocumentsRoleInTheChain(t *testing.T) {
 	if old.Kind != "sale" || old.Role != "superseded" || old.Status != "authorized" || old.DownloadURL == nil || !strEq(old.SupersededByInvoiceID, corrected.ID) || old.SupersedesInvoiceID != nil || old.CreditsInvoiceID != nil {
 		t.Fatalf("superseded factura = %+v; want role superseded, still authorized and downloadable, superseded by the corrected one", old)
 	}
+	assertCustomerDownloads(t, "superseded factura", old.customerDocumentView, saleID, true)
 	note := chainDocument(t, docs, noteID)
 	if note.Kind != "credit_note" || note.Role != "credit_note" || note.Status != "on_its_way" || note.DownloadURL != nil || !strEq(note.CreditsInvoiceID, facturaID) || note.SupersedesInvoiceID != nil || note.SupersededByInvoiceID != nil {
 		t.Fatalf("credit note = %+v; want role credit_note, on its way, crediting the old factura", note)
 	}
+	assertCustomerDownloads(t, "credit note on its way", note.customerDocumentView, saleID, false)
 	cur := chainDocument(t, docs, corrected.ID)
 	if cur.Kind != "sale" || cur.Role != "current" || cur.Status != "on_its_way" || cur.DownloadURL != nil || !strEq(cur.SupersedesInvoiceID, facturaID) || cur.SupersededByInvoiceID != nil || cur.CreditsInvoiceID != nil {
 		t.Fatalf("corrected factura = %+v; want role current, on its way, superseding the old factura", cur)
 	}
+	assertCustomerDownloads(t, "corrected factura on its way", cur.customerDocumentView, saleID, false)
 
-	// Drained: all three authorized, the superseded XML still downloads.
+	// Drained: all three authorized, each with its XML and its RIDE (#497,
+	// ADR 0062) — the superseded factura's still downloads.
 	if result := drainSaleInvoices(t); result.Authorized != 2 || result.Delivered != 2 {
 		t.Fatalf("drain = %+v; want the Credit Note and the corrected factura authorized and delivered", result)
 	}
 	docs = listCustomerChain(t, buyer, saleID)
 	for _, d := range docs {
-		if d.Status != "authorized" || d.DownloadURL == nil {
-			t.Fatalf("after the drain: %+v; want every document authorized and downloadable", d)
+		if d.Status != "authorized" {
+			t.Fatalf("after the drain: %+v; want every document authorized", d)
 		}
+		assertCustomerDownloads(t, "after the drain, "+d.Role, d.customerDocumentView, saleID, true)
+	}
+	// Every document's RIDE, on `current`, `superseded` and `credit_note`
+	// alike, is the operator's byte for byte under `<clave>.pdf`.
+	for _, id := range []string{facturaID, noteID, corrected.ID} {
+		filename := getDrainedInvoice(t, operatorSessionID, id).EcuadorFull.AccessKey + ".pdf"
+		resp, body := sriEnv.getRaw(t, customerDocumentRIDEPath(saleID, id), authHeader(buyer))
+		assertRIDEDownload(t, resp, body, filename, operatorRIDE(t, operatorSessionID, id))
 	}
 	if chainDocument(t, docs, facturaID).Role != "superseded" || chainDocument(t, docs, corrected.ID).Role != "current" || chainDocument(t, docs, noteID).Role != "credit_note" {
 		t.Fatalf("after the drain the roles moved: %+v", docs)
