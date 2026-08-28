@@ -1,5 +1,6 @@
 # Past House sales are invoiced by an operator's backfill, dated the day of the act, never automatically
 
+Specified as issue #506.
 Amends [ADR 0060](./0060-a-house-organizations-tickets-are-the-platforms-sale-invoiced-after-checkout-and-credited-on-reversal.md),
 whose consequence "Designation affects future sales only. Nothing is issued retroactively" this decision
 narrows: nothing is issued retroactively *by the platform on its own*. Leans on
