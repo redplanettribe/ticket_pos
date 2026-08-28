@@ -636,6 +636,11 @@ _Avoid_: Error, rejection, needs attention (the Drainer's parking, which this is
 The platform pursuing every owed Sale Invoice and Credit Note until the Tax Authority gives a definite answer: signing and submitting what is owed, asking again about what was submitted and not yet answered, and parking what it cannot settle for a Platform Operator to look at — never deleting it, since a signed document has consumed a sequence number. The Reversal Reconciler's sibling: it only finds out and retries; it never decides whether a document is owed.
 _Avoid_: Invoice queue, worker, retry job, SRI poller
 
+**Certificate Expiry Warning**:
+The platform's notice, ahead of time, that the Issuer's signing certificate is about to lapse or has lapsed: a banner on the Operator Dashboard, the invoicing list and the Issuer page from 30 days out, and one mail to every Platform Operator — the operator allowlist, from the transactional sender, in each reader's Staff Locale — at 30, 7 and 1 days and on the day (ADR 0063). Counted in Ecuadorian calendar days. Carried by the Sale Invoice Drainer's tick, above the Sale Invoicing flag, so it runs from the day it deploys and a closed flag leaves the certificate watched. Fires once per threshold per certificate — the highest threshold reached and not yet fired, one per tick — and starts over when a different certificate is uploaded, never when the same one is uploaded again. Never about a missing certificate: that is the Issuer page's business, a different fact with a different remedy, and it mails nobody.
+In Spanish, **Aviso de vencimiento del certificado**.
+_Avoid_: Certificate alert, expiry reminder, cert nag, monitoring
+
 **RIDE**:
 The human-readable rendering of an authorized Tax Invoice or Credit Note, carrying the same authorization number and date the Tax Authority gave the signed document; delivered to the Recipient beside the signed document and offered wherever that document is offered. Exists only for an authorized document — without the authorization it has no validity — and is produced from the signed document each time it is asked for, never kept: the signed document is the record, the RIDE is its reading. A Credit Note's RIDE names the Sale Invoice it credits and why; a Sale Invoice's names how it was paid.
 In Spanish, **RIDE** (Representación Impresa del Documento Electrónico).
