@@ -268,6 +268,21 @@ resource "google_cloud_run_v2_service" "api" {
         value = var.storefront_domain != null ? "https://${var.storefront_domain}" : ""
       }
 
+      # The staff app's origin: the one the Certificate Expiry Warning mail
+      # links to, on its "upload the renewed .p12 on the Issuer page" line
+      # (ADR 0063). Same shape as the Storefront's copy of this variable
+      # (cloud_run_frontends.tf): mounted only when a staff domain is mapped,
+      # and omitted rather than set to "" otherwise, because an unmapped staff
+      # app has no public origin to approximate. Absent, the API falls back to
+      # its development origin and warns at startup that it has.
+      dynamic "env" {
+        for_each = var.staff_domain == null ? [] : [1]
+        content {
+          name  = "STAFF_BASE_URL"
+          value = "https://${var.staff_domain}"
+        }
+      }
+
       # The platform-wide cap on passcode emails per window — the control that
       # still holds when an attacker's per-key identity is unreliable. Wired here
       # so it can be retuned mid-incident by editing a variable, rather than

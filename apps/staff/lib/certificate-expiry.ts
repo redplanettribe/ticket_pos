@@ -18,7 +18,7 @@ import type { OperatorCertificateExpiry } from "./operator-api";
  * `expiring` without a count is treated as nothing to say rather than guessed
  * at.
  */
-export function certificateExpiryAlertVariant(
+export function certificateExpiryWarningVariant(
   expiry: Pick<OperatorCertificateExpiry, "state" | "days_before">,
 ): "warning" | "destructive" | null {
   switch (expiry.state) {

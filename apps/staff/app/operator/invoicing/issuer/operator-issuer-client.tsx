@@ -37,7 +37,7 @@ import {
   uploadOperatorEcuadorIssuerCertificate,
 } from "@/lib/operator-api";
 
-import { CertificateExpiryAlert } from "../certificate-expiry-alert";
+import { CertificateExpiryWarning } from "../certificate-expiry-warning";
 
 /**
  * The Ecuador Issuer page (#451, parent #450, ADR 0059): where a Platform
@@ -568,7 +568,7 @@ function CertificateCard({
               {/* The Certificate Expiry Warning (#500, ADR 0063 §5), unlinked: the
                   remedy is the form underneath. */}
               {issuer ? (
-                <CertificateExpiryAlert expiry={issuer.certificate_expiry} className="mt-2" />
+                <CertificateExpiryWarning expiry={issuer.certificate_expiry} className="mt-2" />
               ) : null}
             </dd>
             <dt className="text-muted-foreground">{t("invoicingCertificateFingerprint")}</dt>

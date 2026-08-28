@@ -32,7 +32,7 @@ import {
   fetchOperatorSummary,
 } from "@/lib/operator-api";
 
-import { CertificateExpiryBanner } from "./invoicing/certificate-expiry-alert";
+import { CertificateExpiryBanner } from "./invoicing/certificate-expiry-warning";
 
 /**
  * The one place platform revenue stops being "active sales only": fees kept on

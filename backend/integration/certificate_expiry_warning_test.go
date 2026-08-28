@@ -31,6 +31,10 @@ type certificateExpiryNotice struct {
 	RecipientCount int
 }
 
+// Read by SQL because the ledger has no API: it is the Drainer's private
+// memory of which rungs it has fired (ADR 0063 §3), never shown to an
+// operator, and the only other evidence of it — the mail — cannot say which
+// rungs one mail covered.
 func certificateExpiryNotices(t *testing.T, env *testEnv) []certificateExpiryNotice {
 	t.Helper()
 	rows, err := env.db.Query(`SELECT fingerprint_sha256, threshold_days, recipient_count FROM certificate_expiry_notices ORDER BY sent_at, threshold_days DESC`)
@@ -383,6 +387,9 @@ func TestCertificateExpiryWarningRestartsForANewCertificateAndNotForTheSameOne(t
 func TestCertificateExpiryWarningWithAnEmptyAllowlistTellsNobody(t *testing.T) {
 	env := setupTest(t)
 	_, fingerprint, _ := issuerWithCertificateExpiring(t, env, "operator@example.com", thirtyDaysOut)
+	// Emptied by SQL because the allowlist has no remove endpoint: operators
+	// are seeded by the harness and by the SQL seeding rule (ADR 0015), and
+	// the fixed harness always has at least one.
 	if _, err := env.db.Exec(`DELETE FROM platform_operators`); err != nil {
 		t.Fatalf("empty the allowlist: %v", err)
 	}
@@ -400,4 +407,51 @@ func TestCertificateExpiryWarningWithAnEmptyAllowlistTellsNobody(t *testing.T) {
 	if rows := certificateExpiryNotices(t, env); len(rows) != 1 || rows[0].Fingerprint != fingerprint {
 		t.Fatalf("ledger once an operator exists = %+v, want one row", rows)
 	}
+}
+
+// TestCertificateExpiryWarningIsNotRunByTheCheckoutKick: the ladder is a
+// fact about a date, not about a sale, and has no business on the checkout's
+// latency (ADR 0063 §1). With the post-commit kick on and a certificate in
+// custody at its first rung, a paid House checkout is worked to "authorized"
+// in the background and nobody is warned; the scheduled tick that follows
+// is the one that warns.
+func TestCertificateExpiryWarningIsNotRunByTheCheckoutKick(t *testing.T) {
+	env := setupTest(t)
+	sriStub.reset()
+	adminSessionID := orgAdminSession(t, env)
+	orgID := operatorOrgIDBySlug(t, env, "test-org")
+	operatorSessionID, _, _ := issuerWithCertificateExpiring(t, env, "operator@example.com", thirtyDaysOut)
+	designateHouseOrganization(t, env, operatorSessionID, orgID)
+	_, gaID := publishCheckoutEvent(t, env, adminSessionID, "House Fest", "house-fest", 1000, 10)
+	payphoneApp.InvoicingService.WithSaleInvoiceKick(true)
+	t.Cleanup(func() { payphoneApp.InvoicingService.WithSaleInvoiceKick(false) })
+
+	paidCheckoutApproved(t, "house-fest", checkoutBody("guest@example.com", "Ana", "Lopez", cartLine(gaID, 1)))
+	// The kicked round has run to its end once the document is authorized:
+	// had it worked the ladder, the mail would have gone out before the
+	// first claim.
+	list := getSaleInvoiceList(t, operatorSessionID)
+	if len(list.Data) != 1 {
+		t.Fatalf("%d Sale Invoices after one House checkout, want 1", len(list.Data))
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		detail := getDrainedInvoice(t, operatorSessionID, list.Data[0].ID)
+		if detail.Status == "authorized" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the kicked document never authorized: %s with %d attempts", detail.Status, len(detail.AttemptRows))
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if n := len(sharedEmail.CertificateExpiryWarningsSent()); n != 0 {
+		t.Fatalf("%d warnings sent by the checkout kick, want none: the ladder is the scheduled tick's", n)
+	}
+	if rows := certificateExpiryNotices(t, env); len(rows) != 0 {
+		t.Fatalf("ledger after the kick = %+v, want no row", rows)
+	}
+
+	drainSaleInvoices(t)
+	wantOneWarning(t, warningsTo(t), "operator@example.com", 30, platform.LocaleEN)
 }

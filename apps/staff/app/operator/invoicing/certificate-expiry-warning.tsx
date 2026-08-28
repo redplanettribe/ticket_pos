@@ -7,7 +7,7 @@ import { toAppLocale } from "@ticket-pos/locale";
 import { Alert, AlertDescription, AlertTitle } from "@ticket-pos/ui";
 import { useLocale, useTranslations } from "next-intl";
 
-import { certificateExpiryAlertVariant } from "@/lib/certificate-expiry";
+import { certificateExpiryWarningVariant } from "@/lib/certificate-expiry";
 import { PLATFORM_TIME_ZONE, formatDateTime } from "@/lib/format";
 import { type OperatorCertificateExpiry, fetchOperatorEcuadorIssuer } from "@/lib/operator-api";
 
@@ -26,7 +26,7 @@ import { type OperatorCertificateExpiry, fetchOperatorEcuadorIssuer } from "@/li
  * `linkToIssuer`, so the remedy is one click from the warning wherever the
  * warning is seen.
  */
-export function CertificateExpiryAlert({
+export function CertificateExpiryWarning({
   expiry,
   linkToIssuer = false,
   className,
@@ -38,7 +38,7 @@ export function CertificateExpiryAlert({
   const t = useTranslations("operator");
   const locale = toAppLocale(useLocale());
 
-  const variant = certificateExpiryAlertVariant(expiry);
+  const variant = certificateExpiryWarningVariant(expiry);
   if (variant === null || expiry.not_after === null || expiry.days_before === null) return null;
   const date = formatDateTime(expiry.not_after, PLATFORM_TIME_ZONE, locale) ?? expiry.not_after;
   const expired = expiry.state === "expired";
@@ -98,5 +98,5 @@ export function CertificateExpiryBanner() {
   }, []);
 
   if (expiry === null) return null;
-  return <CertificateExpiryAlert expiry={expiry} linkToIssuer />;
+  return <CertificateExpiryWarning expiry={expiry} linkToIssuer />;
 }

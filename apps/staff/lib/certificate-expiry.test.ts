@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { certificateExpiryAlertVariant } from "./certificate-expiry.ts";
+import { certificateExpiryWarningVariant } from "./certificate-expiry.ts";
 
 // WHAT THESE ASSERT (#504, ADR 0063 §5). The server says where the
 // certificate stands and how many Ecuadorian calendar days remain; the
@@ -15,29 +15,29 @@ import { certificateExpiryAlertVariant } from "./certificate-expiry.ts";
 // language.
 
 test("expiring with more than seven days to go is a warning", () => {
-  assert.equal(certificateExpiryAlertVariant({ state: "expiring", days_before: 30 }), "warning");
-  assert.equal(certificateExpiryAlertVariant({ state: "expiring", days_before: 8 }), "warning");
+  assert.equal(certificateExpiryWarningVariant({ state: "expiring", days_before: 30 }), "warning");
+  assert.equal(certificateExpiryWarningVariant({ state: "expiring", days_before: 8 }), "warning");
 });
 
 test("expiring with seven days or fewer is destructive", () => {
-  assert.equal(certificateExpiryAlertVariant({ state: "expiring", days_before: 7 }), "destructive");
-  assert.equal(certificateExpiryAlertVariant({ state: "expiring", days_before: 1 }), "destructive");
-  assert.equal(certificateExpiryAlertVariant({ state: "expiring", days_before: 0 }), "destructive");
+  assert.equal(certificateExpiryWarningVariant({ state: "expiring", days_before: 7 }), "destructive");
+  assert.equal(certificateExpiryWarningVariant({ state: "expiring", days_before: 1 }), "destructive");
+  assert.equal(certificateExpiryWarningVariant({ state: "expiring", days_before: 0 }), "destructive");
 });
 
 test("expired is destructive whatever the count says", () => {
-  assert.equal(certificateExpiryAlertVariant({ state: "expired", days_before: -1 }), "destructive");
-  assert.equal(certificateExpiryAlertVariant({ state: "expired", days_before: -400 }), "destructive");
-  assert.equal(certificateExpiryAlertVariant({ state: "expired", days_before: null }), "destructive");
+  assert.equal(certificateExpiryWarningVariant({ state: "expired", days_before: -1 }), "destructive");
+  assert.equal(certificateExpiryWarningVariant({ state: "expired", days_before: -400 }), "destructive");
+  assert.equal(certificateExpiryWarningVariant({ state: "expired", days_before: null }), "destructive");
 });
 
 test("a valid or absent certificate draws nothing", () => {
-  assert.equal(certificateExpiryAlertVariant({ state: "valid", days_before: 200 }), null);
-  assert.equal(certificateExpiryAlertVariant({ state: "none", days_before: null }), null);
+  assert.equal(certificateExpiryWarningVariant({ state: "valid", days_before: 200 }), null);
+  assert.equal(certificateExpiryWarningVariant({ state: "none", days_before: null }), null);
 });
 
 test("an expiring block without a count is not guessed at", () => {
-  assert.equal(certificateExpiryAlertVariant({ state: "expiring", days_before: null }), null);
+  assert.equal(certificateExpiryWarningVariant({ state: "expiring", days_before: null }), null);
 });
 
 test("the banner has its words in both languages", () => {

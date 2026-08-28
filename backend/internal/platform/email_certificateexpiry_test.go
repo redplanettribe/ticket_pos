@@ -25,7 +25,7 @@ func aCertificateExpiryWarning(threshold int, locale Locale) CertificateExpiryWa
 		Threshold: threshold,
 		NotAfter:  time.Date(2026, time.September, 28, 3, 0, 0, 0, time.UTC),
 		RUC:       "1790012345001",
-		IssuerURL: "https://staff.example.test/operator/issuer",
+		IssuerURL: "https://staff.example.test/operator/invoicing/issuer",
 	}
 }
 
@@ -65,7 +65,7 @@ func TestCertificateExpiryWarningIsWrittenInEnglishWhenNothingNamedALanguage(t *
 	for _, want := range []string{
 		"The signing certificate of the Issuer with RUC 1790012345001 expires on 27 September 2026 (Ecuador time).",
 		"Once it lapses, every Sale Invoice owed is parked unsigned — no sequential number, no submission — while the SRI's 24-hour window for transmitting each one keeps running.",
-		"Upload the renewed .p12 on the Issuer page:\nhttps://staff.example.test/operator/issuer",
+		"Upload the renewed .p12 on the Issuer page:\nhttps://staff.example.test/operator/invoicing/issuer",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text = %q, want it to contain %q", text, want)
@@ -81,7 +81,7 @@ func TestCertificateExpiryWarningIsWrittenInSpanishForASpanishReader(t *testing.
 		"Aviso de vencimiento del certificado",
 		"El certificado de firma del Emisor con RUC 1790012345001 vence el 27 de septiembre de 2026 (hora de Ecuador).",
 		"Cuando venza, toda Factura de venta pendiente queda detenida sin firmar — sin secuencial y sin envío — mientras el plazo de 24 horas del SRI para transmitir cada una sigue corriendo.",
-		"Suba el .p12 renovado en la página del Emisor:\nhttps://staff.example.test/operator/issuer",
+		"Suba el .p12 renovado en la página del Emisor:\nhttps://staff.example.test/operator/invoicing/issuer",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text = %q, want it to contain %q", text, want)

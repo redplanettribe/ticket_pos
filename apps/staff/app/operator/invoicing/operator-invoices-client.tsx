@@ -31,7 +31,7 @@ import {
   fetchOperatorRecipientWarningCount,
 } from "@/lib/operator-api";
 
-import { CertificateExpiryBanner } from "./certificate-expiry-alert";
+import { CertificateExpiryBanner } from "./certificate-expiry-warning";
 import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "./invoice-status";
 
 // The invoices list (#454): every factura the platform issued, newest first —

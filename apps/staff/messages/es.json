@@ -1456,7 +1456,7 @@
     "invoicingCertificateExpiring": "El certificado de firma vence el {date} ({days, plural, =0 {hoy} one {en # día} other {en # días}}). Suba un .p12 vigente antes de esa fecha o todas las facturas de venta quedarán detenidas sin firmar.",
     "invoicingCertificateExpiredTitle": "El certificado de firma ha vencido",
     "invoicingCertificateExpired": "El certificado de firma venció el {date}. Las facturas de venta están quedando detenidas sin firmar hasta que se suba un .p12 vigente.",
-    "invoicingCertificateExpiryOpenIssuer": "Abra la página del emisor para subir un certificado vigente.",
+    "invoicingCertificateExpiryOpenIssuer": "Abra la página del Emisor para subir un certificado vigente.",
     "invoicingCertificateFileLabel": "Archivo .p12",
     "invoicingCertificateFileHint": "El certificado de firma tal como se lo entregó su entidad de certificación (.p12 o .pfx).",
     "invoicingCertificateSelectedFile": "Seleccionado: {name}",
