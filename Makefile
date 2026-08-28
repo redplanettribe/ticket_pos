@@ -1,4 +1,4 @@
-.PHONY: dev down prod prod-down prod-to-local seed-dev deploy test test-integration test-parity ci ci-go migrate swagger api-client openapi openapi-sync-check infra-graph infra-graph-zip infra-plan-json
+.PHONY: dev down prod prod-down prod-to-local seed-dev deploy test test-integration test-parity ci ci-preflight ci-go ci-js ci-openapi migrate swagger api-client openapi openapi-sync-check infra-graph infra-graph-zip infra-plan-json
 
 export GOTOOLCHAIN := local
 
@@ -83,13 +83,50 @@ ci-go:
 	cd backend && go test ./integration/...
 	cd backend && go vet ./...
 
-# The JS half mirrors the CI job's two steps, including the e2e exclusion: the
-# Playwright suite needs a stack already serving, which neither a runner nor a
-# plain `make ci` has.
-ci: ci-go
+# The JS job, step for step: a frozen-lockfile install (CI's first step, which
+# a plain `pnpm turbo ...` skips and then fails on a missing module), lint,
+# typecheck and build in one turbo invocation as the runner does, then every
+# workspace's unit tests minus the Playwright suite, which needs a stack already
+# serving that neither a runner nor this target has.
+ci-js: ci-preflight
+	pnpm install --frozen-lockfile
 	pnpm turbo lint typecheck build
 	pnpm turbo test --filter='!@ticket-pos/e2e'
+
+# The OpenAPI job: regenerate the spec and client and require a clean diff
+# against HEAD. Regenerated artifacts have to be COMMITTED, not merely present,
+# or a correct regeneration still fails here exactly as it fails on the runner.
+ci-openapi: ci-preflight
+	pnpm install --frozen-lockfile
 	$(MAKE) openapi-sync-check
+
+# The whole of .github/workflows/ci.yml on this machine: the three jobs, in the
+# order the workflow lists them. The runner starts each job from a clean
+# checkout; this tree does not, which is what ci-preflight is for.
+ci: ci-go ci-js ci-openapi
+	@echo "CI passed locally: go-test, js-checks, openapi-sync"
+
+# Fail fast on what makes a local run diverge from the runner. The `make dev`
+# containers run `next dev` as root against the mounted repo, so they own and
+# keep rewriting apps/*/.next, and a container-side install leaves root-owned
+# pnpm symlinks and .bin shims under node_modules. `pnpm install` and `next
+# build` then die EACCES minutes into the run. Check up front, name the topmost
+# offenders, and print the fix -- through a throwaway container, never sudo.
+# Stop the two Next.js containers first or .next comes straight back.
+ci-preflight:
+	@bad=$$(find apps/*/.next apps/*/node_modules packages/*/node_modules -maxdepth 2 ! -user $$(id -un) -prune -print 2>/dev/null); \
+	if [ -n "$$bad" ]; then \
+		echo "ci-preflight: $$(echo "$$bad" | wc -l) entries not owned by $$(id -un) would fail pnpm install / next build:"; \
+		echo "$$bad" | head -10 | sed 's/^/  /'; \
+		[ $$(echo "$$bad" | wc -l) -gt 10 ] && echo "  ..."; \
+		echo; \
+		echo "Fix (no sudo), then re-run:"; \
+		echo "  docker compose stop storefront staff"; \
+		echo "  docker run --rm -v \"$$PWD:/w\" -w /w alpine:3 rm -rf $$(echo "$$bad" | tr '\n' ' ')"; \
+		echo "  pnpm install"; \
+		echo "and \`docker compose start storefront staff\` afterwards."; \
+		exit 1; \
+	fi
 
 migrate:
 	cd backend && go run ./cmd/migrate
