@@ -42,11 +42,22 @@ type ecuadorIssuerCertificateView struct {
 	UploadedAt        string `json:"uploaded_at"`
 }
 
-// ecuadorIssuerWithCertificateView is the Issuer read with what #453 added.
+// ecuadorIssuerCertificateExpiryView is the Certificate Expiry Warning's
+// state as the Issuer read carries it (#500, ADR 0063 §5). The date and the
+// count are null exactly when the state is "none".
+type ecuadorIssuerCertificateExpiryView struct {
+	State      string  `json:"state"`
+	NotAfter   *string `json:"not_after"`
+	DaysBefore *int    `json:"days_before"`
+}
+
+// ecuadorIssuerWithCertificateView is the Issuer read with what #453 added,
+// and the expiry block #500 put beside it.
 type ecuadorIssuerWithCertificateView struct {
 	ecuadorIssuerView
-	Certificate            *ecuadorIssuerCertificateView `json:"certificate"`
-	CertificateRUCMismatch bool                          `json:"certificate_ruc_mismatch"`
+	Certificate            *ecuadorIssuerCertificateView      `json:"certificate"`
+	CertificateRUCMismatch bool                               `json:"certificate_ruc_mismatch"`
+	CertificateExpiry      ecuadorIssuerCertificateExpiryView `json:"certificate_expiry"`
 }
 
 // throwawayP12 builds a self-signed certificate over a fresh key of the given
@@ -470,5 +481,54 @@ func startAppWithoutCertificateKey(t *testing.T) *testEnv {
 		email:      sharedEmail,
 		fixedClock: fixedClock,
 		service:    app.IdentityService,
+	}
+}
+
+// TestEcuadorIssuerReadStatesTheCertificateExpiry: the read carries the
+// Certificate Expiry Warning's state — none, valid, expiring, expired — with
+// the date and the day count derived on the server (#500, ADR 0063 §5), so no
+// page counts days from a date. The count is in Ecuadorian calendar days: the
+// suite's clock is 2026-07-07 12:00 UTC, 07:00 in Ecuador, and a NotAfter at
+// 03:00 UTC on 2026-08-07 is still the 6th in Ecuador — 30 days out, and so
+// expiring — where the same instant read in UTC would be 31 and valid.
+func TestEcuadorIssuerReadStatesTheCertificateExpiry(t *testing.T) {
+	env := setupTest(t)
+	sessionID := operatorSession(t, env, "operator@example.com")
+	putEcuadorIssuer(t, env, sessionID, validEcuadorIssuerBody())
+
+	none := getIssuerWithCertificate(t, env, sessionID)
+	if none.CertificateExpiry.State != "none" || none.CertificateExpiry.NotAfter != nil || none.CertificateExpiry.DaysBefore != nil {
+		t.Fatalf("expiry before any upload = %+v, want none with null date and count", none.CertificateExpiry)
+	}
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate rsa key: %v", err)
+	}
+	cases := []struct {
+		name     string
+		notAfter time.Time
+		state    string
+		days     int
+	}{
+		{"valid", time.Date(2028, 1, 1, 0, 0, 0, 0, time.UTC), "valid", 542},
+		{"expiring on the Ecuadorian day boundary", time.Date(2026, 8, 7, 3, 0, 0, 0, time.UTC), "expiring", 30},
+		{"expiring within a week", time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC), "expiring", 5},
+		{"expired", time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), "expired", -7},
+	}
+	for _, tc := range cases {
+		uploaded := uploadCertificate(t, env, sessionID, throwawayP12ValidUntil(t, key, "1790012345001", "s3cret", tc.notAfter), "s3cret")
+		for _, view := range []ecuadorIssuerWithCertificateView{uploaded, getIssuerWithCertificate(t, env, sessionID)} {
+			got := view.CertificateExpiry
+			if got.State != tc.state {
+				t.Fatalf("%s: state=%q, want %q (%+v)", tc.name, got.State, tc.state, got)
+			}
+			if got.DaysBefore == nil || *got.DaysBefore != tc.days {
+				t.Fatalf("%s: days_before=%v, want %d", tc.name, got.DaysBefore, tc.days)
+			}
+			if got.NotAfter == nil || *got.NotAfter != tc.notAfter.Format(time.RFC3339) {
+				t.Fatalf("%s: not_after=%v, want %s", tc.name, got.NotAfter, tc.notAfter.Format(time.RFC3339))
+			}
+		}
 	}
 }

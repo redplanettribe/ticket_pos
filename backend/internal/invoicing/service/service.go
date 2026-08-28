@@ -106,6 +106,11 @@ type EcuadorIssuer struct {
 	// and it is not the Issuer's. A warning for the page, never a refusal: the
 	// SRI's own check is the final word.
 	CertificateRUCMismatch bool `json:"certificate_ruc_mismatch"`
+	// CertificateExpiry is the Certificate Expiry Warning's state (#500, ADR
+	// 0063 §5), derived on the server by the rule the Drainer's ladder uses,
+	// so the banners never count days from a date. Served whether or not
+	// SALE_INVOICING_ENABLED is open.
+	CertificateExpiry EcuadorIssuerCertificateExpiry `json:"certificate_expiry"`
 	// FrozenFields names the details that may no longer change (#455): "ruc"
 	// once any Tax Invoice exists in either environment, "establecimiento"
 	// and "punto_emision" once a sequence has started under them. Empty
@@ -149,6 +154,27 @@ type EcuadorIssuerCertificate struct {
 	// FingerprintSHA256 is lowercase hex.
 	FingerprintSHA256 string    `json:"fingerprint_sha256"`
 	UploadedAt        time.Time `json:"uploaded_at"`
+}
+
+// EcuadorIssuerCertificateExpiry is invoicing.CertificateExpiry on the wire:
+// `state` is `none`, `valid`, `expiring` or `expired`; `not_after` and
+// `days_before` are null exactly under `none`.
+type EcuadorIssuerCertificateExpiry struct {
+	State string `json:"state" enums:"none,valid,expiring,expired"`
+	// NotAfter is the certificate's own end of validity, UTC.
+	NotAfter *time.Time `json:"not_after"`
+	// DaysBefore counts Ecuadorian calendar days from today to the date
+	// NotAfter falls on: zero on the day of expiry, negative once past.
+	DaysBefore *int `json:"days_before"`
+}
+
+func certificateExpiryView(expiry invoicing.CertificateExpiry) EcuadorIssuerCertificateExpiry {
+	view := EcuadorIssuerCertificateExpiry{State: string(expiry.State), DaysBefore: expiry.DaysBefore}
+	if expiry.NotAfter != nil {
+		notAfter := expiry.NotAfter.UTC()
+		view.NotAfter = &notAfter
+	}
+	return view
 }
 
 // SaveEcuadorIssuerInput is what a save carries: the environment on the core
@@ -237,7 +263,7 @@ func (s *Service) ecuadorIssuerViewWithFreezes(ctx context.Context, row *reposit
 	if err != nil {
 		return nil, err
 	}
-	view := ecuadorIssuerView(row)
+	view := ecuadorIssuerView(s.clock(), row)
 	view.FrozenFields = make([]string, 0, len(frozen))
 	for _, field := range frozen {
 		view.FrozenFields = append(view.FrozenFields, field.name)
@@ -355,7 +381,7 @@ func (s *Service) unreadable(issuerID string, cause error) error {
 	return invoicing.ErrCertificateUnreadable()
 }
 
-func ecuadorIssuerView(row *repository.EcuadorIssuerRow) *EcuadorIssuer {
+func ecuadorIssuerView(now time.Time, row *repository.EcuadorIssuerRow) *EcuadorIssuer {
 	updatedAt := row.Issuer.UpdatedAt
 	if row.DetailsUpdatedAt.After(updatedAt) {
 		updatedAt = row.DetailsUpdatedAt
@@ -391,6 +417,7 @@ func ecuadorIssuerView(row *repository.EcuadorIssuerRow) *EcuadorIssuer {
 		AgenteRetencion:          row.Details.AgenteRetencion,
 		Certificate:              certificate,
 		CertificateRUCMismatch:   mismatch,
+		CertificateExpiry:        certificateExpiryView(invoicing.CertificateExpiryAt(now, row.Issuer.Certificate)),
 		CreatedAt:                row.Issuer.CreatedAt,
 		UpdatedAt:                updatedAt,
 	}

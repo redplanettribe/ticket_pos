@@ -1071,12 +1071,34 @@ export type OperatorEcuadorIssuerCertificate = {
   uploaded_at: string;
 };
 
+/**
+ * Where the signing certificate stands against its `not_after` (#500, ADR
+ * 0063): `none` when there is no certificate, `valid`, `expiring` from 30
+ * Ecuadorian calendar days out (the day itself included), `expired` after.
+ */
+export type OperatorCertificateExpiryState = "none" | "valid" | "expiring" | "expired";
+
+/**
+ * The Certificate Expiry Warning as the Issuer read carries it (#500, ADR
+ * 0063 §5). The date and the count are the server's — the days are Ecuadorian
+ * calendar days, never hours — and both are `null` exactly under `none`. No
+ * page counts days from the date.
+ */
+export type OperatorCertificateExpiry = {
+  state: OperatorCertificateExpiryState;
+  not_after: string | null;
+  /** Zero on the day of expiry, negative once past. */
+  days_before: number | null;
+};
+
 /** The Ecuador Issuer as stored. */
 export type OperatorEcuadorIssuer = EcuadorIssuerBody & {
   id: string;
   country: "ec";
   /** `null` until a certificate has been uploaded. */
   certificate: OperatorEcuadorIssuerCertificate | null;
+  /** The Certificate Expiry Warning's state, derived on the server. */
+  certificate_expiry: OperatorCertificateExpiry;
   /**
    * True only when the certificate names a RUC and it is not the Issuer's — a
    * warning the page shows, never a refusal; the SRI's own check is the final

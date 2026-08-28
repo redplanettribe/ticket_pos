@@ -31,6 +31,7 @@ import {
   type EcuadorIssuerEnvironment,
   type EcuadorIssuerFrozenField,
   type EcuadorIssuerRegimen,
+  type OperatorCertificateExpiry,
   type OperatorEcuadorIssuer,
   fetchOperatorEcuadorIssuer,
   saveOperatorEcuadorIssuer,
@@ -476,6 +477,40 @@ export function OperatorIssuerClient() {
 }
 
 /**
+ * The Certificate Expiry Warning beside the certificate's "valid until" row
+ * (#500, ADR 0063 §5): `warning` while more than seven days remain,
+ * `destructive` from seven days out and once expired, nothing while the
+ * certificate is valid or absent — "none" is the card's own copy, a different
+ * fact with a different remedy. The state, the date and the day count are the
+ * API's; this never counts days from the date.
+ */
+function CertificateExpiryAlert({ expiry }: { expiry: OperatorCertificateExpiry }) {
+  const t = useTranslations("operator");
+  const locale = toAppLocale(useLocale());
+
+  if (expiry.state !== "expiring" && expiry.state !== "expired") return null;
+  if (expiry.not_after === null || expiry.days_before === null) return null;
+  const date = formatDateTime(expiry.not_after, PLATFORM_TIME_ZONE, locale) ?? expiry.not_after;
+
+  if (expiry.state === "expired") {
+    return (
+      <Alert variant="destructive" className="mt-2">
+        <AlertTitle>{t("invoicingCertificateExpiredTitle")}</AlertTitle>
+        <AlertDescription>{t("invoicingCertificateExpired", { date })}</AlertDescription>
+      </Alert>
+    );
+  }
+  return (
+    <Alert variant={expiry.days_before > 7 ? "warning" : "destructive"} className="mt-2">
+      <AlertTitle>{t("invoicingCertificateExpiringTitle")}</AlertTitle>
+      <AlertDescription>
+        {t("invoicingCertificateExpiring", { date, days: expiry.days_before })}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/**
  * The signing certificate in custody and the form that replaces it.
  *
  * WHAT IT SHOWS IS ALL THE SERVER KNOWS WITHOUT OPENING THE FILE: subject, the
@@ -561,7 +596,10 @@ function CertificateCard({
             <dt className="text-muted-foreground">{t("invoicingCertificateValidFrom")}</dt>
             <dd>{formatDateTime(certificate.not_before, PLATFORM_TIME_ZONE, locale)}</dd>
             <dt className="text-muted-foreground">{t("invoicingCertificateValidUntil")}</dt>
-            <dd>{formatDateTime(certificate.not_after, PLATFORM_TIME_ZONE, locale)}</dd>
+            <dd>
+              {formatDateTime(certificate.not_after, PLATFORM_TIME_ZONE, locale)}
+              {issuer ? <CertificateExpiryAlert expiry={issuer.certificate_expiry} /> : null}
+            </dd>
             <dt className="text-muted-foreground">{t("invoicingCertificateFingerprint")}</dt>
             <dd className="break-all font-mono text-xs">{certificate.fingerprint_sha256}</dd>
             <dt className="text-muted-foreground">{t("invoicingCertificateUploadedAt")}</dt>
