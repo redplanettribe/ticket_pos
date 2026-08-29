@@ -1396,11 +1396,17 @@ export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
   backfilled_at: string | null;
   has_authorization_xml: boolean;
   /**
-   * True when the invoice is pending and the SRI holds the document —
-   * received, still in processing, or 43/70 on a resend (#455). The page
-   * says "check status" rather than showing an error.
+   * The two hints about who holds the document (#455, tightened by #516),
+   * never both true. `check_status_hint` is true when the SRI really holds
+   * it — a submit came back received (RECIBIDA, or 43/70 on a resend) — and
+   * it is still undecided: the page says "check status" rather than showing
+   * an error. `resend_hint` is its opposite: the SRI answered that it has no
+   * record of the clave and never took the document, so sending the same
+   * bytes again is the fix. A document whose ledger says neither shows
+   * neither banner.
    */
   check_status_hint: boolean;
+  resend_hint: boolean;
   created_at: string;
   updated_at: string;
 };

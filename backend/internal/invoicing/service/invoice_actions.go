@@ -13,8 +13,10 @@ import (
 //
 // CHECK STATUS ASKS; IT NEVER SENDS. One query to autorización, one attempts
 // row, and the invoice updated only if the authority decided something. An
-// answer that decides nothing (still processing, or nothing known under the
-// clave) leaves the status exactly as it was.
+// answer that decides nothing leaves the status exactly as it was — whether
+// the SRI is still processing the document (received) or has no record of
+// the clave at all (unknown, #514). The two are told apart on the ledger and
+// in the page's hints, never in what the check does to the invoice.
 //
 // RESEND SENDS THE SAME DOCUMENT AGAIN. Same clave de acceso, same
 // secuencial — the Ficha's rule for a fixable rejection (research §2.5) —
@@ -39,7 +41,7 @@ func (s *Service) CheckInvoice(ctx context.Context, id string) (*InvoiceDetail, 
 	outcome, err := s.attempt(callCtx, id, invoicing.AttemptQuery, func() (invoicing.Outcome, error) {
 		return authority.QueryOutcome(callCtx, row.Ecuador.AccessKey)
 	})
-	if err == nil && outcome.State != invoicing.OutcomeReceived {
+	if err == nil && !undecided(outcome.State) {
 		s.applyOutcome(ctx, row, outcome)
 	}
 	s.logger.Info("invoicing: tax invoice checked", "invoice_id", id, "outcome", outcome.State, "error", err)
@@ -217,21 +219,77 @@ func (s *Service) rebuildAndSign(ctx context.Context, row *repository.InvoiceRow
 }
 
 // checkStatusHint says whether the page should tell the operator "the
-// authority has this document — check status" rather than offer an error: the
-// invoice is pending and the last thing the authority said was that it holds
-// it (RECIBIDA, EN PROCESAMIENTO, or 43/70 on a resend). A pending invoice
-// whose last call failed carries no hint; a resend is the thing to do there.
+// authority has this document — check status" rather than offer an error.
+// It means exactly one thing (#516, parent #513): the SRI holds this
+// document and has not decided about it. It holds it when some Submit came
+// back received — RECIBIDA, or 43/70 on a resend, which is the authority
+// saying the clave is already registered with it. It has decided nothing
+// while the invoice is pending, or parked needs_attention by the 24-hour
+// rule (#474) — the same position seen from a day later — and the last
+// thing it said was not a decision. A Sale Invoice the authority refused is
+// also parked needs_attention (drainer), and that one carries no hint: the
+// refusal is the answer, and there is nothing left to check.
 //
-// A Sale Invoice parked needs_attention by the 24-hour rule (#474) is in
-// the same position — the authority holds it and has not decided — and
-// carries the hint too; one parked by a refusal does not, since its last
-// answer was the refusal.
+// A QUERY ANSWER IS NOT ACKNOWLEDGEMENT, whatever it says
+// (invoicing.AcknowledgedByAuthority holds that rule). Until #514 this hint
+// read the last attempt's outcome instead, so the ledger production invoice
+// 001-001-000000001 actually had — a Submit that died in transport, then
+// query after query answered "received" — turned the hint on and steered
+// the operator away from the resend that was the one thing that would fix
+// it. An `unknown` answer is the authority saying it has no record of the
+// clave at all; a `received` one describes a document it is processing, and
+// it can only be processing one it took from a Submit.
+//
+// The resend hint (resendHint) is this hint's opposite, and the two are
+// mutually exclusive: a document the authority never acknowledged carries
+// no check-status hint, and one it did carries no resend hint.
 func checkStatusHint(inv *invoicing.Invoice, attempts []invoicing.Attempt) bool {
-	if len(attempts) == 0 {
-		return false
-	}
 	if inv.Status != invoicing.InvoiceStatusPending && inv.Status != invoicing.InvoiceStatusNeedsAttention {
 		return false
 	}
-	return attempts[len(attempts)-1].Outcome == string(invoicing.OutcomeReceived)
+	if !invoicing.AcknowledgedByAuthority(attempts) {
+		return false
+	}
+	return !decidedBy(attempts[len(attempts)-1].Outcome)
+}
+
+// decidedBy reports whether an attempts-ledger outcome is the authority
+// deciding the document's fate rather than describing where it is. A failed
+// call (AttemptOutcomeError) decides nothing: the document is wherever it
+// was before the call that could not be made.
+//
+// Only the ledger's last row is read for this, because a decision can be
+// undone by what happens next: a refused document that is resent and taken
+// again is back to being the authority's to answer for.
+func decidedBy(outcome string) bool {
+	switch invoicing.OutcomeState(outcome) {
+	case invoicing.OutcomeAuthorized, invoicing.OutcomeNotAuthorized, invoicing.OutcomeRejected:
+		return true
+	default:
+		return false
+	}
+}
+
+// resendHint says whether the page should tell the operator "the SRI has no
+// record of this document — it was never received; resend it" (#516).
+//
+// It is true when the last thing the authority said was `unknown` (#514) —
+// asked directly about the clave, autorización answered with no comprobante
+// under it — and no Submit was ever acknowledged. That is the ledger a
+// Submit killed in transport leaves behind, and the document is nowhere: not
+// with the platform's authority to wait on, not with the SRI. Sending the
+// same bytes again under the same clave and secuencial is what fixes it, and
+// cannot duplicate anything (invoicing.AcknowledgedByAuthority explains why).
+//
+// The latest attempt is what is read, not any attempt, because an `unknown`
+// answered before a later Submit or a later decision is history: the page
+// speaks about where the document is now.
+func resendHint(attempts []invoicing.Attempt) bool {
+	if len(attempts) == 0 {
+		return false
+	}
+	if invoicing.AcknowledgedByAuthority(attempts) {
+		return false
+	}
+	return attempts[len(attempts)-1].Outcome == string(invoicing.OutcomeUnknown)
 }

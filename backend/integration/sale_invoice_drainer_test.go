@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
@@ -654,5 +655,194 @@ func TestSaleInvoiceKickIssuesRightAfterCheckout(t *testing.T) {
 	// Nothing left for the scheduled drain but the one the SRI failed.
 	if result := drainSaleInvoices(t); result.Claimed != 0 {
 		t.Fatalf("scheduled drain right after the kicks = %+v; want nothing due yet", result)
+	}
+}
+
+// TestSaleInvoiceDrainerResubmitsWhatNoSubmitEverLanded (#515, parent #513):
+// the production shape of Sale Invoice 001-001-000000001. The submit died in
+// transport, so the SRI has nothing; every later query — whether it reports
+// "received" or reports nothing known at all — is a query, and a query never
+// acknowledges. The next rung therefore submits the very same signed bytes
+// under the very same clave, and goes on doing so past the 24 h park, which
+// is what heals such a document with no data fix.
+func TestSaleInvoiceDrainerResubmitsWhatNoSubmitEverLanded(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		answer  func(accessKey string) string
+		outcome string
+	}{
+		{"the SRI reports nothing known about the clave", emptyAuthorizationSOAP, "unknown"},
+		{"the SRI reports it received the document", inProcessingSOAP, "received"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := setupTest(t)
+			operatorSessionID, invoiceID := houseSaleOwed(t, env, 1000, 1)
+			issuerReady(t, operatorSessionID)
+			sriStub.setReception(func(accessKey string) (int, string) { return http.StatusInternalServerError, "" })
+
+			if result := drainSaleInvoices(t); result.Claimed != 1 || result.Pending != 1 {
+				t.Fatalf("first drain = %+v; want the document claimed and left pending", result)
+			}
+			first, ok := sriStub.lastReceived()
+			if !ok {
+				t.Fatal("the SRI recorded no submission at all")
+			}
+
+			// The operator asks, as they did in production. The answer decides
+			// nothing and, whatever it says, it is not an acknowledgement.
+			sriStub.setAuthorization(func(accessKey string) (int, string) { return http.StatusOK, tc.answer(accessKey) })
+			resp, body := checkInvoice(t, operatorSessionID, invoiceID)
+			actionOK(t, "check status", resp, body)
+			detail := getDrainedInvoice(t, operatorSessionID, invoiceID)
+			if detail.Status != "pending" {
+				t.Fatalf("after the check: status %s; want pending still", detail.Status)
+			}
+			if len(detail.AttemptRows) != 2 || detail.AttemptRows[0].Outcome != "error" ||
+				detail.AttemptRows[1].Operation != "query" || detail.AttemptRows[1].Outcome != tc.outcome {
+				t.Fatalf("attempts = %+v; want an errored submit then a %s query", detail.AttemptRows, tc.outcome)
+			}
+
+			atInvoicingClock(t, fixedClock.Add(time.Minute))
+			if second := drainSaleInvoices(t); second.Claimed != 1 || second.Pending != 1 {
+				t.Fatalf("drain a minute later = %+v; want the document claimed and still pending", second)
+			}
+			if n := sriStub.receptionCount(); n != 2 {
+				t.Fatalf("the SRI received %d submissions; want two: a document no submit ever landed is sent again", n)
+			}
+			again, _ := sriStub.lastReceived()
+			if !bytes.Equal(again.signedXML, first.signedXML) {
+				t.Fatal("the resubmission is not byte-identical to the first send")
+			}
+			detail = getDrainedInvoice(t, operatorSessionID, invoiceID)
+			if again.accessKey != first.accessKey || detail.EcuadorFull.AccessKey != first.accessKey {
+				t.Fatalf("clave: first %s, resubmission %s, on file %s; want one clave throughout",
+					first.accessKey, again.accessKey, detail.EcuadorFull.AccessKey)
+			}
+			if *detail.Number != "001-001-000000001" {
+				t.Fatalf("number = %s; want the first number kept: a resubmission consumes none", *detail.Number)
+			}
+			if at := nextAttemptAt(t, detail); !at.Equal(fixedClock.Add(6 * time.Minute)) {
+				t.Fatalf("next_attempt_at = %s; want five minutes on (%s)", at, fixedClock.Add(6*time.Minute))
+			}
+
+			// Past 24 h the document is the operator's to look at — and still
+			// the Drainer's to send.
+			atInvoicingClock(t, fixedClock.Add(24*time.Hour))
+			if late := drainSaleInvoices(t); late.Claimed != 1 || late.NeedsAttention != 1 {
+				t.Fatalf("drain at 24 h = %+v; want the document parked needs_attention", late)
+			}
+			detail = getDrainedInvoice(t, operatorSessionID, invoiceID)
+			if detail.Status != "needs_attention" {
+				t.Fatalf("at 24 h: status %s; want needs_attention", detail.Status)
+			}
+			if at := nextAttemptAt(t, detail); !at.Equal(fixedClock.Add(25 * time.Hour)) {
+				t.Fatalf("next_attempt_at at 24 h = %s; want hourly work to go on (%s)", at, fixedClock.Add(25*time.Hour))
+			}
+			if n := sriStub.receptionCount(); n != 3 {
+				t.Fatalf("the SRI received %d submissions; want three: a parked document is still sent again", n)
+			}
+		})
+	}
+}
+
+// TestSaleInvoiceDrainerPollsWhatASubmitAcknowledged (#515, parent #513): the
+// mirror case. A submit came back received, so the SRI has the document —
+// and a later query reporting nothing known about the clave does not take
+// that back. The document is polled from then on and never sent twice; an
+// unknown answer reschedules on the ladder like any undecided one, parks it
+// needs_attention at 24 h, and the polling goes on.
+func TestSaleInvoiceDrainerPollsWhatASubmitAcknowledged(t *testing.T) {
+	env := setupTest(t)
+	operatorSessionID, invoiceID := houseSaleOwed(t, env, 1000, 1)
+	issuerReady(t, operatorSessionID)
+	sriStub.setAuthorization(func(accessKey string) (int, string) { return http.StatusOK, emptyAuthorizationSOAP(accessKey) })
+
+	if result := drainSaleInvoices(t); result.Claimed != 1 || result.Pending != 1 {
+		t.Fatalf("first drain = %+v; want pending", result)
+	}
+	detail := getDrainedInvoice(t, operatorSessionID, invoiceID)
+	if detail.Status != "pending" {
+		t.Fatalf("after RECIBIDA and an unknown query: status %s; want pending", detail.Status)
+	}
+	last := detail.AttemptRows[len(detail.AttemptRows)-1]
+	if detail.AttemptRows[0].Operation != "submit" || detail.AttemptRows[0].Outcome != "received" ||
+		last.Operation != "query" || last.Outcome != "unknown" {
+		t.Fatalf("attempts = %+v; want a received submit and unknown queries", detail.AttemptRows)
+	}
+	if at := nextAttemptAt(t, detail); !at.Equal(fixedClock.Add(time.Minute)) {
+		t.Fatalf("next_attempt_at = %s; want a minute on: an unknown answer reschedules on the ladder", at)
+	}
+	attemptsAfterFirst := len(detail.AttemptRows)
+
+	atInvoicingClock(t, fixedClock.Add(time.Minute))
+	if second := drainSaleInvoices(t); second.Claimed != 1 || second.Pending != 1 {
+		t.Fatalf("drain a minute later = %+v; want still pending", second)
+	}
+	detail = getDrainedInvoice(t, operatorSessionID, invoiceID)
+	if len(detail.AttemptRows) != attemptsAfterFirst+1 || detail.AttemptRows[len(detail.AttemptRows)-1].Operation != "query" {
+		t.Fatalf("attempts = %+v; want exactly one more query — the SRI took this document, so it is only polled", detail.AttemptRows)
+	}
+	if n := sriStub.receptionCount(); n != 1 {
+		t.Fatalf("the SRI received %d submissions; want one", n)
+	}
+
+	atInvoicingClock(t, fixedClock.Add(24*time.Hour))
+	if late := drainSaleInvoices(t); late.Claimed != 1 || late.NeedsAttention != 1 {
+		t.Fatalf("drain at 24 h = %+v; want the document parked needs_attention", late)
+	}
+	detail = getDrainedInvoice(t, operatorSessionID, invoiceID)
+	if detail.Status != "needs_attention" {
+		t.Fatalf("at 24 h: status %s; want needs_attention", detail.Status)
+	}
+	if at := nextAttemptAt(t, detail); !at.Equal(fixedClock.Add(25 * time.Hour)) {
+		t.Fatalf("next_attempt_at at 24 h = %s; want hourly polling to go on (%s)", at, fixedClock.Add(25*time.Hour))
+	}
+	if n := sriStub.receptionCount(); n != 1 {
+		t.Fatalf("the SRI received %d submissions; want still one: a parked but acknowledged document is polled", n)
+	}
+}
+
+// TestSaleInvoiceDrainerPollsAfterAnAlreadyHeldResubmit (#515, parent #513):
+// the resubmit is answered 43, "the clave is already registered" — which is
+// the SRI acknowledging the document on a submit. From that round on it is
+// only polled, even though autorización still reports nothing known about
+// the clave. This is why a resubmit can never make a duplicate.
+func TestSaleInvoiceDrainerPollsAfterAnAlreadyHeldResubmit(t *testing.T) {
+	env := setupTest(t)
+	operatorSessionID, invoiceID := houseSaleOwed(t, env, 1000, 1)
+	issuerReady(t, operatorSessionID)
+	sriStub.setReception(func(accessKey string) (int, string) { return http.StatusInternalServerError, "" })
+
+	if result := drainSaleInvoices(t); result.Claimed != 1 || result.Pending != 1 {
+		t.Fatalf("first drain = %+v; want pending after a submit that never landed", result)
+	}
+
+	sriStub.setReception(func(accessKey string) (int, string) {
+		return http.StatusOK, returnedSOAP(accessKey, sriMessage("43", "CLAVE ACCESO REGISTRADA", "", "ERROR"))
+	})
+	sriStub.setAuthorization(func(accessKey string) (int, string) { return http.StatusOK, emptyAuthorizationSOAP(accessKey) })
+	atInvoicingClock(t, fixedClock.Add(time.Minute))
+	if second := drainSaleInvoices(t); second.Claimed != 1 || second.Pending != 1 {
+		t.Fatalf("drain a minute later = %+v; want the resubmission and still pending", second)
+	}
+	if n := sriStub.receptionCount(); n != 2 {
+		t.Fatalf("the SRI received %d submissions; want two", n)
+	}
+	detail := getDrainedInvoice(t, operatorSessionID, invoiceID)
+	if detail.AttemptRows[1].Operation != "submit" || detail.AttemptRows[1].Outcome != "received" {
+		t.Fatalf("attempts = %+v; want the 43 resubmission on the ledger as a received submit", detail.AttemptRows)
+	}
+	attemptsAfterSecond := len(detail.AttemptRows)
+
+	atInvoicingClock(t, fixedClock.Add(6*time.Minute))
+	if third := drainSaleInvoices(t); third.Claimed != 1 || third.Pending != 1 {
+		t.Fatalf("third drain = %+v; want still pending", third)
+	}
+	if n := sriStub.receptionCount(); n != 2 {
+		t.Fatalf("the SRI received %d submissions; want still two: the 43 acknowledged the document", n)
+	}
+	detail = getDrainedInvoice(t, operatorSessionID, invoiceID)
+	if len(detail.AttemptRows) != attemptsAfterSecond+1 || detail.AttemptRows[len(detail.AttemptRows)-1].Operation != "query" {
+		t.Fatalf("attempts = %+v; want exactly one more query", detail.AttemptRows)
 	}
 }

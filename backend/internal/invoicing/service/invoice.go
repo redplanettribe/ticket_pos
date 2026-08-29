@@ -334,12 +334,22 @@ func (s *Service) submitAndPoll(ctx context.Context, row *repository.InvoiceRow,
 			}
 			continue
 		}
-		if outcome.State == invoicing.OutcomeReceived {
+		if undecided(outcome.State) {
 			continue
 		}
 		s.applyOutcome(ctx, row, outcome)
 		return
 	}
+}
+
+// undecided reports whether an answer settles nothing about the document:
+// the authority holds it and is still working on it (received), or has no
+// record of the reference at all (unknown, #514). Both leave the invoice
+// where it stands and both are worth another ask; what separates them —
+// whether the authority ever acknowledged the document — is read from the
+// attempts ledger, not from here.
+func undecided(state invoicing.OutcomeState) bool {
+	return state == invoicing.OutcomeReceived || state == invoicing.OutcomeUnknown
 }
 
 // attempt makes one call to the authority and writes it to the ledger
@@ -379,7 +389,10 @@ func (s *Service) attempt(ctx context.Context, invoiceID string, op invoicing.At
 // authority's messages beside it. An undecided answer leaves a manual
 // document pending until the operator checks; it leaves a Sale Invoice
 // pending AND due again on the ladder — or needs_attention-still-polled once
-// 24 hours have passed since signing without a definite answer.
+// 24 hours have passed since signing without a definite answer. Undecided is
+// both of the authority's non-verdicts (#514): it holds the document and is
+// working on it, and it has no record of the reference. Neither moves the
+// status, and the difference between them is the ledger's to keep.
 //
 // AN AUTHORIZED SALE INVOICE STAYS WHERE IT IS ON THE QUEUE (#475). The
 // round that authorized it delivers it in the same breath, and the row
@@ -726,9 +739,13 @@ type EcuadorInvoiceView struct {
 
 // AttemptView is one row of the attempts ledger.
 type AttemptView struct {
-	ID         int64                  `json:"id"`
-	Operation  string                 `json:"operation"`
-	Outcome    string                 `json:"outcome"`
+	ID        int64  `json:"id"`
+	Operation string `json:"operation"`
+	// Outcome is what the authority answered, as the core understands it:
+	// `received` (it holds the document and has not decided), `authorized`,
+	// `not_authorized`, `rejected`, `unknown` (it has no record of the
+	// reference, #514) — or `error` when no answer could be read at all.
+	Outcome    string                 `json:"outcome" enums:"received,authorized,not_authorized,rejected,unknown,error"`
 	Messages   []AuthorityMessageView `json:"messages"`
 	Error      string                 `json:"error"`
 	StartedAt  time.Time              `json:"started_at"`
@@ -793,10 +810,19 @@ type InvoiceDetail struct {
 	// HasAuthorizationXML says whether the authority's document is on file
 	// (#456 serves it).
 	HasAuthorizationXML bool `json:"has_authorization_xml"`
-	// CheckStatusHint is true when the invoice is pending and the authority
-	// holds the document (received, in processing, or 43/70 on a resend): the
-	// page says "check status" rather than showing an error (#455).
+	// CheckStatusHint and ResendHint are what the page tells the operator
+	// about who holds the document (#455, tightened by #516). CheckStatusHint
+	// is true when the authority really holds it — some Submit came back
+	// received (RECIBIDA, or 43/70 on a resend) — and has decided nothing
+	// yet, so the page says "check status" rather than showing an error.
+	// ResendHint is its opposite: the authority's last word was that it has
+	// no record of the clave (`unknown`, #514) and no Submit was ever
+	// acknowledged, so the document is nowhere and resending the same bytes
+	// is the fix. A query answer never counts as acknowledgement, which is
+	// what makes the two mutually exclusive; neither is true of a document
+	// whose position the ledger does not say (checkStatusHint, resendHint).
 	CheckStatusHint bool      `json:"check_status_hint"`
+	ResendHint      bool      `json:"resend_hint"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
@@ -897,6 +923,7 @@ func invoiceDetailView(row *repository.InvoiceRow) *InvoiceDetail {
 		Attempts:            []AttemptView{},
 		HasAuthorizationXML: len(inv.AuthorizationXML) > 0,
 		CheckStatusHint:     checkStatusHint(inv, row.Attempts),
+		ResendHint:          resendHint(row.Attempts),
 		IVARate:             optional(string(inv.IVARate)),
 		CreditsInvoiceID:    optional(inv.CreditsInvoiceID),
 		CreditNoteReason:    optional(inv.CreditNoteReason),

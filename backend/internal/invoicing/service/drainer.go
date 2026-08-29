@@ -35,16 +35,26 @@ import (
 // number consumed, so the sequence has no holes for documents that never
 // existed (#471 story 23).
 //
-// A DOCUMENT THE AUTHORITY HOLDS IS POLLED, NEVER RESUBMITTED. Once any
-// attempt has come back "received", every later round asks autorización and
-// nothing else; only a document the authority never acknowledged — every
-// submit a transport failure — is sent again, under the same clave. That is
-// the SRI's rule (research §2.5) and the reason a resend can never make a
-// duplicate.
+// A DOCUMENT THE AUTHORITY HOLDS IS POLLED, NEVER RESUBMITTED — AND ONLY A
+// RECEIVED SUBMIT SAYS IT HOLDS IT (#515, parent #513, maintainer ruling
+// 2026-08-29). Once some submit has come back "received" — RECIBIDA, or
+// 43/70, "the clave is already registered / in processing" — every later
+// round asks autorización and nothing else. A query answer never counts as
+// acknowledgement, whatever it says: "received" from autorización is the
+// authority describing a document it is processing, and "unknown" is the
+// authority saying it has no record of the clave at all; neither is proof
+// that anything ever reached it. So a document no submit ever landed — the
+// submit died in transport, and the queries since have said one of those
+// two things — is sent again on its next rung, byte for byte, under the
+// same clave and secuencial (invoicing.AcknowledgedByAuthority reads the
+// ledger for this). That can never make a duplicate: if the authority did
+// hold it and only its RECIBIDA was lost, the resubmit is answered 43/70,
+// which is itself an acknowledging submit (research §2.5).
 //
 // THE LADDER is 1 min, 5 min, 15 min, then hourly, measured from the
-// signing instant (issued_at), for transport failures and for "received /
-// en procesamiento" alike. A definite refusal parks the document
+// signing instant (issued_at), for transport failures and for every answer
+// that decides nothing alike — "received / en procesamiento", and "unknown",
+// the authority reporting no record of the clave (#514). A definite refusal parks the document
 // needs_attention and stops the ladder: the SRI's messages are the
 // operator's to read, and Check status / Resend are the remedies. Twenty-four
 // hours without a definite answer parks it needs_attention too, but the
@@ -354,11 +364,14 @@ func (s *Service) workSaleInvoice(ctx context.Context, row *repository.InvoiceRo
 		}
 		row = signed
 		s.submitAndPoll(ctx, row, nil)
-	} else if heldByAuthority(row.Attempts) {
+	} else if invoicing.AcknowledgedByAuthority(row.Attempts) {
+		// A submit came back received: the authority has the document, and
+		// this round only asks what became of it.
 		s.pollOnce(ctx, row)
 	} else {
-		// Every submit so far failed to reach the authority: send the bytes
-		// on file again, under the same clave.
+		// No submit ever landed — whatever the queries since have said
+		// (#515, parent #513). Send the bytes on file again, under the same
+		// clave and secuencial.
 		s.submitAndPoll(ctx, row, nil)
 	}
 	status, err := s.settleRound(ctx, row.Invoice.ID)
@@ -547,8 +560,12 @@ func (s *Service) settleRound(ctx context.Context, id string) (invoicing.Invoice
 			return inv.Status, nil
 		}
 		switch row.Attempts[len(row.Attempts)-1].Outcome {
-		case string(invoicing.OutcomeReceived), invoicing.AttemptOutcomeError:
-			// Past 24 h and still undecided: parked, and still polled.
+		case string(invoicing.OutcomeReceived), string(invoicing.OutcomeUnknown), invoicing.AttemptOutcomeError:
+			// Past 24 h and still undecided — the authority is processing
+			// it, has no record of the clave (#514), or could not be
+			// reached: parked for the operator, and still worked. Which of
+			// polling and resubmitting the next round does is the
+			// Submit-only rule's to decide, not this park's.
 			return s.reschedule(ctx, row)
 		}
 	}
@@ -765,17 +782,6 @@ func saleFacturaParts(base sri.Factura, inv *invoicing.Invoice) (facturaParts, e
 		})
 	}
 	return facturaParts{base: base, recipient: recipient, lines: lines, fields: nil}, nil
-}
-
-// heldByAuthority reports whether any attempt came back "received": the
-// authority holds the document, so it is polled and never sent again.
-func heldByAuthority(attempts []invoicing.Attempt) bool {
-	for _, a := range attempts {
-		if a.Outcome == string(invoicing.OutcomeReceived) {
-			return true
-		}
-	}
-	return false
 }
 
 // undecidedStatus is where a signed document without a definite answer

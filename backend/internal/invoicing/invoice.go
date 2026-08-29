@@ -314,6 +314,31 @@ type Attempt struct {
 	Duration  time.Duration
 }
 
+// AcknowledgedByAuthority reports whether the authority ever took delivery
+// of the document: some Submit came back received — RECIBIDA, or 43/70,
+// "the clave is already registered / in processing" on a resend.
+//
+// ONLY A SUBMIT ACKNOWLEDGES (#513, maintainer ruling 2026-08-29). A query
+// answer never does, whatever it says: OutcomeReceived from autorización is
+// the authority describing a document it is processing, and OutcomeUnknown
+// is the authority saying it has no record of the clave at all. Reading
+// either as acknowledgement is what left production invoice
+// 001-001-000000001 polled forever after its Submit died in transport —
+// the SRI had never received it.
+//
+// A document this reports false for is sent again, byte for byte, under the
+// same clave and secuencial. That can never duplicate: if the authority did
+// hold it and only its answer was lost, the resubmit is answered 43/70,
+// which is itself an acknowledging Submit.
+func AcknowledgedByAuthority(attempts []Attempt) bool {
+	for _, a := range attempts {
+		if a.Operation == AttemptSubmit && a.Outcome == string(OutcomeReceived) {
+			return true
+		}
+	}
+	return false
+}
+
 // CreditNoteReasonReissue is the one Credit Note reason that is not a Sale
 // Reversal's route (#481, ADR 0061): the Sale Invoice it credits is being
 // superseded by a Sale Invoice Reissue, and the Sale stands. The five

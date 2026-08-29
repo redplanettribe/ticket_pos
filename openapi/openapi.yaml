@@ -2491,6 +2491,18 @@ components:
         operation:
           type: string
         outcome:
+          description: |-
+            Outcome is what the authority answered, as the core understands it:
+            `received` (it holds the document and has not decided), `authorized`,
+            `not_authorized`, `rejected`, `unknown` (it has no record of the
+            reference, #514) — or `error` when no answer could be read at all.
+          enum:
+          - received
+          - authorized
+          - not_authorized
+          - rejected
+          - unknown
+          - error
           type: string
         started_at:
           type: string
@@ -3688,9 +3700,17 @@ components:
           type: string
         check_status_hint:
           description: |-
-            CheckStatusHint is true when the invoice is pending and the authority
-            holds the document (received, in processing, or 43/70 on a resend): the
-            page says "check status" rather than showing an error (#455).
+            CheckStatusHint and ResendHint are what the page tells the operator
+            about who holds the document (#455, tightened by #516). CheckStatusHint
+            is true when the authority really holds it — some Submit came back
+            received (RECIBIDA, or 43/70 on a resend) — and has decided nothing
+            yet, so the page says "check status" rather than showing an error.
+            ResendHint is its opposite: the authority's last word was that it has
+            no record of the clave (`unknown`, #514) and no Submit was ever
+            acknowledged, so the document is nowhere and resending the same bytes
+            is the fix. A query answer never counts as acknowledgement, which is
+            what makes the two mutually exclusive; neither is true of a document
+            whose position the ledger does not say (checkStatusHint, resendHint).
           type: boolean
         country:
           type: string
@@ -3787,6 +3807,8 @@ components:
           type: string
         reissued_by:
           type: string
+        resend_hint:
+          type: boolean
         sale_confirmation_ref:
           type: string
         status:
@@ -8791,21 +8813,26 @@ paths:
         one from its stored snapshot — consuming a secuencial only then, under the
         Issuer''s current environment, with `fechaEmision` the signing date in America/Guayaquil
         — submits it to the SRI and polls autorización; polls a `pending` one the
-        SRI already holds without resubmitting it; resends only a document the SRI
-        never acknowledged. Transport failures and RECIBIDA / EN PROCESAMIENTO reschedule
-        on the ladder 1 min, 5 min, 15 min, then hourly from the signing instant.
-        A definite refusal parks the document `needs_attention` with the SRI''s messages;
-        24 hours without a definite answer parks it `needs_attention` while polling
-        continues, and a late AUTORIZADO heals it. A document that cannot be signed
-        — no Issuer, no certificate, an expired certificate, an Issuer the schema
-        refuses — is parked `needs_attention` at once with no number consumed and
-        retried hourly. Every SRI call is an attempts row. Bounded by its own budget,
-        which expires before Cloud Scheduler''s attempt deadline. Internal service-to-service
-        only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token
-        (ADR 0008). Safe to call by hand at any time; a no-op on an empty queue. Behind
-        SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE
-        and signs nothing. The response tallies what the run did and how many Sale
-        Invoices stand in each state afterwards.'
+        SRI already holds without resubmitting it, and resubmits — same signed bytes,
+        same clave, same secuencial — one the SRI never acknowledged. Only a submit
+        that came back received (RECIBIDA, or errors 43/70 "already registered / in
+        processing") counts as acknowledgement; a query answer never does, neither
+        EN PROCESAMIENTO nor `unknown`, the SRI reporting no record of the clave.
+        A resubmit cannot duplicate: a document the SRI does hold answers 43/70. Transport
+        failures, RECIBIDA / EN PROCESAMIENTO and `unknown` alike reschedule on the
+        ladder 1 min, 5 min, 15 min, then hourly from the signing instant. A definite
+        refusal parks the document `needs_attention` with the SRI''s messages; 24
+        hours without a definite answer parks it `needs_attention` while the polling
+        or resubmitting goes on, and a late AUTORIZADO heals it. A document that cannot
+        be signed — no Issuer, no certificate, an expired certificate, an Issuer the
+        schema refuses — is parked `needs_attention` at once with no number consumed
+        and retried hourly. Every SRI call is an attempts row. Bounded by its own
+        budget, which expires before Cloud Scheduler''s attempt deadline. Internal
+        service-to-service only: Cloud Run IAM authenticates the caller by Google-signed
+        OIDC ID token (ADR 0008). Safe to call by hand at any time; a no-op on an
+        empty queue. Behind SALE_INVOICING_ENABLED: while the flag is closed this
+        answers 404 SALE_INVOICING_UNAVAILABLE and signs nothing. The response tallies
+        what the run did and how many Sale Invoices stand in each state afterwards.'
       responses:
         "200":
           content:
@@ -9337,9 +9364,17 @@ paths:
         on an authorized invoice; INVOICE_ANNULLED (409) on one marked annulled; INVOICE_WITHDRAWN
         (409) on a withdrawn Sale Invoice or Credit Note, which was never sent; INVOICE_NOT_ISSUED
         (409) on one still owed and unsigned; INVOICE_NOT_FOUND (404) otherwise. Returns
-        the invoice as it then stands, with `check_status_hint` true when it is pending
-        and the SRI holds it. A Sale Invoice or Credit Note this check finds authorized
-        is made due for the Sale Invoice Drainer to deliver. Platform Operator only.'
+        the invoice as it then stands, with its two hints about who holds the document
+        (#516): `check_status_hint` is true only when the SRI really holds it — some
+        submit to recepción came back received (`RECIBIDA`, or 43/70 on a resend)
+        — and it is still undecided (`pending` or `needs_attention`); `resend_hint`
+        is true when the SRI''s last word was that it has no record of the clave (`unknown`)
+        and no submit was ever received, so the document is nowhere and resending
+        the same bytes is the fix. A query answer never counts as the SRI holding
+        the document, so the two are never both true, and a document whose ledger
+        says neither shows neither. A Sale Invoice or Credit Note this check finds
+        authorized is made due for the Sale Invoice Drainer to deliver. Platform Operator
+        only.'
       parameters:
       - description: Tax Invoice id
         in: path
@@ -9481,15 +9516,18 @@ paths:
         by the re-signed bytes only when the SRI answered `RECIBIDA`, so the artifact
         the platform holds is always the one the SRI holds. SRI errors 43 (clave already
         registered) and 70 (in processing) mean the SRI has it: the invoice is `pending`
-        with `check_status_hint` true and the messages kept, never an error. One attempts
-        row per SRI call. INVOICE_ALREADY_AUTHORIZED (409) on an authorized invoice;
-        INVOICE_ANNULLED (409) on one marked annulled; INVOICE_WITHDRAWN (409) on
-        a withdrawn Sale Invoice or Credit Note; INVOICE_NOT_ISSUED (409) on one still
-        owed and unsigned; INVOICE_NOT_FOUND (404); ISSUER_NOT_FOUND (404), CERTIFICATE_NOT_UPLOADED
-        (409), CERTIFICATE_KEY_NOT_CONFIGURED (503) and ISSUER_INCOMPLETE (409) before
-        anything is sent. Returns the invoice as it then stands. A Sale Invoice or
-        Credit Note the resend gets authorized is delivered by the Sale Invoice Drainer
-        on its next round. Platform Operator only.'
+        with `check_status_hint` true and the messages kept, never an error. A resend
+        whose call to recepción fails outright leaves the document unacknowledged:
+        `check_status_hint` is false, and `resend_hint` turns on once a check answers
+        `unknown` (#516). One attempts row per SRI call. INVOICE_ALREADY_AUTHORIZED
+        (409) on an authorized invoice; INVOICE_ANNULLED (409) on one marked annulled;
+        INVOICE_WITHDRAWN (409) on a withdrawn Sale Invoice or Credit Note; INVOICE_NOT_ISSUED
+        (409) on one still owed and unsigned; INVOICE_NOT_FOUND (404); ISSUER_NOT_FOUND
+        (404), CERTIFICATE_NOT_UPLOADED (409), CERTIFICATE_KEY_NOT_CONFIGURED (503)
+        and ISSUER_INCOMPLETE (409) before anything is sent. Returns the invoice as
+        it then stands. A Sale Invoice or Credit Note the resend gets authorized is
+        delivered by the Sale Invoice Drainer on its next round. Platform Operator
+        only.'
       parameters:
       - description: Tax Invoice id
         in: path

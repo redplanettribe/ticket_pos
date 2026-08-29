@@ -82,11 +82,17 @@ const OPERATION_KEYS = {
   query: "invoicingAttemptQuery",
 } as const;
 
+// Every outcome the attempts ledger can hold, one label each. `unknown`
+// (#514) is the SRI answering that it has no record of the clave — a row an
+// operator must be able to tell from `received`, which is the SRI saying it
+// holds the document; without its own label it would fall through to "Error",
+// which it is not.
 const OUTCOME_KEYS = {
   received: "invoicingAttemptOutcomeReceived",
   authorized: "invoicingAttemptOutcomeAuthorized",
   not_authorized: "invoicingAttemptOutcomeNotAuthorized",
   rejected: "invoicingAttemptOutcomeRejected",
+  unknown: "invoicingAttemptOutcomeUnknown",
   error: "invoicingAttemptOutcomeError",
 } as const;
 

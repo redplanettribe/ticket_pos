@@ -39,7 +39,7 @@ stateDiagram-v2
     owed --> needs_attention : no Issuer, no certificate,<br/>certificate expired<br/>(no secuencial consumed)
     owed --> pending : signed (secuencial + clave allocated),<br/>submitted → RECIBIDA<br/>or 43 clave registrada / 70 en procesamiento
 
-    pending --> pending : EN PROCESAMIENTO<br/>ladder 1m · 5m · 15m · hourly
+    pending --> pending : EN PROCESAMIENTO<br/>or unknown (SRI has no record of the clave)<br/>ladder 1m · 5m · 15m · hourly<br/>(resubmitted unless a Submit was received)
     pending --> authorized : AUTORIZADO<br/>(authorization XML stored)
     pending --> needs_attention : DEVUELTA (any code)<br/>NO AUTORIZADO (any code)<br/>24 h undecided
     pending --> annulled : operator Mark annulled<br/>(portal annulment recorded)
@@ -67,8 +67,19 @@ stateDiagram-v2
 ```
 
 Transport errors, HTTP 5xx and SOAP faults never change the status: an attempt row is written and the document is
-rescheduled on the ladder. A document the SRI never acknowledged is resubmitted with the same bytes; one it ever held
-(RECIBIDA, 43, 70) is only polled.
+rescheduled on the ladder. A document the SRI never acknowledged is resubmitted with the same bytes, clave and
+secuencial; one it acknowledged is only polled.
+
+**Only a received Submit counts as acknowledgement; a query answer never does** (maintainer ruling 2026-08-29, #513).
+The SRI has taken delivery of a document when a `validarComprobante` call came back RECIBIDA, or DEVUELTA with 43
+(clave registrada) / 70 (en procesamiento), which mean the same thing. An `autorizacionComprobante` answer never
+acknowledges anything, whatever it says: EN PROCESAMIENTO is the SRI describing a document it is processing, and
+`unknown` — `numeroComprobantes` 0, an empty `autorizaciones` list — is the SRI saying it has no record of the clave
+at all. So the ledger shape [Submit error, Query received] and the shape [Submit error, Query unknown] are both
+resubmitted, and [Submit received, Query unknown] is only polled. Resubmitting cannot duplicate: a document the SRI
+does hold answers 43/70, which is itself an acknowledging Submit. `unknown` decides nothing about the status — the
+document stays `pending`, or `needs_attention` past 24 h, and stays on the ladder — and it never counts as
+acknowledgement.
 
 ### 1.2 Checkout → Sale Invoice → buyer
 
@@ -254,11 +265,12 @@ flowchart LR
 
 | # | Flow | Status | Proof | Note |
 |---|---|---|---|---|
-| 17 | RECIBIDA → AUTORIZADO → delivered | **Built** | `B/invoicing/sri/authority.go:56` `Submit`, `:81` `QueryOutcome`; `B/invoicing/service/drainer.go:361` | Delivery happens in the same round under the same lease. |
-| 18 | EN PROCESAMIENTO, repeatedly | **Built** | `drainer.go:105` `SaleInvoiceLadder`, `:109` `SaleInvoiceAttentionAfter`, `:743` `undecidedStatus` | 1 m · 5 m · 15 m · hourly from `issued_at`; at 24 h undecided → `needs_attention` **and still polled hourly**. |
-| 19 | Error 43, clave already registered (we sent it, lost the answer) | **Built** | `B/invoicing/sri/authority.go:67` (`AlreadyHeld`) | Treated as received; polled, never resent. |
-| 20 | Error 70, clave en procesamiento | **Built** | `B/invoicing/sri/client.go:90`; `drainer.go:766` `heldByAuthority` | Same: poll, never resubmit. |
-| 21 | Transport error, HTTP 5xx, SOAP fault, timeout | **Built** | `B/invoicing/service/invoice.go:349` `attempt`; `drainer.go:353`, `:555` `reschedule` | Attempt row written, status untouched, rescheduled on the ladder; a never-acknowledged document is resent with the same bytes. |
+| 17 | RECIBIDA → AUTORIZADO → delivered | **Built** | `B/invoicing/sri/authority.go:56` `Submit`, `:90` `QueryOutcome`; `B/invoicing/service/drainer.go:387` | Delivery happens in the same round under the same lease. |
+| 18 | EN PROCESAMIENTO, repeatedly | **Built** | `drainer.go:116` `SaleInvoiceLadder`, `:120` `SaleInvoiceAttentionAfter`, `:790` `undecidedStatus` | 1 m · 5 m · 15 m · hourly from `issued_at`; at 24 h undecided → `needs_attention` **and still worked hourly**. A query answer is not an acknowledgement, so whether the round polls or resubmits is decided from the Submit attempts alone (row 21a). |
+| 19 | Error 43, clave already registered (we sent it, lost the answer) | **Built** | `B/invoicing/sri/authority.go:67` (`AlreadyHeld`) | A received Submit: the SRI holds it, so it is polled and never sent again. |
+| 20 | Error 70, clave en procesamiento | **Built** | `B/invoicing/sri/client.go:90`; `B/invoicing/invoice.go:333` `AcknowledgedByAuthority`, called at `drainer.go:367` | Same: poll, never resubmit. |
+| 21 | Transport error, HTTP 5xx, SOAP fault, timeout | **Built** | `B/invoicing/service/invoice.go:359` `attempt`; `drainer.go:375`, `:579` `reschedule` | Attempt row written, status untouched, rescheduled on the ladder; a document no Submit ever landed is sent again with the same bytes, clave and secuencial. |
+| 21a | Autorización reports nothing under the clave (`numeroComprobantes` 0) — what a Submit lost in transport leaves behind | **Built** (#513 → #514, #515) | `B/invoicing/sri/authority.go:97` `OutcomeUnknown`; `B/invoicing/invoice.go:333` `AcknowledgedByAuthority`; `drainer.go:367`, `:563` | Its own outcome, `unknown`, on the ledger and in the OpenAPI enum. It decides nothing — `pending`, or `needs_attention` past 24 h, and still on the ladder — and **never counts as acknowledgement**: only a received Submit does. So [Submit error, Query unknown] and [Submit error, Query received] are both resubmitted, and [Submit received, Query unknown] is only polled. |
 | 22 | Error 50, "error interno general" (SRI-side, transient) | **Partial** | only 43, 70, 60 are named constants (`sri/client.go:88-92`) | Arrives as an ordinary DEVUELTA → `needs_attention`, not retried automatically. → U4 |
 | 23 | DEVUELTA on schema (35/36/47/48/49) | **Partial** | `B/invoicing/service/invoice.go:423` `applyOutcome` | → `needs_attention`, messages verbatim. Correct outcome; not distinguished by code. |
 | 24 | NO AUTORIZADO on signature / certificate (39/40) | **Partial** | same | Same bucket. The operator fixes the certificate and Resends. |

@@ -75,9 +75,18 @@ func (a *Authority) Submit(ctx context.Context, doc invoicing.PreparedDocument) 
 //
 // AUTORIZADO is OutcomeAuthorized with the number, date and the SRI's
 // autorizacion XML; NO AUTORIZADO is OutcomeNotAuthorized with messages; EN
-// PROCESAMIENTO (either spelling), and a clave the SRI reports nothing about
-// yet, are OutcomeReceived. For a document sent several times the SRI reports
-// only the last state (Ficha §5.11), which is what Latest reads.
+// PROCESAMIENTO (either spelling) is OutcomeReceived — the SRI holds it and
+// is working on it.
+//
+// A CLAVE THE SRI REPORTS NOTHING ABOUT IS OutcomeUnknown (#514, parent
+// #513). numeroComprobantes 0 with an empty autorizaciones list is not "not
+// decided yet": it is the SRI saying it has never seen a document under this
+// clave, which is what a recepción call that died in transport leaves
+// behind. Reading it as received made the platform treat such a document as
+// held by the SRI and poll a clave it had never heard of.
+//
+// For a document sent several times the SRI reports only the last state
+// (Ficha §5.11), which is what Latest reads.
 func (a *Authority) QueryOutcome(ctx context.Context, accessKey string) (invoicing.Outcome, error) {
 	res, err := a.client.AuthorizationComprobante(ctx, accessKey)
 	if err != nil {
@@ -85,7 +94,7 @@ func (a *Authority) QueryOutcome(ctx context.Context, accessKey string) (invoici
 	}
 	latest := res.Latest()
 	if latest == nil {
-		return invoicing.Outcome{State: invoicing.OutcomeReceived}, nil
+		return invoicing.Outcome{State: invoicing.OutcomeUnknown}, nil
 	}
 	messages := coreMessages(latest.Messages)
 	switch latest.State {

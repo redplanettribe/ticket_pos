@@ -45,10 +45,16 @@ import {
  * THE OUTCOME IS THE INVOICE. Both calls answer with the invoice as it then
  * stands and hand it to the page, which re-renders status, messages,
  * authorization and the ledger from it; the toast only says what changed.
- * When the SRI holds the document and is still deciding — after a plain
+ * WHO HOLDS THE DOCUMENT is what the two hints say, and they are never both
+ * true (#516). When the SRI holds it and is still deciding — after a plain
  * RECIBIDA, or after a resend the SRI met with "clave already registered"
  * (43) or "in processing" (70) — the API says so with `check_status_hint`,
- * and the card shows "it is there, check status" instead of an error.
+ * and the card shows "it is there, check status" instead of an error. When
+ * the SRI answered that it has no record of the clave and never took the
+ * document — where a submit that died in transport leaves it — `resend_hint`
+ * says so instead, and the card asks for the resend that is the only thing
+ * that would fix it. A document the ledger says neither about shows neither
+ * banner: the card offers its levers and says nothing it cannot know.
  *
  * MARK ANNULLED (#477) is the third lever, offered only on a pending or
  * needs_attention document — where the operator may have annulled it by
@@ -135,6 +141,12 @@ export function OperatorInvoiceActions({
           <Alert variant="warning">
             <AlertTitle>{t("invoicingCheckStatusHintTitle")}</AlertTitle>
             <AlertDescription>{t("invoicingCheckStatusHint")}</AlertDescription>
+          </Alert>
+        ) : null}
+        {invoice.resend_hint ? (
+          <Alert variant="warning">
+            <AlertTitle>{t("invoicingResendHintTitle")}</AlertTitle>
+            <AlertDescription>{t("invoicingResendHint")}</AlertDescription>
           </Alert>
         ) : null}
         {error ? (

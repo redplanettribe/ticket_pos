@@ -42,19 +42,32 @@ func actionOK(t *testing.T, what string, resp *http.Response, env envelope) invo
 	return view
 }
 
-// invoiceActionView is the part of the detail #455 adds: whether the page
-// should say "the SRI has it — check status" rather than show an error.
+// invoiceActionView is the part of the detail #455 adds and #516 tightens:
+// the two hints about who holds the document. CheckStatusHint says "the SRI
+// has it — check status" and is true only when a submit came back received
+// and nothing is decided yet; ResendHint says the opposite — the SRI has no
+// record of the clave and never took it, so the fix is to send it again.
+// They are never both true.
 type invoiceActionView struct {
 	CheckStatusHint bool `json:"check_status_hint"`
+	ResendHint      bool `json:"resend_hint"`
 }
 
-func actionHint(t *testing.T, env envelope) bool {
+func actionHints(t *testing.T, env envelope) invoiceActionView {
 	t.Helper()
 	var view invoiceActionView
 	if err := json.Unmarshal(env.Data, &view); err != nil {
 		t.Fatalf("decode invoice: %v", err)
 	}
-	return view.CheckStatusHint
+	if view.CheckStatusHint && view.ResendHint {
+		t.Fatal("both hints are true: the page cannot say the SRI both has the document and has no record of it")
+	}
+	return view
+}
+
+func actionHint(t *testing.T, env envelope) bool {
+	t.Helper()
+	return actionHints(t, env).CheckStatusHint
 }
 
 // storedSignedXML reads the signed document on file through its download
@@ -229,6 +242,79 @@ func TestCheckStatusAllowedFromRejectedAndNotAuthorized(t *testing.T) {
 	view = actionOK(t, "check from not_authorized", resp, body)
 	if view.Status != "authorized" {
 		t.Fatalf("status=%q, want authorized", view.Status)
+	}
+}
+
+// TestCheckStatusUnknownClaveDecidesNothing (#514, parent #513): the SRI has
+// no record of the clave — the answer a Submit that died in transport leaves
+// behind. The check writes exactly one attempts row, outcome `unknown`,
+// sends nothing to recepción and leaves the invoice exactly where it was.
+// This document was received at recepcion first, so the SRI is still the
+// one accounting for it and the page keeps saying "check status" (#516).
+func TestCheckStatusUnknownClaveDecidesNothing(t *testing.T) {
+	env := setupTest(t)
+	sessionID := operatorSession(t, env, "operator@example.com")
+	issuerReady(t, sessionID)
+	pending := issuePending(t, sessionID)
+	before := len(pending.Attempts)
+	submitted := sriStub.receptionCount()
+
+	sriStub.setAuthorization(func(accessKey string) (int, string) {
+		return http.StatusOK, emptyAuthorizationSOAP(accessKey)
+	})
+	resp, body := checkInvoice(t, sessionID, pending.ID)
+	view := actionOK(t, "check", resp, body)
+
+	if view.Status != "pending" {
+		t.Fatalf("status=%q, want pending still", view.Status)
+	}
+	if len(view.Attempts) != before+1 {
+		t.Fatalf("attempts grew from %d to %d, want exactly one more", before, len(view.Attempts))
+	}
+	last := view.Attempts[len(view.Attempts)-1]
+	if last.Operation != "query" || last.Outcome != "unknown" {
+		t.Fatalf("new attempt = %+v, want query/unknown", last)
+	}
+	if sriStub.receptionCount() != submitted {
+		t.Fatalf("reception count=%d, want %d: a check never sends", sriStub.receptionCount(), submitted)
+	}
+	// The SRI took this one at recepcion, so it is still the SRI's to
+	// account for: the check-status hint stands and the resend hint does
+	// not (#516). Only a document no submit was ever received for is the
+	// one to send again.
+	hints := actionHints(t, body)
+	if !hints.CheckStatusHint || hints.ResendHint {
+		t.Fatalf("hints = %+v, want the check-status hint alone on a document the SRI received", hints)
+	}
+}
+
+// TestCheckStatusUnknownAfterATransportFailureAsksForAResend (#516) is the
+// ledger production invoice 001-001-000000001 actually had: the submit to
+// recepcion died before the SRI answered, and autorizacion has no record of
+// the clave. Nobody holds the document. The page must say so — the resend
+// hint, and never the check-status one, which until #516 was the only thing
+// it said and sent the operator away from the one action that would fix it.
+func TestCheckStatusUnknownAfterATransportFailureAsksForAResend(t *testing.T) {
+	env := setupTest(t)
+	sessionID := operatorSession(t, env, "operator@example.com")
+	issuerReady(t, sessionID)
+	sriStub.setReception(func(accessKey string) (int, string) { return http.StatusInternalServerError, "" })
+	pending := issueOK(t, sessionID, validInvoiceBody())
+	if pending.Status != "pending" {
+		t.Fatalf("setup: status=%q, want pending", pending.Status)
+	}
+
+	sriStub.setAuthorization(func(accessKey string) (int, string) {
+		return http.StatusOK, emptyAuthorizationSOAP(accessKey)
+	})
+	resp, body := checkInvoice(t, sessionID, pending.ID)
+	view := actionOK(t, "check", resp, body)
+	if view.Status != "pending" {
+		t.Fatalf("status=%q, want pending still", view.Status)
+	}
+	hints := actionHints(t, body)
+	if hints.CheckStatusHint || !hints.ResendHint {
+		t.Fatalf("hints = %+v, want the resend hint alone on a document the SRI never received", hints)
 	}
 }
 

@@ -133,6 +133,20 @@ const (
 	OutcomeNotAuthorized OutcomeState = "not_authorized"
 	// OutcomeRejected: the authority would not take it at all (SRI DEVUELTA).
 	OutcomeRejected OutcomeState = "rejected"
+	// OutcomeUnknown: the authority has no record of this reference. Asked
+	// about the document, it answered about nothing (SRI autorización with
+	// numeroComprobantes 0 and an empty autorizaciones list).
+	//
+	// THIS IS NOT OutcomeReceived (#514, parent #513). "Received" is the
+	// authority saying it holds the document and has not finished with it;
+	// "unknown" is it saying it never had one under this reference — which
+	// is where a submit that died in transport leaves a document, and the
+	// state the platform's first production factura sat in for a day while
+	// every surface read it as held. Like received it decides nothing about
+	// the invoice's status: the document stays pending, or needs_attention
+	// past 24 h, exactly as any undecided answer leaves it. Unlike received
+	// it is never an acknowledgement, so nothing may read it as one.
+	OutcomeUnknown OutcomeState = "unknown"
 )
 
 // Outcome is what an authority said, verbatim enough to show the operator.
