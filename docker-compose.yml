@@ -136,28 +136,64 @@ services:
       minio-init:
         condition: service_completed_successfully
 
+  # The three Node services below run as the developer, not as root (#513
+  # follow-up). They mount the repository and `next dev` writes into it —
+  # apps/*/.next, and the workspaces' node_modules/.bin shims — so running
+  # them as root leaves a tree the host cannot write: `pnpm install` and
+  # `next build` then die EACCES minutes into a run, which is what
+  # `make ci-preflight` exists to catch. UID and GID default to 1000, the
+  # `node` user in these images and the first login account on Linux;
+  # override in .env if yours differ. HOME must be set with them, because
+  # the image's own HOME is /root and npm needs a cache it can write.
+  #
+  # node-modules-owner hands the named volume over before anything uses it:
+  # Docker creates a volume root-owned whatever `user:` says, and a stack
+  # that ran as root before this change has one full of root-owned files.
+  # Recursive, once — the guard is what keeps every later `make dev` fast.
+  node-modules-owner:
+    image: alpine:3
+    # The same two values the services below take, handed to the shell that
+    # does the chown: an override in .env has to reach both or the volume is
+    # given to the wrong uid.
+    environment:
+      DEV_UID: ${DEV_UID:-1000}
+      DEV_GID: ${DEV_GID:-1000}
+    volumes:
+      - root_node_modules:/app/node_modules
+    command: >
+      sh -c "[ \"$$(stat -c %u /app/node_modules)\" = \"$${DEV_UID:-1000}\" ] ||
+      chown -R $${DEV_UID:-1000}:$${DEV_GID:-1000} /app/node_modules"
+
   install:
     image: node:26-alpine
+    user: "${DEV_UID:-1000}:${DEV_GID:-1000}"
     working_dir: /app
+    environment:
+      HOME: /home/node
     volumes:
       - .:/app
       - root_node_modules:/app/node_modules
     command: >
-      sh -c "npm install -g pnpm@9.15.4 &&
-      pnpm install"
+      sh -c "npx --yes pnpm@9.15.4 install"
+    depends_on:
+      node-modules-owner:
+        condition: service_completed_successfully
 
   storefront:
     image: node:26-alpine
+    user: "${DEV_UID:-1000}:${DEV_GID:-1000}"
     working_dir: /app
     volumes:
       - .:/app
       - root_node_modules:/app/node_modules
     command: >
-      sh -c "npm install -g pnpm@9.15.4 &&
-      pnpm --filter @ticket-pos/storefront exec next dev --hostname 0.0.0.0 --port 3000"
+      sh -c "npx --yes pnpm@9.15.4 --filter @ticket-pos/storefront exec next dev --hostname 0.0.0.0 --port 3000"
     ports:
       - "64300:3000"
     environment:
+      # Set with `user:` above: the image's HOME is /root, which the
+      # developer's uid cannot write, and npx needs a cache.
+      HOME: /home/node
       API_URL: http://backend:8080
       NEXT_PUBLIC_API_URL: http://localhost:64080
       # The PUBLISHED origin again, for the same reason the redirect URI below
@@ -186,16 +222,19 @@ services:
 
   staff:
     image: node:26-alpine
+    user: "${DEV_UID:-1000}:${DEV_GID:-1000}"
     working_dir: /app
     volumes:
       - .:/app
       - root_node_modules:/app/node_modules
     command: >
-      sh -c "npm install -g pnpm@9.15.4 &&
-      pnpm --filter @ticket-pos/staff exec next dev --hostname 0.0.0.0 --port 3001"
+      sh -c "npx --yes pnpm@9.15.4 --filter @ticket-pos/staff exec next dev --hostname 0.0.0.0 --port 3001"
     ports:
       - "64301:3001"
     environment:
+      # Set with `user:` above: the image's HOME is /root, which the
+      # developer's uid cannot write, and npx needs a cache.
+      HOME: /home/node
       API_URL: http://backend:8080
       GOOGLE_CLIENT_ID: ${GOOGLE_STAFF_CLIENT_ID:-}
       GOOGLE_REDIRECT_URI: http://localhost:64301/api/auth/google/callback
