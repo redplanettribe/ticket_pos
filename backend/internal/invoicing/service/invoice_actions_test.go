@@ -21,6 +21,10 @@ import (
 // document, resend it" — and is true when the last thing the authority said
 // was `unknown` (#514) and no Submit was ever received.
 //
+// Neither hint is shown where its action cannot be taken: both read the
+// status, and a document that is authorized, annulled or withdrawn is past
+// checking and past resending (actionable refuses both there).
+//
 // The two are mutually exclusive by construction, and this file proves it
 // over every ledger shape below: a resend hint means unacknowledged, and an
 // unacknowledged document never carries the check-status hint.
@@ -38,6 +42,7 @@ var (
 	parkedInvoice     = &invoicing.Invoice{Status: invoicing.InvoiceStatusNeedsAttention}
 	authorizedInvoice = &invoicing.Invoice{Status: invoicing.InvoiceStatusAuthorized}
 	rejectedInvoice   = &invoicing.Invoice{Status: invoicing.InvoiceStatusRejected}
+	withdrawnInvoice  = &invoicing.Invoice{Status: invoicing.InvoiceStatusWithdrawn}
 )
 
 // hintCases are the ledgers both hints are read from, each with what the page
@@ -149,6 +154,17 @@ var hintCases = []struct {
 		resendHint: false,
 	},
 	{
+		// The Sale was reversed before this document was ever taken, so it
+		// will never be sent again (ErrInvoiceWithdrawn refuses the resend):
+		// the ledger a Submit lost in transport left behind is history, and
+		// asking the operator to resend would be asking the impossible.
+		name:       "withdrawn after a lost submit",
+		inv:        withdrawnInvoice,
+		attempts:   []invoicing.Attempt{submit(invoicing.AttemptOutcomeError), query(string(invoicing.OutcomeUnknown))},
+		checkHint:  false,
+		resendHint: false,
+	},
+	{
 		// Refused at recepción: the authority never took it, and the
 		// rejection — not silence — is what the page shows.
 		name:       "rejected at recepcion",
@@ -172,7 +188,7 @@ func TestCheckStatusHint(t *testing.T) {
 func TestResendHint(t *testing.T) {
 	for _, c := range hintCases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := resendHint(c.attempts); got != c.resendHint {
+			if got := resendHint(c.inv, c.attempts); got != c.resendHint {
 				t.Fatalf("resendHint = %v, want %v", got, c.resendHint)
 			}
 		})
@@ -185,11 +201,11 @@ func TestResendHint(t *testing.T) {
 // invoice status, since the check-status hint is the only one of the two
 // that reads the status.
 func TestHintsAreMutuallyExclusive(t *testing.T) {
-	statuses := []*invoicing.Invoice{pendingInvoice, parkedInvoice, authorizedInvoice, rejectedInvoice}
+	statuses := []*invoicing.Invoice{pendingInvoice, parkedInvoice, authorizedInvoice, rejectedInvoice, withdrawnInvoice}
 	for _, c := range hintCases {
 		for _, inv := range statuses {
 			t.Run(c.name+"/"+string(inv.Status), func(t *testing.T) {
-				if checkStatusHint(inv, c.attempts) && resendHint(c.attempts) {
+				if checkStatusHint(inv, c.attempts) && resendHint(inv, c.attempts) {
 					t.Fatalf("both hints true for ledger %q at status %s", c.name, inv.Status)
 				}
 			})

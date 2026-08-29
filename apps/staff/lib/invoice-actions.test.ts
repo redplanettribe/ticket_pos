@@ -100,6 +100,14 @@ test("every surface has its words in both languages", () => {
     "invoicingAttentionNoMessages",
     "invoicingKindFilterLabel",
     "invoicingKindFilterAll",
+    // Who holds the document, said in both languages (#514, #516): the
+    // Attempts row for an answer that found no record of the clave, and the
+    // two banners that must never both be shown.
+    "invoicingAttemptOutcomeUnknown",
+    "invoicingCheckStatusHintTitle",
+    "invoicingCheckStatusHint",
+    "invoicingResendHintTitle",
+    "invoicingResendHint",
     "invoicingMarkAnnulled",
     "invoicingMarkingAnnulled",
     "invoicingMarkAnnulledConfirmTitle",

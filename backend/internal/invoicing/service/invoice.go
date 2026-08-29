@@ -352,6 +352,16 @@ func undecided(state invoicing.OutcomeState) bool {
 	return state == invoicing.OutcomeReceived || state == invoicing.OutcomeUnknown
 }
 
+// undecidedAttempt reads the same question off a row of the attempts ledger,
+// where a call that could not be made at all is written as
+// AttemptOutcomeError: that decides nothing either — the document is
+// wherever it was before the call that failed. Every reader of "has the
+// authority answered for this document yet" asks here, so a new outcome
+// word is classified once.
+func undecidedAttempt(outcome string) bool {
+	return outcome == invoicing.AttemptOutcomeError || undecided(invoicing.OutcomeState(outcome))
+}
+
 // attempt makes one call to the authority and writes it to the ledger
 // whatever happens. The ledger write is detached from the request's
 // cancellation: a budget that ran out is exactly the kind of thing the
@@ -923,7 +933,7 @@ func invoiceDetailView(row *repository.InvoiceRow) *InvoiceDetail {
 		Attempts:            []AttemptView{},
 		HasAuthorizationXML: len(inv.AuthorizationXML) > 0,
 		CheckStatusHint:     checkStatusHint(inv, row.Attempts),
-		ResendHint:          resendHint(row.Attempts),
+		ResendHint:          resendHint(inv, row.Attempts),
 		IVARate:             optional(string(inv.IVARate)),
 		CreditsInvoiceID:    optional(inv.CreditsInvoiceID),
 		CreditNoteReason:    optional(inv.CreditNoteReason),

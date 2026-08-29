@@ -559,8 +559,7 @@ func (s *Service) settleRound(ctx context.Context, id string) (invoicing.Invoice
 			// Unsignable: parked with its hourly retry already written.
 			return inv.Status, nil
 		}
-		switch row.Attempts[len(row.Attempts)-1].Outcome {
-		case string(invoicing.OutcomeReceived), string(invoicing.OutcomeUnknown), invoicing.AttemptOutcomeError:
+		if undecidedAttempt(row.Attempts[len(row.Attempts)-1].Outcome) {
 			// Past 24 h and still undecided — the authority is processing
 			// it, has no record of the clave (#514), or could not be
 			// reached: parked for the operator, and still worked. Which of

@@ -18,7 +18,7 @@ import (
 // leaves behind. The first is received, the second is unknown, and the
 // platform's Drainer and staff hints read the difference (#515, #516).
 
-func processingResponse(state string) string {
+func authorizationResponse(state string) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><ns2:autorizacionComprobanteResponse xmlns:ns2="http://ec.gob.sri.ws.autorizacion"><RespuestaAutorizacionComprobante><claveAccesoConsultada>x</claveAccesoConsultada><numeroComprobantes>1</numeroComprobantes><autorizaciones><autorizacion><estado>%s</estado><fechaAutorizacion></fechaAutorizacion><ambiente>PRUEBAS</ambiente><comprobante><![CDATA[<factura/>]]></comprobante><mensajes/></autorizacion></autorizaciones></RespuestaAutorizacionComprobante></ns2:autorizacionComprobanteResponse></soap:Body></soap:Envelope>`, state)
 }
 
@@ -51,7 +51,7 @@ func TestQueryOutcomeUnknownWhenNothingIsKnown(t *testing.T) {
 func TestQueryOutcomeInProcessingIsReceived(t *testing.T) {
 	for _, state := range []string{"EN PROCESO", "EN PROCESAMIENTO"} {
 		t.Run(state, func(t *testing.T) {
-			a := authorityAgainst(t, processingResponse(state))
+			a := authorityAgainst(t, authorizationResponse(state))
 
 			outcome, err := a.QueryOutcome(context.Background(), "x")
 			if err != nil {
@@ -76,12 +76,27 @@ func TestQueryOutcomeDefiniteAnswers(t *testing.T) {
 		t.Fatalf("outcome = %+v, want authorized with its number and XML", outcome)
 	}
 
-	a = authorityAgainst(t, notAuthorizedResponse)
+	a = authorityAgainst(t, authorizationResponse("NO AUTORIZADO"))
 	outcome, err = a.QueryOutcome(context.Background(), "x")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The fixture's last entry is EN PROCESO, and only the last is read.
+	if outcome.State != invoicing.OutcomeNotAuthorized {
+		t.Fatalf("state = %q, want %q", outcome.State, invoicing.OutcomeNotAuthorized)
+	}
+}
+
+// TestQueryOutcomeReadsTheLastEntryOnly: for a document sent several times
+// the SRI reports every autorizacion it has, and only the last states where
+// the document now stands (Ficha §5.11). The fixture ends on EN PROCESO
+// after a NO AUTORIZADO, so the answer is received: the refusal is history.
+func TestQueryOutcomeReadsTheLastEntryOnly(t *testing.T) {
+	a := authorityAgainst(t, notAuthorizedResponse)
+
+	outcome, err := a.QueryOutcome(context.Background(), "x")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if outcome.State != invoicing.OutcomeReceived {
 		t.Fatalf("state = %q, want the last entry's %q", outcome.State, invoicing.OutcomeReceived)
 	}

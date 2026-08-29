@@ -250,24 +250,7 @@ func checkStatusHint(inv *invoicing.Invoice, attempts []invoicing.Attempt) bool 
 	if !invoicing.AcknowledgedByAuthority(attempts) {
 		return false
 	}
-	return !decidedBy(attempts[len(attempts)-1].Outcome)
-}
-
-// decidedBy reports whether an attempts-ledger outcome is the authority
-// deciding the document's fate rather than describing where it is. A failed
-// call (AttemptOutcomeError) decides nothing: the document is wherever it
-// was before the call that could not be made.
-//
-// Only the ledger's last row is read for this, because a decision can be
-// undone by what happens next: a refused document that is resent and taken
-// again is back to being the authority's to answer for.
-func decidedBy(outcome string) bool {
-	switch invoicing.OutcomeState(outcome) {
-	case invoicing.OutcomeAuthorized, invoicing.OutcomeNotAuthorized, invoicing.OutcomeRejected:
-		return true
-	default:
-		return false
-	}
+	return undecidedAttempt(attempts[len(attempts)-1].Outcome)
 }
 
 // resendHint says whether the page should tell the operator "the SRI has no
@@ -284,8 +267,18 @@ func decidedBy(outcome string) bool {
 // The latest attempt is what is read, not any attempt, because an `unknown`
 // answered before a later Submit or a later decision is history: the page
 // speaks about where the document is now.
-func resendHint(attempts []invoicing.Attempt) bool {
+//
+// A hint is only worth showing where the action behind it can be taken, so
+// this reads the status for the same reason checkStatusHint does: a
+// withdrawn or annulled document may carry the ledger of a Submit that died
+// in transport, and asking for a resend the service would refuse
+// (ErrInvoiceWithdrawn, ErrInvoiceAnnulled) is telling the operator to do
+// something impossible.
+func resendHint(inv *invoicing.Invoice, attempts []invoicing.Attempt) bool {
 	if len(attempts) == 0 {
+		return false
+	}
+	if inv.Status != invoicing.InvoiceStatusPending && inv.Status != invoicing.InvoiceStatusNeedsAttention {
 		return false
 	}
 	if invoicing.AcknowledgedByAuthority(attempts) {
