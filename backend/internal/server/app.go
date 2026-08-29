@@ -569,6 +569,11 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// operator could designate a House Organization whose sales owe nothing —
 	// or the reverse — is a deployment declaring sales, or not, by accident.
 	invoicingService = invoicingService.WithSaleInvoicingEnabled(cfg.SaleInvoicingEnabled)
+	// The Sale Invoice Backfill (#508, ADR 0064) describes an existing sale
+	// through the sales module's reader, the checkout's own snapshot read
+	// back; pointing from invoicing to sales, the SaleInvoicer seam's mirror.
+	// Tied on whatever the flag says — the act itself is gated by it.
+	invoicingService = invoicingService.WithPaidOnlineSaleReader(salesRepo)
 	if !cfg.SaleInvoicingEnabled {
 		platformLogger.Warn("invoicing: SALE_INVOICING_ENABLED is closed; no House designation, no Sale Invoice owed, no drain — manual Tax Invoices serve as before")
 	}

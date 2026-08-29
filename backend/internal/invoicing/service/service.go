@@ -47,6 +47,9 @@ type Service struct {
 	// 0060). Closed, the Drainer's endpoint answers 404 and works nothing;
 	// the manual Tax Invoices, the Issuer and every read serve as before.
 	saleInvoicingEnabled bool
+	// paidOnlineSales is the sales module's reader a Sale Invoice Backfill
+	// describes an existing sale through (#508, ADR 0064); nil when unwired.
+	paidOnlineSales PaidOnlineSaleReader
 }
 
 // New builds the invoicing Service. custody may be unconfigured (built over a

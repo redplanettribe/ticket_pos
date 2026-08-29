@@ -92,7 +92,8 @@ platform certifies.
 - A House Organization's Platform Fee, Fee IVA, Net Proceeds, Withdrawable Balance and Payouts still
   compute; they describe money that never leaves the house, and a manual fee Tax Invoice to a House
   Organization would be the platform billing itself.
-- Designation affects future sales only. Nothing is issued retroactively and nothing owed is withdrawn
+- Designation affects future sales only, automatically; a past sale is invoiced only by an operator's
+  Sale Invoice Backfill (ADR 0064). Nothing owed is withdrawn
   when an Organization is undesignated.
 - The whole feature ships behind `SALE_INVOICING_ENABLED`, closed, on ADR 0045's terms for a flag:
   closed, no Organization can be designated House, no sale owes a document, no reversal owes a Credit

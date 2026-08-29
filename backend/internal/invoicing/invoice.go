@@ -248,6 +248,14 @@ type Invoice struct {
 	ReissuedAt            *time.Time
 	ReissueNote           string
 
+	// The Sale Invoice Backfill's trail (#508, ADR 0064): on a Sale Invoice
+	// a Platform Operator owed to an Uninvoiced House Sale, who and when.
+	// "" and nil on a document born at checkout, and on every other kind.
+	// Only its birth differs: from the moment it is owed the document is
+	// drained, delivered, credited and reissued like any Sale Invoice.
+	BackfilledBy string
+	BackfilledAt *time.Time
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

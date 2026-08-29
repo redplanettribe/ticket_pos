@@ -73,6 +73,32 @@ type EnvelopeRecipientWarningCount struct {
 	RequestID string                        `json:"request_id"`
 }
 
+// EnvelopeUninvoicedHouseSaleList documents GET
+// /operator/invoicing/uninvoiced-sales success responses: the ADR-0006
+// nested envelope inside the standard one (#507).
+type EnvelopeUninvoicedHouseSaleList struct {
+	Data      service.UninvoicedHouseSaleList `json:"data"`
+	Error     *platform.APIError              `json:"error"`
+	RequestID string                          `json:"request_id"`
+}
+
+// EnvelopeUninvoicedHouseSaleCount documents GET
+// /operator/invoicing/uninvoiced-sales/count success responses (#507).
+type EnvelopeUninvoicedHouseSaleCount struct {
+	Data      service.UninvoicedHouseSaleCount `json:"data"`
+	Error     *platform.APIError               `json:"error"`
+	RequestID string                           `json:"request_id"`
+}
+
+// EnvelopeSaleInvoiceBackfillResult documents POST
+// /operator/invoicing/uninvoiced-sales/backfill success responses: the
+// owed and refused sales, in request order (#508).
+type EnvelopeSaleInvoiceBackfillResult struct {
+	Data      service.SaleInvoiceBackfillResult `json:"data"`
+	Error     *platform.APIError                `json:"error"`
+	RequestID string                            `json:"request_id"`
+}
+
 // EnvelopeCustomerDocuments documents GET
 // /customer/ticket-sales/{ticketSaleId}/tax-documents success responses: the
 // Sale's documents in the buyer's words, an empty list when it owes none.

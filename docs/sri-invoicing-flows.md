@@ -229,7 +229,7 @@ flowchart LR
 | # | Flow | Status | Proof | Note |
 |---|---|---|---|---|
 | 1 | Paid Online Sale of a House Event → Sale Invoice owed in the Sale's own transaction, immediate attempt after commit | **Built** | `B/sales/repository/payments.go:660` → `B/invoicing/service/saleinvoice.go:37` `OwePaidOnlineSale`; kick `B/sales/service/service.go:642` | Row is `owed` with `next_attempt_at = now`; the kick drains that Sale only. |
-| 2 | Sale of a non-House Organization | **Ruled out** (ADR 0060) | `B/sales/repository/payments.go:697` `isHouseOrganization` | Designating an Organization House later affects future Sales only; nothing retroactive. |
+| 2 | Sale of a non-House Organization | **Ruled out** (ADR 0060) | `B/sales/repository/payments.go:697` `isHouseOrganization` | Designating an Organization House later affects future Sales only; a past sale is invoiced only by an operator's Sale Invoice Backfill (ADR 0064). |
 | 3 | Free / zero-total Sale (ADR 0017) | **Ruled out** (ADR 0060) | `payments.go:660` (`AmountCents > 0`) | Whether the SRI accepts a USD 0 factura is unverified. |
 | 4 | Manually Recorded Sale / Sale Import (ADR 0050/0052) | **Ruled out** (ADR 0060, "deliberate and visible") | `B/sales/service/service.go:617` | The seam is only wired on online approval. A row without a Tax ID would have to be consumidor final — irreversible. |
 | 5 | `SALE_INVOICING_ENABLED` closed | **Built** | `B/server/app.go:576`; `B/invoicing/service/drainer.go:196` | Seam not tied → no owed rows at all; drain endpoint answers `SALE_INVOICING_UNAVAILABLE`. Rows owed before a close simply wait. |

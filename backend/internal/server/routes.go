@@ -299,6 +299,16 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// the needs_attention one; the documents themselves are the invoicing
 	// list under its recipient_warning filter.
 	mux.Handle("GET /api/v1/operator/invoicing/recipient-warnings/count", operator(http.HandlerFunc(inv.CountRecipientWarnings)))
+	// The Uninvoiced House Sales (#507, ADR 0064): the backlog a Sale
+	// Invoice Backfill works from, oldest sale first, and its count. The
+	// first operator surface listing Ticket Sales — read-only, House-scoped,
+	// and 404 while Sale Invoicing is closed.
+	mux.Handle("GET /api/v1/operator/invoicing/uninvoiced-sales", operator(http.HandlerFunc(inv.ListUninvoicedHouseSales)))
+	mux.Handle("GET /api/v1/operator/invoicing/uninvoiced-sales/count", operator(http.HandlerFunc(inv.CountUninvoicedHouseSales)))
+	// The Sale Invoice Backfill (#508, ADR 0064): the act that owes each
+	// selected Uninvoiced House Sale an ordinary Sale Invoice, dated today,
+	// one transaction per sale, then one Drainer kick.
+	mux.Handle("POST /api/v1/operator/invoicing/uninvoiced-sales/backfill", operator(http.HandlerFunc(inv.BackfillSaleInvoices)))
 	// The documents handed over (#456): the signed XML in every status, the
 	// SRI's authorization XML only once authorized, and the RIDE (#494, ADR
 	// 0062), rendered on each request and likewise only once authorized.

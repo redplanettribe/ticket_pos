@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -35,24 +36,42 @@ import (
 
 // OwePaidOnlineSale implements the sales module's SaleInvoicer seam.
 func (s *Service) OwePaidOnlineSale(ctx context.Context, tx *sql.Tx, sale sales.PaidOnlineSale) error {
+	_, err := s.owePaidOnlineSale(ctx, tx, sale, nil)
+	return err
+}
+
+// owePaidOnlineSale is the one place a Sale Invoice is owed to a paid
+// Online Sale: by the checkout's own transaction (stamp nil) and by a Sale
+// Invoice Backfill (#508), which stamps the operator's trail on the row
+// before it is written. Returns the new document's id.
+func (s *Service) owePaidOnlineSale(ctx context.Context, tx *sql.Tx, sale sales.PaidOnlineSale, stamp func(*invoicing.Invoice)) (string, error) {
 	inv, err := saleInvoiceOf(sale, s.clock())
 	if err != nil {
-		return err
+		return "", err
+	}
+	if stamp != nil {
+		stamp(&inv)
 	}
 	id, err := s.repo.OweInvoice(ctx, tx, inv)
 	if err != nil {
-		return err
+		return "", err
 	}
 	// Counts and states only: no buyer, no address, no Sale (#471 story 35).
-	s.logger.Info("invoicing: sale invoice owed", "invoice_id", id, "lines", len(inv.Lines), "total_cents", inv.TotalCents)
-	return nil
+	s.logger.Info("invoicing: sale invoice owed", "invoice_id", id, "lines", len(inv.Lines), "total_cents", inv.TotalCents, "backfilled", inv.BackfilledAt != nil)
+	return id, nil
 }
+
+// errUnsupportedSale marks the builder's own refusals — a sale the platform
+// cannot invoice as it was transacted — apart from a database failure: the
+// checkout fails its commit on either, but a Sale Invoice Backfill (#508)
+// reports the first as `unsupported_sale` and treats the second as an error.
+var errUnsupportedSale = errors.New("invoicing: the sale cannot be invoiced as transacted")
 
 // saleInvoiceOf builds the owed document from the sale as the commit
 // described it. Pure, so the arithmetic is testable without a database.
 func saleInvoiceOf(sale sales.PaidOnlineSale, now time.Time) (invoicing.Invoice, error) {
 	if len(sale.Lines) == 0 {
-		return invoicing.Invoice{}, fmt.Errorf("invoicing: sale %s has no lines to invoice", sale.TicketSaleID)
+		return invoicing.Invoice{}, fmt.Errorf("%w: sale %s has no lines to invoice", errUnsupportedSale, sale.TicketSaleID)
 	}
 	code, err := sri.IVACodeFor(invoicing.SaleInvoiceIVARate)
 	if err != nil {
@@ -101,7 +120,7 @@ func saleInvoiceOf(sale sales.PaidOnlineSale, now time.Time) (invoicing.Invoice,
 	if total != int64(sale.AmountCents) {
 		// The lines and the Payment disagree about what was charged, which
 		// no document may paper over.
-		return invoicing.Invoice{}, fmt.Errorf("invoicing: sale %s lines sum to %d cents but the payment was %d", sale.TicketSaleID, total, sale.AmountCents)
+		return invoicing.Invoice{}, fmt.Errorf("%w: sale %s lines sum to %d cents but the payment was %d", errUnsupportedSale, sale.TicketSaleID, total, sale.AmountCents)
 	}
 	return inv, nil
 }

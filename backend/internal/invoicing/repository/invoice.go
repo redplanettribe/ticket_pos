@@ -173,12 +173,14 @@ func (r *Repository) OweInvoice(ctx context.Context, tx *sql.Tx, inv invoicing.I
 			 recipient_tax_id_type, recipient_tax_id, recipient_legal_name, recipient_address, recipient_email,
 			 currency, subtotal_cents, discount_cents, iva_cents, total_cents, payment_method,
 			 next_attempt_at, last_messages,
-			 supersedes_invoice_id, reissued_by, reissued_at, reissue_note)
+			 supersedes_invoice_id, reissued_by, reissued_at, reissue_note,
+			 backfilled_by, backfilled_at)
 		VALUES ($1, $2, $3, $4, NULLIF($5, '')::uuid, NULLIF($6, ''), $7,
 		        $8, $9, $10, $11, $12,
 		        $13, $14, $15, $16, $17, $18,
 		        $19, '[]'::jsonb,
-		        NULLIF($20, '')::uuid, NULLIF($21, ''), $22, NULLIF($23, ''))
+		        NULLIF($20, '')::uuid, NULLIF($21, ''), $22, NULLIF($23, ''),
+		        NULLIF($24, ''), $25)
 		RETURNING id
 	`,
 		inv.Kind, inv.Country, invoicing.InvoiceStatusOwed, inv.TicketSaleID, inv.CreditsInvoiceID, inv.CreditNoteReason, inv.IVARate,
@@ -186,6 +188,7 @@ func (r *Repository) OweInvoice(ctx context.Context, tx *sql.Tx, inv invoicing.I
 		inv.Currency, inv.SubtotalCents, inv.DiscountCents, inv.IVACents, inv.TotalCents, inv.PaymentMethod,
 		inv.NextAttemptAt,
 		inv.SupersedesInvoiceID, inv.ReissuedBy, inv.ReissuedAt, inv.ReissueNote,
+		inv.BackfilledBy, inv.BackfilledAt,
 	).Scan(&id); err != nil {
 		return "", fmt.Errorf("owe invoice: %w", err)
 	}
@@ -433,6 +436,7 @@ const invoiceColumns = `
 	i.supersedes_invoice_id,
 	(SELECT s.id FROM invoicing_invoices s WHERE s.supersedes_invoice_id = i.id AND s.status <> 'withdrawn' ORDER BY s.created_at DESC, s.id DESC LIMIT 1),
 	rr.reissued_by, rr.reissued_at, rr.reissue_note,
+	i.backfilled_by, i.backfilled_at,
 	i.created_at, i.updated_at,
 	e.cod_doc, e.estab, e.pto_emi, e.secuencial, e.access_key, e.authorization_number, e.authorization_date`
 
@@ -701,6 +705,8 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 		supersedesID, supersededByID       sql.NullString
 		reissuedBy, reissueNote            sql.NullString
 		reissuedAt                         sql.NullTime
+		backfilledBy                       sql.NullString
+		backfilledAt                       sql.NullTime
 		codDoc, estab, ptoEmi, accessKey   sql.NullString
 		secuencial                         sql.NullInt64
 		authNumber                         sql.NullString
@@ -715,6 +721,7 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 		&creditedByInvoiceID,
 		&attentionSince, &annulledBy, &annulledAt, &inv.RecipientWarning,
 		&supersedesID, &supersededByID, &reissuedBy, &reissuedAt, &reissueNote,
+		&backfilledBy, &backfilledAt,
 		&inv.CreatedAt, &inv.UpdatedAt,
 		&codDoc, &estab, &ptoEmi, &secuencial, &accessKey, &authNumber, &authDate,
 	); err != nil {
@@ -764,6 +771,11 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 	if reissuedAt.Valid {
 		t := reissuedAt.Time
 		inv.ReissuedAt = &t
+	}
+	inv.BackfilledBy = backfilledBy.String
+	if backfilledAt.Valid {
+		t := backfilledAt.Time
+		inv.BackfilledAt = &t
 	}
 	if accessKey.Valid {
 		row.Ecuador = &invoicing.EcuadorInvoiceDetails{
