@@ -28,12 +28,23 @@ export default async function SalesHolderListPage({ params }: HolderListPageProp
   const session = await loadSession();
   const role = session?.active_member?.role;
 
-  // Org Admins alone, which is the gate the API puts on every Ticket Question
-  // and Answer route — narrower than the Event's money surfaces, which also
-  // admit an Event Owner. The tab strip hides the tab from everybody else, so
-  // this guard is for the URL somebody was sent or bookmarked. A redirect to
-  // the list rather than a refusal, the way Record and Trends answer it.
-  if (role !== "org_admin") {
+  // The Org Admin and the Event Owner, which is the gate the API now puts on
+  // the read (#521, ADR 0065) and the one the Event's money surfaces have
+  // always carried. It used to be Org Admins alone, inherited from the Ticket
+  // Question routes the list grew out of, while the Sales Export next door
+  // already handed an Event Owner the same Holders' names and addresses in a
+  // file — a narrower gate on the screen than on the download of it.
+  //
+  // EVENT STAFF ARE STILL SENT AWAY. They are Members of the Event and reach
+  // the Sales list beneath this redirect; the roster is not theirs, and if this
+  // condition ever becomes a truthiness check on `role` that is what breaks.
+  //
+  // The tab strip hides the tab from everybody it is not for, so this guard is
+  // only ever met by a URL somebody was sent or bookmarked — which is why it
+  // REDIRECTS to the list rather than refusing, the way Record and Trends
+  // answer the same URL. The API refuses independently; nothing here is the
+  // security boundary.
+  if (role !== "org_admin" && role !== "event_owner") {
     redirect(`/events/${id}/sales`);
   }
 

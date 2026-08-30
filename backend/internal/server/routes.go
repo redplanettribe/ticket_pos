@@ -983,11 +983,32 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// Reversal drops a whole sale out of the roster without anything having to
 	// sweep.
 	//
-	// Same `orgAdmin` gate as every route above. Its 404-while-dark is its own:
-	// the service answers only when EITHER TICKET_ASSIGNMENT_ENABLED or
-	// TICKET_QUESTIONS_ENABLED is open (#333), because an Organization that
-	// assigns tickets and asks nothing still has a Holder List.
-	holderList := orgAdmin(http.HandlerFunc(ch.ListHolderList))
+	// OPEN TO AN EVENT OWNER, NOT ONLY AN ORG ADMIN (#521, ADR 0065). This is a
+	// DELIBERATE WIDENING OF ACCESS TO PERSONAL DATA — the platform's densest
+	// concentration of it — made here and recorded in the ADR rather than left
+	// to be discovered in an audit.
+	//
+	// It takes `eventOwnerOrAdmin`, the same gate the Sales Export below
+	// carries, and that is the whole argument: the Sales Export's per-Ticket
+	// sheet ALREADY emits this Event's assignment states and its accepted
+	// Holders' names and addresses to an Event Owner. So the `orgAdmin` gate
+	// that stood here held nothing in — an Event Owner could not open the
+	// roster and could already download its contents. That gate was never a
+	// judgement about roster data either; it was inherited from the Ticket
+	// Questions routes above, which this list grew out of. One rule for holder
+	// data, matching the glossary's "an Event Owner is equivalent in scope to
+	// an Org Admin within that Event".
+	//
+	// WHAT IT STILL REFUSES, deliberately: Event Staff, who are Members of the
+	// Event and are refused this read exactly as before. They work the door;
+	// they get the Sales list and no roster, and that line does not move. If
+	// this is ever widened to `member`, ADR 0065 is what has to be reopened.
+	//
+	// Its 404-while-dark is its own: the service answers only when EITHER
+	// TICKET_ASSIGNMENT_ENABLED or TICKET_QUESTIONS_ENABLED is open (#333),
+	// because an Organization that assigns tickets and asks nothing still has a
+	// Holder List.
+	holderList := eventOwnerOrAdmin(http.HandlerFunc(ch.ListHolderList))
 	mux.Handle("GET /api/v1/staff/events/{id}/holder-list", holderList)
 	// THE OLD PATH, ALIASED FOR ONE RELEASE, THEN DELETED (#519 → #531).
 	// The staff app and the API deploy separately, so there is a window in
@@ -998,7 +1019,12 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// THE SAME HANDLER VALUE and not a second registration of the same
 	// function, so the alias cannot drift: there is one gate, one handler and
 	// one behaviour, and the only difference between the two addresses is the
-	// address. It is deliberately NOT documented in the OpenAPI spec — a
+	// address. That is why #521's widening to `eventOwnerOrAdmin` needed no
+	// edit here and cannot have been applied to one address and not the other —
+	// re-registering `ch.ListHolderList` below instead of reusing this value
+	// would give the alias a gate of its own to fall out of step with, which is
+	// exactly the drift the shared value exists to make impossible. It is
+	// deliberately NOT documented in the OpenAPI spec — a
 	// generated client that learns this path would outlive the shim it exists
 	// to cover, and every caller that matters is already being moved to the
 	// new one. Delete this line, not the one above it (#531).

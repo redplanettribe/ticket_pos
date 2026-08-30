@@ -49,13 +49,16 @@ export type SalesNavEntry = {
  * The Holder List (#469) is the fourth and last tab, and it followed the same
  * road out of the Event panel: the roster is a reading of the sales exactly as
  * the chart is — who those sales seat. It takes a flag of its own rather than
- * riding `fullAccess`, for the two reasons `eventNavItems` used to give: its
- * route is gated to Org Admins alone — narrower than `fullAccess`, which also
- * admits an Event Owner — and the surface exists only while EITHER Ticket
- * Assignment or Ticket Questions is open, two features that ship dark
- * (ADR 0045). Both facts are the caller's to establish, because only the caller
- * holds the Event payload the flags arrive on and the Member's actual role;
- * this module keeps only the decision that the entry exists and where it sits.
+ * riding `fullAccess`, and since #521 for ONE reason rather than two: the
+ * surface exists only while EITHER Ticket Assignment or Ticket Questions is
+ * open, two features that ship dark (ADR 0045), so a tab drawn off the role
+ * alone would 404 on most Events and would admit a feature is there before the
+ * Privacy Policy describes it. Its AUDIENCE no longer differs — ADR 0065 opened
+ * the read to the Event Owner, so the caller passes `fullAccess && the flag`
+ * where it used to narrow the role first. That is the caller's to establish,
+ * because only the caller holds the Event payload the flags arrive on and the
+ * Member's actual role; this module keeps only the decision that the entry
+ * exists and where it sits.
  */
 export function salesNavItems({
   eventId,
@@ -67,9 +70,10 @@ export function salesNavItems({
   fullAccess: boolean;
   /**
    * Whether this reader may see the Event's Holder List: Ticket Assignment or
-   * Ticket Questions is on AND they are an Org Admin. Defaults to false, so a
-   * caller that has not thought about it gets the dark state the features ship
-   * in rather than a tab that 404s.
+   * Ticket Questions is on AND they have full access — an Org Admin or, since
+   * #521, an Event Owner, never Event Staff. Defaults to false, so a caller
+   * that has not thought about it gets the dark state the features ship in
+   * rather than a tab that 404s.
    */
   holderList?: boolean;
 }): SalesNavEntry[] {

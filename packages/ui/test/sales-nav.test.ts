@@ -80,12 +80,14 @@ test("the Holder List is absent until it is asked for", () => {
   assert.ok(!keysFor(true, false).includes("holderList"));
 });
 
-// It takes a flag of its OWN rather than riding fullAccess, because its route is
-// gated to Org Admins alone — narrower than fullAccess, which also admits an
-// Event Owner, who therefore sees three tabs beside their Org Admin colleague's
-// four — and because both features can be dark for everybody. The caller
-// establishes both facts; this module only places the entry, and places it
-// last: after every reading of what was sold, who is coming on it.
+// It takes a flag of its OWN rather than riding fullAccess, and since #521 for
+// one reason rather than two: both features can be dark for everybody, so an
+// Org Admin on an Event with neither is offered three tabs and not four. Its
+// AUDIENCE is no longer the narrow half of that — ADR 0065 opened the read to
+// the Event Owner, so the caller now passes fullAccess && the flag rather than
+// checking for an Org Admin first. The caller establishes it either way; this
+// module only places the entry, and places it last: after every reading of what
+// was sold, who is coming on it.
 test("the Holder List is offered last when asked for", () => {
   assert.deepEqual(keysFor(true, true), ["sales", "record", "trends", "holderList"]);
 });

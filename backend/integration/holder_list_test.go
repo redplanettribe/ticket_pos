@@ -629,9 +629,15 @@ func TestOutstandingAnswersFollowTheTicketType(t *testing.T) {
 	}
 }
 
-// The surface is scoped to the Organization and gated exactly as its siblings
-// are: another Organization cannot see it, and `event_staff` is refused every
-// catalog verb on this platform today.
+// The surface is scoped to the Organization: another Organization cannot see
+// it at all, and asking for one it does not own is a 404 rather than a 403 —
+// the Event is not hidden behind a refusal, it does not exist for that reader.
+//
+// The `event_staff` refusal is asserted here too, and again beside the Event
+// Owner in TestTheHolderListReadIsForTheOrgAdminAndTheEventOwner below. That
+// repetition is deliberate: this test's subject is the Organization boundary
+// and that one's is the role gate, and the door staff refusal is the clause
+// #521 was most likely to take away by accident.
 func TestOutstandingAnswersAreScopedAndGated(t *testing.T) {
 	env := setupTest(t)
 	enableTicketQuestions(t)
@@ -658,6 +664,89 @@ func TestOutstandingAnswersAreScopedAndGated(t *testing.T) {
 	resp, body = env.get(t, holderListPath(eventID), authHeader(staffSessionID))
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("status=%d, want 403 for event_staff; error=%+v", resp.StatusCode, body.Error)
+	}
+}
+
+// THE READ IS FOR THE ORG ADMIN AND THE EVENT OWNER, AND FOR NOBODY ELSE
+// (#521, ADR 0065).
+//
+// All three roles in one test, because the decision is the SHAPE of the gate
+// and not any one of its three answers: an Org Admin still reads it, an Event
+// Owner now reads it, and Event Staff are still refused. Split across three
+// tests, deleting the middle one would look like removing a feature's test
+// rather than reverting a permissions decision.
+//
+// WHY IT WIDENED. The Sales Export next door already emits this Event's
+// assignment states and its accepted Holders' names and addresses to an Event
+// Owner, so the `orgAdmin` gate that stood here held nothing in — it was
+// inherited from the Ticket Question routes the list grew out of, not chosen
+// for roster data. This is a deliberate widening of access to personal data.
+//
+// WHY IT STOPS THERE. Event Staff are Members of the Event and read the Sales
+// list, so their refusal is not a side effect of the auth stack — it is the
+// line ADR 0065 draws, and this is what holds it. If a future change makes this
+// route `member`, this test fails, which is the point.
+//
+// The Event Owner's read is asserted on the BODY and not the status alone: a
+// gate that admits somebody to an empty list has widened the door and not the
+// disclosure, and it is the roster this ticket promised them.
+func TestTheHolderListReadIsForTheOrgAdminAndTheEventOwner(t *testing.T) {
+	env := setupTest(t)
+	enableTicketQuestions(t)
+	adminSession, eventID, ticketTypeID, _, _, _ := answeredFixture(t, env)
+	createTicketQuestion(t, env, adminSession, eventID, ticketTypeID, map[string]any{
+		"label": "T-shirt size", "kind": "short_text", "required": true,
+	})
+
+	// addMember mints a colleague of this Organization at the given role and
+	// signs them in, exactly as the Sales Export's access test does.
+	addMember := func(email, role string) string {
+		t.Helper()
+		resp, body := env.post(t, "/api/v1/staff/members", map[string]string{
+			"email": email,
+			"role":  role,
+		}, authHeader(adminSession))
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("add %s status=%d error=%+v", role, resp.StatusCode, body.Error)
+		}
+		return verifyOTP(t, env, email)
+	}
+
+	// THE ORG ADMIN, UNCHANGED. Read first, so the rows the Event Owner is
+	// compared against are a fact of this Event and not of this test.
+	adminPage := listOutstanding(t, env, adminSession, eventID)
+	if adminPage.Pagination.Total == 0 {
+		t.Fatal("the Org Admin's Holder List is empty; this test cannot tell a widened gate from an empty roster")
+	}
+
+	// THE EVENT OWNER, NEWLY ADMITTED.
+	ownerSession := addMember("owner@example.com", "event_owner")
+	resp, body := env.get(t, holderListPath(eventID), authHeader(ownerSession))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event owner status=%d, want 200; error=%+v", resp.StatusCode, body.Error)
+	}
+	ownerPage := decodeOutstanding(t, body.Data)
+	if ownerPage.Pagination.Total != adminPage.Pagination.Total {
+		t.Errorf("event owner sees %d Tickets where the Org Admin sees %d — the same roster, or the gate widened onto a different list",
+			ownerPage.Pagination.Total, adminPage.Pagination.Total)
+	}
+	if ownerPage.OutstandingCount != adminPage.OutstandingCount {
+		t.Errorf("event owner is told of %d debts where the Org Admin is told of %d",
+			ownerPage.OutstandingCount, adminPage.OutstandingCount)
+	}
+
+	// EVENT STAFF, STILL REFUSED — and refused a 403 rather than a 404, because
+	// this Event is theirs to see; the roster on it is not.
+	doorSession := addMember("doorstaff@example.com", "event_staff")
+	resp, body = env.get(t, holderListPath(eventID), authHeader(doorSession))
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("event staff status=%d, want 403; error=%+v", resp.StatusCode, body.Error)
+	}
+	// And the refusal is of the roster alone: the Sales list they work from is
+	// untouched by it, the same pair of facts the Sales Export's access test
+	// asserts one tab over.
+	if resp, body := env.get(t, "/api/v1/staff/events/"+eventID+"/sales", authHeader(doorSession)); resp.StatusCode != http.StatusOK {
+		t.Fatalf("event staff sales list status=%d error=%+v", resp.StatusCode, body.Error)
 	}
 }
 

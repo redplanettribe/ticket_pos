@@ -12968,7 +12968,11 @@ paths:
         never asked — each row carries its `channel` so that reads as history rather
         than as loss. Started Events still report the whole roster and its debts,
         because "who came and who never told us" is what a reader after the fact came
-        to find out.'
+        to find out. Org Admin and Event Owner only (#521, ADR 0065): one rule for
+        holder data, the same gate the Sales Export carries — its per-Ticket sheet
+        already emits this Event''s accepted Holders'' names and addresses to an Event
+        Owner. Event Staff are refused; they work the door, and this is the platform''s
+        densest concentration of attendee personal data.'
       parameters:
       - description: Event ID
         in: path
