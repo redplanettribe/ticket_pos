@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { useRouter } from "next/navigation";
+
 import { toAppLocale } from "@ticket-pos/locale";
 import {
   Alert,
@@ -21,15 +23,21 @@ import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { formatDate, formatNumber } from "@/lib/format";
 import {
+  EMPTY_HOLDER_LIST_FILTERS,
   SALES_CHANNEL_KEYS,
   buyerName,
   fetchHolderList,
+  hasActiveHolderListFilters,
   holderBadgeVariant,
+  holderListQuery,
   holderListVisible,
   holderName,
   holderStateKey,
   questionsVisible,
+  type HolderListFilters,
   type HolderListPage,
+  type HolderSortDir,
+  type HolderSortField,
   type HolderTicket,
 } from "@/lib/holder-list";
 
@@ -37,6 +45,16 @@ import { TicketAnswersDialog } from "./ticket-answers-dialog";
 
 type HolderListSectionProps = {
   eventId: string;
+  /*
+    THE VIEW, READ OFF THE URL BY THE PAGE AND HANDED DOWN (#522, ADR 0065).
+    Props and not state: this component navigates to change the view and
+    re-renders with the new props, which is what makes the view shareable and
+    the back button work.
+  */
+  page: number;
+  filters: HolderListFilters;
+  sort: HolderSortField;
+  dir: HolderSortDir;
   /** The Event's timezone, so a sale date reads where the Event is. */
   timezone: string | null;
 };
@@ -65,7 +83,14 @@ type HolderListSectionProps = {
  * anywhere means no Holder column, and no `outstanding_count` means no Owes
  * column, no debt summary and no filter.
  */
-export function HolderListSection({ eventId, timezone }: HolderListSectionProps) {
+export function HolderListSection({
+  eventId,
+  page,
+  filters,
+  sort,
+  dir,
+  timezone,
+}: HolderListSectionProps) {
   /*
     THE MESSAGE NAMESPACE KEEPS THE OLD NAME while the file, the module and the
     route were renamed to the Holder List (#519, ADR 0065). A namespace is not
@@ -80,14 +105,46 @@ export function HolderListSection({ eventId, timezone }: HolderListSectionProps)
   const errorCopy = useMessages().errors;
   const locale = toAppLocale(useLocale());
 
-  const [page, setPage] = useState(1);
+  const router = useRouter();
+
   /*
-    The Outstanding Answers filter: the roster narrowed to the Tickets that
-    still owe. Held here rather than in the URL because it is a working view of
-    one sitting — the chase — and the page resets with it, since page 3 of the
-    roster names nothing about page 3 of the owing.
+    THE VIEW LIVES IN THE URL, AND NOT IN THIS COMPONENT (#522, ADR 0065).
+
+    It used to be `useState`, defended as a working view of one sitting. That
+    held while `outstanding` was the only control and stops holding at seven
+    filters plus a sort: a view held here cannot be sent to a colleague, cannot
+    be bookmarked, and cannot be stepped back through — the back button leaves
+    the screen instead of undoing the narrowing. And decisively, THE HOLDER
+    EXPORT CANNOT HONESTLY CLAIM TO MIRROR FILTERS THAT HAVE NO ADDRESS: the
+    file #529 adds is defined as "this list, as you are looking at it", which is
+    a promise only an addressable view can keep.
+
+    Accepted cost, stated here because it is a privacy decision: once search
+    arrives (#526) a customer's email address will reach browser history and any
+    pasted link. Accepted ONLY because the Sales list already does exactly this
+    — tightening it is one change across both screens, not a special case here.
   */
-  const [outstandingOnly, setOutstandingOnly] = useState(false);
+  const outstandingOnly = filters.outstanding;
+  const filtersActive = hasActiveHolderListFilters(filters);
+
+  /*
+    Every navigation goes through one builder, so the address bar and the fetch
+    below cannot describe different views. A FILTER CHANGE RESETS TO PAGE 1,
+    because page 3 of the roster names nothing about page 3 of the owing;
+    paging keeps the filters, since the reader is walking one view.
+
+    `push` and not `replace`: each change is a history entry, which is what
+    makes the back button undo a filter.
+  */
+  const navigate = useCallback(
+    (nextPage: number, nextFilters: HolderListFilters) => {
+      router.push(
+        `/events/${eventId}/sales/holders${holderListQuery(nextPage, nextFilters, sort, dir)}`,
+      );
+    },
+    [router, eventId, sort, dir],
+  );
+
   const [result, setResult] = useState<HolderListPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -107,7 +164,7 @@ export function HolderListSection({ eventId, timezone }: HolderListSectionProps)
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setResult(await fetchHolderList(eventId, page, outstandingOnly));
+      setResult(await fetchHolderList(eventId, page, filters, sort, dir));
       setError(null);
     } catch (failure) {
       setResult(null);
@@ -117,7 +174,7 @@ export function HolderListSection({ eventId, timezone }: HolderListSectionProps)
     } finally {
       setLoading(false);
     }
-  }, [eventId, page, outstandingOnly, errorCopy, t]);
+  }, [eventId, page, filters, sort, dir, errorCopy, t]);
 
   useEffect(() => {
     void load();
@@ -166,23 +223,60 @@ export function HolderListSection({ eventId, timezone }: HolderListSectionProps)
           </Alert>
         ) : null}
 
-        {/* The one filter, offered only while the Event HAS debts to filter by
-            — an Event whose questions feature is dark gets a plain roster and
-            no control promising a view that cannot differ. It stays visible
-            while its own filtered view is empty, because unticking it is the
-            way back. */}
-        {showQuestions && !error && (rows.length > 0 || outstandingOnly) ? (
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={outstandingOnly}
-              onChange={(event) => {
-                setOutstandingOnly(event.target.checked);
-                setPage(1);
-              }}
-            />
-            {t("filterOutstanding")}
-          </label>
+        {/*
+          THE FILTER BAR, in the Sales list's shape: the controls, and beneath
+          them the row that clears them — one place a reader looks to see how
+          this view is narrowed, and one place #523–#527 hang the other six
+          filters and the sort from.
+
+          The bar is drawn only while there is something in it. Today its one
+          control belongs to the questions feature, so an Event whose questions
+          are dark gets a plain roster and no chrome promising a view that
+          cannot differ. The control stays visible while its own filtered view
+          is empty, because unticking it is the way back.
+        */}
+        {showQuestions && !error && (rows.length > 0 || filtersActive) ? (
+          <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={outstandingOnly}
+                onChange={(event) => navigate(1, { ...filters, outstanding: event.target.checked })}
+              />
+              {t("filterOutstanding")}
+            </label>
+
+            {/*
+              The clear control appears ONLY when something is narrowed — an
+              offer to clear nothing reads as "rows are missing" on a screen
+              where none are — and it returns the whole roster from page 1.
+
+              It borrows the SALES catalog's `clearFilters`, exactly as this
+              screen already borrows `previousPage` and the channel names: two
+              words for one control is how a Spanish reader comes to meet two
+              names for the same button on two tabs of one screen.
+
+              THE DOWNLOAD CONTROL BELONGS HERE, beside the filters it obeys, so
+              what pressing it will produce is legible before it is pressed —
+              the Sales Export's arrangement, and the reason the Holder Export
+              can claim the file mirrors the screen. #529 adds it in this row,
+              after the Clear:
+
+                {canExport ? <HolderExportButton ... /> : null}
+            */}
+            {filtersActive ? (
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => navigate(1, EMPTY_HOLDER_LIST_FILTERS)}
+                >
+                  {sales("clearFilters")}
+                </Button>
+              </div>
+            ) : null}
+          </div>
         ) : null}
 
         {loading ? (
@@ -273,7 +367,7 @@ export function HolderListSection({ eventId, timezone }: HolderListSectionProps)
                     variant="outline"
                     size="sm"
                     disabled={pagination.page <= 1}
-                    onClick={() => setPage(pagination.page - 1)}
+                    onClick={() => navigate(pagination.page - 1, filters)}
                   >
                     {sales("previousPage")}
                   </Button>
@@ -282,7 +376,7 @@ export function HolderListSection({ eventId, timezone }: HolderListSectionProps)
                     variant="outline"
                     size="sm"
                     disabled={pagination.page >= pagination.total_pages}
-                    onClick={() => setPage(pagination.page + 1)}
+                    onClick={() => navigate(pagination.page + 1, filters)}
                   >
                     {sales("nextPage")}
                   </Button>

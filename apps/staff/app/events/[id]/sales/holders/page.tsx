@@ -1,13 +1,46 @@
 import { redirect } from "next/navigation";
 
+import {
+  parseHolderDir,
+  parseHolderSort,
+  type HolderListFilters,
+} from "@/lib/holder-list";
 import { loadEvent } from "@/lib/staff-event";
 
 import { loadSession } from "../../../../staff-page-shell";
 import { HolderListSection } from "../../holder-list-section";
 
+// The view's whole vocabulary, as it appears in the address bar. One name per
+// filter, matching the API's query params so the URL, the fetch and the file
+// the Holder Export writes all say the same words (#522, ADR 0065).
+type HolderListSearchParams = {
+  page?: string;
+  outstanding?: string;
+  sort?: string;
+  dir?: string;
+};
+
 type HolderListPageProps = {
   params: Promise<{ id: string }>;
+  searchParams: Promise<HolderListSearchParams>;
 };
+
+// parsePage reads the URL page number, flooring at 1 — the same reading the
+// Sales list page makes, and the API floors it again regardless.
+function parsePage(raw: string | undefined): number {
+  const parsed = Number.parseInt(raw ?? "", 10);
+  return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+}
+
+// parseFilters reads the filters out of the URL, which is the source of truth
+// for the view. `outstanding` is on only for the exact value the builder emits:
+// a URL is public and half-typed, and anything-but-empty would make
+// `?outstanding=no` mean "yes".
+function parseFilters(searchParams: HolderListSearchParams): HolderListFilters {
+  return {
+    outstanding: searchParams.outstanding === "true",
+  };
+}
 
 /**
  * The Holder List tab: the roster, moved whole from `/events/:id/outstanding-answers`
@@ -23,8 +56,9 @@ type HolderListPageProps = {
  * again, and the ADR 0065 rename's compatibility budget is spent on the API
  * alias, where the two deploys really can disagree.
  */
-export default async function SalesHolderListPage({ params }: HolderListPageProps) {
+export default async function SalesHolderListPage({ params, searchParams }: HolderListPageProps) {
   const { id } = await params;
+  const resolvedSearchParams = await searchParams;
   const session = await loadSession();
   const role = session?.active_member?.role;
 
@@ -63,5 +97,14 @@ export default async function SalesHolderListPage({ params }: HolderListPageProp
   const event = await loadEvent(id);
   const timezone = event?.timezone ?? null;
 
-  return <HolderListSection eventId={id} timezone={timezone} />;
+  return (
+    <HolderListSection
+      eventId={id}
+      page={parsePage(resolvedSearchParams.page)}
+      filters={parseFilters(resolvedSearchParams)}
+      sort={parseHolderSort(resolvedSearchParams.sort)}
+      dir={parseHolderDir(resolvedSearchParams.dir)}
+      timezone={timezone}
+    />
+  );
 }

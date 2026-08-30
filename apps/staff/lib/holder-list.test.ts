@@ -3,16 +3,23 @@ import { test } from "node:test";
 
 import {
   ASSIGNMENT_STATE_KEYS,
+  DEFAULT_HOLDER_DIR,
+  DEFAULT_HOLDER_SORT,
+  EMPTY_HOLDER_LIST_FILTERS,
   SALES_CHANNEL_KEYS,
   assignmentStateBadgeVariant,
   buyerName,
+  hasActiveHolderListFilters,
   holderBadgeVariant,
+  holderListQuery,
   holderListVisible,
   holderName,
   holderStateKey,
+  parseHolderDir,
+  parseHolderSort,
   questionsVisible,
 } from "./holder-list.ts";
-import type { HolderListPage, HolderTicket } from "./holder-list.ts";
+import type { HolderListFilters, HolderListPage, HolderTicket } from "./holder-list.ts";
 
 const ticket = (first: string, last: string): HolderTicket => ({
   ticket_id: "tk_1",
@@ -146,4 +153,77 @@ test("the questions side follows outstanding_count's presence", () => {
   assert.equal(questionsVisible(page()), false);
   assert.equal(questionsVisible(page(0)), true);
   assert.equal(questionsVisible(page(7)), true);
+});
+
+// --- the view in the URL (#522, ADR 0065) ---------------------------------
+
+/*
+  These hold the property the Holder Export's whole claim rests on: the query
+  string is built from the filter set, and the same builder feeds the fetch, so
+  the address bar and the file cannot describe different rosters.
+
+  The default view producing an EMPTY query is the load-bearing case. It is what
+  makes the plain roster a link somebody would paste, and it is also the proof
+  that this change is invisible to a reader who touches no control — no query
+  string means the page fetches exactly page 1 of the whole roster, as it did
+  when the filter was component state.
+*/
+
+const filters = (fields: Partial<HolderListFilters> = {}): HolderListFilters => ({
+  ...EMPTY_HOLDER_LIST_FILTERS,
+  ...fields,
+});
+
+test("the default view has no query string at all", () => {
+  assert.equal(holderListQuery(1, filters()), "");
+  // And the default sort is spelled out rather than left implicit: naming it
+  // must not change the URL, or every bookmark of the plain roster grows a
+  // sort it never asked for.
+  assert.equal(holderListQuery(1, filters(), DEFAULT_HOLDER_SORT, DEFAULT_HOLDER_DIR), "");
+});
+
+test("page 1 is omitted; every later page is named", () => {
+  assert.equal(holderListQuery(1, filters({ outstanding: true })), "?outstanding=true");
+  assert.equal(holderListQuery(3, filters()), "?page=3");
+  assert.equal(holderListQuery(3, filters({ outstanding: true })), "?page=3&outstanding=true");
+});
+
+// An unfiltered dimension is ABSENT, never `outstanding=false`: the roster's
+// URL says one thing in one way, and a reader pasting it gets the plain list.
+test("a filter at its unfiltered value is omitted, not sent as false", () => {
+  assert.equal(holderListQuery(1, filters({ outstanding: false })), "");
+});
+
+// A non-default sort carries BOTH halves. Half a sort is not a sort: a `dir`
+// with no `sort` would be read against whatever the default field becomes when
+// #527 adds the other four.
+test("a non-default sort is carried whole", () => {
+  assert.equal(holderListQuery(1, filters(), "sold_at", "desc"), "?sort=sold_at&dir=desc");
+});
+
+// OLDEST SALE FIRST, and deliberately not the Sales list's newest-first: the
+// roster is worked through from the top, and #527 names keeping this order as
+// its own criterion. Flipping it silently re-orders every existing bookmark.
+test("the default sort is the oldest sale first", () => {
+  assert.equal(DEFAULT_HOLDER_SORT, "sold_at");
+  assert.equal(DEFAULT_HOLDER_DIR, "asc");
+});
+
+// A hand-edited or stale URL stays usable rather than erroring — the API
+// re-validates regardless, and this is the surface, not the boundary.
+test("an unknown sort or direction falls back to the default", () => {
+  assert.equal(parseHolderSort("sold_at"), "sold_at");
+  assert.equal(parseHolderSort("amount"), DEFAULT_HOLDER_SORT);
+  assert.equal(parseHolderSort(undefined), DEFAULT_HOLDER_SORT);
+  assert.equal(parseHolderDir("desc"), "desc");
+  assert.equal(parseHolderDir("sideways"), DEFAULT_HOLDER_DIR);
+  assert.equal(parseHolderDir(undefined), DEFAULT_HOLDER_DIR);
+});
+
+// What the Clear control's presence hangs on. The SORT IS NOT A FILTER and is
+// deliberately not counted: reordering hides nobody, and offering to clear it
+// would suggest rows are missing when none are.
+test("the whole roster has no active filters; a narrowing does", () => {
+  assert.equal(hasActiveHolderListFilters(EMPTY_HOLDER_LIST_FILTERS), false);
+  assert.equal(hasActiveHolderListFilters(filters({ outstanding: true })), true);
 });

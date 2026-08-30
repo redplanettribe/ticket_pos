@@ -132,26 +132,181 @@ export type HolderListPage = {
 /** The default page size, matching the API's own. */
 export const HOLDER_LIST_PAGE_SIZE = 50;
 
+/*
+  THE VIEW LIVES IN THE URL (#522, ADR 0065), and everything below exists to
+  keep it there.
+
+  `outstanding` was component state for as long as it was the only control: a
+  working view of one sitting, no worse for being unaddressable. That reasoning
+  does not survive seven filters and a sort — a colleague cannot be sent the
+  view, the back button does not undo a narrowing, and, decisively, the HOLDER
+  EXPORT CANNOT HONESTLY CLAIM TO MIRROR FILTERS THAT HAVE NO ADDRESS. A file
+  read off a hidden view is a file nobody can check.
+
+  This follows the SALES LIST'S SHAPE EXACTLY (`sales-api.ts`: filters type,
+  empty value, private append helpers, one query builder, parse-with-fallback).
+  A second way to filter a staff table would be two vocabularies for one idea,
+  and the pair would drift on the first filter added to either.
+
+  ACCEPTED COST, stated because it is a privacy decision and not an oversight:
+  once search arrives (#526) a customer's email address will reach browser
+  history and any pasted link. That is accepted ONLY because the Sales list
+  already does exactly this; tightening it is one change across both screens,
+  not a special case here, and is out of scope of this module.
+
+  ONLY THE FILTER THAT EXISTS TODAY LIVES HERE. The other six are #523–#526 and
+  the five sorts are #527. The types below are shaped so those tickets add
+  fields and values without restructuring anything.
+*/
+
 /**
- * Reads a page of the Event's Holder List.
+ * The Holder List's filters, mirroring the endpoint's query params, one field
+ * per dimension.
  *
- * `outstandingOnly` is the one filter this list offers, and it is the old list:
- * only the Tickets that still owe a required Answer. The API ignores it while
- * Ticket Questions are dark, so this module does not have to know a flag it
- * cannot see.
+ * A RECORD AND NOT A BAG OF OPTIONALS, so a filter added by #523–#526 is a
+ * compile error everywhere it must be handled rather than a silently-absent
+ * key: `EMPTY_HOLDER_LIST_FILTERS`, the append helper and the active check are
+ * each total over this type.
+ *
+ * `outstanding` is the old Outstanding Answers list reduced to what it always
+ * was — one narrowing of the roster. The API ignores it while Ticket Questions
+ * are dark, so nothing on this side has to know a flag it cannot see.
+ */
+export type HolderListFilters = {
+  outstanding: boolean;
+};
+
+/** The whole roster: every filter at its unfiltered value. */
+export const EMPTY_HOLDER_LIST_FILTERS: HolderListFilters = {
+  outstanding: false,
+};
+
+/**
+ * An allowlisted sort column and direction, carried in the URL and mirroring
+ * the backend's own allowlist (ADR 0006) — an unrecognised value must never
+ * reach a query.
+ *
+ * EXACTLY ONE FIELD TODAY. `buyer`, `holder`, `ticket_type` and `owes` are
+ * #527's, and land here as a widening of the union and of `HOLDER_SORT_FIELDS`.
+ */
+export type HolderSortField = "sold_at";
+export type HolderSortDir = "asc" | "desc";
+
+export const HOLDER_SORT_FIELDS: readonly HolderSortField[] = ["sold_at"];
+
+export const DEFAULT_HOLDER_SORT: HolderSortField = "sold_at";
+
+/**
+ * OLDEST SALE FIRST, and this is not the Sales list's default.
+ *
+ * The Sales list opens on the newest sale because it is a ledger being watched.
+ * The Holder List opens on the oldest because it is a roster being worked
+ * through: the earliest buyers have owed their answers longest, and the chase
+ * starts at the top. #527 names keeping this order as an explicit criterion, so
+ * flipping it here silently re-orders every existing bookmark of this screen.
+ */
+export const DEFAULT_HOLDER_DIR: HolderSortDir = "asc";
+
+/**
+ * Resolves a raw URL value to an allowlisted sort field, falling back to the
+ * default. A hand-edited or stale URL stays usable rather than erroring — the
+ * backend re-validates regardless, and this is the surface, not the boundary.
+ */
+export function parseHolderSort(raw: string | undefined): HolderSortField {
+  return HOLDER_SORT_FIELDS.includes(raw as HolderSortField)
+    ? (raw as HolderSortField)
+    : DEFAULT_HOLDER_SORT;
+}
+
+/** The same fallback for the direction. */
+export function parseHolderDir(raw: string | undefined): HolderSortDir {
+  return raw === "asc" || raw === "desc" ? raw : DEFAULT_HOLDER_DIR;
+}
+
+/**
+ * Writes the non-default filter values onto a params object.
+ *
+ * PRIVATE ON PURPOSE, and shared by the URL builder and the fetch below: the
+ * address bar and the request are built by the same lines, so they cannot
+ * disagree about what the reader is looking at. A file that claims to mirror
+ * the screen depends on that identity holding.
+ *
+ * A filter at its unfiltered value is OMITTED rather than sent as `false`, so
+ * the ordinary view has a clean, short, shareable URL and `?` means "the whole
+ * roster" in exactly one way.
+ */
+function appendHolderListFilters(params: URLSearchParams, filters: HolderListFilters): void {
+  if (filters.outstanding) params.set("outstanding", "true");
+}
+
+/**
+ * Writes sort/dir, omitting BOTH when they match the default pair — the
+ * ordinary view carries no sort in its URL at all. They are written together
+ * because half a sort is not a sort: a `dir` with no `sort` would be read
+ * against whatever the default field becomes later.
+ */
+function appendHolderSort(params: URLSearchParams, sort: HolderSortField, dir: HolderSortDir): void {
+  if (sort !== DEFAULT_HOLDER_SORT || dir !== DEFAULT_HOLDER_DIR) {
+    params.set("sort", sort);
+    params.set("dir", dir);
+  }
+}
+
+/**
+ * The canonical query string for the Holder List's URL: a leading `?`, or the
+ * empty string when there is nothing to say.
+ *
+ * Page 1 is omitted, as are default sort and unset filters, so the plain roster
+ * is `/events/:id/sales/holders` and not `?page=1&dir=asc` — a link somebody
+ * would hesitate to paste. ONE BUILDER for the address bar and the fetch, for
+ * `appendHolderListFilters`'s reason.
+ */
+export function holderListQuery(
+  page: number,
+  filters: HolderListFilters,
+  sort: HolderSortField = DEFAULT_HOLDER_SORT,
+  dir: HolderSortDir = DEFAULT_HOLDER_DIR,
+): string {
+  const params = new URLSearchParams();
+  if (page > 1) params.set("page", String(page));
+  appendHolderListFilters(params, filters);
+  appendHolderSort(params, sort, dir);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+/**
+ * Whether the view is narrowed at all — what the Clear control's presence and
+ * the wording of the empty state both hang on.
+ *
+ * The SORT IS NOT A FILTER and is deliberately not counted: reordering hides
+ * nobody, and offering to "clear" it would suggest rows are missing when none
+ * are.
+ */
+export function hasActiveHolderListFilters(filters: HolderListFilters): boolean {
+  return filters.outstanding;
+}
+
+/**
+ * Reads a page of the Event's Holder List for the view the URL describes.
+ *
+ * The filters and the non-default sort are appended by the SAME helpers the URL
+ * builder uses, so what is fetched is what the address bar says — the property
+ * the Holder Export's claim to mirror the screen rests on.
  */
 export async function fetchHolderList(
   eventId: string,
   page: number,
-  outstandingOnly = false,
+  filters: HolderListFilters,
+  sort: HolderSortField = DEFAULT_HOLDER_SORT,
+  dir: HolderSortDir = DEFAULT_HOLDER_DIR,
 ): Promise<HolderListPage> {
   const query = new URLSearchParams({
     page: String(page),
     page_size: String(HOLDER_LIST_PAGE_SIZE),
   });
-  if (outstandingOnly) {
-    query.set("outstanding", "true");
-  }
+  appendHolderListFilters(query, filters);
+  appendHolderSort(query, sort, dir);
   return fetchEventsJSON<HolderListPage>(
     `/api/events/${eventId}/holder-list?${query.toString()}`,
   );
