@@ -36,11 +36,11 @@ import {
   fetchHolderList,
   hasActiveHolderListFilters,
   holderBadgeVariant,
+  holderListEmptyStateKey,
   holderListQuery,
   holderListVisible,
   holderName,
   holderStateKey,
-  isOutstandingTheOnlyFilter,
   questionsVisible,
   type HolderListFilters,
   type HolderListPage,
@@ -215,11 +215,12 @@ export function HolderListSection({
     setSearch(filters.q);
   }, [filters.q]);
   /*
-    Whether an empty view would be the CONGRATULATION or just "nothing matched"
-    — see the empty state below, and `isOutstandingTheOnlyFilter` for why the
-    two sentences must not be shared.
+    WHICH SENTENCE AN EMPTY LIST SAYS, decided in the module and not here (#528).
+    The rule is that the congratulation is a claim about the whole Event and so
+    fires only when `outstanding` is the sole narrowing; see
+    `holderListEmptyStateKey` for why, and for why the SORT does not count.
   */
-  const outstandingAlone = isOutstandingTheOnlyFilter(filters);
+  const emptyStateKey = holderListEmptyStateKey(filters);
 
   /*
     Every navigation goes through one builder, so the address bar and the fetch
@@ -652,38 +653,38 @@ export function HolderListSection({
 
         {!loading && !error && rows.length === 0 ? (
           /*
-            THREE empty states for three different facts, and the third is
-            #523's doing (ADR 0065).
-
-            An empty OUTSTANDING-ONLY view is a CONGRATULATION: every required
-            question has been answered on every live Ticket. That sentence is
-            true only while `outstanding` is the sole narrowing — under a Ticket
-            Type or a date range an empty view means "nothing matched here", and
-            saying "every question has been answered" would be a claim about the
-            whole Event that the view does not support. An Organizer told that
-            after filtering to VIP door sales in January would stop chasing.
-
-            An empty ROSTER under any other filter is just that: nothing
-            matched, and the way out is the Clear beside it.
-
-            An empty roster under NO filter means nothing has been sold yet,
-            which is no achievement and no failure.
+            THREE empty states for three different facts (#523, #528, ADR 0065),
+            chosen by `holderListEmptyStateKey` and unit-tested there rather than
+            spelled out as ternaries here: the congratulation is a claim about
+            the WHOLE EVENT and holds only while `outstanding` is the sole
+            narrowing, under any other filter an empty view means "nothing
+            matched" with the Clear beside it as the way out, and an unfiltered
+            empty roster means nothing has been sold yet.
           */
-          <p className="text-sm text-muted-foreground">
-            {outstandingAlone
-              ? t("nothingOutstanding")
-              : filtersActive
-                ? t("noMatchingTickets")
-                : t("noTickets")}
-          </p>
+          <p className="text-sm text-muted-foreground">{t(emptyStateKey)}</p>
         ) : null}
 
         {!loading && !error && rows.length > 0 ? (
           <>
-            {/* One message rather than two numbers glued together: which of the
-                two counts leads the sentence, and both of their plurals, are the
-                translator's to decide. Only drawn where debts exist as a concept
-                — a roster without questions has nothing to summarise. */}
+            {/*
+                TWO COUNTS AT TWO SCOPES, AND THE SENTENCE NAMES BOTH (#528).
+                `outstanding_count` is the Event's whole debt and deliberately
+                does NOT follow the filters — a fact about the Event, per the API
+                contract and exactly as the Sales list's reversed count behaves —
+                while `total` is the count of Tickets in the view being read.
+                Filtered to one Ticket Type the old wording read "47 outstanding
+                answers across 12 tickets", two scopes in one clause with nothing
+                saying so.
+
+                ONE MESSAGE KEY AND NOT TWO (filtered vs not), because "across
+                the whole event" and "in this view" are both true of the plain
+                roster: the unfiltered view IS the whole Event, so the sentence
+                degrades to a harmless restatement rather than reading wrong. A
+                second key would fork the copy for the common reader's case and
+                drift the moment one of them is edited. Which count leads and
+                both plurals stay the translator's to decide. Only drawn where
+                debts exist as a concept — a roster without questions has nothing
+                to summarise. */}
             {showQuestions ? (
               <p className="text-sm text-muted-foreground">
                 {t("summary", {

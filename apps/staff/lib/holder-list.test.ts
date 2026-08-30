@@ -16,6 +16,7 @@ import {
   defaultHolderDirFor,
   hasActiveHolderListFilters,
   holderBadgeVariant,
+  holderListEmptyStateKey,
   holderListQuery,
   holderListVisible,
   holderName,
@@ -592,4 +593,59 @@ test("outstanding is not the sole filter when a search narrows the view too", ()
 test("clearing the filters clears the search too", () => {
   assert.equal(EMPTY_HOLDER_LIST_FILTERS.q, "");
   assert.equal(holderListQuery(1, EMPTY_HOLDER_LIST_FILTERS), "");
+});
+
+/*
+  THE EMPTY-STATE SELECTION RULE (#528, ADR 0065). Three facts, three sentences,
+  and this is the one rule on the screen that can be wrong invisibly: every
+  branch renders a plausible grey paragraph and only the fact behind it differs,
+  so the branch a reviewer would have to reason about is asserted here instead.
+*/
+
+test("an unfiltered empty roster says nothing has been sold", () => {
+  assert.equal(holderListEmptyStateKey(EMPTY_HOLDER_LIST_FILTERS), "noTickets");
+});
+
+// The congratulation, and ONLY here: it claims every required question on the
+// whole Event has been answered, which an empty view supports only when
+// `outstanding` is the sole narrowing.
+test("an empty outstanding-only view is the congratulation", () => {
+  assert.equal(holderListEmptyStateKey(filters({ outstanding: true })), "nothingOutstanding");
+});
+
+// Every other narrowing, alone and paired with `outstanding`: "no VIP owes
+// anything" is true and is not "every question has been answered".
+test("any other empty view says nothing matched", () => {
+  for (const narrowing of [
+    { q: "Lopez" },
+    { questionId: "q_size" },
+    { assignmentState: "never_accepted" as const },
+    { ticketTypeId: "tt_vip" },
+    { channel: "in_person" as const },
+    { soldFrom: "2026-07-01" },
+    { soldTo: "2026-07-31" },
+  ]) {
+    assert.equal(holderListEmptyStateKey(filters(narrowing)), "noMatchingTickets");
+    assert.equal(
+      holderListEmptyStateKey(filters({ ...narrowing, outstanding: true })),
+      "noMatchingTickets",
+    );
+  }
+});
+
+// A SORT IS NOT A FILTER. It is not even an argument to the selector, which is
+// the point: a reader who sorted the Outstanding-only view by name narrowed
+// nothing and still earns the congratulation, and an unfiltered roster sorted
+// any way still says nothing has been sold.
+test("sorting the view does not change which empty state it says", () => {
+  // The sort cannot reach the rule at all: the selector takes the filters and
+  // nothing else, so no later edit can quietly start counting it.
+  assert.equal(holderListEmptyStateKey.length, 1);
+  // And the view a sorted reader is looking at is still the congratulation's:
+  // the sort is in the URL beside `outstanding`, narrowing nothing.
+  for (const sort of HOLDER_SORT_FIELDS) {
+    const sorted = holderListQuery(1, filters({ outstanding: true }), sort, "desc");
+    assert.ok(sorted.includes("outstanding=true"));
+    assert.equal(holderListEmptyStateKey(filters({ outstanding: true })), "nothingOutstanding");
+  }
 });

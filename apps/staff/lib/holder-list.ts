@@ -510,6 +510,44 @@ export function isOutstandingTheOnlyFilter(filters: HolderListFilters): boolean 
 }
 
 /**
+ * The three sentences an EMPTY Holder List can say, as catalog keys in the
+ * `outstandingAnswers` namespace.
+ *
+ * A union of literal keys and not a `string`, so a key removed from the catalog
+ * is a compile error at the call site rather than a blank paragraph on screen.
+ */
+export type HolderListEmptyStateKey = "nothingOutstanding" | "noMatchingTickets" | "noTickets";
+
+/**
+ * Which sentence an empty Holder List says (#528, ADR 0065).
+ *
+ * THREE FACTS, THREE SENTENCES, and the selection lives here rather than as
+ * ternaries in the component because it is the one rule on this screen that can
+ * be wrong in a way nobody sees: every branch renders a plausible grey
+ * paragraph, and only the fact behind it differs.
+ *
+ * THE CONGRATULATION IS NARROWER THAN THE FILTER. "Every required question has
+ * been answered on every live Ticket" is a claim about THE WHOLE EVENT, and an
+ * empty view supports it only when `outstanding` is the sole narrowing. Under a
+ * Ticket Type, a channel, a date range or a search, an empty view means "nothing
+ * matched here" — "no VIP owes anything" is true and is not the same sentence,
+ * and an Organizer told the second when the first is what happened stops
+ * chasing debts that are still owed.
+ *
+ * An empty roster under NO filter is neither: nothing has been sold yet.
+ *
+ * THE SORT IS NOT A FILTER and is deliberately not an argument. Reordering
+ * narrows nothing, so a reader who sorted the Outstanding-only view by name
+ * still earns the congratulation; taking `sort` here would be an invitation to
+ * count it.
+ */
+export function holderListEmptyStateKey(filters: HolderListFilters): HolderListEmptyStateKey {
+  if (isOutstandingTheOnlyFilter(filters)) return "nothingOutstanding";
+  if (hasActiveHolderListFilters(filters)) return "noMatchingTickets";
+  return "noTickets";
+}
+
+/**
  * Reads a page of the Event's Holder List for the view the URL describes.
  *
  * The filters and the non-default sort are appended by the SAME helpers the URL
