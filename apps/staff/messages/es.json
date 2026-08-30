@@ -395,6 +395,7 @@
     "summary": "{answers, plural, one {# respuesta pendiente} other {# respuestas pendientes}} en {tickets, plural, one {# entrada} other {# entradas}}",
     "filterOutstanding": "Solo entradas con respuestas pendientes",
     "nothingOutstanding": "No queda nada pendiente. Todas las preguntas obligatorias están respondidas en todas las entradas vigentes.",
+    "noMatchingTickets": "Ningún ticket coincide con estos filtros.",
     "noTickets": "Todavía no hay entradas. La lista de titulares se llena a medida que se venden entradas.",
     "loadFailed": "No se pudo cargar la lista de titulares de este evento.",
     "colBuyer": "Comprador",

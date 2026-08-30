@@ -15,6 +15,8 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Input,
+  Label,
   Skeleton,
 } from "@ticket-pos/ui";
 import { useLocale, useMessages, useTranslations } from "next-intl";
@@ -24,6 +26,7 @@ import { ApiError } from "@/lib/events-api";
 import { formatDate, formatNumber } from "@/lib/format";
 import {
   EMPTY_HOLDER_LIST_FILTERS,
+  HOLDER_LIST_CHANNELS,
   SALES_CHANNEL_KEYS,
   buyerName,
   fetchHolderList,
@@ -33,6 +36,7 @@ import {
   holderListVisible,
   holderName,
   holderStateKey,
+  isOutstandingTheOnlyFilter,
   questionsVisible,
   type HolderListFilters,
   type HolderListPage,
@@ -53,11 +57,41 @@ type HolderListSectionProps = {
   */
   page: number;
   filters: HolderListFilters;
+  /**
+   * The Event's Ticket Types, to name the ticket-type filter's options. Loaded
+   * on the server page and handed down, as the Sales list's are; an empty array
+   * is the tolerated failure — the control then offers only "all", and the
+   * roster is unaffected.
+   */
+  ticketTypes: HolderTicketTypeOption[];
   sort: HolderSortField;
   dir: HolderSortDir;
   /** The Event's timezone, so a sale date reads where the Event is. */
   timezone: string | null;
 };
+
+/**
+ * One option of the Ticket Type filter: the id the URL carries, and the name
+ * the Organization coined.
+ *
+ * Its own type rather than the whole `TicketType`, because a filter needs a
+ * label and a value and has no business holding a price or a capacity — and the
+ * page that fills it would then have to keep those fields correct for a control
+ * that never reads them.
+ */
+export type HolderTicketTypeOption = { id: string; name: string };
+
+/**
+ * The `<select>` chrome, matching the Sales list's `SELECT_CLASS` exactly.
+ *
+ * Restated rather than exported across, because it is nine words of Tailwind on
+ * a native element that the design system does not wrap: sharing it would mean
+ * one screen importing a private constant from another screen's file, which is
+ * a worse coupling than a duplicated class string. If a Select component ever
+ * lands in @ticket-pos/ui, both call sites go at once.
+ */
+const HOLDER_SELECT_CLASS =
+  "flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm";
 
 /**
  * The Event's Holder List (#333; the Outstanding Answers screen of #313,
@@ -67,9 +101,12 @@ type HolderListSectionProps = {
  * WHAT THIS SCREEN IS. The Organization's answer to "who is coming": a roster,
  * one row per Ticket of every live sale. A fully answered Ticket stays on it
  * and an Event that asks nothing still has one, because the roster is the
- * point and the questions are a column on it. OUTSTANDING ANSWERS IS THE ONE
- * FILTER this list offers — the debt view it used to be — never its
- * definition.
+ * point and the questions are a column on it. OUTSTANDING ANSWERS IS ONE
+ * FILTER OF IT — the debt view it used to be — never its definition, and since
+ * #523 it stands beside three structural ones: the Ticket Type, the Sales
+ * Channel and the date the sale was made. They compose, so "which VIP door
+ * sales are still unclaimed" is one view rather than a page somebody reads
+ * down.
  *
  * IT HIDES NOTHING. Door sales and Sale Imports stand here beside online ones
  * and start out owing everything, because nobody ever put the questions to
@@ -87,6 +124,7 @@ export function HolderListSection({
   eventId,
   page,
   filters,
+  ticketTypes,
   sort,
   dir,
   timezone,
@@ -126,6 +164,12 @@ export function HolderListSection({
   */
   const outstandingOnly = filters.outstanding;
   const filtersActive = hasActiveHolderListFilters(filters);
+  /*
+    Whether an empty view would be the CONGRATULATION or just "nothing matched"
+    — see the empty state below, and `isOutstandingTheOnlyFilter` for why the
+    two sentences must not be shared.
+  */
+  const outstandingAlone = isOutstandingTheOnlyFilter(filters);
 
   /*
     Every navigation goes through one builder, so the address bar and the fetch
@@ -224,27 +268,116 @@ export function HolderListSection({
         ) : null}
 
         {/*
-          THE FILTER BAR, in the Sales list's shape: the controls, and beneath
-          them the row that clears them — one place a reader looks to see how
-          this view is narrowed, and one place #523–#527 hang the other six
-          filters and the sort from.
+          THE FILTER BAR, in the Sales list's shape: the controls in a grid, and
+          beneath them the row that clears them — one place a reader looks to see
+          how this view is narrowed, and one place #524–#527 hang the remaining
+          three filters and the sort from.
 
-          The bar is drawn only while there is something in it. Today its one
-          control belongs to the questions feature, so an Event whose questions
-          are dark gets a plain roster and no chrome promising a view that
-          cannot differ. The control stays visible while its own filtered view
-          is empty, because unticking it is the way back.
+          THE BAR IS NO LONGER THE QUESTIONS FEATURE'S (#523). It used to be
+          drawn only under `showQuestions`, because its one control was the
+          Outstanding Answers checkbox and a build with questions dark had
+          nothing to put in it. The three structural filters belong to no flag —
+          a Ticket Type, a Sales Channel and a sale date exist on every build —
+          so the bar now stands whenever there is a roster to narrow, and only
+          the CHECKBOX comes and goes with the flag.
+
+          It stays drawn while its own filtered view is empty, because clearing
+          it is the way back and a bar that vanished with the last row would
+          strand the reader on a screen with no controls.
         */}
-        {showQuestions && !error && (rows.length > 0 || filtersActive) ? (
+        {!error && (rows.length > 0 || filtersActive) ? (
           <div className="space-y-3 rounded-md border bg-muted/20 p-3">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={outstandingOnly}
-                onChange={(event) => navigate(1, { ...filters, outstanding: event.target.checked })}
-              />
-              {t("filterOutstanding")}
-            </label>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {/* The Ticket Type: the VIP roster apart from general admission.
+                  A Ticket belongs to exactly one, so this is a single choice
+                  and never a set. The options come from the server page and are
+                  empty when that read failed — the control then offers only
+                  "all", which is honest, rather than a list missing types. */}
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="holder-ticket-type">{sales("ticketTypeLabel")}</Label>
+                <select
+                  id="holder-ticket-type"
+                  className={HOLDER_SELECT_CLASS}
+                  value={filters.ticketTypeId}
+                  onChange={(event) =>
+                    navigate(1, { ...filters, ticketTypeId: event.target.value })
+                  }
+                >
+                  <option value="">{sales("allTicketTypes")}</option>
+                  {/* A Ticket Type's name is the Organization's own word and
+                      reads as coined in both languages — data, not copy. */}
+                  {ticketTypes.map((type) => (
+                    <option key={type.id} value={type.id}>
+                      {type.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* The Sales Channel, named from the SALES catalog and never
+                  re-coined here: a door sale translated per screen is how a
+                  Spanish reader comes to meet two words for one thing on two
+                  tabs of the same screen. */}
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="holder-channel">{sales("channelLabel")}</Label>
+                <select
+                  id="holder-channel"
+                  className={HOLDER_SELECT_CLASS}
+                  value={filters.channel}
+                  onChange={(event) => navigate(1, { ...filters, channel: event.target.value })}
+                >
+                  <option value="">{sales("allChannels")}</option>
+                  {HOLDER_LIST_CHANNELS.map((channel) => (
+                    <option key={channel} value={channel}>
+                      {sales(SALES_CHANNEL_KEYS[channel])}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* The sale date, as two calendar days INCLUSIVE OF BOTH ENDS and
+                  read in the Event's timezone by the API — so "sold in January"
+                  is January where the Event is. Each bounds the other so the
+                  picker cannot offer a range that means nothing. */}
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="holder-sold-from">{sales("soldFromLabel")}</Label>
+                <Input
+                  id="holder-sold-from"
+                  type="date"
+                  value={filters.soldFrom}
+                  max={filters.soldTo || undefined}
+                  onChange={(event) => navigate(1, { ...filters, soldFrom: event.target.value })}
+                  className="h-9"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="holder-sold-to">{sales("soldToLabel")}</Label>
+                <Input
+                  id="holder-sold-to"
+                  type="date"
+                  value={filters.soldTo}
+                  min={filters.soldFrom || undefined}
+                  onChange={(event) => navigate(1, { ...filters, soldTo: event.target.value })}
+                  className="h-9"
+                />
+              </div>
+            </div>
+
+            {/* The Outstanding Answers filter, and the ONE control that belongs
+                to a feature flag: with questions dark there are no debts to
+                narrow by, and a checkbox promising a view that cannot differ
+                would be a promise this build is not making (ADR 0045). */}
+            {showQuestions ? (
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={outstandingOnly}
+                  onChange={(event) => navigate(1, { ...filters, outstanding: event.target.checked })}
+                />
+                {t("filterOutstanding")}
+              </label>
+            ) : null}
 
             {/*
               The clear control appears ONLY when something is narrowed — an
@@ -289,13 +422,29 @@ export function HolderListSection({
 
         {!loading && !error && rows.length === 0 ? (
           /*
-            Two different empty states for two different facts. The filtered
-            view emptying is a CONGRATULATION — every required question has
-            been answered on every live Ticket. The roster emptying just means
-            nothing has been sold yet, which is no achievement and no failure.
+            THREE empty states for three different facts, and the third is
+            #523's doing (ADR 0065).
+
+            An empty OUTSTANDING-ONLY view is a CONGRATULATION: every required
+            question has been answered on every live Ticket. That sentence is
+            true only while `outstanding` is the sole narrowing — under a Ticket
+            Type or a date range an empty view means "nothing matched here", and
+            saying "every question has been answered" would be a claim about the
+            whole Event that the view does not support. An Organizer told that
+            after filtering to VIP door sales in January would stop chasing.
+
+            An empty ROSTER under any other filter is just that: nothing
+            matched, and the way out is the Clear beside it.
+
+            An empty roster under NO filter means nothing has been sold yet,
+            which is no achievement and no failure.
           */
           <p className="text-sm text-muted-foreground">
-            {outstandingOnly ? t("nothingOutstanding") : t("noTickets")}
+            {outstandingAlone
+              ? t("nothingOutstanding")
+              : filtersActive
+                ? t("noMatchingTickets")
+                : t("noTickets")}
           </p>
         ) : null}
 

@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   ASSIGNMENT_STATE_KEYS,
+  HOLDER_LIST_CHANNELS,
   DEFAULT_HOLDER_DIR,
   DEFAULT_HOLDER_SORT,
   EMPTY_HOLDER_LIST_FILTERS,
@@ -15,6 +16,7 @@ import {
   holderListVisible,
   holderName,
   holderStateKey,
+  isOutstandingTheOnlyFilter,
   parseHolderDir,
   parseHolderSort,
   questionsVisible,
@@ -226,4 +228,95 @@ test("an unknown sort or direction falls back to the default", () => {
 test("the whole roster has no active filters; a narrowing does", () => {
   assert.equal(hasActiveHolderListFilters(EMPTY_HOLDER_LIST_FILTERS), false);
   assert.equal(hasActiveHolderListFilters(filters({ outstanding: true })), true);
+});
+
+/*
+  THE STRUCTURAL FILTERS (#523): Ticket Type, Sales Channel and the sale's date
+  range. They compose with `outstanding` and with each other, and every one of
+  them reaches the URL under the API's OWN param name — the property the Holder
+  Export's "this list, as you are looking at it" depends on.
+*/
+
+test("each structural filter reaches the URL under the API's name", () => {
+  assert.equal(holderListQuery(1, filters({ ticketTypeId: "tt_vip" })), "?ticket_type_id=tt_vip");
+  assert.equal(holderListQuery(1, filters({ channel: "in_person" })), "?channel=in_person");
+  assert.equal(holderListQuery(1, filters({ soldFrom: "2026-07-01" })), "?sold_from=2026-07-01");
+  assert.equal(holderListQuery(1, filters({ soldTo: "2026-07-31" })), "?sold_to=2026-07-31");
+});
+
+// They COMPOSE, which is the ticket's whole claim: "which VIP door sales are
+// still unclaimed, sold in July" is one address.
+test("the filters compose into one query, page included", () => {
+  assert.equal(
+    holderListQuery(
+      2,
+      filters({
+        outstanding: true,
+        ticketTypeId: "tt_vip",
+        channel: "in_person",
+        soldFrom: "2026-07-01",
+        soldTo: "2026-07-31",
+      }),
+    ),
+    "?page=2&outstanding=true&ticket_type_id=tt_vip&channel=in_person&sold_from=2026-07-01&sold_to=2026-07-31",
+  );
+});
+
+// A blank string is the UNFILTERED value and is omitted, exactly as
+// `outstanding: false` is — so a reader who opened a date picker and closed it
+// again is left with the roster's plain URL and not `?sold_from=`.
+test("a blank structural filter is omitted, not sent empty", () => {
+  assert.equal(
+    holderListQuery(1, filters({ ticketTypeId: "", channel: "", soldFrom: "", soldTo: "" })),
+    "",
+  );
+});
+
+// The Clear control's presence, now that four more things can narrow the view.
+// Each one alone is enough: a reader who set only a date must still be offered
+// the way back.
+test("any one structural filter makes the view narrowed", () => {
+  assert.equal(hasActiveHolderListFilters(filters({ ticketTypeId: "tt_vip" })), true);
+  assert.equal(hasActiveHolderListFilters(filters({ channel: "online" })), true);
+  assert.equal(hasActiveHolderListFilters(filters({ soldFrom: "2026-07-01" })), true);
+  assert.equal(hasActiveHolderListFilters(filters({ soldTo: "2026-07-31" })), true);
+});
+
+// THE CONGRATULATION IS NARROWER THAN THE FILTER (ADR 0065). An empty
+// Outstanding-only view means every required question has been answered on
+// every live Ticket; an empty view under ANY other filter means only that
+// nothing matched. Telling an Organizer who filtered to VIP door sales that
+// every question is answered would be false about the Event, and they would
+// stop chasing.
+test("outstanding is the sole filter only when nothing else narrows the view", () => {
+  assert.equal(isOutstandingTheOnlyFilter(filters({ outstanding: true })), true);
+  assert.equal(
+    isOutstandingTheOnlyFilter(filters({ outstanding: true, ticketTypeId: "tt_vip" })),
+    false,
+  );
+  assert.equal(
+    isOutstandingTheOnlyFilter(filters({ outstanding: true, channel: "in_person" })),
+    false,
+  );
+  assert.equal(
+    isOutstandingTheOnlyFilter(filters({ outstanding: true, soldFrom: "2026-07-01" })),
+    false,
+  );
+  assert.equal(
+    isOutstandingTheOnlyFilter(filters({ outstanding: true, soldTo: "2026-07-31" })),
+    false,
+  );
+  // And it is not the congratulation's cue when `outstanding` is off at all —
+  // an empty unfiltered roster means nothing has been sold.
+  assert.equal(isOutstandingTheOnlyFilter(EMPTY_HOLDER_LIST_FILTERS), false);
+});
+
+// The channel control offers exactly the three channels the API accepts, and
+// every one of them has a word in the SALES catalog — so a fourth channel could
+// not reach the dropdown as a blank option.
+test("the channel filter offers every Sales Channel, each with a name", () => {
+  assert.deepEqual([...HOLDER_LIST_CHANNELS], ["online", "in_person", "import"]);
+  for (const channel of HOLDER_LIST_CHANNELS) {
+    assert.ok(SALES_CHANNEL_KEYS[channel]);
+  }
 });

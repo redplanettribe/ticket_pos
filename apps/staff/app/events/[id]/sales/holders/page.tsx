@@ -1,14 +1,18 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { callBackend } from "@/lib/api";
+import type { TicketType } from "@/lib/events-api";
 import {
   parseHolderDir,
   parseHolderSort,
   type HolderListFilters,
 } from "@/lib/holder-list";
+import { SESSION_COOKIE_NAME } from "@/lib/session";
 import { loadEvent } from "@/lib/staff-event";
 
 import { loadSession } from "../../../../staff-page-shell";
-import { HolderListSection } from "../../holder-list-section";
+import { HolderListSection, type HolderTicketTypeOption } from "../../holder-list-section";
 
 // The view's whole vocabulary, as it appears in the address bar. One name per
 // filter, matching the API's query params so the URL, the fetch and the file
@@ -16,6 +20,14 @@ import { HolderListSection } from "../../holder-list-section";
 type HolderListSearchParams = {
   page?: string;
   outstanding?: string;
+  // The structural filters (#523). Named as the API names them, not as the
+  // camel-cased fields they parse into: the URL is the shared vocabulary, and
+  // a screen whose address said `ticketTypeId` while the request said
+  // `ticket_type_id` would be two names for one narrowing.
+  ticket_type_id?: string;
+  channel?: string;
+  sold_from?: string;
+  sold_to?: string;
   sort?: string;
   dir?: string;
 };
@@ -36,10 +48,46 @@ function parsePage(raw: string | undefined): number {
 // for the view. `outstanding` is on only for the exact value the builder emits:
 // a URL is public and half-typed, and anything-but-empty would make
 // `?outstanding=no` mean "yes".
+//
+// THE THREE STRUCTURAL FILTERS ARE TAKEN AS THEY COME (#523), and are NOT
+// validated here. A malformed date or an unknown channel is echoed into the
+// controls and sent to the API, which ignores what it cannot use and answers
+// with the wider roster — the one place that decision is made. Screening it
+// here as well would put a second opinion on this side about which filters are
+// usable, and the two would disagree the day a fourth Sales Channel exists:
+// this page would drop it and the API would honour it.
 function parseFilters(searchParams: HolderListSearchParams): HolderListFilters {
   return {
     outstanding: searchParams.outstanding === "true",
+    ticketTypeId: searchParams.ticket_type_id ?? "",
+    channel: searchParams.channel ?? "",
+    soldFrom: searchParams.sold_from ?? "",
+    soldTo: searchParams.sold_to ?? "",
   };
+}
+
+// fetchTicketTypeOptions loads the Event's Ticket Types to name the ticket-type
+// filter's options, tolerating failure so the roster still renders — just with
+// that one control offering nothing but "all".
+//
+// ON THE SERVER, AND NOT IN THE SECTION, exactly as the Sales page loads the
+// same list for the same control: the options are part of the page's data, the
+// section is a client component that already makes one request per view, and a
+// second round trip from the browser would leave the control briefly empty
+// while the URL already names a Ticket Type it cannot draw.
+async function fetchTicketTypeOptions(
+  eventId: string,
+  token: string,
+): Promise<HolderTicketTypeOption[]> {
+  try {
+    const envelope = await callBackend<TicketType[]>(
+      `/api/v1/staff/events/${eventId}/ticket-types`,
+      { method: "GET", sessionToken: token },
+    );
+    return (envelope.data ?? []).map((type) => ({ id: type.id, name: type.name }));
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -94,7 +142,12 @@ export default async function SalesHolderListPage({ params, searchParams }: Hold
   // not where the reader is standing. Tolerates failure: without it the list still
   // renders and the dates fall back to the viewer's own zone, which is a worse
   // answer than the right one and a much better answer than no list.
-  const event = await loadEvent(id);
+  const cookieStore = await cookies();
+  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  const [event, ticketTypes] = await Promise.all([
+    loadEvent(id),
+    token ? fetchTicketTypeOptions(id, token) : [],
+  ]);
   const timezone = event?.timezone ?? null;
 
   return (
@@ -102,6 +155,7 @@ export default async function SalesHolderListPage({ params, searchParams }: Hold
       eventId={id}
       page={parsePage(resolvedSearchParams.page)}
       filters={parseFilters(resolvedSearchParams)}
+      ticketTypes={ticketTypes}
       sort={parseHolderSort(resolvedSearchParams.sort)}
       dir={parseHolderDir(resolvedSearchParams.dir)}
       timezone={timezone}

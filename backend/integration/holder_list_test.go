@@ -1101,3 +1101,372 @@ func TestTheOldOutstandingAnswersPathIsAnAliasOfTheHolderList(t *testing.T) {
 		t.Errorf("Event Staff read the old path with status=%d, want 403; error=%+v", doorResp.StatusCode, doorBody.Error)
 	}
 }
+
+// THE STRUCTURAL FILTERS (#523, ADR 0065): Ticket Type, Sales Channel and the
+// sale's date. They narrow the roster, they compose with each other and with
+// `outstanding`, and the pagination total follows them.
+//
+// THESE TESTS ARE THE ACCEPTANCE CRITERION and are deliberately written against
+// REAL ROWS rather than against the query builder. Every one of these filters is
+// a string reaching a comparison in SQL: a transposed argument, a copied EXISTS,
+// an off-by-one on a day boundary and a count query that forgot a filter all
+// compile, all run, and all differ from the truth only in which people are on
+// the list. Nothing but a database can notice that.
+
+// filterFixture stands up an Event with a roster worth filtering: two Ticket
+// Types, three Sales Channels and four sale days, one Ticket each so a count of
+// rows is a count of the thing being tested.
+//
+// The Event is put in America/New_York (UTC-4 in July) and the sale times are
+// chosen around ITS midnights, so a bound read in UTC and a bound read in the
+// Event's zone select different rows — see the date test, which is the only way
+// that mistake ever gets caught.
+type holderFilterFixture struct {
+	sessionID string
+	eventID   string
+	gaID      string
+	vipID     string
+}
+
+func newHolderFilterFixture(t *testing.T, env *testEnv) holderFilterFixture {
+	t.Helper()
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Filter Fest", "filter-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 2000, 100)
+	vipID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "VIP", 9000, 100)
+	setEventTimezone(t, env, eventID, "America/New_York")
+
+	commitBatch(t, env, sessionID, eventID, "filter-batch", []map[string]any{
+		// 07-01 00:00 EDT — the inclusive lower boundary of the 1st.
+		{"customer_email": "ga-online@example.com", "customer_first_name": "Ga", "customer_last_name": "Online",
+			"ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T04:00:00Z"},
+		// 07-01 23:59 EDT — the last moment of the 1st, which a bound read in UTC
+		// would push into the 2nd.
+		{"customer_email": "vip-door@example.com", "customer_first_name": "Vip", "customer_last_name": "Door",
+			"ticket_type_id": vipID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-02T03:59:00Z"},
+		// 07-02 00:00 EDT — the exclusive upper boundary of the 1st.
+		{"customer_email": "ga-import@example.com", "customer_first_name": "Ga", "customer_last_name": "Import",
+			"ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-02T04:00:00Z"},
+		// 06-30 23:59 EDT — before the 1st, and a UTC reader would call it the 1st.
+		{"customer_email": "vip-online@example.com", "customer_first_name": "Vip", "customer_last_name": "Online",
+			"ticket_type_id": vipID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T03:59:00Z"},
+	})
+
+	// Every sale a Sale Import commits is on the `import` channel; two are moved
+	// onto the others in SQL, which is the harness's existing way of staging a
+	// channel there is no recording endpoint for (see moveSaleToTheDoor).
+	moveHolderSaleToChannel(t, env, eventID, "ga-online@example.com", "online")
+	moveHolderSaleToChannel(t, env, eventID, "vip-online@example.com", "online")
+	moveHolderSaleToChannel(t, env, eventID, "vip-door@example.com", "in_person")
+
+	return holderFilterFixture{sessionID: sessionID, eventID: eventID, gaID: gaID, vipID: vipID}
+}
+
+// moveHolderSaleToChannel stages one sale on a Sales Channel, by the buyer's
+// email so the fixture reads as the sentence it is setting up.
+func moveHolderSaleToChannel(t *testing.T, env *testEnv, eventID, email, channel string) {
+	t.Helper()
+	res, err := env.db.Exec(`
+		UPDATE ticket_sales SET channel = $1 WHERE event_id = $2 AND customer_email = $3
+	`, channel, eventID, email)
+	if err != nil {
+		t.Fatalf("move %s onto %s: %v", email, channel, err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		t.Fatalf("moving %s onto %s affected %d rows, want 1", email, channel, n)
+	}
+}
+
+// holderRoster reads the Holder List under a raw query string, failing on any
+// refusal — every test below is about WHICH ROWS come back, never about who may
+// ask.
+func holderRoster(t *testing.T, env *testEnv, sessionID, eventID, query string) outstandingAnswers {
+	t.Helper()
+	resp, body := env.get(t, holderListPath(eventID)+query, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("holder list %q status=%d error=%+v", query, resp.StatusCode, body.Error)
+	}
+	return decodeOutstanding(t, body.Data)
+}
+
+// holderBuyers names the buyers on the page, in the order the list returned
+// them, so an assertion can say who is on the roster rather than how many.
+func holderBuyers(page outstandingAnswers) []string {
+	emails := make([]string, 0, len(page.Data))
+	for _, row := range page.Data {
+		emails = append(emails, row.CustomerEmail)
+	}
+	return emails
+}
+
+// assertRoster holds both halves of one view at once: WHO is on the page, and
+// what the pagination says the view holds. They are asserted together on
+// purpose — a total that counted the unfiltered roster under a filtered page is
+// the exact bug that puts "1 of 12 pages" over four rows, and it is invisible to
+// a test that checks only the rows.
+func assertRoster(t *testing.T, page outstandingAnswers, want []string) {
+	t.Helper()
+	got := holderBuyers(page)
+	if len(got) != len(want) {
+		t.Fatalf("roster = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("roster = %v, want %v", got, want)
+		}
+	}
+	if page.Pagination.Total != len(want) {
+		t.Fatalf("pagination total = %d over %d rows — the count query and the page query disagree about the view",
+			page.Pagination.Total, len(want))
+	}
+}
+
+// THE TICKET TYPE FILTER: the VIP roster apart from general admission.
+func TestTheHolderListFiltersByTicketType(t *testing.T) {
+	env := setupTest(t)
+	enableTicketAssignment(t)
+	f := newHolderFilterFixture(t, env)
+
+	// The whole roster first, so the filters below are narrowings of something
+	// known — oldest sale first, which is this list's order.
+	assertRoster(t, holderRoster(t, env, f.sessionID, f.eventID, ""), []string{
+		"vip-online@example.com", "ga-online@example.com", "vip-door@example.com", "ga-import@example.com",
+	})
+
+	assertRoster(t, holderRoster(t, env, f.sessionID, f.eventID, "?ticket_type_id="+f.vipID), []string{
+		"vip-online@example.com", "vip-door@example.com",
+	})
+	assertRoster(t, holderRoster(t, env, f.sessionID, f.eventID, "?ticket_type_id="+f.gaID), []string{
+		"ga-online@example.com", "ga-import@example.com",
+	})
+}
+
+// A MIXED SALE'S OTHER TICKETS STAY OFF THE FILTERED ROSTER, and this is the
+// test that would fail if somebody copied the Sales list's filter across.
+//
+// The Sales list matches its Ticket Type with `EXISTS (SELECT 1 FROM
+// ticket_sale_lines ...)`, because a Ticket SALE can span several types and must
+// appear once with its rollup intact. A TICKET cannot: it is minted on exactly
+// one Ticket Sale Line and belongs to exactly one type. Under the EXISTS, asking
+// for the VIP roster of a sale that bought two GA and one VIP would hand back
+// all three Tickets — two people who are not VIPs, on a list an Organizer is
+// about to use to seat a room.
+func TestTheHolderListTicketTypeFilterKeepsAMixedSalesOtherTicketsOff(t *testing.T) {
+	env := setupTest(t)
+	enableTicketAssignment(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Mixed Fest", "mixed-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 2000, 100)
+	vipID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "VIP", 9000, 100)
+
+	commitBatch(t, env, sessionID, eventID, "mixed-batch", []map[string]any{
+		{"customer_email": "mixed@example.com", "customer_first_name": "Mix", "customer_last_name": "Ed",
+			"ticket_type_id": gaID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+	})
+	// A second line on the same sale, and the Ticket it mints: one Ticket Sale
+	// holding two GA Tickets and one VIP Ticket. Staged in SQL because no import
+	// row carries two types — the same seeding the Sales list's own multi-line
+	// test does.
+	if _, err := env.db.Exec(`
+		WITH line AS (
+			INSERT INTO ticket_sale_lines (ticket_sale_id, ticket_type_id, quantity, unit_price_cents, created_at)
+			SELECT ts.id, $1, 1, 9000, NOW()
+			FROM ticket_sales ts
+			WHERE ts.event_id = $2 AND ts.customer_email = 'mixed@example.com'
+			RETURNING id
+		)
+		INSERT INTO tickets (ticket_sale_line_id, ordinal, created_at)
+		SELECT line.id, 1, NOW() FROM line
+	`, vipID, eventID); err != nil {
+		t.Fatalf("seed the mixed sale's VIP line: %v", err)
+	}
+
+	// Three Tickets on one sale, and the roster is the Tickets.
+	assertRoster(t, holderRoster(t, env, sessionID, eventID, ""), []string{
+		"mixed@example.com", "mixed@example.com", "mixed@example.com",
+	})
+
+	// One VIP Ticket, and exactly one.
+	vip := holderRoster(t, env, sessionID, eventID, "?ticket_type_id="+vipID)
+	assertRoster(t, vip, []string{"mixed@example.com"})
+	if vip.Data[0].TicketTypeID != vipID {
+		t.Fatalf("the VIP roster holds a %s Ticket — the filter matched the SALE and not the Ticket",
+			vip.Data[0].TicketTypeName)
+	}
+	if got := holderRoster(t, env, sessionID, eventID, "?ticket_type_id="+gaID); got.Pagination.Total != 2 {
+		t.Fatalf("the GA roster holds %d Tickets, want the sale's 2", got.Pagination.Total)
+	}
+}
+
+// THE SALES CHANNEL FILTER: the buyers who came through the door, or through an
+// import and were therefore never asked anything.
+func TestTheHolderListFiltersBySalesChannel(t *testing.T) {
+	env := setupTest(t)
+	enableTicketAssignment(t)
+	f := newHolderFilterFixture(t, env)
+
+	assertRoster(t, holderRoster(t, env, f.sessionID, f.eventID, "?channel=online"), []string{
+		"vip-online@example.com", "ga-online@example.com",
+	})
+	assertRoster(t, holderRoster(t, env, f.sessionID, f.eventID, "?channel=in_person"), []string{
+		"vip-door@example.com",
+	})
+	assertRoster(t, holderRoster(t, env, f.sessionID, f.eventID, "?channel=import"), []string{
+		"ga-import@example.com",
+	})
+}
+
+// THE DATE BOUNDS ARE READ IN THE EVENT'S TIMEZONE, and the end day is included
+// whole.
+//
+// This is the test the fixture's awkward sale times exist for. The Event is in
+// America/New_York, UTC-4 in July, so local midnight on the 1st is 04:00Z: a
+// bound resolved in UTC instead would select vip-online (06-30 23:59 EDT, which
+// is 07-01 03:59Z) and drop vip-door (07-01 23:59 EDT, which is 07-02 03:59Z).
+// Both mistakes are one row wide and neither is visible on an Event that
+// happens to be in UTC.
+func TestTheHolderListDateBoundsAreReadInTheEventsTimezone(t *testing.T) {
+	env := setupTest(t)
+	enableTicketAssignment(t)
+	f := newHolderFilterFixture(t, env)
+
+	// Both bounds on the 1st: the two Tickets sold on the 1st LOCALLY, including
+	// the one at 23:59 — the end day is inclusive, which is what makes
+	// `sold_from=X&sold_to=X` mean "that day" rather than "the instant of
+	// midnight".
+	assertRoster(t, holderRoster(t, env, f.sessionID, f.eventID,
+		"?sold_from=2026-07-01&sold_to=2026-07-01"), []string{
+		"ga-online@example.com", "vip-door@example.com",
+	})
+
+	// Open upper bound: the 1st onwards, so the 06-30 sale drops out and the
+	// 07-02 one stays.
+	assertRoster(t, holderRoster(t, env, f.sessionID, f.eventID, "?sold_from=2026-07-01"), []string{
+		"ga-online@example.com", "vip-door@example.com", "ga-import@example.com",
+	})
+
+	// Open lower bound: through the 1st, so the 07-02 sale drops out and the
+	// 06-30 one stays.
+	assertRoster(t, holderRoster(t, env, f.sessionID, f.eventID, "?sold_to=2026-07-01"), []string{
+		"vip-online@example.com", "ga-online@example.com", "vip-door@example.com",
+	})
+
+	// And the same Event in UTC selects a DIFFERENT pair from the same rows,
+	// which is the whole point stated as an experiment: the zone is not
+	// decoration, it decides who is on the list.
+	setEventTimezone(t, env, f.eventID, "UTC")
+	assertRoster(t, holderRoster(t, env, f.sessionID, f.eventID,
+		"?sold_from=2026-07-01&sold_to=2026-07-01"), []string{
+		"vip-online@example.com", "ga-online@example.com",
+	})
+}
+
+// THE FILTERS COMPOSE, with each other and with `outstanding`. "Which VIP door
+// sales are still unclaimed" is one query, which is the whole argument for
+// having filters rather than a set of separate views.
+func TestTheHolderListFiltersCompose(t *testing.T) {
+	env := setupTest(t)
+	enableTicketAssignment(t)
+	enableTicketQuestions(t)
+	f := newHolderFilterFixture(t, env)
+
+	// VIP and in_person: one Ticket, and it is neither the other VIP nor the
+	// other door sale.
+	assertRoster(t, holderRoster(t, env, f.sessionID, f.eventID,
+		"?ticket_type_id="+f.vipID+"&channel=in_person"), []string{"vip-door@example.com"})
+
+	// VIP, online, and sold on 06-30 locally: the intersection is one row, and
+	// asking for the same three filters over the 1st is empty rather than wrong.
+	assertRoster(t, holderRoster(t, env, f.sessionID, f.eventID,
+		"?ticket_type_id="+f.vipID+"&channel=online&sold_from=2026-06-30&sold_to=2026-06-30"),
+		[]string{"vip-online@example.com"})
+	assertRoster(t, holderRoster(t, env, f.sessionID, f.eventID,
+		"?ticket_type_id="+f.vipID+"&channel=online&sold_from=2026-07-01&sold_to=2026-07-01"),
+		[]string{})
+
+	// AND WITH `outstanding`. Only the VIP type asks anything, so only the two
+	// VIP Tickets owe — and the door one is the answer to "which VIP door sales
+	// are still unclaimed".
+	createTicketQuestion(t, env, f.sessionID, f.eventID, f.vipID, map[string]any{
+		"label": "Dietary requirements", "kind": "short_text", "required": true,
+	})
+	assertRoster(t, holderRoster(t, env, f.sessionID, f.eventID, "?outstanding=true"), []string{
+		"vip-online@example.com", "vip-door@example.com",
+	})
+	assertRoster(t, holderRoster(t, env, f.sessionID, f.eventID,
+		"?outstanding=true&channel=in_person"), []string{"vip-door@example.com"})
+	// A GA Ticket owes nothing, so GA plus outstanding is empty — the two
+	// filters intersect rather than one of them winning.
+	assertRoster(t, holderRoster(t, env, f.sessionID, f.eventID,
+		"?outstanding=true&ticket_type_id="+f.gaID), []string{})
+}
+
+// PAGINATION DESCRIBES THE FILTERED VIEW, not the roster behind it.
+//
+// The count query and the page query take their WHERE from one place, and this
+// is what says so. A total left counting the whole roster is invisible on page
+// one — the rows are right — and shows up only as a page count promising pages
+// that answer with nothing.
+func TestTheHolderListPaginationFollowsTheFilters(t *testing.T) {
+	env := setupTest(t)
+	enableTicketAssignment(t)
+	f := newHolderFilterFixture(t, env)
+
+	whole := holderRoster(t, env, f.sessionID, f.eventID, "?page_size=1")
+	if whole.Pagination.Total != 4 || whole.Pagination.TotalPages != 4 {
+		t.Fatalf("unfiltered total=%d pages=%d, want 4 across 4 pages",
+			whole.Pagination.Total, whole.Pagination.TotalPages)
+	}
+
+	filtered := holderRoster(t, env, f.sessionID, f.eventID, "?channel=online&page_size=1")
+	if filtered.Pagination.Total != 2 || filtered.Pagination.TotalPages != 2 {
+		t.Fatalf("filtered total=%d pages=%d, want 2 across 2 pages — the count ignored the filter",
+			filtered.Pagination.Total, filtered.Pagination.TotalPages)
+	}
+	if got := holderBuyers(filtered); len(got) != 1 || got[0] != "vip-online@example.com" {
+		t.Fatalf("filtered page 1 = %v, want the earlier online sale alone", got)
+	}
+	// The second page of the filtered view is the OTHER online sale, and not the
+	// second row of the unfiltered roster.
+	second := holderRoster(t, env, f.sessionID, f.eventID, "?channel=online&page=2&page_size=1")
+	if got := holderBuyers(second); len(got) != 1 || got[0] != "ga-online@example.com" {
+		t.Fatalf("filtered page 2 = %v, want the later online sale — the offset is being applied to the wrong view", got)
+	}
+}
+
+// AN UNUSABLE FILTER IS IGNORED, NEVER REFUSED (#523, and #524 generalises it).
+//
+// This surface is lenient throughout — a bad `page`, a bad `page_size` and a
+// mangled `outstanding` all fall back rather than erroring — and a malformed
+// date, an unknown channel or a malformed Ticket Type id join them. A stale
+// bookmark stays a working roster instead of becoming an error page, and the
+// filter bar showing that field empty is how the reader sees the view is wide.
+//
+// The Ticket Type case is the one with teeth: `ticket_type_id` is compared to a
+// `uuid NOT NULL` column, so a non-uuid reaching the query is a 500 rather than
+// a 400 — a hand-edited URL turning into a server fault.
+func TestTheHolderListIgnoresAnUnusableFilter(t *testing.T) {
+	env := setupTest(t)
+	enableTicketAssignment(t)
+	f := newHolderFilterFixture(t, env)
+
+	for _, query := range []string{
+		"?sold_from=01-07-2026",
+		"?sold_to=nonsense",
+		"?channel=doorway",
+		"?ticket_type_id=not-a-uuid",
+	} {
+		page := holderRoster(t, env, f.sessionID, f.eventID, query)
+		if page.Pagination.Total != 4 {
+			t.Errorf("%s = %d rows, want the whole roster of 4 — an unusable filter is ignored, not honoured as an empty one",
+				query, page.Pagination.Total)
+		}
+	}
+
+	// A WELL-FORMED id that names nothing is a different case and IS honoured:
+	// it is a filter the caller could have meant, it matches nothing because
+	// nothing matches, and the query is already scoped to this Event, so it can
+	// neither reach nor reveal another Organization's Ticket Type.
+	assertRoster(t, holderRoster(t, env, f.sessionID, f.eventID,
+		"?ticket_type_id=00000000-0000-0000-0000-000000000000"), []string{})
+}

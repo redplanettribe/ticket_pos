@@ -161,9 +161,45 @@ type OutstandingQuestionView struct {
 	SortOrder int    `json:"sort_order"`
 }
 
+// ListHolderListParams is one reading of the Holder List: the page wanted and
+// how the roster is narrowed.
+//
+// A STRUCT AND NOT POSITIONAL ARGUMENTS (#523), in the shape of the Sales list's
+// service.ListSalesParams, and for repository.ListHolderTicketsQuery's reason
+// one layer down: three of these filters are strings, a caller that transposed
+// the Ticket Type id and the Sales Channel would compile and be silently wrong,
+// and #524–#527 add four more. A field is added without touching a single
+// existing call site; a seventh positional argument is not.
+//
+// THE DATES ARE STILL "YYYY-MM-DD" HERE, not absolute times. They are CALENDAR
+// DAYS until this service resolves them against the Event's own timezone
+// (dateRangeBounds below) — the handler has no business knowing what a day is
+// worth in Quito, and the repository has no business knowing there are days at
+// all. Same division of labour the Sales list uses.
+type ListHolderListParams struct {
+	Page     int
+	PageSize int
+
+	// OwingOnly is the Outstanding Answers filter — one narrowing of the roster
+	// and never its definition (#333). Closed below while Ticket Questions are
+	// dark.
+	OwingOnly bool
+	// TicketTypeID is one Ticket Type's roster: the VIP list apart from general
+	// admission. A Ticket belongs to exactly one.
+	TicketTypeID string
+	// Channel is 'online', 'in_person' or 'import' — the buyers who came through
+	// the door, or through an import and were therefore never asked anything.
+	Channel string
+	// SoldFrom/SoldTo are calendar days, INCLUSIVE OF BOTH ENDS as the reader
+	// means them, read in the EVENT's timezone so "sold in January" is January
+	// where the Event is and not where the reader is standing. Either may be
+	// blank for an open end.
+	SoldFrom string
+	SoldTo   string
+}
+
 // ListHolderList returns a page of the Event's Holder List: every Ticket of
-// every live Ticket Sale, oldest sale first, or — with owingOnly — only the
-// Tickets that still owe required Answers.
+// every live Ticket Sale, oldest sale first, narrowed by the supplied filters.
 //
 // READABLE ON EITHER FLAG (#333). The list rides where the Outstanding Answers
 // read always was, but it is the Holder List now, and an Organization that
@@ -171,6 +207,11 @@ type OutstandingQuestionView struct {
 // TICKET_ASSIGNMENT_ENABLED as well as TICKET_QUESTIONS_ENABLED, and only a
 // build with both dark answers 404, exactly as a build without either feature
 // would (ADR 0045).
+//
+// THE FILTERS NARROW THE PAGE AND THE TOTAL TOGETHER, because the repository
+// builds both queries from one WHERE. A total that counted the whole roster
+// under a filtered page would put "1 of 12 pages" over four rows, and an
+// Organizer would go looking for the other eight.
 //
 // THE LIST'S DEBTS EMPTY BY THEMSELVES. Nothing here is invalidated or swept
 // when an Answer arrives, because there is nothing to invalidate: what a Ticket
@@ -181,22 +222,37 @@ func (s *Service) ListHolderList(
 	ctx context.Context,
 	actor ActorContext,
 	eventID string,
-	page, pageSize int,
-	owingOnly bool,
+	params ListHolderListParams,
 ) (*HolderListPage, error) {
-	if err := s.holderListAvailable(ctx, actor, eventID); err != nil {
+	event, err := s.holderListAvailable(ctx, actor, eventID)
+	if err != nil {
 		return nil, err
 	}
-	// The FILTER belongs to the questions feature: with it dark there is no
-	// debt to filter by, and a filtered read must not become a side channel
-	// that admits the feature exists (ADR 0045).
-	if owingOnly && !s.ticketQuestionsEnabled {
-		owingOnly = false
-	}
+	// The OUTSTANDING filter belongs to the questions feature: with it dark
+	// there is no debt to filter by, and a filtered read must not become a side
+	// channel that admits the feature exists (ADR 0045). The three structural
+	// filters below need no such treatment — a Ticket Type, a Sales Channel and
+	// a sale date exist on every build.
+	owingOnly := params.OwingOnly && s.ticketQuestionsEnabled
 
-	tickets, total, err := s.repo.ListHolderTickets(
-		ctx, actor.OrganizationID, eventID, owingOnly, pageSize, (page-1)*pageSize,
-	)
+	// The Event's own zone, so a date bound means the day it meant to whoever
+	// typed it into the filter bar. The Event was already read by the gate
+	// above, so this costs no query of its own.
+	loc := resolveEventLocation(event.Timezone.String)
+	soldFrom, soldTo := dateRangeBounds(params.SoldFrom, params.SoldTo, loc)
+
+	page, pageSize := params.Page, params.PageSize
+	tickets, total, err := s.repo.ListHolderTickets(ctx, repository.ListHolderTicketsQuery{
+		OrganizationID: actor.OrganizationID,
+		EventID:        eventID,
+		OwingOnly:      owingOnly,
+		TicketTypeID:   params.TicketTypeID,
+		Channel:        params.Channel,
+		SoldFrom:       soldFrom,
+		SoldTo:         soldTo,
+		Limit:          pageSize,
+		Offset:         (page - 1) * pageSize,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -273,6 +329,12 @@ func (s *Service) ListHolderList(
 // EITHER Ticket Assignment or Ticket Questions is open (#333), and the Event
 // must be the acting Organization's.
 //
+// IT RETURNS THE EVENT IT HAD TO READ ANYWAY (#523). The date filters must be
+// interpreted in the Event's timezone, and the gate has the Event in hand — so
+// the caller takes it from here rather than asking for the same row twice. The
+// gate is still the gate: an unauthorised or unknown Event never gets past this
+// function, whatever the caller wanted the row for.
+//
 // The flag check comes FIRST, before the Event is looked at, for the reason
 // ticketAnswersAvailable gives: a request while both features are dark must not
 // be distinguishable from one against a build that never had them — same
@@ -280,18 +342,73 @@ func (s *Service) ListHolderList(
 // and an invented one (ADR 0045). The code stays TICKET_QUESTIONS_UNAVAILABLE,
 // which is what this route has answered since #313; a dark build changing its
 // refusal would itself be a tell.
-func (s *Service) holderListAvailable(ctx context.Context, actor ActorContext, eventID string) error {
+func (s *Service) holderListAvailable(
+	ctx context.Context, actor ActorContext, eventID string,
+) (*repository.Event, error) {
 	if !s.ticketQuestionsEnabled && !s.ticketAssignmentEnabled {
-		return catalog.ErrTicketQuestionsUnavailable()
+		return nil, catalog.ErrTicketQuestionsUnavailable()
 	}
 	event, err := s.repo.GetEventByID(ctx, actor.OrganizationID, eventID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if event == nil {
-		return catalog.ErrEventNotFound()
+		return nil, catalog.ErrEventNotFound()
 	}
-	return nil
+	return event, nil
+}
+
+// resolveEventLocation resolves an Event timezone name to a *time.Location,
+// defaulting to UTC when the timezone is unset or unrecognised.
+//
+// A THIRD COPY, DELIBERATELY (#523). The same three lines live in
+// sales/service/service.go and in affiliates/service/trends.go, both unexported,
+// and the affiliates one already states the precedent this follows: restated
+// rather than imported so the modules stay uncoupled over one line of policy.
+// Promoting it to a shared package would make the catalog module depend on the
+// sales module — or invent a fourth package for a fallback — to save six lines,
+// and would put a change to one surface's timezone handling in the blast radius
+// of all three. What matters is that the ANSWER agrees, and it does: unset or
+// unrecognised means UTC everywhere, which is the property the tests assert.
+func resolveEventLocation(tz string) *time.Location {
+	if tz != "" {
+		if loc, err := time.LoadLocation(tz); err == nil {
+			return loc
+		}
+	}
+	return time.UTC
+}
+
+// dateRangeBounds turns "YYYY-MM-DD" sold-at bounds into a half-open absolute
+// interval [from, to) read in the Event's zone: `from` is local midnight of the
+// start day (inclusive) and `to` is local midnight of the day AFTER the end day
+// (exclusive), so the END DAY IS INCLUDED WHOLE. Either bound may be blank,
+// yielding a nil (open) end.
+//
+// THE HALF-OPEN SHAPE IS THE POINT, and it is copied from the Sales list's
+// helper of the same name rather than reinvented. "Sold to the 3rd" means
+// through the last instant of the 3rd, and the alternative — `<= end day
+// 23:59:59` — has to choose a precision and is wrong for every sale recorded in
+// the second it excludes. AddDate also gets the awkward cases right by
+// construction: a day that is 23 or 25 hours long because the zone changed
+// offset overnight still ends exactly when the next one begins.
+//
+// AN UNPARSEABLE VALUE YIELDS NIL — an OPEN bound, which is the unfiltered
+// answer and not a silently empty one. The handler has already discarded
+// anything malformed (see holderDateParam), so this is belt and braces; it is
+// stated here because a future caller passing raw input must not be able to
+// turn a typo into a roster with nobody on it.
+func dateRangeBounds(from, to string, loc *time.Location) (*time.Time, *time.Time) {
+	var fromT, toT *time.Time
+	if d, err := time.ParseInLocation("2006-01-02", from, loc); from != "" && err == nil {
+		start := d
+		fromT = &start
+	}
+	if d, err := time.ParseInLocation("2006-01-02", to, loc); to != "" && err == nil {
+		end := d.AddDate(0, 0, 1)
+		toT = &end
+	}
+	return fromT, toT
 }
 
 // fillHolderListEntry puts one Ticket's assignment onto the Organization's row,

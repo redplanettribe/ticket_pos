@@ -154,32 +154,83 @@ export const HOLDER_LIST_PAGE_SIZE = 50;
   already does exactly this; tightening it is one change across both screens,
   not a special case here, and is out of scope of this module.
 
-  ONLY THE FILTER THAT EXISTS TODAY LIVES HERE. The other six are #523–#526 and
-  the five sorts are #527. The types below are shaped so those tickets add
-  fields and values without restructuring anything.
+  ONLY THE FILTERS THAT EXIST TODAY LIVE HERE. #523 added the three structural
+  ones — Ticket Type, Sales Channel and the sale's date range — and the
+  remaining three are #524–#526, with the five sorts in #527. The types below
+  are shaped so those tickets add fields and values without restructuring
+  anything, and #523 is the evidence that they do.
 */
 
 /**
  * The Holder List's filters, mirroring the endpoint's query params, one field
  * per dimension.
  *
- * A RECORD AND NOT A BAG OF OPTIONALS, so a filter added by #523–#526 is a
+ * A RECORD AND NOT A BAG OF OPTIONALS, so a filter added by #524–#526 is a
  * compile error everywhere it must be handled rather than a silently-absent
  * key: `EMPTY_HOLDER_LIST_FILTERS`, the append helper and the active check are
- * each total over this type.
+ * each total over this type. #523 added three fields under exactly that
+ * property and the compiler named every place they had to be handled.
  *
  * `outstanding` is the old Outstanding Answers list reduced to what it always
  * was — one narrowing of the roster. The API ignores it while Ticket Questions
  * are dark, so nothing on this side has to know a flag it cannot see.
+ *
+ * THE THREE STRUCTURAL FILTERS (#523) narrow the roster by facts about the
+ * SALE a Ticket came from, and compose with `outstanding` and with each other:
+ * "which VIP door sales are still unclaimed" is one view.
+ *
+ * WHAT IS DELIBERATELY MISSING IS A STATUS FILTER, and it is missing for a
+ * reason a reader will otherwise try to fix: a Sale Reversal means the Tickets
+ * CEASE TO EXIST, so reversed Tickets are not rows this list is hiding — they
+ * are not rows. There is nothing for such a control to reveal. No payment
+ * method and no source either: sale facts with no roster meaning, and the Sales
+ * list next door already filters by both (ADR 0065).
  */
 export type HolderListFilters = {
   outstanding: boolean;
+  /**
+   * One Ticket Type's roster — the VIP list apart from general admission. A
+   * Ticket belongs to exactly ONE Ticket Type, unlike a Ticket Sale, which is
+   * why this narrows differently from the Sales list's control of the same name.
+   */
+  ticketTypeId: string;
+  /**
+   * One Sales Channel: `online`, `in_person` or `import`. The channel already
+   * explains a row — a door sale owes every question because nobody was ever
+   * asked — and this makes it a lever, so "the buyers nobody could ask" is a
+   * view rather than a scan.
+   */
+  channel: string;
+  /**
+   * A calendar day each, `YYYY-MM-DD`, INCLUSIVE OF BOTH ENDS and read in the
+   * EVENT's timezone by the API — so "sold in January" is January where the
+   * Event is and not where the reader is standing. Held as the strings a date
+   * input produces and never as Dates: a `Date` here would be an instant, and
+   * the whole point is that these are days whose length and boundaries the
+   * browser is not entitled to decide.
+   */
+  soldFrom: string;
+  soldTo: string;
 };
 
 /** The whole roster: every filter at its unfiltered value. */
 export const EMPTY_HOLDER_LIST_FILTERS: HolderListFilters = {
   outstanding: false,
+  ticketTypeId: "",
+  channel: "",
+  soldFrom: "",
+  soldTo: "",
 };
+
+/**
+ * The Sales Channels a reader may filter by, in the order the control offers
+ * them: the ordinary case first, then the two that were never asked anything.
+ *
+ * Derived from `SALES_CHANNEL_KEYS` below rather than written twice, so a
+ * fourth channel arriving in the type cannot reach the filter without a word to
+ * name it — the same totality the key map already has.
+ */
+export const HOLDER_LIST_CHANNELS: readonly SalesChannel[] = ["online", "in_person", "import"];
 
 /**
  * An allowlisted sort column and direction, carried in the URL and mirroring
@@ -237,6 +288,10 @@ export function parseHolderDir(raw: string | undefined): HolderSortDir {
  */
 function appendHolderListFilters(params: URLSearchParams, filters: HolderListFilters): void {
   if (filters.outstanding) params.set("outstanding", "true");
+  if (filters.ticketTypeId) params.set("ticket_type_id", filters.ticketTypeId);
+  if (filters.channel) params.set("channel", filters.channel);
+  if (filters.soldFrom) params.set("sold_from", filters.soldFrom);
+  if (filters.soldTo) params.set("sold_to", filters.soldTo);
 }
 
 /**
@@ -284,7 +339,33 @@ export function holderListQuery(
  * are.
  */
 export function hasActiveHolderListFilters(filters: HolderListFilters): boolean {
-  return filters.outstanding;
+  return (
+    filters.outstanding ||
+    filters.ticketTypeId !== "" ||
+    filters.channel !== "" ||
+    filters.soldFrom !== "" ||
+    filters.soldTo !== ""
+  );
+}
+
+/**
+ * Whether `outstanding` is the ONLY thing narrowing this view.
+ *
+ * The empty state hangs on it (ADR 0065). An empty Outstanding-only view is a
+ * CONGRATULATION — every required question has been answered on every live
+ * Ticket. Under any other filter an empty view means "nothing matched", and the
+ * two must not share a sentence: telling an Organizer who filtered to VIP door
+ * sales in January that every question is answered would be false about the
+ * Event, and they would stop chasing.
+ */
+export function isOutstandingTheOnlyFilter(filters: HolderListFilters): boolean {
+  return (
+    filters.outstanding &&
+    filters.ticketTypeId === "" &&
+    filters.channel === "" &&
+    filters.soldFrom === "" &&
+    filters.soldTo === ""
+  );
 }
 
 /**

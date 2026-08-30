@@ -5,6 +5,7 @@ import (
 
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 )
 
@@ -142,9 +143,18 @@ const holderRosterFrom = `
 // Organization. Both scopes and never only the Event, for
 // outstandingAnswerScope's reason: an Event id alone would let one
 // Organization's guess at an id resolve.
+//
+// A FORMAT STRING AND NOT A CONSTANT WITH `$1`/`$2` BAKED IN (#523). It used to
+// carry the numbers, which held for exactly as long as the roster had one
+// optional filter appended after a fixed pair of arguments. It now has four,
+// each appending its own placeholder, and a fragment that asserts its own
+// position is a fragment that silently reads the wrong argument the day
+// somebody puts a filter in front of it. The two `%d` are the Event and the
+// Organization, in that order; holderRosterFilters below is the only caller and
+// hands it the positions it actually used.
 const holderRosterWhere = `
 	s.status = 'active'
-	AND s.event_id = $1 AND s.organization_id = $2
+	AND s.event_id = $%d AND s.organization_id = $%d
 `
 
 // holderRosterOwingOnly narrows the roster to the Tickets that still owe a
@@ -154,12 +164,17 @@ const holderRosterWhere = `
 // IT REUSES THE DEBT'S OWN SQL, outstandingAnswerFrom and outstandingAnswerWhere
 // verbatim, inside an IN whose aliases shadow the roster's. Restating the four
 // clauses here would be a third statement of the rule, and the first to drift.
+//
+// Parameterised for holderRosterWhere's reason, and with the SAME two arguments
+// in the same order: the sub-query re-states the scope rather than inheriting
+// it, because its aliases shadow the roster's and an unscoped `IN` here would
+// admit another Organization's owing Tickets to this Organization's roster.
 const holderRosterOwingOnly = `
 	AND tk.id IN (
 		SELECT tk.id
 	` + outstandingAnswerFrom + `
 		WHERE ` + outstandingAnswerWhere + `
-		AND s.event_id = $1 AND s.organization_id = $2
+		AND s.event_id = $%d AND s.organization_id = $%d
 	)
 `
 
@@ -303,15 +318,149 @@ type OutstandingQuestion struct {
 	SortOrder  int
 }
 
+// ListHolderTicketsQuery is one reading of the Event's roster: its scope, its
+// narrowings, and the page wanted. Every field beyond OrganizationID/EventID is
+// optional — a zero value (false, empty string, nil bound) leaves that dimension
+// unfiltered — which is what makes the whole roster the query you get by asking
+// for nothing.
+//
+// A STRUCT AND NOT POSITIONAL ARGUMENTS (#523), in the shape of the Sales list's
+// repository.ListSalesQuery next door, and this is the argument for it: the
+// roster now takes THREE STRING FILTERS beside its two string scopes, and a
+// caller that transposed a Ticket Type id with a Sales Channel would compile
+// cleanly, run, and quietly return an empty roster. Names at the call site are
+// the only thing that catches that. The second reason is growth: #524–#527 add
+// the assignment state, the search term, a named question and the sort, and each
+// arrives here as a FIELD rather than as a sixth, seventh and eighth positional
+// argument that every existing caller must be edited to skip past.
+//
+// NOTHING HERE IS INTERPOLATED INTO SQL. Every field below reaches the database
+// as a placeholder argument (see holderRosterFilters), so a Ticket Type id is a
+// value and never a fragment. The sort #527 adds will be the first exception and
+// must arrive with an allowlist, as salesSortColumns has.
+type ListHolderTicketsQuery struct {
+	// The scope, and the security property: BOTH, never only the Event. See
+	// holderRosterWhere.
+	OrganizationID string
+	EventID        string
+	// OwingOnly narrows to the Tickets that still owe a required Answer — the
+	// Outstanding Answers FILTER (#333). The service closes it while the Ticket
+	// Question feature is dark; nothing here knows about flags.
+	OwingOnly bool
+	// TicketTypeID keeps only the Tickets OF that Ticket Type — the VIP roster
+	// apart from general admission (#523).
+	//
+	// A PLAIN EQUALITY ON THE LINE, and deliberately NOT the Sales list's
+	// `EXISTS (SELECT 1 FROM ticket_sale_lines ...)` sub-query. The two lists
+	// count different things: a Ticket SALE can span several Ticket Types, so
+	// the Sales list needs an existence test to avoid fanning one sale out into
+	// several rows or losing half its rollup. A TICKET belongs to exactly one
+	// Ticket Type, through the one Ticket Sale Line it was minted on, and the
+	// roster's row IS that Ticket. Copying the EXISTS across would be strictly
+	// wrong here: it would admit every Ticket of a mixed sale — the GA tickets
+	// of a sale that also bought one VIP — to the VIP roster.
+	TicketTypeID string
+	// Channel keeps only the Tickets of sales made on that Sales Channel:
+	// 'online', 'in_person' or 'import'. Equality on the SALE, because a Ticket
+	// has no channel of its own — it is how the Ticket was bought.
+	//
+	// The row already carries the channel to EXPLAIN itself (a door sale owes
+	// every question because nobody was ever asked); this makes it a lever, so
+	// "the buyers who were never asked" is a query and not a scan.
+	Channel string
+	// SoldFrom/SoldTo bound the SALE's sold_at as a half-open interval
+	// [SoldFrom, SoldTo): the lower bound inclusive, the upper exclusive, both
+	// already resolved to absolute time by the service, which is where the
+	// Event's timezone is applied. Either may be nil for an open end.
+	//
+	// HALF-OPEN, AND THE SERVICE PASSES MIDNIGHT OF THE DAY AFTER, which is how
+	// "sold to the 3rd" includes the whole of the 3rd without this layer having
+	// to know what a day is or how long one is in a zone that changed offset
+	// overnight. Exactly the Sales list's shape (ListSalesQuery.SoldFrom), and
+	// deliberately so: the two lists must agree about which day a late-night
+	// sale fell on.
+	SoldFrom *time.Time
+	SoldTo   *time.Time
+	// WHAT IS DELIBERATELY ABSENT IS A STATUS FILTER, and it is absent for a
+	// reason that must survive the next reader (ADR 0065). A Sale Reversal means
+	// the Tickets CEASE TO EXIST (ADR 0043): a reversed sale's Tickets are not
+	// rows this list is hiding, they are not rows. `s.status = 'active'` in
+	// holderRosterWhere is therefore not a default that a filter could widen —
+	// there is nothing on the other side of it to show. Adding a status
+	// parameter here would produce a roster of people who are not coming and
+	// whose money has gone back.
+	//
+	// SO ARE payment_method AND source, for the plainer reason: they are facts
+	// about a SALE with no meaning on a roster, and the Sales list next door
+	// already filters by both.
+	//
+	// Limit and Offset page the result. Limit must be positive; see the refusal
+	// at the top of ListHolderTickets.
+	Limit  int
+	Offset int
+}
+
+// holderRosterFilters builds the roster's WHERE and its arguments from one
+// query: the scope first, then one condition per active filter.
+//
+// AN APPENDER AND NOT HAND-NUMBERED PLACEHOLDERS, the idiom ListSales uses.
+// With `$1..$4` written out by hand, adding the fifth filter means renumbering
+// the ones after it — a change that compiles, runs, and returns the wrong rows
+// rather than an error, because every argument here is a string and Postgres
+// will happily compare a Ticket Type id to a channel. Here each condition takes
+// the placeholder it just appended and can neither know nor care what came
+// before it.
+//
+// THE COUNT AND THE PAGE SHARE THIS, and that sharing is the guarantee that
+// pagination totals describe the filtered view rather than the roster behind
+// it. Two queries assembling their own conditions would be two views, and the
+// screen would say "1 of 12 pages" over four rows.
+func holderRosterFilters(q ListHolderTicketsQuery) (string, []any) {
+	args := []any{q.EventID, q.OrganizationID}
+	eventP, orgP := 1, 2
+
+	where := fmt.Sprintf(holderRosterWhere, eventP, orgP)
+
+	var conds []string
+	addCond := func(format string, val any) {
+		args = append(args, val)
+		conds = append(conds, fmt.Sprintf(format, len(args)))
+	}
+
+	if q.OwingOnly {
+		// No argument of its own: it re-states the scope already in args.
+		where += fmt.Sprintf(holderRosterOwingOnly, eventP, orgP)
+	}
+	if q.TicketTypeID != "" {
+		// Equality on the LINE's Ticket Type — see the field's comment for why
+		// this is not the Sales list's EXISTS.
+		addCond(`l.ticket_type_id = $%d`, q.TicketTypeID)
+	}
+	if q.Channel != "" {
+		addCond(`s.channel = $%d`, q.Channel)
+	}
+	if q.SoldFrom != nil {
+		addCond(`s.sold_at >= $%d`, *q.SoldFrom)
+	}
+	if q.SoldTo != nil {
+		addCond(`s.sold_at < $%d`, *q.SoldTo)
+	}
+
+	for _, cond := range conds {
+		where += "\n\t\tAND " + cond
+	}
+	return where, args
+}
+
 // ListHolderTickets returns a page of the Event's ROSTER — every Ticket of
 // every live Ticket Sale — oldest sale first, together with how many Tickets
-// the whole roster carries (#333).
+// the view holds (#333, filters #523).
 //
 // EVERY TICKET AND NOT EVERY TICKET THAT OWES, which is the ruling on #333:
 // the Holder List is the Organization's answer to "who is coming", a fully
 // answered Ticket stays on it, and an Event that asks no questions still has
 // one. What a Ticket owes hangs off the row, from
-// ListOutstandingQuestionsForTickets, and owingOnly narrows the roster to the
+// ListOutstandingQuestionsForTickets, and OwingOnly narrows the roster to the
 // Tickets that owe — Outstanding Answers as a FILTER of this list, never its
 // definition.
 //
@@ -321,24 +470,27 @@ type OutstandingQuestion struct {
 // the filter reorders nobody.
 //
 // The total counts the TICKETS the current view holds, so it agrees with the
-// rows being paged, whichever way the filter is set.
+// rows being paged, however the filters are set: the two queries take their
+// WHERE from the same holderRosterFilters call and cannot describe two views.
 func (r *Repository) ListHolderTickets(
 	ctx context.Context,
-	organizationID, eventID string,
-	owingOnly bool,
-	limit, offset int,
+	q ListHolderTicketsQuery,
 ) ([]HolderTicket, int, error) {
-	filter := ""
-	if owingOnly {
-		filter = holderRosterOwingOnly
+	// A non-positive Limit would mean LIMIT 0: no rows, and a caller handed a
+	// confident empty roster instead of an error. Refuse it rather than serve
+	// it — ListSales refuses the same thing for the same reason.
+	if q.Limit <= 0 {
+		return nil, 0, fmt.Errorf("catalog: ListHolderTickets requires a positive Limit, got %d", q.Limit)
 	}
+
+	where, args := holderRosterFilters(q)
 
 	var total int
 	if err := r.db.Pool.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 	`+holderRosterFrom+`
-		WHERE `+holderRosterWhere+filter,
-		eventID, organizationID,
+		WHERE `+where,
+		args...,
 	).Scan(&total); err != nil {
 		return nil, 0, err
 	}
@@ -349,17 +501,21 @@ func (r *Repository) ListHolderTickets(
 		return []HolderTicket{}, 0, nil
 	}
 
-	rows, err := r.db.Pool.QueryContext(ctx, `
+	// The page's own two arguments, appended AFTER the filters' so the numbering
+	// depends on how many filters were active rather than on a constant nobody
+	// remembers to update.
+	pageArgs := append(append([]any{}, args...), q.Limit, q.Offset)
+	rows, err := r.db.Pool.QueryContext(ctx, fmt.Sprintf(`
 		SELECT tk.id, tk.ordinal, l.ticket_type_id, tt.name,
 		       s.id, s.confirmation_ref, s.channel,
 		       s.customer_first_name, s.customer_last_name, s.customer_email, s.sold_at,
 		       tk.holder_email, tk.assigned_at, tk.accepted_at, tk.holder_address_purged_at,
 		       hc.first_name, hc.last_name
 	`+holderRosterFrom+holderRosterHolderJoin+`
-		WHERE `+holderRosterWhere+filter+`
+		WHERE `+where+`
 		ORDER BY s.sold_at ASC, s.id ASC, tk.ordinal ASC
-		LIMIT $3 OFFSET $4
-	`, eventID, organizationID, limit, offset)
+		LIMIT $%d OFFSET $%d
+	`, len(args)+1, len(args)+2), pageArgs...)
 	if err != nil {
 		return nil, 0, err
 	}
