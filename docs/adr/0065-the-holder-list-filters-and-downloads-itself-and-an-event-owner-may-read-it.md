@@ -84,7 +84,8 @@ audit line names who took it, from which Organization and Event, under which str
 how many rows; **never the search term**, which matches customer addresses, because a log aggregator
 is a wider audience than the database.
 
-The file is capped at **50,000 Tickets**, its own constant with its own reason — a synchronous
+The file is capped at **2,000 Tickets** — 50,000 as first written, brought down by the benchmark this
+decision made it contingent on (#530) — its own constant with its own reason: a synchronous
 generation ceiling, not the Sales Export's symmetry with what a Sale Import would take back, which
 does not transfer to a file nobody imports. Over the cap it refuses and names how many Tickets
 matched, rather than truncating.
@@ -137,9 +138,24 @@ cheapest the rename will ever be.
 - A test asserting that an unaccepted address returns **zero rows** is load-bearing. Adding
   `holder_email` to the search predicate is a one-line change that passes review, breaks nothing
   visible, and reopens ADR 0047.
-- The 50,000 cap is a judgement, not a measurement. It is contingent on generating a file of that size
-  with the full Option column set inside the request timeout — Option columns make the sheet wide, and
-  width costs more than height. If the benchmark does not hold, the number comes down.
+- The cap is now a **measurement, and the measurement brought it down to 2,000** (#530). It was written
+  here as a judgement contingent on generating 50,000 rows with the full Option column set inside the
+  request budget, and the contingency was false. The benchmark that settled it —
+  `TestHolderExportAtTheCap`, end to end over HTTP against a seeded Postgres, at 50,000 rows across 219
+  columns (eight multiple-choice questions of twenty-five Options apiece, retired Options included,
+  plus six single-column questions) — generated the file in **22 seconds against a 300s Cloud Run
+  request timeout**, and did it in **6.9 GiB of process memory against an `api_memory` of 512Mi**. The
+  contingency named the wrong bound: width does cost more than height, but what it costs is MEMORY,
+  and an OOM does not fail a request, it takes the instance down under every other request in flight.
+  2,000 is where the worst plausible width fits with headroom (265 MiB peak RSS; 3,000 reaches 392 MiB
+  and leaves none). It is deliberately chosen against the wide case rather than the common one: at the
+  minimum width — no Ticket Questions at all, thirteen columns — 50,000 rows still needed 556 MiB, so
+  the old number did not hold even for an Event that asks nothing.
+- **A cap on rows bounds a cost measured in cells**, which is why 2,000 is as severe as it is: it is
+  what a wide Event can afford and far less than a narrow one could. That mismatch is the price of one
+  number, accepted here rather than designed around. Raising it means changing what is bounded — a
+  streaming workbook writer, a ceiling counted in cells, or more `api_memory` — and each of those is a
+  decision of its own rather than a bigger constant.
 - The Outstanding Answers congratulation now fires only when `outstanding` is the sole active filter.
   Under any other filter an empty view means "nothing matched", not "every question has been
   answered", and the two must not share a sentence.

@@ -13204,21 +13204,24 @@ paths:
         work without deleting a preamble — which is why the stamp is a sheet of its
         own. The filename is set by Content-Disposition as `holders-{event-slug}-{YYYY-MM-DD}.xlsx`.
         Generation is synchronous and the workbook is buffered in memory, so the file
-        is CAPPED at 50,000 Tickets — its own ceiling with its own reason, and deliberately
-        not the Sales Export''s cap, which exists to mirror what a Sale Import would
-        take back and does not transfer to a file nobody imports. A request whose
-        filters match MORE than the cap builds nothing and is refused with the standard
-        VALIDATION_FAILED envelope, carrying one field error on `filters` whose message
-        names how many TICKETS matched and how many may be downloaded at once; nothing
-        is ever truncated, and exactly the cap succeeds. One structured log line is
-        written per generated file — the acting Member, Organization, Event, the honoured
-        structural filters, the sort and the row count — because this is the platform''s
-        densest concentration of attendee personal data and "who pulled the guest
-        list" cannot be answered retroactively. The search is recorded in it as a
-        boolean only, for the reason it is absent from the file. Restricted to Org
-        Admins and Event Owners, the same gate as the Holder List read; Event Staff
-        are refused. 404 while BOTH the Ticket Assignment and the Ticket Question
-        feature flags are dark, exactly as the list is.'
+        is CAPPED at 2,000 Tickets — a measured ceiling (#530): at the widest plausible
+        question set a fifty-thousand-row file needed 6.9 GiB of process memory, and
+        memory rather than the request timeout is what bounds this — its own ceiling
+        with its own reason, and deliberately not the Sales Export''s cap, which exists
+        to mirror what a Sale Import would take back and does not transfer to a file
+        nobody imports. A request whose filters match MORE than the cap builds nothing
+        and is refused with the standard VALIDATION_FAILED envelope, carrying one
+        field error on `filters` whose message names how many TICKETS matched and
+        how many may be downloaded at once; nothing is ever truncated, and exactly
+        the cap succeeds. One structured log line is written per generated file —
+        the acting Member, Organization, Event, the honoured structural filters, the
+        sort and the row count — because this is the platform''s densest concentration
+        of attendee personal data and "who pulled the guest list" cannot be answered
+        retroactively. The search is recorded in it as a boolean only, for the reason
+        it is absent from the file. Restricted to Org Admins and Event Owners, the
+        same gate as the Holder List read; Event Staff are refused. 404 while BOTH
+        the Ticket Assignment and the Ticket Question feature flags are dark, exactly
+        as the list is.'
       parameters:
       - description: Event ID
         in: path

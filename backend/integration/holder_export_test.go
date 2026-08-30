@@ -747,16 +747,21 @@ func TestTheHolderExportRefusesOverTheCapRatherThanTruncating(t *testing.T) {
 	}
 }
 
-// THE CAP IS ITS OWN NUMBER WITH ITS OWN REASON — 50,000 Tickets, a synchronous
+// THE CAP IS ITS OWN NUMBER WITH ITS OWN REASON — 2,000 Tickets, a synchronous
 // generation ceiling — and deliberately NOT the Sales Export's, whose reason is
 // symmetry with what a Sale Import would take back and does not transfer to a
 // file nobody imports.
 //
 // This pins the two apart. Referencing the other constant is the obvious wrong
 // move, and it would pass every other test in this file.
+//
+// THE NUMBER CAME DOWN FROM FIFTY THOUSAND ON A MEASUREMENT (#530): at the worst
+// plausible width a fifty-thousand-row file took 6.9 GiB against an api_memory
+// of 512Mi, where it took 22 seconds against a 300s timeout — memory binds, not
+// time. This test is what stops it drifting back up without one.
 func TestTheHolderExportCapIsItsOwnNumber(t *testing.T) {
-	if got := sharedApp.CatalogService.HolderExportRowCap(); got != 50_000 {
-		t.Fatalf("deployed Holder Export cap = %d, want 50,000 Tickets", got)
+	if got := sharedApp.CatalogService.HolderExportRowCap(); got != 2_000 {
+		t.Fatalf("deployed Holder Export cap = %d, want 2,000 Tickets", got)
 	}
 	if sharedApp.CatalogService.HolderExportRowCap() == sharedApp.SalesService.ExportRowCap() {
 		t.Fatal("the Holder Export and the Sales Export share a cap; they count different things for different reasons")

@@ -51,18 +51,40 @@ import (
 // proxy or takes the process down — on the busiest day of the Event, which is
 // exactly when somebody reaches for this.
 //
-// IT IS A JUDGEMENT AND NOT A MEASUREMENT (ADR 0065's own consequence). It is
-// contingent on a file of this size with the full Option column set generating
-// inside the request timeout — Option columns make the sheet WIDE, and width
-// costs more than height. If that benchmark does not hold, this number comes
-// down, and it comes down here without touching the Sales Export.
-const defaultHolderExportRowCap = 50_000
+// IT IS NOW A MEASUREMENT, AND THE MEASUREMENT BROUGHT IT DOWN FROM FIFTY
+// THOUSAND (#530). It was a judgement when ADR 0065 wrote it, contingent on a
+// file of that size with the full Option column set generating inside the
+// request budget, and the benchmark that settled it — TestHolderExportAtTheCap
+// in the integration suite, end to end over HTTP against a seeded Postgres —
+// found the contingency false. THE BINDING LIMIT IS MEMORY AND NOT TIME, which
+// is the thing the original wording got wrong: fifty thousand Tickets across 219
+// columns (eight multiple-choice questions of twenty-five Options, retired ones
+// included, plus six single-column questions) generated in 22 SECONDS against a
+// 300s Cloud Run request timeout — thirteen times inside it — while taking 6.9
+// GiB of process memory against an api_memory of 512Mi. An OOM does not fail the
+// request; it takes the instance down under every other request in flight.
+//
+// TWO THOUSAND IS WHAT THE MEASUREMENT SUPPORTS at that worst plausible width:
+// 265 MiB peak RSS, which leaves headroom over the running process inside 512Mi,
+// where three thousand reaches 392 MiB and leaves none. The number is deliberately
+// chosen against the WIDE case rather than the common one, because a cap that
+// only holds for Events that ask nothing is not a bound: the same benchmark at
+// the minimum width — thirteen columns, no Ticket Questions at all — still needs
+// 556 MiB at fifty thousand rows, so the old number did not hold even there.
+//
+// IT IS A CAP ON ROWS AND THE COST IS IN CELLS, which is why it is this severe.
+// A roster of two thousand costs a narrow Event almost nothing and is all a wide
+// one can afford, and one number has to be safe for both. Raising it means
+// changing what it bounds — an excelize StreamWriter, or a ceiling counted in
+// cells rather than rows, or more api_memory — and each of those is a decision
+// with its own ticket, not a bigger constant here.
+const defaultHolderExportRowCap = 2_000
 
 // WithHolderExportRowCap narrows how many Tickets a Holder Export may carry.
 //
-// It exists so a test can prove the cap is a cap. Reaching the deployed fifty
-// thousand would mean seeding fifty thousand and one Tickets, which takes minutes
-// and buys nothing: what has to hold is the behaviour AT the bound — the refusal,
+// It exists so a test can prove the cap is a cap. Reaching the deployed number
+// would mean seeding one Ticket more than it, which takes minutes and buys
+// nothing: what has to hold is the behaviour AT the bound — the refusal,
 // the count it names, and that exactly the cap still succeeds — and none of that
 // is a property of the number. A value of zero or less keeps the default, so a
 // misapplied override can never quietly mean "export nothing".
