@@ -402,3 +402,70 @@ test("the state filter offers four values, each named as the rows name it", () =
   // the fourth state #331 rejected, arriving by the back door.
   assert.deepEqual(Object.keys(ASSIGNMENT_STATE_KEYS), ["unassigned", "assigned", "accepted"]);
 });
+
+/*
+  THE NAMED-QUESTION FILTER (#525, ADR 0065): the Tickets owing ONE named
+  Ticket Question, which on an Event asking several is a different chase from
+  owing anything at all.
+
+  NOTHING ON THIS SIDE DECIDES WHAT IS OUTSTANDING — the API narrows its own
+  derivation by the question's id — so there is nothing here to test but the
+  SHAPING: that the id reaches the URL under the API's own name, that it
+  composes, and that it counts as a narrowing everywhere a narrowing counts.
+*/
+
+test("the named question reaches the URL under the API's name", () => {
+  assert.equal(holderListQuery(1, filters({ questionId: "q_size" })), "?question_id=q_size");
+});
+
+// It carries the ID and not the label, which is why nothing here trims or
+// cases it: a question's wording is the Organization's and can be corrected,
+// and a URL keyed on words would stop meaning anything the day it was.
+test("a blank named question is omitted, not sent empty", () => {
+  assert.equal(holderListQuery(1, filters({ questionId: "" })), "");
+});
+
+// IT COMPOSES WITH `outstanding` RATHER THAN REPLACING IT, and both reach the
+// URL together — the checkbox is untouched by this filter. The two mean the
+// same view, because owing this question implies owing something, and the API
+// is where that identity is proven; this only holds them to travelling
+// together.
+test("the named question composes with outstanding and with every other filter", () => {
+  assert.equal(
+    holderListQuery(1, filters({ outstanding: true, questionId: "q_size" })),
+    "?outstanding=true&question_id=q_size",
+  );
+  assert.equal(
+    holderListQuery(
+      2,
+      filters({
+        outstanding: true,
+        questionId: "q_size",
+        assignmentState: "assigned",
+        ticketTypeId: "tt_vip",
+        channel: "in_person",
+        soldFrom: "2026-07-01",
+        soldTo: "2026-07-31",
+      }),
+    ),
+    "?page=2&outstanding=true&question_id=q_size&assignment_state=assigned&ticket_type_id=tt_vip" +
+      "&channel=in_person&sold_from=2026-07-01&sold_to=2026-07-31",
+  );
+});
+
+// The Clear control's presence: a reader who narrowed to one question alone
+// must still be offered the way back.
+test("a named question alone makes the view narrowed", () => {
+  assert.equal(hasActiveHolderListFilters(filters({ questionId: "q_size" })), true);
+});
+
+// AND IT IS NOT THE CONGRATULATION'S CUE. An empty "outstanding, shirt size"
+// view means nobody owes a shirt size — not that every required question on the
+// Event has been answered. Telling an Organizer the second when only the first
+// is true is how they stop chasing the dietary notes.
+test("outstanding is not the sole filter when a question narrows the view too", () => {
+  assert.equal(
+    isOutstandingTheOnlyFilter(filters({ outstanding: true, questionId: "q_size" })),
+    false,
+  );
+});

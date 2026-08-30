@@ -178,6 +178,52 @@ const holderRosterOwingOnly = `
 	)
 `
 
+// holderRosterOwingQuestion narrows the roster to the Tickets owing ONE NAMED
+// Ticket Question (#525, ADR 0065) — "who still hasn't told me their shirt
+// size", which on an Event asking several questions is a different chase from
+// "who owes anything at all".
+//
+// IT IS holderRosterOwingOnly WITH ONE CLAUSE ADDED, AND THAT IS THE WHOLE
+// DESIGN. The same outstandingAnswerFrom and outstandingAnswerWhere, verbatim,
+// inside an IN whose aliases shadow the roster's — with `AND q.id = $%d` and
+// nothing else. NOTHING HERE DECIDES WHAT IS OUTSTANDING: the debt is defined
+// once, in catalog.IsOutstandingAnswer and in the four clauses of
+// outstandingAnswerWhere beside it, and this filter NARROWS THAT ANSWER rather
+// than restating it.
+//
+// THE REJECTED ALTERNATIVE WAS AN `EXISTS` SPELLING THE DEBT OUT AGAIN —
+// `EXISTS (SELECT 1 FROM ticket_answers ... WHERE q.id = $n AND q.required AND
+// a.id IS NULL)` — which reads perfectly well and is the thing to refuse. It
+// would be a THIRD statement of a rule that already, deliberately, lives twice;
+// and it would drift first on THE RETIRED-QUESTION CASE, which is the one
+// nobody thinks about. A named-question filter written that way would happily
+// return Tickets "owing" a question the Organization has stopped asking — a
+// chase list with no working button behind it, disagreeing with the very
+// `outstanding` checkbox beside it on the same screen. Because the clauses are
+// reused rather than copied, the retired case, the optional case, the reversed
+// sale and the approval gate all follow this filter for free, and the
+// integration tests prove it by asserting `question_id` finds nothing wherever
+// `outstanding` says nothing is owed.
+//
+// IT DOES NOT REPLACE holderRosterOwingOnly AND COMPOSES WITH IT. Both may be
+// applied at once — `outstanding=true&question_id=X` is two INs and means
+// exactly what `question_id=X` alone means, since owing X implies owing
+// something. Keeping them independent is what lets the checkbox stay exactly as
+// it was.
+//
+// Parameterised for holderRosterWhere's reason, with the same two scope
+// arguments in the same order and the question third; the scope is re-stated
+// rather than inherited because the aliases shadow the roster's.
+const holderRosterOwingQuestion = `
+	AND tk.id IN (
+		SELECT tk.id
+	` + outstandingAnswerFrom + `
+		WHERE ` + outstandingAnswerWhere + `
+		AND s.event_id = $%d AND s.organization_id = $%d
+		AND q.id = $%d
+	)
+`
+
 // holderRosterHolderJoin reaches the Customer an accepted Holder proved
 // themselves to be, so that a row on this list can say WHO is coming and not
 // only which Ticket owes what (#329, ADR 0047).
@@ -417,6 +463,21 @@ type ListHolderTicketsQuery struct {
 	// Outstanding Answers FILTER (#333). The service closes it while the Ticket
 	// Question feature is dark; nothing here knows about flags.
 	OwingOnly bool
+	// QuestionID keeps only the Tickets owing ONE NAMED Ticket Question (#525)
+	// — the shirt sizes still missing, rather than every debt of every kind.
+	//
+	// IT NARROWS THE EXISTING ANSWER AND DEFINES NOTHING. See
+	// holderRosterOwingQuestion: the sub-query is the debt's own FROM and WHERE
+	// with `AND q.id = $n` added, so a retired question, an optional one, an
+	// unapproved one and a reversed sale answer here exactly as they answer to
+	// OwingOnly — because it is the same four clauses and not a second opinion
+	// about them.
+	//
+	// IT COMPOSES WITH OwingOnly rather than replacing it: both set is two INs
+	// and the same rows, since owing this question implies owing something. The
+	// service closes it while the Ticket Question feature is dark, beside
+	// OwingOnly; nothing here knows about flags.
+	QuestionID string
 	// TicketTypeID keeps only the Tickets OF that Ticket Type — the VIP roster
 	// apart from general admission (#523).
 	//
@@ -512,6 +573,21 @@ func holderRosterFilters(q ListHolderTicketsQuery) (string, []any) {
 	if q.OwingOnly {
 		// No argument of its own: it re-states the scope already in args.
 		where += fmt.Sprintf(holderRosterOwingOnly, eventP, orgP)
+	}
+	if q.QuestionID != "" {
+		// ONE ARGUMENT OF ITS OWN, appended here rather than through addCond,
+		// because this filter is a whole sub-query joined to the WHERE and not
+		// a condition sitting beside the others — exactly as OwingOnly above.
+		// Its placeholder is `len(args)` for the appender's reason one comment
+		// up: a number written by hand is a number the next filter renumbers by
+		// accident, and every argument here is a string that Postgres would
+		// happily compare to the wrong column.
+		//
+		// APPENDING TO `where` AHEAD OF `conds` CHANGES NOTHING about the
+		// numbering: a placeholder names its argument by position in args and
+		// not by where it appears in the statement.
+		args = append(args, q.QuestionID)
+		where += fmt.Sprintf(holderRosterOwingQuestion, eventP, orgP, len(args))
 	}
 	if q.TicketTypeID != "" {
 		// Equality on the LINE's Ticket Type — see the field's comment for why

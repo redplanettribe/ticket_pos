@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { callBackend } from "@/lib/api";
 import type { TicketType } from "@/lib/events-api";
+import type { TicketQuestion } from "@/lib/ticket-questions";
 import {
   parseHolderDir,
   parseHolderSort,
@@ -12,7 +13,11 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
 import { loadEvent } from "@/lib/staff-event";
 
 import { loadSession } from "../../../../staff-page-shell";
-import { HolderListSection, type HolderTicketTypeOption } from "../../holder-list-section";
+import {
+  HolderListSection,
+  type HolderQuestionOption,
+  type HolderTicketTypeOption,
+} from "../../holder-list-section";
 
 // The view's whole vocabulary, as it appears in the address bar. One name per
 // filter, matching the API's query params so the URL, the fetch and the file
@@ -20,6 +25,10 @@ import { HolderListSection, type HolderTicketTypeOption } from "../../holder-lis
 type HolderListSearchParams = {
   page?: string;
   outstanding?: string;
+  // One named Ticket Question's debtors (#525). The question's ID and not its
+  // words: a label is the Organization's own wording and may be corrected, and
+  // a URL keyed on it would stop meaning anything the day it was.
+  question_id?: string;
   // Where a Ticket stands with its Holder (#524). Four values over three
   // states: `never_accepted` is a value of this filter and not a fourth state,
   // which is `HolderStateValue`'s whole subject.
@@ -69,6 +78,7 @@ function parsePage(raw: string | undefined): number {
 function parseFilters(searchParams: HolderListSearchParams): HolderListFilters {
   return {
     outstanding: searchParams.outstanding === "true",
+    questionId: searchParams.question_id ?? "",
     assignmentState: searchParams.assignment_state ?? "",
     ticketTypeId: searchParams.ticket_type_id ?? "",
     channel: searchParams.channel ?? "",
@@ -99,6 +109,75 @@ async function fetchTicketTypeOptions(
   } catch {
     return [];
   }
+}
+
+// fetchQuestionOptions loads the Event's Ticket Questions to name the
+// named-question filter's options (#525), tolerating failure exactly as
+// `fetchTicketTypeOptions` above does — the control then offers only "any
+// question", and the roster is unaffected.
+//
+// AN EVENT'S QUESTION SET IS THE UNION ACROSS ITS TICKET TYPES, because a
+// Ticket Question belongs to a TICKET TYPE and never to the Event (a Ticket of
+// the General type owes nothing the VIP type asks). The only staff read of them
+// is per-Ticket-Type — `/ticket-types/:id/questions`, the one the Ticket
+// Questions editor uses — so this costs ONE CALL PER TICKET TYPE, issued in
+// parallel and on the server, where they are cheap and invisible.
+//
+// THAT COST WAS WEIGHED AGAINST ADDING AN EVENT-WIDE STAFF ENDPOINT, and the
+// N calls won for now: an Event has a handful of Ticket Types, the reads are
+// already warm from `fetchTicketTypeOptions`, and a new route would be a second
+// way to read the same rows — one more surface to gate, to document and to keep
+// agreeing with the editor's. If an Event ever carries enough Ticket Types for
+// this to show, the fix is that endpoint and not a cache here.
+//
+// EACH CALL FAILS ALONE. One Ticket Type's read erroring leaves the others'
+// questions on the control rather than emptying it: a partial list of questions
+// is a working filter, and an empty one is a control that cannot be used.
+//
+// THE QUESTIONS ARE OFFERED AS THEY COME — every one of them, live or retired,
+// required or optional. It is tempting to drop the ones nobody can owe, and it
+// is exactly the mistake this ticket exists to avoid: `required`, `retired` and
+// `approved` are three of the four clauses that DEFINE an Outstanding Answer,
+// that definition lives once in the API, and a copy of half of it here would be
+// the copy that drifts. The cost is a reader who picks a retired question and
+// gets an empty roster — which is the truthful answer, since nobody owes it.
+async function fetchQuestionOptions(
+  eventId: string,
+  token: string,
+  ticketTypes: readonly HolderTicketTypeOption[],
+): Promise<HolderQuestionOption[]> {
+  const perType = await Promise.all(
+    ticketTypes.map(async (type) => {
+      try {
+        const envelope = await callBackend<TicketQuestion[]>(
+          `/api/v1/staff/events/${eventId}/ticket-types/${type.id}/questions`,
+          { method: "GET", sessionToken: token },
+        );
+        return envelope.data ?? [];
+      } catch {
+        return [];
+      }
+    }),
+  );
+
+  // Flattened in the Ticket Types' own order, each type's questions in the
+  // order that type asks them — "the Event's questions in their own order",
+  // which is the order the form reads in and therefore the order an Organizer
+  // already has in their head.
+  //
+  // DEDUPED ON THE ID and never on the label. Two Ticket Types may ask
+  // identically-worded questions, and those are two different questions owed by
+  // different Tickets; collapsing them would hide one of the two behind a
+  // heading that answers for the other. A repeated heading costs a reader
+  // nothing here, because the option's VALUE is the id.
+  const seen = new Set<string>();
+  const options: HolderQuestionOption[] = [];
+  for (const question of perType.flat()) {
+    if (seen.has(question.id)) continue;
+    seen.add(question.id);
+    options.push({ id: question.id, label: question.label });
+  }
+  return options;
 }
 
 /**
@@ -159,6 +238,14 @@ export default async function SalesHolderListPage({ params, searchParams }: Hold
     loadEvent(id),
     token ? fetchTicketTypeOptions(id, token) : [],
   ]);
+  // AFTER the Ticket Types and not beside them: an Event's question set is the
+  // union across its Ticket Types, so this read cannot start until it knows
+  // which types there are. With Ticket Questions dark every one of these calls
+  // 404s and the list comes back empty — which is right, and is not what
+  // decides whether the control is drawn: that is read off the payload's
+  // absences in the section, never from a flag or from an empty options list
+  // (ADR 0045, and #524's comment on why no flag prop comes down here).
+  const questions = token ? await fetchQuestionOptions(id, token, ticketTypes) : [];
   const timezone = event?.timezone ?? null;
 
   return (
@@ -167,6 +254,7 @@ export default async function SalesHolderListPage({ params, searchParams }: Hold
       page={parsePage(resolvedSearchParams.page)}
       filters={parseFilters(resolvedSearchParams)}
       ticketTypes={ticketTypes}
+      questions={questions}
       sort={parseHolderSort(resolvedSearchParams.sort)}
       dir={parseHolderDir(resolvedSearchParams.dir)}
       timezone={timezone}

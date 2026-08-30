@@ -184,6 +184,20 @@ type ListHolderListParams struct {
 	// and never its definition (#333). Closed below while Ticket Questions are
 	// dark.
 	OwingOnly bool
+	// QuestionID narrows the roster to the Tickets owing ONE NAMED Ticket
+	// Question (#525): "who still hasn't told me their shirt size", which on an
+	// Event asking several questions is a different chase from "who owes
+	// anything at all".
+	//
+	// IT COMPOSES WITH OwingOnly AND REPLACES NOTHING. `outstanding=true` with
+	// a question named means what the question named alone means — owing this
+	// implies owing something — and the checkbox is untouched.
+	//
+	// NOTHING HERE DECIDES WHAT IS OUTSTANDING; see
+	// repository.holderRosterOwingQuestion, which is the debt's own SQL with
+	// one clause added. Belongs to Ticket Questions and is dropped below while
+	// that feature is dark, beside OwingOnly.
+	QuestionID string
 	// TicketTypeID is one Ticket Type's roster: the VIP list apart from general
 	// admission. A Ticket belongs to exactly one.
 	TicketTypeID string
@@ -268,11 +282,21 @@ func (s *Service) ListHolderList(
 	// describe only the filters actually honoured (ADR 0065), precisely so that
 	// nobody reads a whole roster believing it is a filtered one.
 	//
-	// OWING belongs to Ticket Questions and ASSIGNMENT STATE to Ticket
-	// Assignment; the two flags are separate, so each filter is closed by its
-	// own. The three structural filters need no such treatment — a Ticket Type,
+	// OWING and the NAMED QUESTION belong to Ticket Questions, and ASSIGNMENT
+	// STATE to Ticket Assignment; the two flags are separate, so each filter is
+	// closed by its own. The three structural filters need no such treatment — a Ticket Type,
 	// a Sales Channel and a sale date exist on every build.
 	owingOnly := params.OwingOnly && s.ticketQuestionsEnabled
+	// The named-question filter (#525) is Ticket Questions' too, and is dropped
+	// HERE, on the rule stated above and not on an argument of its own: with the
+	// feature dark there are no questions to name, the control does not exist,
+	// and a URL carrying `question_id` comes back as the whole roster with a
+	// 200. Everything the three bullets above say about `assignment_state`
+	// applies to it word for word.
+	questionID := ""
+	if s.ticketQuestionsEnabled {
+		questionID = params.QuestionID
+	}
 	assignmentState := ""
 	if s.ticketAssignmentEnabled {
 		assignmentState = params.AssignmentState
@@ -289,6 +313,7 @@ func (s *Service) ListHolderList(
 		OrganizationID:  actor.OrganizationID,
 		EventID:         eventID,
 		OwingOnly:       owingOnly,
+		QuestionID:      questionID,
 		AssignmentState: assignmentState,
 		TicketTypeID:    params.TicketTypeID,
 		Channel:         params.Channel,

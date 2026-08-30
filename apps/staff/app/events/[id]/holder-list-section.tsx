@@ -66,6 +66,19 @@ type HolderListSectionProps = {
    * roster is unaffected.
    */
   ticketTypes: HolderTicketTypeOption[];
+  /**
+   * The Event's Ticket Questions, to name the named-question filter's options
+   * (#525) — the union across its Ticket Types, since a question belongs to a
+   * type and never to the Event. Loaded on the server page and handed down, as
+   * the Ticket Types are, and an empty array is the tolerated failure.
+   *
+   * IT IS NOT A FLAG, AND IT DOES NOT DECIDE WHETHER THE CONTROL EXISTS. That
+   * is read off the payload's absences (`showQuestions`), for the reason the
+   * state filter's comment below gives at length: an empty list here means "no
+   * questions to offer", which is a different fact from "this build has no
+   * Ticket Questions".
+   */
+  questions: HolderQuestionOption[];
   sort: HolderSortField;
   dir: HolderSortDir;
   /** The Event's timezone, so a sale date reads where the Event is. */
@@ -82,6 +95,20 @@ type HolderListSectionProps = {
  * that never reads them.
  */
 export type HolderTicketTypeOption = { id: string; name: string };
+
+/**
+ * One option of the named-question filter: the id the URL carries, and the
+ * Organization's own words.
+ *
+ * ITS OWN TYPE rather than the whole `TicketQuestion`, on
+ * `HolderTicketTypeOption`'s terms: a filter needs a label and a value and has
+ * no business holding a kind, a review status or twenty Options.
+ *
+ * KEYED ON THE ID AND NOT THE LABEL. A label is the Organization's wording and
+ * can be corrected; the id is what the Answers are attached to, and what a
+ * shared URL must keep meaning tomorrow.
+ */
+export type HolderQuestionOption = { id: string; label: string };
 
 /**
  * The `<select>` chrome, matching the Sales list's `SELECT_CLASS` exactly.
@@ -127,6 +154,7 @@ export function HolderListSection({
   page,
   filters,
   ticketTypes,
+  questions,
   sort,
   dir,
   timezone,
@@ -418,12 +446,66 @@ export function HolderListSection({
                   className="h-9"
                 />
               </div>
+
+              {/*
+                ONE NAMED TICKET QUESTION'S DEBTORS (#525). "Who still hasn't
+                told me their shirt size" is a different chase from "who owes
+                anything at all", and on an Event asking several questions the
+                checkbox below is too blunt to work from. The two COMPOSE: this
+                narrows the same debt the checkbox does, and neither replaces
+                the other.
+
+                DRAWN WHERE THE QUESTIONS SIDE OF THE LIST EXISTS, which is
+                `questionsVisible(result)` — the payload's ABSENCES — exactly as
+                the checkbox below hangs on it. NO FLAG PROP COMES DOWN FOR
+                THIS, for the reason spelled out on the state filter above: this
+                app holds no copy of a deployment flag (ADR 0045), and a prop
+                carrying one would be that copy. A URL still naming a question
+                on a build where Ticket Questions are dark is IGNORED by the
+                API, never refused, so the bookmark keeps working.
+
+                AND NOT ON `questions.length`, deliberately. An Event that asks
+                nothing draws this control with only its "any question" option,
+                exactly as it already draws the checkbox — because the
+                alternative is a filter that can be in the URL and narrowing the
+                roster with no control on screen saying so, which is the one
+                thing a filter bar must never do. It is also what a failed
+                options read looks like, and a wide roster the reader can see is
+                wide beats a hidden narrowing.
+
+                THE LABELS ARE THE ORGANIZATION'S OWN WORDS, rendered AS COINED
+                in every Locale (ADR 0027) — data, not copy, exactly like the
+                Ticket Type names above. Only the control's own chrome follows
+                the reader's Staff Locale. Two questions may be worded alike,
+                since each belongs to its own Ticket Type; the option's VALUE is
+                the id, so a repeated heading picks out the right one.
+              */}
+              {showQuestions ? (
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="holder-question">{t("filterQuestionLabel")}</Label>
+                  <select
+                    id="holder-question"
+                    className={HOLDER_SELECT_CLASS}
+                    value={filters.questionId}
+                    onChange={(event) => navigate(1, { ...filters, questionId: event.target.value })}
+                  >
+                    <option value="">{t("filterQuestionAny")}</option>
+                    {questions.map((question) => (
+                      <option key={question.id} value={question.id}>
+                        {question.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
             </div>
 
             {/* The Outstanding Answers filter, and the ONE control that belongs
                 to a feature flag: with questions dark there are no debts to
                 narrow by, and a checkbox promising a view that cannot differ
-                would be a promise this build is not making (ADR 0045). */}
+                would be a promise this build is not making (ADR 0045). Since
+                #525 the named-question select above shares its flag and its
+                subject — the debt — and narrows it further. */}
             {showQuestions ? (
               <label className="flex items-center gap-2 text-sm">
                 <input

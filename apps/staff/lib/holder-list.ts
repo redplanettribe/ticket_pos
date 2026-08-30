@@ -156,22 +156,22 @@ export const HOLDER_LIST_PAGE_SIZE = 50;
 
   ONLY THE FILTERS THAT EXIST TODAY LIVE HERE. #523 added the three structural
   ones — Ticket Type, Sales Channel and the sale's date range — #524 the
-  assignment state, and the remaining two are #525–#526, with the five sorts in
-  #527. The types below are shaped so those tickets add fields and values
-  without restructuring anything, and #523 and #524 are the evidence that they
-  do.
+  assignment state, #525 the named question, and the one remaining is #526's
+  search, with the five sorts in #527. The types below are shaped so those
+  tickets add fields and values without restructuring anything, and #523, #524
+  and #525 are the evidence that they do.
 */
 
 /**
  * The Holder List's filters, mirroring the endpoint's query params, one field
  * per dimension.
  *
- * A RECORD AND NOT A BAG OF OPTIONALS, so a filter added by #525–#526 is a
- * compile error everywhere it must be handled rather than a silently-absent
- * key: `EMPTY_HOLDER_LIST_FILTERS`, the append helper and the active check are
- * each total over this type. #523 added three fields under exactly that
- * property and #524 a fourth, and the compiler named every place each of them
- * had to be handled.
+ * A RECORD AND NOT A BAG OF OPTIONALS, so a filter added by #526 is a compile
+ * error everywhere it must be handled rather than a silently-absent key:
+ * `EMPTY_HOLDER_LIST_FILTERS`, the append helper and the active check are each
+ * total over this type. #523 added three fields under exactly that property,
+ * #524 a fourth and #525 a fifth, and the compiler named every place each of
+ * them had to be handled.
  *
  * `outstanding` is the old Outstanding Answers list reduced to what it always
  * was — one narrowing of the roster. The API ignores it while Ticket Questions
@@ -190,6 +190,29 @@ export const HOLDER_LIST_PAGE_SIZE = 50;
  */
 export type HolderListFilters = {
   outstanding: boolean;
+  /**
+   * ONE NAMED Ticket Question's debtors (#525): "who still hasn't told me their
+   * shirt size", which on an Event asking several questions is a different
+   * chase from "who owes anything at all".
+   *
+   * IT COMPOSES WITH `outstanding` AND DOES NOT REPLACE IT. Both set means what
+   * this alone means — owing this question implies owing something — and the
+   * checkbox is untouched.
+   *
+   * NOTHING ON THIS SIDE DECIDES WHAT IS OUTSTANDING, which is this whole
+   * module's first paragraph and matters here more than anywhere: the API
+   * narrows its own derivation by the question's id, so a retired question, an
+   * optional one and a reversed sale answer to this filter exactly as they
+   * answer to `outstanding`. Naming a question nobody owes returns an empty
+   * roster, which is the truthful answer.
+   *
+   * IT BELONGS TO TICKET QUESTIONS and the API IGNORES it while that feature is
+   * dark, answering with the whole roster rather than a refusal — so a stale
+   * bookmark keeps working and nothing here has to know a flag it cannot see
+   * (ADR 0045). The CONTROL is drawn only where the payload proves the
+   * questions side of the list exists; see `questionsVisible`.
+   */
+  questionId: string;
   /**
    * Where a Ticket stands with its Holder, in FOUR values over three states
    * (#524): `unassigned`, `assigned`, `accepted` — and `never_accepted`, "who
@@ -243,6 +266,7 @@ export type HolderListFilters = {
 /** The whole roster: every filter at its unfiltered value. */
 export const EMPTY_HOLDER_LIST_FILTERS: HolderListFilters = {
   outstanding: false,
+  questionId: "",
   assignmentState: "",
   ticketTypeId: "",
   channel: "",
@@ -316,6 +340,10 @@ export function parseHolderDir(raw: string | undefined): HolderSortDir {
  */
 function appendHolderListFilters(params: URLSearchParams, filters: HolderListFilters): void {
   if (filters.outstanding) params.set("outstanding", "true");
+  // Beside `outstanding`, because it is the other half of the same question:
+  // the boolean and the named question narrow the same debt, and a reader of a
+  // pasted URL should meet them together.
+  if (filters.questionId) params.set("question_id", filters.questionId);
   if (filters.assignmentState) params.set("assignment_state", filters.assignmentState);
   if (filters.ticketTypeId) params.set("ticket_type_id", filters.ticketTypeId);
   if (filters.channel) params.set("channel", filters.channel);
@@ -370,6 +398,7 @@ export function holderListQuery(
 export function hasActiveHolderListFilters(filters: HolderListFilters): boolean {
   return (
     filters.outstanding ||
+    filters.questionId !== "" ||
     filters.assignmentState !== "" ||
     filters.ticketTypeId !== "" ||
     filters.channel !== "" ||
@@ -391,6 +420,7 @@ export function hasActiveHolderListFilters(filters: HolderListFilters): boolean 
 export function isOutstandingTheOnlyFilter(filters: HolderListFilters): boolean {
   return (
     filters.outstanding &&
+    filters.questionId === "" &&
     filters.assignmentState === "" &&
     filters.ticketTypeId === "" &&
     filters.channel === "" &&

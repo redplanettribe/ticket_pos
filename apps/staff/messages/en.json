@@ -396,6 +396,8 @@
     "filterOutstanding": "Only tickets with outstanding answers",
     "filterStateLabel": "Holder status",
     "filterStateAny": "Any status",
+    "filterQuestionLabel": "Question owed",
+    "filterQuestionAny": "Any question",
     "nothingOutstanding": "Nothing outstanding. Every required question has been answered on every ticket that still stands.",
     "noMatchingTickets": "No tickets match these filters.",
     "noTickets": "No tickets yet. The holder list fills as tickets are sold.",

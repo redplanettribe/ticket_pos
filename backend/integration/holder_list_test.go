@@ -1762,3 +1762,348 @@ func TestTheHolderListIgnoresTheAssignmentStateFilterWhileAssignmentIsDark(t *te
 		}
 	}
 }
+
+// THE NAMED-QUESTION FILTER (#525, ADR 0065): the Tickets owing ONE named
+// Ticket Question, rather than owing anything at all.
+//
+// "Who still hasn't told me their shirt size" is a different chase from "who
+// owes me something", and on an Event asking several questions the boolean is
+// too blunt to work from — the Organizer ordering shirts has to read past the
+// people who only owe a dietary note.
+//
+// NOTHING IN THIS FILTER DECIDES WHAT IS OUTSTANDING, and these tests are what
+// says so. repository.holderRosterOwingQuestion is holderRosterOwingOnly with
+// `AND q.id = $n` added to the same sub-query — the debt's own
+// outstandingAnswerFrom and outstandingAnswerWhere, reused and not restated —
+// so the retired question, the optional one, the reversed sale and the
+// approval gate follow it for free. TestTheNamedQuestionFilterAnswersAs
+// OutstandingDoes below is the proof: wherever `outstanding` says a Ticket owes
+// nothing, `question_id` must find nothing either. A second predicate spelling
+// the debt out again would pass every other test here and fail that one, on the
+// retired case, which is the one nobody thinks about.
+
+// holderQuestionFixture is an Event whose Ticket Type asks TWO required
+// questions, over three Tickets on two sales — one online, one at the door —
+// with one question answered on one Ticket.
+//
+// THE PARTLY-ANSWERED TICKET IS THE POINT. With every Ticket owing everything,
+// a filter that ignored `question_id` entirely would pass; Ana's first Ticket
+// owes the diet question and NOT the size one, so the two questions select
+// different rows and a filter that did nothing is visible immediately.
+type holderQuestionFixture struct {
+	sessionID string
+	eventID   string
+	gaID      string
+
+	// size and diet are the two required questions the Ticket Type asks.
+	sizeID string
+	dietID string
+
+	// anaAnswered has answered `size` and owes `diet` alone; anaOwing owes
+	// both. Both are on the same online sale.
+	anaAnswered string
+	anaOwing    string
+	// betoDoor is the door sale's single Ticket, owing both — a buyer nobody
+	// ever put the questions to, because there is no checkout form on a door
+	// sale.
+	betoDoor string
+}
+
+func newHolderQuestionFixture(t *testing.T, env *testEnv) holderQuestionFixture {
+	t.Helper()
+	f := holderQuestionFixture{}
+	f.sessionID = orgAdminSession(t, env)
+	f.eventID = createDraftEvent(t, env, f.sessionID, "Question Fest", "question-fest")
+	f.gaID = createTicketTypeWithCapacity(t, env, f.sessionID, f.eventID, "GA", 2000, 50)
+
+	commitBatch(t, env, f.sessionID, f.eventID, "question-batch", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez",
+			"ticket_type_id": f.gaID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		// A day later, so the roster's order (oldest sale first) is settled and
+		// an assertion can name the rows it expects in order.
+		{"customer_email": "beto@example.com", "customer_first_name": "Beto", "customer_last_name": "Diaz",
+			"ticket_type_id": f.gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-02T10:00:00Z"},
+	})
+	// Both sales are staged onto a channel of their own, the way
+	// newHolderFilterFixture stages its three: a Sale Import commits everything
+	// on `import`, and this fixture needs the two apart so the composition test
+	// can ask for the door sale's debtors alone.
+	moveHolderSaleToChannel(t, env, f.eventID, "ana@example.com", "online")
+	moveHolderSaleToChannel(t, env, f.eventID, "beto@example.com", "in_person")
+
+	anaTickets := ticketIDsOfSale(t, env, saleIDOfBuyer(t, env, f.eventID, "ana@example.com"))
+	if len(anaTickets) != 2 {
+		t.Fatalf("Ana's Tickets = %d, want 2", len(anaTickets))
+	}
+	betoTickets := ticketIDsOfSale(t, env, saleIDOfBuyer(t, env, f.eventID, "beto@example.com"))
+	if len(betoTickets) != 1 {
+		t.Fatalf("Beto's Tickets = %d, want 1", len(betoTickets))
+	}
+	f.anaAnswered, f.anaOwing, f.betoDoor = anaTickets[0], anaTickets[1], betoTickets[0]
+
+	f.sizeID = createTicketQuestion(t, env, f.sessionID, f.eventID, f.gaID, map[string]any{
+		"label": "T-shirt size", "kind": "short_text", "required": true,
+	}).ID
+	f.dietID = createTicketQuestion(t, env, f.sessionID, f.eventID, f.gaID, map[string]any{
+		"label": "Any dietary requirements?", "kind": "short_text", "required": true,
+	}).ID
+
+	// One Answer, on one Ticket, to one of the two questions.
+	putAnswer(t, env, f.sessionID, f.eventID, f.anaAnswered, f.sizeID, map[string]any{"text": "M"})
+	return f
+}
+
+// saleIDOfBuyer names one Event's sale by its buyer, so a fixture can say whose
+// sale it means rather than counting rows.
+func saleIDOfBuyer(t *testing.T, env *testEnv, eventID, email string) string {
+	t.Helper()
+	var saleID string
+	if err := env.db.QueryRow(`
+		SELECT id FROM ticket_sales WHERE event_id = $1 AND customer_email = $2
+	`, eventID, email).Scan(&saleID); err != nil {
+		t.Fatalf("read %s's Ticket Sale: %v", email, err)
+	}
+	return saleID
+}
+
+// assertTickets holds both halves of a filtered view at once: WHICH Tickets are
+// on the page, in order, and that the pagination agrees the view holds that
+// many. Same pairing as assertRoster and assertOneTicket, for their reason — a
+// count query that forgot a filter is invisible to a test that checks only the
+// rows.
+func assertTickets(t *testing.T, page outstandingAnswers, want []string, label string) {
+	t.Helper()
+	got := holderTicketIDs(page)
+	if len(got) != len(want) {
+		t.Fatalf("%s = %v, want %v", label, got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("%s = %v, want %v", label, got, want)
+		}
+	}
+	if page.Pagination.Total != len(want) {
+		t.Fatalf("%s pagination total = %d over %d rows — the count query and the page query disagree about the view",
+			label, page.Pagination.Total, len(want))
+	}
+}
+
+// FILTERING BY ONE QUESTION RETURNS THE TICKETS OWING THAT QUESTION, AND NO
+// OTHERS.
+//
+// The two questions select different rows because one Ticket has answered one
+// of them, which is the whole distinction the boolean cannot draw: three
+// Tickets owe something, two of them owe a shirt size.
+func TestTheHolderListFiltersByOneNamedTicketQuestion(t *testing.T) {
+	env := setupTest(t)
+	enableTicketQuestions(t)
+	f := newHolderQuestionFixture(t, env)
+
+	// The whole roster first, so the filters below are narrowings of something
+	// known: three Tickets, oldest sale first.
+	assertTickets(t, holderRoster(t, env, f.sessionID, f.eventID, ""),
+		[]string{f.anaAnswered, f.anaOwing, f.betoDoor}, "the whole roster")
+
+	assertTickets(t, holderRoster(t, env, f.sessionID, f.eventID, "?question_id="+f.sizeID),
+		[]string{f.anaOwing, f.betoDoor}, "owing the shirt size")
+	assertTickets(t, holderRoster(t, env, f.sessionID, f.eventID, "?question_id="+f.dietID),
+		[]string{f.anaAnswered, f.anaOwing, f.betoDoor}, "owing the dietary note")
+
+	// The Event's debt count is the EVENT's and is unmoved by any filter — five
+	// debts over three Tickets, whichever question is being chased. It answers
+	// "how much don't I know yet", which is not a question about the page.
+	if page := holderRoster(t, env, f.sessionID, f.eventID, "?question_id="+f.sizeID); page.OutstandingCount != 5 {
+		t.Errorf("outstanding_count = %d under the question filter, want the Event's 5", page.OutstandingCount)
+	}
+
+	// And a well-formed id nobody owes — a question of another Event, or one
+	// that never existed — is an empty roster and not a refusal. The query is
+	// scoped to this Event of this Organization, so such a filter cannot even
+	// distinguish an id that exists elsewhere from one that exists nowhere.
+	if page := holderRoster(t, env, f.sessionID, f.eventID,
+		"?question_id=11111111-1111-4111-8111-111111111111"); page.Pagination.Total != 0 {
+		t.Errorf("a question nobody owes returned %d Tickets, want none", page.Pagination.Total)
+	}
+}
+
+// IT COMPOSES WITH `outstanding`, WHICH IS UNTOUCHED — and the two together
+// mean what the question means alone, because owing this question implies owing
+// something.
+//
+// That identity is the evidence the named question NARROWS the existing answer
+// instead of replacing it. If the two filters disagreed, one of them would be
+// deciding what is outstanding for itself.
+func TestTheNamedQuestionFilterComposesWithOutstanding(t *testing.T) {
+	env := setupTest(t)
+	enableTicketQuestions(t)
+	f := newHolderQuestionFixture(t, env)
+
+	alone := holderRoster(t, env, f.sessionID, f.eventID, "?question_id="+f.sizeID)
+	both := holderRoster(t, env, f.sessionID, f.eventID, "?outstanding=true&question_id="+f.sizeID)
+	assertTickets(t, alone, []string{f.anaOwing, f.betoDoor}, "the question alone")
+	assertTickets(t, both, holderTicketIDs(alone), "the question with outstanding=true")
+
+	// And `outstanding` on its own still means what it always meant: every
+	// Ticket owing anything, which here is all three. The named question is a
+	// narrowing beside it and never a redefinition of it.
+	assertTickets(t, holderRoster(t, env, f.sessionID, f.eventID, "?outstanding=true"),
+		[]string{f.anaAnswered, f.anaOwing, f.betoDoor}, "outstanding alone")
+}
+
+// IT COMPOSES WITH THE STRUCTURAL FILTERS AND WITH THE STATE FILTER, which is
+// what makes "which door sales still owe me a shirt size" one query rather than
+// a page somebody reads down.
+func TestTheNamedQuestionFilterComposesWithTheOtherFilters(t *testing.T) {
+	env := setupTest(t)
+	enableTicketQuestions(t)
+	f := newHolderQuestionFixture(t, env)
+	// ASSIGNMENT IS OPENED AFTER THE SALES ARE COMMITTED, as
+	// newHolderStateFixture opens it: with the flag on at commit time a Sale
+	// Import hands the buyer its first Ticket by presumption (ADR 0055), which
+	// would start this roster with `accepted` rows nobody chose and make the
+	// state assertions below about the import rather than about the filter.
+	enableTicketAssignment(t)
+
+	// The door sale alone, of the two Tickets owing a shirt size.
+	assertTickets(t, holderRoster(t, env, f.sessionID, f.eventID,
+		"?question_id="+f.sizeID+"&channel=in_person"), []string{f.betoDoor}, "size at the door")
+	// And the online sale's one remaining debtor.
+	assertTickets(t, holderRoster(t, env, f.sessionID, f.eventID,
+		"?question_id="+f.sizeID+"&channel=online"), []string{f.anaOwing}, "size online")
+
+	// A non-matching structural filter EMPTIES the view rather than one of the
+	// two filters winning: they intersect.
+	if page := holderRoster(t, env, f.sessionID, f.eventID,
+		"?question_id="+f.sizeID+"&channel=import"); page.Pagination.Total != 0 {
+		t.Errorf("size on the import channel = %d Tickets, want none — the filters intersect",
+			page.Pagination.Total)
+	}
+	// Nobody on this roster was ever named, so the state filter narrows it to
+	// the same rows and `accepted` empties it — the two dimensions are
+	// independent, as they must be.
+	assertTickets(t, holderRoster(t, env, f.sessionID, f.eventID,
+		"?question_id="+f.sizeID+"&assignment_state=unassigned"),
+		[]string{f.anaOwing, f.betoDoor}, "size, nobody named")
+	if page := holderRoster(t, env, f.sessionID, f.eventID,
+		"?question_id="+f.sizeID+"&assignment_state=accepted"); page.Pagination.Total != 0 {
+		t.Errorf("size among accepted Tickets = %d, want none on a roster nobody has accepted",
+			page.Pagination.Total)
+	}
+
+	// The sale date, and the Ticket Type the questions hang off — both narrow
+	// this filter exactly as they narrow the plain roster.
+	assertTickets(t, holderRoster(t, env, f.sessionID, f.eventID,
+		"?question_id="+f.sizeID+"&sold_from=2026-07-02"), []string{f.betoDoor}, "size sold on the 2nd")
+	assertTickets(t, holderRoster(t, env, f.sessionID, f.eventID,
+		"?question_id="+f.sizeID+"&ticket_type_id="+f.gaID),
+		[]string{f.anaOwing, f.betoDoor}, "size on the GA roster")
+}
+
+// A RETIRED QUESTION AND AN OPTIONAL ONE ANSWER TO THIS FILTER EXACTLY AS THEY
+// ANSWER TO `outstanding` — WHICH IS THE PROOF THAT NO SECOND STATEMENT OF THE
+// RULE WAS INTRODUCED.
+//
+// Both are debts nobody has: an OPTIONAL question was never promised an Answer,
+// and a RETIRED one has been un-asked — every write path refuses an Answer to
+// it, so a debt under one could never be discharged by anybody. The rule that
+// says so lives in catalog.IsOutstandingAnswer and in outstandingAnswerWhere
+// beside it, and this filter reuses those clauses rather than restating them.
+//
+// SO THE TEST IS AN IMPLICATION AND NOT A CONSTANT: wherever the roster shows
+// no Ticket owing a question, `question_id` on that question must return
+// nothing. A hand-written predicate would almost certainly get the optional
+// case right — `required` is the obvious clause — and get the retired one
+// wrong, handing an Organizer a chase list of a question they stopped asking.
+func TestTheNamedQuestionFilterAnswersAsOutstandingDoes(t *testing.T) {
+	env := setupTest(t)
+	enableTicketQuestions(t)
+	f := newHolderQuestionFixture(t, env)
+
+	optional := createTicketQuestion(t, env, f.sessionID, f.eventID, f.gaID, map[string]any{
+		"label": "Anything else we should know?", "kind": "long_text", "required": false,
+	})
+	retired := createTicketQuestion(t, env, f.sessionID, f.eventID, f.gaID, map[string]any{
+		"label": "Bus from the station?", "kind": "checkbox", "required": true,
+	})
+	resp, body := env.deleteJSON(t, questionPath(f.eventID, f.gaID, retired.ID), nil, authHeader(f.sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("retire question status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	// What `outstanding` says: neither question is owed by anybody, on any
+	// Ticket of the roster.
+	roster := holderRoster(t, env, f.sessionID, f.eventID, "")
+	for _, question := range []struct {
+		id, label string
+	}{{optional.ID, "the optional question"}, {retired.ID, "the retired question"}} {
+		for _, row := range roster.Data {
+			for _, owed := range row.Outstanding {
+				if owed.QuestionID == question.id {
+					t.Fatalf("%s is owed by Ticket %s on the roster — this test's premise is gone",
+						question.label, row.TicketID)
+				}
+			}
+		}
+		if page := holderRoster(t, env, f.sessionID, f.eventID, "?question_id="+question.id); page.Pagination.Total != 0 {
+			t.Errorf("%s selects %d Tickets while the roster says nobody owes it.\n"+
+				"The named-question filter must NARROW the debt's own definition "+
+				"(catalog.IsOutstandingAnswer and repository.outstandingAnswerWhere), never restate it — "+
+				"a second predicate drifts here first.", question.label, page.Pagination.Total)
+		}
+	}
+
+	// The retired question's own ANSWERS are untouched by any of this: what
+	// ended is the debt, not the record. Asserted through the filter's own
+	// vocabulary — a question that is not owed is not on this list, and that is
+	// all this filter ever claimed.
+	if page := holderRoster(t, env, f.sessionID, f.eventID, "?question_id="+f.sizeID); page.Pagination.Total != 2 {
+		t.Errorf("the live question now selects %d Tickets, want 2 — retiring another question moved it",
+			page.Pagination.Total)
+	}
+}
+
+// WITH TICKET QUESTIONS DARK, `question_id` IS IGNORED AND THE WHOLE ROSTER
+// COMES BACK — 200, not 400, and not an empty list.
+//
+// This is #524's rule followed and not re-decided (ADR 0065, "a dark feature's
+// filter: ignored, not refused"): a refusal would turn a stale bookmark into an
+// error page now that the view lives in the URL (#522), would force the staff
+// app to hold a copy of a deployment flag ADR 0045 exists to keep it from
+// holding, and would itself be a tell that an unshipped parameter exists.
+//
+// The list is read through the ASSIGNMENT flag here, because with both dark the
+// route is a 404 (#333) and there would be no roster to be wide.
+func TestTheHolderListIgnoresTheNamedQuestionFilterWhileQuestionsAreDark(t *testing.T) {
+	env := setupTest(t)
+	enableTicketQuestions(t)
+	f := newHolderQuestionFixture(t, env)
+	enableTicketAssignment(t)
+	// Closed the way every other test in this package closes it: both services,
+	// because one deployment flag reaches both and half of it is a state no
+	// deployment can be in.
+	sharedApp.CatalogService.WithTicketQuestions(false)
+	sharedApp.SalesService.WithTicketQuestions(false)
+
+	resp, body := env.get(t, holderListPath(f.eventID)+"?question_id="+f.sizeID, authHeader(f.sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d error=%+v — a filter belonging to a dark feature is IGNORED, never refused: "+
+			"a URL carrying it must still return the roster", resp.StatusCode, body.Error)
+	}
+	page := decodeOutstanding(t, body.Data)
+	if page.Pagination.Total != 3 || len(page.Data) != 3 {
+		t.Fatalf("rows=%d total=%d, want the WHOLE roster of 3 — the dark filter must not narrow anything, "+
+			"and must not empty the list either", len(page.Data), page.Pagination.Total)
+	}
+	// And the payload still admits nothing about the dark feature: no debt
+	// travels, so nothing here could have been filtered by one (ADR 0045).
+	if strings.Contains(string(body.Data), "outstanding") {
+		t.Error("the response speaks of `outstanding` while TICKET_QUESTIONS_ENABLED is closed (ADR 0045)")
+	}
+	// `outstanding` is dropped on the same line for the same reason, and the
+	// pair is asserted together so that closing one and not the other cannot
+	// pass.
+	if got := holderRoster(t, env, f.sessionID, f.eventID,
+		"?outstanding=true&question_id="+f.sizeID).Pagination.Total; got != 3 {
+		t.Errorf("both question filters on a dark build return %d Tickets, want the whole roster of 3", got)
+	}
+}

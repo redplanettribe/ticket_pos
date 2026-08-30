@@ -396,6 +396,8 @@
     "filterOutstanding": "Solo entradas con respuestas pendientes",
     "filterStateLabel": "Estado del titular",
     "filterStateAny": "Cualquier estado",
+    "filterQuestionLabel": "Pregunta pendiente",
+    "filterQuestionAny": "Cualquier pregunta",
     "nothingOutstanding": "No queda nada pendiente. Todas las preguntas obligatorias están respondidas en todas las entradas vigentes.",
     "noMatchingTickets": "Ningún ticket coincide con estos filtros.",
     "noTickets": "Todavía no hay entradas. La lista de titulares se llena a medida que se venden entradas.",
