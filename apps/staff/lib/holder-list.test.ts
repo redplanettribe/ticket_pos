@@ -469,3 +469,88 @@ test("outstanding is not the sole filter when a question narrows the view too", 
     false,
   );
 });
+
+/*
+  THE SEARCH BOX (#526, ADR 0065): one person on the roster, by the buyer's name
+  or address, by the Sale Confirmation reference, or by an ACCEPTED Holder's
+  name or address.
+
+  WHAT IS SEARCHABLE IS DECIDED IN THE API AND IS NOT TESTABLE FROM HERE, and
+  that division is the point rather than a gap. The rule — searchable if and only
+  if displayable, so an unaccepted Holder's address matches nothing (ADR 0047) —
+  lives inside the API's search predicate, and its load-bearing test is
+  `TestSearchingAnUnacceptedHoldersAddressReturnsZeroRows` in the backend's
+  integration suite. A copy of the rule on this side would be a second opinion
+  about a disclosure and the first one to drift. What is left for these tests is
+  the SHAPING: that the term reaches the URL under the API's own name, that it
+  composes, and that it counts as a narrowing everywhere a narrowing counts.
+*/
+
+test("the search term reaches the URL under the API's name, and leads it", () => {
+  assert.equal(holderListQuery(1, filters({ q: "ana@example.com" })), "?q=ana%40example.com");
+  // First in the query string, as it is first in the filter bar: a narrowed
+  // view reads with the person being looked for at the front.
+  assert.equal(
+    holderListQuery(1, filters({ q: "Lopez", outstanding: true })),
+    "?q=Lopez&outstanding=true",
+  );
+});
+
+// An empty box is the whole roster and says so by saying nothing — never `q=`,
+// which would put a meaningless parameter in every pasted link.
+test("a blank search is omitted, not sent empty", () => {
+  assert.equal(holderListQuery(1, filters({ q: "" })), "");
+});
+
+// The term is carried VERBATIM, encoded and not otherwise touched: the `%` and
+// `_` a reader may type are literals the API escapes for LIKE, and a builder
+// that stripped or re-cased them here would make the URL disagree with what was
+// typed and with what was matched.
+test("the search term is carried verbatim, only URL-encoded", () => {
+  assert.equal(holderListQuery(1, filters({ q: "50% off_sale" })), "?q=50%25+off_sale");
+  assert.equal(holderListQuery(1, filters({ q: "Ana Lopez" })), "?q=Ana+Lopez");
+});
+
+test("the search composes with every other filter", () => {
+  assert.equal(
+    holderListQuery(
+      2,
+      filters({
+        q: "Lopez",
+        outstanding: true,
+        questionId: "q_size",
+        assignmentState: "assigned",
+        ticketTypeId: "tt_vip",
+        channel: "in_person",
+        soldFrom: "2026-07-01",
+        soldTo: "2026-07-31",
+      }),
+    ),
+    "?page=2&q=Lopez&outstanding=true&question_id=q_size&assignment_state=assigned" +
+      "&ticket_type_id=tt_vip&channel=in_person&sold_from=2026-07-01&sold_to=2026-07-31",
+  );
+});
+
+// The Clear control's presence, and the empty state's wording: a reader who
+// searched and found nobody must be offered the way back, and must be told
+// "nothing matched" rather than that the roster is empty.
+test("a search alone makes the view narrowed", () => {
+  assert.equal(hasActiveHolderListFilters(filters({ q: "Lopez" })), true);
+  assert.equal(hasActiveHolderListFilters(EMPTY_HOLDER_LIST_FILTERS), false);
+});
+
+// AND IT IS NOT THE CONGRATULATION'S CUE. An empty "outstanding, searched for
+// Lopez" view means no Lopez owes anything — not that every required question
+// on the Event has been answered, which is what that sentence claims.
+test("outstanding is not the sole filter when a search narrows the view too", () => {
+  assert.equal(isOutstandingTheOnlyFilter(filters({ outstanding: true, q: "Lopez" })), false);
+  assert.equal(isOutstandingTheOnlyFilter(filters({ outstanding: true })), true);
+});
+
+// The Clear control returns the whole roster, which since #526 includes
+// emptying the box: a Clear that left a search in the URL would hand back a
+// list still missing people, with nothing on screen saying why.
+test("clearing the filters clears the search too", () => {
+  assert.equal(EMPTY_HOLDER_LIST_FILTERS.q, "");
+  assert.equal(holderListQuery(1, EMPTY_HOLDER_LIST_FILTERS), "");
+});

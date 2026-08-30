@@ -198,6 +198,30 @@ type ListHolderListParams struct {
 	// one clause added. Belongs to Ticket Questions and is dropped below while
 	// that feature is dark, beside OwingOnly.
 	QuestionID string
+	// Search finds one person on the roster: a case-insensitive substring over
+	// the BUYER's name and address, the Sale Confirmation reference, and — for
+	// an ACCEPTED Holder only — that Holder's name and address (#526).
+	//
+	// SEARCHABLE IF AND ONLY IF DISPLAYABLE (ADR 0065). An address a buyer typed
+	// and its owner never accepted matches NOTHING, and neither does a purged
+	// one. That rule is enforced in the predicate itself — see
+	// repository.holderRosterSearch, which carries the acceptance test inside
+	// the Holder branch of its OR — and deliberately NOT here: a service that
+	// post-filtered rows would leave the page's total describing a wider view,
+	// and the leak would show in `pagination.total` even where no row was drawn.
+	//
+	// IT BELONGS TO NO FEATURE FLAG, unlike the two filters above and the state
+	// filter below, and is passed through untouched on every build. A buyer's
+	// name, a buyer's address and a Sale Confirmation reference exist on a plain
+	// roster with both features dark; the Holder branch of the predicate simply
+	// never matches there, because with Ticket Assignment closed no Ticket has
+	// ever been accepted.
+	//
+	// IT IS NEVER LOGGED. It matches customer addresses, and a log aggregator is
+	// a wider audience than the database; #529's audit line will record only
+	// THAT a search was applied. Nothing on this path logs it today — see the
+	// note on repository.ListHolderTicketsQuery.Search.
+	Search string
 	// TicketTypeID is one Ticket Type's roster: the VIP list apart from general
 	// admission. A Ticket belongs to exactly one.
 	TicketTypeID string
@@ -285,7 +309,12 @@ func (s *Service) ListHolderList(
 	// OWING and the NAMED QUESTION belong to Ticket Questions, and ASSIGNMENT
 	// STATE to Ticket Assignment; the two flags are separate, so each filter is
 	// closed by its own. The three structural filters need no such treatment — a Ticket Type,
-	// a Sales Channel and a sale date exist on every build.
+	// a Sales Channel and a sale date exist on every build. NEITHER DOES SEARCH
+	// (#526): a buyer's name, a buyer's address and a Sale Confirmation
+	// reference are on every roster, and the one part of it that belongs to
+	// Ticket Assignment — an accepted Holder's name and address — is bounded by
+	// the predicate rather than by a flag, so on a build with assignment dark
+	// that branch matches nothing because nobody has ever accepted.
 	owingOnly := params.OwingOnly && s.ticketQuestionsEnabled
 	// The named-question filter (#525) is Ticket Questions' too, and is dropped
 	// HERE, on the rule stated above and not on an argument of its own: with the
@@ -310,10 +339,13 @@ func (s *Service) ListHolderList(
 
 	page, pageSize := params.Page, params.PageSize
 	tickets, total, err := s.repo.ListHolderTickets(ctx, repository.ListHolderTicketsQuery{
-		OrganizationID:  actor.OrganizationID,
-		EventID:         eventID,
-		OwingOnly:       owingOnly,
-		QuestionID:      questionID,
+		OrganizationID: actor.OrganizationID,
+		EventID:        eventID,
+		OwingOnly:      owingOnly,
+		QuestionID:     questionID,
+		// Passed through on every build: search belongs to no flag, and the
+		// disclosure rule it is bounded by lives in the predicate, not here.
+		Search:          params.Search,
 		AssignmentState: assignmentState,
 		TicketTypeID:    params.TicketTypeID,
 		Channel:         params.Channel,

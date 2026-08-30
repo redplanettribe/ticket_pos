@@ -195,6 +195,24 @@ export function HolderListSection({
   const outstandingOnly = filters.outstanding;
   const filtersActive = hasActiveHolderListFilters(filters);
   /*
+    THE SEARCH BOX IS THE ONE CONTROL THAT DOES NOT APPLY ON CHANGE (#526).
+    It is held here and committed on SUBMIT, which is the Sales list's
+    interaction copied exactly (`SalesFilterBar`) and not a second one invented
+    for this screen: every keystroke navigating would be a history entry per
+    letter, so the back button would spell the reader's search backwards instead
+    of undoing it — and each keystroke would be a request, and each request a
+    customer address in a URL.
+
+    Re-synced from the URL, because the URL is the view: the back button, a
+    pasted link and the Clear control all change `filters.q` underneath this
+    box, and a box that kept its own last word would then disagree with the
+    rows beneath it.
+  */
+  const [search, setSearch] = useState(filters.q);
+  useEffect(() => {
+    setSearch(filters.q);
+  }, [filters.q]);
+  /*
     Whether an empty view would be the CONGRATULATION or just "nothing matched"
     — see the empty state below, and `isOutstandingTheOnlyFilter` for why the
     two sentences must not be shared.
@@ -325,6 +343,56 @@ export function HolderListSection({
         {!error && (rows.length > 0 || filtersActive) ? (
           <div className="space-y-3 rounded-md border bg-muted/20 p-3">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {/*
+                THE SEARCH BOX (#526): one person on the roster, by the buyer's
+                name or address, by the Sale Confirmation reference, or by an
+                ACCEPTED Holder's name or address.
+
+                SEARCHABLE IF AND ONLY IF DISPLAYABLE, WHICH IS WHY THE
+                PLACEHOLDER IS WORDED AS IT IS. It promises a buyer, a reference
+                and an *accepted* holder — never holder addresses generally —
+                because an address a buyer typed and its owner never accepted is
+                named nowhere on this platform (ADR 0047) and matches nothing.
+                The rule is enforced in the API's predicate and never here; the
+                copy's whole job is not to promise what the query refuses.
+
+                IT IS DRAWN ON EVERY BUILD, unlike the state select above and
+                the checkbox below, and this is not an oversight: a buyer's
+                name, a buyer's address and a Sale Confirmation reference are on
+                every roster, so there is always something for this box to
+                match. With Ticket Assignment dark the Holder branch of the
+                API's predicate simply never matches, because nobody has
+                accepted anything — no control comes and goes, and no flag is
+                read.
+
+                THE LABEL AND THE BUTTON ARE THE SALES CATALOG'S OWN WORDS,
+                reused rather than re-coined for the reason the channel names
+                are: "Search" means the same thing on both tabs, and it must not
+                acquire a second Spanish word here. Only the PLACEHOLDER is this
+                screen's, because only what is matched differs.
+              */}
+              <form
+                className="flex flex-col gap-1"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  navigate(1, { ...filters, q: search.trim() });
+                }}
+              >
+                <Label htmlFor="holder-search">{sales("searchLabel")}</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="holder-search"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder={t("filterSearchPlaceholder")}
+                    className="h-9"
+                  />
+                  <Button type="submit" variant="outline" size="sm">
+                    {sales("searchAction")}
+                  </Button>
+                </div>
+              </form>
+
               {/* The Ticket Type: the VIP roster apart from general admission.
                   A Ticket belongs to exactly one, so this is a single choice
                   and never a set. The options come from the server page and are

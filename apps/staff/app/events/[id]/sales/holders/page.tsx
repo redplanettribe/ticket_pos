@@ -24,6 +24,13 @@ import {
 // the Holder Export writes all say the same words (#522, ADR 0065).
 type HolderListSearchParams = {
   page?: string;
+  // The search term (#526), named `q` as the API and the Sales list name it.
+  // A customer's address can be in here, and therefore in browser history and
+  // in any pasted link — accepted only because the Sales list already does
+  // exactly this (ADR 0065). What it may MATCH is a stricter question the API
+  // answers: searchable if and only if displayable, so an unaccepted Holder's
+  // address is not findable through this parameter.
+  q?: string;
   outstanding?: string;
   // One named Ticket Question's debtors (#525). The question's ID and not its
   // words: a label is the Organization's own wording and may be corrected, and
@@ -78,6 +85,10 @@ function parsePage(raw: string | undefined): number {
 function parseFilters(searchParams: HolderListSearchParams): HolderListFilters {
   return {
     outstanding: searchParams.outstanding === "true",
+    // Taken as it comes, like every other filter here: a search term is free
+    // text with no malformed value to screen for, and the API binds it as a
+    // query argument with its LIKE metacharacters escaped.
+    q: searchParams.q ?? "",
     questionId: searchParams.question_id ?? "",
     assignmentState: searchParams.assignment_state ?? "",
     ticketTypeId: searchParams.ticket_type_id ?? "",

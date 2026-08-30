@@ -398,6 +398,7 @@
     "filterStateAny": "Any status",
     "filterQuestionLabel": "Question owed",
     "filterQuestionAny": "Any question",
+    "filterSearchPlaceholder": "Buyer, reference, or accepted holder",
     "nothingOutstanding": "Nothing outstanding. Every required question has been answered on every ticket that still stands.",
     "noMatchingTickets": "No tickets match these filters.",
     "noTickets": "No tickets yet. The holder list fills as tickets are sold.",

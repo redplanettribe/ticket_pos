@@ -12979,7 +12979,22 @@ paths:
         This filter belongs to the Ticket Assignment feature and is IGNORED while
         that flag is closed — the whole roster comes back with a 200, never a 400,
         so a stale bookmark carrying it keeps working and no client has to know a
-        flag. Three further filters narrow the roster STRUCTURALLY and compose with
+        flag. `q` searches the roster for a person: a case-insensitive substring over
+        the buyer''s name and email address, the Sale Confirmation reference, and
+        — for an ACCEPTED Holder only — that Holder''s name and email address, matching
+        the Sales list''s search so the two screens do not mean different things by
+        the word. SEARCHABLE IF AND ONLY IF DISPLAYABLE (ADR 0065): an address a buyer
+        typed into a Ticket Assignment and whose owner never accepted matches NOTHING,
+        and neither does one the retention purge has taken. The acceptance condition
+        is part of the search predicate itself and not a filter applied after it,
+        because a search that matched an unaccepted address would answer one address
+        at a time the very question ADR 0047''s non-disclosure exists to refuse —
+        type an address, get a row, and the empty Holder cell means yes, they are
+        on this list. The cost is accepted and permanent: an Organizer who typed an
+        address into an assignment cannot later search for it, and must find the row
+        by its buyer or its reference. `q` belongs to NO feature flag — a buyer, an
+        address and a reference are on every roster — and it is never written to any
+        log. Three further filters narrow the roster STRUCTURALLY and compose with
         it and with each other (#523, ADR 0065): `ticket_type_id` is the VIP roster
         apart from general admission — a plain equality, because a Ticket belongs
         to exactly one Ticket Type, unlike a Ticket Sale, which may span several;
@@ -13026,6 +13041,13 @@ paths:
         name: page_size
         schema:
           type: integer
+      - description: Case-insensitive substring over the buyer's name and email, the
+          Sale Confirmation reference, and — for an ACCEPTED Holder only — that Holder's
+          name and email
+        in: query
+        name: q
+        schema:
+          type: string
       - description: Only the Tickets that still owe a required Answer
         in: query
         name: outstanding

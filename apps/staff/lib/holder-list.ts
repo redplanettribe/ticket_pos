@@ -149,29 +149,31 @@ export const HOLDER_LIST_PAGE_SIZE = 50;
   and the pair would drift on the first filter added to either.
 
   ACCEPTED COST, stated because it is a privacy decision and not an oversight:
-  once search arrives (#526) a customer's email address will reach browser
-  history and any pasted link. That is accepted ONLY because the Sales list
-  already does exactly this; tightening it is one change across both screens,
-  not a special case here, and is out of scope of this module.
+  since #526 a customer's email address REACHES browser history and any pasted
+  link. That is accepted ONLY because the Sales list already does exactly this;
+  tightening it is one change across both screens, not a special case here, and
+  is out of scope of this module. What the search may match at all is a
+  different and stricter question, decided in the API and described on `q`
+  below: searchable if and only if displayable.
 
   ONLY THE FILTERS THAT EXIST TODAY LIVE HERE. #523 added the three structural
   ones — Ticket Type, Sales Channel and the sale's date range — #524 the
-  assignment state, #525 the named question, and the one remaining is #526's
-  search, with the five sorts in #527. The types below are shaped so those
-  tickets add fields and values without restructuring anything, and #523, #524
-  and #525 are the evidence that they do.
+  assignment state, #525 the named question and #526 the search, leaving the
+  five sorts in #527. The types below are shaped so those tickets add fields and
+  values without restructuring anything, and #523 through #526 are the evidence
+  that they do.
 */
 
 /**
  * The Holder List's filters, mirroring the endpoint's query params, one field
  * per dimension.
  *
- * A RECORD AND NOT A BAG OF OPTIONALS, so a filter added by #526 is a compile
- * error everywhere it must be handled rather than a silently-absent key:
- * `EMPTY_HOLDER_LIST_FILTERS`, the append helper and the active check are each
- * total over this type. #523 added three fields under exactly that property,
- * #524 a fourth and #525 a fifth, and the compiler named every place each of
- * them had to be handled.
+ * A RECORD AND NOT A BAG OF OPTIONALS, so the sort #527 adds is a compile error
+ * everywhere it must be handled rather than a silently-absent key:
+ * `EMPTY_HOLDER_LIST_FILTERS`, the append helper and the two active checks are
+ * each total over this type. #523 added three fields under exactly that
+ * property, #524 a fourth, #525 a fifth and #526 a sixth, and the compiler
+ * named every place each of them had to be handled.
  *
  * `outstanding` is the old Outstanding Answers list reduced to what it always
  * was — one narrowing of the roster. The API ignores it while Ticket Questions
@@ -190,6 +192,37 @@ export const HOLDER_LIST_PAGE_SIZE = 50;
  */
 export type HolderListFilters = {
   outstanding: boolean;
+  /**
+   * The search box: one case-insensitive substring over the BUYER's name and
+   * email address, the Sale Confirmation reference, and — for an ACCEPTED
+   * Holder only — that Holder's name and email address (#526).
+   *
+   * SEARCHABLE IF AND ONLY IF DISPLAYABLE, and the rule is the API's (ADR
+   * 0065). An address a buyer typed into a Ticket Assignment and whose owner
+   * never accepted matches NOTHING, and neither does a purged one: it is named
+   * nowhere on this platform (ADR 0047), and a search that found it would
+   * confirm one address at a time that its owner is on this roster. NOTHING ON
+   * THIS SIDE ENFORCES THAT and nothing on this side may appear to — the
+   * condition lives inside the API's search predicate, and a second opinion
+   * here would be the copy that drifts.
+   *
+   * The accepted cost, so the control's copy stays honest: an Organizer who
+   * typed an address into an assignment cannot search for it and must find the
+   * row by its buyer or its reference. It is why the placeholder promises a
+   * buyer, a reference and an ACCEPTED holder, and never holder addresses
+   * generally.
+   *
+   * IT BELONGS TO NO FEATURE FLAG, alone among these filters. A buyer's name, a
+   * buyer's address and a Sale Confirmation reference are on every roster of
+   * every build, so the control is drawn on a plain roster with both features
+   * dark — where the Holder branch of the API's predicate simply never matches,
+   * because nobody has ever accepted anything.
+   *
+   * IT REACHES THE URL, and therefore browser history and any pasted link. That
+   * is accepted only because the Sales list already does exactly this;
+   * tightening it is one change across both screens, not a special case here.
+   */
+  q: string;
   /**
    * ONE NAMED Ticket Question's debtors (#525): "who still hasn't told me their
    * shirt size", which on an Event asking several questions is a different
@@ -266,6 +299,7 @@ export type HolderListFilters = {
 /** The whole roster: every filter at its unfiltered value. */
 export const EMPTY_HOLDER_LIST_FILTERS: HolderListFilters = {
   outstanding: false,
+  q: "",
   questionId: "",
   assignmentState: "",
   ticketTypeId: "",
@@ -339,6 +373,12 @@ export function parseHolderDir(raw: string | undefined): HolderSortDir {
  * roster" in exactly one way.
  */
 function appendHolderListFilters(params: URLSearchParams, filters: HolderListFilters): void {
+  // `q` first, as it is first in the filter bar and first on the Sales list's
+  // URL — a narrowed view reads with the person being looked for at the front.
+  // Named as the API names it, and OMITTED when empty like every other filter,
+  // so the plain roster's URL says nothing about a search and a shared link
+  // carries no stray customer address.
+  if (filters.q) params.set("q", filters.q);
   if (filters.outstanding) params.set("outstanding", "true");
   // Beside `outstanding`, because it is the other half of the same question:
   // the boolean and the named question narrow the same debt, and a reader of a
@@ -398,6 +438,7 @@ export function holderListQuery(
 export function hasActiveHolderListFilters(filters: HolderListFilters): boolean {
   return (
     filters.outstanding ||
+    filters.q !== "" ||
     filters.questionId !== "" ||
     filters.assignmentState !== "" ||
     filters.ticketTypeId !== "" ||
@@ -420,6 +461,7 @@ export function hasActiveHolderListFilters(filters: HolderListFilters): boolean 
 export function isOutstandingTheOnlyFilter(filters: HolderListFilters): boolean {
   return (
     filters.outstanding &&
+    filters.q === "" &&
     filters.questionId === "" &&
     filters.assignmentState === "" &&
     filters.ticketTypeId === "" &&

@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -228,17 +229,131 @@ const holderRosterOwingQuestion = `
 // themselves to be, so that a row on this list can say WHO is coming and not
 // only which Ticket owes what (#329, ADR 0047).
 //
-// A SEPARATE CONST, ADDED BY ONE CALLER, and deliberately not folded into
-// holderRosterFrom. The roster's COUNT has no business joining a person, and
-// the debt derivation above must never select one — a join in a shared FROM
-// would make a disclosure decision by accident.
+// A SEPARATE CONST, ADDED BY THE ROSTER'S TWO QUERIES AND BY NOTHING ELSE, and
+// deliberately not folded into holderRosterFrom: the debt derivation above must
+// never select a person, and a join in a shared FROM would make a disclosure
+// decision by accident.
 //
-// LEFT, AND ON THE PRIMARY KEY, so it can neither drop a row nor multiply one: a
-// Ticket has at most one holder_customer_id, and that column is NULL on every
-// Ticket that was never accepted — which is all of them while the flag is closed.
+// IT USED TO BE ADDED BY THE PAGE ALONE, on the argument that "the roster's
+// COUNT has no business joining a person". THAT STOPPED BEING TRUE WITH #526,
+// and the note is corrected here rather than left to mislead. The search
+// predicate (holderRosterSearch below) matches an accepted Holder's NAME, which
+// lives on this Customer row and nowhere on `tickets` — so the COUNT must join
+// it too or the two queries would be reading different columns. A COUNT that
+// dropped the join would not error: it would silently count more rows than the
+// page can show, and the screen would say "1 of 3 pages" over a single page of
+// results. A total and a page that disagree are worse than either being wrong,
+// because nothing on the screen says which one to believe.
+//
+// LEFT, AND ON THE PRIMARY KEY, so it can neither drop a row nor multiply one —
+// which is what makes it safe under COUNT(*) as well as under the page: a Ticket
+// has at most one holder_customer_id, and that column is NULL on every Ticket
+// that was never accepted, which is all of them while the flag is closed. An
+// INNER join here would empty the roster of every unaccepted Ticket, and a join
+// on anything but the primary key would double-count a buyer.
 const holderRosterHolderJoin = `
 	LEFT JOIN customers hc ON hc.id = tk.holder_customer_id
 `
+
+// holderRosterSearch is the roster's search predicate: one case-insensitive
+// substring over the buyer's name and address, the Sale Confirmation reference,
+// and — FOR AN ACCEPTED HOLDER ONLY — that Holder's name and address (#526,
+// ADR 0065).
+//
+// SEARCHABLE IF AND ONLY IF DISPLAYABLE, AND THAT IS THE WHOLE OF THIS
+// PREDICATE. A Holder who has not accepted their Ticket Assignment is named
+// nowhere on this platform: ADR 0047 withholds the address because it has no
+// consent moment behind it and the person may not know a ticket was bought for
+// them. The address is nonetheless sitting in `tickets.holder_email`, so a
+// search that matched it would answer, one address at a time, precisely the
+// question the non-disclosure exists to refuse — type an address, get a row, and
+// the empty Holder cell now means *yes, they are on this list*. The display rule
+// would survive in the markup and die in the query. This predicate is the
+// QUERY-SIDE TWIN of service.fillHolderListEntry, and the two must be read
+// together.
+//
+// THE ACCEPTANCE TEST IS INSIDE THE HOLDER BRANCH OF THE `OR`, NOT A TOP-LEVEL
+// `AND`, and not a filter applied to rows in Go afterwards. This is the one
+// structural decision of the ticket, and the shape is chosen so the mistake is
+// impossible rather than merely unmade:
+//
+//   - As a top-level `AND tk.accepted_at IS NOT NULL` the search would narrow
+//     the WHOLE roster to accepted Tickets — searching a buyer's name would lose
+//     every unaccepted Ticket of that buyer's sale — so the clause would have to
+//     be deleted to make the obvious bug go away, and deleting it silently
+//     restores the disclosure.
+//
+//   - As a post-filter in Go it would run over ONE PAGE of rows, so the COUNT
+//     would still describe the wider view; the leak would be visible in
+//     `pagination.total` even where no row was drawn.
+//
+//   - Written as it is, DELETING THE ACCEPTANCE CLAUSE BREAKS A TEST rather than
+//     widening a result quietly:
+//     integration.TestSearchingAnUnacceptedHoldersAddressReturnsZeroRows.
+//
+// THE EMAIL MATCHED IS `tk.holder_email` AND NOT `hc.email`, deliberately, and
+// this is the searchable-set-equals-displayed-set property stated in columns:
+// fillHolderListEntry discloses `ticket.HolderEmail` — the address ON THE
+// TICKET, the one the buyer typed and the Holder proved — and never the Customer
+// row's own. The two are the same address today, because acceptance is what
+// binds them; matching a different column would make the two sets the same only
+// by coincidence, and the coincidence would end the first time a Customer
+// changed their address after accepting. The NAMES come from `hc`, because that
+// is where fillHolderListEntry takes them from: a Ticket has no name on it.
+//
+// A PURGED ADDRESS THEREFORE MATCHES NOTHING, and needs no clause of its own.
+// The purge nulls `holder_email` and a NULL never satisfies ILIKE; the purged
+// Ticket was by definition never accepted, so it fails the acceptance test as
+// well. Two reasons, and the integration tests assert the outcome rather than
+// trusting either.
+//
+// THE SEMANTICS ARE THE SALES LIST'S, clause for clause — ILIKE, likeEscape'd so
+// the term is a literal and not a pattern, and the name matched as
+// `first || ' ' || last` — because "search" must mean the same thing on the two
+// screens an Organizer moves between. See sales/repository.ListSales; a pg_trgm
+// index (ADR 0006) is the documented upgrade path if one Event's volume ever
+// makes this scan too slow.
+//
+// THE KNOWN AND ACCEPTED COST, so it is not re-litigated as a bug: an Organizer
+// who typed an address into a Ticket Assignment CANNOT LATER SEARCH FOR IT, and
+// must find the row by its buyer or its Sale Confirmation reference. This will
+// be reported as a defect one day. It is working as designed, it is ADR 0065's
+// stated price for ADR 0047, and widening it is an ADR, not a patch.
+//
+// ONE PLACEHOLDER, REFERENCED FIVE TIMES with an explicit argument index, so the
+// term is bound once and the appender in holderRosterFilters can hand it a
+// single position — `%[1]d` and not five `%d`, which would need the same number
+// written five times and would be renumbered wrong the day a filter moves.
+const holderRosterSearch = `(
+			s.customer_email ILIKE $%[1]d
+			OR (s.customer_first_name || ' ' || s.customer_last_name) ILIKE $%[1]d
+			OR s.confirmation_ref ILIKE $%[1]d
+			OR (
+				tk.accepted_at IS NOT NULL
+				AND (
+					tk.holder_email ILIKE $%[1]d
+					OR (hc.first_name || ' ' || hc.last_name) ILIKE $%[1]d
+				)
+			)
+		)`
+
+// holderRosterLikeEscape escapes the LIKE/ILIKE metacharacters (\, %, _) so a
+// search term is matched as a LITERAL SUBSTRING and never as a pattern. The
+// backslash is Postgres's default ILIKE escape character.
+//
+// A SECOND COPY OF sales/repository.likeEscape, FOUR LINES, AND DELIBERATE. The
+// alternative is the catalog module importing the sales module — or a fourth
+// package invented to hold four lines — over a piece of Postgres trivia, which
+// is the coupling resolveEventLocation in the service beside this already
+// refuses on the same terms. What matters is that the ANSWER agrees, and the
+// integration tests assert the property directly: a `%` or a `_` typed into the
+// box matches those characters and nothing else.
+func holderRosterLikeEscape(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "%", `\%`)
+	s = strings.ReplaceAll(s, "_", `\_`)
+	return s
+}
 
 // holderRosterAssignmentStates is the assignment-state FILTER, in SQL: one
 // predicate per selectable value, over the SAME FOUR COLUMNS the Holder List
@@ -478,6 +593,26 @@ type ListHolderTicketsQuery struct {
 	// service closes it while the Ticket Question feature is dark, beside
 	// OwingOnly; nothing here knows about flags.
 	QuestionID string
+	// Search is a case-insensitive substring matched over the BUYER's name and
+	// address, the Sale Confirmation reference, and — for an ACCEPTED Holder
+	// only — that Holder's name and address (#526). Empty means no search.
+	//
+	// SEARCHABLE IF AND ONLY IF DISPLAYABLE. The acceptance test lives INSIDE
+	// the Holder branch of the predicate, never as a condition applied beside
+	// it and never as a filter over rows in Go: an unaccepted address is in
+	// `tickets.holder_email` and is named nowhere on this platform (ADR 0047),
+	// so matching it would answer one address at a time the question the
+	// non-disclosure exists to refuse. See holderRosterSearch, which is where
+	// that is argued and where it is enforced.
+	//
+	// NEVER WRITTEN TO A LOG. It is a customer's address, and a log aggregator
+	// is a wider audience than the database (ADR 0065). Nothing on the read
+	// path logs it today — the request middleware logs `r.URL.Path` and not the
+	// query string, and no layer between the handler and here logs its
+	// arguments — and this note is here so that a future logger added to this
+	// repository knows to redact the field rather than discovering it in an
+	// audit. #529's audit line records only THAT a search was applied.
+	Search string
 	// TicketTypeID keeps only the Tickets OF that Ticket Type — the VIP roster
 	// apart from general admission (#523).
 	//
@@ -589,6 +724,20 @@ func holderRosterFilters(q ListHolderTicketsQuery) (string, []any) {
 		args = append(args, q.QuestionID)
 		where += fmt.Sprintf(holderRosterOwingQuestion, eventP, orgP, len(args))
 	}
+	if q.Search != "" {
+		// ONE ARGUMENT BOUND ONCE and referenced five times by index, wrapped in
+		// the `%` that make it a SUBSTRING and escaped so the reader's own `%`
+		// or `_` is a literal — the Sales list's semantics exactly, because the
+		// two screens must not mean different things by "search".
+		//
+		// WHAT THIS BRANCH MATCHES AND WHY IT REFUSES THE REST is
+		// holderRosterSearch's subject, and it is the security decision of this
+		// list: the acceptance test is inside the predicate, in the Holder
+		// branch of the OR, and NOT added here as a condition beside it. A
+		// clause added here instead would narrow the whole roster rather than
+		// the Holder branch, would look like a bug, and would be deleted.
+		addCond(holderRosterSearch, "%"+holderRosterLikeEscape(q.Search)+"%")
+	}
 	if q.TicketTypeID != "" {
 		// Equality on the LINE's Ticket Type — see the field's comment for why
 		// this is not the Sales list's EXISTS.
@@ -656,10 +805,17 @@ func (r *Repository) ListHolderTickets(
 
 	where, args := holderRosterFilters(q)
 
+	// THE COUNT CARRIES THE HOLDER JOIN TOO, since #526, and it must: the search
+	// predicate matches an accepted Holder's NAME, which lives on the joined
+	// Customer row and on no column of `tickets`. Two queries reading different
+	// columns would be two views — the total describing one and the page the
+	// other — which is worse than either being wrong, because nothing on the
+	// screen says which to believe. The join is LEFT and on the primary key, so
+	// it changes no count on its own: see holderRosterHolderJoin.
 	var total int
 	if err := r.db.Pool.QueryRowContext(ctx, `
 		SELECT COUNT(*)
-	`+holderRosterFrom+`
+	`+holderRosterFrom+holderRosterHolderJoin+`
 		WHERE `+where,
 		args...,
 	).Scan(&total); err != nil {

@@ -3,6 +3,7 @@ package integration
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -2106,4 +2107,485 @@ func TestTheHolderListIgnoresTheNamedQuestionFilterWhileQuestionsAreDark(t *test
 		"?outstanding=true&question_id="+f.sizeID).Pagination.Total; got != 3 {
 		t.Errorf("both question filters on a dark build return %d Tickets, want the whole roster of 3", got)
 	}
+}
+
+// THE SEARCH BOX (#526, ADR 0065), AND THE SECURITY RULE IT IS BOUNDED BY:
+// SEARCHABLE IF AND ONLY IF DISPLAYABLE.
+//
+// `q` is a case-insensitive substring over the buyer's name and address, the
+// Sale Confirmation reference, and — FOR AN ACCEPTED HOLDER ONLY — that
+// Holder's name and address. An address a buyer typed and its owner never
+// accepted matches NOTHING, and neither does a purged one.
+//
+// THESE TESTS ARE THE ACCEPTANCE CRITERIA and one of them is load-bearing; see
+// TestSearchingAnUnacceptedHoldersAddressReturnsZeroRows below. They are
+// written against REAL ROWS and not against a query builder for the reason the
+// structural filters' tests give: every part of this is a string reaching a
+// predicate in SQL, and a clause moved from one branch of an OR to the outside
+// of it compiles, runs, and differs from the truth only in whose address can be
+// confirmed to be on an Organization's roster. Nothing but a database notices.
+
+// holderSearchFixture is one Event whose roster holds every case the search has
+// an opinion about: two buyers, and one buyer's four Tickets standing in the
+// four assignment states — so a Holder address that IS disclosed, one that is
+// NOT, and one the purge has taken can each be typed into the box and the
+// answers compared.
+//
+// The Ticket Types are two so a search can be composed with a filter that
+// contradicts it, and the whole roster is one Sale Import, so the channel and
+// the day are constant and cannot be what a search test is accidentally
+// measuring.
+type holderSearchFixture struct {
+	sessionID string
+	eventID   string
+	gaID      string
+	vipID     string
+	anaSaleID string
+
+	unassigned    string
+	accepted      string
+	assigned      string
+	neverAccepted string
+}
+
+// The addresses the fixture stands up, named here because three of the four are
+// assertions in themselves: Carla's is disclosed and therefore searchable,
+// Diego's is stored and must never match, Elena's has been purged and is gone.
+const (
+	holderSearchAcceptedEmail  = "carla@example.com"
+	holderSearchUnacceptedMail = "diego@example.com"
+	holderSearchPurgedEmail    = "elena@example.com"
+)
+
+func newHolderSearchFixture(t *testing.T, env *testEnv) holderSearchFixture {
+	t.Helper()
+	f := holderSearchFixture{}
+	f.sessionID = orgAdminSession(t, env)
+	f.eventID = createDraftEvent(t, env, f.sessionID, "Search Fest", "search-fest")
+	// SCHEDULED AND COMFORTABLY IN THE FUTURE: the assignment window closes at
+	// the doors, and two of these states are reached by assigning.
+	scheduleEvent(t, env, f.sessionID, f.eventID, "Search Fest", "search-fest",
+		env.fixedClock.Add(30*24*time.Hour))
+	f.gaID = createTicketTypeWithCapacity(t, env, f.sessionID, f.eventID, "GA", 2000, 50)
+	f.vipID = createTicketTypeWithCapacity(t, env, f.sessionID, f.eventID, "VIP", 9000, 50)
+
+	// COMMITTED BEFORE THE FLAG IS OPENED, exactly as newHolderStateFixture is:
+	// with Ticket Assignment open at commit time a Sale Import hands the buyer
+	// its first Ticket by presumption (ADR 0055), which would start the roster
+	// with an `accepted` row nobody chose.
+	commitBatch(t, env, f.sessionID, f.eventID, "search-batch", []map[string]any{{
+		"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez",
+		"ticket_type_id": f.gaID, "quantity": 4, "payment_method": "cash",
+		"sold_at": "2026-07-01T10:00:00Z",
+	}, {
+		"customer_email": "bruno@example.com", "customer_first_name": "Bruno", "customer_last_name": "Diaz",
+		"ticket_type_id": f.vipID, "quantity": 1, "payment_method": "cash",
+		"sold_at": "2026-07-02T10:00:00Z",
+	}})
+	f.anaSaleID = saleIDOfBuyer(t, env, f.eventID, "ana@example.com")
+	tickets := ticketIDsOfSale(t, env, f.anaSaleID)
+	if len(tickets) != 4 {
+		t.Fatalf("Tickets minted = %d, want Ana's 4", len(tickets))
+	}
+
+	enableTicketAssignment(t)
+	ana := customerSignIn(t, env, "ana@example.com")
+
+	// `accepted`: named, mailed, clicked — AND NAMED HERSELF, which is the only
+	// way a Holder's own name reaches this roster and therefore the only way it
+	// can be searched for.
+	assignTicketOK(t, env, ana, f.anaSaleID, tickets[1], holderSearchAcceptedEmail)
+	token := assignmentTokenFrom(t, assignmentMailFor(t, env, holderSearchAcceptedEmail))
+	acceptAssignmentOK(t, env, token)
+	resp, body, _ := publicLinkRequest(t, env, http.MethodPut, assignmentLinkNamePath, map[string]any{
+		"token": token, "first_name": "Carla", "last_name": "Ruiz",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("holder name status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	// `assigned`: an address typed by the buyer that its owner never clicked.
+	// THE SUBJECT OF THE LOAD-BEARING TEST BELOW.
+	assignTicketOK(t, env, ana, f.anaSaleID, tickets[2], holderSearchUnacceptedMail)
+	// `never_accepted`: named, never claimed, address taken by the purge. It is
+	// assigned FIRST so the address really was stored before being nulled —
+	// staging the marker on a Ticket nobody was named for would prove nothing.
+	assignTicketOK(t, env, ana, f.anaSaleID, tickets[3], holderSearchPurgedEmail)
+	stageHolderAddressPurge(t, env, tickets[3])
+
+	f.unassigned, f.accepted, f.assigned, f.neverAccepted = tickets[0], tickets[1], tickets[2], tickets[3]
+	return f
+}
+
+// holderSearch reads the roster under one search term, escaped as a browser
+// would escape it — the terms here carry spaces, `@` and, in the wildcard test,
+// the LIKE metacharacters themselves. `extra` carries any further filters, so a
+// composition test reads as the one sentence it is asserting.
+func holderSearch(
+	t *testing.T, env *testEnv, sessionID, eventID, term, extra string,
+) outstandingAnswers {
+	t.Helper()
+	return holderRoster(t, env, sessionID, eventID, "?q="+url.QueryEscape(term)+extra)
+}
+
+// assertNoRows is the shape three of these tests end in: NOTHING matched, and
+// the pagination agrees that nothing did. Both halves, because a count query
+// that missed the search predicate would leave a total over an empty page —
+// and on this list that total would itself be the disclosure, since it would
+// confirm the address is on the roster without drawing a row.
+func assertNoRows(t *testing.T, page outstandingAnswers, term, why string) {
+	t.Helper()
+	if len(page.Data) != 0 || page.Pagination.Total != 0 {
+		t.Fatalf("searching %q returned %d rows with a total of %d, want NONE.\n%s",
+			term, len(page.Data), page.Pagination.Total, why)
+	}
+}
+
+// assertSearchFinds names exactly which Tickets a search returned, so a failure
+// says who was found rather than how many. Totals are checked with the rows for
+// assertRoster's reason: the count and the page must describe one view.
+func assertSearchFinds(t *testing.T, page outstandingAnswers, want []string, term string) {
+	t.Helper()
+	got := holderTicketIDs(page)
+	if len(got) != len(want) {
+		t.Fatalf("searching %q found %d Tickets %v, want %d %v", term, len(got), got, len(want), want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("searching %q found %v, want %v", term, got, want)
+		}
+	}
+	if page.Pagination.Total != len(want) {
+		t.Fatalf("searching %q put a total of %d over %d rows — the count query and the page query "+
+			"disagree about the view, which since #526 is also a disagreement about which join they carry",
+			term, page.Pagination.Total, len(want))
+	}
+}
+
+// THE BUYER AND THE REFERENCE: the two things always on a row, whatever the
+// feature flags say and whoever has or has not accepted anything.
+func TestTheHolderListSearchesTheBuyerAndTheReference(t *testing.T) {
+	env := setupTest(t)
+	f := newHolderSearchFixture(t, env)
+
+	// The whole roster first, so every search below is a narrowing of something
+	// known: Ana's four Tickets, oldest sale first, then Bruno's one.
+	whole := holderRoster(t, env, f.sessionID, f.eventID, "")
+	if whole.Pagination.Total != 5 {
+		t.Fatalf("roster = %d Tickets, want the Event's 5", whole.Pagination.Total)
+	}
+	anaTickets := []string{f.unassigned, f.accepted, f.assigned, f.neverAccepted}
+	brunoTicket := holderTicketIDs(whole)[4]
+
+	// The buyer's ADDRESS, in part.
+	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, "bruno@example", ""),
+		[]string{brunoTicket}, "bruno@example")
+	// The buyer's NAME, joined as `first || ' ' || last` — the Sales list's
+	// spelling, so a reader typing a full name is not defeated by the column
+	// split.
+	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, "Ana Lopez", ""),
+		anaTickets, "Ana Lopez")
+	// Half a surname, which is what a search box is actually used for.
+	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, "iaz", ""),
+		[]string{brunoTicket}, "iaz")
+
+	// THE SALE CONFIRMATION REFERENCE, which is how a roster is joined back to
+	// the receipt in somebody's inbox.
+	var ref string
+	for _, row := range whole.Data {
+		if row.TicketID == brunoTicket {
+			ref = row.ConfirmationRef
+		}
+	}
+	if ref == "" {
+		t.Fatal("Bruno's row carries no confirmation_ref — there is nothing to search by")
+	}
+	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, ref, ""),
+		[]string{brunoTicket}, ref)
+}
+
+// AN ACCEPTED HOLDER IS SEARCHABLE BY NAME AND BY ADDRESS, because an accepted
+// Holder is DISPLAYED by name and by address (ADR 0047): the Organization is
+// already looking at both, and a roster that draws a person it cannot find is a
+// roster nobody can work.
+//
+// THE ADDRESS MATCHED IS THE ONE THE ROW DISCLOSES — `tickets.holder_email`,
+// which service.fillHolderListEntry puts on the wire — and not the joined
+// Customer's own column. Matching a different column would make the searchable
+// set and the displayed set the same set only by coincidence.
+func TestTheHolderListSearchesAnAcceptedHolder(t *testing.T) {
+	env := setupTest(t)
+	f := newHolderSearchFixture(t, env)
+
+	// The row really does disclose both, which is what makes searching them
+	// legitimate — this test's premise, asserted rather than assumed.
+	row := guestRow(t, holderRoster(t, env, f.sessionID, f.eventID, ""), f.accepted)
+	if row.state != "accepted" || row.email != holderSearchAcceptedEmail || row.firstName != "Carla" {
+		t.Fatalf("the accepted row reads %+v, want Carla Ruiz at %s — the fixture is not set up",
+			row, holderSearchAcceptedEmail)
+	}
+
+	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, holderSearchAcceptedEmail, ""),
+		[]string{f.accepted}, holderSearchAcceptedEmail)
+	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, "Carla Ruiz", ""),
+		[]string{f.accepted}, "Carla Ruiz")
+	// The Holder's surname alone, to prove the name is matched as a substring of
+	// the joined pair and not by equality on either half.
+	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, "Rui", ""),
+		[]string{f.accepted}, "Rui")
+}
+
+// THE LOAD-BEARING TEST OF THIS FEATURE. Read the whole comment before changing
+// anything it protects.
+//
+// An address a buyer typed into a Ticket Assignment and whose owner never
+// accepted is named NOWHERE on this platform (ADR 0047): it has no consent
+// moment behind it, and the person may not know a ticket was bought for them.
+// The address is nonetheless sitting in `tickets.holder_email`, one column away
+// from the search predicate.
+//
+// SO A SEARCH FOR IT MUST RETURN ZERO ROWS, AND ZERO IN THE TOTAL. If it
+// returned a row, the search box would answer — one address at a time — exactly
+// the question the non-disclosure exists to refuse: type an address, get a row,
+// and the empty Holder cell now means *yes, they are on this list*. The display
+// rule would survive in the markup and die in the query.
+//
+// ADDING `holder_email` TO THE PREDICATE UNCONDITIONALLY IS A ONE-LINE CHANGE
+// THAT PASSES REVIEW, BREAKS NOTHING VISIBLE, AND REOPENS ADR 0047. It is the
+// single most plausible regression in this file. So is lifting the
+// `tk.accepted_at IS NOT NULL` clause out of the Holder branch of
+// repository.holderRosterSearch and into a condition beside it — which looks
+// like a simplification and is a disclosure. THIS TEST IS WHAT NOTICES EITHER.
+// If it fails, the answer is never to relax it.
+//
+// It asserts the Ticket IS on the unfiltered roster first, so it cannot pass by
+// the fixture being empty or by the search finding nothing for some unrelated
+// reason.
+func TestSearchingAnUnacceptedHoldersAddressReturnsZeroRows(t *testing.T) {
+	env := setupTest(t)
+	f := newHolderSearchFixture(t, env)
+
+	// The Ticket exists, is on the roster, and stands exactly where the rule is
+	// about: an address was typed and nobody clicked it.
+	whole := holderRoster(t, env, f.sessionID, f.eventID, "")
+	row := guestRow(t, whole, f.assigned)
+	if row.state != "assigned" {
+		t.Fatalf("the Ticket under test reads state=%q, want `assigned` — the fixture is not set up", row.state)
+	}
+	// And the address is genuinely stored, or this test would be asserting that
+	// a search finds nothing where there was nothing to find.
+	if stored := readTicketAssignment(t, env, f.assigned); stored.holderEmail.String != holderSearchUnacceptedMail {
+		t.Fatalf("the Ticket holds holder_email=%q, want %q stored and undisclosed",
+			stored.holderEmail.String, holderSearchUnacceptedMail)
+	}
+	// The roster does not name it, which is the display rule this query rule is
+	// the twin of.
+	if row.email != "" || row.firstName != "" {
+		t.Fatalf("the unaccepted row already discloses %q %q — ADR 0047 is broken before the search is",
+			row.firstName, row.email)
+	}
+
+	assertNoRows(t, holderSearch(t, env, f.sessionID, f.eventID, holderSearchUnacceptedMail, ""),
+		holderSearchUnacceptedMail,
+		"An address a buyer typed and its owner NEVER ACCEPTED must match nothing (ADR 0047, ADR 0065).\n"+
+			"A row here means the search box confirms, one address at a time, that a person is on this "+
+			"Organization's roster — which is precisely the question the non-disclosure exists to refuse.\n"+
+			"The `tk.accepted_at IS NOT NULL` clause belongs INSIDE the Holder branch of "+
+			"repository.holderRosterSearch. Do not relax this test.")
+
+	// Part of the address, too: a substring match must not be a way round the
+	// rule that whole-address equality would have blocked.
+	assertNoRows(t, holderSearch(t, env, f.sessionID, f.eventID, "diego", ""), "diego",
+		"A FRAGMENT of an unaccepted address must not match either — the disclosure is the same one.")
+
+	// And the row is still reachable the way ADR 0065 says it must be: by its
+	// BUYER. This is the stated, accepted cost of the rule — the Organizer who
+	// typed the address finds the Ticket through Ana, never through Diego — and
+	// it is asserted here so the cost is visible beside the refusal rather than
+	// being rediscovered as a bug.
+	byBuyer := holderSearch(t, env, f.sessionID, f.eventID, "Ana Lopez", "")
+	found := false
+	for _, id := range holderTicketIDs(byBuyer) {
+		if id == f.assigned {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the unaccepted Ticket cannot be found by its BUYER either.\n" +
+			"That is the route ADR 0065 leaves open in exchange for refusing the Holder's address; " +
+			"without it the row is unreachable and the trade is not the one that was made.")
+	}
+}
+
+// A PURGED ADDRESS RETURNS ZERO ROWS. It should follow from the rule above —
+// the column is NULL once the purge has taken it, and a NULL never satisfies
+// ILIKE — but a property that "should follow" is exactly the one to assert,
+// because it would also follow from a predicate that had quietly stopped
+// checking anything at all.
+//
+// This Ticket is on `never_accepted`: somebody was named, nobody claimed it, and
+// the address is gone by definition (#334, migration 081).
+func TestSearchingAPurgedHoldersAddressReturnsZeroRows(t *testing.T) {
+	env := setupTest(t)
+	f := newHolderSearchFixture(t, env)
+
+	row := guestRow(t, holderRoster(t, env, f.sessionID, f.eventID, ""), f.neverAccepted)
+	if !row.neverAccepted || row.email != "" {
+		t.Fatalf("the purged row reads %+v, want the marker and no address — the fixture is not set up", row)
+	}
+
+	assertNoRows(t, holderSearch(t, env, f.sessionID, f.eventID, holderSearchPurgedEmail, ""),
+		holderSearchPurgedEmail,
+		"A purged address must match NOTHING: the retention purge took it, and a roster that could "+
+			"still find it by typing it would be keeping the thing the purge exists to delete.")
+
+	// The Ticket itself is still on the roster, and still selectable by the
+	// filter that describes it — so this is a search that found nothing, not a
+	// row that has fallen off the list.
+	assertOneTicket(t, holderRoster(t, env, f.sessionID, f.eventID, "?assignment_state=never_accepted"),
+		f.neverAccepted, "never_accepted")
+}
+
+// CASE-INSENSITIVE, AND THE LIKE METACHARACTERS ARE LITERALS — the Sales list's
+// two properties, restated here because the two screens must not mean different
+// things by "search".
+//
+// The wildcard half is the one with teeth: without likeEscape, `%` is "match
+// everything" and `_` is "match any one character", so a reader who typed
+// either would be handed the WHOLE ROSTER under a filter bar claiming to be
+// narrowed — a screen that says it is showing a search result and is showing
+// everybody.
+func TestTheHolderListSearchIsCaseInsensitiveAndTreatsWildcardsAsLiterals(t *testing.T) {
+	env := setupTest(t)
+	f := newHolderSearchFixture(t, env)
+	anaTickets := []string{f.unassigned, f.accepted, f.assigned, f.neverAccepted}
+
+	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, "ANA LOPEZ", ""),
+		anaTickets, "ANA LOPEZ")
+	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, "cArLa@ExAmPlE.com", ""),
+		[]string{f.accepted}, "cArLa@ExAmPlE.com")
+
+	// Nothing in this fixture contains either character, so a literal match is
+	// empty and an UNESCAPED one would return the whole roster of five.
+	for _, wildcard := range []string{"%", "_", "%%", "a%z"} {
+		assertNoRows(t, holderSearch(t, env, f.sessionID, f.eventID, wildcard, ""), wildcard,
+			"A LIKE metacharacter typed into the box is a LITERAL, never a pattern (likeEscape).\n"+
+				"Unescaped, this term matches the whole roster and the screen shows everybody under a "+
+				"filter bar claiming to be narrowed.")
+	}
+}
+
+// SEARCH COMPOSES WITH EVERY OTHER FILTER, and intersects with them rather than
+// one of the two winning — which is what makes "the VIP door sales for somebody
+// called Lopez" one query.
+func TestTheHolderListSearchComposesWithTheOtherFilters(t *testing.T) {
+	env := setupTest(t)
+	f := newHolderSearchFixture(t, env)
+
+	// With the assignment state, which is the pairing that matters most here:
+	// the search and the state are the two halves of "where is this person's
+	// ticket".
+	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, "Ana Lopez", "&assignment_state=accepted"),
+		[]string{f.accepted}, "Ana Lopez + accepted")
+	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, "Ana Lopez", "&assignment_state=never_accepted"),
+		[]string{f.neverAccepted}, "Ana Lopez + never_accepted")
+
+	// With the Ticket Type: Ana bought GA, so the VIP roster holds none of her
+	// Tickets and the intersection is empty rather than one filter winning.
+	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, "Ana Lopez", "&ticket_type_id="+f.gaID),
+		[]string{f.unassigned, f.accepted, f.assigned, f.neverAccepted}, "Ana Lopez + GA")
+	assertNoRows(t, holderSearch(t, env, f.sessionID, f.eventID, "Ana Lopez", "&ticket_type_id="+f.vipID),
+		"Ana Lopez + VIP", "The filters INTERSECT; neither wins.")
+
+	// With the channel and with the date bounds. Every Ticket here came from one
+	// Sale Import on a known day, so a matching bound leaves the search's answer
+	// alone and a non-matching one empties it.
+	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, "bruno@example.com", "&channel=import"),
+		holderTicketIDs(holderSearch(t, env, f.sessionID, f.eventID, "bruno@example.com", "")),
+		"bruno + import")
+	assertNoRows(t, holderSearch(t, env, f.sessionID, f.eventID, "bruno@example.com", "&channel=online"),
+		"bruno + online", "The filters INTERSECT; neither wins.")
+	assertNoRows(t, holderSearch(t, env, f.sessionID, f.eventID, "Ana Lopez", "&sold_from=2026-07-02"),
+		"Ana Lopez + sold on or after the 2nd",
+		"Ana's sale is on the 1st; the date bound and the search intersect.")
+
+	// AND COMPOSITION DOES NOT SMUGGLE THE UNACCEPTED ADDRESS BACK IN. A
+	// narrower view is not a licence to disclose: `assignment_state=assigned`
+	// selects exactly the Ticket whose address is withheld, and searching that
+	// address still finds nothing.
+	assertNoRows(t, holderSearch(t, env, f.sessionID, f.eventID, holderSearchUnacceptedMail,
+		"&assignment_state=assigned"), holderSearchUnacceptedMail+" + assigned",
+		"The disclosure rule is in the PREDICATE, so no combination of filters can widen it.")
+}
+
+// PAGING A SEARCHED VIEW IS STABLE: page 1 and page 2 of one search share no
+// Ticket and lose none between them.
+//
+// The risk this covers is specific and would otherwise be invisible. The count
+// and the page are two statements, and since #526 they must agree about the
+// JOIN they carry as well as the WHERE — a COUNT without the Holder join would
+// error on the search predicate's name columns, and a page whose ORDER BY had
+// no deterministic tiebreak would duplicate and drop rows across a page
+// boundary. A roster that loses a person is worse than one that is badly
+// ordered.
+func TestPagingASearchedHolderListIsStable(t *testing.T) {
+	env := setupTest(t)
+	f := newHolderSearchFixture(t, env)
+
+	first := holderSearch(t, env, f.sessionID, f.eventID, "Ana Lopez", "&page_size=2")
+	second := holderSearch(t, env, f.sessionID, f.eventID, "Ana Lopez", "&page_size=2&page=2")
+
+	if first.Pagination.Total != 4 || second.Pagination.Total != 4 {
+		t.Fatalf("the searched view totals %d then %d, want 4 on both — the total describes the VIEW "+
+			"and does not move as the reader pages through it",
+			first.Pagination.Total, second.Pagination.Total)
+	}
+	if len(first.Data) != 2 || len(second.Data) != 2 {
+		t.Fatalf("pages hold %d and %d rows, want 2 and 2", len(first.Data), len(second.Data))
+	}
+
+	seen := map[string]bool{}
+	for _, id := range append(holderTicketIDs(first), holderTicketIDs(second)...) {
+		if seen[id] {
+			t.Errorf("Ticket %s appears on both pages of one searched view — a paginated list that "+
+				"duplicates a row is one that has also dropped another", id)
+		}
+		seen[id] = true
+	}
+	for _, id := range []string{f.unassigned, f.accepted, f.assigned, f.neverAccepted} {
+		if !seen[id] {
+			t.Errorf("Ticket %s is on neither page of a search that matched it — the roster lost a person", id)
+		}
+	}
+}
+
+// SEARCH BELONGS TO NO FEATURE FLAG, and is the only filter on this list that
+// does not: a buyer's name, a buyer's address and a Sale Confirmation reference
+// are on every roster of every build.
+//
+// So on a PLAIN ROSTER with Ticket Assignment dark the box still works — read
+// through the questions flag, because with both dark the route is a 404 (#333).
+// And the Holder branch of the predicate simply never matches there, because on
+// such a build nobody has ever accepted anything: there is no second rule for
+// the dark case, and no flag is read anywhere on the search path.
+func TestTheHolderListSearchNeedsNoFeatureFlag(t *testing.T) {
+	env := setupTest(t)
+	enableTicketAssignment(t)
+	f := newHolderFilterFixture(t, env)
+	enableTicketQuestions(t)
+	closeTicketAssignment(t)
+
+	// The buyer is still found, by address and by name.
+	page := holderSearch(t, env, f.sessionID, f.eventID, "ga-import@example.com", "")
+	if page.Pagination.Total != 1 || len(page.Data) != 1 ||
+		page.Data[0].CustomerEmail != "ga-import@example.com" {
+		t.Fatalf("searching a buyer on a build with Ticket Assignment dark found %d rows (total %d), "+
+			"want the one Ticket — `q` belongs to no flag", len(page.Data), page.Pagination.Total)
+	}
+	if got := holderSearch(t, env, f.sessionID, f.eventID, "Vip Online", "").Pagination.Total; got != 1 {
+		t.Errorf("searching a buyer's joined name on a dark build found %d Tickets, want 1", got)
+	}
+	// And nothing about a Holder is reachable, because there are no Holders:
+	// the roster carries no assignment at all on this fixture.
+	assertNoRows(t, holderSearch(t, env, f.sessionID, f.eventID, "carla@example.com", ""),
+		"carla@example.com", "Nobody has accepted anything on this roster.")
 }
