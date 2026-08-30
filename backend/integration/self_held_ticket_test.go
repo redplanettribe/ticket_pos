@@ -78,7 +78,7 @@ func TestOnlineCheckoutMakesTheFirstCatalogTicketTheBuyersOwn(t *testing.T) {
 
 	// The Organization sees an ordinary accepted Ticket under the buyer's
 	// checkout name — no fourth state, nothing to tell it apart by.
-	resp, body = env.get(t, outstandingPath(eventID), authHeader(sessionID))
+	resp, body = env.get(t, holderListPath(eventID), authHeader(sessionID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("holder list status=%d error=%+v", resp.StatusCode, body.Error)
 	}

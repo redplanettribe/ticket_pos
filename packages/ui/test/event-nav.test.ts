@@ -72,7 +72,9 @@ test("entries read in a fixed order", () => {
 
 // The Holder List left the panel in #469: it is the last sub-tab of the Sales
 // surface now (`salesNavItems`), so that the same roster is not offered from
-// two places. Its old address is a redirect, and lights nothing of its own.
+// two places. Its old address — the surface's first name, Outstanding Answers —
+// stood as a 308 for a release and was deleted with the rest of that name in
+// #519; either way the nav has never lit for it, which is what this asserts.
 test("the Holder List has no entry of its own at any access level", () => {
   for (const fullAccess of [true, false]) {
     const keys: string[] = eventNavItems({ eventId: "evt_1", fullAccess }).map((item) => item.key);

@@ -636,7 +636,14 @@ func phrase(phrases map[string]string, value string) string {
 // sheet of a single-sheet workbook either, because this second sheet is what
 // makes the workbook plural. The export's data sheet name has always been the
 // intended catch; from here it is the one that actually bites.
-func addInfoSheet(f *excelize.File, lines []string) error {
+//
+// `before` is the sheet the Info sheet is moved in front of — the data sheet of
+// whichever workbook is being built. It is a PARAMETER since #529, because the
+// Holder Export has its own data sheet and its Info sheet has to lead that one:
+// a hard-coded DataSheet here would leave the second file's cover page in the
+// middle of the workbook, and MoveSheet would be naming a sheet that file does
+// not have.
+func addInfoSheet(f *excelize.File, before string, lines []string) error {
 	if _, err := f.NewSheet(InfoSheet); err != nil {
 		return err
 	}
@@ -660,7 +667,7 @@ func addInfoSheet(f *excelize.File, lines []string) error {
 	if err := f.SetCellStyle(InfoSheet, "A1", fmt.Sprintf("A%d", len(lines)), wrapped); err != nil {
 		return err
 	}
-	if err := f.MoveSheet(InfoSheet, DataSheet); err != nil {
+	if err := f.MoveSheet(InfoSheet, before); err != nil {
 		return err
 	}
 	idx, err := f.GetSheetIndex(InfoSheet)
@@ -880,7 +887,7 @@ func Build(sales []Sale, types []TicketTypeColumn, answers Answers, loc *time.Lo
 	}
 
 	// Last, so the row count it states is the number of rows that were written.
-	if err := addInfoSheet(f, infoLines(info, loc, len(sales), answers)); err != nil {
+	if err := addInfoSheet(f, DataSheet, infoLines(info, loc, len(sales), answers)); err != nil {
 		return nil, err
 	}
 

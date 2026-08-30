@@ -59,11 +59,12 @@ async function fetchHolderListOpen(eventId: string, token: string): Promise<bool
  *    been, in view whichever sub-tab is open;
  *  - the tab strip itself, drawn only when there is more than one tab to offer.
  *
- * The Holder List (#469) is the last of those tabs, and the one whose gate is
- * not the surface's own: Org Admins alone, and only while the Event has a
- * roster to show. Both halves are established here — this is the one place
- * that holds the Event payload and the Member's role together — and handed to
- * `salesNavItems` as a single fact.
+ * The Holder List (#469) is the last of those tabs, and the only one with a
+ * second condition on it: the surface's own readers — the Org Admin and, since
+ * #521, the Event Owner — and only while the Event has a roster to show. Both
+ * halves are established here, because this is the one place that holds the
+ * Event payload and the Member's role together, and handed to `salesNavItems`
+ * as a single fact.
  *
  * The tabs are routes and not client state, so the list keeps its page, filters
  * and sort in the URL exactly as before, and a colleague can be sent straight to
@@ -81,8 +82,19 @@ export default async function EventSalesLayout({ params, children }: EventSalesL
 
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  // The Holder List tab: the same readers as the Event's money now (#521,
+  // ADR 0065), so it reuses `fullAccess` rather than restating the role list —
+  // one place decides who an Org-Admin-or-Event-Owner is, and a third surface
+  // gated the same way cannot drift from the two above it. Event Staff are
+  // outside `fullAccess`, which is the half of this that must not move.
+  //
+  // AND the flag, still: `fullAccess` says who may read a roster, the flag says
+  // whether this Event has one at all. Widening the audience did not make the
+  // features light — while both are dark the tab must not exist for anybody,
+  // because a nav entry admits a feature is there before the Privacy Policy
+  // describes it (ADR 0045).
   const holderList =
-    role === "org_admin" && Boolean(token) && (await fetchHolderListOpen(id, token as string));
+    fullAccess && Boolean(token) && (await fetchHolderListOpen(id, token as string));
 
   /*
     The strip's words, resolved here and handed down. `salesNavItems` returns

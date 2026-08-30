@@ -966,10 +966,15 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// the whole Event before it orders the shirts, and the two cannot be the
 	// same address because they are aggregated over different things.
 	//
-	// THE PATH KEEPS ITS HISTORICAL NAME. The read was built as Outstanding
-	// Answers and every bookmark and BFF route points here; what #333 changed
-	// is what the list IS, and `outstanding=true` is where its old definition
-	// went — a filter of the roster, never its definition.
+	// NAMED AFTER THE LIST AND NOT AFTER ONE OF ITS FILTERS (#519, ADR 0065).
+	// The read was built as Outstanding Answers (#313) and kept that name
+	// through #333, which turned Outstanding Answers into `outstanding=true` —
+	// a filter of the roster rather than its definition. ADR 0065 makes it one
+	// filter of seven and hangs a Holder Export off the same path, at which
+	// point an endpoint called `outstanding-answers` would be serving a file
+	// that contradicts it. Renamed now because there is exactly one caller
+	// chain and no public or partner route reaches it; it will never be
+	// cheaper.
 	//
 	// A READ WITH NO STATE BEHIND IT. There is no outstanding_answers table:
 	// the debt is derived on every request from what the Ticket Type asks and
@@ -978,11 +983,70 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// Reversal drops a whole sale out of the roster without anything having to
 	// sweep.
 	//
-	// Same `orgAdmin` gate as every route above. Its 404-while-dark is its own:
-	// the service answers only when EITHER TICKET_ASSIGNMENT_ENABLED or
-	// TICKET_QUESTIONS_ENABLED is open (#333), because an Organization that
-	// assigns tickets and asks nothing still has a Holder List.
-	mux.Handle("GET /api/v1/staff/events/{id}/outstanding-answers", orgAdmin(http.HandlerFunc(ch.ListHolderList)))
+	// OPEN TO AN EVENT OWNER, NOT ONLY AN ORG ADMIN (#521, ADR 0065). This is a
+	// DELIBERATE WIDENING OF ACCESS TO PERSONAL DATA — the platform's densest
+	// concentration of it — made here and recorded in the ADR rather than left
+	// to be discovered in an audit.
+	//
+	// It takes `eventOwnerOrAdmin`, the same gate the Sales Export below
+	// carries, and that is the whole argument: the Sales Export's per-Ticket
+	// sheet ALREADY emits this Event's assignment states and its accepted
+	// Holders' names and addresses to an Event Owner. So the `orgAdmin` gate
+	// that stood here held nothing in — an Event Owner could not open the
+	// roster and could already download its contents. That gate was never a
+	// judgement about roster data either; it was inherited from the Ticket
+	// Questions routes above, which this list grew out of. One rule for holder
+	// data, matching the glossary's "an Event Owner is equivalent in scope to
+	// an Org Admin within that Event".
+	//
+	// WHAT IT STILL REFUSES, deliberately: Event Staff, who are Members of the
+	// Event and are refused this read exactly as before. They work the door;
+	// they get the Sales list and no roster, and that line does not move. If
+	// this is ever widened to `member`, ADR 0065 is what has to be reopened.
+	//
+	// Its 404-while-dark is its own: the service answers only when EITHER
+	// TICKET_ASSIGNMENT_ENABLED or TICKET_QUESTIONS_ENABLED is open (#333),
+	// because an Organization that assigns tickets and asks nothing still has a
+	// Holder List.
+	holderList := eventOwnerOrAdmin(http.HandlerFunc(ch.ListHolderList))
+	mux.Handle("GET /api/v1/staff/events/{id}/holder-list", holderList)
+	// THE OLD PATH, ALIASED FOR ONE RELEASE, THEN DELETED (#519 → #531).
+	// The staff app and the API deploy separately, so there is a window in
+	// which a new backend serves an old frontend — and with CI and Deploy
+	// refused for billing since 2026-08-28, a bad deploy ordering is caught by
+	// nobody. The alias is the width of that window and nothing more.
+	//
+	// THE SAME HANDLER VALUE and not a second registration of the same
+	// function, so the alias cannot drift: there is one gate, one handler and
+	// one behaviour, and the only difference between the two addresses is the
+	// address. That is why #521's widening to `eventOwnerOrAdmin` needed no
+	// edit here and cannot have been applied to one address and not the other —
+	// re-registering `ch.ListHolderList` below instead of reusing this value
+	// would give the alias a gate of its own to fall out of step with, which is
+	// exactly the drift the shared value exists to make impossible. It is
+	// deliberately NOT documented in the OpenAPI spec — a
+	// generated client that learns this path would outlive the shim it exists
+	// to cover, and every caller that matters is already being moved to the
+	// new one. Delete this line, not the one above it (#531).
+	mux.Handle("GET /api/v1/staff/events/{id}/outstanding-answers", holderList)
+	// THE HOLDER EXPORT (#529, ADR 0065): the same roster, under the same
+	// filters, handed over as an .xlsx.
+	//
+	// THE SAME GATE AS THE READ ABOVE, and that is deliberate rather than
+	// incidental: `eventOwnerOrAdmin` is what the Holder List read carries, what
+	// the Sales Export beside it carries, and what ADR 0065 settles for holder
+	// data on both surfaces. A gate on the page with a wider one on the download
+	// of it — or the reverse — is the arrangement #521 was opened to end. EVENT
+	// STAFF ARE REFUSED here exactly as they are on the read; they work the door,
+	// and this file is the platform's densest concentration of attendee personal
+	// data in a form that is forwarded and kept.
+	//
+	// It is registered SEPARATELY rather than sharing the handler value above,
+	// because it is a different handler doing a different thing — a file, not a
+	// page — and the shared-value trick up there exists to keep an ALIAS of one
+	// route from drifting, which this is not. What must not drift is the GATE, and
+	// that is one call to the same middleware standing two lines apart.
+	mux.Handle("GET /api/v1/staff/events/{id}/holder-list/export", eventOwnerOrAdmin(http.HandlerFunc(ch.ExportHolderList)))
 	mux.Handle("GET /api/v1/staff/tags", member(http.HandlerFunc(ch.SearchTags)))
 	mux.Handle("GET /api/v1/staff/tags/popular", member(http.HandlerFunc(ch.ListPopularTags)))
 	mux.Handle("GET /api/v1/staff/events/{id}/tags", member(http.HandlerFunc(ch.ListEventTags)))

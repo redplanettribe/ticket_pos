@@ -8,8 +8,6 @@ import (
 	"database/sql"
 	"encoding/base32"
 	"errors"
-	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -1495,44 +1493,20 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 
 // exportTooManyRows is the refusal a Sales Export over the row cap carries.
 //
-// It is a field error rather than a domain error because of what the reader is
-// meant to do next: the filters that produced this request are on screen beside
-// the button that sent it, and narrowing them is the fix. The staff app renders
-// the message inline there, so the message is the feature — it names how many
-// matched (which is how the person knows how much narrower to go), how many may
-// travel at once, and the lever to reach for.
+// THE SENTENCE IS THE ONLY THING LEFT HERE, and that is the point: the field
+// name, the code and the digit grouping now live once in
+// platform.ExportTooManyRows, which the Holder Export's refusal also calls (ADR
+// 0065 — we accept two overlapping files, we refuse two implementations). What
+// stays is the wording, because it says SALES where the other says tickets and a
+// reader told the wrong noun cannot work out which number the cap applies to,
+// and it points at the date range, which is this file's own widest lever.
 //
-// The field named is `filters` and not any one parameter: no single filter is at
-// fault, and blaming sold_from would be wrong for somebody whose lever is the
-// Ticket Type or the channel.
+// The text is unchanged to the character; integration tests pin it verbatim.
 func exportTooManyRows(matched, rowCap int) platform.FieldError {
-	return platform.FieldError{
-		Field: "filters",
-		Code:  platform.CodeTooManyItems,
-		Message: fmt.Sprintf(
-			"This Event has %s matching sales; up to %s can be downloaded at once. Narrow the date range and try again.",
-			groupDigits(matched), groupDigits(rowCap),
-		),
-	}
-}
-
-// groupDigits renders a count with thousands separators, because these numbers
-// are read by a person deciding how much to narrow a filter and "24,318" is
-// legible at a glance where "24318" is not.
-func groupDigits(n int) string {
-	digits := strconv.Itoa(n)
-	sign := ""
-	if strings.HasPrefix(digits, "-") {
-		sign, digits = "-", digits[1:]
-	}
-	var b strings.Builder
-	for i, d := range digits {
-		if i > 0 && (len(digits)-i)%3 == 0 {
-			b.WriteByte(',')
-		}
-		b.WriteRune(d)
-	}
-	return sign + b.String()
+	return platform.ExportTooManyRows(
+		"This Event has %s matching sales; up to %s can be downloaded at once. Narrow the date range and try again.",
+		matched, rowCap,
+	)
 }
 
 // exportedNetProceeds is the Net Proceeds a Sales Export row states, or nil
