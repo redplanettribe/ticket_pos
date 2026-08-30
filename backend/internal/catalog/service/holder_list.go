@@ -187,6 +187,13 @@ type ListHolderListParams struct {
 	// TicketTypeID is one Ticket Type's roster: the VIP list apart from general
 	// admission. A Ticket belongs to exactly one.
 	TicketTypeID string
+	// AssignmentState is where a Ticket stands with its Holder: `unassigned`,
+	// `assigned`, `accepted` — or `never_accepted`, "who did I name who never
+	// claimed their ticket", which is the morning-after question and a
+	// SELECTABLE VALUE OF THIS FILTER AND NOT A FOURTH STATE (#524, ADR 0065).
+	// catalog.AssignmentState still knows three. Belongs to Ticket Assignment
+	// and is dropped below while that feature is dark.
+	AssignmentState string
 	// Channel is 'online', 'in_person' or 'import' — the buyers who came through
 	// the door, or through an import and were therefore never asked anything.
 	Channel string
@@ -228,12 +235,48 @@ func (s *Service) ListHolderList(
 	if err != nil {
 		return nil, err
 	}
-	// The OUTSTANDING filter belongs to the questions feature: with it dark
-	// there is no debt to filter by, and a filtered read must not become a side
-	// channel that admits the feature exists (ADR 0045). The three structural
-	// filters below need no such treatment — a Ticket Type, a Sales Channel and
-	// a sale date exist on every build.
+	// A FILTER BELONGING TO A DARK FEATURE IS SILENTLY DROPPED HERE, NEVER
+	// REFUSED — and this is the general rule for every such filter on this
+	// list, stated once in this paragraph because #525's named-question filter
+	// and anything after it must follow it rather than re-decide it (ADR 0065,
+	// "a dark feature's filter: ignored, chosen; refused with a 400" —
+	// rejected).
+	//
+	// THREE REASONS, IN THE ORDER THEY MATTER:
+	//
+	//   - A REFUSAL WOULD TURN A STALE BOOKMARK INTO AN ERROR PAGE. The view
+	//     lives in the URL (#522), so a link shared before a flag closed — or
+	//     one pasted from a deployment where it is open — must keep working. It
+	//     comes back WIDER than it was, which the filter bar shows by drawing
+	//     that control empty or not at all.
+	//
+	//   - A REFUSAL WOULD FORCE THE CLIENT TO KNOW THE FLAG, which is precisely
+	//     what ADR 0045 exists to prevent: the staff app holds no copy of a
+	//     deployment flag and decides which controls exist from what the payload
+	//     CONTAINS. A 400 would make it either hold a second copy of the flag or
+	//     show a control that errors.
+	//
+	//   - AND A FILTERED READ MUST NOT BE A SIDE CHANNEL. A build with the
+	//     feature dark has to answer exactly as a build without the feature
+	//     would; a refusal naming `assignment_state` would admit the parameter
+	//     exists, which is a tell about unshipped work.
+	//
+	// The cost is stated and accepted: the reader sees more rows than they
+	// asked for. On a READ that is the right way round — a roster wider than
+	// intended is visibly wide, while a 400 hides the roster entirely. It would
+	// NOT be the right way round on the Holder Export, where the file must
+	// describe only the filters actually honoured (ADR 0065), precisely so that
+	// nobody reads a whole roster believing it is a filtered one.
+	//
+	// OWING belongs to Ticket Questions and ASSIGNMENT STATE to Ticket
+	// Assignment; the two flags are separate, so each filter is closed by its
+	// own. The three structural filters need no such treatment — a Ticket Type,
+	// a Sales Channel and a sale date exist on every build.
 	owingOnly := params.OwingOnly && s.ticketQuestionsEnabled
+	assignmentState := ""
+	if s.ticketAssignmentEnabled {
+		assignmentState = params.AssignmentState
+	}
 
 	// The Event's own zone, so a date bound means the day it meant to whoever
 	// typed it into the filter bar. The Event was already read by the gate
@@ -243,15 +286,16 @@ func (s *Service) ListHolderList(
 
 	page, pageSize := params.Page, params.PageSize
 	tickets, total, err := s.repo.ListHolderTickets(ctx, repository.ListHolderTicketsQuery{
-		OrganizationID: actor.OrganizationID,
-		EventID:        eventID,
-		OwingOnly:      owingOnly,
-		TicketTypeID:   params.TicketTypeID,
-		Channel:        params.Channel,
-		SoldFrom:       soldFrom,
-		SoldTo:         soldTo,
-		Limit:          pageSize,
-		Offset:         (page - 1) * pageSize,
+		OrganizationID:  actor.OrganizationID,
+		EventID:         eventID,
+		OwingOnly:       owingOnly,
+		AssignmentState: assignmentState,
+		TicketTypeID:    params.TicketTypeID,
+		Channel:         params.Channel,
+		SoldFrom:        soldFrom,
+		SoldTo:          soldTo,
+		Limit:           pageSize,
+		Offset:          (page - 1) * pageSize,
 	})
 	if err != nil {
 		return nil, err

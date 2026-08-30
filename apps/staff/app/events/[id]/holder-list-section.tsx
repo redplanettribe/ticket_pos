@@ -26,7 +26,9 @@ import { ApiError } from "@/lib/events-api";
 import { formatDate, formatNumber } from "@/lib/format";
 import {
   EMPTY_HOLDER_LIST_FILTERS,
+  HOLDER_LIST_ASSIGNMENT_STATES,
   HOLDER_LIST_CHANNELS,
+  HOLDER_STATE_VALUE_KEYS,
   SALES_CHANNEL_KEYS,
   buyerName,
   fetchHolderList,
@@ -103,10 +105,10 @@ const HOLDER_SELECT_CLASS =
  * and an Event that asks nothing still has one, because the roster is the
  * point and the questions are a column on it. OUTSTANDING ANSWERS IS ONE
  * FILTER OF IT — the debt view it used to be — never its definition, and since
- * #523 it stands beside three structural ones: the Ticket Type, the Sales
- * Channel and the date the sale was made. They compose, so "which VIP door
- * sales are still unclaimed" is one view rather than a page somebody reads
- * down.
+ * #523 it stands beside three structural ones — the Ticket Type, the Sales
+ * Channel and the date the sale was made — and since #524 beside the
+ * assignment state. They compose, so "which VIP door sales were named and
+ * never claimed" is one view rather than a page somebody reads down.
  *
  * IT HIDES NOTHING. Door sales and Sale Imports stand here beside online ones
  * and start out owing everything, because nobody ever put the questions to
@@ -270,8 +272,15 @@ export function HolderListSection({
         {/*
           THE FILTER BAR, in the Sales list's shape: the controls in a grid, and
           beneath them the row that clears them — one place a reader looks to see
-          how this view is narrowed, and one place #524–#527 hang the remaining
-          three filters and the sort from.
+          how this view is narrowed, and one place #525–#527 hang the remaining
+          two filters and the sort from.
+
+          TWO OF ITS CONTROLS BELONG TO A FEATURE FLAG, and each is drawn from
+          the PAYLOAD'S ABSENCES rather than from anything passed in: the state
+          filter under `showHolders` and the Outstanding checkbox under
+          `showQuestions`. The filters they carry are IGNORED by the API on a
+          build where their feature is dark, never refused, so a URL naming one
+          still returns the roster.
 
           THE BAR IS NO LONGER THE QUESTIONS FEATURE'S (#523). It used to be
           drawn only under `showQuestions`, because its one control was the
@@ -313,6 +322,53 @@ export function HolderListSection({
                   ))}
                 </select>
               </div>
+
+              {/*
+                WHERE EACH TICKET STANDS WITH ITS HOLDER (#524): four values
+                over three states, `never_accepted` being a value of this
+                filter and not a fourth state — the API derives it at read time
+                from the retention purge's marker, and #331 rejected making it
+                a state. "Who did I name who never claimed their ticket" is the
+                morning-after question, and after the Event has started it is
+                otherwise indistinguishable from "nobody was named".
+
+                DRAWN ONLY WHERE THE ASSIGNMENT SIDE OF THE LIST EXISTS, and
+                that is decided by `holderListVisible(rows)` — the payload's
+                ABSENCES — exactly as the Outstanding checkbox below hangs on
+                `questionsVisible`. THE TEMPTING MOVE IS TO PASS A FLAG DOWN TO
+                RENDER THIS CONTROL, AND IT IS THE WRONG ONE: this app holds no
+                copy of a deployment flag (ADR 0045), and a prop carrying one
+                would be that copy, wrong on the first deploy where the two
+                disagree. With Ticket Assignment dark the API omits every
+                assignment field, so there is nothing to filter by and no
+                control — and a URL that still carries `assignment_state` is
+                IGNORED by the API rather than refused, so the bookmark keeps
+                working.
+
+                THE WORDS ARE THE ROWS' OWN, from `HOLDER_STATE_VALUE_KEYS`,
+                because a filter that named a state differently from the badge
+                beneath it would be two vocabularies for one fact.
+              */}
+              {showHolders ? (
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="holder-assignment-state">{t("filterStateLabel")}</Label>
+                  <select
+                    id="holder-assignment-state"
+                    className={HOLDER_SELECT_CLASS}
+                    value={filters.assignmentState}
+                    onChange={(event) =>
+                      navigate(1, { ...filters, assignmentState: event.target.value })
+                    }
+                  >
+                    <option value="">{t("filterStateAny")}</option>
+                    {HOLDER_LIST_ASSIGNMENT_STATES.map((state) => (
+                      <option key={state} value={state}>
+                        {t(HOLDER_STATE_VALUE_KEYS[state])}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
 
               {/* The Sales Channel, named from the SALES catalog and never
                   re-coined here: a door sale translated per screen is how a

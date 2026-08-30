@@ -155,21 +155,23 @@ export const HOLDER_LIST_PAGE_SIZE = 50;
   not a special case here, and is out of scope of this module.
 
   ONLY THE FILTERS THAT EXIST TODAY LIVE HERE. #523 added the three structural
-  ones — Ticket Type, Sales Channel and the sale's date range — and the
-  remaining three are #524–#526, with the five sorts in #527. The types below
-  are shaped so those tickets add fields and values without restructuring
-  anything, and #523 is the evidence that they do.
+  ones — Ticket Type, Sales Channel and the sale's date range — #524 the
+  assignment state, and the remaining two are #525–#526, with the five sorts in
+  #527. The types below are shaped so those tickets add fields and values
+  without restructuring anything, and #523 and #524 are the evidence that they
+  do.
 */
 
 /**
  * The Holder List's filters, mirroring the endpoint's query params, one field
  * per dimension.
  *
- * A RECORD AND NOT A BAG OF OPTIONALS, so a filter added by #524–#526 is a
+ * A RECORD AND NOT A BAG OF OPTIONALS, so a filter added by #525–#526 is a
  * compile error everywhere it must be handled rather than a silently-absent
  * key: `EMPTY_HOLDER_LIST_FILTERS`, the append helper and the active check are
  * each total over this type. #523 added three fields under exactly that
- * property and the compiler named every place they had to be handled.
+ * property and #524 a fourth, and the compiler named every place each of them
+ * had to be handled.
  *
  * `outstanding` is the old Outstanding Answers list reduced to what it always
  * was — one narrowing of the roster. The API ignores it while Ticket Questions
@@ -188,6 +190,31 @@ export const HOLDER_LIST_PAGE_SIZE = 50;
  */
 export type HolderListFilters = {
   outstanding: boolean;
+  /**
+   * Where a Ticket stands with its Holder, in FOUR values over three states
+   * (#524): `unassigned`, `assigned`, `accepted` — and `never_accepted`, "who
+   * did I name who never claimed their ticket", which is the morning-after
+   * question.
+   *
+   * `never_accepted` IS A VALUE OF THIS FILTER AND NOT A FOURTH STATE.
+   * `TicketAssignmentState` below still has three members and #331 rejected a
+   * fourth; the API derives the marker at read time from the retention purge
+   * and this filter selects the rows that carry it. The four values are
+   * `HOLDER_LIST_ASSIGNMENT_STATES` below, a union of its own — widening
+   * `TicketAssignmentState` to fit the control is the mistake that union's
+   * comment exists to prevent.
+   *
+   * A STRING AND NOT THAT UNION, exactly as `channel` is a string: the URL is
+   * the source of truth and is taken as it comes, unvalidated on this side, so
+   * one opinion about which values are usable lives in the API and not two.
+   *
+   * IT BELONGS TO TICKET ASSIGNMENT and the API IGNORES it while that feature
+   * is dark, answering with the whole roster rather than a refusal — so nothing
+   * on this side has to know a flag it cannot see (ADR 0045), and a stale
+   * bookmark carrying it keeps working. The CONTROL is drawn only when the
+   * payload proves the feature exists; see `holderListVisible`.
+   */
+  assignmentState: string;
   /**
    * One Ticket Type's roster — the VIP list apart from general admission. A
    * Ticket belongs to exactly ONE Ticket Type, unlike a Ticket Sale, which is
@@ -216,6 +243,7 @@ export type HolderListFilters = {
 /** The whole roster: every filter at its unfiltered value. */
 export const EMPTY_HOLDER_LIST_FILTERS: HolderListFilters = {
   outstanding: false,
+  assignmentState: "",
   ticketTypeId: "",
   channel: "",
   soldFrom: "",
@@ -288,6 +316,7 @@ export function parseHolderDir(raw: string | undefined): HolderSortDir {
  */
 function appendHolderListFilters(params: URLSearchParams, filters: HolderListFilters): void {
   if (filters.outstanding) params.set("outstanding", "true");
+  if (filters.assignmentState) params.set("assignment_state", filters.assignmentState);
   if (filters.ticketTypeId) params.set("ticket_type_id", filters.ticketTypeId);
   if (filters.channel) params.set("channel", filters.channel);
   if (filters.soldFrom) params.set("sold_from", filters.soldFrom);
@@ -341,6 +370,7 @@ export function holderListQuery(
 export function hasActiveHolderListFilters(filters: HolderListFilters): boolean {
   return (
     filters.outstanding ||
+    filters.assignmentState !== "" ||
     filters.ticketTypeId !== "" ||
     filters.channel !== "" ||
     filters.soldFrom !== "" ||
@@ -361,6 +391,7 @@ export function hasActiveHolderListFilters(filters: HolderListFilters): boolean 
 export function isOutstandingTheOnlyFilter(filters: HolderListFilters): boolean {
   return (
     filters.outstanding &&
+    filters.assignmentState === "" &&
     filters.ticketTypeId === "" &&
     filters.channel === "" &&
     filters.soldFrom === "" &&
@@ -466,6 +497,47 @@ export function holderStateKey(ticket: HolderTicket): HolderStateKey {
   }
   return ASSIGNMENT_STATE_KEYS[ticket.assignment_state ?? "unassigned"];
 }
+
+/**
+ * What the assignment-state FILTER may select: the three states, plus
+ * `never_accepted` (#524).
+ *
+ * ITS OWN UNION, AND NOT A WIDENING OF `TicketAssignmentState`. That type has
+ * three members because the API has three states and #331 rejected a fourth;
+ * adding `never_accepted` to it here would make every row's `assignment_state`
+ * appear able to arrive as a value the API never sends, and would put a fourth
+ * state on this side of the wire — which is the exact mistake the whole
+ * arrangement is built to avoid. A filter is a QUESTION, and a question may name
+ * a fact that is not a state.
+ */
+export type HolderStateValue = TicketAssignmentState | "never_accepted";
+
+/**
+ * The four values in the order the control offers them: the roster's ordinary
+ * case first, then the two live ones in the order a Ticket passes through them,
+ * and the ending last.
+ */
+export const HOLDER_LIST_ASSIGNMENT_STATES: readonly HolderStateValue[] = [
+  "unassigned",
+  "assigned",
+  "accepted",
+  "never_accepted",
+];
+
+/**
+ * The catalog key each filter value is named with — the SAME words the rows are
+ * already labelled with, reused rather than re-coined.
+ *
+ * Coining a second word for "never accepted" is how a filter comes to promise
+ * one thing and the rows beneath it to say another, in one language and not the
+ * other. Built from `ASSIGNMENT_STATE_KEYS` and `holderStateKey`'s own extra
+ * key, and total over the four values, so a fifth could not reach the control
+ * as a blank option.
+ */
+export const HOLDER_STATE_VALUE_KEYS = {
+  ...ASSIGNMENT_STATE_KEYS,
+  never_accepted: "holderNeverAccepted",
+} as const satisfies Record<HolderStateValue, HolderStateKey>;
 
 /**
  * The Badge variant a state is drawn in, following `promotionStateBadgeVariant`

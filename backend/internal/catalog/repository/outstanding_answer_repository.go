@@ -194,6 +194,76 @@ const holderRosterHolderJoin = `
 	LEFT JOIN customers hc ON hc.id = tk.holder_customer_id
 `
 
+// holderRosterAssignmentStates is the assignment-state FILTER, in SQL: one
+// predicate per selectable value, over the SAME FOUR COLUMNS the Holder List
+// already reports a state from (#524, ADR 0065).
+//
+// `never_accepted` IS A VALUE OF THIS FILTER AND NOT A FOURTH ASSIGNMENT STATE.
+// catalog.AssignmentState still knows three — #331 rejected a fourth outright
+// and nothing here reopens it. What the fourth value selects is the
+// PRESENTATION service.fillHolderListEntry already derives at read time from
+// migration 081's purge marker: somebody was named, nobody accepted, and the
+// address is gone by definition. "Who did I name who never claimed their
+// ticket" is the morning-after question, and after the Event starts it is
+// otherwise indistinguishable from "nobody was named".
+//
+// THE SAME RULE LIVES TWICE, IN GO AND IN SQL, exactly as the debt's does above
+// — and for the same reason: an Event's ticket roll cannot be filtered in Go.
+// service.fillHolderListEntry is the statement of it and these four predicates
+// are the same tests in the same order, clause for clause:
+//
+//   - `accepted` — catalog.AssignmentState returns TicketAccepted for
+//     `acceptedAt != nil` and tests it FIRST, because acceptance is the
+//     strongest fact. `tk.accepted_at IS NOT NULL` is that test, and it is what
+//     makes every predicate below able to start from "not accepted".
+//
+//   - `never_accepted` — fillHolderListEntry's `state != TicketAccepted &&
+//     HolderAddressPurgedAt.Valid`. `state != accepted` IS `accepted_at IS
+//     NULL`, because acceptance is the only way into that state.
+//
+//   - `assigned` — TicketAssigned's `holderEmail != "" && assignedAt != nil`,
+//     with the purge marker excluded so the two values cannot both match one
+//     Ticket. The email test is NULL-safe on purpose: the column is nullable and
+//     the Go side reads a NULL as "", so `IS NOT NULL AND <> ”` is the one
+//     comparison that agrees with it.
+//
+//   - `unassigned` — TicketUnassigned, which is the fall-through: neither
+//     accepted nor purged, and missing either half of an assignment.
+//
+// A PURGED TICKET IS ON `never_accepted` AND ON NOTHING ELSE — in particular
+// NOT on `assigned`, even though its row reports `assignment_state:
+// "assigned"` on the wire. This is the one deliberate divergence between the
+// filter and the field beside it, and it is chosen so THE FOUR VALUES PARTITION
+// THE ROSTER: every Ticket matches exactly one, so the four filtered counts sum
+// to the unfiltered total and a reader can trust that the values do not overlap
+// or leak. Counting a purged Ticket under both `assigned` and `never_accepted`
+// would make the four counts sum to more than the roster, and leaving it out of
+// both would make them sum to less — the second is worse, because a Ticket
+// nothing selects is a Ticket a filtered export silently drops.
+//
+// The divergence costs nothing on the screen: the row's BADGE reads "never
+// accepted" and not "assigned" (the staff app's holderStateKey picks the word
+// off the same marker), so the filter agrees with what the reader is looking
+// at. The wire field stays `assigned` because it is the Ticket's STATE, and its
+// state is what fillHolderListEntry says it is.
+//
+// NEITHER STATEMENT MAY BE CHANGED ALONE. These predicates and
+// fillHolderListEntry are one rule written twice, held together by the Holder
+// List's integration tests — the partition test in particular, which is the one
+// that notices a clause added to one side and not the other.
+var holderRosterAssignmentStates = map[string]string{
+	"accepted": `tk.accepted_at IS NOT NULL`,
+	"never_accepted": `tk.accepted_at IS NULL
+			AND tk.holder_address_purged_at IS NOT NULL`,
+	"assigned": `tk.accepted_at IS NULL
+			AND tk.holder_address_purged_at IS NULL
+			AND tk.holder_email IS NOT NULL AND tk.holder_email <> ''
+			AND tk.assigned_at IS NOT NULL`,
+	"unassigned": `tk.accepted_at IS NULL
+			AND tk.holder_address_purged_at IS NULL
+			AND (tk.holder_email IS NULL OR tk.holder_email = '' OR tk.assigned_at IS NULL)`,
+}
+
 // TicketSaleHasOutstandingAnswers reports whether ANY Ticket of one Ticket Sale
 // still owes a required Ticket Question an Answer (#315).
 //
@@ -360,6 +430,18 @@ type ListHolderTicketsQuery struct {
 	// wrong here: it would admit every Ticket of a mixed sale — the GA tickets
 	// of a sale that also bought one VIP — to the VIP roster.
 	TicketTypeID string
+	// AssignmentState keeps only the Tickets standing in one place with their
+	// Holder: `unassigned`, `assigned`, `accepted` — or `never_accepted`, which
+	// is a VALUE OF THIS FILTER AND NOT A FOURTH STATE (#524). See
+	// holderRosterAssignmentStates for the predicates and for why a purged
+	// Ticket answers to that value alone.
+	//
+	// A STRING AND NOT catalog.TicketAssignmentState, unlike the field it
+	// filters. The type has three values and this has four, so typing it as the
+	// enum would be an invitation to add the fourth member — which is exactly
+	// what #331 refused. Anything unrecognised is IGNORED here rather than
+	// matched, so no caller can turn a typo into an empty roster.
+	AssignmentState string
 	// Channel keeps only the Tickets of sales made on that Sales Channel:
 	// 'online', 'in_person' or 'import'. Equality on the SALE, because a Ticket
 	// has no channel of its own — it is how the Ticket was bought.
@@ -435,6 +517,19 @@ func holderRosterFilters(q ListHolderTicketsQuery) (string, []any) {
 		// Equality on the LINE's Ticket Type — see the field's comment for why
 		// this is not the Sales list's EXISTS.
 		addCond(`l.ticket_type_id = $%d`, q.TicketTypeID)
+	}
+	if predicate, ok := holderRosterAssignmentStates[q.AssignmentState]; ok {
+		// NO ARGUMENT OF ITS OWN, and no interpolation of the caller's value:
+		// the state selects one of four predicates written above, and what
+		// reaches the SQL is that predicate. An unrecognised value matches no
+		// key and leaves the dimension unfiltered — the whole roster, never an
+		// empty one.
+		//
+		// PARENTHESISED because three of the four predicates are conjunctions
+		// containing an OR, and this string is joined to its neighbours with
+		// AND. Without the brackets `unassigned` would widen the roster instead
+		// of narrowing it, silently and only in combination with another filter.
+		conds = append(conds, "("+predicate+")")
 	}
 	if q.Channel != "" {
 		addCond(`s.channel = $%d`, q.Channel)

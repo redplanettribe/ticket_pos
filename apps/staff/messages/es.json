@@ -394,6 +394,8 @@
     "description": "Todas las entradas de este evento y quién viene con cada una — y, donde el evento hace preguntas, lo que cada entrada todavía no ha respondido. Nunca se rechazó nada por falta de una respuesta, así que lo que se debe es sencillamente lo que queda por conseguir.",
     "summary": "{answers, plural, one {# respuesta pendiente} other {# respuestas pendientes}} en {tickets, plural, one {# entrada} other {# entradas}}",
     "filterOutstanding": "Solo entradas con respuestas pendientes",
+    "filterStateLabel": "Estado del titular",
+    "filterStateAny": "Cualquier estado",
     "nothingOutstanding": "No queda nada pendiente. Todas las preguntas obligatorias están respondidas en todas las entradas vigentes.",
     "noMatchingTickets": "Ningún ticket coincide con estos filtros.",
     "noTickets": "Todavía no hay entradas. La lista de titulares se llena a medida que se venden entradas.",

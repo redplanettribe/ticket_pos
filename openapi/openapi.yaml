@@ -12959,7 +12959,17 @@ paths:
         in `outstanding` — an empty array is a Ticket that owes nothing, and stays
         on the list, because the roster is the point and the questions are a column
         on it. `outstanding=true` filters the list to the Tickets that still owe —
-        Outstanding Answers is a filter of this list, not its definition. Three further
+        Outstanding Answers is a filter of this list, not its definition. `assignment_state`
+        narrows the roster to where each Ticket stands with its Holder, and takes
+        FOUR values: `unassigned`, `assigned`, `accepted` and `never_accepted` — the
+        last being a value of this filter and NOT a fourth assignment state, since
+        it selects the Tickets whose unaccepted address the retention purge took (they
+        report `assignment_state: assigned` with `never_accepted: true`). The four
+        values PARTITION the roster: every Ticket matches exactly one, so a purged
+        Ticket answers to `never_accepted` and not to `assigned`. This filter belongs
+        to the Ticket Assignment feature and is IGNORED while that flag is closed
+        — the whole roster comes back with a 200, never a 400, so a stale bookmark
+        carrying it keeps working and no client has to know a flag. Three further
         filters narrow the roster STRUCTURALLY and compose with it and with each other
         (#523, ADR 0065): `ticket_type_id` is the VIP roster apart from general admission
         — a plain equality, because a Ticket belongs to exactly one Ticket Type, unlike
@@ -13012,6 +13022,12 @@ paths:
         name: outstanding
         schema:
           type: boolean
+      - description: Only the Tickets in this assignment state (unassigned, assigned,
+          accepted, never_accepted) — ignored while Ticket Assignment is dark
+        in: query
+        name: assignment_state
+        schema:
+          type: string
       - description: Only the Tickets of this Ticket Type
         in: query
         name: ticket_type_id

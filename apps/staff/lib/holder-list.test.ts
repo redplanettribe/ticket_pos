@@ -3,7 +3,9 @@ import { test } from "node:test";
 
 import {
   ASSIGNMENT_STATE_KEYS,
+  HOLDER_LIST_ASSIGNMENT_STATES,
   HOLDER_LIST_CHANNELS,
+  HOLDER_STATE_VALUE_KEYS,
   DEFAULT_HOLDER_DIR,
   DEFAULT_HOLDER_SORT,
   EMPTY_HOLDER_LIST_FILTERS,
@@ -319,4 +321,84 @@ test("the channel filter offers every Sales Channel, each with a name", () => {
   for (const channel of HOLDER_LIST_CHANNELS) {
     assert.ok(SALES_CHANNEL_KEYS[channel]);
   }
+});
+
+/*
+  THE ASSIGNMENT-STATE FILTER (#524, ADR 0065): four selectable values over
+  three states, `never_accepted` being a value of this filter and NOT a fourth
+  assignment state. The API derives that marker at read time from the retention
+  purge and #331 rejected making it a state; nothing on this side may widen
+  `TicketAssignmentState` to accommodate the control.
+*/
+
+test("the assignment-state filter reaches the URL under the API's name", () => {
+  assert.equal(
+    holderListQuery(1, filters({ assignmentState: "never_accepted" })),
+    "?assignment_state=never_accepted",
+  );
+  assert.equal(holderListQuery(1, filters({ assignmentState: "accepted" })), "?assignment_state=accepted");
+});
+
+// Blank is the unfiltered value and is omitted, as every other filter's is, so
+// a reader who opened the control and put it back is left with the plain URL.
+test("a blank assignment state is omitted, not sent empty", () => {
+  assert.equal(holderListQuery(1, filters({ assignmentState: "" })), "");
+});
+
+// It composes with everything else, in the API's own param order — the
+// property the Holder Export's "this list, as you are looking at it" rests on.
+test("the assignment state composes with the other filters", () => {
+  assert.equal(
+    holderListQuery(
+      2,
+      filters({
+        outstanding: true,
+        assignmentState: "assigned",
+        ticketTypeId: "tt_vip",
+        channel: "in_person",
+        soldFrom: "2026-07-01",
+        soldTo: "2026-07-31",
+      }),
+    ),
+    "?page=2&outstanding=true&assignment_state=assigned&ticket_type_id=tt_vip&channel=in_person" +
+      "&sold_from=2026-07-01&sold_to=2026-07-31",
+  );
+});
+
+// The Clear control's presence: a reader who narrowed by state alone must still
+// be offered the way back.
+test("an assignment state alone makes the view narrowed", () => {
+  assert.equal(hasActiveHolderListFilters(filters({ assignmentState: "unassigned" })), true);
+});
+
+// And it is NOT the congratulation's cue. An empty "outstanding, never
+// accepted" view means nothing matched that pair, not that every question on
+// the Event has been answered.
+test("outstanding is not the sole filter when a state narrows the view too", () => {
+  assert.equal(
+    isOutstandingTheOnlyFilter(filters({ outstanding: true, assignmentState: "never_accepted" })),
+    false,
+  );
+});
+
+// FOUR VALUES, AND THEY BORROW THE ROWS' OWN WORDS. Every value has a key, the
+// three states take the ones the badges already use, and `never_accepted` takes
+// `holderStateKey`'s own — coining a second word for it is how a filter comes
+// to promise one thing and the rows beneath it to say another.
+test("the state filter offers four values, each named as the rows name it", () => {
+  assert.deepEqual(
+    [...HOLDER_LIST_ASSIGNMENT_STATES],
+    ["unassigned", "assigned", "accepted", "never_accepted"],
+  );
+  for (const state of HOLDER_LIST_ASSIGNMENT_STATES) {
+    assert.ok(HOLDER_STATE_VALUE_KEYS[state]);
+  }
+  assert.equal(HOLDER_STATE_VALUE_KEYS.unassigned, ASSIGNMENT_STATE_KEYS.unassigned);
+  assert.equal(HOLDER_STATE_VALUE_KEYS.assigned, ASSIGNMENT_STATE_KEYS.assigned);
+  assert.equal(HOLDER_STATE_VALUE_KEYS.accepted, ASSIGNMENT_STATE_KEYS.accepted);
+  assert.equal(HOLDER_STATE_VALUE_KEYS.never_accepted, "holderNeverAccepted");
+  // AND THE STATE MAP STAYS AT THREE. The fourth value lives in the filter's
+  // map alone; a `never_accepted` member appearing in ASSIGNMENT_STATE_KEYS is
+  // the fourth state #331 rejected, arriving by the back door.
+  assert.deepEqual(Object.keys(ASSIGNMENT_STATE_KEYS), ["unassigned", "assigned", "accepted"]);
 });

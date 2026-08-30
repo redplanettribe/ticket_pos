@@ -20,6 +20,10 @@ import { HolderListSection, type HolderTicketTypeOption } from "../../holder-lis
 type HolderListSearchParams = {
   page?: string;
   outstanding?: string;
+  // Where a Ticket stands with its Holder (#524). Four values over three
+  // states: `never_accepted` is a value of this filter and not a fourth state,
+  // which is `HolderStateValue`'s whole subject.
+  assignment_state?: string;
   // The structural filters (#523). Named as the API names them, not as the
   // camel-cased fields they parse into: the URL is the shared vocabulary, and
   // a screen whose address said `ticketTypeId` while the request said
@@ -49,16 +53,23 @@ function parsePage(raw: string | undefined): number {
 // a URL is public and half-typed, and anything-but-empty would make
 // `?outstanding=no` mean "yes".
 //
-// THE THREE STRUCTURAL FILTERS ARE TAKEN AS THEY COME (#523), and are NOT
-// validated here. A malformed date or an unknown channel is echoed into the
-// controls and sent to the API, which ignores what it cannot use and answers
-// with the wider roster — the one place that decision is made. Screening it
-// here as well would put a second opinion on this side about which filters are
-// usable, and the two would disagree the day a fourth Sales Channel exists:
-// this page would drop it and the API would honour it.
+// THE OTHER FILTERS ARE TAKEN AS THEY COME (#523, #524), and are NOT validated
+// here. A malformed date, an unknown channel or an unknown assignment state is
+// echoed into the controls and sent to the API, which ignores what it cannot
+// use and answers with the wider roster — the one place that decision is made.
+// Screening it here as well would put a second opinion on this side about which
+// filters are usable, and the two would disagree the day a fourth Sales Channel
+// exists: this page would drop it and the API would honour it.
+//
+// AND `assignment_state` IS PASSED THROUGH EVEN WHERE TICKET ASSIGNMENT IS
+// DARK, on the same argument one rung further. The API drops it and returns the
+// whole roster, so a bookmark carrying it still works; this page reads no flag
+// to second-guess that, and the CONTROL's existence is decided from the
+// payload's absences in the section below, never from a flag passed down.
 function parseFilters(searchParams: HolderListSearchParams): HolderListFilters {
   return {
     outstanding: searchParams.outstanding === "true",
+    assignmentState: searchParams.assignment_state ?? "",
     ticketTypeId: searchParams.ticket_type_id ?? "",
     channel: searchParams.channel ?? "",
     soldFrom: searchParams.sold_from ?? "",

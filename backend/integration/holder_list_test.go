@@ -1455,6 +1455,10 @@ func TestTheHolderListIgnoresAnUnusableFilter(t *testing.T) {
 		"?sold_to=nonsense",
 		"?channel=doorway",
 		"?ticket_type_id=not-a-uuid",
+		// An unlisted assignment state joins them (#524). `purged` is the word
+		// somebody would guess for the fourth value, and guessing it must widen
+		// the roster rather than empty it.
+		"?assignment_state=purged",
 	} {
 		page := holderRoster(t, env, f.sessionID, f.eventID, query)
 		if page.Pagination.Total != 4 {
@@ -1469,4 +1473,292 @@ func TestTheHolderListIgnoresAnUnusableFilter(t *testing.T) {
 	// neither reach nor reveal another Organization's Ticket Type.
 	assertRoster(t, holderRoster(t, env, f.sessionID, f.eventID,
 		"?ticket_type_id=00000000-0000-0000-0000-000000000000"), []string{})
+}
+
+// THE ASSIGNMENT-STATE FILTER (#524, ADR 0065): where each Ticket stands with
+// its Holder, in four selectable values — and `never_accepted` is one of them
+// WITHOUT A FOURTH ASSIGNMENT STATE EXISTING ANYWHERE.
+//
+// catalog.AssignmentState still knows three states; #331 rejected a fourth and
+// nothing here reopens it. The fourth VALUE selects the presentation
+// service.fillHolderListEntry already derives at read time from the retention
+// purge's marker: somebody was named, nobody claimed the Ticket, and the
+// address is gone by definition. "Who did I name who never claimed their
+// ticket" is the morning-after question, and after the Event starts it is
+// otherwise indistinguishable from "nobody was named".
+//
+// THESE TESTS ARE WHERE THE FILTER'S SQL AND fillHolderListEntry ARE HELD
+// TOGETHER, exactly as the tests at the top of this file hold the debt's two
+// statements together. repository.holderRosterAssignmentStates is the same four
+// tests over the same four columns, in SQL because a roster of thousands cannot
+// be filtered in Go — and only real rows can notice the two drifting apart.
+
+// holderStateFixture is one Event holding ONE TICKET IN EACH of the filter's
+// four values, so a count of rows is a count of the thing being tested and the
+// four counts can be summed against the roster.
+//
+// ONE SALE OF FOUR TICKETS, COMMITTED BEFORE THE FLAG IS OPENED. With Ticket
+// Assignment open at commit time a Sale Import hands the buyer its first Ticket
+// by presumption (ADR 0055), which would start the roster with an `accepted`
+// row nobody chose — so the batch goes in dark and every Ticket starts
+// `unassigned`.
+//
+// THREE OF THE FOUR ARE REACHED THROUGH THE API: the buyer signs in and assigns,
+// and one of the two named people clicks their Assignment Link and accepts. The
+// PURGED one is staged in SQL, and that is not laziness — see
+// stageHolderAddressPurge for why the real purge cannot produce this roster.
+type holderStateFixture struct {
+	sessionID string
+	eventID   string
+	saleID    string
+
+	unassigned    string
+	assigned      string
+	accepted      string
+	neverAccepted string
+}
+
+func newHolderStateFixture(t *testing.T, env *testEnv) holderStateFixture {
+	t.Helper()
+	f := holderStateFixture{}
+	f.sessionID = orgAdminSession(t, env)
+	f.eventID = createDraftEvent(t, env, f.sessionID, "State Fest", "state-fest")
+	// SCHEDULED AND COMFORTABLY IN THE FUTURE: the assignment window closes at
+	// the doors, and two of these states are reached by assigning.
+	scheduleEvent(t, env, f.sessionID, f.eventID, "State Fest", "state-fest",
+		env.fixedClock.Add(30*24*time.Hour))
+	ticketTypeID := createTicketTypeWithCapacity(t, env, f.sessionID, f.eventID, "GA", 2000, 50)
+
+	commitBatch(t, env, f.sessionID, f.eventID, "state-batch", []map[string]any{{
+		"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez",
+		"ticket_type_id": ticketTypeID, "quantity": 4, "payment_method": "cash",
+		"sold_at": "2026-07-01T10:00:00Z",
+	}})
+	if err := env.db.QueryRow(`
+		SELECT id FROM ticket_sales WHERE event_id = $1 AND customer_email = 'ana@example.com'
+	`, f.eventID).Scan(&f.saleID); err != nil {
+		t.Fatalf("read Ana's Ticket Sale: %v", err)
+	}
+	tickets := ticketIDsOfSale(t, env, f.saleID)
+	if len(tickets) != 4 {
+		t.Fatalf("Tickets minted = %d, want the sale's 4", len(tickets))
+	}
+
+	enableTicketAssignment(t)
+	ana := customerSignIn(t, env, "ana@example.com")
+
+	// `accepted`: the whole walk — named, mailed, clicked.
+	assignTicketOK(t, env, ana, f.saleID, tickets[1], "carla@example.com")
+	acceptAssignmentOK(t, env, assignmentTokenFrom(t, assignmentMailFor(t, env, "carla@example.com")))
+	// `assigned`: named and waiting, which is where most of a roster sits.
+	assignTicketOK(t, env, ana, f.saleID, tickets[2], "diego@example.com")
+	// `never_accepted`: named, never claimed, address taken.
+	stageHolderAddressPurge(t, env, tickets[3])
+
+	f.unassigned, f.accepted, f.assigned, f.neverAccepted = tickets[0], tickets[1], tickets[2], tickets[3]
+	return f
+}
+
+// stageHolderAddressPurge leaves one Ticket exactly as the retention purge
+// leaves it: the address gone, `assigned_at` gone with it, and migration 081's
+// marker in their place (#334).
+//
+// SQL, AND FOR A REASON THE NEXT READER MUST NOT "FIX" BY CALLING THE PURGE.
+// The purge takes EVERY unaccepted address of a started Event at once, and the
+// window for assigning closes at the same doors — so a roster holding both a
+// plain `assigned` Ticket and a purged one is unreachable by running it. The
+// purge itself is somebody else's subject: #334's test drives the real thing
+// end to end and asserts the row it produces, which is the row staged here.
+// What these tests are about is which of four values selects it.
+func stageHolderAddressPurge(t *testing.T, env *testEnv, ticketID string) {
+	t.Helper()
+	res, err := env.db.Exec(`
+		UPDATE tickets
+		SET holder_email = NULL, assigned_at = NULL, holder_address_purged_at = NOW()
+		WHERE id = $1
+	`, ticketID)
+	if err != nil {
+		t.Fatalf("stage the purge marker on Ticket %s: %v", ticketID, err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		t.Fatalf("staging the purge marker on Ticket %s affected %d rows, want 1", ticketID, n)
+	}
+}
+
+// holderTicketIDs names the Tickets on the page, so an assertion about a roster
+// of one buyer's four Tickets can say WHICH row it means.
+func holderTicketIDs(page outstandingAnswers) []string {
+	ids := make([]string, 0, len(page.Data))
+	for _, row := range page.Data {
+		ids = append(ids, row.TicketID)
+	}
+	return ids
+}
+
+// assertOneTicket holds both halves of a one-row view: that it is the right
+// Ticket, and that the pagination agrees the view holds one. Same pairing as
+// assertRoster, and for the same reason — a count query that forgot the filter
+// is invisible to a test that checks only the rows.
+func assertOneTicket(t *testing.T, page outstandingAnswers, want, label string) {
+	t.Helper()
+	got := holderTicketIDs(page)
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("%s = %v, want the one Ticket %s", label, got, want)
+	}
+	if page.Pagination.Total != 1 {
+		t.Fatalf("%s pagination total = %d over 1 row — the count query and the page query disagree",
+			label, page.Pagination.Total)
+	}
+}
+
+// EACH OF THE FOUR VALUES NARROWS THE ROSTER, and each selects the Ticket whose
+// row already reads that way.
+//
+// The `never_accepted` case is the one with teeth. Its Ticket reports
+// `assignment_state: assigned` with `never_accepted` beside it — that is
+// fillHolderListEntry's presentation and it does not change — so a filter
+// written off the wire FIELD instead of off the same columns would return it
+// under `assigned` and nothing under `never_accepted`.
+func TestTheHolderListFiltersByAssignmentState(t *testing.T) {
+	env := setupTest(t)
+	f := newHolderStateFixture(t, env)
+
+	// The whole roster first, so the filters below are narrowings of something
+	// known: one buyer's four Tickets, in ordinal order.
+	whole := holderRoster(t, env, f.sessionID, f.eventID, "")
+	if whole.Pagination.Total != 4 {
+		t.Fatalf("roster = %d Tickets, want the sale's 4", whole.Pagination.Total)
+	}
+
+	assertOneTicket(t, holderRoster(t, env, f.sessionID, f.eventID, "?assignment_state=unassigned"),
+		f.unassigned, "unassigned")
+	assertOneTicket(t, holderRoster(t, env, f.sessionID, f.eventID, "?assignment_state=assigned"),
+		f.assigned, "assigned")
+	assertOneTicket(t, holderRoster(t, env, f.sessionID, f.eventID, "?assignment_state=accepted"),
+		f.accepted, "accepted")
+
+	purged := holderRoster(t, env, f.sessionID, f.eventID, "?assignment_state=never_accepted")
+	assertOneTicket(t, purged, f.neverAccepted, "never_accepted")
+	// And the row it returned is the one the screen draws as "never accepted":
+	// `assigned` on the wire, with the marker beside it. The filter and the
+	// presentation are one rule stated twice, and this is where they meet.
+	if row := purged.Data[0]; row.AssignmentState != "assigned" || !row.NeverAccepted {
+		t.Errorf("the never_accepted row reads state=%q never_accepted=%v, want `assigned` with the marker — "+
+			"the filter selects fillHolderListEntry's presentation and does not invent a fourth state",
+			row.AssignmentState, row.NeverAccepted)
+	}
+}
+
+// THE FOUR VALUES PARTITION THE ROSTER: every Ticket matches exactly one, so the
+// four filtered counts sum to the unfiltered total.
+//
+// THIS IS THE TEST THAT NOTICES A CLAUSE ADDED TO ONE SIDE AND NOT THE OTHER.
+// The four predicates are derived from the same four columns
+// fillHolderListEntry reads, and the whole risk of writing them twice is that
+// they come to overlap or to leak: a purged Ticket counted under BOTH
+// `never_accepted` and `assigned` makes the counts sum to more than the roster,
+// and one counted under NEITHER makes them sum to less — which is worse,
+// because a Ticket no value selects is a Ticket a filtered export silently
+// drops.
+//
+// A PURGED TICKET IS ON `never_accepted` AND NOWHERE ELSE. It is deliberately
+// NOT on `assigned`, though its row says `assigned`, because the badge the
+// reader is looking at says "never accepted" — the filter agrees with the word
+// on the screen. And it is deliberately not on `unassigned` either, though
+// catalog.AssignmentState reads it as unassigned everywhere else, because the
+// purge took the address and "nobody was named" would rewrite what happened.
+func TestTheHolderListAssignmentStatesPartitionTheRoster(t *testing.T) {
+	env := setupTest(t)
+	f := newHolderStateFixture(t, env)
+
+	total := holderRoster(t, env, f.sessionID, f.eventID, "").Pagination.Total
+	sum := 0
+	for _, state := range []string{"unassigned", "assigned", "accepted", "never_accepted"} {
+		sum += holderRoster(t, env, f.sessionID, f.eventID, "?assignment_state="+state).Pagination.Total
+	}
+	if sum != total {
+		t.Errorf("the four states hold %d Tickets between them over a roster of %d.\n"+
+			"The four values must PARTITION the roster — every Ticket in exactly one — "+
+			"or the counts do not add up and a filtered export loses or duplicates rows.", sum, total)
+	}
+
+	// Said again as the two facts it is made of, so a failure names which half
+	// broke rather than only that the arithmetic did.
+	for _, state := range []string{"assigned", "unassigned"} {
+		page := holderRoster(t, env, f.sessionID, f.eventID, "?assignment_state="+state)
+		for _, row := range page.Data {
+			if row.TicketID == f.neverAccepted {
+				t.Errorf("the purged Ticket also answers to `%s`.\n"+
+					"It belongs to `never_accepted` alone: on `assigned` the two values overlap, "+
+					"and on `unassigned` the list would say nobody was ever named.", state)
+			}
+		}
+	}
+}
+
+// THE FILTERS COMPOSE WITH THE STRUCTURAL ONES, which is what makes "which VIP
+// door sales were never claimed" one query rather than a page somebody reads
+// down.
+func TestTheHolderListAssignmentStateComposesWithTheOtherFilters(t *testing.T) {
+	env := setupTest(t)
+	f := newHolderStateFixture(t, env)
+
+	// Every Ticket of this fixture is on the same import sale of the same day,
+	// so a matching structural filter leaves the state's answer alone…
+	assertOneTicket(t, holderRoster(t, env, f.sessionID, f.eventID,
+		"?assignment_state=accepted&channel=import"), f.accepted, "accepted+import")
+	// …and a non-matching one empties it, rather than one of the two winning.
+	if page := holderRoster(t, env, f.sessionID, f.eventID,
+		"?assignment_state=accepted&channel=online"); page.Pagination.Total != 0 {
+		t.Errorf("accepted+online = %d Tickets, want none — the filters intersect", page.Pagination.Total)
+	}
+}
+
+// WITH TICKET ASSIGNMENT DARK, `assignment_state` IS IGNORED AND THE WHOLE
+// ROSTER COMES BACK — 200, not 400, and not an empty list.
+//
+// THIS IS THE RULE #525 AND EVERYTHING AFTER IT FOLLOW (ADR 0065, "a dark
+// feature's filter: ignored, not refused"). A refusal would turn a stale
+// bookmark into an error page — the view lives in the URL since #522 — and it
+// would force the staff app to hold a copy of a deployment flag that ADR 0045
+// exists to keep it from knowing: the app decides which controls exist from
+// what the payload CONTAINS, and a control that 400s is not a control.
+//
+// A 400 would also be a TELL. A build with assignment dark must answer as a
+// build without the feature would, and an error naming `assignment_state` would
+// admit the parameter exists.
+//
+// The list is read through the QUESTIONS flag here, because with both dark the
+// route is a 404 (#333) and there would be no roster to be wide.
+func TestTheHolderListIgnoresTheAssignmentStateFilterWhileAssignmentIsDark(t *testing.T) {
+	env := setupTest(t)
+	f := newHolderStateFixture(t, env)
+	enableTicketQuestions(t)
+	closeTicketAssignment(t)
+
+	resp, body := env.get(t, holderListPath(f.eventID)+"?assignment_state=accepted", authHeader(f.sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d error=%+v — a filter belonging to a dark feature is IGNORED, never refused: "+
+			"a URL carrying it must still return the roster", resp.StatusCode, body.Error)
+	}
+	page := decodeOutstanding(t, body.Data)
+	if page.Pagination.Total != 4 || len(page.Data) != 4 {
+		t.Fatalf("rows=%d total=%d, want the WHOLE roster of 4 — the dark filter must not narrow anything, "+
+			"and must not empty the list either", len(page.Data), page.Pagination.Total)
+	}
+	// And the payload still admits nothing about the dark feature: no state
+	// travels, so nothing on this response could have been filtered by one.
+	if strings.Contains(string(body.Data), "assignment_state") {
+		t.Error("the response speaks of `assignment_state` while TICKET_ASSIGNMENT_ENABLED is closed (ADR 0045)")
+	}
+
+	// Every one of the four values, so no single one of them is a side channel:
+	// `never_accepted` in particular must not narrow a dark build's roster to
+	// the purged Tickets.
+	for _, state := range []string{"unassigned", "assigned", "accepted", "never_accepted"} {
+		if got := holderRoster(t, env, f.sessionID, f.eventID,
+			"?assignment_state="+state).Pagination.Total; got != 4 {
+			t.Errorf("`%s` on a dark build returns %d Tickets, want the whole roster of 4", state, got)
+		}
+	}
 }

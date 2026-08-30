@@ -78,6 +78,38 @@ func holderChannelParam(raw string) string {
 	return ""
 }
 
+// holderAssignmentStates is what the assignment-state filter may select, and
+// the whole of it: the three states catalog.AssignmentState knows, plus
+// `never_accepted` (#524, ADR 0065).
+//
+// `never_accepted` IS A VALUE HERE AND NOT A FOURTH STATE. It is the
+// presentation the Holder List already derives at read time from the retention
+// purge's marker — somebody was named, nobody claimed the Ticket — and #331
+// rejected making it a state outright. Nothing about how it is derived changes;
+// this list only makes it selectable, because "who did I name who never claimed
+// their ticket" is the morning-after question and after the Event has started
+// it otherwise reads as "nobody was named".
+//
+// STATED HERE AND ALSO IN THE REPOSITORY, which is a second copy of four words
+// and is worth it: this one keeps an unlisted value out of the service
+// entirely, and the repository's is what turns a value into a predicate. They
+// cannot silently disagree — a value listed here and missing there is
+// unfiltered, which the partition test notices.
+var holderAssignmentStates = []string{"unassigned", "assigned", "accepted", "never_accepted"}
+
+// holderAssignmentStateParam reads the assignment-state filter, IGNORING
+// anything that is not one of the four. Same decision on an enum as
+// holderChannelParam, for holderDateParam's reasons.
+func holderAssignmentStateParam(raw string) string {
+	value := strings.TrimSpace(raw)
+	for _, state := range holderAssignmentStates {
+		if value == state {
+			return value
+		}
+	}
+	return ""
+}
+
 // holderTicketTypeParam reads the Ticket Type filter, ignoring anything that is
 // not a well-formed id.
 //
@@ -172,7 +204,7 @@ func holderDateParam(raw string) string {
 // the roster whole.
 //
 // @Summary      List an event's holder list
-// @Description  A page of the Event's Holder List: EVERY Ticket of every live Ticket Sale, oldest sale first — the Organization's answer to "who is coming". Available while EITHER the Ticket Assignment or the Ticket Question feature flag is open, and 404 only when both are dark. Each row carries the Ticket's `assignment_state` — `unassigned`, `assigned` or `accepted` — and, once a Holder has ACCEPTED, that Holder's own name and email address (ADR 0047). Nothing about a Holder is disclosed before acceptance: an address a buyer typed and its owner never accepted is reported as `assigned` and never named. A Ticket whose unaccepted address the retention purge took reads `assigned` with `never_accepted` beside it, derived at read time from the purge marker — somebody was named and never claimed the Ticket, which after the Event has started is a different fact from nobody having been named; no address travels with it, because the address is gone by definition. All assignment fields are ABSENT while the Ticket Assignment flag is off. Where the Ticket Question feature is open, each row also names the required questions it has not answered, in `outstanding` — an empty array is a Ticket that owes nothing, and stays on the list, because the roster is the point and the questions are a column on it. `outstanding=true` filters the list to the Tickets that still owe — Outstanding Answers is a filter of this list, not its definition. Three further filters narrow the roster STRUCTURALLY and compose with it and with each other (#523, ADR 0065): `ticket_type_id` is the VIP roster apart from general admission — a plain equality, because a Ticket belongs to exactly one Ticket Type, unlike a Ticket Sale, which may span several; `channel` is `online`, `in_person` or `import`, so the buyers who came through the door or through an import — and were therefore never asked anything — can be listed on their own; and `sold_from`/`sold_to` are calendar days (`YYYY-MM-DD`) READ IN THE EVENT'S TIMEZONE, inclusive of the whole end day, so "sold in January" means January where the Event is and not where the reader is standing, matching the Sales list. `pagination.total` reflects the FILTERED view, so the page count never promises pages that do not exist. An unusable filter is IGNORED, never refused: a malformed date, an unknown channel or a malformed Ticket Type id leaves that dimension unfiltered, because a stale bookmark should be a wide roster the reader can see is wide, not an error page. There is deliberately NO status filter: a Sale Reversal means the Tickets cease to exist (ADR 0043), so reversed Tickets are not rows being hidden — they are not rows — and no payment-method or source filter either, both being facts about a sale with no roster meaning. `outstanding_count` is the Event's total number of debts across the whole roster, unaffected by the filter, while `pagination.total` counts the Tickets of the current view. Both `outstanding` and `outstanding_count` are absent while the Ticket Question flag is off. Tickets of `in_person` and `import` sales appear beside the `online` ones and start out owing everything, because those buyers were never asked — each row carries its `channel` so that reads as history rather than as loss. Started Events still report the whole roster and its debts, because "who came and who never told us" is what a reader after the fact came to find out. Org Admin and Event Owner only (#521, ADR 0065): one rule for holder data, the same gate the Sales Export carries — its per-Ticket sheet already emits this Event's accepted Holders' names and addresses to an Event Owner. Event Staff are refused; they work the door, and this is the platform's densest concentration of attendee personal data.
+// @Description  A page of the Event's Holder List: EVERY Ticket of every live Ticket Sale, oldest sale first — the Organization's answer to "who is coming". Available while EITHER the Ticket Assignment or the Ticket Question feature flag is open, and 404 only when both are dark. Each row carries the Ticket's `assignment_state` — `unassigned`, `assigned` or `accepted` — and, once a Holder has ACCEPTED, that Holder's own name and email address (ADR 0047). Nothing about a Holder is disclosed before acceptance: an address a buyer typed and its owner never accepted is reported as `assigned` and never named. A Ticket whose unaccepted address the retention purge took reads `assigned` with `never_accepted` beside it, derived at read time from the purge marker — somebody was named and never claimed the Ticket, which after the Event has started is a different fact from nobody having been named; no address travels with it, because the address is gone by definition. All assignment fields are ABSENT while the Ticket Assignment flag is off. Where the Ticket Question feature is open, each row also names the required questions it has not answered, in `outstanding` — an empty array is a Ticket that owes nothing, and stays on the list, because the roster is the point and the questions are a column on it. `outstanding=true` filters the list to the Tickets that still owe — Outstanding Answers is a filter of this list, not its definition. `assignment_state` narrows the roster to where each Ticket stands with its Holder, and takes FOUR values: `unassigned`, `assigned`, `accepted` and `never_accepted` — the last being a value of this filter and NOT a fourth assignment state, since it selects the Tickets whose unaccepted address the retention purge took (they report `assignment_state: assigned` with `never_accepted: true`). The four values PARTITION the roster: every Ticket matches exactly one, so a purged Ticket answers to `never_accepted` and not to `assigned`. This filter belongs to the Ticket Assignment feature and is IGNORED while that flag is closed — the whole roster comes back with a 200, never a 400, so a stale bookmark carrying it keeps working and no client has to know a flag. Three further filters narrow the roster STRUCTURALLY and compose with it and with each other (#523, ADR 0065): `ticket_type_id` is the VIP roster apart from general admission — a plain equality, because a Ticket belongs to exactly one Ticket Type, unlike a Ticket Sale, which may span several; `channel` is `online`, `in_person` or `import`, so the buyers who came through the door or through an import — and were therefore never asked anything — can be listed on their own; and `sold_from`/`sold_to` are calendar days (`YYYY-MM-DD`) READ IN THE EVENT'S TIMEZONE, inclusive of the whole end day, so "sold in January" means January where the Event is and not where the reader is standing, matching the Sales list. `pagination.total` reflects the FILTERED view, so the page count never promises pages that do not exist. An unusable filter is IGNORED, never refused: a malformed date, an unknown channel or a malformed Ticket Type id leaves that dimension unfiltered, because a stale bookmark should be a wide roster the reader can see is wide, not an error page. There is deliberately NO status filter: a Sale Reversal means the Tickets cease to exist (ADR 0043), so reversed Tickets are not rows being hidden — they are not rows — and no payment-method or source filter either, both being facts about a sale with no roster meaning. `outstanding_count` is the Event's total number of debts across the whole roster, unaffected by the filter, while `pagination.total` counts the Tickets of the current view. Both `outstanding` and `outstanding_count` are absent while the Ticket Question flag is off. Tickets of `in_person` and `import` sales appear beside the `online` ones and start out owing everything, because those buyers were never asked — each row carries its `channel` so that reads as history rather than as loss. Started Events still report the whole roster and its debts, because "who came and who never told us" is what a reader after the fact came to find out. Org Admin and Event Owner only (#521, ADR 0065): one rule for holder data, the same gate the Sales Export carries — its per-Ticket sheet already emits this Event's accepted Holders' names and addresses to an Event Owner. Event Staff are refused; they work the door, and this is the platform's densest concentration of attendee personal data.
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth
@@ -180,6 +212,7 @@ func holderDateParam(raw string) string {
 // @Param        page         query     int     false  "Page number (default 1)"
 // @Param        page_size    query     int     false  "Rows per page (default 50, max 100)"
 // @Param        outstanding     query     bool    false  "Only the Tickets that still owe a required Answer"
+// @Param        assignment_state query    string  false  "Only the Tickets in this assignment state (unassigned, assigned, accepted, never_accepted) — ignored while Ticket Assignment is dark"
 // @Param        ticket_type_id  query     string  false  "Only the Tickets of this Ticket Type"
 // @Param        channel         query     string  false  "Only the Tickets of sales on this Sales Channel (online, in_person, import)"
 // @Param        sold_from       query     string  false  "Only the Tickets of sales made on or after this calendar day (YYYY-MM-DD), read in the Event's timezone"
@@ -200,13 +233,19 @@ func (h *Handler) ListHolderList(w http.ResponseWriter, r *http.Request) {
 	result, err := h.svc.ListHolderList(
 		r.Context(), actorFromRequest(r), eventID,
 		service.ListHolderListParams{
-			Page:         outstandingPageParam(query.Get("page")),
-			PageSize:     outstandingPageSizeParam(query.Get("page_size")),
-			OwingOnly:    outstandingFilterParam(query.Get("outstanding")),
-			TicketTypeID: holderTicketTypeParam(query.Get("ticket_type_id")),
-			Channel:      holderChannelParam(query.Get("channel")),
-			SoldFrom:     holderDateParam(query.Get("sold_from")),
-			SoldTo:       holderDateParam(query.Get("sold_to")),
+			Page:      outstandingPageParam(query.Get("page")),
+			PageSize:  outstandingPageSizeParam(query.Get("page_size")),
+			OwingOnly: outstandingFilterParam(query.Get("outstanding")),
+			// The assignment-state filter belongs to Ticket Assignment. It is
+			// parsed unconditionally and DROPPED BY THE SERVICE while that
+			// feature is dark — no flag is read here, because the handler has
+			// none and the rule about dark filters is stated once, in
+			// ListHolderList.
+			AssignmentState: holderAssignmentStateParam(query.Get("assignment_state")),
+			TicketTypeID:    holderTicketTypeParam(query.Get("ticket_type_id")),
+			Channel:         holderChannelParam(query.Get("channel")),
+			SoldFrom:        holderDateParam(query.Get("sold_from")),
+			SoldTo:          holderDateParam(query.Get("sold_to")),
 		},
 	)
 	if err != nil {
