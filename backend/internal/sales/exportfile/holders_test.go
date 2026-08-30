@@ -409,6 +409,60 @@ func TestHolderInfoSheetDescribesOnlyWhatItWasGiven(t *testing.T) {
 	}
 }
 
+// A HONOURED FILTER IS DESCRIBED EVEN WHEN ITS LABEL COULD NOT BE RESOLVED, and
+// this is the converse of the test above rather than an exception to it.
+//
+// The service resolves the Ticket Type's name and the question's wording with
+// READS, and a read can fail — a transient catalog error, or an id naming
+// nothing on this Event. Deciding the line off the label alone meant a genuinely
+// filtered file whose cover sheet read "No filters were applied: this is every
+// Ticket… on the Event." A reader then takes a narrowed roster for a whole one
+// and concludes people are missing from the EVENT rather than from the FILE,
+// which is the exact harm #529's honoured-filters rule exists to prevent,
+// arrived at from the opposite direction.
+//
+// So the id travels beside the label and the sheet falls back to it: uglier than
+// a name, and infinitely better than silence.
+func TestHolderInfoSheetStillNamesAFilterWhoseLabelIsUnresolvable(t *testing.T) {
+	info := holderInfoFixture()
+	info.Filters = HolderFilters{
+		TicketTypeID: "9f1c0a44-0000-4000-8000-00000000ffff",
+		QuestionID:   "3b2d0e55-0000-4000-8000-00000000eeee",
+	}
+	_, f := buildHolders(t, holderFixture(), info)
+
+	text := infoText(t, f)
+	// The load-bearing assertion: the file must NOT claim to be everybody.
+	if strings.Contains(text, "No filters were applied") {
+		t.Fatalf("a filtered file says no filters were applied; it said:\n%s", text)
+	}
+	for _, want := range []string{
+		"Ticket Type: only Tickets of one Ticket Type",
+		"9f1c0a44-0000-4000-8000-00000000ffff",
+		"Owing one named question: only Tickets that have not answered one Ticket Question",
+		"3b2d0e55-0000-4000-8000-00000000eeee",
+		"could not be read",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("Info sheet does not say %q; it said:\n%s", want, text)
+		}
+	}
+
+	// AND THE NAME STILL WINS WHERE THERE IS ONE. The id is a fallback, not a
+	// second line: a reader who can be told "VIP" is never shown a UUID.
+	info.Filters.TicketTypeName = "VIP"
+	info.Filters.QuestionLabel = "T-shirt size"
+	_, resolved := buildHolders(t, holderFixture(), info)
+	text = infoText(t, resolved)
+	if !strings.Contains(text, "Ticket Type: only Tickets of VIP.") {
+		t.Errorf("Info sheet does not name the Ticket Type; it said:\n%s", text)
+	}
+	if strings.Contains(text, "9f1c0a44-0000-4000-8000-00000000ffff") ||
+		strings.Contains(text, "3b2d0e55-0000-4000-8000-00000000eeee") {
+		t.Errorf("Info sheet prints an id it had a name for; it said:\n%s", text)
+	}
+}
+
 // A search is reported as APPLIED without the term ever being written — into the
 // Info sheet or into any other byte of the workbook. The Holder List's search
 // matches customer addresses, and this file is forwarded.

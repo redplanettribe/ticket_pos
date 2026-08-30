@@ -833,6 +833,44 @@ export function holderListVisible(rows: readonly HolderTicket[]): boolean {
 }
 
 /**
+ * Whether to draw the assignment-state FILTER control.
+ *
+ * NOT THE SAME QUESTION AS `holderListVisible`, and conflating the two was a
+ * bug. That predicate asks whether the assignment side of the list EXISTS,
+ * which it answers off the payload's absences (ADR 0045) — the only honest
+ * source, since this app holds no copy of a deployment flag. But it reads the
+ * CURRENT PAGE'S ROWS, and an empty result page is not a payload absence: it is
+ * an empty result. Filter to `assignment_state=accepted` on an Event where
+ * nobody has accepted and every row disappears, taking with it the very control
+ * that produced the view — leaving the reader a Clear button and no way to see
+ * what they had asked for.
+ *
+ * SO AN ACTIVE NARROWING ON AN EMPTY PAGE KEEPS THE CONTROL, which is the
+ * Outstanding checkbox's own rule and the filter bar's: a control stays drawn
+ * while its own filtered view is empty, because changing it is the way back and
+ * a bar that vanished with the last row would strand the reader.
+ *
+ * THE DARK CASE IS STILL SAFE, AND THE ORDER OF THE TWO TESTS IS WHY. With rows
+ * on the page the answer is the payload's, unchanged: a dark build omits
+ * `assignment_state` from every row, so the control is not drawn however the URL
+ * is written. The fallback can only fire on an EMPTY page, where there is no
+ * absence to read and no evidence either way — and there the reader who is
+ * plainly holding this filter is served better by a control they can clear than
+ * by a screen that swallowed it. On a dark build that costs a hand-crafted URL a
+ * select whose values the API ignores; on an open build it costs nothing and
+ * fixes the stranding.
+ */
+export function assignmentStateFilterVisible(
+  rows: readonly HolderTicket[],
+  assignmentState: string,
+): boolean {
+  if (holderListVisible(rows)) {
+    return true;
+  }
+  return rows.length === 0 && assignmentState !== "";
+}
+
+/**
  * Whether the questions side of the list exists: the Owes column, the debt
  * summary and the Outstanding Answers filter.
  *

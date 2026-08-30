@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // The Holder List (#333; the Outstanding Answers surface of #313, widened to
@@ -1435,37 +1437,83 @@ func TestTheHolderListPaginationFollowsTheFilters(t *testing.T) {
 	}
 }
 
-// AN UNUSABLE FILTER IS IGNORED, NEVER REFUSED (#523, and #524 generalises it).
+// A MALFORMED FILTER OR SORT IS REFUSED, NOT IGNORED — AND THIS TEST IS THE
+// REVERSAL OF THE ONE IT REPLACES.
 //
-// This surface is lenient throughout — a bad `page`, a bad `page_size` and a
-// mangled `outstanding` all fall back rather than erroring — and a malformed
-// date, an unknown channel or a malformed Ticket Type id join them. A stale
-// bookmark stays a working roster instead of becoming an error page, and the
-// filter bar showing that field empty is how the reader sees the view is wide.
+// It used to be TestTheHolderListIgnoresAnUnusableFilter, and it asserted, on
+// #523/#524's reading, that `?ticket_type_id=not-a-uuid` served the WHOLE
+// ROSTER: a stale bookmark should be a wide roster the reader can see is wide
+// rather than an error page. THE RULE CHANGED, for three reasons written out in
+// full at the top of catalog/handler/holder_list_handlers.go and summarised
+// here because a test that quietly flipped its own assertion is unreviewable:
 //
-// The Ticket Type case is the one with teeth: `ticket_type_id` is compared to a
-// `uuid NOT NULL` column, so a non-uuid reaching the query is a 500 rather than
-// a 400 — a hand-edited URL turning into a server fault.
-func TestTheHolderListIgnoresAnUnusableFilter(t *testing.T) {
+//   - It contradicted a documented, repo-wide standard — validating shape, type
+//     and format is ALWAYS handler responsibility and refusals are 400
+//     VALIDATION_FAILED (docs/technical-design.md, the api-errors skill).
+//   - The Sales list next door already refuses exactly these values
+//     (TestSalesListInvalidFilters), and two staff lists on two tabs of one
+//     screen answering one mangled bookmark differently is the drift this
+//     codebase argues against everywhere else.
+//   - And the cost lands on the wrong side HERE, because this list feeds the
+//     Holder Export: a wide FILE is kept and forwarded, and #529's promise is
+//     that the file describes what narrowed it.
+//
+// The Ticket Type case is the one with teeth either way: `ticket_type_id` is
+// compared to a `uuid NOT NULL` column, so a non-uuid reaching the query is a
+// 500 rather than a 400 — a hand-edited URL turning into a server fault.
+func TestTheHolderListRefusesAnUnusableFilter(t *testing.T) {
 	env := setupTest(t)
 	enableTicketAssignment(t)
 	f := newHolderFilterFixture(t, env)
 
-	for _, query := range []string{
-		"?sold_from=01-07-2026",
-		"?sold_to=nonsense",
-		"?channel=doorway",
-		"?ticket_type_id=not-a-uuid",
-		// An unlisted assignment state joins them (#524). `purged` is the word
-		// somebody would guess for the fourth value, and guessing it must widen
-		// the roster rather than empty it.
-		"?assignment_state=purged",
+	for _, tc := range []struct {
+		query string
+		field string
+		code  string
+	}{
+		{"?sold_from=01-07-2026", "sold_from", "INVALID_DATE"},
+		{"?sold_to=nonsense", "sold_to", "INVALID_DATE"},
+		{"?channel=doorway", "channel", "INVALID_ENUM"},
+		{"?ticket_type_id=not-a-uuid", "ticket_type_id", "INVALID_ID"},
+		{"?question_id=not-a-uuid", "question_id", "INVALID_ID"},
+		// An unlisted assignment state joins them. `purged` is the word somebody
+		// would guess for the fourth value, and it is not a value of this filter
+		// on ANY build — which is what makes refusing it independent of a flag.
+		{"?assignment_state=purged", "assignment_state", "INVALID_ENUM"},
+		// `amount` is the Sales list's sort; there is no money on this list.
+		{"?sort=amount", "sort", "INVALID_ENUM"},
+		{"?dir=sideways", "dir", "INVALID_ENUM"},
 	} {
-		page := holderRoster(t, env, f.sessionID, f.eventID, query)
-		if page.Pagination.Total != 4 {
-			t.Errorf("%s = %d rows, want the whole roster of 4 — an unusable filter is ignored, not honoured as an empty one",
-				query, page.Pagination.Total)
+		fields := holderListRefusal(t, env, f.sessionID, f.eventID, tc.query)
+		if len(fields) != 1 || fields[0].Field != tc.field || fields[0].Code != tc.code {
+			t.Errorf("%s fields = %+v, want one %s/%s", tc.query, fields, tc.field, tc.code)
 		}
+	}
+
+	// EVERY OFFENDING PARAMETER IS NAMED, not merely the first: a bookmark
+	// mangled in two places tells the reader both, since the alternative is two
+	// round trips to learn two facts the server already had.
+	fields := holderListRefusal(t, env, f.sessionID, f.eventID,
+		"?channel=doorway&sold_to=nonsense")
+	if len(fields) != 2 {
+		t.Errorf("two bad params = %+v, want one field error each", fields)
+	}
+
+	// THE LEGACY ALIAS REFUSES IDENTICALLY, because it is the same handler. A
+	// path that 200'd where its successor 400s would be a live escape hatch from
+	// the rule for as long as the alias survives (#531).
+	resp, body := env.get(t, legacyHolderListPath(f.eventID)+"?channel=doorway", authHeader(f.sessionID))
+	if resp.StatusCode != http.StatusBadRequest || body.Error == nil || body.Error.Code != "VALIDATION_FAILED" {
+		t.Errorf("the alias answered status=%d error=%+v, want the same 400 the new path gives",
+			resp.StatusCode, body.Error)
+	}
+
+	// AND THE HOLDER EXPORT REFUSES THE SAME VALUES, from the same parser: no
+	// file may be built from a query string the screen would have refused.
+	resp, data := downloadHolderExport(t, env, f.sessionID, f.eventID, "ticket_type_id=not-a-uuid")
+	exported := holderExportRefusal(t, resp, data)
+	if len(exported) != 1 || exported[0].Field != "ticket_type_id" {
+		t.Errorf("export fields = %+v, want one ticket_type_id error", exported)
 	}
 
 	// A WELL-FORMED id that names nothing is a different case and IS honoured:
@@ -1474,6 +1522,45 @@ func TestTheHolderListIgnoresAnUnusableFilter(t *testing.T) {
 	// neither reach nor reveal another Organization's Ticket Type.
 	assertRoster(t, holderRoster(t, env, f.sessionID, f.eventID,
 		"?ticket_type_id=00000000-0000-0000-0000-000000000000"), []string{})
+
+	// AND A WELL-FORMED FILTER BELONGING TO A DARK FEATURE IS STILL IGNORED,
+	// NEVER REFUSED (#524, ADR 0065) — the two rules compose rather than compete.
+	// This layer asks whether a value is a well-formed member of the parameter's
+	// stated set, which is a question about the query string; whether it is
+	// HONOURED is a question about this deployment's flags, answered once in
+	// honourHolderFilters. Ticket Questions are dark in this fixture, so the
+	// named-question filter and the `owes` sort both drop and the whole roster
+	// comes back with a 200. See the dedicated dark-flag tests below for the
+	// per-filter proofs.
+	dark := holderRoster(t, env, f.sessionID, f.eventID,
+		"?outstanding=true&question_id=11111111-1111-4111-8111-111111111111&sort=owes")
+	if dark.Pagination.Total != 4 {
+		t.Errorf("a dark feature's well-formed filter = %d rows, want the whole roster of 4 — it must be ignored, not refused",
+			dark.Pagination.Total)
+	}
+}
+
+// holderListRefusal reads the field errors out of a refused Holder List read,
+// failing the test if the response is not the standard VALIDATION_FAILED
+// envelope. The sibling of holderExportRefusal, which does the same for the file.
+func holderListRefusal(t *testing.T, env *testEnv, sessionID, eventID, query string) []platform.FieldError {
+	t.Helper()
+	resp, body := env.get(t, holderListPath(eventID)+query, authHeader(sessionID))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("holder list %q status=%d, want 400", query, resp.StatusCode)
+	}
+	if body.Error == nil || body.Error.Code != "VALIDATION_FAILED" {
+		t.Fatalf("holder list %q error = %+v, want VALIDATION_FAILED", query, body.Error)
+	}
+	details, err := json.Marshal(body.Error.Details)
+	if err != nil {
+		t.Fatalf("marshal details: %v", err)
+	}
+	var parsed platform.ValidationErrorDetails
+	if err := json.Unmarshal(details, &parsed); err != nil {
+		t.Fatalf("decode details %s: %v", string(details), err)
+	}
+	return parsed.Fields
 }
 
 // THE ASSIGNMENT-STATE FILTER (#524, ADR 0065): where each Ticket stands with
@@ -3002,11 +3089,19 @@ func TestTheHolderListDefaultOrderIsUnchanged(t *testing.T) {
 		"the roster with no sort in the URL")
 	assertTickets(t, holderSorted(t, env, f.sessionID, f.eventID, "sold_at", "asc", ""), oldestFirst,
 		"sort=sold_at&dir=asc")
-	// An unrecognised key is the default order too, never a refusal: a stale
-	// bookmark naming a sort that has been renamed is a roster, not an error
-	// page. `amount` is the Sales list's; there is no money on this list.
-	assertTickets(t, holderRoster(t, env, f.sessionID, f.eventID, "?sort=amount&dir=sideways"), oldestFirst,
-		"an unrecognised sort and direction")
+	// AN UNRECOGNISED KEY IS NOW A 400 AND NOT THE DEFAULT ORDER, which reverses
+	// what this block used to assert. The old reading was that a stale bookmark
+	// naming a renamed sort should be a roster rather than an error page; it lost
+	// to the repo-wide rule that a handler validates shape and format, and to the
+	// Sales list, which has always refused the same. `amount` is the Sales list's
+	// key — there is no money on this list — and the refusal says so by name,
+	// which is more use to the reader than a silently different order. The
+	// refusal's shape is pinned in TestTheHolderListRefusesAnUnusableFilter; what
+	// matters HERE is only that it is not served as this default.
+	if resp, _ := env.get(t, holderListPath(f.eventID)+"?sort=amount&dir=sideways",
+		authHeader(f.sessionID)); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("an unrecognised sort and direction status=%d, want 400", resp.StatusCode)
+	}
 }
 
 // ONE SALE'S TICKETS STAY TOGETHER AND IN ORDINAL ORDER under the default, which

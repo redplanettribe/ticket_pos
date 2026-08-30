@@ -36,6 +36,7 @@ import {
   HOLDER_LIST_CHANNELS,
   HOLDER_STATE_VALUE_KEYS,
   SALES_CHANNEL_KEYS,
+  assignmentStateFilterVisible,
   buyerName,
   defaultHolderDirFor,
   downloadHolderExport,
@@ -342,7 +343,29 @@ export function HolderListSection({
     `TICKET_ASSIGNMENT_ENABLED` closed the API omits every assignment field,
     and with `TICKET_QUESTIONS_ENABLED` closed it omits everything about debts.
   */
+  /*
+    THE STATE FILTER'S OWN VISIBILITY IS NOT `holderListVisible(rows)`, and the
+    difference is the bug this fixes. That predicate reads the CURRENT PAGE'S
+    rows, so filtering to a state nobody is in emptied the page and took the
+    control that produced the view with it. "The feature is dark" and "this
+    filter matched nothing" are different facts and only the first is a payload
+    absence; see `assignmentStateFilterVisible` for why an active narrowing on
+    an EMPTY page keeps the control, and why the dark build is still safe.
+
+    `showHolders` keeps its original meaning — whether the assignment COLUMNS
+    have anything to draw — and is what the table below reads.
+
+    THE QUESTIONS SIDE IS ALREADY IMMUNE and needs no equivalent: `showQuestions`
+    is `questionsVisible(result)`, which tests `outstanding_count !== undefined`
+    — a PAGE-LEVEL field the API sends whenever Ticket Questions are open,
+    unaffected by the filters and present on an empty page. So the named-question
+    select and the Outstanding checkbox stay drawn through an empty filtered view
+    already. No other control in the bar is row-derived: the Ticket Types and the
+    questions come down as props, and the Clear and the download hang off
+    `filtersActive` / `canExport`.
+  */
   const showHolders = holderListVisible(rows);
+  const showAssignmentFilter = assignmentStateFilterVisible(rows, filters.assignmentState);
   const showQuestions = result ? questionsVisible(result) : false;
 
   return (
@@ -472,23 +495,35 @@ export function HolderListSection({
                 otherwise indistinguishable from "nobody was named".
 
                 DRAWN ONLY WHERE THE ASSIGNMENT SIDE OF THE LIST EXISTS, and
-                that is decided by `holderListVisible(rows)` — the payload's
-                ABSENCES — exactly as the Outstanding checkbox below hangs on
-                `questionsVisible`. THE TEMPTING MOVE IS TO PASS A FLAG DOWN TO
-                RENDER THIS CONTROL, AND IT IS THE WRONG ONE: this app holds no
-                copy of a deployment flag (ADR 0045), and a prop carrying one
-                would be that copy, wrong on the first deploy where the two
-                disagree. With Ticket Assignment dark the API omits every
-                assignment field, so there is nothing to filter by and no
-                control — and a URL that still carries `assignment_state` is
-                IGNORED by the API rather than refused, so the bookmark keeps
-                working.
+                that is decided by the payload's ABSENCES — exactly as the
+                Outstanding checkbox below hangs on `questionsVisible`. THE
+                TEMPTING MOVE IS TO PASS A FLAG DOWN TO RENDER THIS CONTROL, AND
+                IT IS THE WRONG ONE: this app holds no copy of a deployment flag
+                (ADR 0045), and a prop carrying one would be that copy, wrong on
+                the first deploy where the two disagree. With Ticket Assignment
+                dark the API omits every assignment field, so there is nothing to
+                filter by and no control — and a URL that still carries a
+                WELL-FORMED `assignment_state` is IGNORED by the API rather than
+                refused, so the bookmark keeps working. (A MALFORMED one is now a
+                400: shape is validated on every surface here, honouring is not.
+                This control can only emit the four legal values, so it never
+                produces one.)
+
+                BUT NOT `holderListVisible(rows)` DIRECTLY, WHICH WAS THE BUG.
+                That reads the current page's rows, so narrowing to a state
+                nobody is in emptied the page and deleted the control that
+                produced the view — the reader left with a Clear and no sight of
+                what they had asked for. An empty RESULT is not a payload
+                ABSENCE. `assignmentStateFilterVisible` keeps the absence reading
+                whenever there are rows to read it from and falls back to "this
+                filter is set" only on an empty page, which is the Outstanding
+                checkbox's own reasoning — unticking it is the way back.
 
                 THE WORDS ARE THE ROWS' OWN, from `HOLDER_STATE_VALUE_KEYS`,
                 because a filter that named a state differently from the badge
                 beneath it would be two vocabularies for one fact.
               */}
-              {showHolders ? (
+              {showAssignmentFilter ? (
                 <div className="flex flex-col gap-1">
                   <Label htmlFor="holder-assignment-state">{t("filterStateLabel")}</Label>
                   <select

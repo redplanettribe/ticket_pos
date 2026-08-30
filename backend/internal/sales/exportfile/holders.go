@@ -293,6 +293,24 @@ type HolderFilters struct {
 	// an id: an id is not something the reader ever saw, and this sheet is written
 	// for somebody who never saw the screen either.
 	QuestionLabel string
+	// QuestionID is the same filter's raw id, set BY THE CALLER WHENEVER THE
+	// FILTER WAS HONOURED — whether or not the label beside it could be resolved.
+	//
+	// IT EXISTS SO THAT A HONOURED FILTER CAN NEVER GO UNDESCRIBED. The label is
+	// resolved against a read of the Event's questions, and that read can fail, or
+	// return nothing for an id that names no question of this Event. Deciding the
+	// line off the LABEL alone meant a genuinely narrowed file whose cover sheet
+	// said "No filters were applied: this is every Ticket… on the Event." — a
+	// reader taking a filtered roster for a whole one, which is the exact failure
+	// #529 exists to prevent, arrived at from the opposite direction.
+	//
+	// So the two fields divide the work: the ID says THAT the roster was narrowed
+	// and the LABEL says by what. With both, the sheet names the question; with
+	// the id alone it says the file is narrowed and prints the id, which is
+	// uglier than a name and infinitely better than silence. A filter the service
+	// DROPPED still sets neither, which is what keeps the honoured-filters
+	// mechanism intact — see holderFilterLines.
+	QuestionID string
 	// AssignmentState is the state filter's stored value — `unassigned`,
 	// `assigned`, `accepted` or `never_accepted`, the last being a value of the
 	// filter and not a fourth state.
@@ -300,6 +318,12 @@ type HolderFilters struct {
 	// TicketTypeName is the NAME of the filtered Ticket Type, resolved by the
 	// caller against the Event's catalog, for QuestionLabel's reason.
 	TicketTypeName string
+	// TicketTypeID is the same filter's raw id, set whenever the filter was
+	// honoured. It carries QuestionID's meaning and exists for QuestionID's
+	// reason: the catalog read that resolves the name is allowed to fail — a
+	// failed read is not a failed export — and a file narrowed to one Ticket Type
+	// must say so even on the day the name could not be fetched.
+	TicketTypeID string
 	// Channel is the Sales Channel filter.
 	Channel string
 	// SoldFrom and SoldTo are the sold-at range as calendar dates ("YYYY-MM-DD"),
@@ -650,6 +674,18 @@ func holderRowCountLine(rowCount int) string {
 // why there is no flag, no "if enabled" and no second opinion here: this file
 // cannot describe a filter that was not applied, because it is not told about
 // one.
+//
+// AND THE CONVERSE HOLDS TOO, WHICH IS THE HALF THAT WAS MISSING. "Describes
+// only the filters honoured" was being read as a licence to stay silent whenever
+// a filter's LABEL could not be resolved — a Ticket Type read that errored, an
+// id naming nothing on this Event — and silence here means the sheet says "No
+// filters were applied: this is every Ticket… on the Event." over a genuinely
+// narrowed file. That is the same lie as describing a dropped filter, told the
+// other way round, and on this file it is the more dangerous direction: a reader
+// takes a filtered roster for a whole one and concludes people are missing from
+// the Event rather than from the file. So each id-bearing filter falls back to
+// its id when its label is blank; a filter that is not there at all still says
+// nothing, because it narrowed nothing.
 func holderFilterLines(f HolderFilters) []string {
 	var lines []string
 
@@ -658,6 +694,9 @@ func holderFilterLines(f HolderFilters) []string {
 	}
 	if f.TicketTypeName != "" {
 		lines = append(lines, "Ticket Type: only Tickets of "+f.TicketTypeName+".")
+	} else if f.TicketTypeID != "" {
+		lines = append(lines, unresolvedFilterLine(
+			"Ticket Type", "only Tickets of one Ticket Type", "its name", f.TicketTypeID))
 	}
 	if f.Channel != "" {
 		lines = append(lines, "Sales Channel: "+phrase(channelPhrases, f.Channel)+".")
@@ -672,6 +711,10 @@ func holderFilterLines(f HolderFilters) []string {
 	if f.QuestionLabel != "" {
 		lines = append(lines, "Owing one named question: only Tickets that have not answered "+
 			"\""+f.QuestionLabel+"\".")
+	} else if f.QuestionID != "" {
+		lines = append(lines, unresolvedFilterLine(
+			"Owing one named question", "only Tickets that have not answered one Ticket Question",
+			"its wording", f.QuestionID))
 	}
 	if f.Searched {
 		// Said, but never quoted. See HolderFilters.Searched.
@@ -682,6 +725,25 @@ func holderFilterLines(f HolderFilters) []string {
 			"fact about anybody in this file.")
 	}
 	return lines
+}
+
+// unresolvedFilterLine is what an id-bearing filter says when its label could
+// not be resolved: that the file IS narrowed, by what kind of thing, and the id
+// as the only handle anybody has on it.
+//
+// THE WORDING'S JOB IS TO STOP A READER TRUSTING THE FILE AS A WHOLE ROSTER. It
+// leads with the narrowing and mentions the unresolved name second, because a
+// reader who skims has to come away knowing rows are missing; the id is offered
+// last, for the one reader who can look it up, and nobody else is expected to
+// find it useful.
+//
+// IT IS ONE FUNCTION FOR BOTH CALLERS rather than two sentences, since the only
+// thing that differs between the Ticket Type and the named question is which
+// noun narrowed the roster and what could not be read about it.
+func unresolvedFilterLine(heading, narrowing, label, id string) string {
+	return heading + ": " + narrowing + ", but " + label +
+		" could not be read when this file was made. The rows below are narrowed to it; " +
+		"it is identified only by its id, " + id + "."
 }
 
 // assignmentStatePhrases says the stored state filter values the way a reader

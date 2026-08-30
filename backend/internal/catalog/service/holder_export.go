@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -239,13 +238,27 @@ func (s *Service) ExportHolderList(
 		GeneratedAt: generatedAt,
 		Filters: exportfile.HolderFilters{
 			OwingOnly: honoured.OwingOnly,
-			// BY NAME AND BY WORDING, resolved against what was just read. The
-			// reader never saw an id, and an id that names nothing — a stale
-			// bookmark's, another Event's — says nothing rather than being printed
-			// at them.
+			// BY NAME AND BY WORDING WHERE THEY CAN BE RESOLVED, AND BY ID WHERE
+			// THEY CANNOT. The reader never saw an id, so the label is what the
+			// sheet prints — but resolving one is a READ, and a read can fail or
+			// come back without the row (a stale bookmark's id, another Event's).
+			//
+			// THE ID TRAVELS ALONGSIDE, ALWAYS, whenever the filter was honoured.
+			// Passing only the label meant a blank label became a SILENT filter:
+			// the roster really was narrowed, and the Info sheet said "No filters
+			// were applied: this is every Ticket… on the Event." That is #529's
+			// own failure mode inverted, and worse in this direction — a reader
+			// takes a filtered roster for a whole one and concludes people are
+			// missing from the Event. The builder prints the name when it has one
+			// and the id when it does not; see exportfile.HolderFilters.
+			//
+			// A DROPPED filter still passes NEITHER, because `honoured` is blank
+			// for it — which is the mechanism, untouched.
 			QuestionLabel:   holderExportQuestionLabel(questions, honoured.QuestionID),
+			QuestionID:      honoured.QuestionID,
 			AssignmentState: honoured.AssignmentState,
 			TicketTypeName:  s.holderExportTicketTypeName(ctx, actor.OrganizationID, eventID, honoured.TicketTypeID),
+			TicketTypeID:    honoured.TicketTypeID,
 			Channel:         honoured.Channel,
 			SoldFrom:        honoured.SoldFrom,
 			SoldTo:          honoured.SoldTo,
@@ -488,9 +501,13 @@ func holderExportAnswer(
 // holderExportQuestionLabel resolves the named-question filter to the wording the
 // Info sheet prints, or "" when the id names no question of this Event.
 //
-// A blank is the right answer for an id that names nothing: the filter narrowed
-// the roster to nobody, the sheet says nothing about a question the reader cannot
-// see, and printing a UUID at them would be worse than silence.
+// A BLANK HERE NO LONGER MEANS "SAY NOTHING". It used to, on the argument that
+// printing a UUID at a reader is worse than silence — and that argument was
+// answered by the wrong question. Silence about a HONOURED filter is the sheet
+// claiming the file is the whole roster when it is not, which is the one thing
+// #529 says the Info sheet must never do. So this function keeps its single job
+// — resolve the wording or admit it could not — and the CALLER passes the id
+// beside whatever comes back, leaving the builder to choose the sentence.
 func holderExportQuestionLabel(questions []repository.EventTicketQuestion, questionID string) string {
 	if questionID == "" {
 		return ""
@@ -515,6 +532,12 @@ func holderExportQuestionLabel(questions []repository.EventTicketQuestion, quest
 //
 // A FAILED READ IS NOT A FAILED EXPORT. The name is a sentence on a cover sheet;
 // losing it costs the reader one line and losing the file costs them the roster.
+// THAT TOLERANCE IS NOT A LICENCE TO GO QUIET, though, which is what it had
+// become: the Info sheet drew its Ticket Type line from this name alone, so a
+// transient catalog failure produced a genuinely filtered file whose cover said
+// no filters were applied. The failure is still swallowed here — the export is
+// still produced — and the caller passes the ID alongside, so the sheet says the
+// file is narrowed even on the day it cannot say to what.
 func (s *Service) holderExportTicketTypeName(ctx context.Context, orgID, eventID, ticketTypeID string) string {
 	if ticketTypeID == "" {
 		return ""
@@ -534,53 +557,25 @@ func (s *Service) holderExportTicketTypeName(ctx context.Context, orgID, eventID
 // holderExportTooManyRows is the refusal a Holder Export over the row cap
 // carries.
 //
-// It is a FIELD ERROR rather than a domain error because of what the reader is
-// meant to do next: the filters that produced this request are on screen beside
-// the button that sent it, and narrowing them is the fix. The staff app renders
-// the message inline there, so the message IS the feature — it names how many
-// Tickets matched (which is how the person knows how much narrower to go), how
-// many may travel at once, and the lever to reach for.
+// THE SENTENCE IS THE ONLY THING THIS FUNCTION OWNS. The field name, the code
+// and the thousands grouping are platform.ExportTooManyRows', shared with the
+// Sales Export's refusal — ADR 0065 accepts two overlapping FILES and refuses
+// two IMPLEMENTATIONS, and a second copy of six lines of digit formatting plus a
+// second FieldError literal was exactly the second implementation. Sharing it
+// through platform rather than through either service is what keeps catalog from
+// depending on sales for a `strings.Builder`.
 //
-// The field named is `filters` and not any one parameter: no single filter is at
-// fault, and blaming sold_from would be wrong for somebody whose lever is the
-// Ticket Type or the assignment state.
-//
-// IT NAMES TICKETS AND NOT SALES, which is the difference between this file and
-// the Sales Export in one word: a person told "1,200 matching sales" over a
-// roster of 4,000 Tickets cannot work out which number the cap applies to.
+// WHAT STAYS HERE IS THE WORDING, because it must differ: it NAMES TICKETS AND
+// NOT SALES, which is the difference between this file and the Sales Export in
+// one word — a person told "1,200 matching sales" over a roster of 4,000 Tickets
+// cannot work out which number the cap applies to — and it points at the filters
+// generally rather than at the date range, because on a roster the lever is as
+// often the Ticket Type or the assignment state.
 func holderExportTooManyRows(matched, rowCap int) platform.FieldError {
-	return platform.FieldError{
-		Field: "filters",
-		Code:  platform.CodeTooManyItems,
-		Message: fmt.Sprintf(
-			"This view matches %s tickets; up to %s can be downloaded at once. Narrow the filters and try again.",
-			holderExportGroupDigits(matched), holderExportGroupDigits(rowCap),
-		),
-	}
-}
-
-// holderExportGroupDigits renders a count with thousands separators, because
-// these numbers are read by a person deciding how much to narrow a filter and
-// "24,318" is legible at a glance where "24318" is not.
-//
-// A third copy of six lines of formatting, restated for the reason
-// resolveEventLocation is: promoting it would make the catalog module depend on
-// the sales module, or invent a package, to save the lines — and what matters is
-// that the ANSWER agrees, which a test pins.
-func holderExportGroupDigits(n int) string {
-	digits := strconv.Itoa(n)
-	sign := ""
-	if strings.HasPrefix(digits, "-") {
-		sign, digits = "-", digits[1:]
-	}
-	var b strings.Builder
-	for i, d := range digits {
-		if i > 0 && (len(digits)-i)%3 == 0 {
-			b.WriteByte(',')
-		}
-		b.WriteRune(d)
-	}
-	return sign + b.String()
+	return platform.ExportTooManyRows(
+		"This view matches %s tickets; up to %s can be downloaded at once. Narrow the filters and try again.",
+		matched, rowCap,
+	)
 }
 
 // holderExportFilename names a Holder Export after its Event and the day it was

@@ -12,6 +12,7 @@ import {
   EMPTY_HOLDER_LIST_FILTERS,
   SALES_CHANNEL_KEYS,
   assignmentStateBadgeVariant,
+  assignmentStateFilterVisible,
   buyerName,
   defaultHolderDirFor,
   hasActiveHolderListFilters,
@@ -146,6 +147,40 @@ test("the Holder column is hidden when no row carries an assignment", () => {
   assert.equal(holderListVisible([]), false);
   assert.equal(holderListVisible([ticket("Ana", "López")]), false);
   assert.equal(holderListVisible([holderRow({ assignment_state: "unassigned" })]), true);
+});
+
+// THE CONTROL THAT PRODUCED THE VIEW MUST SURVIVE THE VIEW BEING EMPTY.
+//
+// `holderListVisible` reads the CURRENT PAGE'S rows, which is the right reading
+// for a COLUMN and the wrong one for the FILTER: narrow to `accepted` on an
+// Event where nobody has accepted and the page is empty, so the select that set
+// the filter disappeared and left only Clear. An empty RESULT is not a payload
+// ABSENCE, and this is where the two are told apart — the same rule the
+// Outstanding checkbox has always had, since changing the control is the way
+// back.
+//
+// The dark build is unaffected because the absence reading wins wherever there
+// are rows to read it from: only an EMPTY page reaches the fallback, and only
+// with the filter actually set.
+test("the assignment-state filter survives its own empty result", () => {
+  const assigned = [holderRow({ assignment_state: "assigned" })];
+  const dark = [ticket("Ana", "López")];
+
+  // No filter set: the control follows the payload exactly as before.
+  assert.equal(assignmentStateFilterVisible([], ""), false);
+  assert.equal(assignmentStateFilterVisible(dark, ""), false);
+  assert.equal(assignmentStateFilterVisible(assigned, ""), true);
+
+  // Filtered to a state nobody is in: the page is empty and the control STAYS,
+  // because unsetting it is the only way back.
+  assert.equal(assignmentStateFilterVisible([], "accepted"), true);
+
+  // Filtered on an open build that did match: unchanged, the payload says so.
+  assert.equal(assignmentStateFilterVisible(assigned, "assigned"), true);
+
+  // A dark build still hides it whenever there are rows, however the URL reads —
+  // the API omits `assignment_state` from every one of them.
+  assert.equal(assignmentStateFilterVisible(dark, "accepted"), false);
 });
 
 // And the questions side — the Owes column, the debt summary, the Outstanding
