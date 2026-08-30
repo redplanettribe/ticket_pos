@@ -966,10 +966,15 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// the whole Event before it orders the shirts, and the two cannot be the
 	// same address because they are aggregated over different things.
 	//
-	// THE PATH KEEPS ITS HISTORICAL NAME. The read was built as Outstanding
-	// Answers and every bookmark and BFF route points here; what #333 changed
-	// is what the list IS, and `outstanding=true` is where its old definition
-	// went — a filter of the roster, never its definition.
+	// NAMED AFTER THE LIST AND NOT AFTER ONE OF ITS FILTERS (#519, ADR 0065).
+	// The read was built as Outstanding Answers (#313) and kept that name
+	// through #333, which turned Outstanding Answers into `outstanding=true` —
+	// a filter of the roster rather than its definition. ADR 0065 makes it one
+	// filter of seven and hangs a Holder Export off the same path, at which
+	// point an endpoint called `outstanding-answers` would be serving a file
+	// that contradicts it. Renamed now because there is exactly one caller
+	// chain and no public or partner route reaches it; it will never be
+	// cheaper.
 	//
 	// A READ WITH NO STATE BEHIND IT. There is no outstanding_answers table:
 	// the debt is derived on every request from what the Ticket Type asks and
@@ -982,7 +987,22 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// the service answers only when EITHER TICKET_ASSIGNMENT_ENABLED or
 	// TICKET_QUESTIONS_ENABLED is open (#333), because an Organization that
 	// assigns tickets and asks nothing still has a Holder List.
-	mux.Handle("GET /api/v1/staff/events/{id}/outstanding-answers", orgAdmin(http.HandlerFunc(ch.ListHolderList)))
+	holderList := orgAdmin(http.HandlerFunc(ch.ListHolderList))
+	mux.Handle("GET /api/v1/staff/events/{id}/holder-list", holderList)
+	// THE OLD PATH, ALIASED FOR ONE RELEASE, THEN DELETED (#519 → #531).
+	// The staff app and the API deploy separately, so there is a window in
+	// which a new backend serves an old frontend — and with CI and Deploy
+	// refused for billing since 2026-08-28, a bad deploy ordering is caught by
+	// nobody. The alias is the width of that window and nothing more.
+	//
+	// THE SAME HANDLER VALUE and not a second registration of the same
+	// function, so the alias cannot drift: there is one gate, one handler and
+	// one behaviour, and the only difference between the two addresses is the
+	// address. It is deliberately NOT documented in the OpenAPI spec — a
+	// generated client that learns this path would outlive the shim it exists
+	// to cover, and every caller that matters is already being moved to the
+	// new one. Delete this line, not the one above it (#531).
+	mux.Handle("GET /api/v1/staff/events/{id}/outstanding-answers", holderList)
 	mux.Handle("GET /api/v1/staff/tags", member(http.HandlerFunc(ch.SearchTags)))
 	mux.Handle("GET /api/v1/staff/tags/popular", member(http.HandlerFunc(ch.ListPopularTags)))
 	mux.Handle("GET /api/v1/staff/events/{id}/tags", member(http.HandlerFunc(ch.ListEventTags)))

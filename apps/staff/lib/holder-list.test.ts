@@ -11,8 +11,8 @@ import {
   holderName,
   holderStateKey,
   questionsVisible,
-} from "./outstanding-answers.ts";
-import type { HolderListPage, HolderTicket } from "./outstanding-answers.ts";
+} from "./holder-list.ts";
+import type { HolderListPage, HolderTicket } from "./holder-list.ts";
 
 const ticket = (first: string, last: string): HolderTicket => ({
   ticket_id: "tk_1",

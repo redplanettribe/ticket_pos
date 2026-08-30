@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { loadEvent } from "@/lib/staff-event";
 
 import { loadSession } from "../../../../staff-page-shell";
-import { OutstandingAnswersSection } from "../../outstanding-answers-section";
+import { HolderListSection } from "../../holder-list-section";
 
 type HolderListPageProps = {
   params: Promise<{ id: string }>;
@@ -15,6 +15,13 @@ type HolderListPageProps = {
  * the Sales layout, so the Net Proceeds strip and the tab strip stand above it
  * as they do over the list and the chart, and the same roster is no longer
  * offered from the Event panel as well.
+ *
+ * THE OLD ADDRESS IS GONE ENTIRELY (#519). The 308 that stood there for a
+ * release is deleted with the rest of the surface's first name: this is the
+ * only page of the Holder List, and a bookmark from before #469 now 404s rather
+ * than redirecting. A stale staff bookmark is one person clicking the tab
+ * again, and the ADR 0065 rename's compatibility budget is spent on the API
+ * alias, where the two deploys really can disagree.
  */
 export default async function SalesHolderListPage({ params }: HolderListPageProps) {
   const { id } = await params;
@@ -45,5 +52,5 @@ export default async function SalesHolderListPage({ params }: HolderListPageProp
   const event = await loadEvent(id);
   const timezone = event?.timezone ?? null;
 
-  return <OutstandingAnswersSection eventId={id} timezone={timezone} />;
+  return <HolderListSection eventId={id} timezone={timezone} />;
 }

@@ -8,7 +8,17 @@ import (
 	"time"
 )
 
-// The Outstanding Answers derivation (#313).
+// The Outstanding Answers derivation (#313), and the Holder List's roster query
+// beside it.
+//
+// THIS FILE KEEPS ITS NAME while the service and handler beside it were renamed
+// to the Holder List (#519, ADR 0065), because it is the one place that really
+// does hold both things: the DEBT's SQL — the four clauses that mirror
+// catalog.IsOutstandingAnswer — and the ROSTER's, which owes the debt nothing
+// but reuses its FROM and WHERE when `owingOnly` narrows the list. Naming it
+// after either half would lie about the other, and splitting it would put the
+// two statements of one rule in two files, which is exactly what the note below
+// exists to prevent.
 //
 // An Outstanding Answer is a required Ticket Question one Ticket has not
 // answered — DERIVED AND NEVER STORED. There is no table here and there must

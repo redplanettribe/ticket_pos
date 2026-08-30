@@ -16,8 +16,15 @@ async function sessionToken() {
 
 // The Event's Holder List (#333; the Outstanding Answers read of #313, widened
 // to the roster): every Ticket of the Event, who is coming on each, and — where
-// the Event asks questions — what each still owes. The path keeps its
-// historical name.
+// the Event asks questions — what each still owes.
+//
+// NAMED AFTER THE LIST, AT BOTH ENDS (#519, ADR 0065). This route and the API
+// path it calls were both `outstanding-answers` until `outstanding` became one
+// filter of seven. The API still answers on the old path for one release
+// against deploy skew, and this BFF deliberately does NOT use it: an alias
+// exists so that an OLD frontend can reach a NEW backend, and a new frontend
+// calling the old path would keep the shim alive past the release that deletes
+// it (#531).
 //
 // The paging parameters — and the `outstanding` filter — are FORWARDED AND NOT
 // PARSED. The API floors, clamps and defaults them itself, and a second reading
@@ -40,7 +47,7 @@ export async function GET(request: Request, context: RouteContext) {
 
   try {
     const envelope = await callBackend<unknown>(
-      `/api/v1/staff/events/${id}/outstanding-answers${suffix}`,
+      `/api/v1/staff/events/${id}/holder-list${suffix}`,
       { method: "GET", sessionToken: token },
     );
     return NextResponse.json(envelope);

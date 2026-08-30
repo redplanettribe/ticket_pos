@@ -1,6 +1,6 @@
 /**
  * The Event's Holder List as the staff surface reads it (#333; the Outstanding
- * Answers module of #313, widened to the roster).
+ * Answers module of #313, widened to the roster and renamed after it in #519).
  *
  * THE HOLDER LIST IS EVERY TICKET OF THE EVENT: who is coming on each, and —
  * where the Event asks Ticket Questions — which required questions each still
@@ -130,7 +130,7 @@ export type HolderListPage = {
 };
 
 /** The default page size, matching the API's own. */
-export const OUTSTANDING_PAGE_SIZE = 50;
+export const HOLDER_LIST_PAGE_SIZE = 50;
 
 /**
  * Reads a page of the Event's Holder List.
@@ -147,13 +147,13 @@ export async function fetchHolderList(
 ): Promise<HolderListPage> {
   const query = new URLSearchParams({
     page: String(page),
-    page_size: String(OUTSTANDING_PAGE_SIZE),
+    page_size: String(HOLDER_LIST_PAGE_SIZE),
   });
   if (outstandingOnly) {
     query.set("outstanding", "true");
   }
   return fetchEventsJSON<HolderListPage>(
-    `/api/events/${eventId}/outstanding-answers?${query.toString()}`,
+    `/api/events/${eventId}/holder-list?${query.toString()}`,
   );
 }
 

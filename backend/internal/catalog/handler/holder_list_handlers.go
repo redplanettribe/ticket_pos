@@ -61,10 +61,13 @@ func outstandingFilterParam(raw string) bool {
 // ONE ROUTE AND NOT TWO. The Holder List rides on the read #313 built rather
 // than on a second staff endpoint, because both walk the Event's Tickets and an
 // Organizer asking "who is coming" is looking at the same list as an Organizer
-// asking "who has not told me their size". The path keeps its historical name;
-// what changed is what a row IS — every Ticket of every live sale — and that
-// Outstanding Answers became the `outstanding` FILTER on it rather than the
-// list's definition.
+// asking "who has not told me their size". What #333 changed is what a row IS —
+// every Ticket of every live sale — and that Outstanding Answers became the
+// `outstanding` FILTER on it rather than the list's definition; #519 then moved
+// the path to `/holder-list` so the address says the same thing (ADR 0065). The
+// old `/outstanding-answers` path is aliased to this handler for one release
+// against deploy skew and is deleted by #531; it is not documented below,
+// because a generated client must not learn a path that is about to go.
 //
 // A READ AND NOTHING ELSE. There is no act on this route and there is no state
 // behind it: an Outstanding Answer is DERIVED on every read from what the Ticket
@@ -86,7 +89,7 @@ func outstandingFilterParam(raw string) bool {
 // @Failure      401  {object}  platform.Envelope
 // @Failure      403  {object}  platform.Envelope
 // @Failure      404  {object}  platform.Envelope
-// @Router       /api/v1/staff/events/{id}/outstanding-answers [get]
+// @Router       /api/v1/staff/events/{id}/holder-list [get]
 func (h *Handler) ListHolderList(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
 	eventID, ok := pathValueRequired(w, r, reqID, "id")

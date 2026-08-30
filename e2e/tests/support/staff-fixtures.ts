@@ -231,7 +231,7 @@ export async function holderList(
   const page = await call<{ data: HolderListEntry[] }>(
     request,
     "get",
-    `/api/v1/staff/events/${eventId}/outstanding-answers?page_size=50`,
+    `/api/v1/staff/events/${eventId}/holder-list?page_size=50`,
     token,
   );
   return page.data.data;

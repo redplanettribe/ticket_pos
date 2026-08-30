@@ -647,7 +647,7 @@ func TestBackfillRunsWhileAssignmentIsClosed(t *testing.T) {
 	}
 	assertHeldByBuyer(t, tickets, held, "ana@example.com")
 
-	resp, body := env.get(t, outstandingPath(eventID), authHeader(sessionID))
+	resp, body := env.get(t, holderListPath(eventID), authHeader(sessionID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("holder list status=%d error=%+v", resp.StatusCode, body.Error)
 	}

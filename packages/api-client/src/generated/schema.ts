@@ -8052,7 +8052,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/staff/events/{id}/outstanding-answers": {
+    "/api/v1/staff/events/{id}/holder-list": {
         parameters: {
             query?: never;
             header?: never;

@@ -61,7 +61,18 @@ type outstandingAnswers struct {
 	OutstandingCount int `json:"outstanding_count"`
 }
 
-func outstandingPath(eventID string) string {
+// holderListPath is the Holder List's own address (#519, ADR 0065): the list is
+// named after itself and not after `outstanding`, which is one filter of it.
+func holderListPath(eventID string) string {
+	return "/api/v1/staff/events/" + eventID + "/holder-list"
+}
+
+// legacyHolderListPath is the address the list was built at (#313) and kept
+// through #333. Aliased to the same handler for one release against deploy skew
+// and deleted by #531 — at which point this helper and the test that uses it go
+// with it. Nothing else in this file may reach for it: every other test states
+// what the Holder List DOES, and that is the new path's subject.
+func legacyHolderListPath(eventID string) string {
 	return "/api/v1/staff/events/" + eventID + "/outstanding-answers"
 }
 
@@ -78,7 +89,7 @@ func decodeOutstanding(t *testing.T, data json.RawMessage) outstandingAnswers {
 // subject is what is ON the list rather than who may see it.
 func listOutstanding(t *testing.T, env *testEnv, sessionID, eventID string) outstandingAnswers {
 	t.Helper()
-	resp, body := env.get(t, outstandingPath(eventID), authHeader(sessionID))
+	resp, body := env.get(t, holderListPath(eventID), authHeader(sessionID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("outstanding status=%d error=%+v", resp.StatusCode, body.Error)
 	}
@@ -126,7 +137,7 @@ func TestTheHolderListIsInvisibleWhileBothFlagsAreOff(t *testing.T) {
 	// enableTicketAssignment: this is the shipped state.
 	sessionID, eventID, _, _, _, _ := answeredFixture(t, env)
 
-	resp, body := env.get(t, outstandingPath(eventID), authHeader(sessionID))
+	resp, body := env.get(t, holderListPath(eventID), authHeader(sessionID))
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status=%d, want 404 while both features are dark; error=%+v", resp.StatusCode, body.Error)
 	}
@@ -152,7 +163,7 @@ func TestTheHolderListOpensOnAssignmentAlone(t *testing.T) {
 	// nothing at all.
 	sessionID, eventID, _, _, _, ticketIDs := answeredFixture(t, env)
 
-	resp, body := env.get(t, outstandingPath(eventID), authHeader(sessionID))
+	resp, body := env.get(t, holderListPath(eventID), authHeader(sessionID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d error=%+v — an Organization that asks nothing still has a Holder List",
 			resp.StatusCode, body.Error)
@@ -180,7 +191,7 @@ func TestTheHolderListOpensOnAssignmentAlone(t *testing.T) {
 	// The Outstanding Answers filter belongs to the questions feature and is
 	// IGNORED while it is dark, rather than becoming a side channel that
 	// filters by a debt the platform says does not exist.
-	resp, body = env.get(t, outstandingPath(eventID)+"?outstanding=true", authHeader(sessionID))
+	resp, body = env.get(t, holderListPath(eventID)+"?outstanding=true", authHeader(sessionID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("filtered status=%d error=%+v", resp.StatusCode, body.Error)
 	}
@@ -272,7 +283,7 @@ func TestOutstandingAnswersEmptyAsAnswersArrive(t *testing.T) {
 
 	// And the Outstanding Answers FILTER is where the old list went: only the
 	// Ticket that still owes.
-	resp2, body2 := env.get(t, outstandingPath(eventID)+"?outstanding=true", authHeader(sessionID))
+	resp2, body2 := env.get(t, holderListPath(eventID)+"?outstanding=true", authHeader(sessionID))
 	if resp2.StatusCode != http.StatusOK {
 		t.Fatalf("filtered status=%d error=%+v", resp2.StatusCode, body2.Error)
 	}
@@ -530,7 +541,7 @@ func TestOutstandingAnswersArePaged(t *testing.T) {
 		"label": "T-shirt size", "kind": "short_text", "required": true,
 	})
 
-	resp, body := env.get(t, outstandingPath(eventID)+"?page=1&page_size=1", authHeader(sessionID))
+	resp, body := env.get(t, holderListPath(eventID)+"?page=1&page_size=1", authHeader(sessionID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d error=%+v", resp.StatusCode, body.Error)
 	}
@@ -542,7 +553,7 @@ func TestOutstandingAnswersArePaged(t *testing.T) {
 
 	// A page past the last: empty rows, TRUE total. The count is what the screen
 	// says out loud, and it must not depend on which page is being looked at.
-	resp, body = env.get(t, outstandingPath(eventID)+"?page=9&page_size=1", authHeader(sessionID))
+	resp, body = env.get(t, holderListPath(eventID)+"?page=9&page_size=1", authHeader(sessionID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d error=%+v", resp.StatusCode, body.Error)
 	}
@@ -553,7 +564,7 @@ func TestOutstandingAnswersArePaged(t *testing.T) {
 
 	// A nonsense page size falls back to the default rather than refusing: there
 	// is nothing a caller could do about the refusal except send a sane number.
-	resp, body = env.get(t, outstandingPath(eventID)+"?page=nonsense&page_size=-4", authHeader(sessionID))
+	resp, body = env.get(t, holderListPath(eventID)+"?page=nonsense&page_size=-4", authHeader(sessionID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d error=%+v", resp.StatusCode, body.Error)
 	}
@@ -607,7 +618,7 @@ func TestOutstandingAnswersFollowTheTicketType(t *testing.T) {
 	}
 
 	// The Outstanding Answers filter is where "only the owing" lives now.
-	resp, body := env.get(t, outstandingPath(eventID)+"?outstanding=true", authHeader(sessionID))
+	resp, body := env.get(t, holderListPath(eventID)+"?outstanding=true", authHeader(sessionID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("filtered status=%d error=%+v", resp.StatusCode, body.Error)
 	}
@@ -631,7 +642,7 @@ func TestOutstandingAnswersAreScopedAndGated(t *testing.T) {
 
 	otherSession := verifyOTP(t, env, "other@example.com")
 	createOrganization(t, env, otherSession, "Other Org", "other-org")
-	resp, body := env.get(t, outstandingPath(eventID), authHeader(otherSession))
+	resp, body := env.get(t, holderListPath(eventID), authHeader(otherSession))
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status=%d, want 404 across Organizations; error=%+v", resp.StatusCode, body.Error)
 	}
@@ -644,7 +655,7 @@ func TestOutstandingAnswersAreScopedAndGated(t *testing.T) {
 	}
 	staffSessionID := verifyOTP(t, env, "doorstaff@example.com")
 
-	resp, body = env.get(t, outstandingPath(eventID), authHeader(staffSessionID))
+	resp, body = env.get(t, holderListPath(eventID), authHeader(staffSessionID))
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("status=%d, want 403 for event_staff; error=%+v", resp.StatusCode, body.Error)
 	}
@@ -876,7 +887,7 @@ func TestTheGuestListIsAbsentWhileTheAssignmentFlagIsClosed(t *testing.T) {
 	// enableTicketAssignment, which is the shipped state.
 	f := newBuyerAnswersFixture(t, env)
 
-	resp, body := env.get(t, outstandingPath(f.eventID), authHeader(f.staffSession))
+	resp, body := env.get(t, holderListPath(f.eventID), authHeader(f.staffSession))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d error=%+v — closing assignment must not close Ticket Questions",
 			resp.StatusCode, body.Error)
@@ -931,7 +942,7 @@ func TestTheHolderListKeepsAFullyAnsweredTicket(t *testing.T) {
 
 	// The Outstanding Answers filter is the view that narrows: Carla's Ticket
 	// leaves IT, and only it.
-	resp, body := env.get(t, outstandingPath(f.eventID)+"?outstanding=true", authHeader(f.staffSession))
+	resp, body := env.get(t, holderListPath(f.eventID)+"?outstanding=true", authHeader(f.staffSession))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("filtered status=%d error=%+v", resp.StatusCode, body.Error)
 	}
@@ -943,5 +954,61 @@ func TestTheHolderListKeepsAFullyAnsweredTicket(t *testing.T) {
 		if row.TicketID == ticketID {
 			t.Error("the fully answered Ticket is still on the Outstanding Answers filter")
 		}
+	}
+}
+
+// THE OLD PATH ANSWERS IDENTICALLY, FOR ONE RELEASE (#519, ADR 0065).
+//
+// The Holder List moved to an address named after itself rather than after
+// `outstanding`, which ADR 0065 turns into one filter of seven. The staff app
+// and the API deploy separately, so a new API will serve an old frontend for as
+// long as that gap lasts — and with CI and Deploy refused for billing, nothing
+// in the pipeline would catch a bad ordering. So the old path is registered to
+// the SAME handler value and this test is what says so.
+//
+// IT COMPARES THE WHOLE PAYLOAD and not a status code, because the failure this
+// guards against is not a 404 — a 404 anybody would notice on the first click.
+// It is somebody later giving the alias its own registration, its own gate or
+// its own defaults, at which point the two addresses quietly disagree and only
+// the deployment that happens to be skewed finds out. The envelope's request id
+// is the one field allowed to differ; it differs on every request.
+//
+// THIS TEST IS DELETED WITH THE ALIAS (#531). It is not an assertion that the
+// old path should exist — it is the width of the deploy window written down.
+func TestTheOldOutstandingAnswersPathIsAnAliasOfTheHolderList(t *testing.T) {
+	env := setupTest(t)
+	f := newAssignmentFixture(t, env)
+
+	// A filter on the query string too: the alias forwards a request, it does
+	// not re-read one, so whatever the new path honours the old path honours.
+	const query = "?outstanding=true&page=1&page_size=100"
+
+	resp, body := env.get(t, holderListPath(f.eventID)+query, authHeader(f.staffSession))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("holder-list status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	legacyResp, legacyBody := env.get(t, legacyHolderListPath(f.eventID)+query, authHeader(f.staffSession))
+	if legacyResp.StatusCode != resp.StatusCode {
+		t.Fatalf("the old path answers %d where the new one answers %d; error=%+v — the alias is gone or gated differently",
+			legacyResp.StatusCode, resp.StatusCode, legacyBody.Error)
+	}
+	if string(legacyBody.Data) != string(body.Data) {
+		t.Errorf("the old path answers a different body:\n old: %s\n new: %s", legacyBody.Data, body.Data)
+	}
+
+	// The gate is one gate. Event Staff are refused at the old address exactly
+	// as they are at the new one, so the alias cannot become the way around an
+	// Org Admin check somebody forgot to repeat — which is the whole reason it
+	// shares a handler VALUE and not a handler function.
+	addResp, addBody := env.post(t, "/api/v1/staff/members", map[string]string{
+		"email": "aliasdoor@example.com", "role": "event_staff",
+	}, authHeader(f.staffSession))
+	if addResp.StatusCode != http.StatusCreated {
+		t.Fatalf("add member status=%d error=%+v", addResp.StatusCode, addBody.Error)
+	}
+	doorSession := verifyOTP(t, env, "aliasdoor@example.com")
+	doorResp, doorBody := env.get(t, legacyHolderListPath(f.eventID), authHeader(doorSession))
+	if doorResp.StatusCode != http.StatusForbidden {
+		t.Errorf("Event Staff read the old path with status=%d, want 403; error=%+v", doorResp.StatusCode, doorBody.Error)
 	}
 }

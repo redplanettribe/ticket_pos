@@ -31,7 +31,7 @@ import {
   questionsVisible,
   type HolderListPage,
   type HolderTicket,
-} from "@/lib/outstanding-answers";
+} from "@/lib/holder-list";
 
 import { TicketAnswersDialog } from "./ticket-answers-dialog";
 
@@ -65,7 +65,16 @@ type HolderListSectionProps = {
  * anywhere means no Holder column, and no `outstanding_count` means no Owes
  * column, no debt summary and no filter.
  */
-export function OutstandingAnswersSection({ eventId, timezone }: HolderListSectionProps) {
+export function HolderListSection({ eventId, timezone }: HolderListSectionProps) {
+  /*
+    THE MESSAGE NAMESPACE KEEPS THE OLD NAME while the file, the module and the
+    route were renamed to the Holder List (#519, ADR 0065). A namespace is not
+    an address: nothing outside the two catalogs reads it, renaming it would
+    rewrite every key in both Locales, and a translation diff that touches every
+    string of a screen for no change in wording is a diff nobody can review. The
+    words on the screen are the Holder List's; only the key they hang from is
+    historical.
+  */
   const t = useTranslations("outstandingAnswers");
   const sales = useTranslations("sales");
   const errorCopy = useMessages().errors;

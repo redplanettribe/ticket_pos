@@ -12939,7 +12939,7 @@ paths:
       summary: Set event discoverability
       tags:
       - staff
-  /api/v1/staff/events/{id}/outstanding-answers:
+  /api/v1/staff/events/{id}/holder-list:
     get:
       description: 'A page of the Event''s Holder List: EVERY Ticket of every live
         Ticket Sale, oldest sale first — the Organization''s answer to "who is coming".
