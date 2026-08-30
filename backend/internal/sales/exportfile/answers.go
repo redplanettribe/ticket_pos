@@ -272,15 +272,16 @@ const answerDateFormat = "yyyy-mm-dd"
 // answersLayoutFor splices the Event's Ticket Question columns onto the fixed
 // ones, in the order the Organization arranged its catalog and its questions.
 //
-// It is the only place this sheet's layout is decided: the header row is written
+// It is the only place THIS SHEET's layout is decided: the header row is written
 // from it and every column letter is derived from it, exactly as layoutFor does
-// for the data sheet. A question keyed by its own id gets one column; a
-// multiple-choice question contributes no column of its own and one per Option
-// instead, each keyed by the OPTION's id — which is what makes a rename move a
-// heading rather than fork a column.
+// for the data sheet. What the question columns themselves are is emphatically
+// NOT decided here — BuildQuestionColumns decides that, once, for this sheet and
+// for the Holder Export both (#520, ADR 0065). All this function knows is where
+// they are spliced in: after the fixed columns and the Holder, in the order the
+// builder hands them back.
 func answersLayoutFor(answers Answers) layout {
-	questions := answers.Questions
-	width := len(answersFixedColumns) + len(holderColumns) + len(questions)
+	questions := BuildQuestionColumns(answers.Questions)
+	width := len(answersFixedColumns) + len(holderColumns) + questions.Len()
 	out := layout{
 		headers: make([]string, 0, width),
 		index:   make(map[string]int, width),
@@ -299,14 +300,9 @@ func answersLayoutFor(answers Answers) layout {
 			add(col, col)
 		}
 	}
-	for _, q := range questions {
-		if len(q.Options) == 0 {
-			add(q.ID, q.Label)
-			continue
-		}
-		for _, opt := range q.Options {
-			add(opt.ID, opt.Label)
-		}
+	headings := questions.Headings()
+	for i, key := range questions.Keys() {
+		add(key, headings[i])
 	}
 	return out
 }
@@ -319,6 +315,9 @@ func addAnswersSheet(f *excelize.File, answers Answers) error {
 	}
 
 	cols := answersLayoutFor(answers)
+	// The same builder the layout was made from, so the cells a row writes and
+	// the columns they are written to cannot be worked out two different ways.
+	questions := BuildQuestionColumns(answers.Questions)
 	for i, h := range cols.headers {
 		cell, err := excelize.CoordinatesToCellName(i+1, 1)
 		if err != nil {
@@ -349,18 +348,13 @@ func addAnswersSheet(f *excelize.File, answers Answers) error {
 			}
 		}
 
-		for _, q := range answers.Questions {
-			answer, answered := ticket.Answers[q.ID]
-			// An unanswered question leaves ITS WHOLE BLOCK of cells untouched,
-			// and so blank — including every Option column of a multiple-choice
-			// one. Writing FALSE across them would claim this Ticket read the
-			// question and declined every Option, which is a different fact from
-			// never having answered it, and the one CONTEXT.md calls an
-			// Outstanding Answer.
-			if !answered {
-				continue
-			}
-			if err := writeAnswer(f, cols, q, answer, row, dateStyle); err != nil {
+		// What this Ticket said, in cells. Which cells those are — including
+		// whether an unanswered question leaves its whole block blank and how a
+		// multiple-choice Answer fans out across its Options — is CellsFor's
+		// decision and not this sheet's, because the Holder Export must make it
+		// identically.
+		for _, cell := range questions.CellsFor(ticket.Answers) {
+			if err := writeAnswer(f, cols, cell, row, dateStyle); err != nil {
 				return err
 			}
 		}
@@ -417,32 +411,18 @@ func writeHolder(f *excelize.File, cols layout, ticket TicketRow, row int) error
 	return nil
 }
 
-// writeAnswer writes one Ticket's Answer to one Ticket Question, in whichever
-// shape that question takes.
-func writeAnswer(f *excelize.File, cols layout, q QuestionColumn, answer Answer, row int, dateStyle int) error {
-	// A multiple-choice question: every Option column is written, TRUE for the
-	// ones this Answer chose and FALSE for the rest. The FALSEs are written
-	// BECAUSE the question was answered — they are what makes the column
-	// countable, and a pivot over an Option that reads half blanks and half
-	// FALSEs counts neither.
-	if len(q.Options) > 0 {
-		chosen := make(map[string]bool, len(answer.Chosen))
-		for _, id := range answer.Chosen {
-			chosen[id] = true
-		}
-		for _, opt := range q.Options {
-			cell, err := cellRef(cols, opt.ID, row)
-			if err != nil {
-				return err
-			}
-			if err := f.SetCellBool(AnswersSheet, cell, chosen[opt.ID]); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	cell, err := cellRef(cols, q.ID, row)
+// writeAnswer writes one AnswerCell to this sheet, in whichever shape the value
+// takes.
+//
+// IT NO LONGER DECIDES WHICH CELLS EXIST — CellsFor does, for this sheet and the
+// Holder Export both. What is left here is the part that is genuinely about
+// writing to a spreadsheet: which excelize call a text, a number, a date or a
+// boolean takes, and the date style. A multiple-choice Option arrives as an
+// ordinary Checked Answer and goes down the same boolean branch as a checkbox,
+// which is why there is no fan-out in sight.
+func writeAnswer(f *excelize.File, cols layout, ac AnswerCell, row int, dateStyle int) error {
+	answer := ac.Value
+	cell, err := cellRef(cols, ac.Key, row)
 	if err != nil {
 		return err
 	}
