@@ -22,7 +22,7 @@
  * unit-testable under the fast runner.
  */
 
-import { fetchEventsJSON } from "./events-api.ts";
+import { ApiError, fetchEventsJSON } from "./events-api.ts";
 import type { TicketQuestionKind } from "./ticket-questions.ts";
 
 /**
@@ -570,6 +570,90 @@ export async function fetchHolderList(
   return fetchEventsJSON<HolderListPage>(
     `/api/events/${eventId}/holder-list?${query.toString()}`,
   );
+}
+
+/**
+ * The BFF path for the Holder Export under the given filters and sort (#529,
+ * ADR 0065).
+ *
+ * IT IS BUILT FROM THE SAME APPEND HELPERS THE URL AND THE FETCH USE, and that
+ * identity is the whole basis of the file's claim to mirror the screen. A path
+ * assembled by hand here could drift by one parameter — a filter forgotten, a
+ * sort spelled differently — and the file would come back narrower or wider than
+ * the roster the reader was looking at, with nothing on either surface saying
+ * so.
+ *
+ * PAGINATION IS DELIBERATELY ABSENT: the file is the whole answer, not a page of
+ * it, and the API ignores the page parameters regardless.
+ */
+export function holderExportPath(
+  eventId: string,
+  filters: HolderListFilters,
+  sort: HolderSortField = DEFAULT_HOLDER_SORT,
+  dir: HolderSortDir = DEFAULT_HOLDER_DIR,
+): string {
+  const params = new URLSearchParams();
+  appendHolderListFilters(params, filters);
+  appendHolderSort(params, sort, dir);
+  const query = params.toString();
+  return `/api/events/${eventId}/holder-list/export${query ? `?${query}` : ""}`;
+}
+
+/**
+ * Reads the download's filename out of a Content-Disposition header. The API
+ * decides the name so it is decided in one place; this only reads it back,
+ * falling back to a plain name if the header is missing.
+ */
+function holderExportFilenameFrom(disposition: string | null): string {
+  const match = disposition?.match(/filename="?([^"]+)"?/);
+  return match?.[1] ?? "holder-export.xlsx";
+}
+
+/**
+ * Fetches the Holder Export and saves it as a file.
+ *
+ * IT FETCHES A BLOB RATHER THAN NAVIGATING TO THE URL, and that is required
+ * rather than cosmetic: the endpoint returns a FILE on success and a JSON error
+ * envelope on failure, so a plain link would send the browser to raw JSON
+ * whenever the export was refused — and the row-cap refusal, which is the one
+ * message in this feature that has to be read, would be invisible. Fetching also
+ * lets the caller show a spinner while a large roster is built.
+ *
+ * The envelope is re-thrown WHOLE — message, code and details — rather than
+ * pre-worded here. Choosing the sentence is the call site's job: it reads
+ * `exportFieldMessage` first, then the catalog by code, then its own copy, and
+ * none of those three answers can be spelled in lib/.
+ */
+export async function downloadHolderExport(
+  eventId: string,
+  filters: HolderListFilters,
+  sort: HolderSortField = DEFAULT_HOLDER_SORT,
+  dir: HolderSortDir = DEFAULT_HOLDER_DIR,
+): Promise<void> {
+  const response = await fetch(holderExportPath(eventId, filters, sort, dir));
+  if (!response.ok) {
+    const envelope = (await response.json().catch(() => null)) as {
+      error?: { message?: string; code?: string; details?: unknown };
+    } | null;
+    throw new ApiError(
+      envelope?.error?.message ?? "",
+      envelope?.error?.code,
+      envelope?.error?.details as Record<string, unknown> | undefined,
+    );
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = holderExportFilenameFrom(response.headers.get("Content-Disposition"));
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 /**

@@ -390,6 +390,7 @@
     "problemTooManyOptions": "Son más opciones de las que ofrece esta pregunta."
   },
   "outstandingAnswers": {
+    "exportFailed": "No se pudo descargar la lista de titulares.",
     "title": "Lista de Titulares",
     "description": "Todas las entradas de este evento y quién viene con cada una — y, donde el evento hace preguntas, lo que cada entrada todavía no ha respondido. Nunca se rechazó nada por falta de una respuesta, así que lo que se debe es sencillamente lo que queda por conseguir.",
     "summary": "{answers, plural, one {# respuesta pendiente} other {# respuestas pendientes}} en todo el evento · {tickets, plural, one {# entrada} other {# entradas}} en esta vista",

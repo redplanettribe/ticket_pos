@@ -300,110 +300,30 @@ func (s *Service) ListHolderList(
 	if err != nil {
 		return nil, err
 	}
-	// A FILTER BELONGING TO A DARK FEATURE IS SILENTLY DROPPED HERE, NEVER
-	// REFUSED — and this is the general rule for every such filter on this
-	// list, stated once in this paragraph because #525's named-question filter
-	// and anything after it must follow it rather than re-decide it (ADR 0065,
-	// "a dark feature's filter: ignored, chosen; refused with a 400" —
-	// rejected).
-	//
-	// THREE REASONS, IN THE ORDER THEY MATTER:
-	//
-	//   - A REFUSAL WOULD TURN A STALE BOOKMARK INTO AN ERROR PAGE. The view
-	//     lives in the URL (#522), so a link shared before a flag closed — or
-	//     one pasted from a deployment where it is open — must keep working. It
-	//     comes back WIDER than it was, which the filter bar shows by drawing
-	//     that control empty or not at all.
-	//
-	//   - A REFUSAL WOULD FORCE THE CLIENT TO KNOW THE FLAG, which is precisely
-	//     what ADR 0045 exists to prevent: the staff app holds no copy of a
-	//     deployment flag and decides which controls exist from what the payload
-	//     CONTAINS. A 400 would make it either hold a second copy of the flag or
-	//     show a control that errors.
-	//
-	//   - AND A FILTERED READ MUST NOT BE A SIDE CHANNEL. A build with the
-	//     feature dark has to answer exactly as a build without the feature
-	//     would; a refusal naming `assignment_state` would admit the parameter
-	//     exists, which is a tell about unshipped work.
-	//
-	// The cost is stated and accepted: the reader sees more rows than they
-	// asked for. On a READ that is the right way round — a roster wider than
-	// intended is visibly wide, while a 400 hides the roster entirely. It would
-	// NOT be the right way round on the Holder Export, where the file must
-	// describe only the filters actually honoured (ADR 0065), precisely so that
-	// nobody reads a whole roster believing it is a filtered one.
-	//
-	// OWING and the NAMED QUESTION belong to Ticket Questions, and ASSIGNMENT
-	// STATE to Ticket Assignment; the two flags are separate, so each filter is
-	// closed by its own. The three structural filters need no such treatment — a Ticket Type,
-	// a Sales Channel and a sale date exist on every build. NEITHER DOES SEARCH
-	// (#526): a buyer's name, a buyer's address and a Sale Confirmation
-	// reference are on every roster, and the one part of it that belongs to
-	// Ticket Assignment — an accepted Holder's name and address — is bounded by
-	// the predicate rather than by a flag, so on a build with assignment dark
-	// that branch matches nothing because nobody has ever accepted.
-	owingOnly := params.OwingOnly && s.ticketQuestionsEnabled
-	// The named-question filter (#525) is Ticket Questions' too, and is dropped
-	// HERE, on the rule stated above and not on an argument of its own: with the
-	// feature dark there are no questions to name, the control does not exist,
-	// and a URL carrying `question_id` comes back as the whole roster with a
-	// 200. Everything the three bullets above say about `assignment_state`
-	// applies to it word for word.
-	questionID := ""
-	if s.ticketQuestionsEnabled {
-		questionID = params.QuestionID
-	}
-	assignmentState := ""
-	if s.ticketAssignmentEnabled {
-		assignmentState = params.AssignmentState
-	}
-	// THE `owes` SORT IS TICKET QUESTIONS' TOO, and is dropped here on the rule
-	// stated above rather than on an argument of its own (#527). It is offered
-	// only where the questions side of the list exists at all, exactly as the
-	// Owes column it orders on is: with the feature dark there are no debts to
-	// rank, the control does not exist, and a URL carrying `sort=owes` comes
-	// back as the roster in the DEFAULT ORDER with a 200 — ignored, never
-	// refused. Everything the three bullets above say applies to it word for
-	// word.
-	//
-	// THE DIRECTION GOES WITH IT, and that is the part worth stating. Dropping
-	// the field alone would leave `sort=owes&dir=desc` reading as the default
-	// FIELD in the reader's direction — newest sale first, which is neither
-	// what they asked for nor the order this list defaults to. Half a sort is
-	// not a sort, on this side of the wire as much as in the URL.
-	//
-	// THE OTHER FOUR SORTS BELONG TO NO FLAG, for the reason search does not
-	// (#526): a sale's date, a buyer, a Ticket Type and an accepted Holder's
-	// name exist on every build. The `holder` sort simply finds every row blank
-	// on a build with Ticket Assignment closed, and its blanks-last rule puts
-	// them where they already were.
-	sort, dir := params.Sort, params.Dir
-	if sort == holderSortOwes && !s.ticketQuestionsEnabled {
-		sort, dir = "", ""
-	}
+	honoured := s.honourHolderFilters(params)
 
 	// The Event's own zone, so a date bound means the day it meant to whoever
 	// typed it into the filter bar. The Event was already read by the gate
 	// above, so this costs no query of its own.
 	loc := resolveEventLocation(event.Timezone.String)
-	soldFrom, soldTo := dateRangeBounds(params.SoldFrom, params.SoldTo, loc)
+	soldFrom, soldTo := dateRangeBounds(honoured.SoldFrom, honoured.SoldTo, loc)
 
 	page, pageSize := params.Page, params.PageSize
 	tickets, total, err := s.repo.ListHolderTickets(ctx, repository.ListHolderTicketsQuery{
 		OrganizationID: actor.OrganizationID,
 		EventID:        eventID,
-		OwingOnly:      owingOnly,
-		QuestionID:     questionID,
+		OwingOnly:      honoured.OwingOnly,
+		QuestionID:     honoured.QuestionID,
 		// Passed through on every build: search belongs to no flag, and the
 		// disclosure rule it is bounded by lives in the predicate, not here.
-		Search:          params.Search,
-		AssignmentState: assignmentState,
-		TicketTypeID:    params.TicketTypeID,
-		Channel:         params.Channel,
+		Search:          honoured.Search,
+		AssignmentState: honoured.AssignmentState,
+		TicketTypeID:    honoured.TicketTypeID,
+		Channel:         honoured.Channel,
 		SoldFrom:        soldFrom,
 		SoldTo:          soldTo,
-		Sort:            sort,
-		Dir:             dir,
+		Sort:            honoured.Sort,
+		Dir:             honoured.Dir,
 		Limit:           pageSize,
 		Offset:          (page - 1) * pageSize,
 	})
@@ -477,6 +397,105 @@ func (s *Service) ListHolderList(
 		result.Data = append(result.Data, view)
 	}
 	return result, nil
+}
+
+// honourHolderFilters answers which of a request's filters this build actually
+// APPLIES, by returning the parameters with every filter belonging to a dark
+// feature blanked out.
+//
+// IT IS THE ONE PLACE THAT DECISION IS MADE, and it is a function rather than a
+// paragraph inline because it has TWO callers now (#529): the Holder List read
+// above, and the Holder Export, whose Info sheet and audit line must describe
+// ONLY THE FILTERS ACTUALLY HONOURED. A second copy of these four rules would be
+// a file that claims a narrowing the query never performed — see below.
+//
+// A FILTER BELONGING TO A DARK FEATURE IS SILENTLY DROPPED HERE, NEVER
+// REFUSED — and this is the general rule for every such filter on this
+// list, stated once in this paragraph because #525's named-question filter
+// and anything after it must follow it rather than re-decide it (ADR 0065,
+// "a dark feature's filter: ignored, chosen; refused with a 400" —
+// rejected).
+//
+// THREE REASONS, IN THE ORDER THEY MATTER:
+//
+//   - A REFUSAL WOULD TURN A STALE BOOKMARK INTO AN ERROR PAGE. The view
+//     lives in the URL (#522), so a link shared before a flag closed — or
+//     one pasted from a deployment where it is open — must keep working. It
+//     comes back WIDER than it was, which the filter bar shows by drawing
+//     that control empty or not at all.
+//
+//   - A REFUSAL WOULD FORCE THE CLIENT TO KNOW THE FLAG, which is precisely
+//     what ADR 0045 exists to prevent: the staff app holds no copy of a
+//     deployment flag and decides which controls exist from what the payload
+//     CONTAINS. A 400 would make it either hold a second copy of the flag or
+//     show a control that errors.
+//
+//   - AND A FILTERED READ MUST NOT BE A SIDE CHANNEL. A build with the
+//     feature dark has to answer exactly as a build without the feature
+//     would; a refusal naming `assignment_state` would admit the parameter
+//     exists, which is a tell about unshipped work.
+//
+// The cost is stated and accepted: the reader sees more rows than they
+// asked for. On a READ that is the right way round — a roster wider than
+// intended is visibly wide, while a 400 hides the roster entirely.
+//
+// AND IT IS WHY THIS FUNCTION RETURNS ITS ANSWER RATHER THAN APPLYING IT. On the
+// HOLDER EXPORT the cost above is NOT acceptable on its own: a file whose Info
+// sheet claims "only Tickets whose holder has accepted" over a complete roster
+// would have somebody reading every attendee of the Event believing they were
+// reading a filtered few, and acting on the difference. The export therefore
+// describes ITS RETURN VALUE and never the request — the words on the cover sheet
+// and the fields in the audit line are built from what this function honoured,
+// so a dropped filter is a filter the file has never heard of.
+//
+// OWING and the NAMED QUESTION belong to Ticket Questions, and ASSIGNMENT
+// STATE to Ticket Assignment; the two flags are separate, so each filter is
+// closed by its own. The three structural filters need no such treatment — a Ticket Type,
+// a Sales Channel and a sale date exist on every build. NEITHER DOES SEARCH
+// (#526): a buyer's name, a buyer's address and a Sale Confirmation
+// reference are on every roster, and the one part of it that belongs to
+// Ticket Assignment — an accepted Holder's name and address — is bounded by
+// the predicate rather than by a flag, so on a build with assignment dark
+// that branch matches nothing because nobody has ever accepted.
+func (s *Service) honourHolderFilters(params ListHolderListParams) ListHolderListParams {
+	honoured := params
+	honoured.OwingOnly = params.OwingOnly && s.ticketQuestionsEnabled
+	// The named-question filter (#525) is Ticket Questions' too, and is dropped
+	// HERE, on the rule stated above and not on an argument of its own: with the
+	// feature dark there are no questions to name, the control does not exist,
+	// and a URL carrying `question_id` comes back as the whole roster with a
+	// 200. Everything the three bullets above say about `assignment_state`
+	// applies to it word for word.
+	if !s.ticketQuestionsEnabled {
+		honoured.QuestionID = ""
+	}
+	if !s.ticketAssignmentEnabled {
+		honoured.AssignmentState = ""
+	}
+	// THE `owes` SORT IS TICKET QUESTIONS' TOO, and is dropped here on the rule
+	// stated above rather than on an argument of its own (#527). It is offered
+	// only where the questions side of the list exists at all, exactly as the
+	// Owes column it orders on is: with the feature dark there are no debts to
+	// rank, the control does not exist, and a URL carrying `sort=owes` comes
+	// back as the roster in the DEFAULT ORDER with a 200 — ignored, never
+	// refused. Everything the three bullets above say applies to it word for
+	// word.
+	//
+	// THE DIRECTION GOES WITH IT, and that is the part worth stating. Dropping
+	// the field alone would leave `sort=owes&dir=desc` reading as the default
+	// FIELD in the reader's direction — newest sale first, which is neither
+	// what they asked for nor the order this list defaults to. Half a sort is
+	// not a sort, on this side of the wire as much as in the URL.
+	//
+	// THE OTHER FOUR SORTS BELONG TO NO FLAG, for the reason search does not
+	// (#526): a sale's date, a buyer, a Ticket Type and an accepted Holder's
+	// name exist on every build. The `holder` sort simply finds every row blank
+	// on a build with Ticket Assignment closed, and its blanks-last rule puts
+	// them where they already were.
+	if params.Sort == holderSortOwes && !s.ticketQuestionsEnabled {
+		honoured.Sort, honoured.Dir = "", ""
+	}
+	return honoured
 }
 
 // holderListAvailable is the Holder List's own gate: the read is available when

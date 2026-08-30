@@ -354,7 +354,7 @@ func addAnswersSheet(f *excelize.File, answers Answers) error {
 		// decision and not this sheet's, because the Holder Export must make it
 		// identically.
 		for _, cell := range questions.CellsFor(ticket.Answers) {
-			if err := writeAnswer(f, cols, cell, row, dateStyle); err != nil {
+			if err := writeAnswer(f, AnswersSheet, cols, cell, row, dateStyle); err != nil {
 				return err
 			}
 		}
@@ -420,7 +420,12 @@ func writeHolder(f *excelize.File, cols layout, ticket TicketRow, row int) error
 // boolean takes, and the date style. A multiple-choice Option arrives as an
 // ordinary Checked Answer and goes down the same boolean branch as a checkbox,
 // which is why there is no fan-out in sight.
-func writeAnswer(f *excelize.File, cols layout, ac AnswerCell, row int, dateStyle int) error {
+//
+// THE SHEET IS A PARAMETER SINCE #529, and it has to be: the Holder Export writes
+// its Answers onto its own sheet through this same function, so that the two
+// files cannot come to disagree about how a number, a date or a FALSE is spelled
+// in a cell. Nothing else about the function differs between the two callers.
+func writeAnswer(f *excelize.File, sheet string, cols layout, ac AnswerCell, row int, dateStyle int) error {
 	answer := ac.Value
 	cell, err := cellRef(cols, ac.Key, row)
 	if err != nil {
@@ -428,13 +433,13 @@ func writeAnswer(f *excelize.File, cols layout, ac AnswerCell, row int, dateStyl
 	}
 	switch {
 	case answer.Text != nil:
-		return f.SetCellStr(AnswersSheet, cell, *answer.Text)
+		return f.SetCellStr(sheet, cell, *answer.Text)
 	case answer.Number != nil:
 		// A real number, at the precision it was given. Not SetCellFloat with a
 		// fixed scale: a `number` question may be asked for a headcount or for a
 		// measurement, and the schema stores it as unconstrained NUMERIC rather
 		// than round somebody's answer away.
-		return f.SetCellValue(AnswersSheet, cell, *answer.Number)
+		return f.SetCellValue(sheet, cell, *answer.Number)
 	case answer.Date != nil:
 		// A real date cell, and pointedly NOT converted into the Event's
 		// timezone the way sold_at is. A date Answer is a CALENDAR DATE — a
@@ -444,14 +449,14 @@ func writeAnswer(f *excelize.File, cols layout, ac AnswerCell, row int, dateStyl
 		// rebuilt at midnight UTC so excelize reads no offset off it at all.
 		d := *answer.Date
 		midnight := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC)
-		if err := f.SetCellValue(AnswersSheet, cell, midnight); err != nil {
+		if err := f.SetCellValue(sheet, cell, midnight); err != nil {
 			return err
 		}
 		// Set after the value: excelize stamps a default date-and-time style of
 		// its own when writing a time, and this replaces it with the date alone.
-		return f.SetCellStyle(AnswersSheet, cell, cell, dateStyle)
+		return f.SetCellStyle(sheet, cell, cell, dateStyle)
 	case answer.Checked != nil:
-		return f.SetCellBool(AnswersSheet, cell, *answer.Checked)
+		return f.SetCellBool(sheet, cell, *answer.Checked)
 	}
 	// An Answer with nothing set writes nothing. The write path cannot produce
 	// one — migration 073's CHECK refuses a row claiming to be two kinds at once

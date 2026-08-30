@@ -390,6 +390,7 @@
     "problemTooManyOptions": "That is more options than this question offers."
   },
   "outstandingAnswers": {
+    "exportFailed": "Could not download the holder list.",
     "title": "Holder List",
     "description": "Every ticket of this event and who is coming on it — and, where the event asks questions, what each ticket has not answered yet. Nothing was ever refused for want of an answer, so what is owed is simply what is still to be chased.",
     "summary": "{answers, plural, one {# outstanding answer} other {# outstanding answers}} across the whole event · {tickets, plural, one {# ticket} other {# tickets}} in this view",

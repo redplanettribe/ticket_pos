@@ -1029,6 +1029,24 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// to cover, and every caller that matters is already being moved to the
 	// new one. Delete this line, not the one above it (#531).
 	mux.Handle("GET /api/v1/staff/events/{id}/outstanding-answers", holderList)
+	// THE HOLDER EXPORT (#529, ADR 0065): the same roster, under the same
+	// filters, handed over as an .xlsx.
+	//
+	// THE SAME GATE AS THE READ ABOVE, and that is deliberate rather than
+	// incidental: `eventOwnerOrAdmin` is what the Holder List read carries, what
+	// the Sales Export beside it carries, and what ADR 0065 settles for holder
+	// data on both surfaces. A gate on the page with a wider one on the download
+	// of it — or the reverse — is the arrangement #521 was opened to end. EVENT
+	// STAFF ARE REFUSED here exactly as they are on the read; they work the door,
+	// and this file is the platform's densest concentration of attendee personal
+	// data in a form that is forwarded and kept.
+	//
+	// It is registered SEPARATELY rather than sharing the handler value above,
+	// because it is a different handler doing a different thing — a file, not a
+	// page — and the shared-value trick up there exists to keep an ALIAS of one
+	// route from drifting, which this is not. What must not drift is the GATE, and
+	// that is one call to the same middleware standing two lines apart.
+	mux.Handle("GET /api/v1/staff/events/{id}/holder-list/export", eventOwnerOrAdmin(http.HandlerFunc(ch.ExportHolderList)))
 	mux.Handle("GET /api/v1/staff/tags", member(http.HandlerFunc(ch.SearchTags)))
 	mux.Handle("GET /api/v1/staff/tags/popular", member(http.HandlerFunc(ch.ListPopularTags)))
 	mux.Handle("GET /api/v1/staff/events/{id}/tags", member(http.HandlerFunc(ch.ListEventTags)))

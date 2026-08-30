@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -332,44 +333,110 @@ func (h *Handler) ListHolderList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The filters, the search and the sort, read by the SHARED parser this route
+	// and the Holder Export both use (#529): the file exists to hand back what
+	// this screen was showing, and two readings of one query string would be two
+	// chances for the two to disagree. Every filter belonging to a feature flag is
+	// parsed unconditionally here and DROPPED BY THE SERVICE while that feature is
+	// dark — no flag is read in this layer, because the handler has none and the
+	// rule about dark filters is stated once, in honourHolderFilters.
+	//
+	// Only the PAGE is this route's own: the Holder Export takes the whole answer.
 	query := r.URL.Query()
-	result, err := h.svc.ListHolderList(
-		r.Context(), actorFromRequest(r), eventID,
-		service.ListHolderListParams{
-			Page:      outstandingPageParam(query.Get("page")),
-			PageSize:  outstandingPageSizeParam(query.Get("page_size")),
-			OwingOnly: outstandingFilterParam(query.Get("outstanding")),
-			// The named-question filter belongs to Ticket Questions and is
-			// dropped by the service while that feature is dark, beside
-			// `outstanding` — no flag is read here, for the reason given below.
-			QuestionID: holderQuestionParam(query.Get("question_id")),
-			// The search term, trimmed and passed through. It belongs to no
-			// flag — a buyer, a reference and an accepted Holder are the three
-			// things it matches, and the third is bounded by the predicate
-			// rather than by a flag. NEVER LOGGED; see holderSearchParam.
-			Search: holderSearchParam(query.Get("q")),
-			// The assignment-state filter belongs to Ticket Assignment. It is
-			// parsed unconditionally and DROPPED BY THE SERVICE while that
-			// feature is dark — no flag is read here, because the handler has
-			// none and the rule about dark filters is stated once, in
-			// ListHolderList.
-			AssignmentState: holderAssignmentStateParam(query.Get("assignment_state")),
-			TicketTypeID:    holderTicketTypeParam(query.Get("ticket_type_id")),
-			Channel:         holderChannelParam(query.Get("channel")),
-			SoldFrom:        holderDateParam(query.Get("sold_from")),
-			SoldTo:          holderDateParam(query.Get("sold_to")),
-			// The order. Allowlisted here and again in the repository, which is
-			// the only place a parameter on this list reaches SQL as a fragment.
-			// `owes` belongs to Ticket Questions and is dropped BY THE SERVICE
-			// while that feature is dark, beside `outstanding` — no flag is read
-			// here, because the handler has none.
-			Sort: holderSortParam(query.Get("sort")),
-			Dir:  holderDirParam(query.Get("dir")),
-		},
-	)
+	params := holderListFilterParams(query)
+	params.Page = outstandingPageParam(query.Get("page"))
+	params.PageSize = outstandingPageSizeParam(query.Get("page_size"))
+
+	result, err := h.svc.ListHolderList(r.Context(), actorFromRequest(r), eventID, params)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
 	}
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
+}
+
+// holderListFilterParams reads the Holder List's filters, its search and its
+// sort off a query string, with the pagination LEFT OUT.
+//
+// ONE PARSER FOR THE SCREEN AND THE FILE (#529). The Holder Export exists to
+// hand back what the list was showing, and two readings of the same query string
+// would be two chances for the file and the screen to disagree about which view
+// the reader was looking at. Every leniency argued at length above therefore
+// applies identically to the download: a malformed date, an unknown channel or a
+// hand-edited sort is IGNORED on both, so a stale bookmark produces a wide file
+// rather than an error page — and the Info sheet then says, in words, which
+// filters were actually applied, which is what keeps the wide file honest.
+//
+// PAGINATION IS THE ONE THING NOT CARRIED OVER, and the caller supplies it: a
+// file is the whole answer, not a page of it.
+func holderListFilterParams(query url.Values) service.ListHolderListParams {
+	return service.ListHolderListParams{
+		OwingOnly:       outstandingFilterParam(query.Get("outstanding")),
+		QuestionID:      holderQuestionParam(query.Get("question_id")),
+		Search:          holderSearchParam(query.Get("q")),
+		AssignmentState: holderAssignmentStateParam(query.Get("assignment_state")),
+		TicketTypeID:    holderTicketTypeParam(query.Get("ticket_type_id")),
+		Channel:         holderChannelParam(query.Get("channel")),
+		SoldFrom:        holderDateParam(query.Get("sold_from")),
+		SoldTo:          holderDateParam(query.Get("sold_to")),
+		Sort:            holderSortParam(query.Get("sort")),
+		Dir:             holderDirParam(query.Get("dir")),
+	}
+}
+
+// ExportHolderList returns the Event's Holder List as an .xlsx, narrowed and
+// ordered by exactly the same parameters as the list itself.
+//
+// @Summary      Export an Event's Holder List as a spreadsheet
+// @Description  Returns an .xlsx of the Event's Holder List — ONE ROW PER TICKET — reflecting exactly the filters and the sort supplied, so the file matches the screen it was taken from. Accepts the SAME query parameters as the Holder List (q, outstanding, question_id, assignment_state, ticket_type_id, channel, sold_from/sold_to, sort, dir) and parses them with the list's own helper, so the two cannot drift; the pagination parameters are ignored, since a file is the whole answer. An unusable filter is IGNORED rather than refused, exactly as on the list, and so is a filter belonging to a feature flag this deployment has closed. It is a NEW ARTIFACT and not the Sales Export: that file is one row per Ticket SALE with money on it and is completely unchanged, while this one is one row per TICKET and carries NO MONEY AT ALL — no amount, no net proceeds, no currency — so neither can be mistaken for the other or forwarded as a financial document. Columns, left to right: confirmation_ref (the Sale Confirmation reference, to join back onto the Sales Export), sold_at, channel, ticket_type, ticket_ordinal, customer_first_name, customer_last_name, customer_email, then — while Ticket Assignment is open — assignment_state, never_accepted, holder_first_name, holder_last_name, holder_email, then one column per Ticket Question and one TRUE/FALSE column per option where a question takes several. The ordinal is carried here and deliberately not on the Sales Export's per-Ticket sheet: a row here is a Ticket, and the ordinal is the only thing telling two Tickets of one sale line apart. AN UNACCEPTED HOLDER'S ADDRESS IS NOWHERE IN THE FILE (ADR 0047): the rows are built from the same decision the Holder List screen is drawn from, so a Ticket somebody was named for and never accepted exports the word `assigned` and three blank cells, and a Ticket whose unaccepted address the retention purge took exports `assigned` with never_accepted TRUE. Cells are really typed: sold_at is an Excel date cell formatted `yyyy-mm-dd hh:mm` drawn in the Event's timezone, the ordinal is a whole number, never_accepted and each multiple-choice option are real booleans, and a date answer is a real calendar-date cell. The workbook has exactly two sheets. `Info` comes first and is the active sheet on open: it names the Event, the generated-at moment, the timezone named outright as the Event's, the row count, and — in words rather than as query parameters — ONLY THE FILTERS ACTUALLY HONOURED, so a filter this deployment ignored is never described as having been applied and nobody reads a whole roster believing it is a filtered one. It states THAT a free-text search was applied and never the term, which matches customer addresses. The data sheet is named `Ticket Holders` and deliberately not `Sales`: the Sale Import parser selects its sheet by that name, so an export accidentally uploaded as an import fails rather than duplicating every sale. It carries nothing above its header row, so select-all, autofilter and pivot source ranges work without deleting a preamble — which is why the stamp is a sheet of its own. The filename is set by Content-Disposition as `holders-{event-slug}-{YYYY-MM-DD}.xlsx`. Generation is synchronous and the workbook is buffered in memory, so the file is CAPPED at 50,000 Tickets — its own ceiling with its own reason, and deliberately not the Sales Export's cap, which exists to mirror what a Sale Import would take back and does not transfer to a file nobody imports. A request whose filters match MORE than the cap builds nothing and is refused with the standard VALIDATION_FAILED envelope, carrying one field error on `filters` whose message names how many TICKETS matched and how many may be downloaded at once; nothing is ever truncated, and exactly the cap succeeds. One structured log line is written per generated file — the acting Member, Organization, Event, the honoured structural filters, the sort and the row count — because this is the platform's densest concentration of attendee personal data and "who pulled the guest list" cannot be answered retroactively. The search is recorded in it as a boolean only, for the reason it is absent from the file. Restricted to Org Admins and Event Owners, the same gate as the Holder List read; Event Staff are refused. 404 while BOTH the Ticket Assignment and the Ticket Question feature flags are dark, exactly as the list is.
+// @Tags         staff
+// @Produce      application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+// @Security     BearerAuth
+// @Param        id               path   string  true   "Event ID"
+// @Param        q                query  string  false  "Case-insensitive substring over the buyer's name and email, the Sale Confirmation reference, and — for an ACCEPTED Holder only — that Holder's name and email"
+// @Param        outstanding      query  bool    false  "Only the Tickets that still owe a required Answer"
+// @Param        question_id      query  string  false  "Only the Tickets owing this one Ticket Question an Answer"
+// @Param        assignment_state query  string  false  "Only the Tickets in this assignment state"  Enums(unassigned, assigned, accepted, never_accepted)
+// @Param        ticket_type_id   query  string  false  "Only the Tickets of this Ticket Type"
+// @Param        channel          query  string  false  "Only the Tickets of sales on this Sales Channel"  Enums(online, in_person, import)
+// @Param        sold_from        query  string  false  "Only the Tickets of sales made on or after this calendar day (YYYY-MM-DD), read in the Event's timezone"
+// @Param        sold_to          query  string  false  "Only the Tickets of sales made on or before this calendar day (YYYY-MM-DD), read in the Event's timezone — the whole day is included"
+// @Param        sort             query  string  false  "Order the roster by (default sold_at)"  Enums(sold_at, buyer, holder, ticket_type, owes)
+// @Param        dir              query  string  false  "Sort direction (default asc — oldest sale first)"  Enums(asc, desc)
+// @Success      200
+// @Failure      400  {object}  platform.Envelope
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/holder-list/export [get]
+func (h *Handler) ExportHolderList(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+	eventID, ok := pathValueRequired(w, r, reqID, "id")
+	if !ok {
+		return
+	}
+
+	export, fieldErrs, err := h.svc.ExportHolderList(
+		r.Context(), actorFromRequest(r), eventID,
+		holderListFilterParams(r.URL.Query()),
+	)
+	if len(fieldErrs) > 0 {
+		// More matching Tickets than one file may carry. It is VALIDATION_FAILED
+		// rather than a domain error because the answer is something the caller
+		// changes about their request — the filters, which the staff app has on
+		// screen beside the button — and the same envelope every other refusal on
+		// this API uses means the client has one error path to render, not two.
+		_ = platform.WriteValidationError(w, reqID, fieldErrs)
+		return
+	}
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+export.Filename+"\"")
+	w.Header().Set("X-Request-ID", reqID)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(export.Data)
 }

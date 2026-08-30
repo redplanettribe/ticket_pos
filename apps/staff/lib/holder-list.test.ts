@@ -17,6 +17,7 @@ import {
   hasActiveHolderListFilters,
   holderBadgeVariant,
   holderListEmptyStateKey,
+  holderExportPath,
   holderListQuery,
   holderListVisible,
   holderName,
@@ -648,4 +649,63 @@ test("sorting the view does not change which empty state it says", () => {
     assert.ok(sorted.includes("outstanding=true"));
     assert.equal(holderListEmptyStateKey(filters({ outstanding: true })), "nothingOutstanding");
   }
+});
+
+// --- the Holder Export's URL (#529, ADR 0065) ------------------------------
+
+/*
+  THE FILE MIRRORS THE SCREEN, AND THIS IS WHERE THAT PROMISE IS KEPT ON THIS
+  SIDE OF THE WIRE. `holderExportPath` is built from the SAME two append helpers
+  as `holderListQuery` and `fetchHolderList`, so the address bar, the list
+  request and the download cannot describe three different rosters. These tests
+  are what notices if somebody ever assembles it by hand "just for the export".
+
+  The comparison is against `holderListQuery` itself rather than against
+  hand-written strings, because the property is an IDENTITY and not a spelling:
+  a filter renamed in the URL must move both, or neither test means anything.
+*/
+
+test("the export path carries exactly the filters the URL carries", () => {
+  for (const view of [
+    filters(),
+    filters({ outstanding: true }),
+    filters({ q: "ana@example.com" }),
+    filters({ questionId: "q-1", assignmentState: "never_accepted" }),
+    filters({ ticketTypeId: "tt-1", channel: "online" }),
+    filters({ soldFrom: "2026-07-01", soldTo: "2026-07-31" }),
+  ]) {
+    assert.equal(
+      holderExportPath("evt-1", view),
+      `/api/events/evt-1/holder-list/export${holderListQuery(1, view)}`,
+    );
+  }
+});
+
+test("the export path carries a non-default sort whole, and omits the default", () => {
+  assert.equal(holderExportPath("evt-1", filters()), "/api/events/evt-1/holder-list/export");
+  assert.equal(
+    holderExportPath("evt-1", filters(), DEFAULT_HOLDER_SORT, DEFAULT_HOLDER_DIR),
+    "/api/events/evt-1/holder-list/export",
+  );
+  assert.equal(
+    holderExportPath("evt-1", filters(), "holder", "desc"),
+    "/api/events/evt-1/holder-list/export?sort=holder&dir=desc",
+  );
+});
+
+// PAGINATION IS DELIBERATELY ABSENT: the file is the whole answer, not a page of
+// it. A page number reaching the download would hand somebody fifty of their
+// four hundred attendees with nothing in the file saying so.
+test("the export path never carries a page", () => {
+  const path = holderExportPath("evt-1", filters({ outstanding: true }), "buyer", "desc");
+  assert.ok(!path.includes("page"), path);
+});
+
+// The filters are ENCODED, not interpolated: a search term with a `&` or a space
+// in it must not split into two parameters or truncate the search.
+test("the export path escapes a search term", () => {
+  assert.equal(
+    holderExportPath("evt-1", filters({ q: "a b&c=d" })),
+    "/api/events/evt-1/holder-list/export?q=a+b%26c%3Dd",
+  );
 });

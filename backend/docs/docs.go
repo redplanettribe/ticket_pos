@@ -15786,6 +15786,186 @@ const docTemplate = `{
                 ]
             }
         },
+        "/api/v1/staff/events/{id}/holder-list/export": {
+            "get": {
+                "description": "Returns an .xlsx of the Event's Holder List — ONE ROW PER TICKET — reflecting exactly the filters and the sort supplied, so the file matches the screen it was taken from. Accepts the SAME query parameters as the Holder List (q, outstanding, question_id, assignment_state, ticket_type_id, channel, sold_from/sold_to, sort, dir) and parses them with the list's own helper, so the two cannot drift; the pagination parameters are ignored, since a file is the whole answer. An unusable filter is IGNORED rather than refused, exactly as on the list, and so is a filter belonging to a feature flag this deployment has closed. It is a NEW ARTIFACT and not the Sales Export: that file is one row per Ticket SALE with money on it and is completely unchanged, while this one is one row per TICKET and carries NO MONEY AT ALL — no amount, no net proceeds, no currency — so neither can be mistaken for the other or forwarded as a financial document. Columns, left to right: confirmation_ref (the Sale Confirmation reference, to join back onto the Sales Export), sold_at, channel, ticket_type, ticket_ordinal, customer_first_name, customer_last_name, customer_email, then — while Ticket Assignment is open — assignment_state, never_accepted, holder_first_name, holder_last_name, holder_email, then one column per Ticket Question and one TRUE/FALSE column per option where a question takes several. The ordinal is carried here and deliberately not on the Sales Export's per-Ticket sheet: a row here is a Ticket, and the ordinal is the only thing telling two Tickets of one sale line apart. AN UNACCEPTED HOLDER'S ADDRESS IS NOWHERE IN THE FILE (ADR 0047): the rows are built from the same decision the Holder List screen is drawn from, so a Ticket somebody was named for and never accepted exports the word ` + "`" + `assigned` + "`" + ` and three blank cells, and a Ticket whose unaccepted address the retention purge took exports ` + "`" + `assigned` + "`" + ` with never_accepted TRUE. Cells are really typed: sold_at is an Excel date cell formatted ` + "`" + `yyyy-mm-dd hh:mm` + "`" + ` drawn in the Event's timezone, the ordinal is a whole number, never_accepted and each multiple-choice option are real booleans, and a date answer is a real calendar-date cell. The workbook has exactly two sheets. ` + "`" + `Info` + "`" + ` comes first and is the active sheet on open: it names the Event, the generated-at moment, the timezone named outright as the Event's, the row count, and — in words rather than as query parameters — ONLY THE FILTERS ACTUALLY HONOURED, so a filter this deployment ignored is never described as having been applied and nobody reads a whole roster believing it is a filtered one. It states THAT a free-text search was applied and never the term, which matches customer addresses. The data sheet is named ` + "`" + `Ticket Holders` + "`" + ` and deliberately not ` + "`" + `Sales` + "`" + `: the Sale Import parser selects its sheet by that name, so an export accidentally uploaded as an import fails rather than duplicating every sale. It carries nothing above its header row, so select-all, autofilter and pivot source ranges work without deleting a preamble — which is why the stamp is a sheet of its own. The filename is set by Content-Disposition as ` + "`" + `holders-{event-slug}-{YYYY-MM-DD}.xlsx` + "`" + `. Generation is synchronous and the workbook is buffered in memory, so the file is CAPPED at 50,000 Tickets — its own ceiling with its own reason, and deliberately not the Sales Export's cap, which exists to mirror what a Sale Import would take back and does not transfer to a file nobody imports. A request whose filters match MORE than the cap builds nothing and is refused with the standard VALIDATION_FAILED envelope, carrying one field error on ` + "`" + `filters` + "`" + ` whose message names how many TICKETS matched and how many may be downloaded at once; nothing is ever truncated, and exactly the cap succeeds. One structured log line is written per generated file — the acting Member, Organization, Event, the honoured structural filters, the sort and the row count — because this is the platform's densest concentration of attendee personal data and \"who pulled the guest list\" cannot be answered retroactively. The search is recorded in it as a boolean only, for the reason it is absent from the file. Restricted to Org Admins and Event Owners, the same gate as the Holder List read; Event Staff are refused. 404 while BOTH the Ticket Assignment and the Ticket Question feature flags are dark, exactly as the list is.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Case-insensitive substring over the buyer's name and email, the Sale Confirmation reference, and — for an ACCEPTED Holder only — that Holder's name and email",
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only the Tickets that still owe a required Answer",
+                        "in": "query",
+                        "name": "outstanding",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "description": "Only the Tickets owing this one Ticket Question an Answer",
+                        "in": "query",
+                        "name": "question_id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only the Tickets in this assignment state",
+                        "in": "query",
+                        "name": "assignment_state",
+                        "schema": {
+                            "enum": [
+                                "unassigned",
+                                "assigned",
+                                "accepted",
+                                "never_accepted"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only the Tickets of this Ticket Type",
+                        "in": "query",
+                        "name": "ticket_type_id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only the Tickets of sales on this Sales Channel",
+                        "in": "query",
+                        "name": "channel",
+                        "schema": {
+                            "enum": [
+                                "online",
+                                "in_person",
+                                "import"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only the Tickets of sales made on or after this calendar day (YYYY-MM-DD), read in the Event's timezone",
+                        "in": "query",
+                        "name": "sold_from",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only the Tickets of sales made on or before this calendar day (YYYY-MM-DD), read in the Event's timezone — the whole day is included",
+                        "in": "query",
+                        "name": "sold_to",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Order the roster by (default sold_at)",
+                        "in": "query",
+                        "name": "sort",
+                        "schema": {
+                            "enum": [
+                                "sold_at",
+                                "buyer",
+                                "holder",
+                                "ticket_type",
+                                "owes"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sort direction (default asc — oldest sale first)",
+                        "in": "query",
+                        "name": "dir",
+                        "schema": {
+                            "enum": [
+                                "asc",
+                                "desc"
+                            ],
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                                "schema": {
+                                    "format": "binary",
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Export an Event's Holder List as a spreadsheet",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
         "/api/v1/staff/events/{id}/publish": {
             "post": {
                 "description": "Publishes a draft catalog event when required fields and its way in are present: at least one ticket type, or a registration link when the event registers externally.",

@@ -24,6 +24,11 @@ import { useLocale, useMessages, useTranslations } from "next-intl";
 import { SortableHeader } from "@/components/sortable-header";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
+// The Sales Export's field-error reader, REUSED rather than re-coined: both
+// downloads refuse over a row cap with a VALIDATION_FAILED whose useful sentence
+// is the field error underneath the generic top-level message, and two readers
+// of one envelope shape is how one of them comes to show boilerplate.
+import { exportFieldMessage } from "@/lib/sales-api";
 import { formatDate, formatNumber } from "@/lib/format";
 import {
   EMPTY_HOLDER_LIST_FILTERS,
@@ -33,6 +38,7 @@ import {
   SALES_CHANNEL_KEYS,
   buyerName,
   defaultHolderDirFor,
+  downloadHolderExport,
   fetchHolderList,
   hasActiveHolderListFilters,
   holderBadgeVariant,
@@ -85,6 +91,17 @@ type HolderListSectionProps = {
   dir: HolderSortDir;
   /** The Event's timezone, so a sale date reads where the Event is. */
   timezone: string | null;
+  /**
+   * Whether this reader may download the Holder Export (#529): an Org Admin or
+   * an Event Owner, never Event Staff.
+   *
+   * A PROP AND NOT A ROLE READ HERE. The page already computes the role for its
+   * own redirect guard, and a client component that read the session again would
+   * be a second opinion about who this reader is — one that could disagree with
+   * the guard it stands behind. Nothing here is the security boundary either
+   * way: the API refuses independently, on the same gate as the list itself.
+   */
+  canExport: boolean;
 };
 
 /**
@@ -160,6 +177,7 @@ export function HolderListSection({
   sort,
   dir,
   timezone,
+  canExport,
 }: HolderListSectionProps) {
   /*
     THE MESSAGE NAMESPACE KEEPS THE OLD NAME while the file, the module and the
@@ -623,21 +641,26 @@ export function HolderListSection({
               THE DOWNLOAD CONTROL BELONGS HERE, beside the filters it obeys, so
               what pressing it will produce is legible before it is pressed —
               the Sales Export's arrangement, and the reason the Holder Export
-              can claim the file mirrors the screen. #529 adds it in this row,
-              after the Clear:
-
-                {canExport ? <HolderExportButton ... /> : null}
+              can claim the file mirrors the screen (#529). It sits AFTER the
+              Clear, and the row is now drawn whenever EITHER control has
+              something to offer: the download is available on an unfiltered
+              roster too, where the file is simply everybody.
             */}
-            {filtersActive ? (
+            {filtersActive || canExport ? (
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => navigate(1, EMPTY_HOLDER_LIST_FILTERS)}
-                >
-                  {sales("clearFilters")}
-                </Button>
+                {filtersActive ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => navigate(1, EMPTY_HOLDER_LIST_FILTERS)}
+                  >
+                    {sales("clearFilters")}
+                  </Button>
+                ) : null}
+                {canExport ? (
+                  <HolderExportButton eventId={eventId} filters={filters} sort={sort} dir={dir} />
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -966,5 +989,97 @@ function HolderCell({ ticket }: HolderCellProps) {
         {t(holderStateKey(ticket))}
       </Badge>
     </td>
+  );
+}
+
+type HolderExportButtonProps = {
+  eventId: string;
+  filters: HolderListFilters;
+  sort: HolderSortField;
+  dir: HolderSortDir;
+};
+
+/**
+ * Downloads the Holder Export for the view currently on screen (#529, ADR
+ * 0065).
+ *
+ * IT FETCHES A BLOB RATHER THAN LINKING to the endpoint, because the endpoint
+ * answers with a FILE on success and a JSON error envelope on failure: a plain
+ * link would send the browser to raw JSON on a refusal, and the error would go
+ * unseen. The busy state and the inline message both follow from that —
+ * generating a roster takes a moment, and the complaint belongs beside the
+ * filters that are the way to fix it.
+ *
+ * It follows `SalesExportButton` deliberately and almost line for line: two
+ * download buttons on two tabs of one screen that behaved differently would be
+ * two things for a reader to learn, and the difference would be in which errors
+ * they can see.
+ */
+function HolderExportButton({ eventId, filters, sort, dir }: HolderExportButtonProps) {
+  // TWO NAMESPACES, ON PURPOSE. The BUTTON's words are the `sales` catalog's,
+  // reused verbatim — "Download .xlsx" and "Preparing…" say the same thing on
+  // both tabs of this screen, and re-coining them is how a Spanish reader comes
+  // to meet two names for one control. The LAST-RESORT FAILURE SENTENCE is this
+  // screen's own, because "Could not download the sales" would be false about a
+  // roster.
+  const sales = useTranslations("sales");
+  const t = useTranslations("outstandingAnswers");
+  const errorCopy = useMessages().errors;
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleDownload() {
+    setDownloading(true);
+    setError(null);
+    try {
+      await downloadHolderExport(eventId, filters, sort, dir);
+    } catch (downloadError: unknown) {
+      /*
+        Three rungs, in this order and for a reason.
+
+        THE FIELD ERROR'S OWN SENTENCE COMES FIRST, and it is the one message on
+        this surface that deliberately stays the API's English: the row-cap
+        refusal names how many TICKETS matched and how many may travel at once,
+        and those numbers reach this app only inside that prose — the field error
+        carries no details a Spanish sentence could be filled from. A translated
+        "narrow your filters" would therefore be Spanish with the one actionable
+        fact deleted, which is worse for the reader than English with it (ADR
+        0023's floor exists for exactly this). Then the catalog by code, then
+        this surface's own words for a request that never reached the API.
+      */
+      const apiError = downloadError instanceof ApiError ? downloadError : null;
+      setError(
+        exportFieldMessage(apiError?.details) ??
+          apiErrorMessage(errorCopy, apiError) ??
+          t("exportFailed"),
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return (
+    <>
+      {/* Its own full-width line inside the wrapping row: the refusal that
+          matters here is a whole sentence naming a count and pointing back at
+          the filters, and squeezed beside the button it would be a column of two
+          words. It stays in this row so it reads as an answer to the button,
+          right where the filters that caused it are. */}
+      {error ? (
+        <span role="alert" className="basis-full text-right text-sm text-destructive">
+          {error}
+        </span>
+      ) : null}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={downloading}
+        aria-busy={downloading}
+        onClick={handleDownload}
+      >
+        {downloading ? sales("preparingDownload") : sales("downloadXlsx")}
+      </Button>
+    </>
   );
 }

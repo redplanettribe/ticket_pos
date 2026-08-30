@@ -227,7 +227,8 @@ export default async function SalesHolderListPage({ params, searchParams }: Hold
   // REDIRECTS to the list rather than refusing, the way Record and Trends
   // answer the same URL. The API refuses independently; nothing here is the
   // security boundary.
-  if (role !== "org_admin" && role !== "event_owner") {
+  const canExport = role === "org_admin" || role === "event_owner";
+  if (!canExport) {
     redirect(`/events/${id}/sales`);
   }
 
@@ -269,6 +270,17 @@ export default async function SalesHolderListPage({ params, searchParams }: Hold
       sort={parseHolderSort(resolvedSearchParams.sort)}
       dir={parseHolderDir(resolvedSearchParams.dir)}
       timezone={timezone}
+      /*
+        WHO MAY DOWNLOAD THE HOLDER EXPORT (#529), computed from the role this
+        page ALREADY read for its redirect above rather than read again in the
+        client component. One reading of who this person is, used twice: a second
+        one could disagree with the guard it stands behind, and the disagreement
+        would show as a button that 403s. Today it is `true` on every render that
+        gets this far — the redirect saw to that — and it is passed explicitly
+        anyway, so that widening either gate is a visible edit rather than a
+        silent consequence of the other.
+      */
+      canExport={canExport}
     />
   );
 }
