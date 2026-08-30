@@ -13003,8 +13003,29 @@ paths:
         can be listed on their own; and `sold_from`/`sold_to` are calendar days (`YYYY-MM-DD`)
         READ IN THE EVENT''S TIMEZONE, inclusive of the whole end day, so "sold in
         January" means January where the Event is and not where the reader is standing,
-        matching the Sales list. `pagination.total` reflects the FILTERED view, so
-        the page count never promises pages that do not exist. An unusable filter
+        matching the Sales list. `sort` orders the roster FIVE ways and `dir` reverses
+        each: `sold_at` (the DEFAULT, and it is `asc` — oldest sale first, unchanged,
+        because the roster reads as the chronology of who joined the Event and this
+        screen is already in use), `buyer` (last name then first, matching the Sales
+        list''s `customer`), `holder` (the accepted Holder''s name), `ticket_type`
+        (THE EVENT''S OWN CATALOG DISPLAY ORDER and deliberately not alphabetical,
+        so Early Bird / General / VIP stays the order an Organization chose, the same
+        `sort_order` the Sales Export''s columns and the Trends'' legend read) and
+        `owes` (how many required Answers the Ticket still owes, so the worst offenders
+        can be chased first). ROWS WITH NO HOLDER NAME SORT LAST IN BOTH DIRECTIONS
+        under `sort=holder`, which deliberately breaks the convention that descending
+        is the reverse of ascending (ADR 0065): on an Event where most Tickets are
+        unassigned the conventional flip makes one of the two directions useless,
+        opening on hundreds of empty cells. A blank here is a missing name and not
+        only a NULL — an accepted Holder who never named themselves sorts with the
+        blanks. Every sort carries a deterministic tiebreak beneath it, so paging
+        a list never duplicates a Ticket and never loses one; the default order additionally
+        keeps one sale''s Tickets together and in ordinal order, as it always has.
+        `owes` belongs to the Ticket Question feature and is IGNORED while that flag
+        is closed — the roster comes back in the DEFAULT order with a 200, direction
+        included, never a 400. An unknown `sort` or `dir` is likewise the default
+        order rather than a refusal. `pagination.total` reflects the FILTERED view,
+        so the page count never promises pages that do not exist. An unusable filter
         is IGNORED, never refused: a malformed date, an unknown channel or a malformed
         Ticket Type id leaves that dimension unfiltered, because a stale bookmark
         should be a wide roster the reader can see is wide, not an error page. There
@@ -13087,6 +13108,27 @@ paths:
         in: query
         name: sold_to
         schema:
+          type: string
+      - description: 'Order the roster by: sold_at (default), buyer, holder, ticket_type
+          (the Event''s catalog display order, not alphabetical) or owes — `owes`
+          is ignored while Ticket Questions are dark'
+        in: query
+        name: sort
+        schema:
+          enum:
+          - sold_at
+          - buyer
+          - holder
+          - ticket_type
+          - owes
+          type: string
+      - description: Sort direction (default asc — oldest sale first)
+        in: query
+        name: dir
+        schema:
+          enum:
+          - asc
+          - desc
           type: string
       responses:
         "200":

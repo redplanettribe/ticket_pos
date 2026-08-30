@@ -255,6 +255,56 @@ const holderRosterHolderJoin = `
 	LEFT JOIN customers hc ON hc.id = tk.holder_customer_id
 `
 
+// holderRosterOwesJoin counts, per Ticket, HOW MUCH THAT TICKET OWES — the
+// number the `owes` sort orders on (#527, ADR 0065), so an Organization can put
+// the worst offenders at the top and chase them first.
+//
+// IT REUSES THE DEBT'S OWN SQL, outstandingAnswerFrom and outstandingAnswerWhere
+// VERBATIM, exactly as holderRosterOwingOnly and holderRosterOwingQuestion do.
+// The header of this file says why the rule lives exactly twice, in
+// catalog.IsOutstandingAnswer and in those four clauses; a third statement of it
+// written to make a column to sort on would be the FIRST to drift, and it would
+// drift on the retired-question case, which is the one nobody thinks about — a
+// list ordered by a debt that includes questions the Organization has stopped
+// asking, sitting beside an Owes column that does not. The two would disagree on
+// the same screen, in the same row, and the sort would look like a rendering bug.
+//
+// A GROUPED DERIVED TABLE AND NOT A CORRELATED SCALAR SUB-QUERY, and the reason
+// is mechanical rather than a preference. The debt's FROM binds the aliases `tk`,
+// `l`, `s` and `tt` — the SAME aliases the roster binds — so inside a correlated
+// sub-query `tk.id` would resolve to the INNER Ticket and the correlation could
+// not be written at all. Grouping by the inner `tk.id` and correlating in the
+// JOIN's own ON clause, where only the outer aliases are in scope, is the same
+// answer with the shadowing moved somewhere it cannot bite. `COUNT(*)` over
+// outstandingAnswerFrom counts (Ticket, required question) pairs, which is what
+// the Owes column lists and therefore what a reader means by "owes more".
+//
+// IT CANNOT CHANGE A COUNT, and that is what makes it safe to add to the page
+// query alone: the GROUP BY yields at most one row per Ticket and the join is
+// LEFT and on that Ticket's primary key, so it can neither drop a row nor
+// multiply one — holderRosterHolderJoin's property, for holderRosterHolderJoin's
+// reason. The COUNT query does not carry it because nothing in a WHERE reads it;
+// an ORDER BY is the only thing that ever will.
+//
+// A TICKET OWING NOTHING HAS NO ROW HERE AND SORTS AS ZERO, through the
+// COALESCE in holderSortColumns. It is still on the roster: this is a sort, not
+// the `outstanding` filter, and a fully answered Ticket stays on the list.
+//
+// Parameterised for holderRosterWhere's reason, and with the SAME two scope
+// arguments in the same order: the sub-query re-states the scope rather than
+// inheriting it, because its aliases shadow the roster's and an unscoped
+// derivation here would count another Organization's debts against this
+// Organization's Tickets.
+const holderRosterOwesJoin = `
+	LEFT JOIN (
+		SELECT tk.id AS ticket_id, COUNT(*) AS owed
+	` + outstandingAnswerFrom + `
+		WHERE ` + outstandingAnswerWhere + `
+		AND s.event_id = $%d AND s.organization_id = $%d
+		GROUP BY tk.id
+	) owes ON owes.ticket_id = tk.id
+`
+
 // holderRosterSearch is the roster's search predicate: one case-insensitive
 // substring over the buyer's name and address, the Sale Confirmation reference,
 // and — FOR AN ACCEPTED HOLDER ONLY — that Holder's name and address (#526,
@@ -423,6 +473,151 @@ var holderRosterAssignmentStates = map[string]string{
 	"unassigned": `tk.accepted_at IS NULL
 			AND tk.holder_address_purged_at IS NULL
 			AND (tk.holder_email IS NULL OR tk.holder_email = '' OR tk.assigned_at IS NULL)`,
+}
+
+// The Holder List's FIVE SORTS (#527, ADR 0065). Everything down to
+// holderOrderBy is one decision written in three pieces: what may be sorted on,
+// what counts as a blank, and how the two are assembled with a tiebreak beneath
+// them.
+
+// holderSortSoldAt is the DEFAULT, and holderSortOwes is the one that belongs to
+// a feature flag. Named rather than spelled as literals because both are tested
+// against by name — the fallback below and the service's dark-flag rule.
+const (
+	holderSortSoldAt = "sold_at"
+	holderSortOwes   = "owes"
+)
+
+// holderSortColumns maps an allowlisted sort key to the ordered list of primary
+// ORDER BY columns for that sort. Because these values come from a fixed
+// allowlist — enforced here by the map lookup itself, and again in the handler —
+// they are safe to interpolate into the query; nothing a caller types reaches
+// the SQL. Same arrangement as sales/repository.salesSortColumns, deliberately,
+// because the two staff lists must not have two ideas about sorting.
+//
+// `sold_at` CARRIES THREE COLUMNS AND NOT ONE, AND THAT IS THE WHOLE OF "THE
+// DEFAULT ORDER DOES NOT CHANGE". The roster has always come back
+// `s.sold_at, s.id, tk.ordinal`, and those last two are ORDER and not decoration:
+// they keep one buyer's four Tickets together and in the order they were minted,
+// which is what the screen shows today and what several tests assert. Reducing
+// them to a bare id tiebreak would scatter a sale's Tickets into UUID order — a
+// silent reordering of a screen people already use, which is precisely the change
+// this ticket exists to refuse.
+//
+// `buyer` IS THE SALES LIST'S `customer`, CLAUSE FOR CLAUSE: last name then
+// first, so a roster and a ledger read the same way to the same person.
+//
+// `holder` READS THE JOINED CUSTOMER ROW (hc) and never `tickets` — a Ticket has
+// no name on it, and the name exists only because somebody ACCEPTED. Its blanks
+// are the subject of holderSortBlanksLast below.
+//
+// `ticket_type` SORTS BY `tt.sort_order`, THE EVENT'S OWN CATALOG DISPLAY ORDER,
+// and deliberately NOT by `tt.name`. An Organization orders its catalog on
+// purpose — Early Bird, General, VIP — and alphabetically that is General, VIP,
+// Early Bird, which is nobody's idea of the list. The Sales Export's columns and
+// the Trends' legend already read `tt.sort_order` for the same reason, and a
+// third surface disagreeing with them would look like a bug in one of the three.
+//
+// `owes` SORTS ON THE DEBT COUNT holderRosterOwesJoin derives, COALESCEd because
+// a Ticket owing nothing has no row in that derivation and must sort as zero
+// rather than as NULL. It is the one key here that needs a join of its own, which
+// is why holderOrderBy reports whether it was chosen.
+var holderSortColumns = map[string][]string{
+	holderSortSoldAt: {"s.sold_at", "s.id", "tk.ordinal"},
+	"buyer":          {"s.customer_last_name", "s.customer_first_name"},
+	"holder":         {"hc.last_name", "hc.first_name"},
+	"ticket_type":    {"tt.sort_order"},
+	holderSortOwes:   {"COALESCE(owes.owed, 0)"},
+}
+
+// holderSortBlanksLast names, per sort, the expression that is 1 when the row's
+// key is BLANK and 0 when it is not. It is applied as a LEADING ORDER BY key,
+// ALWAYS ASCENDING, whichever direction the reader asked for.
+//
+// THIS DELIBERATELY BREAKS THE CONVENTION THAT DESCENDING IS THE REVERSE OF
+// ASCENDING, and it is not an oversight to be tidied up. On a real Event most
+// Tickets have no accepted Holder — every Ticket nobody was named for, every one
+// named and never claimed, and ALL of them on a build where Ticket Assignment is
+// closed. Under the conventional flip, one of the two directions opens on three
+// hundred empty cells and the reader scrolls past all of them to reach the first
+// name: the control is useless in half its range, which is a worse defect than
+// the inconsistency. ADR 0065 records the choice and the alternative it beat.
+// Sorting Z→A must therefore be read as "names, backwards, then the blanks" and
+// never as "the ascending page, upside down".
+//
+// A CASE EXPRESSION AND NOT `NULLS LAST`, and the difference is not cosmetic:
+// `NULLS LAST` would miss half the blanks. `customers.first_name` and
+// `last_name` are `TEXT NOT NULL`, so a Holder who accepted their Assignment
+// and never got round to naming themselves has EMPTY STRINGS and not NULLs —
+// a row that draws as an empty cell, sorts to the very front of an ascending
+// list under `NULLS LAST`, and would make the option look broken on exactly the
+// Events that use it. The CASE tests what the reader sees is blank, which is the
+// property this rule is actually about; `hc.last_name IS NULL` (an unaccepted
+// Ticket, and the common case) and `hc.last_name = ''` (an accepted Holder who
+// never named themselves) both answer 1.
+//
+// ONLY `holder` IS IN THIS MAP, AND THE OTHER FOUR WERE CHECKED RATHER THAN
+// ASSUMED. `sold_at` and `ticket_type` are NOT NULL columns of rows that must
+// exist for a Ticket to exist at all. `owes` has no blank: a Ticket owing
+// nothing is a ZERO and not an absence, and zero is a meaningful end of that
+// scale — pushing it last would hide precisely the Tickets a reader sorting
+// ascending is looking for. `buyer` is the near miss and is deliberately left
+// out: `ticket_sales.customer_first_name`/`customer_last_name` are NOT NULL and
+// a Manually Recorded Sale may leave one half empty, but never both — a sale has
+// a buyer by construction, so the column is not blank-heavy and a handful of
+// half-names is not worth breaking the convention twice.
+var holderSortBlanksLast = map[string]string{
+	"holder": `CASE WHEN COALESCE(hc.last_name, '') = '' AND COALESCE(hc.first_name, '') = ''
+			THEN 1 ELSE 0 END`,
+}
+
+// holderOrderBy builds the roster's ORDER BY from a validated sort key and
+// direction, and reports whether the debt-count join holderRosterOwesJoin has to
+// be added for it. An unrecognised key falls back to the default — oldest sale
+// first — rather than erroring, which is the same leniency every other parameter
+// on this list has and what makes a stale bookmark a roster instead of a 500.
+//
+// THE DIRECTION DEFAULTS TO ASCENDING, and this list is the one place on the
+// platform where that is right: the Sales list opens on the newest sale because
+// it is a ledger being watched, and the roster opens on the oldest because it is
+// a list being worked through. `dir` is compared case-insensitively for the
+// handler's leniency, and anything that is not `desc` is ascending.
+//
+// EVERY SORT ENDS IN `tk.id`, AND THAT IS NOT OPTIONAL. Without a key that is
+// unique per row, two Tickets with equal primary values may come back in one
+// order on page 1 and another on page 2 — which does not merely look untidy, it
+// DUPLICATES one Ticket across the two pages and DROPS another entirely, and a
+// roster that loses a person is worse than one that is badly ordered. `tk.id` is
+// the narrowest thing that is genuinely unique here: the row IS a Ticket, the
+// column is the table's primary key, and it is already selected by the page
+// query. Neither `s.id` nor `tk.ordinal` would do on its own — a sale of four
+// Tickets shares one, and two lines of one sale each start their ordinals at 1.
+//
+// The tiebreak takes the reader's direction, as salesOrderBy's does. Which way
+// it points cannot affect stability — it only has to be the SAME way on every
+// page of one view — and following the direction keeps a reversed list the exact
+// reverse of itself wherever the blanks rule is not in play.
+func holderOrderBy(sort, dir string) (string, bool) {
+	cols, ok := holderSortColumns[sort]
+	if !ok {
+		sort = holderSortSoldAt
+		cols = holderSortColumns[sort]
+	}
+	direction := "ASC"
+	if strings.EqualFold(dir, "desc") {
+		direction = "DESC"
+	}
+
+	parts := make([]string, 0, len(cols)+2)
+	// The blanks key first, and ASC in both directions — see holderSortBlanksLast.
+	if blank, blanksLast := holderSortBlanksLast[sort]; blanksLast {
+		parts = append(parts, blank+" ASC")
+	}
+	for _, col := range cols {
+		parts = append(parts, col+" "+direction)
+	}
+	parts = append(parts, "tk.id "+direction)
+	return "ORDER BY " + strings.Join(parts, ", "), sort == holderSortOwes
 }
 
 // TicketSaleHasOutstandingAnswers reports whether ANY Ticket of one Ticket Sale
@@ -671,6 +866,28 @@ type ListHolderTicketsQuery struct {
 	// SO ARE payment_method AND source, for the plainer reason: they are facts
 	// about a SALE with no meaning on a roster, and the Sales list next door
 	// already filters by both.
+
+	// Sort and Dir choose the order — one of the five keys in
+	// holderSortColumns, and `asc` or `desc` (#527). THE ONLY FIELDS ON THIS
+	// STRUCT THAT ARE INTERPOLATED INTO SQL RATHER THAN BOUND AS ARGUMENTS,
+	// which the note at the head of this type warned would one day be true: an
+	// ORDER BY cannot be a placeholder. They arrive with an ALLOWLIST for
+	// exactly that reason, and holderOrderBy answers an unrecognised value with
+	// the default order rather than with an error, so a hand-edited URL is a
+	// roster and not a 500.
+	//
+	// EMPTY MEANS THE DEFAULT — oldest sale first — and the default is
+	// UNCHANGED from what this list has always returned. See holderSortColumns:
+	// `sold_at` carries `s.id` and `tk.ordinal` beneath it because those were
+	// always part of the order, not a tiebreak bolted on.
+	//
+	// `owes` BELONGS TO TICKET QUESTIONS and the service drops it while that
+	// feature is dark, beside OwingOnly and QuestionID — at which point this
+	// field arrives empty and the roster comes back in the default order.
+	// Nothing here knows about flags.
+	Sort string
+	Dir  string
+
 	//
 	// Limit and Offset page the result. Limit must be positive; see the refusal
 	// at the top of ListHolderTickets.
@@ -693,9 +910,22 @@ type ListHolderTicketsQuery struct {
 // pagination totals describe the filtered view rather than the roster behind
 // it. Two queries assembling their own conditions would be two views, and the
 // screen would say "1 of 12 pages" over four rows.
+// holderRosterScopeEventArg and holderRosterScopeOrgArg are the positions of the
+// two scope arguments, which holderRosterFilters appends FIRST and every
+// sub-query that re-states the scope reads by name.
+//
+// CONSTANTS AND NOT TWO LOCALS, since #527. The owes join (holderRosterOwesJoin)
+// is assembled by ListHolderTickets rather than by the filter builder, so it
+// would otherwise have to write `1` and `2` by hand on the strength of a comment
+// — the exact fragility holderRosterWhere stopped being a constant to avoid.
+const (
+	holderRosterScopeEventArg = 1
+	holderRosterScopeOrgArg   = 2
+)
+
 func holderRosterFilters(q ListHolderTicketsQuery) (string, []any) {
 	args := []any{q.EventID, q.OrganizationID}
-	eventP, orgP := 1, 2
+	eventP, orgP := holderRosterScopeEventArg, holderRosterScopeOrgArg
 
 	where := fmt.Sprintf(holderRosterWhere, eventP, orgP)
 
@@ -784,10 +1014,15 @@ func holderRosterFilters(q ListHolderTicketsQuery) (string, []any) {
 // Tickets that owe — Outstanding Answers as a FILTER of this list, never its
 // definition.
 //
-// OLDEST SALE FIRST, and not newest as the Sales list is. When the filter is
-// on this is a chase list — the buyer who paid in January and has said nothing
-// since belongs at the top — and the roster keeps the same order so switching
-// the filter reorders nobody.
+// OLDEST SALE FIRST BY DEFAULT, and not newest as the Sales list is. When the
+// filter is on this is a chase list — the buyer who paid in January and has said
+// nothing since belongs at the top — and the roster keeps the same order so
+// switching the filter reorders nobody. Since #527 the caller may ask for one of
+// FIVE orders instead, in either direction; the default is unchanged, down to
+// the `s.id, tk.ordinal` beneath it that keeps one sale's Tickets together. See
+// holderOrderBy, holderSortColumns and holderSortBlanksLast, which is where the
+// blanks-last rule and its deliberate break with the ascending/descending
+// convention are argued.
 //
 // The total counts the TICKETS the current view holds, so it agrees with the
 // rows being paged, however the filters are set: the two queries take their
@@ -828,9 +1063,26 @@ func (r *Repository) ListHolderTickets(
 		return []HolderTicket{}, 0, nil
 	}
 
+	// THE ORDER, AND THE ONE JOIN THAT ONLY AN ORDER NEEDS (#527). holderOrderBy
+	// resolves the sort against its allowlist — an unrecognised key is the
+	// default order, never an error — and says whether the debt-count join has
+	// to be added for it. That join goes on the PAGE ALONE: nothing in the WHERE
+	// reads it, and it can change no count, being LEFT and on the Ticket's
+	// primary key over a grouped derivation (see holderRosterOwesJoin). The
+	// COUNT above therefore still describes exactly the view this page shows.
+	orderBy, needsOwesJoin := holderOrderBy(q.Sort, q.Dir)
+	owesJoin := ""
+	if needsOwesJoin {
+		// The scope re-stated with the same two arguments the filters already
+		// bound, in their known positions — its aliases shadow the roster's, so
+		// an unscoped derivation would count another Organization's debts.
+		owesJoin = fmt.Sprintf(holderRosterOwesJoin, holderRosterScopeEventArg, holderRosterScopeOrgArg)
+	}
+
 	// The page's own two arguments, appended AFTER the filters' so the numbering
 	// depends on how many filters were active rather than on a constant nobody
-	// remembers to update.
+	// remembers to update. The owes join binds nothing of its own, for
+	// holderRosterOwingOnly's reason: it re-states arguments already in args.
 	pageArgs := append(append([]any{}, args...), q.Limit, q.Offset)
 	rows, err := r.db.Pool.QueryContext(ctx, fmt.Sprintf(`
 		SELECT tk.id, tk.ordinal, l.ticket_type_id, tt.name,
@@ -838,9 +1090,9 @@ func (r *Repository) ListHolderTickets(
 		       s.customer_first_name, s.customer_last_name, s.customer_email, s.sold_at,
 		       tk.holder_email, tk.assigned_at, tk.accepted_at, tk.holder_address_purged_at,
 		       hc.first_name, hc.last_name
-	`+holderRosterFrom+holderRosterHolderJoin+`
+	`+holderRosterFrom+holderRosterHolderJoin+owesJoin+`
 		WHERE `+where+`
-		ORDER BY s.sold_at ASC, s.id ASC, tk.ordinal ASC
+		`+orderBy+`
 		LIMIT $%d OFFSET $%d
 	`, len(args)+1, len(args)+2), pageArgs...)
 	if err != nil {

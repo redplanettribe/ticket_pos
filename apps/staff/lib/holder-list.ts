@@ -323,15 +323,53 @@ export const HOLDER_LIST_CHANNELS: readonly SalesChannel[] = ["online", "in_pers
  * the backend's own allowlist (ADR 0006) — an unrecognised value must never
  * reach a query.
  *
- * EXACTLY ONE FIELD TODAY. `buyer`, `holder`, `ticket_type` and `owes` are
- * #527's, and land here as a widening of the union and of `HOLDER_SORT_FIELDS`.
+ * FIVE FIELDS (#527, ADR 0065), each working in both directions:
+ *
+ * - `sold_at` — when the sale happened, and THE DEFAULT.
+ * - `buyer` — the buyer's name, last then first, as the Sales list's `customer`
+ *   sort reads it, so a roster and a ledger order people the same way.
+ * - `holder` — who is coming, from the accepted Holder's own name. ROWS WITH NO
+ *   HOLDER NAME COME LAST IN BOTH DIRECTIONS, which is the API's rule and is
+ *   argued there: on an Event where most Tickets are unassigned the conventional
+ *   flip would open one of the two directions on hundreds of blank cells.
+ * - `ticket_type` — the Event's own CATALOG DISPLAY ORDER and not alphabetical,
+ *   so Early Bird / General / VIP stays the order the Organization chose.
+ * - `owes` — how many required Answers a Ticket still owes, worst first, so the
+ *   chase has somewhere to start. It BELONGS TO TICKET QUESTIONS: the API
+ *   ignores it while that feature is dark and answers in the default order, and
+ *   the header offering it is drawn only under `showQuestions`, so nothing on
+ *   this side has to know a flag it cannot see.
  */
-export type HolderSortField = "sold_at";
+export type HolderSortField = "sold_at" | "buyer" | "holder" | "ticket_type" | "owes";
 export type HolderSortDir = "asc" | "desc";
 
-export const HOLDER_SORT_FIELDS: readonly HolderSortField[] = ["sold_at"];
+export const HOLDER_SORT_FIELDS: readonly HolderSortField[] = [
+  "sold_at",
+  "buyer",
+  "holder",
+  "ticket_type",
+  "owes",
+];
 
 export const DEFAULT_HOLDER_SORT: HolderSortField = "sold_at";
+
+/**
+ * The direction a newly chosen column starts in, the way the Sales list's
+ * `defaultDirFor` does — clicking a column should show the useful end of it
+ * first, and only a second click asks for the other.
+ *
+ * NAMES ASCEND AND THE DEBT DESCENDS. A→Z is how a person looks somebody up in
+ * a list of names, which is `buyer` and `holder`; `sold_at` opens oldest-first
+ * because that is this roster's own default and a column that jumped to newest
+ * on its first click would contradict the page it is on; `ticket_type` ascends
+ * into the catalog's own order, which is the order the Organization wrote it in.
+ * `owes` DESCENDS, and that is the whole point of it: the Tickets owing most are
+ * the ones somebody opened this sort to chase, and starting at zero would put
+ * every Ticket that owes nothing in front of them.
+ */
+export function defaultHolderDirFor(field: HolderSortField): HolderSortDir {
+  return field === "owes" ? "desc" : "asc";
+}
 
 /**
  * OLDEST SALE FIRST, and this is not the Sales list's default.

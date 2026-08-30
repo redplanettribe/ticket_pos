@@ -24,6 +24,18 @@ import (
 // repository.outstandingAnswerWhere; nothing here re-decides it. This file's
 // job is to page the roster and shape it for a screen.
 
+// holderSortOwes is the one of the five sorts that belongs to a feature flag
+// (#527): ordering by what a Ticket owes only means anything where the questions
+// side of the list exists, exactly like the Owes column it ranks.
+//
+// SPELLED HERE AND IN THE REPOSITORY, which is a second copy of one word and is
+// worth it for the reason holderAssignmentStates in the handler is a second copy
+// of four: this one decides whether the sort survives the flag, and the
+// repository's turns a key into an ORDER BY. They cannot silently disagree — a
+// key this layer let through and the repository did not recognise falls back to
+// the default order, which is the same answer this layer would have given.
+const holderSortOwes = "owes"
+
 // HolderListPage is one page of the Event's Holder List.
 type HolderListPage struct {
 	Data       []HolderTicketView    `json:"data"`
@@ -241,6 +253,21 @@ type ListHolderListParams struct {
 	// blank for an open end.
 	SoldFrom string
 	SoldTo   string
+	// Sort and Dir are the order the reader asked for (#527, ADR 0065): one of
+	// `sold_at`, `buyer`, `holder`, `ticket_type` or `owes`, and `asc` or
+	// `desc`. Blank means the default, which is `sold_at` ascending — OLDEST
+	// SALE FIRST, and unchanged: this screen is already in use and reordering
+	// it under its readers is a change nobody asked for.
+	//
+	// ALREADY ALLOWLISTED BY THE HANDLER and allowlisted AGAIN in the
+	// repository, which is the one place on this list where a parameter reaches
+	// SQL as a fragment rather than as a bound argument. Neither layer refuses
+	// an unknown value; both answer it with the default order.
+	//
+	// `owes` BELONGS TO TICKET QUESTIONS and is dropped below while that
+	// feature is dark, beside OwingOnly and QuestionID.
+	Sort string
+	Dir  string
 }
 
 // ListHolderList returns a page of the Event's Holder List: every Ticket of
@@ -330,6 +357,30 @@ func (s *Service) ListHolderList(
 	if s.ticketAssignmentEnabled {
 		assignmentState = params.AssignmentState
 	}
+	// THE `owes` SORT IS TICKET QUESTIONS' TOO, and is dropped here on the rule
+	// stated above rather than on an argument of its own (#527). It is offered
+	// only where the questions side of the list exists at all, exactly as the
+	// Owes column it orders on is: with the feature dark there are no debts to
+	// rank, the control does not exist, and a URL carrying `sort=owes` comes
+	// back as the roster in the DEFAULT ORDER with a 200 — ignored, never
+	// refused. Everything the three bullets above say applies to it word for
+	// word.
+	//
+	// THE DIRECTION GOES WITH IT, and that is the part worth stating. Dropping
+	// the field alone would leave `sort=owes&dir=desc` reading as the default
+	// FIELD in the reader's direction — newest sale first, which is neither
+	// what they asked for nor the order this list defaults to. Half a sort is
+	// not a sort, on this side of the wire as much as in the URL.
+	//
+	// THE OTHER FOUR SORTS BELONG TO NO FLAG, for the reason search does not
+	// (#526): a sale's date, a buyer, a Ticket Type and an accepted Holder's
+	// name exist on every build. The `holder` sort simply finds every row blank
+	// on a build with Ticket Assignment closed, and its blanks-last rule puts
+	// them where they already were.
+	sort, dir := params.Sort, params.Dir
+	if sort == holderSortOwes && !s.ticketQuestionsEnabled {
+		sort, dir = "", ""
+	}
 
 	// The Event's own zone, so a date bound means the day it meant to whoever
 	// typed it into the filter bar. The Event was already read by the gate
@@ -351,6 +402,8 @@ func (s *Service) ListHolderList(
 		Channel:         params.Channel,
 		SoldFrom:        soldFrom,
 		SoldTo:          soldTo,
+		Sort:            sort,
+		Dir:             dir,
 		Limit:           pageSize,
 		Offset:          (page - 1) * pageSize,
 	})

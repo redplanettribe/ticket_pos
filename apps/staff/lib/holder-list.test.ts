@@ -5,6 +5,7 @@ import {
   ASSIGNMENT_STATE_KEYS,
   HOLDER_LIST_ASSIGNMENT_STATES,
   HOLDER_LIST_CHANNELS,
+  HOLDER_SORT_FIELDS,
   HOLDER_STATE_VALUE_KEYS,
   DEFAULT_HOLDER_DIR,
   DEFAULT_HOLDER_SORT,
@@ -12,6 +13,7 @@ import {
   SALES_CHANNEL_KEYS,
   assignmentStateBadgeVariant,
   buyerName,
+  defaultHolderDirFor,
   hasActiveHolderListFilters,
   holderBadgeVariant,
   holderListQuery,
@@ -199,10 +201,44 @@ test("a filter at its unfiltered value is omitted, not sent as false", () => {
 });
 
 // A non-default sort carries BOTH halves. Half a sort is not a sort: a `dir`
-// with no `sort` would be read against whatever the default field becomes when
-// #527 adds the other four.
+// with no `sort` would be read against whatever the default field is at the
+// time, which is a URL that means something different after the next change.
 test("a non-default sort is carried whole", () => {
   assert.equal(holderListQuery(1, filters(), "sold_at", "desc"), "?sort=sold_at&dir=desc");
+  assert.equal(holderListQuery(1, filters(), "holder", "asc"), "?sort=holder&dir=asc");
+});
+
+// THE FIVE, AND EXACTLY THE FIVE (#527). The allowlist mirrors the API's own,
+// which mirrors the repository's — an unrecognised key must never reach a query,
+// and a key this side offered that the API did not know would be a header that
+// silently does nothing.
+test("the roster sorts five ways", () => {
+  assert.deepEqual(HOLDER_SORT_FIELDS, ["sold_at", "buyer", "holder", "ticket_type", "owes"]);
+});
+
+// NAMES ASCEND AND THE DEBT DESCENDS. Clicking a column shows the useful end of
+// it first: A→Z for the two name columns, oldest-first for the sale date because
+// that is this roster's own default, the catalog's own order for Ticket Type —
+// and MOST OWED FIRST for `owes`, which is the entire reason somebody reaches
+// for that column. Starting it at zero would put every Ticket owing nothing in
+// front of the ones being chased.
+test("a new sort column starts in its own natural direction", () => {
+  assert.equal(defaultHolderDirFor("owes"), "desc");
+  for (const field of ["sold_at", "buyer", "holder", "ticket_type"] as const) {
+    assert.equal(defaultHolderDirFor(field), "asc");
+  }
+});
+
+// Every allowlisted field survives a round trip through the URL, so a header
+// added to the table cannot become a link that quietly reverts to sold_at.
+test("every allowlisted sort survives the URL", () => {
+  for (const field of HOLDER_SORT_FIELDS) {
+    assert.equal(parseHolderSort(field), field);
+    assert.equal(
+      holderListQuery(1, filters(), field, "desc"),
+      `?sort=${field}&dir=desc`,
+    );
+  }
 });
 
 // OLDEST SALE FIRST, and deliberately not the Sales list's newest-first: the
@@ -217,7 +253,10 @@ test("the default sort is the oldest sale first", () => {
 // re-validates regardless, and this is the surface, not the boundary.
 test("an unknown sort or direction falls back to the default", () => {
   assert.equal(parseHolderSort("sold_at"), "sold_at");
+  // `amount` is the Sales list's and is not on this roster — money is not a
+  // column here. A URL borrowed from that screen is a roster, not an error.
   assert.equal(parseHolderSort("amount"), DEFAULT_HOLDER_SORT);
+  assert.equal(parseHolderSort("holder_email"), DEFAULT_HOLDER_SORT);
   assert.equal(parseHolderSort(undefined), DEFAULT_HOLDER_SORT);
   assert.equal(parseHolderDir("desc"), "desc");
   assert.equal(parseHolderDir("sideways"), DEFAULT_HOLDER_DIR);

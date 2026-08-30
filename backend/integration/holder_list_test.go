@@ -2589,3 +2589,667 @@ func TestTheHolderListSearchNeedsNoFeatureFlag(t *testing.T) {
 	assertNoRows(t, holderSearch(t, env, f.sessionID, f.eventID, "carla@example.com", ""),
 		"carla@example.com", "Nobody has accepted anything on this roster.")
 }
+
+// THE FIVE SORTS (#527, ADR 0065): when the sale happened, the buyer, who is
+// coming, the Ticket Type in the Event's own catalog display order, and how
+// much a Ticket owes. Each works in both directions and each lives in the URL.
+//
+// THESE TESTS ARE WRITTEN AGAINST REAL ROWS AND COULD NOT BE WRITTEN ANYWHERE
+// ELSE. A sort key is a string interpolated into an ORDER BY: a column named
+// for the wrong table, an alphabetical Ticket Type order, a blanks rule that
+// flips with the direction and a missing tiebreak all compile, all run, and all
+// differ from the truth only in WHICH PEOPLE ARE WHERE — and the last of them
+// differs in which people are on the list at all. Nothing but a database
+// notices any of it.
+
+// holderSortFixture is an Event built so that THE FIVE SORTS DISAGREE WITH ONE
+// ANOTHER, which is the only way a test can tell them apart.
+//
+// FOUR TICKETS, FOUR BUYERS, FOUR TICKET TYPES, ONE TICKET EACH, so that every
+// order is a total order over named rows and an assertion can spell it out
+// rather than counting. Nothing here is tied except the blanks, which are tied
+// on purpose.
+//
+// THE TICKET TYPES ARE CREATED IN AN ORDER THAT DISAGREES WITH THE ALPHABET,
+// and that is the whole of the catalog-order criterion. A new Ticket Type takes
+// `MAX(sort_order) + 1`, so creating Zephyr, Delta, Alpha, Mango makes the
+// Event's own display order exactly that — while alphabetically it is Alpha,
+// Delta, Mango, Zephyr, which is a different order in every position. An
+// implementation sorting on `tt.name` therefore fails rather than coinciding.
+//
+// THE FOUR SALE DATES ARE SHUFFLED AGAINST THE OTHER FOUR KEYS, so the default
+// order is a claim and not an accident: sorting by any of buyer, holder, Ticket
+// Type or owes moves rows, and a test asserting the default would catch a
+// change to it.
+//
+// THE HOLDER COLUMN CARRIES TWO NAMES AND TWO BLANKS, AND THE TWO BLANKS ARE
+// BLANK IN DIFFERENT WAYS. Bruno's Ticket was never assigned, so its holder
+// columns are NULL. Dario's Ticket was ACCEPTED BY A HOLDER WHO NEVER NAMED
+// THEMSELVES, so `customers.first_name`/`last_name` — which are `TEXT NOT NULL`
+// — hold EMPTY STRINGS. Both draw as an empty cell and both must sort last;
+// only the first would be caught by `NULLS LAST`, which is why the rule is
+// written as a CASE over what the reader sees.
+//
+// COMMITTED WHILE BOTH FLAGS ARE DARK, exactly as newHolderStateFixture is: a
+// Sale Import that runs with Ticket Assignment open hands each buyer their own
+// first Ticket by presumption (ADR 0055), which would start this roster with
+// four accepted Holders nobody chose.
+type holderSortFixture struct {
+	sessionID string
+	eventID   string
+
+	// The four Ticket Types, in the Event's CATALOG order, which is the order
+	// they are created in and not the alphabet's.
+	zephyrID string
+	deltaID  string
+	alphaID  string
+	mangoID  string
+
+	// One Ticket per buyer, named by the buyer so an expected order reads as a
+	// sentence. Their keys, per sort:
+	//
+	//	           sold_at   buyer (last)   holder        type (catalog)  owes
+	//	ana        3rd       Alvarez        Ruiz          Zephyr (1st)    3
+	//	carla      4th       Blanco         Ibarra        Alpha  (3rd)    2
+	//	bruno      1st       Mendez         — (NULL)      Delta  (2nd)    0
+	//	dario      2nd       Zapata         — (empty)     Mango  (4th)    1
+	ana   string
+	bruno string
+	carla string
+	dario string
+}
+
+// The four buyers' addresses, named because the fixture assigns and signs in by
+// them and a bare literal three helpers deep is unreadable.
+const (
+	holderSortAnaEmail   = "ana@example.com"
+	holderSortBrunoEmail = "bruno@example.com"
+	holderSortCarlaEmail = "carla@example.com"
+	holderSortDarioEmail = "dario@example.com"
+)
+
+func newHolderSortFixture(t *testing.T, env *testEnv) holderSortFixture {
+	t.Helper()
+	f := holderSortFixture{}
+	f.sessionID = orgAdminSession(t, env)
+	f.eventID = createDraftEvent(t, env, f.sessionID, "Sort Fest", "sort-fest")
+	// SCHEDULED AND COMFORTABLY IN THE FUTURE: the assignment window closes at
+	// the doors, and three of these four Tickets are reached by assigning.
+	scheduleEvent(t, env, f.sessionID, f.eventID, "Sort Fest", "sort-fest",
+		env.fixedClock.Add(30*24*time.Hour))
+
+	// THE CATALOG ORDER IS THE CREATION ORDER, and it is deliberately not the
+	// alphabet's — see the type's comment.
+	f.zephyrID = createTicketTypeWithCapacity(t, env, f.sessionID, f.eventID, "Zephyr", 2000, 50)
+	f.deltaID = createTicketTypeWithCapacity(t, env, f.sessionID, f.eventID, "Delta", 3000, 50)
+	f.alphaID = createTicketTypeWithCapacity(t, env, f.sessionID, f.eventID, "Alpha", 4000, 50)
+	f.mangoID = createTicketTypeWithCapacity(t, env, f.sessionID, f.eventID, "Mango", 5000, 50)
+
+	// One Ticket each, and the dates shuffled against every other key.
+	commitBatch(t, env, f.sessionID, f.eventID, "sort-batch", []map[string]any{
+		{"customer_email": holderSortBrunoEmail, "customer_first_name": "Bruno", "customer_last_name": "Mendez",
+			"ticket_type_id": f.deltaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": holderSortDarioEmail, "customer_first_name": "Dario", "customer_last_name": "Zapata",
+			"ticket_type_id": f.mangoID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-02T10:00:00Z"},
+		{"customer_email": holderSortAnaEmail, "customer_first_name": "Ana", "customer_last_name": "Alvarez",
+			"ticket_type_id": f.zephyrID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-03T10:00:00Z"},
+		{"customer_email": holderSortCarlaEmail, "customer_first_name": "Carla", "customer_last_name": "Blanco",
+			"ticket_type_id": f.alphaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-04T10:00:00Z"},
+	})
+	f.ana = onlyTicketOfBuyer(t, env, f.eventID, holderSortAnaEmail)
+	f.bruno = onlyTicketOfBuyer(t, env, f.eventID, holderSortBrunoEmail)
+	f.carla = onlyTicketOfBuyer(t, env, f.eventID, holderSortCarlaEmail)
+	f.dario = onlyTicketOfBuyer(t, env, f.eventID, holderSortDarioEmail)
+
+	// THE DEBTS: three, two, one and none, one Ticket at each figure, so an
+	// order by what a Ticket owes is a total order and not a grouping. The
+	// questions hang off the TICKET TYPE, never the Event, so each buyer's one
+	// Ticket owes exactly what its own type asks.
+	enableTicketQuestions(t)
+	for _, label := range []string{"T-shirt size", "Dietary requirements", "Arrival time"} {
+		createTicketQuestion(t, env, f.sessionID, f.eventID, f.zephyrID, map[string]any{
+			"label": label, "kind": "short_text", "required": true,
+		})
+	}
+	for _, label := range []string{"T-shirt size", "Dietary requirements"} {
+		createTicketQuestion(t, env, f.sessionID, f.eventID, f.alphaID, map[string]any{
+			"label": label, "kind": "short_text", "required": true,
+		})
+	}
+	createTicketQuestion(t, env, f.sessionID, f.eventID, f.mangoID, map[string]any{
+		"label": "T-shirt size", "kind": "short_text", "required": true,
+	})
+	// Delta asks NOTHING, so Bruno's Ticket owes zero — which is a figure at one
+	// end of the scale and not an absence, and must sort as one.
+
+	// THE HOLDERS: two names, and two blanks that are blank in different ways.
+	enableTicketAssignment(t)
+	acceptHolderNamed(t, env, holderSortAnaEmail, f.ana, "yara@example.com", "Yara", "Ruiz")
+	acceptHolderNamed(t, env, holderSortCarlaEmail, f.carla, "elena@example.com", "Elena", "Ibarra")
+	// Dario's Holder ACCEPTED AND NEVER NAMED THEMSELVES: a Customer row with
+	// two empty strings on it, which draws as an empty cell and which `NULLS
+	// LAST` would sort to the front of an ascending list.
+	dario := customerSignIn(t, env, holderSortDarioEmail)
+	assignTicketOK(t, env, dario, saleIDOfBuyer(t, env, f.eventID, holderSortDarioEmail), f.dario, "nadia@example.com")
+	acceptAssignmentOK(t, env, assignmentTokenFrom(t, assignmentMailFor(t, env, "nadia@example.com")))
+	// Bruno's Ticket is left UNASSIGNED, which is the other kind of blank: NULL
+	// holder columns, and the state most of a real roster sits in.
+
+	return f
+}
+
+// onlyTicketOfBuyer names the single Ticket of a buyer's single-Ticket sale,
+// failing if the sale ever grows a second — a fixture whose orders are total
+// depends on that being true, and a silent second Ticket would turn a spelled-out
+// expected order into a flaky one.
+func onlyTicketOfBuyer(t *testing.T, env *testEnv, eventID, email string) string {
+	t.Helper()
+	tickets := ticketIDsOfSale(t, env, saleIDOfBuyer(t, env, eventID, email))
+	if len(tickets) != 1 {
+		t.Fatalf("%s holds %d Tickets, want exactly 1 — this fixture's orders are total", email, len(tickets))
+	}
+	return tickets[0]
+}
+
+// acceptHolderNamed walks one Ticket the whole way to a NAMED accepted Holder:
+// the buyer signs in and assigns, the Holder clicks their Assignment Link, and
+// then says who they are.
+//
+// THE NAMING STEP IS NOT OPTIONAL HERE. Accepting alone mints a Customer with no
+// name on it at all, which is exactly the blank case Dario's Ticket is standing
+// for — so a fixture that stopped at the click would have four blanks and
+// nothing to sort.
+func acceptHolderNamed(
+	t *testing.T, env *testEnv, buyerEmail, ticketID, holderEmail, first, last string,
+) {
+	t.Helper()
+	buyer := customerSignIn(t, env, buyerEmail)
+	saleID := saleIDOfBuyer(t, env, ticketEventID(t, env, ticketID), buyerEmail)
+	assignTicketOK(t, env, buyer, saleID, ticketID, holderEmail)
+	token := assignmentTokenFrom(t, assignmentMailFor(t, env, holderEmail))
+	acceptAssignmentOK(t, env, token)
+	resp, body, _ := publicLinkRequest(t, env, http.MethodPut, assignmentLinkNamePath, map[string]any{
+		"token": token, "first_name": first, "last_name": last,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("name the Holder of %s status=%d error=%+v", ticketID, resp.StatusCode, body.Error)
+	}
+}
+
+// ticketEventID reads which Event a Ticket belongs to, so acceptHolderNamed
+// takes a Ticket and a buyer rather than a fifth positional argument nobody
+// reads.
+func ticketEventID(t *testing.T, env *testEnv, ticketID string) string {
+	t.Helper()
+	var eventID string
+	if err := env.db.QueryRow(`
+		SELECT s.event_id
+		FROM tickets tk
+		JOIN ticket_sale_lines l ON l.id = tk.ticket_sale_line_id
+		JOIN ticket_sales s ON s.id = l.ticket_sale_id
+		WHERE tk.id = $1
+	`, ticketID).Scan(&eventID); err != nil {
+		t.Fatalf("read the Event of Ticket %s: %v", ticketID, err)
+	}
+	return eventID
+}
+
+// holderSorted reads the roster under one sort and direction. `extra` carries
+// any further filters, so a composition test reads as the one sentence it
+// asserts.
+func holderSorted(
+	t *testing.T, env *testEnv, sessionID, eventID, sort, dir, extra string,
+) outstandingAnswers {
+	t.Helper()
+	return holderRoster(t, env, sessionID, eventID, "?sort="+sort+"&dir="+dir+extra)
+}
+
+// EACH OF THE FIVE SORTS ORDERS THE ROSTER, IN BOTH DIRECTIONS.
+//
+// The fixture is built so the five orders disagree with one another in every
+// position that matters, so a sort reading the wrong column cannot pass by
+// coincidence: the sale dates are shuffled against the names, the names against
+// the catalog, and the catalog against the debts.
+//
+// The `holder` sort is asserted here only on its two NAMED rows, since its
+// blanks are tied with one another; where they land is the next test's subject
+// and is the interesting half of the rule.
+func TestTheHolderListSortsFiveWays(t *testing.T) {
+	env := setupTest(t)
+	f := newHolderSortFixture(t, env)
+
+	for _, tc := range []struct {
+		sort string
+		asc  []string
+		why  string
+	}{{
+		sort: "sold_at",
+		asc:  []string{f.bruno, f.dario, f.ana, f.carla},
+		why:  "oldest sale first: 07-01, 07-02, 07-03, 07-04",
+	}, {
+		sort: "buyer",
+		asc:  []string{f.ana, f.carla, f.bruno, f.dario},
+		why:  "last name then first: Alvarez, Blanco, Mendez, Zapata",
+	}, {
+		sort: "ticket_type",
+		asc:  []string{f.ana, f.bruno, f.carla, f.dario},
+		why:  "the Event's CATALOG order: Zephyr, Delta, Alpha, Mango",
+	}, {
+		sort: "owes",
+		asc:  []string{f.bruno, f.dario, f.carla, f.ana},
+		why:  "what each Ticket owes, fewest first: 0, 1, 2, 3",
+	}} {
+		ascending := holderSorted(t, env, f.sessionID, f.eventID, tc.sort, "asc", "")
+		assertTickets(t, ascending, tc.asc, "sort="+tc.sort+"&dir=asc ("+tc.why+")")
+
+		// DESCENDING IS THE REVERSE, for these four. It is deliberately NOT for
+		// `holder`, whose blanks stay last both ways — the next test.
+		reversed := make([]string, 0, len(tc.asc))
+		for i := len(tc.asc) - 1; i >= 0; i-- {
+			reversed = append(reversed, tc.asc[i])
+		}
+		descending := holderSorted(t, env, f.sessionID, f.eventID, tc.sort, "desc", "")
+		assertTickets(t, descending, reversed, "sort="+tc.sort+"&dir=desc ("+tc.why+", reversed)")
+	}
+
+	// The `holder` sort's two named rows, in both directions: Ibarra before
+	// Ruiz ascending, Ruiz before Ibarra descending.
+	assertNamedHoldersLead(t, holderSorted(t, env, f.sessionID, f.eventID, "holder", "asc", ""),
+		[]string{f.carla, f.ana}, "sort=holder&dir=asc")
+	assertNamedHoldersLead(t, holderSorted(t, env, f.sessionID, f.eventID, "holder", "desc", ""),
+		[]string{f.ana, f.carla}, "sort=holder&dir=desc")
+}
+
+// assertNamedHoldersLead checks that a `holder`-sorted page opens with exactly
+// these Tickets, in this order, and that everything after them is one of the
+// blank rows.
+//
+// It asserts a PREFIX rather than the whole page on purpose: the blank rows are
+// genuinely tied with one another and their order among themselves is the
+// tiebreak's business, not this assertion's. What must hold is that no blank
+// appears before a name.
+func assertNamedHoldersLead(t *testing.T, page outstandingAnswers, want []string, label string) {
+	t.Helper()
+	got := holderTicketIDs(page)
+	if len(got) < len(want) {
+		t.Fatalf("%s returned %d rows, want at least the %d named Holders", label, len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("%s = %v, want it to open with %v — the named Holders lead in BOTH directions",
+				label, got, want)
+		}
+	}
+}
+
+// ROWS WITH NO HOLDER NAME COME LAST IN BOTH DIRECTIONS, AND THAT IS THE POINT.
+//
+// This deliberately breaks the convention that descending is the reverse of
+// ascending (ADR 0065). On a real Event most Tickets have no accepted Holder —
+// every one nobody was named for, every one named and never claimed, and ALL of
+// them on a build where Ticket Assignment is closed — so under the conventional
+// flip one of the two directions opens on hundreds of empty cells and the reader
+// scrolls past all of them to reach the first name. A control that is useless in
+// half its range is a worse defect than an inconsistency.
+//
+// AND A BLANK IS NOT ONLY A NULL. Bruno's Ticket was never assigned, so its
+// holder columns are NULL; Dario's was accepted by a Holder who never named
+// themselves, so they are EMPTY STRINGS — `customers.first_name`/`last_name` are
+// `TEXT NOT NULL`. Both are empty cells to a reader and both must sort last. An
+// implementation written as `NULLS LAST` passes on Bruno and fails on Dario, in
+// the ascending direction, by putting an unnamed Holder at the very top of the
+// list.
+func TestTheHolderListSortsBlankHoldersLastInBothDirections(t *testing.T) {
+	env := setupTest(t)
+	f := newHolderSortFixture(t, env)
+
+	blanks := map[string]string{
+		f.bruno: "never assigned, so its holder columns are NULL",
+		f.dario: "accepted by a Holder who never named themselves, so they are EMPTY STRINGS",
+	}
+	for _, dir := range []string{"asc", "desc"} {
+		page := holderSorted(t, env, f.sessionID, f.eventID, "holder", dir, "")
+		ids := holderTicketIDs(page)
+		if len(ids) != 4 {
+			t.Fatalf("sort=holder&dir=%s returned %d rows, want the whole roster of 4 — a SORT hides nobody", dir, len(ids))
+		}
+		// The last two rows, whichever way round they are between themselves,
+		// must be the two blanks; equivalently, neither named Holder may be
+		// pushed off the front.
+		for _, id := range ids[:2] {
+			if why, blank := blanks[id]; blank {
+				t.Errorf("sort=holder&dir=%s put a blank Holder at position %d: Ticket %s is %s.\n"+
+					"Blanks come LAST in BOTH directions — that is the ADR 0065 ruling, and it deliberately "+
+					"breaks the convention that descending is the reverse of ascending.",
+					dir, indexOf(ids, id)+1, id, why)
+			}
+		}
+		for _, id := range ids[2:] {
+			if _, blank := blanks[id]; !blank {
+				t.Errorf("sort=holder&dir=%s put the named Holder of Ticket %s behind a blank one", dir, id)
+			}
+		}
+	}
+}
+
+// indexOf is where a Ticket landed on a page, for a failure message that can say
+// "position 1" rather than making a reader count.
+func indexOf(ids []string, want string) int {
+	for i, id := range ids {
+		if id == want {
+			return i
+		}
+	}
+	return -1
+}
+
+// THE TICKET TYPE SORT IS THE EVENT'S OWN CATALOG DISPLAY ORDER, AND NOT THE
+// ALPHABET'S.
+//
+// An Organization orders its catalog on purpose — Early Bird before General
+// before VIP — and `tt.sort_order` is that order, the same column the Sales
+// Export's columns and the Sales Trends' legend read. A third surface disagreeing
+// with those two would read as a bug in one of the three.
+//
+// THIS TEST FAILS AN ALPHABETICAL IMPLEMENTATION IN EVERY POSITION, which is why
+// the fixture creates its four Ticket Types as Zephyr, Delta, Alpha, Mango: the
+// catalog order is that, and the alphabet's is Alpha, Delta, Mango, Zephyr, with
+// no row landing in the same place under both.
+func TestTheHolderListSortsTicketTypesInCatalogOrderNotAlphabetically(t *testing.T) {
+	env := setupTest(t)
+	f := newHolderSortFixture(t, env)
+
+	page := holderSorted(t, env, f.sessionID, f.eventID, "ticket_type", "asc", "")
+	names := make([]string, 0, len(page.Data))
+	for _, row := range page.Data {
+		names = append(names, row.TicketTypeName)
+	}
+	catalog := []string{"Zephyr", "Delta", "Alpha", "Mango"}
+	alphabetical := []string{"Alpha", "Delta", "Mango", "Zephyr"}
+	if len(names) != len(catalog) {
+		t.Fatalf("sort=ticket_type returned %v, want the four Ticket Types", names)
+	}
+	for i := range catalog {
+		if names[i] != catalog[i] {
+			t.Fatalf("sort=ticket_type = %v, want the Event's CATALOG order %v.\n"+
+				"The alphabet's order is %v; an implementation reading `tt.name` instead of "+
+				"`tt.sort_order` returns that, and an Organization's chosen running order is lost.",
+				names, catalog, alphabetical)
+		}
+	}
+}
+
+// THE DEFAULT ORDER IS UNCHANGED, and this is an acceptance criterion rather
+// than a regression test: the Holder List is a screen people already use, and a
+// feature that quietly reordered it would be a change nobody asked for buried
+// inside one they did.
+//
+// ASSERTED AGAINST A FIXTURE THAT WOULD REORDER UNDER ANY OF THE OTHER FOUR.
+// Sorting this roster by buyer, holder, Ticket Type or what it owes moves rows
+// — each of those orders is spelled out in TestTheHolderListSortsFiveWays and
+// none of them is this one — so "no sort in the URL" landing on the sold_at
+// order is a fact and not a coincidence.
+//
+// AND `sort=sold_at&dir=asc` MUST BE THE SAME PAGE, because that is what a
+// reader gets after clicking the Sold header twice, and a default that differed
+// from its own explicit spelling would be a screen that could not be returned to.
+func TestTheHolderListDefaultOrderIsUnchanged(t *testing.T) {
+	env := setupTest(t)
+	f := newHolderSortFixture(t, env)
+
+	oldestFirst := []string{f.bruno, f.dario, f.ana, f.carla}
+	assertTickets(t, holderRoster(t, env, f.sessionID, f.eventID, ""), oldestFirst,
+		"the roster with no sort in the URL")
+	assertTickets(t, holderSorted(t, env, f.sessionID, f.eventID, "sold_at", "asc", ""), oldestFirst,
+		"sort=sold_at&dir=asc")
+	// An unrecognised key is the default order too, never a refusal: a stale
+	// bookmark naming a sort that has been renamed is a roster, not an error
+	// page. `amount` is the Sales list's; there is no money on this list.
+	assertTickets(t, holderRoster(t, env, f.sessionID, f.eventID, "?sort=amount&dir=sideways"), oldestFirst,
+		"an unrecognised sort and direction")
+}
+
+// ONE SALE'S TICKETS STAY TOGETHER AND IN ORDINAL ORDER under the default, which
+// is the other half of "unchanged" and the half a bare id tiebreak would break.
+//
+// The roster has always come back `s.sold_at, s.id, tk.ordinal`. Reducing those
+// last two to a single `tk.id` tiebreak would still be deterministic and still
+// be sorted by date — and would scatter one buyer's four Tickets into UUID
+// order, which is a silent reordering of the screen this ticket exists to leave
+// alone.
+func TestTheDefaultOrderKeepsOneSalesTicketsInOrdinalOrder(t *testing.T) {
+	env := setupTest(t)
+	f := newHolderStateFixture(t, env)
+
+	page := holderRoster(t, env, f.sessionID, f.eventID, "")
+	assertTickets(t, page, []string{f.unassigned, f.accepted, f.assigned, f.neverAccepted},
+		"one buyer's four Tickets under the default order")
+}
+
+// PAGE 1 AND PAGE 2 OF A BLANK-HEAVY SORT CONTAIN NO DUPLICATE TICKET AND LOSE
+// NONE. This is the acceptance criterion the ticket calls out, and it is the one
+// failure on this list that costs somebody their place at an Event.
+//
+// THE RISK IS SPECIFIC. Postgres makes no promise about the order of rows whose
+// ORDER BY keys are equal, and a `holder` sort over a roster where almost
+// nobody has accepted is nearly ALL ties. Two pages of such a view are two
+// independent queries: without a key that is unique per row beneath the sort,
+// the database is free to return one order for the first `LIMIT`/`OFFSET` and
+// another for the second — at which point a Ticket appears on both pages and
+// ANOTHER APPEARS ON NEITHER. The duplicate is what a reader notices; the
+// missing person is what matters, and nothing on the screen says they are gone.
+//
+// A roster that loses a person is worse than one that is badly ordered.
+//
+// The page size is deliberately half the roster, so the boundary falls in the
+// MIDDLE of the tied blanks rather than beside them.
+//
+// WHAT THIS TEST CAN AND CANNOT DO, stated plainly so nobody trusts it further
+// than it goes: it asserts the OUTCOME against real rows, and it cannot force
+// the failure. Postgres is free to reorder tied rows between two `LIMIT`/
+// `OFFSET` queries but is not obliged to, and on a roster this size it happens
+// to be deterministic even with the tiebreak taken away — the same sort, twice.
+// The guarantee comes from the ORDER BY carrying `tk.id` (see
+// repository.holderOrderBy) and not from this test's luck. What this test does
+// buy is the two properties spelled out where a reader will meet them, and a
+// failure that says "the list lost a person" the day a plan, a version or a
+// volume makes the freedom bite.
+func TestPagingABlankHeavyHolderSortLosesNobody(t *testing.T) {
+	env := setupTest(t)
+	f := newBlankHolderRosterFixture(t, env)
+
+	first := holderSorted(t, env, f.sessionID, f.eventID, "holder", "asc", "&page_size=3")
+	second := holderSorted(t, env, f.sessionID, f.eventID, "holder", "asc", "&page_size=3&page=2")
+
+	if first.Pagination.Total != len(f.tickets) || second.Pagination.Total != len(f.tickets) {
+		t.Fatalf("the sorted view totals %d then %d, want %d on both — the total describes the VIEW "+
+			"and does not move as the reader pages through it",
+			first.Pagination.Total, second.Pagination.Total, len(f.tickets))
+	}
+	if len(first.Data) != 3 || len(second.Data) != 3 {
+		t.Fatalf("pages hold %d and %d rows, want 3 and 3", len(first.Data), len(second.Data))
+	}
+
+	seen := map[string]bool{}
+	for _, id := range append(holderTicketIDs(first), holderTicketIDs(second)...) {
+		if seen[id] {
+			t.Errorf("Ticket %s appears on BOTH pages of one sorted view — a paginated list that "+
+				"duplicates a row is one that has also dropped another. The sort needs a tiebreak "+
+				"that is unique per row beneath it.", id)
+		}
+		seen[id] = true
+	}
+	for _, id := range f.tickets {
+		if !seen[id] {
+			t.Errorf("Ticket %s is on NEITHER page of the roster it belongs to — the list lost a person. "+
+				"This is what a missing tiebreak under a sort of tied rows does.", id)
+		}
+	}
+
+	// THE TWO PAGES ARE CONSECUTIVE SLICES OF ONE ORDER, which is the stronger
+	// property beneath "no duplicates and nobody lost": reading the same view in
+	// a single page must give exactly page 1 followed by page 2, row for row. A
+	// list whose tied rows shuffle between reads fails this before it fails the
+	// set comparison above, and fails it with an order to look at.
+	whole := holderSorted(t, env, f.sessionID, f.eventID, "holder", "asc", "&page_size=6")
+	assertTickets(t, whole, append(holderTicketIDs(first), holderTicketIDs(second)...),
+		"the whole view against its two pages joined")
+
+	// And the same, the other way round: descending is not the reverse here —
+	// the blanks stay last — but it must lose nobody either.
+	firstDesc := holderSorted(t, env, f.sessionID, f.eventID, "holder", "desc", "&page_size=3")
+	secondDesc := holderSorted(t, env, f.sessionID, f.eventID, "holder", "desc", "&page_size=3&page=2")
+	seenDesc := map[string]bool{}
+	for _, id := range append(holderTicketIDs(firstDesc), holderTicketIDs(secondDesc)...) {
+		if seenDesc[id] {
+			t.Errorf("Ticket %s appears on both DESCENDING pages of the blank-heavy sort", id)
+		}
+		seenDesc[id] = true
+	}
+	for _, id := range f.tickets {
+		if !seenDesc[id] {
+			t.Errorf("Ticket %s is on neither DESCENDING page — the list lost a person", id)
+		}
+	}
+}
+
+// blankHolderRosterFixture is a roster that is MOSTLY BLANK under the `holder`
+// sort: six Tickets on one sale, one of them with a named accepted Holder and
+// five with nothing at all.
+//
+// THE SHAPE IS THE POINT. Five rows tied on every key of the `holder` sort, and
+// a page size that cuts through the middle of them, is what turns a missing
+// tiebreak from a theoretical risk into a reproducible lost person. A fixture
+// with two tied rows and a boundary beside them can pass by luck.
+//
+// It is also what a REAL Event looks like early on, and what EVERY Event looks
+// like on a build with Ticket Assignment closed — which is why the blanks rule
+// exists at all.
+type blankHolderRosterFixture struct {
+	sessionID string
+	eventID   string
+	// tickets is the whole roster, so the assertion can name every Ticket that
+	// must survive being paged through.
+	tickets []string
+}
+
+func newBlankHolderRosterFixture(t *testing.T, env *testEnv) blankHolderRosterFixture {
+	t.Helper()
+	f := blankHolderRosterFixture{}
+	f.sessionID = orgAdminSession(t, env)
+	f.eventID = createDraftEvent(t, env, f.sessionID, "Blank Fest", "blank-fest")
+	scheduleEvent(t, env, f.sessionID, f.eventID, "Blank Fest", "blank-fest",
+		env.fixedClock.Add(30*24*time.Hour))
+	ticketTypeID := createTicketTypeWithCapacity(t, env, f.sessionID, f.eventID, "GA", 2000, 50)
+
+	// COMMITTED WHILE THE FLAG IS DARK, so every Ticket starts unassigned: a
+	// Sale Import run with Ticket Assignment open would hand the buyer the
+	// first one by presumption (ADR 0055).
+	commitBatch(t, env, f.sessionID, f.eventID, "blank-batch", []map[string]any{{
+		"customer_email": holderSortAnaEmail, "customer_first_name": "Ana", "customer_last_name": "Alvarez",
+		"ticket_type_id": ticketTypeID, "quantity": 6, "payment_method": "cash",
+		"sold_at": "2026-07-01T10:00:00Z",
+	}})
+	f.tickets = ticketIDsOfSale(t, env, saleIDOfBuyer(t, env, f.eventID, holderSortAnaEmail))
+	if len(f.tickets) != 6 {
+		t.Fatalf("Tickets minted = %d, want 6", len(f.tickets))
+	}
+
+	// ONE named Holder among the six, so the sort has something to put in front
+	// of the blanks and the test is about the five behind it.
+	enableTicketAssignment(t)
+	acceptHolderNamed(t, env, holderSortAnaEmail, f.tickets[0], "yara@example.com", "Yara", "Ruiz")
+	return f
+}
+
+// SORTING COMPOSES WITH EVERY FILTER: an ordered view of a narrowed roster is
+// still narrowed, and a narrowed view is still ordered.
+//
+// The two are independent by construction — holderRosterFilters builds the
+// WHERE and holderOrderBy the ORDER BY, and neither reads the other — but
+// "by construction" is what every list that lost its filter on the second page
+// was also built by. The pagination total is asserted with the rows, as
+// everywhere else here: a count query that forgot a filter is invisible to a
+// test that checks only the order.
+func TestTheHolderListSortComposesWithEveryFilter(t *testing.T) {
+	env := setupTest(t)
+	f := newHolderSortFixture(t, env)
+
+	// The Ticket Type filter, ordered by buyer: one row, and the order cannot
+	// disturb which row it is.
+	assertTickets(t, holderSorted(t, env, f.sessionID, f.eventID, "buyer", "desc",
+		"&ticket_type_id="+f.zephyrID), []string{f.ana}, "sort=buyer within the Zephyr roster")
+
+	// The date range, ordered by buyer in both directions: two rows, and they
+	// swap. Read in the Event's timezone, which is UTC here.
+	window := "&sold_from=2026-07-02&sold_to=2026-07-03"
+	assertTickets(t, holderSorted(t, env, f.sessionID, f.eventID, "buyer", "asc", window),
+		[]string{f.ana, f.dario}, "sort=buyer&dir=asc over two sale days")
+	assertTickets(t, holderSorted(t, env, f.sessionID, f.eventID, "buyer", "desc", window),
+		[]string{f.dario, f.ana}, "sort=buyer&dir=desc over two sale days")
+
+	// The Sales Channel: every sale here came through the Sale Import, so this
+	// narrows to the whole roster and must not change the order it is in.
+	assertTickets(t, holderSorted(t, env, f.sessionID, f.eventID, "ticket_type", "asc", "&channel=import"),
+		[]string{f.ana, f.bruno, f.carla, f.dario}, "sort=ticket_type over the import channel")
+	assertTickets(t, holderSorted(t, env, f.sessionID, f.eventID, "ticket_type", "asc", "&channel=online"),
+		nil, "sort=ticket_type over a channel nothing sold on")
+
+	// The assignment state, ordered by what each owes: the three assigned or
+	// accepted Tickets are Ana's, Carla's and Dario's, owing 3, 2 and 1.
+	assertTickets(t, holderSorted(t, env, f.sessionID, f.eventID, "owes", "desc", "&assignment_state=accepted"),
+		[]string{f.ana, f.carla, f.dario}, "sort=owes&dir=desc among the accepted Tickets")
+	assertTickets(t, holderSorted(t, env, f.sessionID, f.eventID, "owes", "desc", "&assignment_state=unassigned"),
+		[]string{f.bruno}, "sort=owes&dir=desc among the unassigned Tickets")
+
+	// The Outstanding Answers filter, ordered by what each owes: Bruno's Ticket
+	// owes nothing and drops out, and the other three come back worst first.
+	assertTickets(t, holderSorted(t, env, f.sessionID, f.eventID, "owes", "desc", "&outstanding=true"),
+		[]string{f.ana, f.carla, f.dario}, "sort=owes&dir=desc among the Tickets that owe")
+
+	// And the search, ordered by Ticket Type: one buyer, one Ticket.
+	assertTickets(t, holderSorted(t, env, f.sessionID, f.eventID, "ticket_type", "asc",
+		"&q="+url.QueryEscape("Carla Blanco")), []string{f.carla}, "sort=ticket_type over a search")
+}
+
+// THE `owes` SORT IS ABSENT WHERE THE QUESTIONS SIDE OF THE LIST IS, AND A URL
+// ASKING FOR IT IS IGNORED RATHER THAN REFUSED (#524's rule, ADR 0065).
+//
+// With TICKET_QUESTIONS_ENABLED closed there are no debts to rank: the column
+// is not drawn, the header offering the sort does not exist, and a link shared
+// from a deployment where the flag is open — or bookmarked before it closed —
+// must keep working. It comes back as the roster in the DEFAULT ORDER with a
+// 200.
+//
+// THE DIRECTION GOES WITH THE FIELD, and that is the half worth asserting.
+// Dropping `sort` alone would leave `dir=desc` reading against the default
+// FIELD — newest sale first, which is neither what the reader asked for nor
+// what this list defaults to.
+//
+// Read through the Ticket Assignment flag, because with both dark the route is
+// a 404 (#333).
+func TestTheHolderListIgnoresTheOwesSortWhileQuestionsAreDark(t *testing.T) {
+	env := setupTest(t)
+	f := newHolderSortFixture(t, env)
+	// Closed the way every other test in this package closes it: both services,
+	// because one deployment flag reaches both and half of it is a state no
+	// deployment can be in.
+	sharedApp.CatalogService.WithTicketQuestions(false)
+	sharedApp.SalesService.WithTicketQuestions(false)
+
+	oldestFirst := []string{f.bruno, f.dario, f.ana, f.carla}
+	resp, body := env.get(t, holderListPath(f.eventID)+"?sort=owes&dir=desc", authHeader(f.sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("sort=owes with Ticket Questions dark status=%d error=%+v — a dark feature's "+
+			"parameter is IGNORED, never refused: a refusal turns a stale bookmark into an error "+
+			"page and forces the client to know a flag ADR 0045 exists to keep it from knowing",
+			resp.StatusCode, body.Error)
+	}
+	assertTickets(t, decodeOutstanding(t, body.Data), oldestFirst,
+		"sort=owes&dir=desc with Ticket Questions dark")
+
+	// The other four sorts belong to no flag and still work: a sale's date, a
+	// buyer, a Ticket Type and an accepted Holder's name are on every roster.
+	assertTickets(t, holderSorted(t, env, f.sessionID, f.eventID, "buyer", "asc", ""),
+		[]string{f.ana, f.carla, f.bruno, f.dario}, "sort=buyer with Ticket Questions dark")
+}

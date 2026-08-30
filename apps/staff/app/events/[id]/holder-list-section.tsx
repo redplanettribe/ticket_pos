@@ -21,6 +21,7 @@ import {
 } from "@ticket-pos/ui";
 import { useLocale, useMessages, useTranslations } from "next-intl";
 
+import { SortableHeader } from "@/components/sortable-header";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { formatDate, formatNumber } from "@/lib/format";
@@ -31,6 +32,7 @@ import {
   HOLDER_STATE_VALUE_KEYS,
   SALES_CHANNEL_KEYS,
   buyerName,
+  defaultHolderDirFor,
   fetchHolderList,
   hasActiveHolderListFilters,
   holderBadgeVariant,
@@ -235,6 +237,28 @@ export function HolderListSection({
       );
     },
     [router, eventId, sort, dir],
+  );
+
+  /*
+    THE SORT NAVIGATES LIKE A FILTER, THROUGH THE SAME BUILDER (#527).
+
+    Clicking the ACTIVE column flips its direction; clicking another switches to
+    it in that column's own natural direction (`defaultHolderDirFor` — names
+    ascend, the debt descends). Either way it RESETS TO PAGE 1, because page 3
+    of one order names nothing about page 3 of another; the filters are kept,
+    since the reader is reordering one view rather than choosing a new one.
+
+    The sort lives in the URL exactly as the filters do, so an ordered roster is
+    a link a colleague can be sent and the back button undoes a reordering
+    instead of leaving the screen.
+  */
+  const toggleSort = useCallback(
+    (field: HolderSortField) => {
+      const nextDir: HolderSortDir =
+        field === sort ? (dir === "asc" ? "desc" : "asc") : defaultHolderDirFor(field);
+      router.push(`/events/${eventId}/sales/holders${holderListQuery(1, filters, field, nextDir)}`);
+    },
+    [router, eventId, filters, sort, dir],
   );
 
   const [result, setResult] = useState<HolderListPage | null>(null);
@@ -672,18 +696,75 @@ export function HolderListSection({
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
+                  {/*
+                    EVERY DATA COLUMN IS SORTABLE, AND EACH HEADER IS THE ONLY
+                    CONTROL ITS SORT HAS (#527). The markup, the arrow and the
+                    `aria-sort` are the Sales list's `SortableHeader`, shared
+                    rather than re-coined so the two staff tables are reordered
+                    by the same gesture.
+
+                    THE TWO FLAGGED SORTS NEED NO FLAG OF THEIR OWN, and this is
+                    the property to preserve when touching these lines: `holder`
+                    and `owes` are offered by the headers of the columns they
+                    order, which are already drawn only under `showHolders` and
+                    `showQuestions`. So on a build with either feature dark the
+                    control is simply ABSENT — no second reading of a flag, and
+                    nothing to keep in step. A URL still asking for one of them
+                    is the API's problem, and it ignores it rather than refusing.
+                  */}
                   <tr className="border-b text-left text-muted-foreground">
-                    <th className="py-2 pr-4 font-medium">{t("colBuyer")}</th>
+                    <SortableHeader
+                      label={t("colBuyer")}
+                      field="buyer"
+                      sort={sort}
+                      dir={dir}
+                      onSort={toggleSort}
+                    />
                     {/* The Holder column appears only when the API sent an
                         assignment at all — see `holderListVisible`. A column of
                         blanks on a deployment where assignment is closed would
-                        be a promise this platform is not yet making. */}
-                    {showHolders ? <th className="py-2 pr-4 font-medium">{t("colHolder")}</th> : null}
-                    <th className="py-2 pr-4 font-medium">{t("colTicket")}</th>
-                    <th className="py-2 pr-4 font-medium">{t("colSold")}</th>
+                        be a promise this platform is not yet making. And with
+                        it goes the one sort whose blanks come last in BOTH
+                        directions. */}
+                    {showHolders ? (
+                      <SortableHeader
+                        label={t("colHolder")}
+                        field="holder"
+                        sort={sort}
+                        dir={dir}
+                        onSort={toggleSort}
+                      />
+                    ) : null}
+                    {/* Sorted in the Event's CATALOG DISPLAY ORDER, not
+                        alphabetically — the order the Organization wrote its
+                        Ticket Types in is the order it means. */}
+                    <SortableHeader
+                      label={t("colTicket")}
+                      field="ticket_type"
+                      sort={sort}
+                      dir={dir}
+                      onSort={toggleSort}
+                    />
+                    <SortableHeader
+                      label={t("colSold")}
+                      field="sold_at"
+                      sort={sort}
+                      dir={dir}
+                      onSort={toggleSort}
+                    />
                     {/* And the Owes column only where debts exist as a concept,
-                        for the same reason on the other flag. */}
-                    {showQuestions ? <th className="py-2 pr-4 font-medium">{t("colOwes")}</th> : null}
+                        for the same reason on the other flag — which is also
+                        what keeps the `owes` sort off a build that has no
+                        debts to rank. */}
+                    {showQuestions ? (
+                      <SortableHeader
+                        label={t("colOwes")}
+                        field="owes"
+                        sort={sort}
+                        dir={dir}
+                        onSort={toggleSort}
+                      />
+                    ) : null}
                     <th className="py-2 font-medium">
                       <span className="sr-only">{t("colActions")}</span>
                     </th>
