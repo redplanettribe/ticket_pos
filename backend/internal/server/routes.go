@@ -236,24 +236,20 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("GET /api/v1/operator/question-reviews/count", operator(http.HandlerFunc(h.CountOutstandingQuestionReviews)))
 	mux.Handle("GET /api/v1/operator/question-reviews/{reviewID}", operator(http.HandlerFunc(h.GetQuestionReview)))
 	mux.Handle("POST /api/v1/operator/question-reviews/{reviewID}/answer", operator(http.HandlerFunc(h.AnswerQuestionReview)))
-	// The Consent Withdrawal an Operator records on somebody's behalf (#271,
-	// parent #265): a form that arrived by post, or an email to the
-	// data-protection address.
+	// GONE, DELETED IN #566: GET /api/v1/operator/customers/{email}/consent and
+	// POST /api/v1/operator/customers/{email}/consent/withdrawal, which stood
+	// here from #271 until the Legal Center landed.
 	//
-	// Keyed on the Customer's EMAIL ADDRESS, which is all an Operator holding a
-	// posted form has — the same argument that keys the sale lookup on a Sale
-	// Confirmation reference. It is not nested under an Organization and could
-	// not be: Customer identity on this platform is global and separate from
-	// staff (ADR 0010), so a Customer's consents belong to no venue and no
-	// Organization-scoped role may reach them. The operator allowlist on this
-	// namespace is the whole of the gate, and it refuses an Org Admin identically
-	// for an address that exists and one that does not.
-	mux.Handle("GET /api/v1/operator/customers/{email}/consent", operator(http.HandlerFunc(h.LookUpCustomerConsent)))
-	// The act itself, hanging off that lookup exactly as the Operator Reversal
-	// hangs off the sale lookup. A noun and not a verb, because what is being
-	// created is a record of a Consent Withdrawal — and pointedly singular in
-	// what it can do: this path can only ever take something away.
-	mux.Handle("POST /api/v1/operator/customers/{email}/consent/withdrawal", operator(http.HandlerFunc(h.RecordCustomerConsentWithdrawal)))
+	// They were keyed on the Customer's EMAIL ADDRESS because that was all an
+	// Operator holding a posted form had. The acceptance browsers' search (#565)
+	// absorbed the one-step lookup from a POSTed body, and the withdrawal moved
+	// onto the per-subject record below — so the platform now has NO ROUTE
+	// ANYWHERE that carries a data subject's address in a request line, where it
+	// would reach the reverse proxy's access log, the browser's history and the
+	// Referer header of whatever the operator clicked next.
+	//
+	// This note stays because the routes were public and somebody will look for
+	// them.
 
 	// The Legal Center (#561, spec #556): where the platform's own agreements —
 	// the Privacy Policy and the Términos y Condiciones — are written.
@@ -278,6 +274,115 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// or re-gates anybody; the publication is #563 and arrives as its own route.
 	mux.Handle("PUT /api/v1/operator/legal/documents/{document}/draft", operator(http.HandlerFunc(h.SaveLegalDraft)))
 	mux.Handle("DELETE /api/v1/operator/legal/documents/{document}/draft", operator(http.HandlerFunc(h.DiscardLegalDraft)))
+	// What the operator has LOOKED AT (#562), which #563 turns into publish
+	// preconditions. Both are POSTs that RECORD rather than render: the preview
+	// is drawn in the browser by the same Markdown component the Storefront
+	// renders, and the diff is computed there too, both over text the workspace
+	// read already carried. There is deliberately NO PREVIEW ROUTE on the public
+	// side — the public route resolves what is current itself and refuses to be
+	// told which edition to serve, which is what keeps unpublished words
+	// unpublished — and neither of these writes a consent_access_log row (#545):
+	// a preview touches nobody's data, so it is a log line.
+	mux.Handle("POST /api/v1/operator/legal/documents/{document}/draft/previews", operator(http.HandlerFunc(h.PreviewLegalDraftCell)))
+	mux.Handle("POST /api/v1/operator/legal/documents/{document}/draft/diff-seen", operator(http.HandlerFunc(h.SeeLegalDraftDiff)))
+
+	// The publication (#563): the one act in the Legal Center a reader can see.
+	//
+	// A POST TO A COLLECTION, not a verb on the draft, because a publication
+	// CREATES A ROW — an edition — and the draft is only where its words came
+	// from. It is off the `/draft` subtree above for the same reason: everything
+	// there changes nothing anybody has read, and this changes what everybody is
+	// held to.
+	//
+	// ONE ROUTE FOR BOTH ACTS, with `kind` in the body. A gating edition and a
+	// correction differ in the label they take, whether they re-gate and whether
+	// they wait a night — and in nothing about the resource, which is one
+	// document's next edition either way. Two paths would let a screen offer them
+	// as two equal buttons, which is exactly the rail this feature is arranged to
+	// avoid: publishing an edition is the default, and the correction is a quiet
+	// link beneath it.
+	mux.Handle("POST /api/v1/operator/legal/documents/{document}/publications", operator(http.HandlerFunc(h.PublishLegalEdition)))
+
+	// Cancelling a scheduled edition (#564): the night the overnight delay buys,
+	// made usable. A publication that has not taken effect can be withdrawn, with
+	// no reason, no delay and no approval step — undoing is always cheaper than
+	// doing.
+	//
+	// POST .../cancel AND NOT DELETE .../publications/{version}, which would be
+	// the shorter address and the wrong one: NOTHING IS DELETED. The row is
+	// retained and marked so the record of what was nearly published survives and
+	// its label stays spent, and a verb that told a reader the edition was gone
+	// would be a lie about the one property this feature turns on. It is also the
+	// house's shape for exactly this act — see the Payout Request's
+	// `POST .../{requestId}/cancel` and the Event's `POST .../{id}/cancel`.
+	//
+	// UNDER `publications/` because that is what is being cancelled: the act, not
+	// the document and not the draft.
+	mux.Handle("POST /api/v1/operator/legal/documents/{document}/publications/{version}/cancel", operator(http.HandlerFunc(h.CancelLegalEdition)))
+
+	// The two acceptance browsers (#565, ADR 0067): who owes an acceptance, in
+	// the two populations that can owe one. TWO ROUTES BECAUSE THERE ARE TWO
+	// SCREENS — Customers are UUID-keyed and answer for two documents, staff
+	// are email-keyed, answer for one, and have a fourth state (Former) that
+	// Customers cannot have — and forcing them through one path would mean a
+	// payload with a nullable half.
+	//
+	// POSTS THAT READ, and the shape is deliberate rather than sloppy. Nothing
+	// on either route creates, records or changes anything. What they must not
+	// do is put a data subject's email in a URL, a query string or a referer
+	// (#565), and TWO of the parameters are addresses: the search fragment, and
+	// the CURSOR — paging is keyset on `email ASC`, so the cursor IS the last
+	// address of the previous page, and base64 is an encoding rather than a
+	// disguise. A GET here would write somebody's address into the access log
+	// of every page an operator turned.
+	//
+	// `document` is `policy` or `terms` for customers and `terms` alone for
+	// staff — there is one staff gate (§3, ADR 0066) — and anything else is
+	// 404, which is what keeps both paths total.
+	mux.Handle("POST /api/v1/operator/legal/acceptances/customers/{document}", operator(http.HandlerFunc(h.BrowseCustomerAcceptances)))
+	mux.Handle("POST /api/v1/operator/legal/acceptances/staff/{document}", operator(http.HandlerFunc(h.BrowseStaffAcceptances)))
+
+	// ONE PERSON'S CONSENT RECORD (#566, ADR 0067): where a browser row leads,
+	// and where the Consent Withdrawal now lives.
+	//
+	// TWO SUBTREES BECAUSE THERE ARE TWO SCREENS, for the browsers' reason. A
+	// Customer is reached by an opaque UUID; a staff person has no id at all —
+	// the person key of the Staff platform is an email — so they are reached by
+	// a Staff Digest, which is a URL key and a screen label and is written to no
+	// row. Where one human being is both, the two records are CROSS-LINKED
+	// SERVER-SIDE and never merged into a single identity the platform cannot
+	// evidence.
+	//
+	// PLAIN GETs AND NOT POSTS-THAT-READ, unlike the browsers above, and the
+	// difference is the same rule reaching a different answer: nothing in any of
+	// these request lines is an address. A customer id is opaque, a digest is
+	// opaque, and the history's cursor is a timestamp and a row id. The rule is
+	// NO EMAIL IN A REQUEST LINE, not "no query strings".
+	mux.Handle("GET /api/v1/operator/legal/customers/{customerID}", operator(http.HandlerFunc(h.GetCustomerLegalRecord)))
+	// The history is ITS OWN ENDPOINT and not a cursor folded into the record
+	// read, so the landing request and page 2 do not return different shapes.
+	// Keyset on (captured_at DESC, id) at page size 25, `limit` a cap the caller
+	// may lower and never raise.
+	mux.Handle("GET /api/v1/operator/legal/customers/{customerID}/records", operator(http.HandlerFunc(h.ListCustomerConsentRecords)))
+	// The one act this screen offers, moved here from
+	// /operator/customers/{email}/consent/withdrawal and rekeyed on the id. A
+	// noun and not a verb, because what is created is a record of a Consent
+	// Withdrawal — and pointedly singular in what it can do: this path can only
+	// ever take something away. `recorded_by` comes from the Staff Session and
+	// never from the body.
+	//
+	// THERE IS NO SIBLING ROUTE THAT GRANTS, RE-GATES ONE PERSON, MANUFACTURES
+	// AN ACCEPTANCE, ERASES ANYBODY, OR WITHDRAWS THE TERMS OR A POLICY
+	// ACCEPTANCE, and the absences are as ruled as this presence. A contract's
+	// basis is performance rather than consent; a deletion request escalates to
+	// counsel rather than being automated behind a button; and a gating floor is
+	// a property of a lineage, not of a person.
+	mux.Handle("POST /api/v1/operator/legal/customers/{customerID}/withdrawal", operator(http.HandlerFunc(h.RecordCustomerConsentWithdrawal)))
+	// The staff half. Unpaged — a person holds at most one acceptance per
+	// edition per capacity — and 503 on a deployment with no link secret, for
+	// the staff browser's reason: with no key the digest match would resolve to
+	// an arbitrary person, which is the wrong record rather than a degraded one.
+	mux.Handle("GET /api/v1/operator/legal/staff/{digest}", operator(http.HandlerFunc(h.GetStaffLegalRecord)))
 
 	// Tax invoicing (#450, ADR 0059): the platform's Issuer with each country's
 	// Tax Authority, and — from #454 — the Tax Invoices it issues by hand. The
@@ -826,6 +931,24 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// requirement, which is why it registers bare like the memberships routes
 	// above rather than behind the staff middleware chain.
 	mux.HandleFunc("PUT /api/v1/staff/me/locale", h.SetStaffLocale)
+
+	// The Terms gate on a LIVE session (#570, ADR 0067): the read a navigation
+	// interstitial makes, and the acceptance it records. A Staff Session is the
+	// whole requirement — no LoadActiveMember and no role gate, for the locale
+	// route's reason: the contract binds the PERSON, and a Platform Operator
+	// who is a Member of nothing owes it exactly as an Org Admin does.
+	//
+	// They are `/api/` routes serving a navigation gate, and never a gate on
+	// `/api/` themselves: nothing here refuses another request, and no other
+	// staff route consults the Terms. A sale in progress commits.
+	mux.Handle(
+		"GET /api/v1/staff/terms/gate",
+		identitymiddleware.SessionAuth(svc)(http.HandlerFunc(h.GetStaffTermsGate)),
+	)
+	mux.Handle(
+		"POST /api/v1/staff/terms/accept",
+		identitymiddleware.SessionAuth(svc)(http.HandlerFunc(h.AcceptStaffTermsOnSession)),
+	)
 
 	orgAdmin := func(handler http.Handler) http.Handler {
 		return identitymiddleware.SessionAuth(svc)(

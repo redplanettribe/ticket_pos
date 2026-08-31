@@ -3,15 +3,19 @@ import { NextResponse } from "next/server";
 
 import { callBackend } from "@/lib/api";
 import { jsonFromAPIError, unauthorizedResponse } from "@/lib/bff";
-import type { OperatorCustomerConsent } from "@/lib/operator-api";
+import type { ConsentWithdrawalResult } from "@/lib/legal-records-api";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 type RouteContext = {
-  params: Promise<{ email: string }>;
+  params: Promise<{ customerId: string }>;
 };
 
 // POST records a Consent Withdrawal that arrived off-platform — a posted form,
-// or an email to the data-protection address (#271).
+// or an email to the data-protection address (#271, rehoused by #566).
+//
+// KEYED ON THE OPAQUE UUID now, not the address: the operator is already
+// reading this person's consent record, which they reached from the acceptance
+// browser's search. The route it replaces put an email in the request line.
 //
 // The body is forwarded unread, as every proxy here forwards one. That includes
 // the withdraw-only rule: the API refuses a body that tries to GRANT a consent,
@@ -25,11 +29,11 @@ export async function POST(request: Request, context: RouteContext) {
     return unauthorizedResponse();
   }
 
-  const { email } = await context.params;
+  const { customerId } = await context.params;
   try {
     const body = await request.json();
-    const envelope = await callBackend<OperatorCustomerConsent>(
-      `/api/v1/operator/customers/${encodeURIComponent(email)}/consent/withdrawal`,
+    const envelope = await callBackend<ConsentWithdrawalResult>(
+      `/api/v1/operator/legal/customers/${encodeURIComponent(customerId)}/withdrawal`,
       { method: "POST", sessionToken: token, body: JSON.stringify(body) },
     );
     return NextResponse.json(envelope);

@@ -26,10 +26,12 @@ import (
 // proxy, kept in the browser's history, and sent on in the Referer header of
 // whatever the operator clicked next.
 //
-// The staff app's existing operator lookups DO put an address in a path —
-// GET /api/v1/operator/customers/{email}/consent — and that is the surface
-// these screens are built to replace for browsing. A new screen was not going
-// to inherit it.
+// The staff app's operator lookups USED to put an address in a path — GET
+// /api/v1/operator/customers/{email}/consent — and that is the surface these
+// screens were built to replace for browsing. A new screen was not going to
+// inherit it, and #566 finished the job: that route and its withdrawal are
+// deleted, so no request line on this platform carries a data subject's address
+// any more.
 
 // legalAcceptanceBrowseBody is one page request. Everything the screen asks
 // for, in a body.

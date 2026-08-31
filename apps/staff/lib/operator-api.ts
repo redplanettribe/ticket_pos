@@ -780,119 +780,19 @@ export async function withdrawOperatorSaleReAddressing(
   );
 }
 
-// --- Customer consent, and the Consent Withdrawal an operator records --------
+// --- Customer consent: MOVED IN #566 ----------------------------------------
 //
-// The one surface here that is about a person rather than about money (#271,
-// parent #265). An operator holding a withdrawal form that arrived by post — or
-// an email to the data-protection address — finds the Customer by their
-// address, sees what a withdrawal would actually change, and records it.
+// The Consent Withdrawal an operator records on somebody's behalf (#271) used
+// to live here, behind a lookup that found a Customer BY THEIR EMAIL ADDRESS —
+// which put an address in a request line, and so into the reverse proxy's
+// access log, the browser's history and the Referer header of the next click.
 //
-// It is an OPERATOR surface and could not be an Organization one: Customer
-// identity on this platform is global and separate from staff (ADR 0010), so a
-// Customer's consents are the platform's relationship with them and no venue
-// may inspect or alter the choices of people who also bought somewhere else.
-//
-// AND IT CAN ONLY WITHDRAW. Nothing below can grant a consent, and that is not
-// a property of these functions: the API refuses an affirmative answer in its
-// single consent-write path. The types express only what the surface offers.
-
-/** The Customer an address resolves to, enough to be sure it is the right one. */
-export type OperatorConsentCustomer = {
-  id: string;
-  email: string;
-  first_name: string;
-  last_name: string;
-};
-
-/**
- * One optional consent's state.
- *
- * `pending_confirmation` is somebody else's tick — an address typed at a
- * checkout by a person who never proved they owned it. It is denied for sending
- * and unanswered for prompting, and it never expires, so it is a real thing
- * standing against the address that a withdrawal settles.
- */
-export type OperatorConsentValue = "granted" | "denied" | "pending_confirmation";
-
-/**
- * What is TRUE NOW about a Customer's consents.
- *
- * NULL MEANS UNANSWERED, which is a different fact from denied and must be
- * shown as the different fact it is: an operator deciding what a form changes
- * must never be shown a refusal the Customer never made.
- */
-export type OperatorConsentState = {
-  marketing_consent: OperatorConsentValue | null;
-  networking_consent: OperatorConsentValue | null;
-  /**
-   * When the Customer last accepted a Privacy Policy version, null if never.
-   * Shown and NOT actionable: policy acceptance is not withdrawable — it is
-   * absent from the withdrawal form, it rests on a basis other than consent,
-   * and clearing it would re-gate the person rather than free them.
-   */
-  policy_accepted_at: string | null;
-};
-
-/**
- * What one recorded act TOOK AWAY — null on a lookup, which took nothing away.
- *
- * It is not the same question as the state beside it and cannot be derived from
- * it: `denied` reads the same whether somebody just gave something up or was
- * already refusing. It is also what decides whether the Customer was emailed.
- */
-export type OperatorConsentWithdrawn = {
-  marketing_consent: boolean;
-  networking_consent: boolean;
-};
-
-export type OperatorCustomerConsent = {
-  customer: OperatorConsentCustomer;
-  consent: OperatorConsentState;
-  withdrew: OperatorConsentWithdrawn | null;
-};
-
-/**
- * A withdrawal as the operator states it.
- *
- * Each consent is OMITTED when the artefact did not ask for it — a form asking
- * for one thing takes one thing away, and sending `false` for a consent nobody
- * mentioned would record an answer to a question that was never put. The only
- * value either field may carry is `false`: the API refuses `true`.
- *
- * `request_reference` is required and names the inbound artefact. It is a
- * pointer to evidence held elsewhere rather than evidence itself.
- */
-export type OperatorConsentWithdrawalBody = {
-  marketing_consent?: false;
-  networking_consent?: false;
-  request_reference: string;
-};
-
-/** Finds a Customer by email and reports their consent state. Writes nothing. */
-export async function fetchOperatorCustomerConsent(
-  email: string,
-): Promise<OperatorCustomerConsent> {
-  return fetchEventsJSON<OperatorCustomerConsent>(
-    `/api/operator/customers/${encodeURIComponent(email)}/consent`,
-  );
-}
-
-/**
- * Records a Consent Withdrawal on a Customer's behalf, attributed to the
- * operator who entered it and referenced to the artefact it answers.
- *
- * Writes exactly one consent record and emails the Customer the standard
- * withdrawal confirmation — but only when something actually moved.
- */
-export async function recordOperatorConsentWithdrawal(
-  email: string,
-  body: OperatorConsentWithdrawalBody,
-): Promise<OperatorCustomerConsent> {
-  return fetchEventsJSON<OperatorCustomerConsent>(
-    `/api/operator/customers/${encodeURIComponent(email)}/consent/withdrawal`,
-    { method: "POST", body: JSON.stringify(body) },
-  );
-}
+// Both are gone. Finding somebody is now the acceptance browsers' search
+// (#565), which posts its fragment in a body; reading and acting on them is the
+// per-subject consent record (lib/legal-records-api.ts), keyed on an opaque
+// UUID. Nothing about the act itself changed: it can still only withdraw, never
+// grant, and the refusal is still the platform's single consent-write path's
+// rather than any surface's.
 
 /**
  * One Ticket Question on the Operator's view of an Event (#410, ADR 0056): the
@@ -1791,6 +1691,71 @@ export type OperatorLegalPreviewedCell = OperatorLegalCellRef & {
   previewed_at: string;
 };
 
+/**
+ * What the publish step would do if it were pressed now (#563).
+ *
+ * IT RIDES ON THE WORKSPACE rather than on a read of its own, for the reason the
+ * workspace is one payload at all: the label each act would create, the
+ * headcount a gating act would re-gate and the reasons a correction is
+ * unavailable are all statements about THIS draft beside THIS published edition,
+ * and a second read could straddle a publication and answer about neither.
+ */
+export type OperatorLegalPublishPlan = {
+  /** The label a NEW EDITION would take — the next generation. It goes on the button. */
+  gating_label: string;
+  /**
+   * The label a CORRECTION would take: the next revision within the current
+   * generation, FLAT. Shown on the quiet link, so choosing it visibly turns `2`
+   * into `1.2`.
+   */
+  correction_label: string;
+  /**
+   * How many people a gating publication would re-gate. It goes on the CONFIRM
+   * button, and the same number is stored on the version row — the proof that
+   * the consequence was displayed. A correction's headcount is always zero and is
+   * not sent separately.
+   */
+  headcount: number;
+  /** Exactly `complete && previewed_all && seen_diff`. */
+  can_publish: boolean;
+  complete: boolean;
+  gaps: { slug: string; locale: AppLocale }[];
+  /** The draft adds or removes an artifact: a new edition, never a correction. */
+  structural: boolean;
+  /** The draft publishes a different set of languages: it reshapes the hash preimage. */
+  locale_set_changed: boolean;
+  /** Refuses a correction; a gating edition over unchanged text is allowed. */
+  empty_diff: boolean;
+  can_correct: boolean;
+  /**
+   * The language this document may not be published without — a CONSTANT of the
+   * document's own package and never a column. Sent so the editor does not
+   * hard-code a language; the reasons behind it are copy, in the messages.
+   */
+  protected_locale: AppLocale;
+  protected_locale_kept: boolean;
+  /** The first day a gating edition may take effect: the date input's minimum. */
+  earliest_effective_date: string;
+  diff_summary: string;
+};
+
+/**
+ * One edition already published and still waiting for its day (#564) — what the
+ * banner names, and what the cancel control acts on.
+ *
+ * IT CARRIES NO TEXT. The banner is a reminder that something is about to take
+ * effect, not a second reading surface.
+ */
+export type OperatorLegalScheduledEdition = {
+  version_id: string;
+  /** The edition's name, rendered from its lineage by the API: `3`, or `2.1`. */
+  label: string;
+  /** YYYY-MM-DD: the day it takes effect. */
+  effective_date: string;
+  /** Whether it will re-gate everybody when its day comes. */
+  gating: boolean;
+};
+
 /** Everything the editor needs for one document, in one read. */
 export type OperatorLegalWorkspace = {
   document: OperatorLegalDocument;
@@ -1798,6 +1763,31 @@ export type OperatorLegalWorkspace = {
   supported_locales: AppLocale[];
   published: OperatorLegalEdition;
   draft: OperatorLegalDraft;
+  publish: OperatorLegalPublishPlan;
+  /**
+   * Every edition waiting for its day, newest first. EMPTY IS THE NORMAL STATE.
+   *
+   * A LIST AND NOT ONE EDITION: the overnight delay pushes each gating
+   * publication to a later day than the last, so an operator who scheduled two
+   * has two nights running at once. An edition leaves this list at midnight, by
+   * the database's own day, which is also when the seam stops permitting the
+   * cancellation — the control's disappearance is membership of this list and
+   * nothing else.
+   */
+  scheduled: OperatorLegalScheduledEdition[];
+};
+
+/**
+ * One publication. NO LABEL AND NO TEXT: the label is rendered from the lineage
+ * by the API and cannot be typed, and what is published is the saved draft —
+ * exactly the text that was previewed and diffed.
+ */
+export type PublishOperatorLegalBody = {
+  kind: "edition" | "correction";
+  /** YYYY-MM-DD. Required and at least tomorrow on an edition; omitted on a correction. */
+  effective_date?: string;
+  /** The typed reason. Required on a correction only. */
+  reason?: string;
 };
 
 /** The whole draft on its way back. No ordinals: the order is the ordinal. */
@@ -1865,6 +1855,44 @@ export async function seeOperatorLegalDiff(
 ): Promise<OperatorLegalWorkspace> {
   return fetchEventsJSON<OperatorLegalWorkspace>(
     `/api/operator/legal/documents/${document}/draft/diff-seen`,
+    { method: "POST" },
+  );
+}
+
+/**
+ * Publishes the saved draft as a new edition or as a correction (#563).
+ *
+ * Answers with the whole workspace, whose draft is once again a copy of the
+ * published edition — because the draft became it. Every refusal comes back from
+ * the API: this call checks nothing, because a precondition a browser could
+ * decline to check is not a precondition.
+ */
+export async function publishOperatorLegalEdition(
+  document: OperatorLegalDocument,
+  body: PublishOperatorLegalBody,
+): Promise<OperatorLegalWorkspace> {
+  return fetchEventsJSON<OperatorLegalWorkspace>(
+    `/api/operator/legal/documents/${document}/publications`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+/**
+ * Cancels a scheduled edition before its day (#564).
+ *
+ * NO BODY. There is no reason to type, no confirmation token to carry and no
+ * approval to wait for: cancelling is ungated and immediate, because undoing is
+ * always cheaper than doing. The edition is kept and marked, never deleted, and
+ * its number is not reused.
+ *
+ * Answers with the whole workspace, whose `scheduled` list no longer names it.
+ */
+export async function cancelOperatorLegalEdition(
+  document: OperatorLegalDocument,
+  versionID: string,
+): Promise<OperatorLegalWorkspace> {
+  return fetchEventsJSON<OperatorLegalWorkspace>(
+    `/api/operator/legal/documents/${document}/publications/${encodeURIComponent(versionID)}/cancel`,
     { method: "POST" },
   );
 }

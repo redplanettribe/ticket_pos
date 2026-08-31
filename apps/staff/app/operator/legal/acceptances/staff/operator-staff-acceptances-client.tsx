@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import Link from "next/link";
+
 import {
   Alert,
   AlertDescription,
@@ -27,6 +29,7 @@ import {
   type StaffAcceptanceRow,
 } from "@/lib/acceptance-browsers";
 import { fetchStaffAcceptances } from "@/lib/acceptance-browsers-api";
+import { staffRecordHref } from "@/lib/legal-records";
 
 import { StandingBadge } from "../standing-badge";
 
@@ -59,13 +62,15 @@ function StaffRow({ row }: { row: StaffAcceptanceRow }) {
   return (
     <tr className="border-b last:border-b-0">
       <td className="py-3 pr-4">
-        {/* The address is in the BODY and on the screen; never in a URL. */}
-        <p className="font-medium">{row.email}</p>
         {/*
-          The digest, which is what a link to this person's record will carry
-          (#566). NOT YET A LINK: that record is #566's, and pointing at a route
-          that does not exist would be worse than not pointing.
+          The address is in the BODY and on the screen; never in a URL. The LINK
+          carries the DIGEST instead (#566) — a staff person has no id, so the
+          digest is what names them in a route, and it discloses nobody to
+          anybody without the key.
         */}
+        <Link className="font-medium underline underline-offset-4" href={staffRecordHref(row.digest)}>
+          {row.email}
+        </Link>
         <p className="font-mono text-xs text-muted-foreground">{row.digest}</p>
       </td>
       <td className="py-3 pr-4">

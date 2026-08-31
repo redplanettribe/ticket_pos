@@ -13,6 +13,7 @@ import (
 	"time"
 
 	catalogsvc "github.com/peter/ticket_pos/backend/internal/catalog/service"
+	"github.com/peter/ticket_pos/backend/internal/identity"
 	identitysvc "github.com/peter/ticket_pos/backend/internal/identity/service"
 	"github.com/peter/ticket_pos/backend/internal/invoicing"
 	salessvc "github.com/peter/ticket_pos/backend/internal/sales/service"
@@ -167,6 +168,22 @@ type Service struct {
 	// legal is the Legal Center's half (#561): the platform's own words, drafted
 	// but never yet published from here. See legal.go.
 	legal LegalDocuments
+	// acceptanceCustomers and acceptanceStaff are the two acceptance browsers'
+	// population reads (#565): consent answers for Customers, identity for the
+	// Staff platform. Two seams because they are two screens over two
+	// populations, never one configuration object. See legalbrowsers.go.
+	acceptanceCustomers LegalAcceptanceBrowsers
+	acceptanceStaff     LegalStaffBrowser
+	// legalRecords and legalStaffRecords are the per-subject record's reads
+	// (#566), split the same way and for the same reason: the two screens are
+	// two populations with two keys, and the only thing that crosses between
+	// them is an address, resolved server-side. See legalsubject.go.
+	legalRecords      LegalRecords
+	legalStaffRecords LegalStaffRecords
+	// staffDigester names a staff person in a URL without disclosing their
+	// address (#565, ADR 0046). An unconfigured one makes the staff browser
+	// REFUSE TO SERVE; it never falls back to an empty key.
+	staffDigester identity.StaffDigester
 	// documents is the invoicing seam (#477); nil is the "no invoicing"
 	// deployment, where every Sale has no documents.
 	documents Documents

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import Link from "next/link";
+
 import {
   Alert,
   AlertDescription,
@@ -29,6 +31,7 @@ import {
   type LegalDocument,
 } from "@/lib/acceptance-browsers";
 import { fetchCustomerAcceptances } from "@/lib/acceptance-browsers-api";
+import { customerRecordHref } from "@/lib/legal-records";
 
 import { StandingBadge } from "../standing-badge";
 
@@ -60,13 +63,16 @@ function CustomerRow({ row }: { row: CustomerAcceptanceRow }) {
     <tr className="border-b last:border-b-0">
       <td className="py-3 pr-4">
         {/*
-          NOT YET A LINK. The per-subject record is #566's, and it is reached by
-          the OPAQUE CUSTOMER ID this row already carries — Customer identity is
-          UUID-keyed, so reading about somebody will put no address in a URL, a
-          query string, a referer or an access log (#565). Linking to a route
-          that does not exist yet would be worse than not linking.
+          THE LINK TO THIS PERSON'S RECORD (#566), and it carries the OPAQUE
+          CUSTOMER ID this row already had — Customer identity is UUID-keyed, so
+          reading about somebody puts no address in a URL, a query string, a
+          referer or an access log (#565). The browser answers "who owes an
+          acceptance"; the record answers "what did this person do", and this is
+          the seam between the two.
         */}
-        <p className="font-medium">{row.name}</p>
+        <Link className="font-medium underline underline-offset-4" href={customerRecordHref(row.customer_id)}>
+          {row.name}
+        </Link>
         {/* The address is in the BODY and on the screen; never in a URL. */}
         <p className="font-mono text-xs text-muted-foreground">{row.email}</p>
       </td>

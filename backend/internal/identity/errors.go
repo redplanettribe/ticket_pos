@@ -109,3 +109,28 @@ func ErrHouseOrganizationCurrencyUnsupported(currency string) apperror.DomainErr
 		"This organization trades in "+currency+", and the platform issues Sale Invoices in USD only. A House Organization must trade in USD.",
 		map[string]any{"currency": currency})
 }
+
+// ErrStaffSubjectNotFound is returned when a per-subject staff record is
+// addressed to somebody who is not on the Staff platform and has never accepted
+// its Terms (#566, spec #556, ADR 0067).
+//
+// It is what a Staff Digest matching NOBODY resolves to. The digest is one-way
+// by design — there is no reverse, so a caller holding one is matched against
+// the staff population in constant time until an address answers — and a digest
+// minted under a rotated key, or simply mistyped, matches none of them.
+//
+// 404 and NOT an empty record, for the reason its Customer counterpart
+// LEGAL_SUBJECT_NOT_FOUND is: an operator following a stale bookmark must be
+// told the person is not there rather than shown a blank record asserting that
+// somebody exists and owes nothing.
+//
+// IT CARRIES NO DETAILS, and specifically not the digest it was asked for.
+// Echoing the URL segment back into an error body would put it in one more
+// place a log ships, and it names a human being.
+func ErrStaffSubjectNotFound() apperror.DomainError {
+	return apperror.New(
+		"STAFF_SUBJECT_NOT_FOUND",
+		"There is no acceptance record for that person.",
+		nil,
+	)
+}

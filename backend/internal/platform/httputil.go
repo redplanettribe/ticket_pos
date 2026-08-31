@@ -376,6 +376,58 @@ func domainHTTPStatus(code string) int {
 	// 400 and are not listed here.
 	case "LEGAL_DOCUMENT_NOT_FOUND":
 		return http.StatusNotFound
+	// The per-subject consent record addressed to somebody nobody is (#566):
+	// a customer id that names no Customer, or a Staff Digest that matches
+	// nobody on the Staff platform. 404 beside LEGAL_DOCUMENT_NOT_FOUND and for
+	// its reason — the address named a person and there is no such person — and
+	// 404 rather than an empty record, because an operator following a stale
+	// link must be told the person is not there instead of being shown a blank
+	// record they might then act on.
+	case "LEGAL_SUBJECT_NOT_FOUND", "STAFF_SUBJECT_NOT_FOUND":
+		return http.StatusNotFound
+	// A preview or a diff recorded against a document with no saved draft
+	// (#562). 409: the request was well formed and the operator was entitled to
+	// make it, and what stands in the way is a fact about the draft that no
+	// restatement of the body can fix. Its sibling LEGAL_DRAFT_CELL_NOT_FOUND —
+	// a cell the draft has no text in — is "the body names something that is not
+	// there", so it takes the default 400 and is not listed here.
+	case "LEGAL_DRAFT_NOT_STORED":
+		return http.StatusConflict
+	// The two review gates a publication must clear (#563): every artifact seen
+	// rendered, and the diff against the current edition seen. 409 for
+	// LEGAL_DRAFT_NOT_STORED's reason — the request was well formed and the
+	// operator was entitled to make it, and what stands in the way is a fact
+	// about the draft rather than about the body. The rest of the publish
+	// refusals (an incomplete draft, a structural or locale-set change offered as
+	// a correction, an empty diff offered as a correction, a missing reason, an
+	// effective date that is not one or is too soon, a dropped protected
+	// language) are all "the request asserts something the draft does not
+	// support", so they take the default 400 and are not listed.
+	case "LEGAL_PUBLISH_NOT_PREVIEWED", "LEGAL_PUBLISH_DIFF_NOT_SEEN":
+		return http.StatusConflict
+	// A cancellation addressed to an edition that is not there (#564). 404 for
+	// LEGAL_DOCUMENT_NOT_FOUND's reason — the address named an edition and there
+	// is no such edition of this document — and the two documents are separate
+	// tables, so one document's path never confirms the other's rows.
+	case "LEGAL_EDITION_NOT_FOUND":
+		return http.StatusNotFound
+	// A cancellation arriving after the edition's day (#564). 409 and not 400:
+	// the request was well formed and the operator was entitled to make it when
+	// the screen offered it, and what stands in the way is a fact about the
+	// CALENDAR that no restatement of the body can fix. The control is gone by
+	// then, so this is what a page left open overnight meets.
+	case "LEGAL_EDITION_ALREADY_EFFECTIVE":
+		return http.StatusConflict
+	// The staff acceptance browser on a deployment with no CONFIRMATION_LINK_
+	// SECRET (#565). 503 and not 500: nothing is broken and no request was
+	// malformed — the deployment is missing a value, and the screen REFUSES TO
+	// SERVE rather than name people under a zero key anybody could reproduce.
+	// Unreachable in production, where server.NewApp will not start without it.
+	// Its two neighbours LEGAL_STANDING_UNKNOWN and LEGAL_STANDING_NOT_AVAILABLE
+	// are "the body asked for a state that is not one of the four" and "not one
+	// this population has", so both take the default 400 and are not listed.
+	case "STAFF_DIGEST_UNAVAILABLE":
+		return http.StatusServiceUnavailable
 	// No Policy Version in effect. A deployment fault — migration 060 seeds one
 	// — so it is the platform's 500 and not the caller's 404.
 	case "NO_CURRENT_POLICY_VERSION":

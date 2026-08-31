@@ -72,28 +72,27 @@ type operatorConsentView struct {
 	Withdrew *operatorConsentWithdrawn `json:"withdrew"`
 }
 
-func operatorConsentPath(email string) string {
-	return "/api/v1/operator/customers/" + url.PathEscape(email) + "/consent"
-}
-
-func operatorConsentWithdrawalPath(email string) string {
-	return operatorConsentPath(email) + "/withdrawal"
-}
-
-// lookUpCustomerConsent is the Operator's read: find the person by the address
-// on the form, and see what a withdrawal would actually change.
-func lookUpCustomerConsent(t *testing.T, env *testEnv, sessionID, email string) operatorConsentView {
-	t.Helper()
-	var view operatorConsentView
-	operatorGetOK(t, env, sessionID, operatorConsentPath(email), &view)
-	return view
+// operatorConsentWithdrawalPath is the withdrawal's address AFTER #566: the act
+// hangs off the person's consent record in the Legal Center, keyed on their
+// OPAQUE UUID.
+//
+// The two routes it replaces — GET and POST on
+// /api/v1/operator/customers/{email}/consent* — are deleted, and their absence
+// is asserted in operator_legal_record_test.go. No email appears in any request
+// line on this path.
+func operatorConsentWithdrawalPath(customerID string) string {
+	return "/api/v1/operator/legal/customers/" + url.PathEscape(customerID) + "/withdrawal"
 }
 
 // recordOperatorWithdrawal posts one withdrawal. The two consents are *bool so
 // a test can send absent, a denial, and — for the refusal — a grant.
+//
+// It still takes an EMAIL, and resolves it to an id here — which is exactly
+// what the operator's screen does for them. The address is how a human being is
+// recognised; the id is how the request names them.
 func recordOperatorWithdrawal(t *testing.T, env *testEnv, sessionID, email string, body map[string]any) (*http.Response, envelope) {
 	t.Helper()
-	return env.post(t, operatorConsentWithdrawalPath(email), body, authHeader(sessionID))
+	return env.post(t, operatorConsentWithdrawalPath(customerIDFor(t, env, email)), body, authHeader(sessionID))
 }
 
 func recordOperatorWithdrawalOK(t *testing.T, env *testEnv, sessionID, email string, body map[string]any) operatorConsentView {
@@ -116,71 +115,13 @@ func recordOperatorWithdrawalOK(t *testing.T, env *testEnv, sessionID, email str
 // saying where the paper is. Nothing is ever decided from its contents.
 const paperFormRef = "Formulario de Revocatoria, signed 2026-08-01, received by post 2026-08-05"
 
-// TestOperatorFindsACustomerByEmailAndSeesTheirConsentState is user story 31 and
-// 32 together, and the read half of the ticket: an Operator holding a form
-// starts from an address and nothing else, and must be able to tell what a
-// withdrawal would change before they change it.
-func TestOperatorFindsACustomerByEmailAndSeesTheirConsentState(t *testing.T) {
-	env := setupTest(t)
-	signInAnswering(t, env, "ana@example.com", true, true, false)
-
-	operatorSessionID := operatorSession(t, env, "operator@example.com")
-	view := lookUpCustomerConsent(t, env, operatorSessionID, "ana@example.com")
-
-	if view.Customer.Email != "ana@example.com" || view.Customer.ID == "" {
-		t.Fatalf("lookup identified %+v; want the Customer at that address", view.Customer)
-	}
-	if view.Consent.MarketingConsent == nil || *view.Consent.MarketingConsent != "granted" {
-		t.Fatalf("marketing consent = %v; want granted", view.Consent.MarketingConsent)
-	}
-	if view.Consent.NetworkingConsent == nil || *view.Consent.NetworkingConsent != "denied" {
-		t.Fatalf("networking consent = %v; want denied", view.Consent.NetworkingConsent)
-	}
-	if view.Consent.PolicyAcceptedAt == nil {
-		t.Fatal("policy_accepted_at is null for a Customer who accepted at sign-in")
-	}
-	// Reading changes nothing. A lookup that recorded something would put an act
-	// in the evidence log that nobody performed.
-	if records := readConsentRecords(t, env, "ana@example.com"); len(records) != 1 {
-		t.Fatalf("the lookup wrote to the evidence log: %d records, want the sign-in's 1", len(records))
-	}
-}
-
-// TestOperatorLookupReportsAnUnansweredConsentAsUnanswered: null is not denied.
-// An Operator deciding what a form actually changes must not be shown a refusal
-// the Customer never made.
-func TestOperatorLookupReportsAnUnansweredConsentAsUnanswered(t *testing.T) {
-	env := setupTest(t)
-	// A Customer created by a box office sale has never been asked anything.
-	seedCustomerWithoutConsent(t, env, "unasked@example.com")
-
-	operatorSessionID := operatorSession(t, env, "operator@example.com")
-	view := lookUpCustomerConsent(t, env, operatorSessionID, "unasked@example.com")
-
-	if view.Consent.MarketingConsent != nil || view.Consent.NetworkingConsent != nil {
-		t.Fatalf("consent state = %+v; want both unanswered (null)", view.Consent)
-	}
-	if view.Consent.PolicyAcceptedAt != nil {
-		t.Fatalf("policy_accepted_at = %v; want null for somebody who never accepted", *view.Consent.PolicyAcceptedAt)
-	}
-}
-
-// TestOperatorLookupOfAnUnknownAddressIs404: the Operator IS entitled to know,
-// so they are told plainly rather than shown an empty Customer they might act
-// on. The address never becomes an oracle for anybody else — see the
-// authorization test below.
-func TestOperatorLookupOfAnUnknownAddressIs404(t *testing.T) {
-	env := setupTest(t)
-	operatorSessionID := operatorSession(t, env, "operator@example.com")
-
-	resp, body := env.get(t, operatorConsentPath("nobody@example.com"), authHeader(operatorSessionID))
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("unknown address status=%d, want 404; error=%+v", resp.StatusCode, body.Error)
-	}
-	if body.Error == nil || body.Error.Code != "CUSTOMER_NOT_FOUND" || !isNullData(body.Data) {
-		t.Fatalf("unknown address envelope: data=%s error=%+v", body.Data, body.Error)
-	}
-}
+// THE READ HALF OF THIS TICKET MOVED IN #566, and its tests moved with it to
+// operator_legal_record_test.go. An Operator holding a form no longer starts
+// from an address in a URL: they search the acceptance browser from a POSTed
+// body, open that person's consent record by its opaque id, and act from there.
+// Everything the lookup tests proved — that null is unanswered and not denied,
+// that somebody who does not exist is a plain 404 rather than a blank record to
+// act on, and that reading writes nothing — is proved there about the record.
 
 // TestOperatorRecordsAWithdrawalOfBothOptionalConsents is the ticket's whole
 // point: the mailed-in form is honoured, and the act it performs is a Consent
@@ -409,9 +350,9 @@ func TestOperatorWithdrawalRequiresTheArtefactItAnswers(t *testing.T) {
 // Customer identity is GLOBAL and separate from staff, so an Org Admin — even
 // of the Organization the Customer bought from — has no business inspecting or
 // altering the consents of a person who also bought from somewhere else. The
-// refusal is 403 on BOTH routes and for an address that really exists, which is
-// the disclosure posture: an Organization learns nothing about who is on this
-// platform, not even whether an address is.
+// refusal is 403, and it is 403 for a Customer who really exists and for an id
+// that names nobody alike: an Organization learns nothing about who is on this
+// platform, not even whether somebody is.
 func TestOperatorConsentSurfaceIsOperatorsOnly(t *testing.T) {
 	env := setupTest(t)
 	adminSessionID := orgAdminSession(t, env)
@@ -419,23 +360,17 @@ func TestOperatorConsentSurfaceIsOperatorsOnly(t *testing.T) {
 
 	withdrawal := map[string]any{"marketing_consent": false, "request_reference": paperFormRef}
 
-	for _, address := range []string{"ana@example.com", "nobody@example.com"} {
-		resp, body := env.get(t, operatorConsentPath(address), nil)
+	// A real person and a UUID nobody holds, refused identically. The second is
+	// a well-formed id rather than a nonsense string, so the refusal is proved
+	// to come from the DOOR and not from a parse.
+	for _, customerID := range []string{customerIDFor(t, env, "ana@example.com"), "8f1c0c66-0000-4000-8000-000000000000"} {
+		resp, body := env.post(t, operatorConsentWithdrawalPath(customerID), withdrawal, nil)
 		if resp.StatusCode != http.StatusUnauthorized || body.Error == nil || body.Error.Code != "UNAUTHORIZED" {
-			t.Fatalf("unauthenticated lookup of %s status=%d error=%+v; want 401 UNAUTHORIZED", address, resp.StatusCode, body.Error)
+			t.Fatalf("unauthenticated withdrawal for %s status=%d error=%+v; want 401 UNAUTHORIZED", customerID, resp.StatusCode, body.Error)
 		}
-		resp, body = env.get(t, operatorConsentPath(address), authHeader(adminSessionID))
+		resp, body = env.post(t, operatorConsentWithdrawalPath(customerID), withdrawal, authHeader(adminSessionID))
 		if resp.StatusCode != http.StatusForbidden || body.Error == nil || body.Error.Code != "FORBIDDEN" {
-			t.Fatalf("org_admin lookup of %s status=%d error=%+v; want 403 FORBIDDEN", address, resp.StatusCode, body.Error)
-		}
-
-		resp, body = env.post(t, operatorConsentWithdrawalPath(address), withdrawal, nil)
-		if resp.StatusCode != http.StatusUnauthorized || body.Error == nil || body.Error.Code != "UNAUTHORIZED" {
-			t.Fatalf("unauthenticated withdrawal for %s status=%d error=%+v; want 401 UNAUTHORIZED", address, resp.StatusCode, body.Error)
-		}
-		resp, body = env.post(t, operatorConsentWithdrawalPath(address), withdrawal, authHeader(adminSessionID))
-		if resp.StatusCode != http.StatusForbidden || body.Error == nil || body.Error.Code != "FORBIDDEN" {
-			t.Fatalf("org_admin withdrawal for %s status=%d error=%+v; want 403 FORBIDDEN", address, resp.StatusCode, body.Error)
+			t.Fatalf("org_admin withdrawal for %s status=%d error=%+v; want 403 FORBIDDEN", customerID, resp.StatusCode, body.Error)
 		}
 	}
 
@@ -447,27 +382,27 @@ func TestOperatorConsentSurfaceIsOperatorsOnly(t *testing.T) {
 		t.Fatalf("a refused caller moved the consent state: %+v", state)
 	}
 
-	// The operator, who is a Member of nothing, is served both.
+	// The operator, who is a Member of nothing, is served.
 	operatorSessionID := operatorSession(t, env, "operator@example.com")
-	if got := lookUpCustomerConsent(t, env, operatorSessionID, "ana@example.com"); got.Customer.Email != "ana@example.com" {
-		t.Fatalf("operator lookup = %+v", got.Customer)
-	}
 	if got := recordOperatorWithdrawalOK(t, env, operatorSessionID, "ana@example.com", withdrawal); got.Withdrew == nil || !got.Withdrew.MarketingConsent {
 		t.Fatalf("operator withdrawal = %+v", got)
 	}
 }
 
-// TestOperatorConsentLookupIgnoresAddressCase: an address quoted in a support
-// thread or copied off a printed form loses its case, and identity on this
-// platform is keyed on the normalised form (platform.NormalizeEmail).
-func TestOperatorConsentLookupIgnoresAddressCase(t *testing.T) {
-	env := setupTest(t)
-	signInAnswering(t, env, "ana@example.com", true, true, false)
-
-	operatorSessionID := operatorSession(t, env, "operator@example.com")
-	if got := lookUpCustomerConsent(t, env, operatorSessionID, "Ana@Example.COM"); got.Customer.Email != "ana@example.com" {
-		t.Fatalf("lookup of a mixed-case address = %+v", got.Customer)
+// customerIDFor resolves an address to the opaque id every route on this path
+// is keyed on.
+//
+// SQL, and deliberately so: there is no longer an API that turns an address
+// into a Customer, because there is no longer a route that takes one. The
+// screen reaches the id through the acceptance browser's search, which posts
+// its fragment in a body.
+func customerIDFor(t *testing.T, env *testEnv, email string) string {
+	t.Helper()
+	var id string
+	if err := env.db.QueryRow(`SELECT id FROM customers WHERE email = $1`, email).Scan(&id); err != nil {
+		t.Fatalf("resolve customer id for %q: %v", email, err)
 	}
+	return id
 }
 
 // operatorAttribution is the pair of columns only this channel writes: who

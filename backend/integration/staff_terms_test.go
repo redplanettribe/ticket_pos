@@ -20,6 +20,10 @@ type staffTermsRequiredView struct {
 	ExpiresAt         string `json:"expires_at"`
 	Version           string `json:"version"`
 	AcceptanceLabel   string `json:"acceptance_label"`
+	// LabelLocale is the language the label was ACTUALLY served in — the
+	// requested one, or the prevailing one when this edition does not publish it
+	// (#559's floor, told rather than guessed).
+	LabelLocale string `json:"label_locale"`
 }
 
 // staffSignInOutcome is a verify (or accept) response's data.

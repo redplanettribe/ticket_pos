@@ -193,6 +193,11 @@ func operatorRoutes(orgID string) []struct {
 		{http.MethodGet, "/api/v1/operator/legal/documents/policy"},
 		{http.MethodPut, "/api/v1/operator/legal/documents/policy/draft"},
 		{http.MethodDelete, "/api/v1/operator/legal/documents/policy/draft"},
+		// And #562's two: what the operator has looked at. Same namespace, same
+		// gate, and they are on this list for the same reason the PUT is —
+		// authority here is a property of the address, not of the verb.
+		{http.MethodPost, "/api/v1/operator/legal/documents/policy/draft/previews"},
+		{http.MethodPost, "/api/v1/operator/legal/documents/policy/draft/diff-seen"},
 	}
 }
 
