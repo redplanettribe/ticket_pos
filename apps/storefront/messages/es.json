@@ -357,13 +357,14 @@
     "verifyFailed": "Ese código no fue aceptado.",
     "verifyNetworkFailed": "No se pudo verificar ese código. Revise su conexión e inténtelo de nuevo.",
     "consent": {
-      "description": "Antes de iniciar tu sesión, lee cómo tratamos tus datos e indícanos qué autorizas.",
+      "title": "Ya casi está",
+      "description": "Revisa cómo tratamos tus datos y elige qué autorizas.",
       "readPolicy": "Leer la Política de Privacidad completa",
       "readTerms": "Leer los Términos y Condiciones completos",
       "optional": "Opcional",
       "submit": "Aceptar e iniciar sesión",
       "unavailable": "Ahora mismo no podemos mostrarte el aviso de privacidad, así que no podemos terminar de iniciar tu sesión. Inténtalo de nuevo en un momento.",
-      "withdrawInstead": "¿Prefiere revocar un consentimiento? Puede hacerlo sin iniciar sesión."
+      "withdrawInstead": "¿Prefieres revocar un consentimiento? Puedes hacerlo sin iniciar sesión."
     },
     "consentFailed": "No pudimos registrar tus decisiones.",
     "consentNetworkFailed": "No pudimos registrar tus decisiones. Revisa tu conexión e inténtalo de nuevo."

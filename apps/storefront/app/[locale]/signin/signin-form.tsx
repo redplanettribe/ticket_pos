@@ -423,9 +423,17 @@ export function SignInForm({
     step === "code" && !(error?.code != null && RESEND_REFUSED_ERRORS.has(error.code));
 
   return (
-    <Card>
+    <Card
+      // The email and passcode steps keep the narrow column a two-field form
+      // reads best in; the consent step takes the wrapper's full width so the
+      // notice and the boxes come out as a page to read, not a chute to
+      // scroll (#539).
+      className={step === "consent" ? "w-full" : "mx-auto w-full max-w-md"}
+    >
       <CardHeader>
-        <CardTitle className="text-xl">{t("title")}</CardTitle>
+        <CardTitle className="text-xl">
+          {step === "consent" ? t("consent.title") : t("title")}
+        </CardTitle>
         <CardDescription>
           {/* The address goes inside the sentence rather than being appended to
               it: which side of it the words fall on is the translator's. */}
@@ -482,7 +490,7 @@ export function SignInForm({
           </Alert>
         ) : null}
 
-        {passcodeSent && !error ? (
+        {step === "code" && passcodeSent && !error ? (
           <p role="status" className="rounded-lg border bg-muted/50 px-4 py-3 text-sm">
             {t("passcodeSent")}
           </p>
@@ -565,7 +573,7 @@ export function SignInForm({
                   does.
                 */}
                 {consent?.boxes.terms_acceptance && terms ? (
-                  <>
+                  <div className="space-y-2">
                     <ConsentCheckbox
                       id="terms_acceptance"
                       checked={termsAccepted}
@@ -582,25 +590,33 @@ export function SignInForm({
                         {t("consent.readTerms")}
                       </Link>
                     </p>
-                  </>
+                  </div>
                 ) : null}
-                {consent?.boxes.marketing_consent ? (
-                  <ConsentCheckbox
-                    id="marketing_consent"
-                    checked={marketingConsent}
-                    onChange={setMarketingConsent}
-                    label={policy.consent_labels.marketing_consent}
-                    optionalLabel={t("consent.optional")}
-                  />
-                ) : null}
-                {consent?.boxes.networking_consent ? (
-                  <ConsentCheckbox
-                    id="networking_consent"
-                    checked={networkingConsent}
-                    onChange={setNetworkingConsent}
-                    label={policy.consent_labels.networking_consent}
-                    optionalLabel={t("consent.optional")}
-                  />
+                {/* The optional consents share a row where the width allows
+                    it — they are peers, and side by side they read as the two
+                    extras they are rather than two more rungs of the same
+                    ladder (#539). */}
+                {consent?.boxes.marketing_consent || consent?.boxes.networking_consent ? (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {consent?.boxes.marketing_consent ? (
+                      <ConsentCheckbox
+                        id="marketing_consent"
+                        checked={marketingConsent}
+                        onChange={setMarketingConsent}
+                        label={policy.consent_labels.marketing_consent}
+                        optionalLabel={t("consent.optional")}
+                      />
+                    ) : null}
+                    {consent?.boxes.networking_consent ? (
+                      <ConsentCheckbox
+                        id="networking_consent"
+                        checked={networkingConsent}
+                        onChange={setNetworkingConsent}
+                        label={policy.consent_labels.networking_consent}
+                        optionalLabel={t("consent.optional")}
+                      />
+                    ) : null}
+                  </div>
                 ) : null}
 
                 <Button

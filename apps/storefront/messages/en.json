@@ -357,7 +357,8 @@
     "verifyFailed": "That passcode was not accepted.",
     "verifyNetworkFailed": "Could not check that passcode. Please check your connection and try again.",
     "consent": {
-      "description": "Before we sign you in, please read how we handle your data and tell us what you agree to.",
+      "title": "Almost there",
+      "description": "Review how we handle your data and choose what you agree to.",
       "readPolicy": "Read the full Privacy Policy",
       "readTerms": "Read the full Términos y Condiciones",
       "optional": "Optional",

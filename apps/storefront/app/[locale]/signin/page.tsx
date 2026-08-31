@@ -156,7 +156,7 @@ export default async function SignInPage({ params, searchParams }: SignInPagePro
 
   return (
     <StorefrontShell>
-      <div className="mx-auto flex w-full max-w-md flex-col justify-center px-4 py-12 sm:py-16">
+      <div className="mx-auto flex w-full max-w-2xl flex-col justify-center px-4 py-12 sm:py-16">
         <SignInForm
           next={destination}
           // WHY this page is being shown, when there is a why worth saying
