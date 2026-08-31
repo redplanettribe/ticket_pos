@@ -2131,8 +2131,10 @@ components:
       type: object
     platform.Locale:
       description: |-
-        Locale is the language the text below is written in — always "es", the
-        single legally prevailing text (§37), whatever language was asked for.
+        Locale is the language the text below is written in, and the language that
+        was asked for: both published languages carry this edition. Spanish is the
+        legally prevailing text (§37); English is the courtesy translation, and it
+        says so in its own first line.
       enum:
       - en
       - es
@@ -6091,9 +6093,10 @@ components:
         acceptance_label:
           description: |-
             AcceptanceLabel is the mandatory, un-premarked checkbox's label, markdown,
-            verbatim from the embedded artifact (§3). The UI renders it beside a link
-            to the public Storefront terms page and may not reword or pre-tick it —
-            the Staff app hosts no copy of the document.
+            verbatim from the embedded artifact (§3) in the language the login page is
+            rendered in. The UI renders it beside a link to the public Storefront terms
+            page and may not reword or pre-tick it — the Staff app hosts no copy of the
+            document.
           type: string
         expires_at:
           description: ExpiresAt is when that token stops working, RFC 3339.
@@ -12418,21 +12421,25 @@ paths:
       - public
   /api/v1/public/terms/{locale}:
     get:
-      description: 'Serves the Terms Version currently in effect: the version label,
-        its effective date, the SHA-256 fingerprint of the edition, the full Términos
-        y Condiciones Generales (`body_markdown`) and the mandatory acceptance checkbox
-        label (`acceptance_label`). All text is markdown and all of it is what the
-        fingerprint covers. The document is published in Spanish only — the single
-        legally prevailing text (§37) — and is served for ANY requested locale rather
-        than falling back or 404ing; the `locale` field names the language of the
-        text ("es"), not the language asked for. Public and unauthenticated.'
+      description: 'Serves the Terms Version currently in effect, rendered in the
+        requested Locale: the version label, its effective date, the SHA-256 fingerprint
+        of the edition, the full Términos y Condiciones Generales (`body_markdown`)
+        and the mandatory acceptance checkbox label (`acceptance_label`). All text
+        is markdown, and all of it in EVERY published language is what the fingerprint
+        covers — one edition, one hash, whichever language a person read before ticking.
+        The Spanish text is the legally prevailing one (§37); the English one is a
+        courtesy translation that says so in its own first line. The Locale is a path
+        parameter and is answered strictly — a language the Terms are not published
+        in is a 404, never a silent fallback. Public and unauthenticated.'
       parameters:
-      - description: Locale the terms are asked for in; the Spanish text is served
-          regardless
+      - description: Locale the terms are read in
         in: path
         name: locale
         required: true
         schema:
+          enum:
+          - en
+          - es
           type: string
       responses:
         "200":
@@ -12441,6 +12448,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/openapi.EnvelopeTerms'
           description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
         "500":
           content:
             application/json:

@@ -11,7 +11,7 @@ import (
 )
 
 // TermsView is the current Terms Version as a reader sees it: which edition it
-// is, when it took effect, and every word of it.
+// is, when it took effect, and every word of it in one language.
 //
 // One payload for every surface, like PolicyView and for its reason: the terms
 // page renders `body_markdown`, a capture moment renders `acceptance_label`,
@@ -29,8 +29,10 @@ type TermsView struct {
 	// ContentHash is the fingerprint of the artifact set below, published so a
 	// reader can hold the platform to it.
 	ContentHash string `json:"content_hash"`
-	// Locale is the language the text below is written in — always "es", the
-	// single legally prevailing text (§37), whatever language was asked for.
+	// Locale is the language the text below is written in, and the language that
+	// was asked for: both published languages carry this edition. Spanish is the
+	// legally prevailing text (§37); English is the courtesy translation, and it
+	// says so in its own first line.
 	Locale platform.Locale `json:"locale"`
 	// AcceptanceLabel is the mandatory checkbox's label, markdown. The UI may
 	// not reword or pre-tick it.
@@ -55,16 +57,30 @@ func (s *Service) CurrentTermsVersionID(ctx context.Context) (string, error) {
 	return version.ID, nil
 }
 
-// CurrentTerms reports the Terms Version in effect.
+// CurrentTerms reports the Terms Version in effect, rendered in one Locale.
 //
-// Unlike CurrentPolicy it takes no Locale and refuses nobody: the Terms are
-// published in Spanish only, the Spanish text prevails over any translation
-// (§37), and serving it under every Locale is the ruling of #533 — an English
-// reader gets the one legally operative document rather than a 404. The
-// handler still binds a {locale} path parameter so the address shape matches
-// the policy's; whatever it says, this is the answer.
-func (s *Service) CurrentTerms(ctx context.Context) (TermsView, error) {
-	document := terms.Current()
+// It answers the Locale STRICTLY, exactly as CurrentPolicy does: a language
+// this platform does not publish the Terms in is a 404, never a silent
+// fallback. Serving a contract in a language the reader did not ask for, under
+// their own language's address, would present text they may not be able to
+// read as the text they accepted.
+//
+// WHICH LANGUAGE IS SHOWN IS NOT WHICH TEXT BINDS. Both published translations
+// are one edition under one fingerprint (terms.ContentHash), and the Spanish
+// text prevails over any translation (§37) — the English document says so in
+// its own first line. An acceptance captured beside the English label is
+// therefore an acceptance of the same edition, evidenced by the same hash, as
+// one captured beside the Spanish.
+func (s *Service) CurrentTerms(ctx context.Context, rawLocale string) (TermsView, error) {
+	locale, ok := platform.ParseLocale(rawLocale)
+	if !ok {
+		return TermsView{}, consent.ErrTermsLocaleNotPublished()
+	}
+
+	document, ok := terms.For(locale)
+	if !ok {
+		return TermsView{}, consent.ErrTermsLocaleNotPublished()
+	}
 
 	version, err := s.repo.CurrentTermsVersion(ctx)
 	if errors.Is(err, repository.ErrNoCurrentTermsVersion) {

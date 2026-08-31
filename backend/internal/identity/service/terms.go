@@ -9,6 +9,7 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/consent/terms"
 	"github.com/peter/ticket_pos/backend/internal/identity"
 	"github.com/peter/ticket_pos/backend/internal/identity/repository"
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // pendingTermsDuration is how long a held staff sign-in is worth finishing:
@@ -79,9 +80,10 @@ type TermsRequiredView struct {
 	// Version is the edition label being accepted ("1").
 	Version string `json:"version"`
 	// AcceptanceLabel is the mandatory, un-premarked checkbox's label, markdown,
-	// verbatim from the embedded artifact (§3). The UI renders it beside a link
-	// to the public Storefront terms page and may not reword or pre-tick it —
-	// the Staff app hosts no copy of the document.
+	// verbatim from the embedded artifact (§3) in the language the login page is
+	// rendered in. The UI renders it beside a link to the public Storefront terms
+	// page and may not reword or pre-tick it — the Staff app hosts no copy of the
+	// document.
 	AcceptanceLabel string `json:"acceptance_label"`
 }
 
@@ -116,7 +118,12 @@ type TermsAcceptanceSubmission struct {
 // database hiccup must not be the way past a contractual gate. Migration 105
 // seeds edition 1, so "no current version" is unreachable in any migrated
 // environment and is reported as the plain error it is.
-func (s *Service) gateOnTerms(ctx context.Context, email string, now time.Time) (*TermsRequiredView, error) {
+// pageLocale is the language the login page is rendered in; the checkbox label
+// is served in it. Which language the box is WORDED in is not which text binds:
+// both published translations are one edition under one fingerprint, the
+// Spanish prevails (§37), and the link beside the box goes to the prevailing
+// text.
+func (s *Service) gateOnTerms(ctx context.Context, email string, pageLocale platform.Locale, now time.Time) (*TermsRequiredView, error) {
 	version, err := s.termsVersions.CurrentTermsVersion(ctx)
 	if err != nil {
 		return nil, err
@@ -151,7 +158,7 @@ func (s *Service) gateOnTerms(ctx context.Context, email string, now time.Time) 
 		PendingTermsToken: token,
 		ExpiresAt:         pending.ExpiresAt.UTC().Format(time.RFC3339),
 		Version:           version.Label,
-		AcceptanceLabel:   terms.Current().AcceptanceLabel,
+		AcceptanceLabel:   acceptanceLabel(pageLocale),
 	}, nil
 }
 
@@ -216,4 +223,20 @@ func (s *Service) AcceptTerms(ctx context.Context, submission TermsAcceptanceSub
 	}
 
 	return &SignInOutcome{Session: view, SessionID: session.ID}, nil
+}
+
+// acceptanceLabel is the checkbox's words in one language, floored at the
+// prevailing text.
+//
+// The floor is not defensive tidiness: an unpublished language reaching here
+// would otherwise serve a person an EMPTY label — a mandatory contractual box
+// with nothing written beside it, which is the one thing §3 forbids outright.
+// Falling back to the text that legally binds them is the only safe answer, and
+// terms.Locales covering every Locale the platform parses makes it unreachable.
+func acceptanceLabel(locale platform.Locale) string {
+	if doc, ok := terms.For(locale); ok {
+		return doc.AcceptanceLabel
+	}
+	doc, _ := terms.For(terms.PrevailingLocale)
+	return doc.AcceptanceLabel
 }

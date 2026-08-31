@@ -36,13 +36,31 @@ effective date, content hash; current = latest effective date ≤ today, ties by
 is-current flag. The two documents version independently — bumping one never re-gates the other —
 and the existing Policy Version FK/CHECK chain stays untouched.
 
-**The document is a Spanish-only backend-embedded artifact** (per ADR 0036's reasoning: this is
-evidence, not copy): terms markdown plus a checkbox-label markdown, content-hashed, served by a
-public endpoint under every Locale — the Spanish text is the single legally prevailing one (§37),
-so the English Storefront shows Spanish rather than 404ing. Seeded as edition "1", effective on
+**The document is a backend-embedded artifact published in both Locales** (per ADR 0036's
+reasoning: this is evidence, not copy): terms markdown plus a checkbox-label markdown per
+language, content-hashed together, served by a public endpoint that answers the requested Locale
+strictly — a language the Terms are not published in is a 404, exactly as for the policy. *The
+first cut of this decision published Spanish only and served it under every Locale; the English
+translation was written before the branch merged, and this is the decision as built.* The Spanish
+text is the single legally prevailing one (§37) and the English one opens by saying so, so which
+language a reader is shown is never which text binds them. Seeded as edition "1", effective on
 deploy date, in the same migration that creates the table. No placeholder two-step: text and
 machinery ship together, and the seed itself performs the one-time re-gate of the existing
 Customer base that §34 requires.
+
+**Both languages are one edition under one fingerprint**, matching Policy Versions. A person
+accepts the edition, in whichever language they read it, and the hash covers every published
+language at once — so an acceptance beside the English checkbox is evidenced by a fingerprint that
+contains both the text that was on screen and the text that legally binds. Per-language hashes
+would let the two drift apart under a single label, which is the thing the label exists to
+prevent. A correction to the translation alone is therefore a new edition, and re-gates everyone.
+
+**Each capture surface is worded in the language it is being read in**, and links to the terms
+page in that language: the Storefront's from the `[locale]` in its own URL, the Staff app's from
+the language its login page was rendered in — the same detected language that is already
+remembered as the Staff Locale (ADR 0041). A mandatory contractual box with nothing legible beside
+it is what §3 forbids; the Staff gate falls back to the prevailing text rather than to an empty
+label if a language ever reaches it unpublished.
 
 **Customer capture rides the existing consent machinery.** A nullable Terms answer and Terms
 Version reference on Consent Records (null = box not shown), paired accepted-at/version state on
@@ -82,6 +100,13 @@ a generalized table would churn every consent test to gain a table the schema us
 platform has no person table to put state on — email is its person key — and "no row for the
 current edition" is one indexed lookup that a new edition flips for free.
 
+**Spanish only vs a published translation.** Published translation (chosen). Spanish-only was
+defensible — §37 makes it the operative text and the fingerprint had one language to cover — but it
+put an English reader in front of a mandatory contractual checkbox beside a document they may not
+be able to read, which is a worse answer to §3 than the extra edition weight is a problem. The
+translation is published as a translation: it says so in its first line, it never becomes
+operative, and it is fingerprinted with the Spanish so the evidence covers both.
+
 **A "staff" capacity now vs "organizer" for everyone.** One capacity (chosen). The draft names
 the organizer's express acceptance; splitting door staff into their own capacity is vocabulary
 the CHECK leaves open, and doing it now would force a ruling (which roles are which) that no
@@ -100,6 +125,11 @@ requirement yet needs.
 - The Terms Version database id never goes on the wire — labels and hashes only, matching the
   Policy Version rule.
 - A wording change to the Terms is a Go commit, a new `terms_versions` row and a migration
-  (ADR 0036's weight), and it re-gates Customers *and* Staff at once.
+  (ADR 0036's weight), and it re-gates Customers *and* Staff at once. That now includes a change to
+  the English translation alone, and it means the two languages must be edited together: a
+  translation is not a place to fix a typo cheaply.
+- The two languages must keep saying the same things in the same order. Section numbering is
+  pinned by a test, because both texts cross-reference their own sections (§3, §37) and so does
+  this codebase; the rest is a review obligation, not something a test can hold.
 - The legal center — public version history, downloadable copia fiel — is §34 machinery this
   decision does not build.

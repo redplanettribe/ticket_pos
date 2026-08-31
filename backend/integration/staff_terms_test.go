@@ -73,11 +73,22 @@ func sessionThroughTermsGate(t *testing.T, env *testEnv, body envelope) string {
 // response untouched, so a test can assert on the outcome itself.
 func requestAndVerify(t *testing.T, env *testEnv, email string) envelope {
 	t.Helper()
+	return requestAndVerifyIn(t, env, email, "")
+}
+
+// requestAndVerifyIn is the same sign-in with a detected page language on it —
+// the language the terms step is worded in (#538, ADR 0066).
+func requestAndVerifyIn(t *testing.T, env *testEnv, email, locale string) envelope {
+	t.Helper()
 	_, _ = env.post(t, "/api/v1/auth/otp/request", map[string]string{"email": email}, nil)
-	resp, body := env.post(t, "/api/v1/auth/otp/verify", map[string]string{
+	verify := map[string]string{
 		"email": email,
 		"code":  env.email.LastCode,
-	}, nil)
+	}
+	if locale != "" {
+		verify["locale"] = locale
+	}
+	resp, body := env.post(t, "/api/v1/auth/otp/verify", verify, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("verify otp status=%d error=%+v", resp.StatusCode, body.Error)
 	}
@@ -115,7 +126,9 @@ func TestStaffTermsGateFirstSignIn(t *testing.T) {
 	if outcome.TermsRequired.Version != "1" {
 		t.Fatalf("terms version=%q, want 1", outcome.TermsRequired.Version)
 	}
-	if !strings.Contains(outcome.TermsRequired.AcceptanceLabel, "Términos y Condiciones") {
+	// English: no locale was detected on this sign-in, and the label is floored
+	// at the platform's default language rather than left blank.
+	if !strings.Contains(outcome.TermsRequired.AcceptanceLabel, "Terms and Conditions") {
 		t.Fatalf("acceptance label does not name the terms: %q", outcome.TermsRequired.AcceptanceLabel)
 	}
 	if outcome.TermsRequired.PendingTermsToken == "" {
@@ -381,5 +394,37 @@ func TestStaffTermsExpiredToken(t *testing.T) {
 	}
 	if countStaffTermsAcceptances(t, env, email) != 0 {
 		t.Fatal("an expired step must record nothing")
+	}
+}
+
+// The terms step is worded in the language the login page is rendered in, and
+// the box beside it is the same box either way (#538, ADR 0066).
+//
+// Which language it is worded in is NOT which text binds: both translations are
+// one edition under one fingerprint and the Spanish prevails (§37), so the
+// version label is identical and the acceptance a Spanish reader gives is the
+// acceptance an English reader gives.
+func TestStaffTermsGateIsWordedInThePageLanguage(t *testing.T) {
+	env := setupTest(t)
+
+	spanish := decodeStaffSignInOutcome(t, requestAndVerifyIn(t, env, "spanish-reader@example.com", "es"))
+	if spanish.TermsRequired == nil {
+		t.Fatal("expected terms_required")
+	}
+	if !strings.Contains(spanish.TermsRequired.AcceptanceLabel, "Términos y Condiciones") {
+		t.Errorf("the es label is not in spanish: %q", spanish.TermsRequired.AcceptanceLabel)
+	}
+
+	english := decodeStaffSignInOutcome(t, requestAndVerifyIn(t, env, "english-reader@example.com", "en"))
+	if english.TermsRequired == nil {
+		t.Fatal("expected terms_required")
+	}
+	if !strings.Contains(english.TermsRequired.AcceptanceLabel, "Terms and Conditions") {
+		t.Errorf("the en label is not in english: %q", english.TermsRequired.AcceptanceLabel)
+	}
+
+	if spanish.TermsRequired.Version != english.TermsRequired.Version {
+		t.Errorf("the two languages offer different editions: %q and %q",
+			spanish.TermsRequired.Version, english.TermsRequired.Version)
 	}
 }

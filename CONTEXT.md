@@ -778,12 +778,12 @@ A description and never a stored flag: it is read off the consent states, becaus
 _Avoid_: Inactive, dormant, opted out, anonymized, deleted, suppressed
 
 **Terms of Service**:
-The platform's Términos y Condiciones Generales — the contract governing use of the platform, published Spanish-only as a backend artifact (the Spanish text legally prevails, so every Locale is served the same document) and rendered on its own public Storefront page.
+The platform's Términos y Condiciones Generales — the contract governing use of the platform, published as a backend artifact in both Locales (the Spanish text legally prevails; the English one is a courtesy translation that says so in its own first line) and rendered on its own public Storefront page.
 A different document from the Privacy Policy with different machinery: accepting it is a contractual act, not a consent, and the two version independently — bumping one never re-gates the other.
 _Avoid_: T&C (in code and schema), terms and conditions (as the code name), legal terms, the contract, EULA
 
 **Terms Version**:
-One published edition of the Terms of Service, preserved exactly as served — label, effective date and content hash, current being the latest effective edition.
+One published edition of the Terms of Service, preserved exactly as served — label, effective date and content hash over BOTH languages at once, current being the latest effective edition.
 The parallel of a Policy Version for the other document, deliberately a separate table: publishing a new one makes everyone — Customers and Staff — unaccepted again, with no code and no data migration. Its database id never goes on the wire; labels and hashes only.
 _Avoid_: Terms revision, terms update, document version (unqualified)
 

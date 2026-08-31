@@ -253,13 +253,20 @@ func (s *Service) VerifyOTP(ctx context.Context, email, code, detectedLocale str
 //
 // The email must already be normalised and proven by the caller.
 func (s *Service) signInProvenEmail(ctx context.Context, email, detectedLocale string, now time.Time) (*SignInOutcome, error) {
+	// The language the login page is rendered in, floored at English. It is what
+	// the terms step below is worded in, and it is deliberately the DETECTED
+	// language rather than the stored Staff Locale: the checkbox is on the screen
+	// in front of this person right now, and the words beside it must be the
+	// words of the page they are looking at.
+	pageLocale := platform.DefaultLocale
 	if parsed, ok := platform.ParseLocale(detectedLocale); ok {
+		pageLocale = parsed
 		if err := s.repo.RememberStaffLocale(ctx, email, string(parsed), now); err != nil {
 			s.logger.Error("remember staff locale", "error", err)
 		}
 	}
 
-	required, err := s.gateOnTerms(ctx, email, now)
+	required, err := s.gateOnTerms(ctx, email, pageLocale, now)
 	if err != nil {
 		return nil, err
 	}

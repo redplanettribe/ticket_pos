@@ -361,6 +361,13 @@ func domainHTTPStatus(code string) int {
 	// consent.ErrPolicyLocaleNotPublished.
 	case "POLICY_LOCALE_NOT_PUBLISHED":
 		return http.StatusNotFound
+	// The Terms asked for in a language they are not published in (ADR 0066).
+	// 404 beside its policy neighbour and for its reason: the address named a
+	// document, and that document does not exist in that language. Never a
+	// fallback — an English reader must not be handed the Spanish contract under
+	// their own language's address.
+	case "TERMS_LOCALE_NOT_PUBLISHED":
+		return http.StatusNotFound
 	// No Policy Version in effect. A deployment fault — migration 060 seeds one
 	// — so it is the platform's 500 and not the caller's 404.
 	case "NO_CURRENT_POLICY_VERSION":

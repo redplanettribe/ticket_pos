@@ -34,13 +34,20 @@ CREATE TABLE terms_versions (
     -- document itself.
     effective_date DATE NOT NULL,
     -- The SHA-256, hex-encoded, of the whole artifact set that makes up this
-    -- edition — the Spanish body and the acceptance checkbox label, the single
-    -- legally prevailing text (§37). The text lives embedded in the backend at
-    -- backend/internal/consent/terms/artifacts/es/, is served by the public
-    -- terms endpoint, and backend/internal/consent/terms/seed_test.go
-    -- recomputes this value from THIS file — so the bytes hashed here are the
-    -- bytes the page renders, and this column is evidence of what a person
-    -- accepted rather than a checksum of a repository file.
+    -- edition: the body and the acceptance checkbox label in EVERY published
+    -- language. The text lives embedded in the backend at
+    -- backend/internal/consent/terms/artifacts/, is served by the public terms
+    -- endpoint, and backend/internal/consent/terms/seed_test.go recomputes this
+    -- value from THIS file — so the bytes hashed here are the bytes the page
+    -- renders, and this column is evidence of what a person accepted rather
+    -- than a checksum of a repository file.
+    --
+    -- ONE HASH FOR BOTH LANGUAGES, matching policy_versions: an edition is the
+    -- contract, not one contract per language. A person accepts the edition in
+    -- whichever language they read it, the Spanish text prevails over the
+    -- English courtesy translation (§37), and fingerprinting them together is
+    -- what keeps a correction to one from drifting away from the other under a
+    -- single label.
     content_hash TEXT NOT NULL
         CHECK (content_hash ~ '^[0-9a-f]{64}$'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -65,5 +72,5 @@ INSERT INTO terms_versions (label, effective_date, content_hash)
 VALUES (
     '1',
     DATE '2026-08-30',
-    '271ae893572d77824793dadf517cfd35f3afe34c43b7d914d385bb97e519c573'
+    '2b9bb4bc6b2c6e8ad4ddeb9737db2eba5b94ec4c66c84c1b239bfff9a1c9af24'
 );

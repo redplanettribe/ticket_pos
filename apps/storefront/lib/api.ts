@@ -861,11 +861,14 @@ export async function getPrivacyPolicy(locale: string): Promise<PrivacyPolicy | 
 /**
  * The current Terms Version, as served for one locale (#535).
  *
- * The body and the acceptance label are Spanish WHATEVER locale is asked for:
- * the Terms are published in Spanish only, the legally prevailing text (§37),
- * and the backend serves the one operative document under every locale rather
- * than 404ing. `locale` in the payload names the language of the text ("es"),
- * not the language asked for. Version, hash and effective date — see
+ * The Terms are published in both languages, so this answers strictly like
+ * getPrivacyPolicy: the body and the acceptance label come back in the locale
+ * asked for, and a language the Terms are not published in is a 404 rather than
+ * a document nobody asked for.
+ *
+ * BOTH LANGUAGES ARE ONE EDITION under one fingerprint, and the Spanish text
+ * prevails over the English (§37) — the English body says so in its own first
+ * line, so nothing here has to. Version, hash and effective date — see
  * getPrivacyPolicy; the same evidence rules apply (ADR 0066).
  */
 export type Terms = {

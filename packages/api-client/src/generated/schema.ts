@@ -7179,15 +7179,15 @@ export interface paths {
         };
         /**
          * Current Términos y Condiciones
-         * @description Serves the Terms Version currently in effect: the version label, its effective date, the SHA-256 fingerprint of the edition, the full Términos y Condiciones Generales (`body_markdown`) and the mandatory acceptance checkbox label (`acceptance_label`). All text is markdown and all of it is what the fingerprint covers. The document is published in Spanish only — the single legally prevailing text (§37) — and is served for ANY requested locale rather than falling back or 404ing; the `locale` field names the language of the text ("es"), not the language asked for. Public and unauthenticated.
+         * @description Serves the Terms Version currently in effect, rendered in the requested Locale: the version label, its effective date, the SHA-256 fingerprint of the edition, the full Términos y Condiciones Generales (`body_markdown`) and the mandatory acceptance checkbox label (`acceptance_label`). All text is markdown, and all of it in EVERY published language is what the fingerprint covers — one edition, one hash, whichever language a person read before ticking. The Spanish text is the legally prevailing one (§37); the English one is a courtesy translation that says so in its own first line. The Locale is a path parameter and is answered strictly — a language the Terms are not published in is a 404, never a silent fallback. Public and unauthenticated.
          */
         get: {
             parameters: {
                 query?: never;
                 header?: never;
                 path: {
-                    /** @description Locale the terms are asked for in; the Spanish text is served regardless */
-                    locale: string;
+                    /** @description Locale the terms are read in */
+                    locale: "en" | "es";
                 };
                 cookie?: never;
             };
@@ -7200,6 +7200,15 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["openapi.EnvelopeTerms"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
                     };
                 };
                 /** @description Internal Server Error */
@@ -13756,8 +13765,10 @@ export interface components {
             request_id?: string;
         };
         /**
-         * @description Locale is the language the text below is written in — always "es", the
-         *     single legally prevailing text (§37), whatever language was asked for.
+         * @description Locale is the language the text below is written in, and the language that
+         *     was asked for: both published languages carry this edition. Spanish is the
+         *     legally prevailing text (§37); English is the courtesy translation, and it
+         *     says so in its own first line.
          * @enum {string}
          */
         "platform.Locale": "en" | "es" | "en";
@@ -16771,9 +16782,10 @@ export interface components {
         "service.TermsRequiredView": {
             /**
              * @description AcceptanceLabel is the mandatory, un-premarked checkbox's label, markdown,
-             *     verbatim from the embedded artifact (§3). The UI renders it beside a link
-             *     to the public Storefront terms page and may not reword or pre-tick it —
-             *     the Staff app hosts no copy of the document.
+             *     verbatim from the embedded artifact (§3) in the language the login page is
+             *     rendered in. The UI renders it beside a link to the public Storefront terms
+             *     page and may not reword or pre-tick it — the Staff app hosts no copy of the
+             *     document.
              */
             acceptance_label?: string;
             /** @description ExpiresAt is when that token stops working, RFC 3339. */

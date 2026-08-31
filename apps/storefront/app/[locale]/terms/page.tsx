@@ -45,12 +45,12 @@ export async function generateMetadata({ params }: TermsPageProps): Promise<Meta
  * page and the fingerprint must render the same bytes (ADR 0066,
  * backend/internal/consent/terms).
  *
- * ONE DIFFERENCE: the body is Spanish on BOTH locales. The Terms are published
- * in Spanish only and the Spanish text legally prevails over any translation
- * (§37), so the English page shows the one operative document rather than a
- * 404 — the backend serves the same Spanish payload under every locale. The
- * page's own chrome (heading, effective-date label) still follows the reader's
- * language like everything else.
+ * Each locale renders its own text, like the Privacy Policy page: the Terms are
+ * published in both, and the backend answers the locale in the URL strictly.
+ * The two are ONE EDITION under one fingerprint, and the Spanish is the legally
+ * prevailing text (§37) — the English body carries that notice in its own first
+ * line, which is why this page needs no banner of its own and the footer below
+ * can print the same hash on both.
  *
  * An API that is down 404s this page rather than showing an empty one, for the
  * privacy page's reason: a terms page that appears to publish nothing is worse

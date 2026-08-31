@@ -84,6 +84,24 @@ func ErrConsentGrantNotPermitted() apperror.DomainError {
 	)
 }
 
+// ErrTermsLocaleNotPublished is returned when the Terms are asked for in a
+// language this platform does not publish them in.
+//
+// 404, and deliberately not a fallback, ErrPolicyLocaleNotPublished's rule
+// applied to the contract. The Terms are published in both Locales the
+// Storefront serves — Spanish, which prevails (§37), and an English courtesy
+// translation that says so in its own first line — so reaching this means
+// somebody asked for a third language, and answering it with either of the two
+// would put a document the reader did not ask for under their own language's
+// address.
+func ErrTermsLocaleNotPublished() apperror.DomainError {
+	return apperror.New(
+		"TERMS_LOCALE_NOT_PUBLISHED",
+		"The Terms are not published in that language.",
+		nil,
+	)
+}
+
 // ErrTermsAcceptanceRequired is returned when a submission that owes the Terms
 // box arrives without it ticked (#536, ADR 0066).
 //
