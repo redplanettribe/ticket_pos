@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/consent/legal"
 )
 
 // Terms acceptance on the Customer platform (#536, parent #533, ADR 0066): the
@@ -91,14 +93,17 @@ func currentTermsVersionID(t *testing.T, env *testEnv) string {
 // gate refuses to display it and the public page 404s. The fingerprint here is
 // junk on purpose — these tests are about re-gating, not about evidence, and a
 // mismatch is logged and served rather than refused (service.termsViews).
-func publishTermsVersion(t *testing.T, env *testEnv, label string) string {
+// It takes a LINEAGE and not a label — publishPolicyVersion's rule (#560) over
+// the parallel table.
+func publishTermsVersion(t *testing.T, env *testEnv, generation, revision int) string {
 	t.Helper()
+	label := legal.Lineage{Generation: generation, Revision: revision}.Label()
 	var id string
 	if err := env.db.QueryRow(`
-		INSERT INTO terms_versions (label, effective_date, content_hash)
-		VALUES ($1, CURRENT_DATE, repeat('b', 64))
+		INSERT INTO terms_versions (label, generation, revision, effective_date, content_hash)
+		VALUES ($1, $2, $3, CURRENT_DATE, repeat('b', 64))
 		RETURNING id
-	`, label).Scan(&id); err != nil {
+	`, label, generation, revision).Scan(&id); err != nil {
 		t.Fatalf("publish terms version %q: %v", label, err)
 	}
 	if _, err := env.db.Exec(`
@@ -212,7 +217,7 @@ func TestPublishingATermsVersionRegatesWithTheTermsBoxAlone(t *testing.T) {
 	env := setupTest(t)
 
 	customerSignIn(t, env, "tania@example.com")
-	later := publishTermsVersion(t, env, "2")
+	later := publishTermsVersion(t, env, 2, 0)
 
 	// A later capture must not collide with the first on the fixed clock.
 	setSignInClock(t, env, env.fixedClock.Add(time.Hour))

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/consent"
+	"github.com/peter/ticket_pos/backend/internal/consent/legal"
 	consentrepo "github.com/peter/ticket_pos/backend/internal/consent/repository"
 	"github.com/peter/ticket_pos/backend/internal/consent/terms"
 	"github.com/peter/ticket_pos/backend/internal/identity"
@@ -42,9 +43,17 @@ const capacityOrganizer = "organizer"
 // publication and produce a Staff Terms Acceptance evidencing text that was not
 // on screen.
 //
+// The satisfying set is a SECOND read and not a widening of the first (#560),
+// because it answers a different question: CurrentTermsEdition says what to
+// SHOW and what an acceptance will be pinned to, and the set says what already
+// CLEARS. The two cannot straddle a publication harmfully — the current edition
+// is always a member of its own satisfying set, so somebody shown an edition
+// and pinned to it is cleared by accepting it, whichever read went first.
+//
 // consentrepo.Repository satisfies it as-is.
 type TermsVersionSource interface {
 	CurrentTermsEdition(ctx context.Context) (consentrepo.TermsEdition, error)
+	SatisfyingTermsEditions(ctx context.Context) (legal.SatisfyingSet, error)
 }
 
 // SignInOutcome is what a completed Proof of Email Ownership produces on the
@@ -113,14 +122,15 @@ type TermsAcceptanceSubmission struct {
 // gateOnTerms decides what a proven staff email earns: a Staff Session, or a
 // terms step (#538, ADR 0066).
 //
-// The predicate is one thing only — no Staff Terms Acceptance of the CURRENT
-// Terms Version for this email — and it has no special cases in it. An Org
-// Admin of three Organizations, an Event Staff member scanning at a door, and
-// a Platform Operator who is a Member of nothing are all gated by the same
-// test for the same reason: every human on the Staff platform accepts, once
-// per person per edition, and nobody is grandfathered. Inserting a later
-// terms_versions row makes every stored reference stop matching, which
-// re-gates everyone with no code and no data migration.
+// The predicate is one thing only — no Staff Terms Acceptance, in the
+// organizer capacity, of any edition that still satisfies the gate — and it has
+// no special cases in it. An Org Admin of three Organizations, an Event Staff
+// member scanning at a door, and a Platform Operator who is a Member of nothing
+// are all gated by the same test for the same reason: every human on the Staff
+// platform accepts, once per person per edition, and nobody is grandfathered.
+// Inserting a later GATING terms_versions row lifts the floor above every
+// stored reference, which re-gates everyone with no code and no data migration
+// — while a correction leaves the floor where it is and stops nobody (#560).
 //
 // A read that fails FAILS THE SIGN-IN rather than waving it through: unlike
 // the Staff Locale beside it, this gate is the thing the sign-in owes, and a
@@ -139,7 +149,11 @@ func (s *Service) gateOnTerms(ctx context.Context, email string, pageLocale plat
 	}
 	version := edition.Version
 
-	accepted, err := s.repo.HasTermsAcceptance(ctx, email, version.ID)
+	satisfying, err := s.termsVersions.SatisfyingTermsEditions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	accepted, err := s.repo.HasSatisfyingTermsAcceptance(ctx, email, satisfying.IDs())
 	if err != nil {
 		return nil, err
 	}

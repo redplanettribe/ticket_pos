@@ -35,18 +35,36 @@ type StaffTermsAcceptance struct {
 	OriginURL      string
 }
 
-// HasTermsAcceptance reports whether this email has accepted this Terms
-// edition in any capacity — the one indexed lookup the sign-in gate performs.
-// No row for the current edition IS the outstanding state; there is no
-// current-state column anywhere (migration 107).
-func (r *Repository) HasTermsAcceptance(ctx context.Context, email, termsVersionID string) (bool, error) {
+// HasSatisfyingTermsAcceptance reports whether this email has accepted, as an
+// ORGANIZER, any Terms edition that still satisfies the gate — the one indexed
+// lookup the sign-in gate performs. No such row IS the outstanding state; there
+// is no current-state column anywhere (migration 107).
+//
+// MEMBERSHIP, NOT EQUALITY (#560). It used to be equality against the single
+// current edition; the argument is now the satisfying set — the gating floor
+// and every edition at or above it, corrections included
+// (consent/legal.Satisfying). So a correction published under an Organizer's
+// feet does not stop them signing in, while a new GATING edition still does.
+// The outstanding predicate, over a person row `p`, is the negation:
+//
+//	NOT EXISTS (SELECT 1 FROM staff_terms_acceptances a
+//	            WHERE a.email = p.email AND a.capacity = 'organizer'
+//	              AND a.terms_version_id = ANY($1))
+//
+// `capacity = 'organizer'` IS NAMED EXPLICITLY and must stay named. Migration
+// 107's CHECK is deliberately open for a later 'staff' capacity, and a
+// capacity-agnostic lookup would read an acceptance made in some other capacity
+// as clearance for this gate — which is precisely the mistake having capacities
+// at all is meant to prevent.
+func (r *Repository) HasSatisfyingTermsAcceptance(ctx context.Context, email string, satisfying []string) (bool, error) {
 	var exists bool
 	err := r.db.Pool.QueryRowContext(ctx, `
 		SELECT EXISTS (
-			SELECT 1 FROM staff_terms_acceptances
-			WHERE email = $1 AND terms_version_id = $2
+			SELECT 1 FROM staff_terms_acceptances a
+			WHERE a.email = $1 AND a.capacity = 'organizer'
+			  AND a.terms_version_id = ANY($2)
 		)
-	`, email, termsVersionID).Scan(&exists)
+	`, email, satisfying).Scan(&exists)
 	return exists, err
 }
 

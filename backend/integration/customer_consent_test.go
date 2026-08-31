@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/consent/legal"
 )
 
 // Consent capture at sign-in (#251, parent #249): the gate between Proof of
@@ -207,20 +209,27 @@ func currentPolicyVersionID(t *testing.T, env *testEnv) string {
 // publishPolicyVersion inserts a new edition, which is what re-gates every
 // Customer who accepted the old one. SQL because publishing an edition is
 // deliberately a migration and a deploy, never an API call (migration 060).
-func publishPolicyVersion(t *testing.T, env *testEnv, label string) string {
+// It takes a LINEAGE and not a label (#560): the label is rendered from the
+// generation and revision, because labels are system-generated and migration
+// 110 makes the database refuse any other spelling. `revision > 0` publishes a
+// correction, which by design re-gates nobody.
+func publishPolicyVersion(t *testing.T, env *testEnv, generation, revision int) string {
 	t.Helper()
+	label := legal.Lineage{Generation: generation, Revision: revision}.Label()
 	var id string
 	if err := env.db.QueryRow(`
-		INSERT INTO policy_versions (label, effective_date, content_hash)
-		VALUES ($1, CURRENT_DATE, repeat('a', 64))
+		INSERT INTO policy_versions (label, generation, revision, effective_date, content_hash)
+		VALUES ($1, $2, $3, CURRENT_DATE, repeat('a', 64))
 		RETURNING id
-	`, label).Scan(&id); err != nil {
+	`, label, generation, revision).Scan(&id); err != nil {
 		t.Fatalf("publish policy version %q: %v", label, err)
 	}
 	// Text with the row: since #558 an edition without artifacts is one no
 	// reader can be shown, so the public policy page would 404 in every
 	// language. The fingerprint above is junk on purpose — these tests are about
-	// re-gating, and a mismatch is logged and served rather than refused.
+	// re-gating, and a mismatch is logged and served rather than refused. It is
+	// also the SAME junk in every edition, which is legal and must stay legal:
+	// content_hash carries no UNIQUE (#560).
 	if _, err := env.db.Exec(`
 		INSERT INTO policy_version_artifacts (version_id, locale, slug, ordinal, body)
 		SELECT $1, locale, slug, ordinal, format('%s (%s, edition %s)', slug, locale, $2::text)
@@ -652,7 +661,7 @@ func TestPublishingAPolicyVersionRegatesSignInWithTheRequiredBoxOnly(t *testing.
 	// timestamps rather than by the order a query happens to return them in.
 	setSignInClock(t, env, env.fixedClock.Add(time.Hour))
 
-	newVersion := publishPolicyVersion(t, env, "1-test-edition")
+	newVersion := publishPolicyVersion(t, env, 2, 0)
 	if newVersion == firstVersion {
 		t.Fatal("expected the published edition to be a new row")
 	}
