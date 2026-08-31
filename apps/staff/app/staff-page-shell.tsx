@@ -108,6 +108,7 @@ async function shellLabels(
         findSale: t("navFindSale"),
         customerConsent: t("navCustomerConsent"),
         taxInvoicing: t("navTaxInvoicing"),
+        legalCenter: t("navLegalCenter"),
       },
       sidebar,
     },

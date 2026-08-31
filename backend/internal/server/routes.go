@@ -255,6 +255,30 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// what it can do: this path can only ever take something away.
 	mux.Handle("POST /api/v1/operator/customers/{email}/consent/withdrawal", operator(http.HandlerFunc(h.RecordCustomerConsentWithdrawal)))
 
+	// The Legal Center (#561, spec #556): where the platform's own agreements —
+	// the Privacy Policy and the Términos y Condiciones — are written.
+	//
+	// Beside the Consent Withdrawal above and for the same reason. Both are about
+	// the platform's relationship with the people who use it rather than about
+	// any venue's business: one text, published once, accepted by Customers of
+	// every Organization and by staff of every Organization. An Org Admin who
+	// could edit it would be rewriting the contract other venues' buyers are held
+	// to, so the operator allowlist on this namespace is the whole of the gate.
+	//
+	// KEYED ON THE DOCUMENT and not on an edition id, because there is exactly
+	// ONE MUTABLE DRAFT per document — the id would name a thing that has no
+	// identity of its own. `document` is `policy` or `terms`; anything else is
+	// 404, which is also what makes the path total.
+	mux.Handle("GET /api/v1/operator/legal/documents/{document}", operator(http.HandlerFunc(h.GetLegalWorkspace)))
+	// PUT and not PATCH: the draft is replaced whole, so adding an artifact and
+	// removing one need no verbs of their own. DELETE is the discard, and it is
+	// idempotent — discarding a document with no draft is a success.
+	//
+	// NEITHER PUBLISHES. Nothing on this subtree changes a page a reader can see
+	// or re-gates anybody; the publication is #563 and arrives as its own route.
+	mux.Handle("PUT /api/v1/operator/legal/documents/{document}/draft", operator(http.HandlerFunc(h.SaveLegalDraft)))
+	mux.Handle("DELETE /api/v1/operator/legal/documents/{document}/draft", operator(http.HandlerFunc(h.DiscardLegalDraft)))
+
 	// Tax invoicing (#450, ADR 0059): the platform's Issuer with each country's
 	// Tax Authority, and — from #454 — the Tax Invoices it issues by hand. The
 	// platform is the sole Issuer, so this is operator-only by construction and

@@ -17,6 +17,7 @@ test("the operator sees each job of the dashboard as its own destination, in ord
     "findSale",
     "customerConsent",
     "taxInvoicing",
+    "legalCenter",
   ]);
 });
 
@@ -30,6 +31,7 @@ test("the entries point at the operator surface", () => {
       "/operator/sales",
       "/operator/consent",
       "/operator/invoicing",
+      "/operator/legal",
     ],
   );
 });
@@ -62,6 +64,12 @@ test("the consent surface lights Customer consent alone", () => {
   assert.deepEqual(activeKeys("/operator/consent"), ["customerConsent"]);
 });
 
+test("the legal center lights Legal center alone", () => {
+  // It was linked from the navigation on the day it was built, unlike the
+  // consent surface above it (#271), which sat reachable only by URL.
+  assert.deepEqual(activeKeys("/operator/legal"), ["legalCenter"]);
+});
+
 test("the invoicing surface lights Tax invoicing alone", () => {
   // The list at the root of the subtree, the Issuer page and an invoice detail
   // all hang beneath /operator/invoicing, so each lights the one entry.
@@ -76,13 +84,13 @@ test("the pending count is worn by Payout Requests and by nothing else", () => {
   const items = operatorNavItems({ payoutRequestBadge: "3" });
   assert.deepEqual(
     items.map((item) => item.badge ?? null),
-    [null, null, "3", null, null, null],
+    [null, null, "3", null, null, null, null],
   );
 });
 
 test("nothing waiting means no entry wears anything", () => {
   assert.deepEqual(
     operatorNavItems({ payoutRequestBadge: null }).map((item) => item.badge ?? null),
-    [null, null, null, null, null, null],
+    [null, null, null, null, null, null, null],
   );
 });

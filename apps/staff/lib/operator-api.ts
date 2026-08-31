@@ -6,6 +6,8 @@
 // session whose email is not on the platform operator allowlist (ADR 0015). The
 // UI merely declines to show the surface at all.
 
+import type { AppLocale } from "@ticket-pos/locale";
+
 import { ApiError, fetchEventsJSON } from "./events-api";
 import type { QuestionReview, QuestionReviewItem } from "./question-reviews";
 import type { TicketQuestion, TicketQuestionOption } from "./ticket-questions";
@@ -1708,4 +1710,104 @@ export function operatorInvoiceAuthorizationXmlUrl(id: string): string {
  */
 export function operatorInvoiceRideUrl(id: string): string {
   return `${INVOICES_PATH}/${encodeURIComponent(id)}/ride`;
+}
+
+// ---- The Legal Center (#561, spec #556) --------------------------------
+//
+// The platform's own agreements — the Privacy Policy and the Términos y
+// Condiciones — and the ONE MUTABLE DRAFT of each. The draft is held by the API
+// rather than by this browser, so a closed tab does not lose an afternoon.
+//
+// NOTHING HERE PUBLISHES. Saving a draft changes no page a reader can see and
+// re-gates nobody; the publication is #563.
+
+/** The two documents the Legal Center can draft. */
+export type OperatorLegalDocument = "policy" | "terms";
+
+/** One artifact across every language it is written in: the row of the editor's grid. */
+export type OperatorLegalArtifact = {
+  slug: string;
+  /**
+   * Its position in the fingerprint preimage (#541). Sent BY the API and never
+   * back to it — the save call takes a list whose ORDER is the ordinal, so the
+   * two can never disagree.
+   */
+  ordinal: number;
+  /** Language token → text. A language with no entry is a cell nobody has written. */
+  bodies: Partial<Record<AppLocale, string>>;
+};
+
+/** The currently published edition of one document: what the draft is written against. */
+export type OperatorLegalEdition = {
+  version_id: string;
+  label: string;
+  /** YYYY-MM-DD. */
+  effective_date: string;
+  content_hash: string;
+  /** The languages this edition actually publishes, read from its rows (#558). */
+  locales: AppLocale[];
+  artifacts: OperatorLegalArtifact[];
+};
+
+/** The one mutable draft of one document. */
+export type OperatorLegalDraft = {
+  /**
+   * False when nothing has been saved: the draft handed back is then a copy of
+   * the published edition, which is also exactly what a discard produces.
+   */
+  stored: boolean;
+  base_version_id: string;
+  /** False when somebody published underneath this draft since it was opened. */
+  base_is_current: boolean;
+  /** The EXPLICIT set of languages the draft intends to publish in. */
+  published_locales: AppLocale[];
+  artifacts: OperatorLegalArtifact[];
+  updated_by: string;
+  updated_at: string | null;
+};
+
+/** Everything the editor needs for one document, in one read. */
+export type OperatorLegalWorkspace = {
+  document: OperatorLegalDocument;
+  /** The menu the published-language set is bounded by — the platform's app locales. */
+  supported_locales: AppLocale[];
+  published: OperatorLegalEdition;
+  draft: OperatorLegalDraft;
+};
+
+/** The whole draft on its way back. No ordinals: the order is the ordinal. */
+export type SaveOperatorLegalDraftBody = {
+  published_locales: string[];
+  artifacts: { slug: string; bodies: Record<string, string> }[];
+};
+
+/** One document's published edition and its draft, read together. */
+export async function fetchOperatorLegalWorkspace(
+  document: OperatorLegalDocument,
+): Promise<OperatorLegalWorkspace> {
+  return fetchEventsJSON<OperatorLegalWorkspace>(`/api/operator/legal/documents/${document}`);
+}
+
+/**
+ * Saves the draft WHOLE. Adding an artifact and removing one are both nothing
+ * more than saving a different list. An incomplete draft saves happily — the
+ * completeness rule refuses a PUBLICATION, not an afternoon's work.
+ */
+export async function saveOperatorLegalDraft(
+  document: OperatorLegalDocument,
+  body: SaveOperatorLegalDraftBody,
+): Promise<OperatorLegalWorkspace> {
+  return fetchEventsJSON<OperatorLegalWorkspace>(`/api/operator/legal/documents/${document}/draft`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Discards the draft, restoring the editor to the current published edition. */
+export async function discardOperatorLegalDraft(
+  document: OperatorLegalDocument,
+): Promise<OperatorLegalWorkspace> {
+  return fetchEventsJSON<OperatorLegalWorkspace>(`/api/operator/legal/documents/${document}/draft`, {
+    method: "DELETE",
+  });
 }

@@ -164,6 +164,9 @@ type Service struct {
 	// this service composes that is about a person rather than about money
 	// (#271). See consent.go.
 	consents Consents
+	// legal is the Legal Center's half (#561): the platform's own words, drafted
+	// but never yet published from here. See legal.go.
+	legal LegalDocuments
 	// documents is the invoicing seam (#477); nil is the "no invoicing"
 	// deployment, where every Sale has no documents.
 	documents Documents
@@ -173,9 +176,9 @@ type Service struct {
 	saleInvoicingEnabled bool
 }
 
-// New returns an operator service over the four owning modules.
-func New(organizations Organizations, events Events, money Money, consents Consents) *Service {
-	return &Service{organizations: organizations, events: events, money: money, consents: consents}
+// New returns an operator service over the five owning modules.
+func New(organizations Organizations, events Events, money Money, consents Consents, legal LegalDocuments) *Service {
+	return &Service{organizations: organizations, events: events, money: money, consents: consents, legal: legal}
 }
 
 // WithDocuments gives this service the invoicing seam the Sale lookup reads

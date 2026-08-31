@@ -543,7 +543,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// customers for the Consent Withdrawal an Operator records on somebody's
 	// behalf (#271). It is wired last because it depends on all four and none of
 	// them on it.
-	operatorService := operatorsvc.New(identityService, catalogService, salesService, customersService)
+	// consentService is the fifth module the operator surface composes, for the
+	// Legal Center's drafts (#561).
+	operatorService := operatorsvc.New(identityService, catalogService, salesService, customersService, consentService)
 	operatorHandler := operatorhandler.New(operatorService)
 
 	// Tax invoicing (#450, ADR 0059). Served on the operator namespace but not

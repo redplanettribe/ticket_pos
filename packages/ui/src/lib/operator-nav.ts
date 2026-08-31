@@ -15,6 +15,7 @@ export const OPERATOR_NAV_KEYS = [
   "findSale",
   "customerConsent",
   "taxInvoicing",
+  "legalCenter",
 ] as const;
 
 export type OperatorNavKey = (typeof OPERATOR_NAV_KEYS)[number];
@@ -79,5 +80,15 @@ export function operatorNavItems({
     // lands on the invoices list (#454), and the Issuer page hangs beneath the
     // same /operator/invoicing subtree, so either lights this one entry.
     { key: "taxInvoicing", href: "/operator/invoicing" },
+    // The Legal Center (#561, spec #556): the platform's own agreements, and the
+    // one draft of each. LAST, because it is the entry nobody is waiting on —
+    // an edition is written when somebody decides to write one, not because a
+    // queue filled up.
+    //
+    // IT IS HERE AT ALL because a surface reachable only by typing its URL is
+    // not a surface. /operator/consent sat unlinked for months (#271) and the
+    // Legal Center is not repeating it: the alternative to a nav entry is an
+    // operator editing the privacy policy in the database by hand.
+    { key: "legalCenter", href: "/operator/legal" },
   ];
 }

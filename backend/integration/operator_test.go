@@ -185,6 +185,14 @@ func operatorRoutes(orgID string) []struct {
 		// Mark annulled is asserted in operator_document_attention_test.go.
 		{http.MethodGet, "/api/v1/operator/invoicing/needs-attention"},
 		{http.MethodGet, "/api/v1/operator/invoicing/needs-attention/count"},
+		// The Legal Center (#561): the platform's own agreements. The gate is a
+		// property of the namespace, so its three calls are asserted here rather
+		// than again in operator_legal_center_test.go — which is also why the
+		// PUT and DELETE belong on this list even though only the GETs are
+		// followed through to a 200.
+		{http.MethodGet, "/api/v1/operator/legal/documents/policy"},
+		{http.MethodPut, "/api/v1/operator/legal/documents/policy/draft"},
+		{http.MethodDelete, "/api/v1/operator/legal/documents/policy/draft"},
 	}
 }
 

@@ -368,6 +368,14 @@ func domainHTTPStatus(code string) int {
 	// their own language's address.
 	case "TERMS_LOCALE_NOT_PUBLISHED":
 		return http.StatusNotFound
+	// The Legal Center asked to draft a document that is not one of the two
+	// (#561). 404 beside the two above and for the same reason: the address
+	// named a document and there is no such document. The Legal Center's other
+	// refusals — an unsupported language, an empty language set, a missing or
+	// duplicated slug — are all "the body is wrong", so they take the default
+	// 400 and are not listed here.
+	case "LEGAL_DOCUMENT_NOT_FOUND":
+		return http.StatusNotFound
 	// No Policy Version in effect. A deployment fault — migration 060 seeds one
 	// — so it is the platform's 500 and not the caller's 404.
 	case "NO_CURRENT_POLICY_VERSION":
