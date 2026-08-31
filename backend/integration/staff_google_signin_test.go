@@ -109,7 +109,10 @@ func staffGoogleSignIn(t *testing.T, env *testEnv, email string) staffVerifyData
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("staff google verify status=%d error=%+v", resp.StatusCode, body.Error)
 	}
-	return decodeStaffVerify(t, body)
+	// The Google door meets the Terms gate at the same convergence the passcode
+	// door does (#538): a first sign-in returns terms-required, and acceptance
+	// is what mints the session this helper promises.
+	return decodeStaffVerify(t, finishTermsGate(t, env, body))
 }
 
 // staffSessionExpiry reads a Staff Session's sliding expiry. SQL because the
@@ -171,7 +174,9 @@ func TestStaffGoogleSignInMintsAStaffSession(t *testing.T) {
 		t.Fatal("the staff endpoint exchanged against the Storefront client")
 	}
 
-	data := decodeStaffVerify(t, body)
+	// A first sign-in is gated on the Terms whichever door it used (#538);
+	// accepting is what mints the ordinary Staff Session asserted below.
+	data := decodeStaffVerify(t, finishTermsGate(t, env, body))
 	if data.SessionID == "" {
 		t.Fatal("expected a Staff Session token")
 	}

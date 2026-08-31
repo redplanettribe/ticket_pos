@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { callBackend } from "@/lib/api";
+import { PENDING_TERMS_COOKIE, pendingTermsCookieOptions } from "@/lib/pending-terms";
 import { detectedStaffLocale } from "@/lib/request-locale";
 import { SESSION_COOKIE_NAME, sessionCookieOptions } from "@/lib/session";
 
@@ -11,7 +12,8 @@ type VerifyData = {
     email: string;
     memberships: Array<{ member_id: string }>;
     active_member: { member_id: string } | null;
-  };
+  } | null;
+  terms_required: { pending_terms_token: string } | null;
 };
 
 export async function POST(request: Request) {
@@ -40,7 +42,18 @@ export async function POST(request: Request) {
     });
 
     const cookieStore = await cookies();
-    cookieStore.set(SESSION_COOKIE_NAME, envelope.data!.session_id, sessionCookieOptions());
+    // A gated verify minted nothing (#538): no session cookie to write. The
+    // token also rides the pending-terms cookie so the accept route can read it
+    // server-side — the same fallback the Google door depends on.
+    if (envelope.data?.terms_required) {
+      cookieStore.set(
+        PENDING_TERMS_COOKIE,
+        envelope.data.terms_required.pending_terms_token,
+        pendingTermsCookieOptions(),
+      );
+    } else if (envelope.data?.session_id) {
+      cookieStore.set(SESSION_COOKIE_NAME, envelope.data.session_id, sessionCookieOptions());
+    }
 
     return NextResponse.json(envelope);
   } catch (error) {

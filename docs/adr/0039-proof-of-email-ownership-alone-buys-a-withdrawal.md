@@ -1,5 +1,11 @@
 # Proof of Email Ownership alone buys a withdrawal
 
+> Amended by ADR 0066 (#536): the rule that a sign-in consent submission always carries a Policy
+> Acceptance gains its one exception — a step whose only owed required box is the Terms (a
+> Terms-only re-gate) showed no policy box, so it carries none, and refusing over a box the person
+> never saw would evidence an answer to text not on screen. Every other sign-in submission still
+> must carry it, and the withdrawal door is unchanged.
+
 ## Context
 
 Signing in demands acceptance of the current Policy Version first, and the consent-submission

@@ -496,13 +496,21 @@ func TestUnprovenNoLeavesTheOwnerStillToBeAsked(t *testing.T) {
 	sessionID := orgAdminSession(t, env)
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Consent Fest", "consent-fest", 1000, 10)
 
+	// Ana has signed in before — settling the Terms, the one thing a guest's
+	// checkout can never do for her (#536) — and her optional consents are put
+	// back to never-answered, the state genuinely reachable by an account whose
+	// owner has not signed in since the boxes existed.
+	customerSignIn(t, env, "ana@example.com")
+	resetOptionalConsentsToUnanswered(t, env, "ana@example.com")
+
 	begin := beginLegacyGuestCheckout(t, env, "consent-fest", "ana@example.com", "Ana", "Lopez",
 		boolPtr(true), boolPtr(false), boolPtr(false), cartLine(gaID, 1))
 	confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
 
-	// Ana signs in for the first time. She is not stopped for Policy Acceptance:
-	// the checkout above accepted the edition in effect, and that acceptance is a
-	// fact about the act rather than a claim on her inbox (ADR 0035).
+	// Ana signs in again. She is not stopped for Policy Acceptance — the
+	// checkout above accepted the edition in effect, and that acceptance is a
+	// fact about the act rather than a claim on her inbox (ADR 0035) — and her
+	// Terms were settled at her own earlier sign-in.
 	verify := startSignIn(t, env, "ana@example.com")
 	if verify.ConsentRequired != nil {
 		t.Fatal("consent step for a Customer whose Policy Acceptance is already stamped at the current edition")

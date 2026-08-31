@@ -236,6 +236,11 @@ services:
       # developer's uid cannot write, and npx needs a cache.
       HOME: /home/node
       API_URL: http://backend:8080
+      # The Storefront's PUBLISHED origin, for the terms step's link out (#538):
+      # the Staff app hosts no copy of the Términos y Condiciones, so its gate
+      # screen points a browser at the Storefront terms page. The published
+      # port, because this address is followed by a browser.
+      STOREFRONT_BASE_URL: http://localhost:64300
       GOOGLE_CLIENT_ID: ${GOOGLE_STAFF_CLIENT_ID:-}
       GOOGLE_REDIRECT_URI: http://localhost:64301/api/auth/google/callback
     depends_on:

@@ -5,7 +5,7 @@ import { getTranslations, setRequestLocale } from "next-intl/server";
 import { StorefrontShell } from "@/components/storefront-shell";
 import { redirect } from "@/i18n/navigation";
 import { localeAlternates } from "@/lib/alternates";
-import { getPrivacyPolicy } from "@/lib/api";
+import { getPrivacyPolicy, getTerms } from "@/lib/api";
 import { BRAND_NAME } from "@/lib/brand";
 import { getCustomerSession } from "@/lib/customer-session";
 import { isCheckoutDestination } from "@/lib/checkout-signin";
@@ -156,7 +156,7 @@ export default async function SignInPage({ params, searchParams }: SignInPagePro
 
   return (
     <StorefrontShell>
-      <div className="mx-auto flex w-full max-w-md flex-col justify-center px-4 py-12 sm:py-16">
+      <div className="mx-auto flex w-full max-w-2xl flex-col justify-center px-4 py-12 sm:py-16">
         <SignInForm
           next={destination}
           // WHY this page is being shown, when there is a why worth saying
@@ -208,6 +208,14 @@ export default async function SignInPage({ params, searchParams }: SignInPagePro
           // consent step it cannot complete rather than as boxes with no notice
           // beside them: consent to text nobody was shown is not consent.
           policy={await getPrivacyPolicy(locale)}
+          // The Terms checkbox label, from the same public endpoint the terms
+          // page renders (#536, ADR 0066) and fetched on the policy's schedule
+          // for the policy's reasons: one read, one edition, and whether a
+          // consent step will owe the box is not knowable before a passcode is
+          // proved. Null when the API cannot be reached, which the form treats
+          // exactly as a missing policy — a step it cannot complete rather than
+          // a checkbox with no accountable text beside it.
+          terms={await getTerms(locale)}
           googleSignInHref={
             isGoogleSignInConfigured() ? googleSignInStartPath(destination, intent) : null
           }

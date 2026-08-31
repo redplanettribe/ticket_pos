@@ -314,12 +314,20 @@ func TestConfirmingTwiceIsHarmless(t *testing.T) {
 func TestASupersededPendingIsNotResurrected(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
+
+	// The owner has signed in before — settling the Terms (#536), so the
+	// sign-in below is not stopped at a step that would answer the optional
+	// boxes on her behalf — and her optional consents are put back to
+	// never-answered so the guest's ticks below have something to pend over.
+	customerSignIn(t, env, "ana@example.com")
+	resetOptionalConsentsToUnanswered(t, env, "ana@example.com")
+
 	token := guestCheckoutPending(t, env, sessionID, "ana@example.com", "pending-fest", boolPtr(true), boolPtr(true))
 
 	// The owner turns up, proves the address, and answers for themselves. Their
 	// sign-in is not gated: the checkout already recorded an acceptance of the
-	// current Policy Version, which is a fact about the sale rather than a claim
-	// on the inbox (ADR 0035).
+	// current Policy Version — a fact about the sale rather than a claim on the
+	// inbox (ADR 0035) — and their Terms were settled at the earlier sign-in.
 	customerToken := customerSignIn(t, env, "ana@example.com")
 	setDigestEnabled(t, env, customerToken, false)
 
@@ -491,8 +499,17 @@ func TestPrefetchingTheConfirmationLinkDoesNotConfirm(t *testing.T) {
 func TestConfirmingReleasesTheFollowDigest(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
-	// The pending comes FIRST, so that the sign-in below is not stopped for
-	// consent and does not answer the marketing box on this person's behalf.
+	// The owner's Terms are settled at a sign-in of her own first (#536), and
+	// her optional consents and Digest flag put back to never-answered/off —
+	// the state of an account whose owner has not signed in since the boxes
+	// existed (migration 065 defaults new rows off) — so the sign-in below is
+	// not stopped at a step that would answer the marketing box for her.
+	customerSignIn(t, env, "ana@example.com")
+	resetOptionalConsentsToUnanswered(t, env, "ana@example.com")
+	resetDigestFlagOff(t, env, "ana@example.com")
+
+	// The pending comes before her next sign-in, which — owing nothing — asks
+	// nothing on this person's behalf.
 	token := guestCheckoutPending(t, env, sessionID, "ana@example.com", "pending-fest", boolPtr(true), boolPtr(false))
 
 	customerToken := customerSignIn(t, env, "ana@example.com")

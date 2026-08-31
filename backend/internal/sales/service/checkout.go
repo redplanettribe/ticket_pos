@@ -225,6 +225,12 @@ type BeginCheckoutInput struct {
 	// enforces that — this service takes what it is given, exactly as it takes
 	// Customer.SelfAsserted.
 	ConsentEvidence consent.Evidence
+	// ConsentTermsVersionID is the Terms edition a held Terms answer is about
+	// (#537). NEVER a caller's input: BeginCheckout overwrites it from the
+	// consent module's own finding beside the owed-answer narrowing, and it
+	// exists on this input only so the two travel to the Payment snapshot
+	// together.
+	ConsentTermsVersionID string
 }
 
 // BeginCheckoutResult is what the Storefront needs to finish the checkout: our
@@ -320,27 +326,49 @@ type BeginCheckoutResult struct {
 // Customer checks out, is three nil answers — and a capture with nothing in it
 // writes no Consent Record at all (repository.ApprovePaymentAndCommitSale):
 // evidence exists where a capture act happened, and no box was shown here.
-func (s *Service) owedConsentAnswers(ctx context.Context, in BeginCheckoutInput) (consent.Answers, error) {
+// It returns, beside the narrowed answers, the Terms edition a held Terms
+// answer is ABOUT (#537) — resolved here, at the moment the box was shown,
+// because the commit leg that turns the hold into a record runs on the Payment
+// Provider's schedule and must not name whatever edition is current by then.
+// Empty exactly when no Terms answer travels.
+func (s *Service) owedConsentAnswers(ctx context.Context, in BeginCheckoutInput) (consent.Answers, string, error) {
 	// No proven buyer, no checkout. This is unreachable through the one
 	// begin-checkout route — the handler takes the address from the session that
 	// route is gated on — and it fails CLOSED rather than falling back to the
 	// guest reading, because the guest reading is what recorded an unproven tick
 	// as evidence of a consent nobody gave.
 	if in.SessionCustomerID == "" {
-		return consent.Answers{}, fmt.Errorf(
+		return consent.Answers{}, "", fmt.Errorf(
 			"sales: online checkout with no proven buyer; refusing to capture consent for an unproven address")
 	}
 	owed, err := s.consent.Outstanding(ctx, in.SessionCustomerID)
 	if err != nil {
-		return consent.Answers{}, err
+		return consent.Answers{}, "", err
 	}
 
 	var answers consent.Answers
 	if owed.PolicyAcceptance {
 		if in.Consent.PolicyAcceptance == nil || !*in.Consent.PolicyAcceptance {
-			return consent.Answers{}, consent.ErrPolicyAcceptanceRequired()
+			return consent.Answers{}, "", consent.ErrPolicyAcceptanceRequired()
 		}
 		answers.PolicyAcceptance = in.Consent.PolicyAcceptance
+	}
+	// The Terms box is the checkout's other gate (#537, ADR 0066), owed
+	// independently of the policy's because the two documents version
+	// independently, and refused on the API's own account exactly as the
+	// policy's is: a disabled button is the dialog's courtesy, not the rule. An
+	// unowed answer is dropped below with the rest — a Customer current on the
+	// Terms cannot re-evidence them from a crafted body.
+	var termsVersionID string
+	if owed.TermsAcceptance {
+		if in.Consent.TermsAcceptance == nil || !*in.Consent.TermsAcceptance {
+			return consent.Answers{}, "", consent.ErrTermsAcceptanceRequired()
+		}
+		answers.TermsAcceptance = in.Consent.TermsAcceptance
+		termsVersionID, err = s.consent.CurrentTermsVersionID(ctx)
+		if err != nil {
+			return consent.Answers{}, "", err
+		}
 	}
 	if owed.MarketingConsent {
 		answers.MarketingConsent = in.Consent.MarketingConsent
@@ -348,7 +376,7 @@ func (s *Service) owedConsentAnswers(ctx context.Context, in BeginCheckoutInput)
 	if owed.NetworkingConsent {
 		answers.NetworkingConsent = in.Consent.NetworkingConsent
 	}
-	return answers, nil
+	return answers, termsVersionID, nil
 }
 
 // BeginCheckout starts an online checkout: it validates the Event is published
@@ -370,11 +398,12 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 	if s.consent == nil {
 		return nil, fmt.Errorf("sales: no consent capturer wired; refusing to sell without an evidence log")
 	}
-	answers, err := s.owedConsentAnswers(ctx, in)
+	answers, termsVersionID, err := s.owedConsentAnswers(ctx, in)
 	if err != nil {
 		return nil, err
 	}
 	in.Consent = answers
+	in.ConsentTermsVersionID = termsVersionID
 	orgSlug := strings.ToLower(strings.TrimSpace(in.OrganizationSlug))
 	eventSlug := strings.ToLower(strings.TrimSpace(in.EventSlug))
 
@@ -531,9 +560,10 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		// Held, not recorded: the Consent Record is written when the sale commits,
 		// so an abandoned or declined Payment leaves no evidence — the same rule
 		// that leaves it no Customer (migration 064, ADR 0035).
-		Consent:         in.Consent,
-		ConsentEvidence: in.ConsentEvidence,
-		Now:             now,
+		Consent:               in.Consent,
+		ConsentTermsVersionID: in.ConsentTermsVersionID,
+		ConsentEvidence:       in.ConsentEvidence,
+		Now:                   now,
 	})
 	if err != nil {
 		return nil, err

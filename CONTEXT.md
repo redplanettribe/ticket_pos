@@ -777,6 +777,31 @@ Always scoped to consent. Data is still held and still processed for the Tickets
 A description and never a stored flag: it is read off the consent states, because a column recording it would be a second place for the same fact to be kept and a first place for it to disagree.
 _Avoid_: Inactive, dormant, opted out, anonymized, deleted, suppressed
 
+**Terms of Service**:
+The platform's Términos y Condiciones Generales — the contract governing use of the platform, published as a backend artifact in both Locales (the Spanish text legally prevails; the English one is a courtesy translation that says so in its own first line) and rendered on its own public Storefront page.
+A different document from the Privacy Policy with different machinery: accepting it is a contractual act, not a consent, and the two version independently — bumping one never re-gates the other.
+_Avoid_: T&C (in code and schema), terms and conditions (as the code name), legal terms, the contract, EULA
+
+**Terms Version**:
+One published edition of the Terms of Service, preserved exactly as served — label, effective date and content hash over BOTH languages at once, current being the latest effective edition.
+The parallel of a Policy Version for the other document, deliberately a separate table: publishing a new one makes everyone — Customers and Staff — unaccepted again, with no code and no data migration. Its database id never goes on the wire; labels and hashes only.
+_Avoid_: Terms revision, terms update, document version (unqualified)
+
+**Terms Acceptance**:
+A Customer's affirmative acceptance of the current Terms Version in the capacity of attendee, captured by the same acts that capture Policy Acceptance — the sign-in consent step and the checkout owed-boxes fallback — through its own mandatory, un-premarked checkbox, and recorded on the same Consent Record.
+Contractual, so it has no withdrawal path: Withdraw All and every Consent Withdrawal channel leave it untouched, and it never appears as a revocable consent. Only a new Terms Version owes it again.
+_Avoid_: Terms consent, agreeing to terms, accepting the conditions, terms opt-in
+
+**Staff Terms Acceptance**:
+The append-only evidence that a person on the Staff platform accepted a Terms Version in the capacity of organizer: email, edition, capacity, timestamp and technical proof — the Staff platform's counterpart of a Consent Record, and its first consent machinery of any kind.
+Keyed on the email, once per person per edition: outstanding means no row for the current edition, so a sign-in with none proven mints no Staff Session until the box is ticked. One acceptance covers all of a person's Organizations.
+_Avoid_: Staff consent, staff consent record, organizer agreement, membership acceptance
+
+**Acceptance capacity**:
+The role a Terms acceptance was made in — attendee or organizer — carried by the platform it was captured on rather than stated by the person: a Customer-platform acceptance is the attendee acceptance, a Staff-platform acceptance is the organizer acceptance, and the same human using both accepts twice, deliberately.
+Everyone on the Staff platform — org_admin, event_owner, event_staff, Platform Operators — accepts as organizer for now; the vocabulary is left open for a later split.
+_Avoid_: Role (for this concept), acceptance type, user class, persona
+
 ## Following
 
 **Follow**:

@@ -28,7 +28,7 @@ import { ConsentCheckbox } from "@/components/consent-checkbox";
 import { SignInOtherAddressButton } from "@/components/sign-in-other-address-button";
 import { useFormatLocale } from "@/i18n/format-locale";
 import { Link, usePathname } from "@/i18n/navigation";
-import type { BeginCheckoutResult, PrivacyPolicy, PublicTicketType } from "@/lib/api";
+import type { BeginCheckoutResult, PrivacyPolicy, PublicTicketType, Terms } from "@/lib/api";
 import { checkoutAnswerBodies, ownTicketSlot, type AnswerValues } from "@/lib/checkout-answers";
 import {
   apiErrorMessage,
@@ -68,6 +68,7 @@ import {
   validateTaxId,
   type TaxIdType,
 } from "@/lib/tax-id";
+import { TERMS_PATH } from "@/lib/terms";
 
 import { PromotionBadge, PromotionDeadline, TicketTypePrice } from "./promotion";
 
@@ -190,6 +191,15 @@ type TicketSelectionProps = {
    */
   policy: PrivacyPolicy | null;
   /**
+   * The current Terms Version's checkbox label, read from the API for the same
+   * evidential reason as the policy's labels above (#537, ADR 0066): what was
+   * accepted is exactly what was served, and the UI never rewords it. Null when
+   * the API could not be reached, which — like a null policy — becomes an
+   * honest refusal to collect the answer rather than a checkout blocked for a
+   * buyer who owes nothing.
+   */
+  terms: Terms | null;
+  /**
    * Whether the quoted prices carry the platform's service fee, which is the
    * only thing that decides the muted note below. Prices themselves are always
    * shown exactly as the API quotes them: this app never does fee arithmetic
@@ -294,6 +304,7 @@ const NO_CONSENT_BOXES = {
   policy_acceptance: false,
   marketing_consent: false,
   networking_consent: false,
+  terms_acceptance: false,
 };
 
 export function TicketSelection({
@@ -308,6 +319,7 @@ export function TicketSelection({
   priceIncludesFee,
   timezone,
   policy,
+  terms,
 }: TicketSelectionProps) {
   // next/navigation's router, deliberately: the only thing asked of it here is
   // refresh(), which has no address to localize.
@@ -399,6 +411,9 @@ export function TicketSelection({
   const [policyAccepted, setPolicyAccepted] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [networkingConsent, setNetworkingConsent] = useState(false);
+  // The Terms box (#537, ADR 0066): contractual, separate, and under the same
+  // no-prefill rule as the three above.
+  const [termsAccepted, setTermsAccepted] = useState(false);
   // What the buyer has typed into the answer section, keyed by (Ticket Type,
   // ticket number, question) (#311).
   //
@@ -577,6 +592,7 @@ export function TicketSelection({
           ...(consentBoxes.policy_acceptance ? { policy_acceptance: policyAccepted } : {}),
           ...(consentBoxes.marketing_consent ? { marketing_consent: marketingConsent } : {}),
           ...(consentBoxes.networking_consent ? { networking_consent: networkingConsent } : {}),
+          ...(consentBoxes.terms_acceptance ? { terms_acceptance: termsAccepted } : {}),
           // The answer section, as far as the buyer filled it in. The key is
           // dropped entirely when they skipped it — which is the ordinary case
           // and an explicitly supported way to check out — so a cart with
@@ -966,7 +982,7 @@ export function TicketSelection({
             <Alert variant="destructive">
               <AlertDescription>{t("identity.required")}</AlertDescription>
             </Alert>
-          ) : !policy ? (
+          ) : !policy || (consentBoxes.terms_acceptance && !terms) ? (
             /*
               No notice, no form. The API could not be reached for the current
               Policy Version, so this dialog cannot show what is being accepted
@@ -975,7 +991,10 @@ export function TicketSelection({
               anyway: it refuses a checkout without Policy Acceptance, and it is
               the same read that would have supplied the words. The Privacy
               Policy page 404s in the same situation for the same reason
-              (ADR 0036).
+              (ADR 0036). The Terms artifact is under the same rule (#537), and
+              only where its box is OWED: a buyer current on the Terms loses
+              nothing to a failed read of a document they are not being asked
+              about.
             */
             <Alert variant="destructive">
               <AlertDescription>{t("consent.unavailable")}</AlertDescription>
@@ -1199,6 +1218,35 @@ export function TicketSelection({
                       className="bg-background"
                     />
                   ) : null}
+                  {/*
+                    The Terms box (#537, ADR 0066): the contractual acceptance,
+                    separate from every privacy answer, worded by the backend
+                    artifact and never pre-ticked. Drawn for exactly one buyer —
+                    one whose live session spans a Terms edition — and linking
+                    to the public terms page, the full Spanish document, in a
+                    new tab exactly as the sign-in step's does (#536).
+                  */}
+                  {consentBoxes.terms_acceptance && terms ? (
+                    <>
+                      <ConsentCheckbox
+                        id="consent-terms-acceptance"
+                        checked={termsAccepted}
+                        onChange={setTermsAccepted}
+                        label={terms.acceptance_label}
+                        optionalLabel={null}
+                        className="bg-background"
+                      />
+                      <p className="text-sm">
+                        <Link
+                          href={TERMS_PATH}
+                          target="_blank"
+                          className="font-medium underline underline-offset-4"
+                        >
+                          {t("consent.readTerms")}
+                        </Link>
+                      </p>
+                    </>
+                  ) : null}
                 </div>
               ) : null}
               <Button
@@ -1219,7 +1267,11 @@ export function TicketSelection({
                 // dialog does not know which of those two people it is serving.
                 // It is the same read the fields above are waiting on, and a
                 // guest's costs no call to the API at all.
-                disabled={submitting || (consentBoxes.policy_acceptance && !policyAccepted)}
+                disabled={
+                  submitting ||
+                  (consentBoxes.policy_acceptance && !policyAccepted) ||
+                  (consentBoxes.terms_acceptance && !termsAccepted)
+                }
                 aria-busy={submitting}
               >
                 {submitting ? t("submitting") : t("submit")}

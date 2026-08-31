@@ -20,10 +20,11 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { ConsentCheckbox } from "@/components/consent-checkbox";
 import { Link, useRouter } from "@/i18n/navigation";
-import type { PrivacyPolicy } from "@/lib/api";
+import type { PrivacyPolicy, Terms } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-errors";
 import type { ConsentRequired } from "@/lib/customer-session";
 import { PRIVACY_POLICY_PATH } from "@/lib/privacy-policy";
+import { TERMS_PATH } from "@/lib/terms";
 
 /**
  * The three steps this page can be on. "consent" is reached only from "code" or
@@ -142,6 +143,16 @@ type SignInFormProps = {
    */
   policy: PrivacyPolicy | null;
   /**
+   * The current Terms Version's acceptance-checkbox label, as the API serves it
+   * — null when it could not be reached (#536, ADR 0066).
+   *
+   * The label is evidence exactly as the policy's labels are: the Terms edition
+   * records the SHA-256 of the served artifact, so the box is worded by the
+   * backend and never by a catalog, and this form may not reword or pre-tick
+   * it. The full document lives on the public terms page the step links to.
+   */
+  terms: Terms | null;
+  /**
    * The consent step a Google Sign-In was held at, carried across the callback
    * redirect in an httpOnly cookie and read by the page (#252) — null for every
    * other way of arriving here.
@@ -203,6 +214,7 @@ export function SignInForm({
   followIntent,
   googleSignInHref,
   policy,
+  terms,
   pendingConsent,
 }: SignInFormProps) {
   const router = useRouter();
@@ -243,6 +255,9 @@ export function SignInForm({
   const [policyAccepted, setPolicyAccepted] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [networkingConsent, setNetworkingConsent] = useState(false);
+  // The Terms box (#536): the other required, un-premarked answer, false until
+  // a person clicks it for the reason the three above are.
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const clearedStaleSession = useRef(false);
 
   // An expired session leaves a cookie behind that will never authenticate
@@ -370,7 +385,13 @@ export function SignInForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           pending_consent_token: consent.pending_consent_token,
-          policy_acceptance: policyAccepted,
+          // Each REQUIRED box is sent only when it was shown (#536): mentioning
+          // one marks the submission a sign-in rather than a withdrawal, and a
+          // box the person never saw must not be answered on their behalf. The
+          // optional two keep their old shape — the API ignores answers for
+          // boxes it did not owe.
+          ...(consent.boxes.policy_acceptance ? { policy_acceptance: policyAccepted } : {}),
+          ...(consent.boxes.terms_acceptance ? { terms_acceptance: termsAccepted } : {}),
           marketing_consent: marketingConsent,
           networking_consent: networkingConsent,
           // The Follow intent rides THIS request now, because this is the one
@@ -402,9 +423,17 @@ export function SignInForm({
     step === "code" && !(error?.code != null && RESEND_REFUSED_ERRORS.has(error.code));
 
   return (
-    <Card>
+    <Card
+      // The email and passcode steps keep the narrow column a two-field form
+      // reads best in; the consent step takes the wrapper's full width so the
+      // notice and the boxes come out as a page to read, not a chute to
+      // scroll (#539).
+      className={step === "consent" ? "w-full" : "mx-auto w-full max-w-md"}
+    >
       <CardHeader>
-        <CardTitle className="text-xl">{t("title")}</CardTitle>
+        <CardTitle className="text-xl">
+          {step === "consent" ? t("consent.title") : t("title")}
+        </CardTitle>
         <CardDescription>
           {/* The address goes inside the sentence rather than being appended to
               it: which side of it the words fall on is the translator's. */}
@@ -461,7 +490,7 @@ export function SignInForm({
           </Alert>
         ) : null}
 
-        {passcodeSent && !error ? (
+        {step === "code" && passcodeSent && !error ? (
           <p role="status" className="rounded-lg border bg-muted/50 px-4 py-3 text-sm">
             {t("passcodeSent")}
           </p>
@@ -498,7 +527,10 @@ export function SignInForm({
 
         {step === "consent" ? (
           <form className="space-y-4" onSubmit={handleSubmitConsent} noValidate>
-            {policy ? (
+            {/* Both required artifacts, or neither: a step owing the Terms box
+                with no backend label to word it would collect a consent to
+                nothing, so it renders the honest failure instead (#536). */}
+            {policy && (!consent?.boxes.terms_acceptance || terms) ? (
               <>
                 {/*
                   The Short Notice, inline and in full, exactly as the API served
@@ -532,32 +564,73 @@ export function SignInForm({
                     optionalLabel={null}
                   />
                 ) : null}
-                {consent?.boxes.marketing_consent ? (
-                  <ConsentCheckbox
-                    id="marketing_consent"
-                    checked={marketingConsent}
-                    onChange={setMarketingConsent}
-                    label={policy.consent_labels.marketing_consent}
-                    optionalLabel={t("consent.optional")}
-                  />
+                {/*
+                  The Terms box (#536, ADR 0066): the contractual acceptance,
+                  separate from every privacy answer, worded by the backend
+                  artifact and never pre-ticked. The link goes to the public
+                  terms page — the full Spanish document, the single legally
+                  prevailing text — in a new tab, exactly as the policy's link
+                  does.
+                */}
+                {consent?.boxes.terms_acceptance && terms ? (
+                  <div className="space-y-2">
+                    <ConsentCheckbox
+                      id="terms_acceptance"
+                      checked={termsAccepted}
+                      onChange={setTermsAccepted}
+                      label={terms.acceptance_label}
+                      optionalLabel={null}
+                    />
+                    <p className="text-sm">
+                      <Link
+                        href={TERMS_PATH}
+                        target="_blank"
+                        className="font-medium underline underline-offset-4"
+                      >
+                        {t("consent.readTerms")}
+                      </Link>
+                    </p>
+                  </div>
                 ) : null}
-                {consent?.boxes.networking_consent ? (
-                  <ConsentCheckbox
-                    id="networking_consent"
-                    checked={networkingConsent}
-                    onChange={setNetworkingConsent}
-                    label={policy.consent_labels.networking_consent}
-                    optionalLabel={t("consent.optional")}
-                  />
+                {/* The optional consents share a row where the width allows
+                    it — they are peers, and side by side they read as the two
+                    extras they are rather than two more rungs of the same
+                    ladder (#539). */}
+                {consent?.boxes.marketing_consent || consent?.boxes.networking_consent ? (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {consent?.boxes.marketing_consent ? (
+                      <ConsentCheckbox
+                        id="marketing_consent"
+                        checked={marketingConsent}
+                        onChange={setMarketingConsent}
+                        label={policy.consent_labels.marketing_consent}
+                        optionalLabel={t("consent.optional")}
+                      />
+                    ) : null}
+                    {consent?.boxes.networking_consent ? (
+                      <ConsentCheckbox
+                        id="networking_consent"
+                        checked={networkingConsent}
+                        onChange={setNetworkingConsent}
+                        label={policy.consent_labels.networking_consent}
+                        optionalLabel={t("consent.optional")}
+                      />
+                    ) : null}
+                  </div>
                 ) : null}
 
                 <Button
                   type="submit"
                   className="h-11 w-full"
-                  // The required box gates the button. The API refuses the same
-                  // submission on its own account, so this is what the person
-                  // sees rather than what makes it true.
-                  disabled={loading || !policyAccepted}
+                  // The required boxes gate the button — each exactly where it
+                  // is owed (#536). The API refuses the same submission on its
+                  // own account, so this is what the person sees rather than
+                  // what makes it true.
+                  disabled={
+                    loading ||
+                    (consent?.boxes.policy_acceptance === true && !policyAccepted) ||
+                    (consent?.boxes.terms_acceptance === true && !termsAccepted)
+                  }
                   aria-busy={loading}
                 >
                   {loading ? t("signingIn") : t("consent.submit")}

@@ -11,6 +11,7 @@ import {
   googleSignInConfig,
   statesMatch,
 } from "@/lib/google-signin";
+import { PENDING_TERMS_COOKIE, pendingTermsCookieOptions } from "@/lib/pending-terms";
 import { detectedStaffLocale } from "@/lib/request-locale";
 import { SESSION_COOKIE_NAME, sessionCookieOptions } from "@/lib/session";
 
@@ -19,7 +20,8 @@ export const dynamic = "force-dynamic";
 
 type VerifyData = {
   session_id: string;
-  session: SessionForkInput & { email: string };
+  session: (SessionForkInput & { email: string }) | null;
+  terms_required: { pending_terms_token: string } | null;
 };
 
 /**
@@ -89,6 +91,20 @@ export async function GET(request: Request) {
     // unverified address, a missing `email` claim, and the API being
     // unreachable. All one message.
     return redirectTo(GOOGLE_SIGN_IN_FAILURE_PATH);
+  }
+
+  // Google proved the address, and the terms gate held the sign-in (#538): not
+  // a failure, a step. The single-use token rides an httpOnly cookie to the
+  // login page — a redirect has no page to hand it to — and the page shows the
+  // terms card. The passcode form reaches the same card from its own verify
+  // response; both doors are equal proof and both meet the same gate.
+  if (result?.terms_required?.pending_terms_token) {
+    store.set(
+      PENDING_TERMS_COOKIE,
+      result.terms_required.pending_terms_token,
+      pendingTermsCookieOptions(),
+    );
+    return redirectTo("/login?terms=required");
   }
 
   if (!result?.session_id || !result.session) {

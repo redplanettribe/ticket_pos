@@ -7,6 +7,7 @@ import {
   Button,
   FormField,
   Input,
+  Markdown,
   buttonVariants,
   cn,
 } from "@ticket-pos/ui";
@@ -19,7 +20,25 @@ import { apiErrorMessage } from "@/lib/api-errors";
 import { applyAuthFork } from "@/lib/auth-fork";
 import type { SignInIntent } from "@/lib/login-copy";
 
-type Step = "email" | "code";
+type Step = "email" | "code" | "terms";
+
+/**
+ * The terms step's server-known half (#538, ADR 0066): the checkbox label as
+ * the backend artifact words it — evidence, never catalog copy — the edition it
+ * belongs to, and whether the single-use token is parked in the httpOnly
+ * cookie (the Google door) rather than held by this form (the passcode door).
+ */
+export type PendingTermsStep = {
+  acceptanceLabel: string;
+  version: string;
+  tokenInCookie: boolean;
+};
+
+type TermsRequiredPayload = {
+  pending_terms_token: string;
+  acceptance_label: string;
+  version: string;
+};
 
 type LoginFormProps = {
   /**
@@ -40,6 +59,16 @@ type LoginFormProps = {
    * client configured — in which case no button is rendered at all.
    */
   googleSignInHref: string | null;
+  /**
+   * The public Storefront terms page. The Staff app hosts no copy of the
+   * document (#538): the terms step links out, and this is where.
+   */
+  termsUrl: string;
+  /**
+   * Non-null when a Google sign-in was held at the terms gate and the callback
+   * parked the token in the cookie: the card opens on the terms step directly.
+   */
+  initialPendingTerms: PendingTermsStep | null;
 };
 
 /** Google's four-colour G, inline so the button needs no network request. */
@@ -77,7 +106,13 @@ type Envelope<T> = {
   error: { code: string; message: string; details?: unknown } | null;
 };
 
-export function LoginForm({ intent, googleFailed, googleSignInHref }: LoginFormProps) {
+export function LoginForm({
+  intent,
+  googleFailed,
+  googleSignInHref,
+  termsUrl,
+  initialPendingTerms,
+}: LoginFormProps) {
   // Every sentence on this page comes from here, in the language i18n/request.ts
   // resolved for this request — cookie, then Accept-Language, then English. The
   // one exception is an error the API worded (below).
@@ -87,12 +122,21 @@ export function LoginForm({ intent, googleFailed, googleSignInHref }: LoginFormP
   // the floor beneath a code the catalog has never heard of (ADR 0023).
   const errorCopy = useMessages().errors;
   const router = useRouter();
-  const [step, setStep] = useState<Step>("email");
+  // A Google sign-in the gate held arrives with its terms step already known
+  // (#538): the card opens on it, token parked in the httpOnly cookie.
+  const [step, setStep] = useState<Step>(initialPendingTerms ? "terms" : "email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pendingTerms, setPendingTerms] = useState<PendingTermsStep | null>(initialPendingTerms);
+  // The passcode door's token, held by the form; null on the Google door,
+  // where the accept route reads the cookie instead.
+  const [pendingTermsToken, setPendingTermsToken] = useState<string | null>(null);
+  // Un-premarked, always: stored state decides whether to ASK, never what to
+  // show as already agreed.
+  const [termsChecked, setTermsChecked] = useState(false);
 
   async function handleRequestOTP(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -141,12 +185,31 @@ export function LoginForm({ intent, googleFailed, googleSignInHref }: LoginFormP
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, code }),
       });
-      const envelope = (await response.json()) as Envelope<{ session: SessionData }>;
+      const envelope = (await response.json()) as Envelope<{
+        session: SessionData | null;
+        terms_required: TermsRequiredPayload | null;
+      }>;
       if (!response.ok || envelope.error) {
         // The failures a person actually meets here — a wrong passcode, an
         // expired one, too many attempts — are all cataloged, so the one moment
         // this page is least forgiving is not the moment it switches to English.
         setError(apiErrorMessage(errorCopy, envelope.error) ?? t("verifyFailed"));
+        return;
+      }
+
+      // The passcode proved the address and the terms gate held the sign-in
+      // (#538): no session yet, one step to finish. The label is the backend
+      // artifact's, rendered verbatim.
+      const termsRequired = envelope.data?.terms_required;
+      if (termsRequired) {
+        setPendingTerms({
+          acceptanceLabel: termsRequired.acceptance_label,
+          version: termsRequired.version,
+          tokenInCookie: false,
+        });
+        setPendingTermsToken(termsRequired.pending_terms_token);
+        setTermsChecked(false);
+        setStep("terms");
         return;
       }
 
@@ -172,6 +235,53 @@ export function LoginForm({ intent, googleFailed, googleSignInHref }: LoginFormP
     }
   }
 
+  async function handleAcceptTerms(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/auth/accept-terms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // The Google door's token lives in the httpOnly cookie; the route
+          // falls back to it when the form holds none.
+          ...(pendingTermsToken ? { pending_terms_token: pendingTermsToken } : {}),
+          terms_acceptance: termsChecked,
+        }),
+      });
+      const envelope = (await response.json()) as Envelope<{ session: SessionData | null }>;
+      if (!response.ok || envelope.error) {
+        // A spent or expired token reads in this page's language where the
+        // catalog knows the code; the recovery either way is the sentence in
+        // termsFailed — sign in again, which re-mints everything.
+        setError(apiErrorMessage(errorCopy, envelope.error) ?? t("termsFailed"));
+        return;
+      }
+
+      const session = envelope.data?.session;
+      if (!session) {
+        setError(t("sessionFailed"));
+        return;
+      }
+
+      const fork = await applyAuthFork(session);
+      if (fork.failure) {
+        setError(
+          apiErrorMessage(errorCopy, fork.failure.apiError) ?? t("selectOrganizationFailed"),
+        );
+        return;
+      }
+      router.push(fork.path);
+      router.refresh();
+    } catch {
+      setError(t("termsFailed"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <AuthCard
       title={intent === "create" ? t("createTitle") : t("title")}
@@ -182,11 +292,13 @@ export function LoginForm({ intent, googleFailed, googleSignInHref }: LoginFormP
       // Interpolated rather than concatenated, so the address can sit wherever
       // the Spanish wants it rather than wherever the English put it.
       description={
-        step === "email"
-          ? intent === "create"
-            ? t("createDescription")
-            : t("description")
-          : t("codeDescription", { email })
+        step === "terms"
+          ? t("termsDescription")
+          : step === "email"
+            ? intent === "create"
+              ? t("createDescription")
+              : t("description")
+            : t("codeDescription", { email })
       }
       // The escape hatch for a language detected wrongly. It sits under the card
       // rather than in it: it is about the page, not about signing in, and this
@@ -209,7 +321,50 @@ export function LoginForm({ intent, googleFailed, googleSignInHref }: LoginFormP
         </p>
       ) : null}
 
-      {step === "email" ? (
+      {step === "terms" && pendingTerms ? (
+        <form className="space-y-4" onSubmit={handleAcceptTerms}>
+          {/*
+            The label is evidence, not copy: markdown from the current Terms
+            Version, rendered verbatim, never reworded and never pre-ticked
+            (§3, ADR 0066). Only the link line and the button belong to this
+            app's catalog. The full document lives on the public Storefront
+            terms page — this app hosts no copy — so the link opens it in a new
+            tab and this card survives the reading.
+          */}
+          <label
+            htmlFor="terms-acceptance"
+            className="flex items-start gap-3 rounded-lg border p-3 text-sm"
+          >
+            <input
+              id="terms-acceptance"
+              name="terms-acceptance"
+              type="checkbox"
+              className="mt-1 h-4 w-4 shrink-0"
+              checked={termsChecked}
+              onChange={(event) => setTermsChecked(event.target.checked)}
+            />
+            <Markdown className="text-sm [&>p]:mt-0">{pendingTerms.acceptanceLabel}</Markdown>
+          </label>
+          <a
+            href={termsUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="block text-sm text-muted-foreground underline underline-offset-4"
+          >
+            {t("termsLinkLabel")}
+          </a>
+          {/* Disabled unticked as a courtesy; the API refuses an unticked
+              submission regardless. */}
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={loading || !termsChecked}
+            aria-busy={loading}
+          >
+            {loading ? t("termsAccepting") : t("termsAccept")}
+          </Button>
+        </form>
+      ) : step === "email" ? (
         <form className="space-y-4" onSubmit={handleRequestOTP}>
           <FormField id="email" label={t("emailLabel")}>
             <Input

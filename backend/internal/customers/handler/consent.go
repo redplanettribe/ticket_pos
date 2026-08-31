@@ -35,6 +35,18 @@ type consentSubmitBody struct {
 	// everywhere they overlap: absent is false on the sign-in path exactly as it
 	// has always been.
 	PolicyAcceptance *bool `json:"policy_acceptance"`
+	// TermsAcceptance is the Terms box (#536, ADR 0066), required exactly where
+	// it is OWED — the service judges it against the same recomputed Outstanding
+	// the optional answers are read against, so a Customer re-gated by a Policy
+	// bump alone is not refused over a box they were never shown. Like the
+	// acceptance above it carries no edition: which Terms Version is being
+	// accepted is resolved server-side at the moment of capture.
+	//
+	// A POINTER FOR THE SAME REASON POLICY ACCEPTANCE IS ONE: a submission
+	// mentioning it at all is a sign-in submission, whatever it says — the Terms
+	// have no withdrawal path at all (ADR 0066), so no reading of this field may
+	// ever steer a submission onto the withdrawal branch.
+	TermsAcceptance *bool `json:"terms_acceptance"`
 	// MarketingConsent and NetworkingConsent are the optional boxes. On a sign-in
 	// submission ABSENT IS FALSE AND FALSE IS AN EXPLICIT NO — an unticked box
 	// that was shown is a refusal, recorded as `denied`, and for Marketing that
@@ -96,6 +108,13 @@ func (b consentSubmitBody) withdrawalOnly() bool {
 	if b.PolicyAcceptance != nil {
 		return false
 	}
+	// A submission mentioning the Terms is a sign-in submission for the reason a
+	// policy mention is: acceptance of either document is a required box being
+	// answered, not a consent being taken away — and the Terms cannot be taken
+	// away on any channel at all (#536, ADR 0066).
+	if b.TermsAcceptance != nil {
+		return false
+	}
 	if b.MarketingConsent == nil && b.NetworkingConsent == nil {
 		return false
 	}
@@ -151,7 +170,7 @@ type consentSubmitResponse struct {
 // second — which is the property to keep when editing this file.
 //
 // @Summary      Submit sign-in consent, or withdraw consent
-// @Description  Spends the short-lived, single-use `pending_consent_token` from a verify response, or from the Consent Withdrawal passcode door, on ONE of two acts — decided by the API from the submission's contents and never by the form that sent it. POLICY ACCEPTANCE IS REQUIRED UNLESS EVERY ANSWER PRESENT IN THE SUBMISSION IS A DENIAL (ADR 0039). A submission mentioning `policy_acceptance` at all — true or false — one containing any grant, and one carrying no answer at all are all sign-in submissions, and a sign-in submission without acceptance is refused with POLICY_ACCEPTANCE_REQUIRED exactly as before; a submission whose only answers are `false` is a Consent Withdrawal and needs no acceptance, because an act that grants nothing, opens nothing and authorizes nothing has no processing for an acceptance to have informed anybody about. FINISHING A SIGN-IN writes the immutable Consent Record first — answers, channel, Policy Version, and the technical proof (IP, user agent, session, origin URL) — and mints the session on the far side of it, so nobody is ever signed in without evidence of what they authorized; `marketing_consent` and `networking_consent` default to false there, and false is an explicit No that records `denied` and, for marketing, switches the weekly Follow Digest off (ADR 0034); answers for boxes the Customer was not shown are ignored, so standing optional answers are never churned; an optional `follow` carries a Follow intent, honoured against the session this call mints exactly as on the verify routes; the response carries `session` and `session_id`. WITHDRAWING carries no `policy_acceptance` and names only the consents to take away, each as `false` — an omitted consent is not on the submission and is left exactly as it stands, so a bare token withdraws nothing and is refused. It MINTS NO CUSTOMER SESSION: the response carries `withdrawal` with the state of each optional consent afterwards and what the act actually took away, and `session`, `session_id`, `consent_required` and `follow` are all null. It can only ever move a consent to `denied` — no submission on this path can grant a consent, accept a Policy Version or open a session — so an intercepted passcode buys nothing its owner cannot undo from their own account. A withdrawal that moved a consent out of `granted` or `pending_confirmation` writes its Consent Record with the prior state and is confirmed to the Customer by email in their Mail Locale; one that moved nothing records the act and sends nothing. The Policy Version is resolved server-side and is never accepted from the request. The token is spent whatever the outcome and whichever act was attempted, so a refused submission is restarted by proving the address again; abandoning the step records nothing and leaves no session at all.
+// @Description  Spends the short-lived, single-use `pending_consent_token` from a verify response, or from the Consent Withdrawal passcode door, on ONE of two acts — decided by the API from the submission's contents and never by the form that sent it. POLICY ACCEPTANCE IS REQUIRED UNLESS EVERY ANSWER PRESENT IN THE SUBMISSION IS A DENIAL (ADR 0039). A submission mentioning `policy_acceptance` at all — true or false — one containing any grant, and one carrying no answer at all are all sign-in submissions, and a sign-in submission without acceptance is refused with POLICY_ACCEPTANCE_REQUIRED exactly as before; a submission whose only answers are `false` is a Consent Withdrawal and needs no acceptance, because an act that grants nothing, opens nothing and authorizes nothing has no processing for an acceptance to have informed anybody about. FINISHING A SIGN-IN writes the immutable Consent Record first — answers, channel, Policy Version, and the technical proof (IP, user agent, session, origin URL) — and mints the session on the far side of it, so nobody is ever signed in without evidence of what they authorized; `marketing_consent` and `networking_consent` default to false there, and false is an explicit No that records `denied` and, for marketing, switches the weekly Follow Digest off (ADR 0034); answers for boxes the Customer was not shown are ignored, so standing optional answers are never churned; an optional `follow` carries a Follow intent, honoured against the session this call mints exactly as on the verify routes; the response carries `session` and `session_id`. WITHDRAWING carries no `policy_acceptance` and names only the consents to take away, each as `false` — an omitted consent is not on the submission and is left exactly as it stands, so a bare token withdraws nothing and is refused. It MINTS NO CUSTOMER SESSION: the response carries `withdrawal` with the state of each optional consent afterwards and what the act actually took away, and `session`, `session_id`, `consent_required` and `follow` are all null. It can only ever move a consent to `denied` — no submission on this path can grant a consent, accept a Policy Version or open a session — so an intercepted passcode buys nothing its owner cannot undo from their own account. A withdrawal that moved a consent out of `granted` or `pending_confirmation` writes its Consent Record with the prior state and is confirmed to the Customer by email in their Mail Locale; one that moved nothing records the act and sends nothing. THE TERMS BOX (#536, ADR 0066) rides the same submission: when the verify's `boxes.terms_acceptance` was true the Customer owes acceptance of the current Términos y Condiciones edition, and a sign-in submission without `terms_acceptance: true` is refused with TERMS_ACCEPTANCE_REQUIRED; where the box was not owed the field is ignored. Each required box is judged only where owed, so a Customer re-gated by one document alone is never refused over the other's box. A recorded Terms acceptance stamps the Customer with the edition and is carried on the same Consent Record; it is contractual, has no withdrawal path, and no submission on the withdrawal branch can name it. The Policy Version and the Terms Version are resolved server-side and are never accepted from the request. The token is spent whatever the outcome and whichever act was attempted, so a refused submission is restarted by proving the address again; abandoning the step records nothing and leaves no session at all.
 // @Tags         customer
 // @Accept       json
 // @Produce      json
@@ -215,8 +234,10 @@ func (h *Handler) SubmitConsent(w http.ResponseWriter, r *http.Request) {
 
 	outcome, err := h.svc.SubmitConsent(r.Context(), service.ConsentSubmission{
 		Token: body.PendingConsentToken,
-		// Absent is false and false is refused, exactly as before.
+		// Absent is false and false is refused where the box is owed, exactly as
+		// before — for both required boxes.
 		PolicyAcceptance: body.PolicyAcceptance != nil && *body.PolicyAcceptance,
+		TermsAcceptance:  body.TermsAcceptance != nil && *body.TermsAcceptance,
 		// Absent is false on this path, which is what it has always meant here: a
 		// box that was shown and left unticked is an explicit No.
 		MarketingConsent:  body.MarketingConsent != nil && *body.MarketingConsent,

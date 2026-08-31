@@ -33,17 +33,14 @@ func TestAuthOTPHappyPath(t *testing.T) {
 		t.Fatalf("verify otp status=%d error=%+v", resp.StatusCode, body.Error)
 	}
 
-	var verifyData struct {
-		SessionID string `json:"session_id"`
-	}
-	if err := json.Unmarshal(body.Data, &verifyData); err != nil {
-		t.Fatalf("decode verify data: %v", err)
-	}
-	if verifyData.SessionID == "" {
+	// A fresh database means a first sign-in, and a first sign-in owes the
+	// Terms (#538): the happy path runs through the gate, deliberately.
+	sessionID := sessionThroughTermsGate(t, env, body)
+	if sessionID == "" {
 		t.Fatal("expected session_id")
 	}
 
-	resp, body = env.get(t, "/api/v1/auth/session", authHeader(verifyData.SessionID))
+	resp, body = env.get(t, "/api/v1/auth/session", authHeader(sessionID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("get session status=%d error=%+v", resp.StatusCode, body.Error)
 	}
@@ -175,27 +172,14 @@ func TestAuthAttemptCap(t *testing.T) {
 func TestAuthLogoutDestroysSession(t *testing.T) {
 	env := setupTest(t)
 
-	_, _ = env.post(t, "/api/v1/auth/otp/request", map[string]string{
-		"email": "staff@example.com",
-	}, nil)
-	resp, body := env.post(t, "/api/v1/auth/otp/verify", map[string]string{
-		"email": "staff@example.com",
-		"code":  env.email.LastCode,
-	}, nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("verify status=%d", resp.StatusCode)
-	}
-	var verifyData struct {
-		SessionID string `json:"session_id"`
-	}
-	_ = json.Unmarshal(body.Data, &verifyData)
+	sessionID := verifyOTP(t, env, "staff@example.com")
 
-	resp, body = env.post(t, "/api/v1/auth/logout", nil, authHeader(verifyData.SessionID))
+	resp, body := env.post(t, "/api/v1/auth/logout", nil, authHeader(sessionID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("logout status=%d error=%+v", resp.StatusCode, body.Error)
 	}
 
-	resp, body = env.get(t, "/api/v1/auth/session", authHeader(verifyData.SessionID))
+	resp, body = env.get(t, "/api/v1/auth/session", authHeader(sessionID))
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401 after logout, got %d", resp.StatusCode)
 	}
@@ -353,6 +337,10 @@ func TestPreSeededSingleMemberAutoSelect(t *testing.T) {
 		t.Fatalf("verify otp status=%d error=%+v", resp.StatusCode, body.Error)
 	}
 
+	// First sign-in on a fresh database: the terms gate holds it (#538), and
+	// the session shapes below arrive on the acceptance response instead.
+	body = finishTermsGate(t, env, body)
+
 	var verifyData struct {
 		SessionID string `json:"session_id"`
 		Session   struct {
@@ -402,6 +390,11 @@ func TestPreSeededSingleMemberAutoSelect(t *testing.T) {
 	}
 }
 
+// verifyOTP completes a staff sign-in end to end: passcode, and — on a fresh
+// database, always — the terms step the gate holds every first sign-in at
+// (#538). It finishes the gate rather than asserting on it, so every test that
+// simply needs a Staff Session keeps needing exactly one line; the gate's own
+// behaviour is asserted in staff_terms_test.go.
 func verifyOTP(t *testing.T, env *testEnv, email string) string {
 	t.Helper()
 
@@ -417,16 +410,11 @@ func verifyOTP(t *testing.T, env *testEnv, email string) string {
 		t.Fatalf("verify otp status=%d error=%+v", resp.StatusCode, body.Error)
 	}
 
-	var verifyData struct {
-		SessionID string `json:"session_id"`
-	}
-	if err := json.Unmarshal(body.Data, &verifyData); err != nil {
-		t.Fatalf("decode verify data: %v", err)
-	}
-	if verifyData.SessionID == "" {
+	sessionID := sessionThroughTermsGate(t, env, body)
+	if sessionID == "" {
 		t.Fatal("expected session_id")
 	}
-	return verifyData.SessionID
+	return sessionID
 }
 
 func seedMultiMembership(t *testing.T, env *testEnv, email string) (memberID1, memberID2 string) {
@@ -483,6 +471,10 @@ func TestTwoMembershipPickerFlow(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("verify otp status=%d error=%+v", resp.StatusCode, body.Error)
 	}
+
+	// First sign-in on a fresh database: the terms gate holds it (#538), and
+	// the session shapes below arrive on the acceptance response instead.
+	body = finishTermsGate(t, env, body)
 
 	var verifyData struct {
 		SessionID string `json:"session_id"`

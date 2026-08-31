@@ -19,6 +19,17 @@ components:
         ticket_sale_id:
           type: string
       type: object
+    handler.acceptTermsBody:
+      properties:
+        pending_terms_token:
+          description: PendingTermsToken is the single-use token a gated verify returned.
+          type: string
+        terms_acceptance:
+          description: |-
+            TermsAcceptance is the one required box. Absent is false and false is
+            refused — the API's guarantee, not the form's.
+          type: boolean
+      type: object
     handler.additionalFieldBody:
       properties:
         name:
@@ -195,6 +206,14 @@ components:
             answered everything sends none of these at all. Which boxes they were owed
             is still the SERVICE's finding and never this body's assertion.
           type: boolean
+        terms_acceptance:
+          description: |-
+            TermsAcceptance is the Términos y Condiciones box (#537, ADR 0066),
+            under the same nil discipline: it is drawn only for a Customer whose
+            live session spans the current Terms edition — the one-time re-gate, or
+            any later bump — and the API refuses the checkout without it exactly as
+            it does the policy's (TERMS_ACCEPTANCE_REQUIRED).
+          type: boolean
       type: object
     handler.buyerAssignmentBody:
       properties:
@@ -338,6 +357,20 @@ components:
             Policy Acceptance at all can be the other act. The two readings agree
             everywhere they overlap: absent is false on the sign-in path exactly as it
             has always been.
+          type: boolean
+        terms_acceptance:
+          description: |-
+            TermsAcceptance is the Terms box (#536, ADR 0066), required exactly where
+            it is OWED — the service judges it against the same recomputed Outstanding
+            the optional answers are read against, so a Customer re-gated by a Policy
+            bump alone is not refused over a box they were never shown. Like the
+            acceptance above it carries no edition: which Terms Version is being
+            accepted is resolved server-side at the moment of capture.
+
+            A POINTER FOR THE SAME REASON POLICY ACCEPTANCE IS ONE: a submission
+            mentioning it at all is a sign-in submission, whatever it says — the Terms
+            have no withdrawal path at all (ADR 0066), so no reading of this field may
+            ever steer a submission onto the withdrawal branch.
           type: boolean
       type: object
     handler.consentWithdrawalProofBody:
@@ -1115,6 +1148,15 @@ components:
         session:
           $ref: '#/components/schemas/service.CustomerSessionView'
         session_id:
+          type: string
+      type: object
+    openapi.EnvelopeAcceptTerms:
+      properties:
+        data:
+          $ref: '#/components/schemas/openapi.VerifyOTPData'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
           type: string
       type: object
     openapi.EnvelopeAffiliateLink:
@@ -1954,6 +1996,15 @@ components:
         request_id:
           type: string
       type: object
+    openapi.EnvelopeTerms:
+      properties:
+        data:
+          $ref: '#/components/schemas/service.TermsView'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
     openapi.EnvelopeTicketAnswersDetail:
       properties:
         data:
@@ -2059,6 +2110,8 @@ components:
           $ref: '#/components/schemas/service.SessionView'
         session_id:
           type: string
+        terms_required:
+          $ref: '#/components/schemas/service.TermsRequiredView'
       type: object
     platform.APIError:
       properties:
@@ -2077,7 +2130,11 @@ components:
           type: string
       type: object
     platform.Locale:
-      description: Locale is the language everything below is written in.
+      description: |-
+        Locale is the language the text below is written in, and the language that
+        was asked for: both published languages carry this edition. Spanish is the
+        legally prevailing text (§37); English is the courtesy translation, and it
+        says so in its own first line.
       enum:
       - en
       - es
@@ -2643,6 +2700,8 @@ components:
         networking_consent:
           type: boolean
         policy_acceptance:
+          type: boolean
+        terms_acceptance:
           type: boolean
       type: object
     service.ConsentConfirmationView:
@@ -6025,6 +6084,57 @@ components:
         name:
           type: string
       type: object
+    service.TermsRequiredView:
+      description: |-
+        TermsRequired is non-nil when no session was minted because the email owes
+        a Terms Acceptance of the current Terms Version; Session and SessionID are
+        then empty. Finished at /api/v1/auth/terms/accept.
+      properties:
+        acceptance_label:
+          description: |-
+            AcceptanceLabel is the mandatory, un-premarked checkbox's label, markdown,
+            verbatim from the embedded artifact (§3) in the language the login page is
+            rendered in. The UI renders it beside a link to the public Storefront terms
+            page and may not reword or pre-tick it — the Staff app hosts no copy of the
+            document.
+          type: string
+        expires_at:
+          description: ExpiresAt is when that token stops working, RFC 3339.
+          type: string
+        pending_terms_token:
+          description: |-
+            PendingTermsToken is the single-use, short-lived credential that exchanges
+            an acceptance for the session this sign-in did not mint. A server-side row
+            (migration 107), so spending it destroys it.
+          type: string
+        version:
+          description: Version is the edition label being accepted ("1").
+          type: string
+      type: object
+    service.TermsView:
+      properties:
+        acceptance_label:
+          description: |-
+            AcceptanceLabel is the mandatory checkbox's label, markdown. The UI may
+            not reword or pre-tick it.
+          type: string
+        body_markdown:
+          description: BodyMarkdown is the full Términos y Condiciones, markdown.
+          type: string
+        content_hash:
+          description: |-
+            ContentHash is the fingerprint of the artifact set below, published so a
+            reader can hold the platform to it.
+          type: string
+        effective_date:
+          description: EffectiveDate is the day this edition took effect, YYYY-MM-DD.
+          type: string
+        locale:
+          $ref: '#/components/schemas/platform.Locale'
+        version:
+          description: Version is the label a human names this edition by ("1").
+          type: string
+      type: object
     service.TicketAnswersView:
       properties:
         answerable:
@@ -6633,12 +6743,16 @@ paths:
       - auth
   /api/v1/auth/otp/verify:
     post:
-      description: Verifies a one-time passcode and creates a server-side session.
+      description: 'Verifies a one-time passcode and completes the sign-in. The outcome
+        has exactly two shapes: `session` and `session_id`, or — for an email with
+        no Terms Acceptance of the current Terms Version — `terms_required` with a
+        single-use `pending_terms_token`, the edition label and the checkbox label,
+        and NO session (#538, ADR 0066). The terms step is finished at /api/v1/auth/terms/accept.
         An optional `locale` names the language the login page was rendered in, as
-        the caller detected it, and is remembered as the person's Staff Locale — but
-        only if they have none. It never overwrites a stored one, because a detected
+        the caller detected it, and is remembered as the person''s Staff Locale —
+        but only if they have none. It never overwrites a stored one, because a detected
         language must not overrule a chosen one. A language the platform does not
-        serve is ignored rather than refused, and never fails the sign-in.
+        serve is ignored rather than refused, and never fails the sign-in.'
       requestBody:
         content:
           application/json:
@@ -6697,6 +6811,53 @@ paths:
       security:
       - BearerAuth: []
       summary: Get session
+      tags:
+      - auth
+  /api/v1/auth/terms/accept:
+    post:
+      description: 'Spends the short-lived, single-use `pending_terms_token` from
+        a verify response whose outcome was `terms_required`, records one append-only
+        Staff Terms Acceptance — the current Terms edition, the capacity "organizer",
+        the timestamp, and the technical proof (IP, user agent, session, origin URL)
+        — and mints the Staff Session the sign-in withheld; the response carries `session`
+        and `session_id` exactly as a verify does (#538, ADR 0066). `terms_acceptance`
+        must be true: an unticked box is refused with TERMS_ACCEPTANCE_REQUIRED, and
+        the refusal lives in the API, not only in the form. The token is spent whatever
+        the outcome, so a refused submission is restarted by signing in again; abandoning
+        the step records nothing and leaves no session. One acceptance per email per
+        edition: subsequent sign-ins pass with no extra step until a later Terms Version
+        is published.'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/handler.acceptTermsBody'
+                description: Pending terms token and the ticked box
+                summary: body
+        description: Pending terms token and the ticked box
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeAcceptTerms'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+      summary: Accept the Terms and finish a staff sign-in
       tags:
       - auth
   /api/v1/customer/auth/confirmation-link:
@@ -6780,8 +6941,17 @@ paths:
         from their own account. A withdrawal that moved a consent out of `granted`
         or `pending_confirmation` writes its Consent Record with the prior state and
         is confirmed to the Customer by email in their Mail Locale; one that moved
-        nothing records the act and sends nothing. The Policy Version is resolved
-        server-side and is never accepted from the request. The token is spent whatever
+        nothing records the act and sends nothing. THE TERMS BOX (#536, ADR 0066)
+        rides the same submission: when the verify''s `boxes.terms_acceptance` was
+        true the Customer owes acceptance of the current Términos y Condiciones edition,
+        and a sign-in submission without `terms_acceptance: true` is refused with
+        TERMS_ACCEPTANCE_REQUIRED; where the box was not owed the field is ignored.
+        Each required box is judged only where owed, so a Customer re-gated by one
+        document alone is never refused over the other''s box. A recorded Terms acceptance
+        stamps the Customer with the edition and is carried on the same Consent Record;
+        it is contractual, has no withdrawal path, and no submission on the withdrawal
+        branch can name it. The Policy Version and the Terms Version are resolved
+        server-side and are never accepted from the request. The token is spent whatever
         the outcome and whichever act was attempted, so a refused submission is restarted
         by proving the address again; abandoning the step records nothing and leaves
         no session at all.'
@@ -7596,23 +7766,29 @@ paths:
         no consent fields at all, is owed nothing, writes no Consent Record, and is
         not asked again; one who still owes Policy Acceptance must send it present
         and true or the checkout is refused 400 POLICY_ACCEPTANCE_REQUIRED with no
-        Payment created. An answer for a box the buyer was not owed is dropped rather
-        than applied. Purchase Limits, Affiliate Link attribution, `locale`, and the
-        skippable `answers` section all behave exactly as they do on the public route,
-        including that nothing about an answer can ever refuse or delay a checkout
-        (ADR 0044). The technical proof stored with a consent record (IP, user agent,
-        origin URL) is taken from the request and never from this body, and the Policy
-        Version accepted is resolved server-side. The response REPORTS THE ADDRESS
-        THE SALE WAS ADDRESSED TO in `addressed_to` (#387): the address read off the
-        session, echoed back so the caller learns it from this API rather than inferring
-        it from a browser. That is what lets the Storefront''s return leg still recognise
-        a buyer whose Customer Session did not survive the trip to the Payment Provider
-        — a cleared cookie jar, a provider webview, a revoked session, a different
-        browser — and it grants nothing, because signing in still costs a passcode
-        or a Google round trip. Confirming this checkout uses the same public confirm
-        route, which stays public and idempotent: it is the Payment Provider''s return
-        leg and must work for a browser that has lost everything, which is the same
-        fact `addressed_to` exists to survive.'
+        Payment created. The Terms box behaves identically where owed (#537, ADR 0066):
+        a Customer whose live session spans the current Terms edition — the one-time
+        re-gate, or a later bump — must send terms_acceptance present and true or
+        the checkout is refused 400 TERMS_ACCEPTANCE_REQUIRED, and the answer is held
+        on the Payment together with the edition it was answered about, so the Consent
+        Record written at commit evidences the text the buyer was shown rather than
+        whichever edition is current when the provider answers. An answer for a box
+        the buyer was not owed is dropped rather than applied. Purchase Limits, Affiliate
+        Link attribution, `locale`, and the skippable `answers` section all behave
+        exactly as they do on the public route, including that nothing about an answer
+        can ever refuse or delay a checkout (ADR 0044). The technical proof stored
+        with a consent record (IP, user agent, origin URL) is taken from the request
+        and never from this body, and the Policy Version accepted is resolved server-side.
+        The response REPORTS THE ADDRESS THE SALE WAS ADDRESSED TO in `addressed_to`
+        (#387): the address read off the session, echoed back so the caller learns
+        it from this API rather than inferring it from a browser. That is what lets
+        the Storefront''s return leg still recognise a buyer whose Customer Session
+        did not survive the trip to the Payment Provider — a cleared cookie jar, a
+        provider webview, a revoked session, a different browser — and it grants nothing,
+        because signing in still costs a passcode or a Google round trip. Confirming
+        this checkout uses the same public confirm route, which stays public and idempotent:
+        it is the Payment Provider''s return leg and must work for a browser that
+        has lost everything, which is the same fact `addressed_to` exists to survive.'
       parameters:
       - description: Organization slug
         in: path
@@ -12241,6 +12417,50 @@ paths:
                 $ref: '#/components/schemas/platform.Envelope'
           description: Bad Request
       summary: List public filter tags
+      tags:
+      - public
+  /api/v1/public/terms/{locale}:
+    get:
+      description: 'Serves the Terms Version currently in effect, rendered in the
+        requested Locale: the version label, its effective date, the SHA-256 fingerprint
+        of the edition, the full Términos y Condiciones Generales (`body_markdown`)
+        and the mandatory acceptance checkbox label (`acceptance_label`). All text
+        is markdown, and all of it in EVERY published language is what the fingerprint
+        covers — one edition, one hash, whichever language a person read before ticking.
+        The Spanish text is the legally prevailing one (§37); the English one is a
+        courtesy translation that says so in its own first line. The Locale is a path
+        parameter and is answered strictly — a language the Terms are not published
+        in is a 404, never a silent fallback. Public and unauthenticated.'
+      parameters:
+      - description: Locale the terms are read in
+        in: path
+        name: locale
+        required: true
+        schema:
+          enum:
+          - en
+          - es
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeTerms'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Internal Server Error
+      summary: Current Términos y Condiciones
       tags:
       - public
   /api/v1/staff/events:

@@ -201,6 +201,12 @@ type beginCheckoutBody struct {
 	PolicyAcceptance  *bool `json:"policy_acceptance"`
 	MarketingConsent  *bool `json:"marketing_consent"`
 	NetworkingConsent *bool `json:"networking_consent"`
+	// TermsAcceptance is the Términos y Condiciones box (#537, ADR 0066): the
+	// checkout's OTHER required box, owed independently of the policy's and
+	// only to a Customer whose session spans the current edition — ordinarily
+	// nobody, because a sign-in since #536 settles it. Same pointer discipline:
+	// absent means the box was not drawn, and an unowed answer is dropped.
+	TermsAcceptance *bool `json:"terms_acceptance"`
 	// Answers are what the buyer filled in on the checkout's answer section
 	// (#311, ADR 0044).
 	//
@@ -385,6 +391,7 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 			PolicyAcceptance:  body.PolicyAcceptance,
 			MarketingConsent:  body.MarketingConsent,
 			NetworkingConsent: body.NetworkingConsent,
+			TermsAcceptance:   body.TermsAcceptance,
 		},
 		// ConsentEvidence is deliberately left unset here, exactly as SelfAsserted
 		// is: it is a fact about the request, and BeginCheckout sets it above.

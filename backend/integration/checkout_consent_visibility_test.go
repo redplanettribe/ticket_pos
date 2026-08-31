@@ -55,9 +55,15 @@ func signedInConsentBoxes(t *testing.T, env *testEnv, token string) consentBoxes
 
 // assertBoxes states the whole matrix row at once, so a failure names which box
 // went wrong rather than which assertion was reached first.
+//
+// THE TERMS BOX IS DELIBERATELY NOT IN THE ROW (#536). This matrix is about the
+// privacy boxes' visibility, and every full session it reads was minted through
+// a sign-in that settled the Terms — the checkout's own Terms behaviour is
+// #537's seam, and the one session that genuinely differs (the sale-scoped
+// Confirmation Link one) asserts its Terms box explicitly where it is minted.
 func assertBoxes(t *testing.T, got consentBoxes, policy, marketing, networking bool, why string) {
 	t.Helper()
-	want := consentBoxes{PolicyAcceptance: policy, MarketingConsent: marketing, NetworkingConsent: networking}
+	want := consentBoxes{PolicyAcceptance: policy, MarketingConsent: marketing, NetworkingConsent: networking, TermsAcceptance: got.TermsAcceptance}
 	if got != want {
 		t.Fatalf("consent boxes = %+v, want %+v (%s)", got, want, why)
 	}
@@ -270,6 +276,14 @@ func TestPendingConfirmationCountsAsUnansweredAtCheckout(t *testing.T) {
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Consent Fest", "consent-fest", 1000, 10)
 	line := cartLine(gaID, 1)
 
+	// Ana has signed in before — which settles the Terms (#536), the one thing a
+	// stranger's checkout can never do for her — and her optional consents are
+	// put back to never-answered so the pending below has an unanswered box to
+	// pend over, the state genuinely reachable by an account whose owner has not
+	// signed in since the boxes existed (see resetOptionalConsentsToUnanswered).
+	customerSignIn(t, env, "ana@example.com")
+	resetOptionalConsentsToUnanswered(t, env, "ana@example.com")
+
 	// A stranger bought a ticket under her address and ticked everything — a
 	// checkout begun before ADR 0054 closed that door (beginLegacyGuestCheckout),
 	// settling here. Nothing creates this state any more; every row of it that
@@ -284,7 +298,8 @@ func TestPendingConfirmationCountsAsUnansweredAtCheckout(t *testing.T) {
 
 	// She then signs in herself, and is NOT held at the door: the stranger's
 	// Policy Acceptance was recorded against her Customer unconditionally, because
-	// it is a fact about that sale rather than a claim on her inbox (ADR 0035).
+	// it is a fact about that sale rather than a claim on her inbox (ADR 0035),
+	// and her Terms were settled at her own earlier sign-in.
 	// So the checkout is the surface that gets to ask her about the pendings.
 	verify := startSignIn(t, env, "ana@example.com")
 	if verify.ConsentRequired != nil {
@@ -510,7 +525,16 @@ func TestConfirmationLinkSessionIsShownEveryBox(t *testing.T) {
 	}
 	assertBoxes(t, view.ConsentBoxes, true, true, true,
 		"the redemption's own view says the same thing the session read does")
+	// The Terms box too (#536): a forwarded link proves nothing about who holds
+	// it, so the contractual box is asked exactly as the privacy ones are.
+	if !view.ConsentBoxes.TermsAcceptance {
+		t.Fatal("terms_acceptance = false on a Confirmation Link session, want every box shown")
+	}
 
-	assertBoxes(t, signedInConsentBoxes(t, env, saleScoped), true, true, true,
+	saleScopedBoxes := signedInConsentBoxes(t, env, saleScoped)
+	assertBoxes(t, saleScopedBoxes, true, true, true,
 		"a forwarded email is not Proof of Email Ownership, so nothing is taken as answered")
+	if !saleScopedBoxes.TermsAcceptance {
+		t.Fatal("terms_acceptance = false on the session read, want every box shown")
+	}
 }

@@ -83,3 +83,50 @@ func ErrConsentGrantNotPermitted() apperror.DomainError {
 		nil,
 	)
 }
+
+// ErrTermsLocaleNotPublished is returned when the Terms are asked for in a
+// language this platform does not publish them in.
+//
+// 404, and deliberately not a fallback, ErrPolicyLocaleNotPublished's rule
+// applied to the contract. The Terms are published in both Locales the
+// Storefront serves — Spanish, which prevails (§37), and an English courtesy
+// translation that says so in its own first line — so reaching this means
+// somebody asked for a third language, and answering it with either of the two
+// would put a document the reader did not ask for under their own language's
+// address.
+func ErrTermsLocaleNotPublished() apperror.DomainError {
+	return apperror.New(
+		"TERMS_LOCALE_NOT_PUBLISHED",
+		"The Terms are not published in that language.",
+		nil,
+	)
+}
+
+// ErrTermsAcceptanceRequired is returned when a submission that owes the Terms
+// box arrives without it ticked (#536, ADR 0066).
+//
+// The refusal is the API's, exactly as ErrPolicyAcceptanceRequired's is: the
+// disabled submit button is a courtesy, this is the guarantee. 400 rather than
+// 403 for the same reason — nothing about the caller is unauthorized, and
+// restating the request with the box ticked is exactly what fixes it.
+func ErrTermsAcceptanceRequired() apperror.DomainError {
+	return apperror.New(
+		"TERMS_ACCEPTANCE_REQUIRED",
+		"The Términos y Condiciones must be accepted to continue.",
+		nil,
+	)
+}
+
+// ErrNoCurrentTermsVersion is returned when no Terms Version is in effect.
+//
+// Unreachable for the reason ErrNoCurrentPolicyVersion is: migration 105 seeds
+// edition 1 and a version is never deleted. It exists because serving the
+// embedded contract with no version label beside it would publish a text
+// nobody can be recorded as having accepted.
+func ErrNoCurrentTermsVersion() apperror.DomainError {
+	return apperror.New(
+		"NO_CURRENT_TERMS_VERSION",
+		"No Terms version is in effect.",
+		nil,
+	)
+}

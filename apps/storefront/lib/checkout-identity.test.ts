@@ -7,6 +7,7 @@ const NOTHING_OUTSTANDING = {
   policy_acceptance: false,
   marketing_consent: false,
   networking_consent: false,
+  terms_acceptance: false,
 };
 
 function facts(overrides: Partial<CheckoutSessionFacts> = {}): CheckoutSessionFacts {
@@ -95,7 +96,12 @@ test("a Customer with no stored phone prefills none", () => {
 });
 
 test("the boxes a Customer still owes travel with the identity, unaltered", () => {
-  const owed = { policy_acceptance: true, marketing_consent: true, networking_consent: true };
+  const owed = {
+    policy_acceptance: true,
+    marketing_consent: true,
+    networking_consent: true,
+    terms_acceptance: true,
+  };
   const identity = checkoutIdentity({ status: "ok", data: facts({ consent_boxes: owed }) });
   assert.deepEqual(identity?.consentBoxes, owed);
 });

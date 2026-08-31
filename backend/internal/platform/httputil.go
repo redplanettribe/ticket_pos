@@ -130,11 +130,21 @@ func domainHTTPStatus(code string) int {
 	// recovery is to sign in again.
 	case "PENDING_CONSENT_INVALID":
 		return http.StatusUnauthorized
+	// The staff door's pending-terms token, same nature and same status as its
+	// customer neighbour above, on its own code so whoever reads the logs can
+	// tell the doors apart (#538).
+	case "PENDING_TERMS_INVALID":
+		return http.StatusUnauthorized
 	// A consent submission with the required box unticked (#251, parent #249).
 	// 400: nothing about the caller is unauthorized and re-sending the request
 	// with the box ticked is exactly what fixes it. The refusal lives in the API
 	// and not only in the form — see consent.ErrPolicyAcceptanceRequired.
 	case "POLICY_ACCEPTANCE_REQUIRED":
+		return http.StatusBadRequest
+	// A terms submission with the required box unticked (#538): 400 beside its
+	// policy neighbour and for its reason — nothing about the caller is
+	// unauthorized, and re-sending with the box ticked is exactly what fixes it.
+	case "TERMS_ACCEPTANCE_REQUIRED":
 		return http.StatusBadRequest
 	// A capture on a withdraw-only channel that tried to grant something (#271).
 	// 400 beside its neighbour above and for the mirror reason: nothing about the
@@ -350,6 +360,13 @@ func domainHTTPStatus(code string) int {
 	// and that document does not exist. Never a fallback to English — see
 	// consent.ErrPolicyLocaleNotPublished.
 	case "POLICY_LOCALE_NOT_PUBLISHED":
+		return http.StatusNotFound
+	// The Terms asked for in a language they are not published in (ADR 0066).
+	// 404 beside its policy neighbour and for its reason: the address named a
+	// document, and that document does not exist in that language. Never a
+	// fallback — an English reader must not be handed the Spanish contract under
+	// their own language's address.
+	case "TERMS_LOCALE_NOT_PUBLISHED":
 		return http.StatusNotFound
 	// No Policy Version in effect. A deployment fault — migration 060 seeds one
 	// — so it is the platform's 500 and not the caller's 404.

@@ -671,6 +671,13 @@ export type BeginCheckoutRequest = {
   marketing_consent?: boolean;
   networking_consent?: boolean;
   /**
+   * The Terms box (#537, ADR 0066): the checkout's other REQUIRED answer, owed
+   * independently of `policy_acceptance` because the two documents version
+   * independently, and — like it — sent only when the dialog drew the box. The
+   * API refuses with TERMS_ACCEPTANCE_REQUIRED where it was owed and not given.
+   */
+  terms_acceptance?: boolean;
+  /**
    * What the buyer filled in on the checkout's skippable answer section (#311,
    * ADR 0044): one entry per (Ticket Type, ticket index, Ticket Question) they
    * actually replied to.
@@ -849,4 +856,30 @@ export async function getCheckoutReversal(
  */
 export async function getPrivacyPolicy(locale: string): Promise<PrivacyPolicy | null> {
   return fetchData<PrivacyPolicy>(`/api/v1/public/privacy-policy/${encodeURIComponent(locale)}`);
+}
+
+/**
+ * The current Terms Version, as served for one locale (#535).
+ *
+ * The Terms are published in both languages, so this answers strictly like
+ * getPrivacyPolicy: the body and the acceptance label come back in the locale
+ * asked for, and a language the Terms are not published in is a 404 rather than
+ * a document nobody asked for.
+ *
+ * BOTH LANGUAGES ARE ONE EDITION under one fingerprint, and the Spanish text
+ * prevails over the English (§37) — the English body says so in its own first
+ * line, so nothing here has to. Version, hash and effective date — see
+ * getPrivacyPolicy; the same evidence rules apply (ADR 0066).
+ */
+export type Terms = {
+  version: string;
+  effective_date: string;
+  content_hash: string;
+  locale: string;
+  acceptance_label: string;
+  body_markdown: string;
+};
+
+export async function getTerms(locale: string): Promise<Terms | null> {
+  return fetchData<Terms>(`/api/v1/public/terms/${encodeURIComponent(locale)}`);
 }

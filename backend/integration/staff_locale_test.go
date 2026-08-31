@@ -58,16 +58,15 @@ func staffSignIn(t *testing.T, env *testEnv, email, locale string) string {
 		t.Fatalf("verify otp status=%d error=%+v", resp.StatusCode, body.Error)
 	}
 
-	var data struct {
-		SessionID string `json:"session_id"`
-	}
-	if err := json.Unmarshal(body.Data, &data); err != nil {
-		t.Fatalf("decode verify data: %v", err)
-	}
-	if data.SessionID == "" {
+	// The locale is remembered at VERIFY, before the terms gate holds the
+	// sign-in (#538) — so finishing the gate here changes nothing these tests
+	// assert about language, and every first sign-in on a fresh database is
+	// gated.
+	sessionID := sessionThroughTermsGate(t, env, body)
+	if sessionID == "" {
 		t.Fatal("expected session_id")
 	}
-	return data.SessionID
+	return sessionID
 }
 
 func staffMe(t *testing.T, env *testEnv, sessionID string) staffMeView {

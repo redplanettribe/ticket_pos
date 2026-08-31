@@ -27,6 +27,7 @@
 import { localeAlternates } from "./alternates.ts";
 import { LOCALES } from "./locale.ts";
 import { PRIVACY_POLICY_PATH } from "./privacy-policy.ts";
+import { TERMS_PATH } from "./terms.ts";
 
 /** One Event, reduced to the two slugs its address is built from. */
 export type SitemapEvent = {
@@ -178,7 +179,7 @@ export function sitemapPaths(events: readonly SitemapEvent[]): string[] {
   // page (#250). It is the one path here that comes from no Event and no
   // Organization: a legal notice is published so that it can be found, and this
   // sitemap is the only way the Spanish half of this site is discovered at all.
-  return ["/", PRIVACY_POLICY_PATH, ...organizations, ...eventPaths];
+  return ["/", PRIVACY_POLICY_PATH, TERMS_PATH, ...organizations, ...eventPaths];
 }
 
 /**

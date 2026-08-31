@@ -87,6 +87,7 @@ export function encodePendingConsent(consent: ConsentRequired): string {
           consent.boxes.policy_acceptance,
           consent.boxes.marketing_consent,
           consent.boxes.networking_consent,
+          consent.boxes.terms_acceptance,
         ],
       }),
     ),
@@ -128,18 +129,20 @@ export function decodePendingConsent(raw: string | null | undefined): ConsentReq
     return null;
   }
   const boxes = Array.isArray(b) ? b : [];
-  if (boxes[0] !== true) {
-    // No required box, no consent step. The form would render a submit button
-    // nothing could enable, which is a dead end rather than a step.
+  if (boxes[0] !== true && boxes[3] !== true) {
+    // No required box — neither the Policy Acceptance nor the Terms (#536) —
+    // means no consent step. The form would render a submit button nothing
+    // could enable, which is a dead end rather than a step.
     return null;
   }
   return {
     pending_consent_token: t,
     expires_at: typeof x === "string" ? x : "",
     boxes: {
-      policy_acceptance: true,
+      policy_acceptance: boxes[0] === true,
       marketing_consent: boxes[1] === true,
       networking_consent: boxes[2] === true,
+      terms_acceptance: boxes[3] === true,
     },
   };
 }

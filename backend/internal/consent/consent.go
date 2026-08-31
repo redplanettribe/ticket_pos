@@ -134,6 +134,14 @@ type Answers struct {
 	PolicyAcceptance  *bool
 	MarketingConsent  *bool
 	NetworkingConsent *bool
+	// TermsAcceptance is the Términos y Condiciones box (#536, ADR 0066): the
+	// contractual acceptance, captured beside the privacy answers but never one
+	// of them. Nil is load-bearing here exactly as above — the box was not shown
+	// on this surface — and it is the value every existing surface passes: a
+	// settings toggle, an unsubscribe, a Withdraw All and an operator-recorded
+	// withdrawal all say nothing about the Terms, which is what keeps the
+	// no-withdrawal ruling structural rather than remembered.
+	TermsAcceptance *bool
 }
 
 // Evidence is the technical proof of one capture act: the circumstances, as the
@@ -191,6 +199,18 @@ type Capture struct {
 	EmailProven bool
 	// Answers is what the person did with the boxes they were shown.
 	Answers Answers
+	// TermsVersionID is the Terms edition the surface HELD alongside a Terms
+	// answer that had to survive a Payment Provider redirect (#537): resolved
+	// server-side at begin-checkout, snapshotted on the Payment (migration 108),
+	// and presented here so the record evidences the edition the buyer was
+	// actually shown rather than whichever is current by the time the provider
+	// answers. Empty on every other surface, where the answer is captured in
+	// the same request it was given in and the current edition IS the shown
+	// one — an empty value means "resolve the current edition", never "no
+	// edition". It is only ever read when Answers.TermsAcceptance is non-nil,
+	// and it never comes from a request body: both writers of this field are
+	// this platform's own held snapshots.
+	TermsVersionID string
 	// Evidence is the circumstances.
 	Evidence Evidence
 	// RecordedBy is the staff member who entered this act on the Customer's
@@ -323,11 +343,17 @@ type Outstanding struct {
 	PolicyAcceptance  bool
 	MarketingConsent  bool
 	NetworkingConsent bool
+	// TermsAcceptance is outstanding when there is no recorded acceptance of the
+	// CURRENT Terms Version (#536, ADR 0066) — the same version-not-document rule
+	// PolicyAcceptance states, over the parallel table, so publishing a Terms
+	// edition re-gates everybody without a row changing and without re-gating
+	// the Privacy Policy, or vice versa.
+	TermsAcceptance bool
 }
 
 // Any reports whether anything is outstanding at all.
 func (o Outstanding) Any() bool {
-	return o.PolicyAcceptance || o.MarketingConsent || o.NetworkingConsent
+	return o.PolicyAcceptance || o.MarketingConsent || o.NetworkingConsent || o.TermsAcceptance
 }
 
 // Pending is which optional consents currently sit in Pending Confirmation:

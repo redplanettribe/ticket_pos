@@ -630,6 +630,12 @@ func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	// the Spanish policy and the English policy are two texts, each with its own
 	// address, and each cacheable at that address by anything in front of this.
 	mux.HandleFunc("GET /api/v1/public/privacy-policy/{locale}", app.ConsentHandler.GetPrivacyPolicy)
+
+	// The Términos y Condiciones, beside the policy and shaped like it — but
+	// answered with the Spanish document whatever the {locale} says: the Terms
+	// are published in Spanish only and the Spanish text legally prevails
+	// (§37, ADR 0066), so no locale 404s here. See the handler.
+	mux.HandleFunc("GET /api/v1/public/terms/{locale}", app.ConsentHandler.GetTerms)
 	mux.HandleFunc("GET /api/v1/public/organizations/{slug}", h.GetPublicOrganization)
 	mux.HandleFunc("GET /api/v1/public/events", ch.ListPublicEvents)
 	mux.HandleFunc("GET /api/v1/public/tags", ch.ListPublicTags)
@@ -762,6 +768,11 @@ func registerAuthRoutes(mux *http.ServeMux, app *App) {
 	// auth-fork afterwards (ADR 0011). The exchange uses the staff OAuth client,
 	// so a code obtained on the Storefront is not redeemable here.
 	mux.HandleFunc("POST /api/v1/auth/google/verify", h.VerifyGoogle)
+	// The terms step both doors above can be held at (#538, ADR 0066): spends
+	// the pending-terms token a gated verify returned and mints the Staff
+	// Session the sign-in withheld. Unauthenticated because the token IS the
+	// credential, exactly as the customer consent submission is.
+	mux.HandleFunc("POST /api/v1/auth/terms/accept", h.AcceptTerms)
 	mux.HandleFunc("GET /api/v1/auth/session", h.GetSession)
 	mux.HandleFunc("POST /api/v1/auth/logout", h.Logout)
 }

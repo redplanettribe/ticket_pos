@@ -62,6 +62,7 @@ type CheckoutRequestBody = {
   policy_acceptance?: unknown;
   marketing_consent?: unknown;
   networking_consent?: unknown;
+  terms_acceptance?: unknown;
   lines?: unknown;
   locale?: unknown;
   answers?: unknown;
@@ -291,6 +292,12 @@ export async function POST(request: Request) {
           : {}),
         ...(consentAnswer(body.networking_consent) !== undefined
           ? { networking_consent: consentAnswer(body.networking_consent) }
+          : {}),
+        // The Terms box (#537, ADR 0066), relayed on exactly the terms of the
+        // three above: present as sent when the dialog drew it, absent when it
+        // did not, enforced by the API alone (TERMS_ACCEPTANCE_REQUIRED).
+        ...(consentAnswer(body.terms_acceptance) !== undefined
+          ? { terms_acceptance: consentAnswer(body.terms_acceptance) }
           : {}),
         ...(affiliateCodes.length > 0 ? { affiliate_codes: affiliateCodes } : {}),
         // Dropped rather than sent null when nothing here can say which page

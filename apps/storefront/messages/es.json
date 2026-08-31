@@ -6,6 +6,7 @@
     "closeLabel": "Cerrar",
     "languageSwitcherLabel": "Idioma",
     "privacyPolicy": "Política de Privacidad",
+    "termsAndConditions": "Términos y Condiciones",
     "createEvent": "Cree su evento"
   },
   "explorer": {
@@ -283,6 +284,7 @@
     "consent": {
       "notice": "Cómo tratamos sus datos",
       "readPolicy": "Leer la Política de Privacidad completa",
+      "readTerms": "Leer los Términos y Condiciones completos",
       "optional": "Opcional",
       "unavailable": "Ahora mismo no podemos mostrarle el aviso de privacidad, así que no podemos procesar su compra. Inténtelo de nuevo en un momento."
     },
@@ -355,12 +357,14 @@
     "verifyFailed": "Ese código no fue aceptado.",
     "verifyNetworkFailed": "No se pudo verificar ese código. Revise su conexión e inténtelo de nuevo.",
     "consent": {
-      "description": "Antes de iniciar tu sesión, lee cómo tratamos tus datos e indícanos qué autorizas.",
+      "title": "Ya casi está",
+      "description": "Revisa cómo tratamos tus datos y elige qué autorizas.",
       "readPolicy": "Leer la Política de Privacidad completa",
+      "readTerms": "Leer los Términos y Condiciones completos",
       "optional": "Opcional",
       "submit": "Aceptar e iniciar sesión",
       "unavailable": "Ahora mismo no podemos mostrarte el aviso de privacidad, así que no podemos terminar de iniciar tu sesión. Inténtalo de nuevo en un momento.",
-      "withdrawInstead": "¿Prefiere revocar un consentimiento? Puede hacerlo sin iniciar sesión."
+      "withdrawInstead": "¿Prefieres revocar un consentimiento? Puedes hacerlo sin iniciar sesión."
     },
     "consentFailed": "No pudimos registrar tus decisiones.",
     "consentNetworkFailed": "No pudimos registrar tus decisiones. Revisa tu conexión e inténtalo de nuevo."
@@ -558,6 +562,14 @@
     "withdrawAllNothingToast": "No había nada que revocar: todo ya estaba desactivado.",
     "withdrawAllFailed": "No se pudo guardar. Inténtelo de nuevo.",
     "withdrawAllNetworkFailed": "No se pudo guardar. Revise su conexión e inténtelo de nuevo."
+  },
+  "terms": {
+    "metaTitle": "T\u00e9rminos y Condiciones \u00b7 {brand}",
+    "metaDescription": "Los t\u00e9rminos y condiciones generales que rigen el uso de {brand}.",
+    "title": "T\u00e9rminos y Condiciones",
+    "effectiveDate": "Vigente desde el {date}",
+    "version": "Versi\u00f3n {version}",
+    "contentHash": "Huella: {hash}"
   },
   "privacy": {
     "metaTitle": "Política de Privacidad · {brand}",

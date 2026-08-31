@@ -127,6 +127,12 @@ type CreatePaymentInput struct {
 	//
 	// Each answer is a *bool: nil is "the box was not shown", which is not a No.
 	Consent consent.Answers
+	// ConsentTermsVersionID is which Terms edition a held Terms answer is about
+	// (#537, migration 108): resolved by the consent module at begin-checkout
+	// and held beside the answer, because the commit leg must evidence the
+	// edition the buyer was shown and not whichever is current when the
+	// provider answers. Empty exactly when Consent.TermsAcceptance is nil.
+	ConsentTermsVersionID string
 	// ConsentEvidence is the technical proof of that same act, derived from the
 	// request and never from its body. Empty fields are stored NULL, because
 	// "not collected" and "collected as blank" are different answers.
@@ -151,18 +157,20 @@ func (r *Repository) CreatePayment(ctx context.Context, in CreatePaymentInput) (
 			customer_tax_id_type, customer_tax_id_number, customer_session_authorized,
 			customer_phone, affiliate_link_id, locale,
 			consent_policy_acceptance, consent_marketing, consent_networking,
+			consent_terms_acceptance, consent_terms_version_id,
 			consent_ip, consent_user_agent, consent_origin_url,
 			created_at, updated_at
 		)
 		VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $10, $11, $12, $13, $14, $15,
-			$16, $17, $18, $19, $20, $21, $9, $9)
+			$16, $17, $18, $22, $23, $19, $20, $21, $9, $9)
 		RETURNING id
 	`, in.EventID, in.OrganizationID, in.Provider, in.ClientTransactionID,
 		in.AmountCents, in.Customer.Email, in.Customer.FirstName, in.Customer.LastName, in.Now,
 		nullString(in.Customer.TaxID.Type), nullString(in.Customer.TaxID.Number), in.Customer.SelfAsserted,
 		nullString(in.Customer.Phone), nullString(in.AffiliateLinkID), nullString(in.Locale),
 		nullBool(in.Consent.PolicyAcceptance), nullBool(in.Consent.MarketingConsent), nullBool(in.Consent.NetworkingConsent),
-		nullString(in.ConsentEvidence.IP), nullString(in.ConsentEvidence.UserAgent), nullString(in.ConsentEvidence.OriginURL)).Scan(&paymentID)
+		nullString(in.ConsentEvidence.IP), nullString(in.ConsentEvidence.UserAgent), nullString(in.ConsentEvidence.OriginURL),
+		nullBool(in.Consent.TermsAcceptance), nullString(in.ConsentTermsVersionID)).Scan(&paymentID)
 	if err != nil {
 		return "", err
 	}
@@ -479,13 +487,14 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	//
 	// All three answers NULL means no capture act: a Payment begun before the
 	// dialog had a consent section, and nothing to evidence.
-	var consentPolicy, consentMarketing, consentNetworking sql.NullBool
-	var consentIP, consentUserAgent, consentOriginURL sql.NullString
+	var consentPolicy, consentMarketing, consentNetworking, consentTerms sql.NullBool
+	var consentIP, consentUserAgent, consentOriginURL, consentTermsVersionID sql.NullString
 	err = tx.QueryRowContext(ctx, `
 		SELECT id, event_id, organization_id, status, customer_email, customer_first_name, customer_last_name,
 		       customer_tax_id_type, customer_tax_id_number, customer_phone, customer_session_authorized,
 		       affiliate_link_id, locale,
 		       consent_policy_acceptance, consent_marketing, consent_networking,
+		       consent_terms_acceptance, consent_terms_version_id,
 		       consent_ip, consent_user_agent, consent_origin_url
 		FROM payments
 		WHERE client_transaction_id = $1
@@ -493,6 +502,7 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	`, in.ClientTransactionID).Scan(&paymentID, &eventID, &orgID, &status, &email, &firstName, &lastName,
 		&taxIDType, &taxIDNumber, &phone, &sessionAuthorized, &affiliateLinkID, &locale,
 		&consentPolicy, &consentMarketing, &consentNetworking,
+		&consentTerms, &consentTermsVersionID,
 		&consentIP, &consentUserAgent, &consentOriginURL)
 	if err != nil {
 		return nil, err
@@ -622,7 +632,7 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	// it settles include ones begun before that route existed. Hardcoding a `true`
 	// here would rewrite what was true of those checkouts at the moment they
 	// happened, which is the one thing an evidence log may not do.
-	if in.CaptureConsent != nil && (consentPolicy.Valid || consentMarketing.Valid || consentNetworking.Valid) {
+	if in.CaptureConsent != nil && (consentPolicy.Valid || consentMarketing.Valid || consentNetworking.Valid || consentTerms.Valid) {
 		if err := in.CaptureConsent(ctx, tx, consent.Capture{
 			CustomerID: recorded[0].CustomerID,
 			// The address AS ASSERTED on the checkout form, which is not necessarily
@@ -636,7 +646,12 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 				PolicyAcceptance:  nullableBool(consentPolicy),
 				MarketingConsent:  nullableBool(consentMarketing),
 				NetworkingConsent: nullableBool(consentNetworking),
+				TermsAcceptance:   nullableBool(consentTerms),
 			},
+			// The edition the Terms answer was held WITH (#537, migration 108):
+			// the capture evidences the text the buyer was shown at begin, not
+			// whichever edition is current on the provider's schedule.
+			TermsVersionID: consentTermsVersionID.String,
 			Evidence: consent.Evidence{
 				IP:        consentIP.String,
 				UserAgent: consentUserAgent.String,

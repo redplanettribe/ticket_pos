@@ -447,7 +447,11 @@ func TestSubmissionCarryingAPolicyAcceptanceFollowsTheExistingRules(t *testing.T
 	resp, body := env.post(t, customerConsentPath, map[string]any{
 		"pending_consent_token": data.ConsentRequired.PendingConsentToken,
 		"policy_acceptance":     true,
-		"marketing_consent":     true,
+		// The Terms box rides the same step since #536 and is owed by every
+		// first sign-in; this test is about the policy path's rules, which are
+		// unchanged around it.
+		"terms_acceptance":  true,
+		"marketing_consent": true,
 		// networking_consent omitted: shown and left unticked on the sign-in
 		// surface, which is a refusal there and is recorded as one.
 	}, consentEvidenceHeaders())
