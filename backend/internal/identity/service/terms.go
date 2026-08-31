@@ -66,8 +66,9 @@ type SignInOutcome struct {
 //
 // The Terms Version's database id is deliberately absent, matching the Policy
 // Version rule: the label is how a human names the edition, and which edition
-// an acceptance records is the platform's finding at the moment of the write,
-// never the client's assertion.
+// an acceptance records is the platform's finding — pinned server-side on the
+// token at the moment the box was shown (#537's held-answer rule) — never the
+// client's assertion.
 type TermsRequiredView struct {
 	// PendingTermsToken is the single-use, short-lived credential that exchanges
 	// an acceptance for the session this sign-in did not mint. A server-side row
@@ -134,10 +135,13 @@ func (s *Service) gateOnTerms(ctx context.Context, email string, now time.Time) 
 		return nil, err
 	}
 	pending := repository.PendingStaffTerms{
-		ID:        token,
-		Email:     email,
-		ExpiresAt: now.Add(pendingTermsDuration),
-		CreatedAt: now,
+		ID:    token,
+		Email: email,
+		// Pinned here, where the box is issued: the acceptance this token buys
+		// evidences the edition that was shown, not a later one (#537's rule).
+		TermsVersionID: version.ID,
+		ExpiresAt:      now.Add(pendingTermsDuration),
+		CreatedAt:      now,
 	}
 	if err := s.repo.CreatePendingStaffTerms(ctx, pending); err != nil {
 		return nil, err
@@ -168,11 +172,13 @@ func (s *Service) gateOnTerms(ctx context.Context, email string, now time.Time) 
 // orphaned session row is never handed to anybody (the customer consent step's
 // trade, taken identically).
 //
-// The edition recorded is the one CURRENT AT THE WRITE, re-read here rather
-// than pinned to the token: which edition somebody accepted is the platform's
-// finding at the moment of the act, and a token minted just before an edition
-// change must not record an acceptance of text nobody was shown by the time
-// they ticked.
+// The edition recorded is the one PINNED TO THE TOKEN — the edition whose
+// checkbox the person was actually shown — never a re-read of whatever is
+// current at the write. This is the checkout's held-answer rule (#537) kept
+// identically: evidence must name the text that was on screen (§34). An
+// edition bump inside the token window therefore records an acceptance of the
+// superseded text, and the person is re-gated at their next sign-in, exactly
+// as a re-gate mid-provider-redirect works on the customer side.
 func (s *Service) AcceptTerms(ctx context.Context, submission TermsAcceptanceSubmission) (*SignInOutcome, error) {
 	pending, err := s.repo.ConsumePendingStaffTerms(ctx, submission.Token)
 	if err != nil {
@@ -191,11 +197,6 @@ func (s *Service) AcceptTerms(ctx context.Context, submission TermsAcceptanceSub
 		return nil, identity.ErrTermsAcceptanceRequired()
 	}
 
-	version, err := s.termsVersions.CurrentTermsVersion(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	session, view, err := s.mintStaffSession(ctx, pending.Email, now)
 	if err != nil {
 		return nil, err
@@ -203,7 +204,7 @@ func (s *Service) AcceptTerms(ctx context.Context, submission TermsAcceptanceSub
 
 	if err := s.repo.InsertTermsAcceptance(ctx, repository.StaffTermsAcceptance{
 		Email:          pending.Email,
-		TermsVersionID: version.ID,
+		TermsVersionID: pending.TermsVersionID,
 		Capacity:       capacityOrganizer,
 		AcceptedAt:     now,
 		IP:             submission.Evidence.IP,

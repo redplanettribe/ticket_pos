@@ -307,6 +307,59 @@ func TestStaffTermsNewEditionRegates(t *testing.T) {
 	}
 }
 
+// TestStaffTermsEditionBumpInsideTokenWindow: the acceptance evidences the
+// edition the person was SHOWN, pinned to the pending token — never a re-read
+// of whatever is current at the write (#537's held-answer rule, kept on the
+// staff side). An edition published between the terms step and the tick means
+// the person accepted the superseded text, so the next sign-in re-gates them
+// on the new one.
+func TestStaffTermsEditionBumpInsideTokenWindow(t *testing.T) {
+	env := setupTest(t)
+	email := "mid-window@example.com"
+
+	outcome := decodeStaffSignInOutcome(t, requestAndVerify(t, env, email))
+	if outcome.TermsRequired == nil || outcome.TermsRequired.Version != "1" {
+		t.Fatalf("expected a terms step for edition 1: %+v", outcome.TermsRequired)
+	}
+
+	// Edition 2 lands while the person is reading the label.
+	if _, err := env.db.ExecContext(context.Background(), `
+		INSERT INTO terms_versions (label, effective_date, content_hash)
+		VALUES ('2', CURRENT_DATE, $1)
+	`, strings.Repeat("cd", 32)); err != nil {
+		t.Fatalf("insert edition 2: %v", err)
+	}
+
+	resp, acceptedBody := acceptStaffTerms(t, env, outcome.TermsRequired.PendingTermsToken, true)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("accept status=%d error=%+v", resp.StatusCode, acceptedBody.Error)
+	}
+	if decodeStaffSignInOutcome(t, acceptedBody).SessionID == "" {
+		t.Fatal("the acceptance of the shown edition still mints the session")
+	}
+
+	// Direct SQL because no API discloses which edition an acceptance row
+	// names — the id never goes on the wire, and the row IS the assertion.
+	var label string
+	if err := env.db.QueryRowContext(context.Background(), `
+		SELECT tv.label
+		FROM staff_terms_acceptances a
+		JOIN terms_versions tv ON tv.id = a.terms_version_id
+		WHERE a.email = $1
+	`, email).Scan(&label); err != nil {
+		t.Fatalf("read accepted edition: %v", err)
+	}
+	if label != "1" {
+		t.Fatalf("accepted edition=%q, want the shown edition 1", label)
+	}
+
+	// And the new edition is still owed: the next sign-in re-gates on "2".
+	regated := decodeStaffSignInOutcome(t, requestAndVerify(t, env, email))
+	if regated.TermsRequired == nil || regated.TermsRequired.Version != "2" {
+		t.Fatalf("expected a re-gate on edition 2: %+v", regated.TermsRequired)
+	}
+}
+
 // TestStaffTermsExpiredToken: the held proof is minutes long, and an expired
 // token gets the same refusal an unknown one does.
 func TestStaffTermsExpiredToken(t *testing.T) {

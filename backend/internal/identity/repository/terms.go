@@ -12,10 +12,13 @@ import (
 // (migration 063), created when a proven email owes a Terms Acceptance and
 // spent by the submission that records one (#538, ADR 0066).
 type PendingStaffTerms struct {
-	ID        string
-	Email     string
-	ExpiresAt time.Time
-	CreatedAt time.Time
+	ID    string
+	Email string
+	// TermsVersionID is the edition the terms step showed, pinned at mint so
+	// the acceptance evidences the text that was on screen (#537's rule).
+	TermsVersionID string
+	ExpiresAt      time.Time
+	CreatedAt      time.Time
 }
 
 // StaffTermsAcceptance is the append-only evidence row a terms submission
@@ -69,9 +72,9 @@ func (r *Repository) InsertTermsAcceptance(ctx context.Context, acceptance Staff
 // CreatePendingStaffTerms holds a proven email for the terms step.
 func (r *Repository) CreatePendingStaffTerms(ctx context.Context, pending PendingStaffTerms) error {
 	_, err := r.db.Pool.ExecContext(ctx, `
-		INSERT INTO pending_staff_terms (id, email, expires_at, created_at)
-		VALUES ($1, $2, $3, $4)
-	`, pending.ID, pending.Email, pending.ExpiresAt, pending.CreatedAt)
+		INSERT INTO pending_staff_terms (id, email, terms_version_id, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, $5)
+	`, pending.ID, pending.Email, pending.TermsVersionID, pending.ExpiresAt, pending.CreatedAt)
 	return err
 }
 
@@ -83,11 +86,11 @@ func (r *Repository) ConsumePendingStaffTerms(ctx context.Context, id string) (*
 	row := r.db.Pool.QueryRowContext(ctx, `
 		DELETE FROM pending_staff_terms
 		WHERE id = $1
-		RETURNING id, email, expires_at, created_at
+		RETURNING id, email, terms_version_id, expires_at, created_at
 	`, id)
 
 	var pending PendingStaffTerms
-	if err := row.Scan(&pending.ID, &pending.Email, &pending.ExpiresAt, &pending.CreatedAt); err != nil {
+	if err := row.Scan(&pending.ID, &pending.Email, &pending.TermsVersionID, &pending.ExpiresAt, &pending.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}

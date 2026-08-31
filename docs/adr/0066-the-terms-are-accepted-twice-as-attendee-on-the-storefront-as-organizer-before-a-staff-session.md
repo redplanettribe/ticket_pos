@@ -48,7 +48,10 @@ Customer base that §34 requires.
 Version reference on Consent Records (null = box not shown), paired accepted-at/version state on
 the Customer, a held answer on the payment snapshot, a Terms component in Outstanding. Gate
 placement is unchanged: the sign-in consent step and the checkout owed-boxes fallback. No new
-screens.
+screens. This amends ADR 0039's rule that a sign-in consent submission always carries a Policy
+Acceptance: a Terms-only re-gate — the step whose only owed required box is the Terms — showed no
+policy box, so it carries none; evidencing an answer to a box the person never saw would be worse
+than the rule it bends. Every other sign-in submission still carries one.
 
 **The staff gate sits before Staff Session mint, keyed on email, once per person per edition.**
 OTP proven but Terms outstanding mints no session; acceptance appends one row to a new append-only

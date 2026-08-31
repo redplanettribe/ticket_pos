@@ -39,14 +39,6 @@ type TermsView struct {
 	BodyMarkdown string `json:"body_markdown"`
 }
 
-// CurrentTerms reports the Terms Version in effect.
-//
-// Unlike CurrentPolicy it takes no Locale and refuses nobody: the Terms are
-// published in Spanish only, the Spanish text prevails over any translation
-// (§37), and serving it under every Locale is the ruling of #533 — an English
-// reader gets the one legally operative document rather than a 404. The
-// handler still binds a {locale} path parameter so the address shape matches
-// the policy's; whatever it says, this is the answer.
 // CurrentTermsVersionID names the edition in effect, and nothing else about
 // it. It exists for the checkout's held Terms answer (#537): the surface that
 // shows the box snapshots which edition it showed, so the capture minutes
@@ -63,6 +55,14 @@ func (s *Service) CurrentTermsVersionID(ctx context.Context) (string, error) {
 	return version.ID, nil
 }
 
+// CurrentTerms reports the Terms Version in effect.
+//
+// Unlike CurrentPolicy it takes no Locale and refuses nobody: the Terms are
+// published in Spanish only, the Spanish text prevails over any translation
+// (§37), and serving it under every Locale is the ruling of #533 — an English
+// reader gets the one legally operative document rather than a 404. The
+// handler still binds a {locale} path parameter so the address shape matches
+// the policy's; whatever it says, this is the answer.
 func (s *Service) CurrentTerms(ctx context.Context) (TermsView, error) {
 	document := terms.Current()
 

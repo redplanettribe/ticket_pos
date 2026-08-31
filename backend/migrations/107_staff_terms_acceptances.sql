@@ -75,6 +75,15 @@ CREATE UNIQUE INDEX staff_terms_acceptances_email_version_capacity_idx
 CREATE TABLE pending_staff_terms (
     id TEXT PRIMARY KEY,
     email TEXT NOT NULL CHECK (email <> ''),
+    -- The edition the terms step SHOWED, pinned when the token is minted: the
+    -- acceptance row records this edition, not whichever is current when the
+    -- box is finally ticked — the checkout's held-answer rule (#537), because
+    -- evidence must name the text that was on screen. A bump inside the token
+    -- window therefore leaves the person owing the new edition at next
+    -- sign-in. ON DELETE CASCADE, not RESTRICT: a pending row is a held
+    -- sign-in, not evidence, and it is worth nothing pointed at a deleted
+    -- edition.
+    terms_version_id UUID NOT NULL REFERENCES terms_versions (id) ON DELETE CASCADE,
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

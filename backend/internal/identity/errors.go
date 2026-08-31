@@ -96,7 +96,7 @@ func ErrPendingTermsInvalid() apperror.DomainError {
 // the required box unticked (#538). The refusal lives in the API and not only
 // in the form's disabled button.
 func ErrTermsAcceptanceRequired() apperror.DomainError {
-	return apperror.New("TERMS_ACCEPTANCE_REQUIRED", "The Terms and Conditions must be accepted to continue.", nil)
+	return apperror.New("TERMS_ACCEPTANCE_REQUIRED", "The Términos y Condiciones must be accepted to continue.", nil)
 }
 
 // ErrHouseOrganizationCurrencyUnsupported is returned when an Organization is
