@@ -25,9 +25,9 @@
 // under `node --experimental-strip-types`, which resolves specifiers exactly.
 // Next resolves it identically.
 import { localeAlternates } from "./alternates.ts";
-import { LOCALES } from "./locale.ts";
-import { PRIVACY_POLICY_PATH } from "./privacy-policy.ts";
-import { TERMS_PATH } from "./terms.ts";
+import { DEFAULT_APP_LOCALE, LOCALES, type AppLocale } from "./locale.ts";
+import { PRIVACY_POLICY_PATH, PRIVACY_POLICY_PROTECTED_LOCALE } from "./privacy-policy.ts";
+import { TERMS_PATH, TERMS_PROTECTED_LOCALE } from "./terms.ts";
 
 /** One Event, reduced to the two slugs its address is built from. */
 export type SitemapEvent = {
@@ -141,6 +141,45 @@ export async function collectSitemapEvents(
 }
 
 /**
+ * What each legal document is currently published in, as the sitemap must be
+ * told it (#559).
+ *
+ * `null` means the read FAILED, and is not the same as an empty list. A failed
+ * read drops that document's path from the sitemap entirely, because the
+ * alternative is advertising an address that may 404 — worse for a crawler than
+ * an omission, which it simply re-reads next time. An empty list is the same
+ * outcome by a different route and cannot occur in practice: the protected
+ * locale can never be dropped.
+ *
+ * The sets are data rather than the LOCALES constant because the Legal Center
+ * can publish an edition in fewer languages than the app has (spec #556). The
+ * constant was a guess that happened to be right, and the sitemap is where
+ * being wrong shows up as a 404 offered to a crawler.
+ */
+export type LegalPublication = {
+  /** Locales the current Privacy Policy edition publishes; null if unread. */
+  privacyPolicy: readonly AppLocale[] | null;
+  /** Locales the current Terms edition publishes; null if unread. */
+  terms: readonly AppLocale[] | null;
+};
+
+/**
+ * One address to advertise, with the languages it exists in.
+ *
+ * Ordinary pages exist in every locale and name English as x-default. The two
+ * legal paths carry their own answers to both questions, which is why this is a
+ * record rather than a bare string.
+ */
+export type SitemapPath = {
+  /** The address with no language in it. */
+  path: string;
+  /** Every locale this path is published in. */
+  locales: readonly AppLocale[];
+  /** The locale x-default names for this path. */
+  xDefault: AppLocale;
+};
+
+/**
  * The locale-independent paths worth advertising, in the order a crawler meets
  * them: the explorer root, the Privacy Policy, then each Organization, then
  * each Event.
@@ -155,7 +194,10 @@ export async function collectSitemapEvents(
  * paths this function can produce are "/", the Privacy Policy's, "/{org}" and
  * "/{org}/events/{event}".
  */
-export function sitemapPaths(events: readonly SitemapEvent[]): string[] {
+export function sitemapPaths(
+  events: readonly SitemapEvent[],
+  legal: LegalPublication,
+): SitemapPath[] {
   const organizations: string[] = [];
   const seenOrganizations = new Set<string>();
   const eventPaths: string[] = [];
@@ -175,16 +217,51 @@ export function sitemapPaths(events: readonly SitemapEvent[]): string[] {
     }
   }
 
-  // The Privacy Policy, declared in both languages like every other indexable
-  // page (#250). It is the one path here that comes from no Event and no
-  // Organization: a legal notice is published so that it can be found, and this
-  // sitemap is the only way the Spanish half of this site is discovered at all.
-  return ["/", PRIVACY_POLICY_PATH, TERMS_PATH, ...organizations, ...eventPaths];
+  // The two legal documents, declared in the languages they are ACTUALLY
+  // published in (#250, #559). They are the paths here that come from no Event
+  // and no Organization: a legal notice is published so that it can be found,
+  // and this sitemap is the only way the Spanish half of this site is
+  // discovered at all — which is exactly why an unreadable set omits the path
+  // rather than guessing at it.
+  const everywhere = (path: string): SitemapPath => ({
+    path,
+    locales: LOCALES,
+    xDefault: DEFAULT_APP_LOCALE,
+  });
+
+  return [
+    everywhere("/"),
+    ...legalPath(PRIVACY_POLICY_PATH, legal.privacyPolicy, PRIVACY_POLICY_PROTECTED_LOCALE),
+    ...legalPath(TERMS_PATH, legal.terms, TERMS_PROTECTED_LOCALE),
+    ...organizations.map(everywhere),
+    ...eventPaths.map(everywhere),
+  ];
 }
 
 /**
- * The finished sitemap: every path above, once per Locale, each entry carrying
- * the full reciprocal hreflang map that page's own <head> carries.
+ * One legal path, or none of it.
+ *
+ * A spread of zero or one, so the omission on a failed read is the same
+ * expression as the inclusion rather than a branch somewhere else.
+ */
+function legalPath(
+  path: string,
+  locales: readonly AppLocale[] | null,
+  xDefault: AppLocale,
+): SitemapPath[] {
+  if (!locales || locales.length === 0) return [];
+  return [{ path, locales, xDefault }];
+}
+
+/**
+ * The finished sitemap: every path above, once per Locale it is published in,
+ * each entry carrying the full reciprocal hreflang map that page's own <head>
+ * carries.
+ *
+ * "Per Locale it is published in" rather than "per Locale" since #559: the two
+ * legal paths carry their own set, read from the API, and are absent entirely
+ * when that read failed. Every other path exists in every language by
+ * construction, so nothing else can shrink.
  *
  * The addresses come from localeAlternates so the sitemap and the pages cannot
  * disagree — a canonical in the HTML that differs from the loc in the sitemap
@@ -196,12 +273,19 @@ export function sitemapPaths(events: readonly SitemapEvent[]): string[] {
  * relative <loc> is rejected. So without an origin this publishes nothing,
  * which is the truth about a preview stack no crawler was ever going to read.
  */
-export function sitemapEntries(events: readonly SitemapEvent[], base?: URL): SitemapEntry[] {
+export function sitemapEntries(
+  events: readonly SitemapEvent[],
+  base: URL | undefined,
+  legal: LegalPublication,
+): SitemapEntry[] {
   if (!base) return [];
 
-  return sitemapPaths(events).flatMap((path) =>
-    LOCALES.map((locale) => {
-      const { canonical, languages } = localeAlternates(path, locale, base);
+  return sitemapPaths(events, legal).flatMap(({ path, locales, xDefault }) =>
+    locales.map((locale) => {
+      const { canonical, languages } = localeAlternates(path, locale, base, {
+        locales,
+        xDefault,
+      });
       return { url: canonical, alternates: { languages } };
     }),
   );

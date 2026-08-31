@@ -1,6 +1,10 @@
 import type { MetadataRoute } from "next";
 
-import { listSitemapEvents } from "@/lib/api";
+import {
+  SITEMAP_READ_REVALIDATE_SECONDS,
+  listSitemapEvents,
+  publishedLegalLocales,
+} from "@/lib/api";
 import { storefrontBaseUrl } from "@/lib/site";
 import {
   SITEMAP_PAGE_SIZE,
@@ -71,5 +75,28 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     );
   }
 
-  return sitemapEntries(walk.events, base);
+  // Which languages each legal document actually publishes (#559). Read rather
+  // than assumed: the Legal Center can publish an edition in fewer languages
+  // than this app has, and a sitemap advertising a URL that 404s is worse than
+  // one that omits it. On a failed read `null` arrives here and the path is
+  // omitted — a crawler re-reads this document, so a missing entry costs a
+  // cycle while a wrong one costs trust in the whole file.
+  //
+  // Cached on the walk's own hourly schedule: this route is regenerated at most
+  // that often anyway, and a published-language set changes at a midnight
+  // effective-date rollover.
+  const cache = { revalidate: SITEMAP_READ_REVALIDATE_SECONDS };
+  const [privacyPolicy, terms] = await Promise.all([
+    publishedLegalLocales("privacy-policy", cache),
+    publishedLegalLocales("terms", cache),
+  ]);
+  if (!privacyPolicy || !terms) {
+    console.warn(
+      "[sitemap] the published languages of " +
+        `${!privacyPolicy ? "the Privacy Policy" : ""}${!privacyPolicy && !terms ? " and " : ""}` +
+        `${!terms ? "the Terms" : ""} could not be read; the path is omitted rather than guessed`,
+    );
+  }
+
+  return sitemapEntries(walk.events, base, { privacyPolicy, terms });
 }

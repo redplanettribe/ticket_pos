@@ -17,6 +17,19 @@
 export const PRIVACY_POLICY_PATH = "/privacy-policy";
 
 /**
+ * The one language the Privacy Policy is never published without (#559,
+ * spec #556).
+ *
+ * The backend calls it `policy.MandatoryLocale` and foots it on the LOPDP's
+ * duty to give this notice in Spanish; a publish that would drop it is refused
+ * outright there. This is the Storefront's half of that fact: the language
+ * `x-default` names on this path, and the language the footer links across to
+ * when the reader's own is not published. See lib/terms.ts for why the Terms
+ * carry their own constant rather than sharing this one.
+ */
+export const PRIVACY_POLICY_PROTECTED_LOCALE = "es";
+
+/**
  * The address to write to about personal data protection (#269).
  *
  * IT IS THE ONE THE PUBLISHED POLICY NAMES, and it is not this app's to choose.

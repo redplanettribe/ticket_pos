@@ -47,6 +47,52 @@ test("x-default is the English address", () => {
   assert.equal(languages["x-default"], "https://tickets.example.com/en/acme/events/gala");
 });
 
+// --- The two legal paths (#559) -------------------------------------------
+
+test("a path may name its own x-default", () => {
+  // The legal paths do: x-default is a claim about where a reader with no
+  // stated language lands, and it must name the one language the document can
+  // never stop being published in — not English, which a publish may drop.
+  const { languages } = localeAlternates("/terms", "en", BASE, { xDefault: "es" });
+
+  assert.equal(languages["x-default"], "https://tickets.example.com/es/terms");
+  assert.equal(languages.en, "https://tickets.example.com/en/terms");
+});
+
+test("a path published in one language only advertises that one", () => {
+  const { canonical, languages } = localeAlternates("/privacy-policy", "es", BASE, {
+    locales: ["es"],
+    xDefault: "es",
+  });
+
+  assert.equal(canonical, "https://tickets.example.com/es/privacy-policy");
+  // English is absent rather than present-and-404ing: an hreflang a crawler
+  // cannot confirm from the other end poisons the whole set.
+  assert.deepEqual(languages, {
+    es: "https://tickets.example.com/es/privacy-policy",
+    "x-default": "https://tickets.example.com/es/privacy-policy",
+  });
+});
+
+test("an x-default the path is not published in falls back to one that is", () => {
+  // A caller bug, and the recoverable answer is an address that answers rather
+  // than an hreflang pointing into a not-found page.
+  const { languages } = localeAlternates("/privacy-policy", "es", BASE, {
+    locales: ["es"],
+    xDefault: "en",
+  });
+
+  assert.equal(languages["x-default"], "https://tickets.example.com/es/privacy-policy");
+  assert.equal(languages.en, undefined);
+});
+
+test("naming neither option is every locale and English, as before", () => {
+  assert.deepEqual(
+    localeAlternates("/acme", "en", BASE, {}).languages,
+    localeAlternates("/acme", "en", BASE).languages,
+  );
+});
+
 test("the explorer root is a locale and nothing more", () => {
   const { canonical, languages } = localeAlternates("/", "es", BASE);
   assert.equal(canonical, "https://tickets.example.com/es");

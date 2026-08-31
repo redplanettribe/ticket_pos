@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { getLocale } from "next-intl/server";
 
-import { callBackend } from "@/lib/api";
+import { APIError, callBackend } from "@/lib/api";
 import { GOOGLE_SIGN_IN_START_PATH, isGoogleSignInConfigured } from "@/lib/google-signin";
 import { resolveSignInIntent } from "@/lib/login-copy";
 import { PENDING_TERMS_COOKIE } from "@/lib/pending-terms";
@@ -10,6 +10,21 @@ import { storefrontTermsUrl } from "@/lib/storefront";
 import { LoginForm, type PendingTermsStep } from "./login-form";
 
 import type { AppLocale } from "@ticket-pos/locale";
+
+/**
+ * The one language the Terms can never stop being published in (#559).
+ *
+ * `terms.PrevailingLocale` on the backend: the Spanish text IS the contract
+ * (§37) and the English one is a translation of it, so a publish that would
+ * drop Spanish is refused outright. Here it is the floor this gate falls back
+ * to — the same floor identity/service/terms.go applies before it will mint a
+ * session — so a missing translation can never cost an organizer the gate.
+ *
+ * A local constant rather than a shared one: the Staff app has exactly this one
+ * use for it, and the guarantee behind it is that changing the language costs a
+ * code change on both sides.
+ */
+const TERMS_PREVAILING_LOCALE: AppLocale = "es";
 
 type LoginPageProps = {
   searchParams: Promise<{ google?: string; intent?: string | string[]; terms?: string }>;
@@ -23,31 +38,88 @@ type LoginPageProps = {
  * from the backend artifact, never from a catalog, but the artifact is
  * published in both languages and an English reader is owed the English one.
  * The token itself stays server-side; the accept route reads it from the
- * cookie. A missing cookie or a failed fetch renders the ordinary card: the
- * person signs in again, which re-mints everything.
+ * cookie. A missing cookie renders the ordinary card: nothing was held.
+ *
+ * WHAT A MISSING LABEL MAY NOT DO IS DROP THE GATE (#559). This used to return
+ * null on every failure, which renders the ordinary sign-in card — a card with
+ * no acceptance step on it at all, offered to somebody the gate is holding.
+ * A language the current edition does not publish is now floored at the
+ * PREVAILING one, exactly as identity/service/terms.go's acceptanceLabel does
+ * for the same reason: falling back to the text that legally binds them is the
+ * only safe answer, and the reader gets a link to the Spanish page rather than
+ * a link to a not-found one. An organizer must never be past this gate because
+ * a translation was missing.
+ *
+ * And when even the prevailing label cannot be had — the edition publishes
+ * none, or the read failed — this THROWS. The backend refuses to mint a session
+ * in that state too, so the honest answer is an error page rather than a card
+ * that looks like a way in and is not.
  *
  * The passcode door needs no equivalent: its label arrives on the verify
- * response, already in the language that request was detected as.
+ * response, already in the language that request was detected as, floored by
+ * the same backend rule.
  */
-async function pendingTermsFromCookie(locale: AppLocale): Promise<PendingTermsStep | null> {
+async function pendingTermsFromCookie(locale: AppLocale): Promise<HeldTerms | null> {
   const store = await cookies();
   if (!store.get(PENDING_TERMS_COOKIE)?.value) {
     return null;
   }
+
+  const step = await termsStepIn(locale);
+  if (step) {
+    return step;
+  }
+
+  // This language is not in the current edition's published set. The contract
+  // itself still is: TERMS_PREVAILING_LOCALE can never be dropped.
+  const prevailing = await termsStepIn(TERMS_PREVAILING_LOCALE);
+  if (prevailing) {
+    return prevailing;
+  }
+  throw new Error(
+    "the current Terms edition publishes no acceptance label in the prevailing locale; " +
+      "refusing to render a sign-in card with no acceptance step on it",
+  );
+}
+
+/**
+ * A held terms step, and the language its label was actually taken from.
+ *
+ * The two travel together because the link beside the checkbox must open the
+ * document the label came from: a person floored at the prevailing text needs
+ * the Spanish page, and sending them to the English one — which is not
+ * published in this state — would be a link into a not-found page.
+ */
+type HeldTerms = { step: PendingTermsStep; locale: AppLocale };
+
+/**
+ * The terms step in one language, or null when that language is not published.
+ *
+ * Null means a 404 and nothing else: every other failure throws out of
+ * callBackend and out of this page, because "the label is missing" and "the API
+ * is unreachable" must not produce the same card.
+ */
+async function termsStepIn(locale: AppLocale): Promise<HeldTerms | null> {
   try {
     const envelope = await callBackend<{ acceptance_label: string; version: string }>(
       `/api/v1/public/terms/${locale}`,
     );
-    if (!envelope.data) {
+    if (!envelope.data?.acceptance_label) {
       return null;
     }
     return {
-      acceptanceLabel: envelope.data.acceptance_label,
-      version: envelope.data.version,
-      tokenInCookie: true,
+      step: {
+        acceptanceLabel: envelope.data.acceptance_label,
+        version: envelope.data.version,
+        tokenInCookie: true,
+      },
+      locale,
     };
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof APIError && error.status === 404) {
+      return null;
+    }
+    throw error;
   }
 }
 
@@ -87,8 +159,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
       intent={resolveSignInIntent(intent)}
       googleFailed={google === "failed"}
       googleSignInHref={isGoogleSignInConfigured() ? GOOGLE_SIGN_IN_START_PATH : null}
-      termsUrl={storefrontTermsUrl(locale)}
-      initialPendingTerms={pendingTerms}
+      // The document the label beside the checkbox came from, which is the
+      // reader's language in the ordinary case and the prevailing one when
+      // this edition does not publish theirs (#559). A link across, never a
+      // link to a page that is not there.
+      termsUrl={storefrontTermsUrl(pendingTerms?.locale ?? locale)}
+      initialPendingTerms={pendingTerms?.step ?? null}
     />
   );
 }
