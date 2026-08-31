@@ -8,8 +8,11 @@ import {
   customerRecordHref,
   customerRecordPath,
   customerRecordsPath,
+  customerEvidencePackPath,
   customerWithdrawalPath,
+  evidencePackFilenameFrom,
   presentedLocaleState,
+  staffEvidencePackPath,
   staffRecordHref,
   staffRecordPath,
   wouldTakeSomethingAway,
@@ -169,4 +172,40 @@ test("the retired consent surface's copy is gone from both catalogs", () => {
     assert.equal(catalog.operator.consentFindCustomer, undefined);
     assert.equal(catalog.operator.consentNoCustomer, undefined);
   }
+});
+
+// THE CONSENT EVIDENCE PACK'S PATHS AND ITS FILENAME (#568).
+
+test("the evidence pack is keyed on the same opaque things the records are", () => {
+  assert.equal(
+    customerEvidencePackPath("cust-1"),
+    "/api/operator/legal/customers/cust-1/evidence-pack",
+  );
+  assert.equal(
+    staffEvidencePackPath("a".repeat(32)),
+    `/api/operator/legal/staff/${"a".repeat(32)}/evidence-pack`,
+  );
+  // The rule the whole path family exists for: no address in a request line, on
+  // the download any more than on the read.
+  for (const path of [
+    customerEvidencePackPath("someone@example.com"),
+    staffEvidencePackPath("someone@example.com"),
+  ]) {
+    assert.ok(!path.includes("@"), `${path} carries an address`);
+  }
+});
+
+test("the pack's filename is read from the response and never invented", () => {
+  // The API keys it on the pack's own SHA-256 (ADR 0067's resolution of #546
+  // against #548), so `sha256sum` the file and the first sixteen characters are
+  // its name. Reconstructing that here would be a second name for one document.
+  assert.equal(
+    evidencePackFilenameFrom(
+      'attachment; filename="consent-evidence-0123456789abcdef-2026-08-31.zip"',
+    ),
+    "consent-evidence-0123456789abcdef-2026-08-31.zip",
+  );
+  // A header that did not arrive is a proxy problem, and a made-up hash in a
+  // filename would be worse than a generic name.
+  assert.equal(evidencePackFilenameFrom(null), "consent-evidence-pack.zip");
 });

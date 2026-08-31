@@ -178,6 +178,28 @@ the digest anywhere in its contents. The two existing `{email}` operator routes 
 the Legal Center lands; list search absorbs the one-step lookup, and the address travels in a POSTed
 search or a client-side filter, never in a path.
 
+**The Evidence Pack's filename is keyed on the pack's own SHA-256, which settles #546 against #548.**
+#546 ruled the filename `consent-evidence-<subject-digest>-<date>.zip`, keyed on the HMAC digest
+*specifically* so that it would never be the email. #548 then made it a standing rule that the digest
+is never written to a file or an export, because a key rotation would leave it unresolvable. Both
+constraints are real and they collide over exactly one string. The resolution is a **third key that
+belongs to neither problem**: the first 16 hex characters of `sha256(pack bytes)`, giving
+`consent-evidence-<pack-sha256-prefix>-<YYYY-MM-DD>.zip`.
+
+It satisfies both rulings rather than trading one away. It is not the email and it is not derived from
+the email, so #546's whole purpose is served. It is derived from nothing that can be rotated, so #548's
+whole purpose is served: the name of a pack sitting in a counsel's mailbox in 2031 means exactly what it
+meant the day it was generated, under any key the platform is running by then. And it is **the one value
+the platform actually persists about the handover**, so the filename resolves the document to its own
+row without a second index — a property the digest never had, since no row was ever allowed to carry
+one. It is also self-checking: `sha256sum` the file and the first 16 characters must be the name.
+
+The costs are named and accepted. Two packs for two different people in one folder are told apart by
+opening them rather than by reading the names, which is the same privacy property #546 was buying and
+one step further along it. The date remains in the name, on #546's shape, and it is the only
+time-varying thing about the file — a filename is a label on a document, not the document, and the ZIP
+**bytes** stay identical across days as ruled. The digest continues to appear nowhere in the contents.
+
 **No act has an approval step, and the overnight delay is the substitute for a second pair of eyes.**
 Production holds exactly one `platform_operators` row, with no roles and no second tier, so a
 two-person rule deadlocks on every act — and recruiting an approver would also hand them payouts,
@@ -241,6 +263,24 @@ buyers' mail at the same time.
 **A second operator as approver vs the overnight delay.** The delay (chosen). There is no second
 operator, and creating one to approve legal text would grant them payouts, reversals and invoicing
 backfill in the same boolean.
+
+**The Evidence Pack's filename: the HMAC digest (#546) vs the pack's own SHA-256.** The SHA-256 prefix
+(chosen). Keeping the digest was defensible — a filename is a label rather than evidence, and the
+contents identify the subject anyway — but it buys a name that stops resolving the day the link secret
+rotates, in a document whose entire purpose is to stay meaningful for years, and it would have made
+#548 a rule with a written-down exception, which is how rules stop being consulted. A rotation-
+independent *subject* key was the other candidate and was rejected in turn: an unkeyed hash of an
+address is a dictionary attack away from the address, so it is strictly weaker than the digest it
+replaces, and no key exists that spans both populations — a Customer has a UUID, a staff person has
+only an email. The pack's own hash belongs to the artifact rather than to the person, and it is already
+being persisted.
+
+**Persisting the pack vs persisting only its hash and the act ids it covers.** Hash and act ids
+(chosen). Storing the file would give the platform a second, unindexed, undeletable copy of the most
+sensitive data it holds — assembled precisely because somebody asked what was held about them — and an
+erasure that then had to reach inside it. The hash proves a specific handover happened and that a file
+produced later is or is not that one; the act ids say what it covered; and the pack itself is
+regenerable from the record on demand, byte for byte, which is the point of making it deterministic.
 
 **A subject-facing self-service Evidence Pack vs operator-only.** Operator-only (chosen). ADR 0039's
 precedent cuts against self-service here rather than for it: a proven email buys a **withdrawal**, an

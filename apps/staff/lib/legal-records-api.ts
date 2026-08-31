@@ -5,9 +5,10 @@ import {
   customerRecordPath,
   customerRecordsPath,
   customerWithdrawalPath,
+  evidencePackFilenameFrom,
   staffRecordPath,
 } from "./legal-records";
-import { fetchEventsJSON } from "./events-api";
+import { ApiError, fetchEventsJSON } from "./events-api";
 
 // The per-subject record's fetchers (#566).
 //
@@ -92,4 +93,48 @@ export async function recordConsentWithdrawal(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * Generates a Consent Evidence Pack and saves it as a file (#568).
+ *
+ * IT FETCHES A BLOB RATHER THAN NAVIGATING TO THE URL, the Holder Export's
+ * shape and for its reason: the endpoint returns a FILE on success and a JSON
+ * error envelope on failure, so a plain link would send the operator to raw
+ * JSON whenever it was refused. It also lets the call site show that something
+ * is happening while the archive is built.
+ *
+ * THE FILENAME COMES FROM THE RESPONSE. It is keyed on the pack's own SHA-256,
+ * which is a fact about the bytes and is not reproducible here — see
+ * evidencePackFilenameFrom.
+ *
+ * The envelope is re-thrown WHOLE rather than pre-worded, so the call site
+ * chooses the sentence: a 503 on a deployment with no link secret and a 404 for
+ * a stale link are different things to say.
+ */
+export async function downloadEvidencePack(path: string): Promise<void> {
+  const response = await fetch(path);
+  if (!response.ok) {
+    const envelope = (await response.json().catch(() => null)) as {
+      error?: { message?: string; code?: string; details?: unknown };
+    } | null;
+    throw new ApiError(
+      envelope?.error?.message ?? "",
+      envelope?.error?.code,
+      envelope?.error?.details as Record<string, unknown> | undefined,
+    );
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = evidencePackFilenameFrom(response.headers.get("Content-Disposition"));
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }

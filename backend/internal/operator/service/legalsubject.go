@@ -56,10 +56,13 @@ import (
 // LegalRecords is what this surface needs from the consent module: one
 // Customer's record, their history, and the labels that name an edition.
 //
-// READS AND NOTHING ELSE. The one WRITE this screen offers goes through
-// Consents.RecordOperatorWithdrawal, which is the customers module's method and
-// therefore the platform's single consent-write path — so nothing on this
-// interface can capture, record or alter a consent.
+// NOTHING HERE CAN TOUCH A CONSENT. The one WRITE this screen offers goes
+// through Consents.RecordOperatorWithdrawal, which is the customers module's
+// method and therefore the platform's single consent-write path — so nothing on
+// this interface can capture, record or alter a consent. The one write that IS
+// here, RecordEvidencePack (#568), records that a file was handed over and
+// touches no consent, no Customer and no acceptance: its whole content is a
+// hash, a size and a list of ids.
 type LegalRecords interface {
 	// CustomerLegalRecord answers LEGAL_SUBJECT_NOT_FOUND for an id nobody
 	// holds, which the handler maps to 404.
@@ -72,6 +75,17 @@ type LegalRecords interface {
 	// CustomerIDByEmail is the staff record's half of the cross-link: "" where
 	// the address belongs to no Customer, which is the ordinary case.
 	CustomerIDByEmail(ctx context.Context, email string) (string, error)
+	// The Evidence Pack's two edition reads (#568). They resolve an edition ID
+	// an act names to its exact bytes, with NO date and NO cancellation
+	// predicate: a superseded, scheduled or withdrawn edition an act names is
+	// still the edition somebody was shown. An id naming no row is absent from
+	// the result rather than an error.
+	PolicyEditionTexts(ctx context.Context, ids []string) ([]consentsvc.LegalEditionTextItem, error)
+	TermsEditionTexts(ctx context.Context, ids []string) ([]consentsvc.LegalEditionTextItem, error)
+	// RecordEvidencePack writes that a pack was generated — its SHA-256, its
+	// size and the ids it covered (migration 118) — AND NOT THE PACK. It is the
+	// only write on this interface, and it writes nothing about the subject.
+	RecordEvidencePack(ctx context.Context, handover consentsvc.EvidencePackHandover) (string, error)
 }
 
 // LegalStaffRecords is the staff population's half, from identity.
@@ -326,25 +340,11 @@ func (s *Service) CustomerConsentActs(ctx context.Context, input CustomerConsent
 // is not a degraded answer, it is the wrong person's record, and it is refused
 // with 503 rather than served.
 func (s *Service) StaffLegalRecord(ctx context.Context, digest string) (*StaffLegalRecordView, error) {
-	if !s.staffDigester.Configured() {
-		return nil, identity.ErrStaffDigestUnavailable()
-	}
-	trimmed := strings.ToLower(strings.TrimSpace(digest))
-
-	people, err := s.legalStaffRecords.StaffPeople(ctx)
+	email, err := s.resolveStaffDigest(ctx, digest)
 	if err != nil {
 		return nil, err
 	}
-	email := ""
-	for _, candidate := range people {
-		if s.staffDigester.Matches(trimmed, candidate) {
-			email = candidate
-			break
-		}
-	}
-	if email == "" {
-		return nil, identity.ErrStaffSubjectNotFound()
-	}
+	trimmed := strings.ToLower(strings.TrimSpace(digest))
 
 	record, err := s.legalStaffRecords.StaffLegalRecord(ctx, email)
 	if err != nil {
@@ -389,6 +389,42 @@ func (s *Service) StaffLegalRecord(ctx context.Context, digest string) (*StaffLe
 		view.CustomerID = pointerTo(customerID)
 	}
 	return view, nil
+}
+
+// resolveStaffDigest turns a Staff Digest back into an address, by MATCHING and
+// never by reversing.
+//
+// EXTRACTED SO THE RECORD AND THE EVIDENCE PACK RESOLVE ONE DIGEST ONE WAY
+// (#568). Two copies of this walk would be two chances for a link and the file
+// it generates to name two different people.
+//
+// identity.StaffDigester is deliberately one-way — there is no Parse — so the
+// digest is compared in constant time against every address in the staff
+// population until one answers. A reverse function would be a function that
+// turns a URL segment back into somebody's email address, which is the exact
+// property the digest exists to deny.
+//
+// It refuses to serve without a key. On a deployment with no
+// CONFIRMATION_LINK_SECRET every address produces the same digest under a
+// constant anybody with a copy of this source could reproduce, so the match
+// would resolve an arbitrary digest to the first person in the list — not a
+// degraded answer but the wrong person's evidence.
+func (s *Service) resolveStaffDigest(ctx context.Context, digest string) (string, error) {
+	if !s.staffDigester.Configured() {
+		return "", identity.ErrStaffDigestUnavailable()
+	}
+	trimmed := strings.ToLower(strings.TrimSpace(digest))
+
+	people, err := s.legalStaffRecords.StaffPeople(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, candidate := range people {
+		if s.staffDigester.Matches(trimmed, candidate) {
+			return candidate, nil
+		}
+	}
+	return "", identity.ErrStaffSubjectNotFound()
 }
 
 // consentActCursorSeparator divides the two halves of the keyset position. A

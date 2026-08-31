@@ -1949,7 +1949,16 @@
       "consentConfirmMarketing": "Se revoca el consentimiento de marketing. Deja de enviarse el correo de campañas, incluido el resumen semanal de seguimientos.",
       "consentConfirmNetworking": "Se revoca el consentimiento de networking. Su perfil deja de mostrarse a los asistentes.",
       "consentConfirmContinues": "Su cuenta, sus entradas, sus recibos, sus códigos y los avisos de reversión siguen igual. Esto no es una eliminación, y el cliente puede volver a activar cualquiera de los dos consentimientos por su cuenta.",
-      "consentConfirmEmail": "Se le envía una confirmación por correo, en su propio idioma, pero solo si esto realmente revoca algo."
+      "consentConfirmEmail": "Se le envía una confirmación por correo, en su propio idioma, pero solo si esto realmente revoca algo.",
+      "packTitle": "Paquete de evidencia de consentimiento",
+      "packDescription": "Un archivo que responde a un titular de datos o a un regulador: todo lo que se guarda sobre esta dirección, en ambas mitades de la plataforma, con el texto legal exacto detrás de cada acto. Se genera cuando lo pides y no se almacena.",
+      "packSpansBoth": "Cubre esta dirección en ambas poblaciones —como cliente y en la plataforma del personal—, así que una persona que sea las dos cosas recibe un solo archivo, y el mismo archivo desde cualquiera de los dos registros.",
+      "packNeverStored": "No se guarda nada salvo el SHA-256 del archivo, su tamaño y los identificadores de los actos que cubrió. El paquete se reconstruye byte a byte a partir de los mismos actos cada vez que se vuelve a pedir.",
+      "packOperatorOnly": "No existe descarga de autoservicio. Envíaselo tú a la persona.",
+      "packGenerate": "Generar paquete de evidencia",
+      "packGenerating": "Construyendo el paquete…",
+      "packGenerated": "Paquete de evidencia descargado.",
+      "packFailed": "No se pudo generar el paquete de evidencia."
     }
   },
   "errors": {

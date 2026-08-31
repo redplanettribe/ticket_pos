@@ -180,6 +180,39 @@ export function staffRecordPath(digest: string): string {
   return `/api/operator/legal/staff/${encodeURIComponent(digest)}`;
 }
 
+/**
+ * The Consent Evidence Pack, keyed on the same opaque things (#568).
+ *
+ * TWO PATHS AND ONE FILE. A pack spans both populations for one address, so
+ * whichever record screen the operator is on, the bytes they hand over are the
+ * same — one access request has one answer. Each path is keyed on what its
+ * screen is keyed on, so no address reaches a request line here either.
+ */
+export function customerEvidencePackPath(customerID: string): string {
+  return `${customerRecordPath(customerID)}/evidence-pack`;
+}
+
+export function staffEvidencePackPath(digest: string): string {
+  return `${staffRecordPath(digest)}/evidence-pack`;
+}
+
+/**
+ * Reads the pack's filename out of a Content-Disposition header.
+ *
+ * THE API DECIDES THE NAME AND THIS ONLY READS IT BACK. The name is keyed on
+ * the pack's own SHA-256 (ADR 0067's resolution of #546 against #548), which is
+ * a fact about the bytes: a name invented here would be a second name for one
+ * document, and the one property that makes it checkable — `sha256sum` the file
+ * and read the first sixteen characters — would be lost.
+ *
+ * The fallback is deliberately unkeyed. A header that did not arrive is a proxy
+ * problem, and a made-up hash in a filename would be worse than a generic name.
+ */
+export function evidencePackFilenameFrom(disposition: string | null): string {
+  const match = disposition?.match(/filename="?([^"]+)"?/);
+  return match?.[1] ?? "consent-evidence-pack.zip";
+}
+
 /** The in-app route for one Customer's record — where a browser row links. */
 export function customerRecordHref(customerID: string): string {
   return `/operator/legal/acceptances/customers/${encodeURIComponent(customerID)}`;

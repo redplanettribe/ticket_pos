@@ -33,6 +33,7 @@ import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { PLATFORM_TIME_ZONE, formatDateTime } from "@/lib/format";
 import {
+  customerEvidencePackPath,
   type ConsentAct,
   type LegalCustomerRecord,
   type LegalEditionRef,
@@ -49,6 +50,7 @@ import {
   recordConsentWithdrawal,
 } from "@/lib/legal-records-api";
 
+import { EvidencePackCard } from "../../evidence-pack-card";
 import { StandingBadge } from "../../standing-badge";
 
 /**
@@ -70,9 +72,10 @@ import { StandingBadge } from "../../standing-badge";
  *
  *   - WITHDRAW AN OPTIONAL CONSENT. The old /operator/consent page folded in
  *     here; this is where it lives now.
- *   - GENERATE A CONSENT EVIDENCE PACK, which is #568 and is NOT BUILT: there
- *     is no control for it on this page, because a button that did nothing
- *     would be worse than no button.
+ *   - GENERATE A CONSENT EVIDENCE PACK (#568). One deterministic ZIP, built on
+ *     demand and never stored, spanning BOTH populations for this address — so
+ *     the file this page produces and the one the staff record produces are the
+ *     same bytes. There is no self-service equivalent anywhere.
  *
  * And deliberately NOT: no control that manufactures an acceptance, so no
  * consent can exist that the person did not give; no per-person re-gate, so
@@ -410,6 +413,8 @@ export function OperatorCustomerRecordClient({ customerId }: { customerId: strin
               ) : null}
             </CardContent>
           </Card>
+
+          <EvidencePackCard path={customerEvidencePackPath(customerId)} />
 
           <Card>
             <CardHeader>

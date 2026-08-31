@@ -22,9 +22,14 @@ import { useLocale, useMessages, useTranslations } from "next-intl";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { PLATFORM_TIME_ZONE, formatDateTime } from "@/lib/format";
-import { type StaffLegalRecord, customerRecordHref } from "@/lib/legal-records";
+import {
+  type StaffLegalRecord,
+  customerRecordHref,
+  staffEvidencePackPath,
+} from "@/lib/legal-records";
 import { fetchStaffLegalRecord } from "@/lib/legal-records-api";
 
+import { EvidencePackCard } from "../../evidence-pack-card";
 import { StandingBadge } from "../../standing-badge";
 
 /**
@@ -153,6 +158,13 @@ export function OperatorStaffRecordClient({ digest }: { digest: string }) {
               ) : null}
             </CardContent>
           </Card>
+
+          {/*
+            THE EVIDENCE PACK (#568). The same component, and the same file, as
+            the Customer record's: a pack spans both populations for one
+            address, so a person who is both gets one answer to one request.
+          */}
+          <EvidencePackCard path={staffEvidencePackPath(digest)} />
 
           <Card>
             <CardHeader>

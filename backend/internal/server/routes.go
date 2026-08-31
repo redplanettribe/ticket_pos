@@ -383,6 +383,21 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// the staff browser's reason: with no key the digest match would resolve to
 	// an arbitrary person, which is the wrong record rather than a degraded one.
 	mux.Handle("GET /api/v1/operator/legal/staff/{digest}", operator(http.HandlerFunc(h.GetStaffLegalRecord)))
+	// The Consent Evidence Pack (#568): one deterministic ZIP, generated on
+	// demand from the record above and NEVER STORED, so the platform does not
+	// accumulate a second copy of its most sensitive data. Two routes and one
+	// file — a pack spans both populations for one address, so both serve
+	// identical bytes for one human being, and both are keyed on the opaque
+	// thing their screen is keyed on.
+	//
+	// THERE IS NO SUBJECT-FACING EQUIVALENT AND THERE WILL NOT BE ONE. ADR
+	// 0039's precedent cuts against self-service here rather than for it: a
+	// passcode buys a WITHDRAWAL, an act that only ever takes something away,
+	// where a pack DISCLOSES everything the platform holds. The absence is the
+	// platform's rather than a screen's, which is why it is written down beside
+	// the mux.
+	mux.Handle("GET /api/v1/operator/legal/customers/{customerID}/evidence-pack", operator(http.HandlerFunc(h.DownloadCustomerEvidencePack)))
+	mux.Handle("GET /api/v1/operator/legal/staff/{digest}/evidence-pack", operator(http.HandlerFunc(h.DownloadStaffEvidencePack)))
 
 	// Tax invoicing (#450, ADR 0059): the platform's Issuer with each country's
 	// Tax Authority, and — from #454 — the Tax Invoices it issues by hand. The

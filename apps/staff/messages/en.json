@@ -1949,7 +1949,16 @@
       "consentConfirmMarketing": "Marketing consent is withdrawn. Campaign email stops, including the weekly follow digest.",
       "consentConfirmNetworking": "Networking consent is withdrawn. Their profile stops being shown to attendees.",
       "consentConfirmContinues": "Their account, tickets, receipts, passcodes and reversal notices all continue. This is not a deletion, and they can turn either consent back on themselves.",
-      "consentConfirmEmail": "They are emailed a confirmation, in their own language — but only if this actually takes something away."
+      "consentConfirmEmail": "They are emailed a confirmation, in their own language — but only if this actually takes something away.",
+      "packTitle": "Consent evidence pack",
+      "packDescription": "One file that answers a data subject or a regulator: everything held about this address, in both halves of the platform, with the exact legal text behind every act. Generated when you ask for it and never stored.",
+      "packSpansBoth": "It covers this address in both populations — as a customer and on the staff platform — so a person who is both gets one file, and the same file whichever record you generate it from.",
+      "packNeverStored": "Nothing is kept but the file's SHA-256, its size and the ids of the acts it covered. The pack is rebuilt byte for byte from the same acts whenever it is asked for again.",
+      "packOperatorOnly": "There is no self-service download. Send this to the person yourself.",
+      "packGenerate": "Generate evidence pack",
+      "packGenerating": "Building the pack…",
+      "packGenerated": "Evidence pack downloaded.",
+      "packFailed": "Could not generate the evidence pack."
     }
   },
   "errors": {
