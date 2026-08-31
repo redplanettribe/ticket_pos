@@ -23,10 +23,18 @@ import (
 // as `arrived`. That is the property the whole design rests on: the day moves
 // on its own, so a scheduled edition takes effect at midnight with nothing
 // fired and nothing notified. See legal.Edition.Arrived.
+//
+// `cancelled_at IS NOT NULL` is read BESIDE IT, in the same row of the same
+// query (#564), and the rows themselves are all still here: a withdrawn edition
+// is retained, and legal.NextGating counts it so its label stays spent. What
+// skips it is the RULE — legal.GatingFloor and legal.Satisfying consult
+// legal.Edition.Counts — which is why a cancellation needs nothing to fire and
+// nothing to clean up. Reading the mark on a second query could straddle a
+// cancellation and answer about neither state.
 func (r *Repository) PolicyLineage(ctx context.Context) ([]legal.Edition, error) {
 	editions, err := r.lineage(ctx, `
 		SELECT id, generation, revision, effective_date, created_at,
-		       effective_date <= CURRENT_DATE
+		       effective_date <= CURRENT_DATE, cancelled_at IS NOT NULL
 		FROM policy_versions
 		ORDER BY effective_date DESC, created_at DESC
 	`)
@@ -42,7 +50,7 @@ func (r *Repository) PolicyLineage(ctx context.Context) ([]legal.Edition, error)
 func (r *Repository) TermsLineage(ctx context.Context) ([]legal.Edition, error) {
 	editions, err := r.lineage(ctx, `
 		SELECT id, generation, revision, effective_date, created_at,
-		       effective_date <= CURRENT_DATE
+		       effective_date <= CURRENT_DATE, cancelled_at IS NOT NULL
 		FROM terms_versions
 		ORDER BY effective_date DESC, created_at DESC
 	`)
@@ -107,6 +115,7 @@ func (r *Repository) lineage(ctx context.Context, query string) ([]legal.Edition
 			&edition.EffectiveDate,
 			&edition.CreatedAt,
 			&edition.Arrived,
+			&edition.Cancelled,
 		); err != nil {
 			return nil, err
 		}

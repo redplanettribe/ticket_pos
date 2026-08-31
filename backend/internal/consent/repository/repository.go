@@ -50,6 +50,13 @@ var ErrNoCurrentPolicyVersion = errors.New("no current policy version")
 // deploy in between (see migration 060). Without it, adding the row would be
 // the publication, and "effective date" would be decoration.
 //
+// A CANCELLED EDITION IS EXCLUDED BY THE SAME WHERE CLAUSE (#564, migration
+// 113). The row is retained and marked, never deleted, so without this line a
+// withdrawn edition would become current on its own date exactly as a live one
+// does — the very property above, working against the operator who changed
+// their mind. It is checked here rather than by anything firing at midnight, for
+// the same reason the date is.
+//
 // CURRENT_DATE is the database's day, which is UTC in every environment this
 // runs in. That is the coarsest thing about this query and it is fine: an
 // edition becoming current a few hours early or late relative to Ecuador is
@@ -60,6 +67,7 @@ func (r *Repository) CurrentPolicyVersion(ctx context.Context) (PolicyVersion, e
 		SELECT id, label, effective_date, content_hash
 		FROM policy_versions
 		WHERE effective_date <= CURRENT_DATE
+		  AND cancelled_at IS NULL
 		ORDER BY effective_date DESC, created_at DESC
 		LIMIT 1
 	`

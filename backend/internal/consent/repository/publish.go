@@ -13,10 +13,17 @@ import (
 // PUBLISHING IS AN INSERT AND A ROW COPY. NOTHING IS EVER MUTATED — not here,
 // not anywhere. A correction is a NEW ROW with a new id, a new label and its own
 // artifact rows, and the edition it corrects keeps its bytes exactly as the
-// acceptances that fingerprint them expect. There is no UPDATE against
-// policy_versions, terms_versions or either artifact table in this codebase and
-// there must never be one: the whole value of a content hash is that the text it
-// covers cannot have moved since somebody accepted it.
+// acceptances that fingerprint them expect. Neither artifact table is ever
+// UPDATEd, and no column of a version row that an acceptance depends on — its
+// id, its label, its lineage, its effective date, its content hash — is either:
+// the whole value of a content hash is that the text it covers cannot have moved
+// since somebody accepted it.
+//
+// THE ONE EXCEPTION IS THE CANCELLATION MARK (#564, cancellation.go), and it is
+// an exception to the letter and not to the rule. It writes `cancelled_by` and
+// `cancelled_at` and nothing else, on a row whose day has not come — an edition
+// nobody has been shown and therefore nobody can have accepted — so no
+// fingerprint moves under anybody's evidence.
 //
 // THE DRAFT GOES WITH THE PUBLICATION, in the same transaction. What the draft
 // said is now what is published, so leaving it behind would leave the editor

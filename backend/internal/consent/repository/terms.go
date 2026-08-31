@@ -25,14 +25,15 @@ type TermsVersion struct {
 var ErrNoCurrentTermsVersion = errors.New("no current terms version")
 
 // CurrentTermsVersion reads the Terms edition in effect: the latest effective
-// date that has arrived, ties broken by insertion order — the same rule, and
-// the same scheduling property, as CurrentPolicyVersion, over the parallel
-// table (ADR 0066).
+// date that has arrived, ties broken by insertion order — the same rule, the
+// same scheduling property and the same exclusion of a withdrawn edition (#564)
+// as CurrentPolicyVersion, over the parallel table (ADR 0066).
 func (r *Repository) CurrentTermsVersion(ctx context.Context) (TermsVersion, error) {
 	const query = `
 		SELECT id, label, effective_date, content_hash
 		FROM terms_versions
 		WHERE effective_date <= CURRENT_DATE
+		  AND cancelled_at IS NULL
 		ORDER BY effective_date DESC, created_at DESC
 		LIMIT 1
 	`

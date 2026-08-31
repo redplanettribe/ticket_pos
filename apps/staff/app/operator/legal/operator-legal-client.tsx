@@ -54,6 +54,7 @@ import {
 import { LegalDiff } from "./legal-diff";
 import { LegalPreviewDialog } from "./legal-preview";
 import { LegalPublish } from "./legal-publish";
+import { LegalScheduled } from "./legal-scheduled";
 
 /**
  * The Legal Center (#561, spec #556): where the platform's own agreements — the
@@ -378,6 +379,16 @@ export function OperatorLegalClient() {
           </Button>
         ))}
       </div>
+
+      {/*
+        WHAT IS ABOUT TO HAPPEN, ABOVE EVERYTHING (#564). A gating edition takes
+        effect on its own date with nothing fired, so between publishing it and
+        the rollover there is a night — and an edition that will re-gate the
+        entire customer base tomorrow morning is the most important thing on this
+        screen for as long as it is true, including while somebody is editing the
+        next draft underneath it. It renders nothing when nothing is waiting.
+      */}
+      <LegalScheduled document={document} workspace={workspace} onCancelled={adopt} />
 
       <Card>
         <CardHeader>

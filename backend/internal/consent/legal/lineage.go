@@ -105,7 +105,34 @@ type Edition struct {
 	// here would reintroduce the publication hook that the whole design is
 	// arranged to avoid.
 	Arrived bool
+	// Cancelled is `cancelled_at IS NOT NULL` (#564, migration 113): a
+	// scheduled edition the operator changed their mind about during the night
+	// the overnight delay buys them.
+	//
+	// READ BY THE SAME QUERY THAT ANSWERS Arrived, and that is the point. The
+	// row is retained and marked rather than deleted, so nothing has to fire at
+	// midnight and nothing has to be cleaned up: a cancelled edition simply
+	// stops being chosen, exactly as a scheduled one started being chosen. A
+	// mark that arrived on a second read could straddle a cancellation and
+	// answer about neither state.
+	Cancelled bool
 }
+
+// Scheduled reports whether this edition is waiting for its day: published, not
+// yet in force, and not withdrawn.
+//
+// It is the banner's question (#564) and the cancel control's: an edition the
+// operator can still change their mind about, and the only kind there is —
+// once Arrived, the words are what people are being held to, and no mark can
+// un-show them.
+func (e Edition) Scheduled() bool { return !e.Arrived && !e.Cancelled }
+
+// Counts reports whether this edition counts towards the gate at all.
+//
+// One predicate, consulted by GatingFloor and by Satisfying, so that "a
+// cancelled edition never becomes current and never enters the satisfying set"
+// is one fact with one implementation rather than two that can drift.
+func (e Edition) Counts() bool { return !e.Cancelled }
 
 // SatisfyingSet is the set of edition ids that clear the gate: an acceptance
 // naming any one of them is an acceptance, and an acceptance naming anything
@@ -138,12 +165,17 @@ func (s SatisfyingSet) IDs() []string { return s }
 // so everybody who was clear stays clear, with no backfill, no notification and
 // no column to maintain.
 //
+// A CANCELLED EDITION IS SKIPPED TOO (#564), and by the same walk. An edition
+// withdrawn during the night it was scheduled in must never lift the floor —
+// not on its own date, not ever — so the mark is consulted here rather than by
+// anything that fires at midnight to tidy the row away.
+//
 // Reports false when no gating edition has arrived — a state migrations 060 and
 // 105 make unreachable, and which callers report as "no current edition".
 func GatingFloor(editions []Edition) (Edition, bool) {
 	ordered := newestFirst(editions)
 	for _, edition := range ordered {
-		if edition.Arrived && edition.Lineage.Gating() {
+		if edition.Counts() && edition.Arrived && edition.Lineage.Gating() {
 			return edition, true
 		}
 	}
@@ -163,16 +195,25 @@ func GatingFloor(editions []Edition) (Edition, bool) {
 // Everything BELOW the floor is out: a superseded edition is what the gating
 // publication superseded, and nobody is grandfathered.
 //
+// AND SO IS EVERY CANCELLED EDITION, wherever it sits (#564). An acceptance can
+// never name one — a scheduled edition is on no screen, so nobody was shown it
+// and nobody can have accepted it — so including it would clear nobody; what it
+// WOULD do is put a withdrawn edition back into the set the staff gate and the
+// acceptance browsers read, which is the one way a cancellation could re-gate
+// somebody. Skipped in the prefix as well as in the search for the floor.
+//
 // Reports false when there is no gating floor, in which case there is no
 // meaningful set and the caller reports "no current edition" rather than
 // clearing or gating everybody by accident.
 func Satisfying(editions []Edition) (SatisfyingSet, bool) {
 	ordered := newestFirst(editions)
 	for i, edition := range ordered {
-		if edition.Arrived && edition.Lineage.Gating() {
+		if edition.Counts() && edition.Arrived && edition.Lineage.Gating() {
 			set := make(SatisfyingSet, 0, i+1)
 			for _, above := range ordered[:i+1] {
-				set = append(set, above.ID)
+				if above.Counts() {
+					set = append(set, above.ID)
+				}
 			}
 			return set, true
 		}
@@ -180,9 +221,36 @@ func Satisfying(editions []Edition) (SatisfyingSet, bool) {
 	return nil, false
 }
 
+// ScheduledEditions is every edition still waiting for its day, newest first.
+//
+// A LIST AND NOT ONE EDITION. More than one can be waiting at a time — the
+// overnight delay forces each gating publication to a later day than the last,
+// so an operator scheduling two in a row has two nights running at once, and a
+// correction to a scheduled edition waits with it. A screen that could show
+// only one would hide exactly the second thing somebody had forgotten about.
+//
+// Cancelled editions are not in it: the mark is what "I changed my mind" means,
+// and a banner is a reminder about something that is still going to happen.
+func ScheduledEditions(editions []Edition) []Edition {
+	var scheduled []Edition
+	for _, edition := range newestFirst(editions) {
+		if edition.Scheduled() {
+			scheduled = append(scheduled, edition)
+		}
+	}
+	return scheduled
+}
+
 // NextGating is the lineage a gating publication takes: the next generation, at
 // revision 0. Nothing is typed and nothing is chosen — the generation after the
 // highest one published, whether or not that one has taken effect yet.
+//
+// CANCELLED EDITIONS COUNT HERE, and this is the one place they do (#564). A
+// label is spent the moment it is written: migration 110's UNIQUE (generation,
+// revision) would refuse the reuse anyway, and even without it, two editions
+// answering to `3` — one withdrawn, one live — would make every label on every
+// acceptance ambiguous. Retaining the row is what keeps the number spent, so
+// skipping it here would undo the reason the row is retained at all.
 func NextGating(editions []Edition) Lineage {
 	highest := -1
 	for _, edition := range editions {

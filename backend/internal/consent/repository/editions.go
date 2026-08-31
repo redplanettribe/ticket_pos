@@ -45,6 +45,13 @@ type TermsEdition struct {
 // publication hook here would quietly make the scheduled edition depend on that
 // hook having run.
 //
+// `cancelled_at IS NULL` rides in the SAME predicate (#564, migration 113), and
+// deliberately not in a second pass over the result: a withdrawn edition is
+// retained and marked rather than deleted, so the only thing standing between it
+// and becoming current on its own date is this line. It is the same shape as the
+// rule beside it — a fact the database checks as it chooses the row — so a
+// cancellation needs nothing to fire either.
+//
 // A LEFT JOIN, so an edition with no artifacts at all is a version with empty
 // text rather than "no current version": the two are different failures and the
 // caller says different things about them.
@@ -54,6 +61,7 @@ func (r *Repository) CurrentPolicyEdition(ctx context.Context) (PolicyEdition, e
 			SELECT id, label, effective_date, content_hash
 			FROM policy_versions
 			WHERE effective_date <= CURRENT_DATE
+			  AND cancelled_at IS NULL
 			ORDER BY effective_date DESC, created_at DESC
 			LIMIT 1
 		)
@@ -116,6 +124,7 @@ func (r *Repository) CurrentTermsEdition(ctx context.Context) (TermsEdition, err
 			SELECT id, label, effective_date, content_hash
 			FROM terms_versions
 			WHERE effective_date <= CURRENT_DATE
+			  AND cancelled_at IS NULL
 			ORDER BY effective_date DESC, created_at DESC
 			LIMIT 1
 		)

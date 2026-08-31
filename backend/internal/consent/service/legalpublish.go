@@ -330,10 +330,10 @@ func (s *Service) publishPlan(
 	draft []legal.Artifact,
 	draftLocales []platform.Locale,
 	previewedAll, seenDiff bool,
-) (OperatorLegalPublishPlan, error) {
+) (OperatorLegalPublishPlan, []legal.Edition, error) {
 	editions, err := s.lineage(ctx, document)
 	if err != nil {
-		return OperatorLegalPublishPlan{}, err
+		return OperatorLegalPublishPlan{}, nil, err
 	}
 
 	gaps := legal.Completeness(draft, draftLocales)
@@ -361,10 +361,14 @@ func (s *Service) publishPlan(
 
 	headcount, err := s.regatedHeadcount(ctx, document, editions)
 	if err != nil {
-		return OperatorLegalPublishPlan{}, err
+		return OperatorLegalPublishPlan{}, nil, err
 	}
 	plan.Headcount = headcount
-	return plan, nil
+	// The lineage travels back with the plan so the workspace can name the
+	// scheduled editions (#564) from the SAME read: what a publication would do
+	// and what one already did are two questions about one list of rows, and a
+	// second query could straddle a publication or a cancellation.
+	return plan, editions, nil
 }
 
 // regatedHeadcount is "who would this re-gate": the people standing on an
@@ -472,9 +476,20 @@ func effectiveDateOf(editions []legal.Edition, id string) time.Time {
 //     failure is doing nothing silently is worse than one that refuses; this is
 //     the ONE bound the ticket does not state, and it is stated here rather than
 //     left to be discovered.
+//
+// A CANCELLED EDITION BINDS NEITHER (#564). It will never be current, so nothing
+// would sort below it and nothing is silently defeated by taking its day back —
+// and holding the floor above a withdrawn edition's date would be the
+// cancellation still costing the operator something after it was undone. This is
+// the mirror of legal.NextGating, which DOES count cancelled editions: the label
+// stays spent because a name must mean one thing forever, and the day is
+// released because a day is not a name.
 func earliestGatingDate(editions []legal.Edition, now time.Time) string {
 	earliest := platform.StartOfEcuadorDay(now).AddDate(0, 0, 1).Format("2006-01-02")
 	for _, edition := range editions {
+		if !edition.Counts() {
+			continue
+		}
 		if after := edition.EffectiveDate.AddDate(0, 0, 1).Format("2006-01-02"); after > earliest {
 			earliest = after
 		}

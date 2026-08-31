@@ -155,6 +155,18 @@ type OperatorLegalWorkspace struct {
 	// payload at all — all of it is a statement about THIS draft beside THIS
 	// published edition, and a second read could straddle a publication.
 	Publish OperatorLegalPublishPlan `json:"publish"`
+	// Scheduled is every edition already published and still waiting for its day
+	// (#564), newest first — what the editor shows as a PERSISTENT BANNER, so
+	// nobody forgets that something is about to take effect, and what the cancel
+	// control acts on.
+	//
+	// It rides on the workspace for the reason everything else here does: it is
+	// read from the same lineage the publish plan is computed from, in one call.
+	// EMPTY IS THE NORMAL STATE and it is a list rather than one edition,
+	// because the overnight delay pushes each gating publication to a later day
+	// than the last — an operator who scheduled two has two nights running at
+	// once, and a screen that showed one would hide the one they had forgotten.
+	Scheduled []OperatorLegalScheduledEdition `json:"scheduled"`
 }
 
 // SaveLegalDraftInput is a whole draft, as the operator has it on screen.
@@ -209,7 +221,7 @@ func (s *Service) LegalWorkspace(ctx context.Context, document string) (*Operato
 		// special case: nothing has been previewed because there is nothing to
 		// have previewed. What it DOES carry is the labels and the headcount, so
 		// the operator sees what a publication would cost before they start.
-		plan, err := s.publishPlan(ctx, document, published.VersionID,
+		plan, editions, err := s.publishPlan(ctx, document, published.VersionID,
 			artifactsFromGrid(published.Artifacts), artifactsFromGrid(published.Artifacts),
 			parseLocaleTokens(published.Locales), false, false)
 		if err != nil {
@@ -219,6 +231,7 @@ func (s *Service) LegalWorkspace(ctx context.Context, document string) (*Operato
 			Document:         document,
 			SupportedLocales: localeTokens(legalDraftLocales),
 			Published:        published,
+			Scheduled:        scheduledEditions(editions),
 			Draft: OperatorLegalDraft{
 				Stored:           false,
 				BaseVersionID:    published.VersionID,
@@ -249,7 +262,7 @@ func (s *Service) LegalWorkspace(ctx context.Context, document string) (*Operato
 	// What the publish step would do with this draft (#563) — the labels, the
 	// headcount and every reason either act would be refused — read in the same
 	// call for the same reason the review state is.
-	plan, err := s.publishPlan(ctx, document, published.VersionID,
+	plan, editions, err := s.publishPlan(ctx, document, published.VersionID,
 		artifactsFromGrid(published.Artifacts), stored.Artifacts, stored.PublishedLocales,
 		review.PreviewedAll, review.SeenDiff)
 	if err != nil {
@@ -262,6 +275,7 @@ func (s *Service) LegalWorkspace(ctx context.Context, document string) (*Operato
 		SupportedLocales: localeTokens(legalDraftLocales),
 		Published:        published,
 		Publish:          plan,
+		Scheduled:        scheduledEditions(editions),
 		Draft: OperatorLegalDraft{
 			Stored:           true,
 			BaseVersionID:    stored.BaseVersionID,

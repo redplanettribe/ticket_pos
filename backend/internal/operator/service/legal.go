@@ -66,6 +66,12 @@ type LegalDocuments interface {
 	// and a draft that would stop publishing the language its document may not
 	// be published without.
 	PublishLegalEdition(ctx context.Context, document string, input consentsvc.PublishLegalEditionInput) (*consentsvc.OperatorLegalWorkspace, error)
+	// CancelLegalEdition withdraws an edition that has been published but has
+	// not taken effect yet (#564) — the night the overnight delay buys. It takes
+	// no reason and answers nothing but the workspace; it refuses only when the
+	// act is impossible, because the id names no edition of this document or
+	// because the edition's day has already come.
+	CancelLegalEdition(ctx context.Context, document, versionID, by string) (*consentsvc.OperatorLegalWorkspace, error)
 }
 
 // LegalWorkspace is the Legal Center's one read: what is published, what is
@@ -113,4 +119,16 @@ func (s *Service) SeeLegalDraftDiff(ctx context.Context, document string, by str
 // remembered.
 func (s *Service) PublishLegalEdition(ctx context.Context, document string, input consentsvc.PublishLegalEditionInput) (*consentsvc.OperatorLegalWorkspace, error) {
 	return s.legal.PublishLegalEdition(ctx, document, input)
+}
+
+// CancelLegalEdition takes back a publication that has not taken effect yet
+// (#564): the seventh method, and the only one that undoes another.
+//
+// UNGATED AND IMMEDIATE, and this door adds nothing to that — no confirmation
+// token, no reason, no second operator, because there is no second operator to
+// have. Undoing is always cheaper than doing: the publication it reverses
+// re-gates every Customer and everybody on the Staff platform, and the reversal,
+// while the edition is still on nobody's screen, moves not one person.
+func (s *Service) CancelLegalEdition(ctx context.Context, document, versionID, by string) (*consentsvc.OperatorLegalWorkspace, error) {
+	return s.legal.CancelLegalEdition(ctx, document, versionID, by)
 }

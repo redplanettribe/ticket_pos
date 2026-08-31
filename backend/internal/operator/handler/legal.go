@@ -288,3 +288,46 @@ func (h *Handler) PublishLegalEdition(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, workspace)
 }
+
+// CancelLegalEdition withdraws a scheduled edition before its day.
+//
+// @Summary      Cancel a scheduled edition of a legal document
+// @Description  Withdraws an edition that has been published but has NOT TAKEN EFFECT YET (#564, spec #556, ADR 0067) — the night the overnight delay buys. A gating edition cannot take effect the day it is published, so between the click and the midnight rollover there is a night in which the operator can change their mind, and this is the call that makes it usable. IT TAKES NO BODY. Cancelling is UNGATED AND IMMEDIATE: no reason, no delay, no confirmation ceremony and no approval step, because UNDOING IS ALWAYS CHEAPER THAN DOING — the publication it reverses re-gates every Customer and everybody on the Staff platform, and the reversal, while the edition is on nobody's screen, moves not one person. THE ROW IS RETAINED AND MARKED, NEVER DELETED: the edition survives in full with its artifacts, its fingerprint and its publish provenance, so the record of what was nearly published stays readable, its label stays spent, and a later publication cannot reuse the number (`cancelled_by`/`cancelled_at`, migration 113, in migration 112's whole-or-nothing house style). A CANCELLED EDITION NEVER BECOMES CURRENT, never lifts the gating floor and never enters the satisfying set — excluded by `cancelled_at IS NULL` in the SAME QUERY that answers `effective_date <= CURRENT_DATE`, so nothing fires at midnight, no job runs and no cache is invalidated. CANCELLING TWICE IS A SUCCESS, on the draft discard's terms — what the caller asked for is what they now have — and the FIRST cancellation's provenance is kept. Refused: 409 LEGAL_EDITION_ALREADY_EFFECTIVE carrying `effective_date` once the day has passed (the control is gone by then; this is the backstop for a page left open overnight, and the refusal is the UPDATE's own `effective_date > CURRENT_DATE` rather than a second opinion from the app's clock), 404 LEGAL_EDITION_NOT_FOUND for an id that names no edition of THIS document, 404 LEGAL_DOCUMENT_NOT_FOUND. Answers with the whole workspace, whose `scheduled` list no longer names the edition. Platform Operator only.
+// @Tags         operator
+// @Produce      json
+// @Security     BearerAuth
+// @Param        document  path  string  true  "policy or terms"
+// @Param        version   path  string  true  "The scheduled edition's version id"
+// @Success      200  {object}  openapi.EnvelopeOperatorLegalWorkspace
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Failure      409  {object}  platform.Envelope
+// @Router       /api/v1/operator/legal/documents/{document}/publications/{version}/cancel [post]
+func (h *Handler) CancelLegalEdition(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	session, ok := middleware.SessionFromContext(r.Context())
+	if !ok {
+		_ = platform.WriteUnauthorized(w, reqID, "Missing session token")
+		return
+	}
+
+	// NO BODY IS READ, and there is none to read. Everything this act needs is
+	// in the address and in the session: which document, which edition, and who
+	// changed their mind. A body would be a place for a reason to grow, and a
+	// reason is a gate on the cheap act.
+	workspace, err := h.svc.CancelLegalEdition(r.Context(),
+		strings.TrimSpace(r.PathValue("document")),
+		strings.TrimSpace(r.PathValue("version")),
+		// Who withdrew it, from the Staff Session and never from the body — the
+		// mark on the version row is the platform's finding, exactly as
+		// `published_by` beside it is.
+		session.Email,
+	)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, workspace)
+}
