@@ -850,3 +850,26 @@ export async function getCheckoutReversal(
 export async function getPrivacyPolicy(locale: string): Promise<PrivacyPolicy | null> {
   return fetchData<PrivacyPolicy>(`/api/v1/public/privacy-policy/${encodeURIComponent(locale)}`);
 }
+
+/**
+ * The current Terms Version, as served for one locale (#535).
+ *
+ * The body and the acceptance label are Spanish WHATEVER locale is asked for:
+ * the Terms are published in Spanish only, the legally prevailing text (§37),
+ * and the backend serves the one operative document under every locale rather
+ * than 404ing. `locale` in the payload names the language of the text ("es"),
+ * not the language asked for. Version, hash and effective date — see
+ * getPrivacyPolicy; the same evidence rules apply (ADR 0066).
+ */
+export type Terms = {
+  version: string;
+  effective_date: string;
+  content_hash: string;
+  locale: string;
+  acceptance_label: string;
+  body_markdown: string;
+};
+
+export async function getTerms(locale: string): Promise<Terms | null> {
+  return fetchData<Terms>(`/api/v1/public/terms/${encodeURIComponent(locale)}`);
+}

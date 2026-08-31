@@ -15,3 +15,10 @@ type EnvelopePrivacyPolicy struct {
 	Error     *platform.APIError `json:"error"`
 	RequestID string             `json:"request_id"`
 }
+
+// EnvelopeTerms documents GET /api/v1/public/terms/{locale} success responses.
+type EnvelopeTerms struct {
+	Data      service.TermsView  `json:"data"`
+	Error     *platform.APIError `json:"error"`
+	RequestID string             `json:"request_id"`
+}

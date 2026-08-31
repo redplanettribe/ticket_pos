@@ -7,6 +7,7 @@ import { BRAND_NAME } from "@/lib/brand";
 import { createEventCtaHref } from "@/lib/create-event-cta";
 import { localizedPath, toAppLocale } from "@/lib/locale";
 import { PRIVACY_POLICY_PATH } from "@/lib/privacy-policy";
+import { TERMS_PATH } from "@/lib/terms";
 
 type BaseProps = ComponentProps<typeof BaseStorefrontShell>;
 
@@ -46,6 +47,8 @@ export async function StorefrontShell(
     | "languageSwitcher"
     | "privacyHref"
     | "privacyLabel"
+    | "termsHref"
+    | "termsLabel"
     | "footerLinkHref"
     | "footerLinkLabel"
   >,
@@ -68,6 +71,13 @@ export async function StorefrontShell(
       // place that knows which language is being read.
       privacyHref={localizedPath(locale, PRIVACY_POLICY_PATH)}
       privacyLabel={t("privacyPolicy")}
+      // The Terms and Conditions link, beside it and on the same rule: on
+      // every page's footer, not a prop a page may pass, localized here. The
+      // body it opens is Spanish on both locales — the single legally
+      // prevailing text (§37) — but the address still carries the reader's
+      // language so the page's own chrome does.
+      termsHref={localizedPath(locale, TERMS_PATH)}
+      termsLabel={t("termsAndConditions")}
       // The "Create an event" invitation, on every page's footer and not a
       // prop a page may pass, for the same reason. This is the quiet, always-
       // present half of the CTA — and on a phone, where the header button is

@@ -7108,6 +7108,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/terms/{locale}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Current Términos y Condiciones
+         * @description Serves the Terms Version currently in effect: the version label, its effective date, the SHA-256 fingerprint of the edition, the full Términos y Condiciones Generales (`body_markdown`) and the mandatory acceptance checkbox label (`acceptance_label`). All text is markdown and all of it is what the fingerprint covers. The document is published in Spanish only — the single legally prevailing text (§37) — and is served for ANY requested locale rather than falling back or 404ing; the `locale` field names the language of the text ("es"), not the language asked for. Public and unauthenticated.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Locale the terms are asked for in; the Spanish text is served regardless */
+                    locale: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeTerms"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/events": {
         parameters: {
             query?: never;
@@ -13536,6 +13587,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeTerms": {
+            data?: components["schemas"]["service.TermsView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeTicketAnswersDetail": {
             data?: components["schemas"]["service.TicketAnswersView"];
             error?: components["schemas"]["platform.APIError"];
@@ -13601,7 +13657,8 @@ export interface components {
             request_id?: string;
         };
         /**
-         * @description Locale is the language everything below is written in.
+         * @description Locale is the language the text below is written in — always "es", the
+         *     single legally prevailing text (§37), whatever language was asked for.
          * @enum {string}
          */
         "platform.Locale": "en" | "es" | "en";
@@ -16605,6 +16662,25 @@ export interface components {
             canonical_key?: string;
             curated?: boolean;
             name?: string;
+        };
+        "service.TermsView": {
+            /**
+             * @description AcceptanceLabel is the mandatory checkbox's label, markdown. The UI may
+             *     not reword or pre-tick it.
+             */
+            acceptance_label?: string;
+            /** @description BodyMarkdown is the full Términos y Condiciones, markdown. */
+            body_markdown?: string;
+            /**
+             * @description ContentHash is the fingerprint of the artifact set below, published so a
+             *     reader can hold the platform to it.
+             */
+            content_hash?: string;
+            /** @description EffectiveDate is the day this edition took effect, YYYY-MM-DD. */
+            effective_date?: string;
+            locale?: components["schemas"]["platform.Locale"];
+            /** @description Version is the label a human names this edition by ("1"). */
+            version?: string;
         };
         "service.TicketAnswersView": {
             /**

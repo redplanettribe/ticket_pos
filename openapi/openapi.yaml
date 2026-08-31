@@ -1954,6 +1954,15 @@ components:
         request_id:
           type: string
       type: object
+    openapi.EnvelopeTerms:
+      properties:
+        data:
+          $ref: '#/components/schemas/service.TermsView'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
     openapi.EnvelopeTicketAnswersDetail:
       properties:
         data:
@@ -2077,7 +2086,9 @@ components:
           type: string
       type: object
     platform.Locale:
-      description: Locale is the language everything below is written in.
+      description: |-
+        Locale is the language the text below is written in — always "es", the
+        single legally prevailing text (§37), whatever language was asked for.
       enum:
       - en
       - es
@@ -6023,6 +6034,30 @@ components:
         curated:
           type: boolean
         name:
+          type: string
+      type: object
+    service.TermsView:
+      properties:
+        acceptance_label:
+          description: |-
+            AcceptanceLabel is the mandatory checkbox's label, markdown. The UI may
+            not reword or pre-tick it.
+          type: string
+        body_markdown:
+          description: BodyMarkdown is the full Términos y Condiciones, markdown.
+          type: string
+        content_hash:
+          description: |-
+            ContentHash is the fingerprint of the artifact set below, published so a
+            reader can hold the platform to it.
+          type: string
+        effective_date:
+          description: EffectiveDate is the day this edition took effect, YYYY-MM-DD.
+          type: string
+        locale:
+          $ref: '#/components/schemas/platform.Locale'
+        version:
+          description: Version is the label a human names this edition by ("1").
           type: string
       type: object
     service.TicketAnswersView:
@@ -12241,6 +12276,40 @@ paths:
                 $ref: '#/components/schemas/platform.Envelope'
           description: Bad Request
       summary: List public filter tags
+      tags:
+      - public
+  /api/v1/public/terms/{locale}:
+    get:
+      description: 'Serves the Terms Version currently in effect: the version label,
+        its effective date, the SHA-256 fingerprint of the edition, the full Términos
+        y Condiciones Generales (`body_markdown`) and the mandatory acceptance checkbox
+        label (`acceptance_label`). All text is markdown and all of it is what the
+        fingerprint covers. The document is published in Spanish only — the single
+        legally prevailing text (§37) — and is served for ANY requested locale rather
+        than falling back or 404ing; the `locale` field names the language of the
+        text ("es"), not the language asked for. Public and unauthenticated.'
+      parameters:
+      - description: Locale the terms are asked for in; the Spanish text is served
+          regardless
+        in: path
+        name: locale
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeTerms'
+          description: OK
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Internal Server Error
+      summary: Current Términos y Condiciones
       tags:
       - public
   /api/v1/staff/events:

@@ -83,3 +83,17 @@ func ErrConsentGrantNotPermitted() apperror.DomainError {
 		nil,
 	)
 }
+
+// ErrNoCurrentTermsVersion is returned when no Terms Version is in effect.
+//
+// Unreachable for the reason ErrNoCurrentPolicyVersion is: migration 105 seeds
+// edition 1 and a version is never deleted. It exists because serving the
+// embedded contract with no version label beside it would publish a text
+// nobody can be recorded as having accepted.
+func ErrNoCurrentTermsVersion() apperror.DomainError {
+	return apperror.New(
+		"NO_CURRENT_TERMS_VERSION",
+		"No Terms version is in effect.",
+		nil,
+	)
+}

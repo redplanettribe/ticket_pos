@@ -53,6 +53,14 @@ type StorefrontShellProps = {
   privacyHref?: string;
   privacyLabel?: string;
   /**
+   * The Terms and Conditions link in the footer, beside the Privacy Policy's:
+   * where it points and what it says. Both optional and BOTH required to
+   * render, a plain localized path — everything the privacy pair's comment
+   * says holds here. Staff passes neither and its footer is untouched.
+   */
+  termsHref?: string;
+  termsLabel?: string;
+  /**
    * One more footer link, after Privacy Policy: where it points and what it
    * says.
    *
@@ -82,6 +90,8 @@ export function StorefrontShell({
   homeHref = "/",
   privacyHref,
   privacyLabel,
+  termsHref,
+  termsLabel,
   footerLinkHref,
   footerLinkLabel,
 }: StorefrontShellProps) {
@@ -122,6 +132,16 @@ export function StorefrontShell({
               </span>
               <a href={privacyHref} className="hover:text-foreground">
                 {privacyLabel}
+              </a>
+            </>
+          ) : null}
+          {termsHref && termsLabel ? (
+            <>
+              <span aria-hidden className="px-2">
+                ·
+              </span>
+              <a href={termsHref} className="hover:text-foreground">
+                {termsLabel}
               </a>
             </>
           ) : null}

@@ -6,6 +6,7 @@
     "closeLabel": "Close",
     "languageSwitcherLabel": "Language",
     "privacyPolicy": "Privacy Policy",
+    "termsAndConditions": "Terms and Conditions",
     "createEvent": "Create an event"
   },
   "explorer": {
@@ -558,6 +559,14 @@
     "withdrawAllNothingToast": "There was nothing left to withdraw — everything was already off.",
     "withdrawAllFailed": "That could not be saved. Please try again.",
     "withdrawAllNetworkFailed": "That could not be saved. Please check your connection and try again."
+  },
+  "terms": {
+    "metaTitle": "Terms and Conditions \u00b7 {brand}",
+    "metaDescription": "The general terms and conditions governing the use of {brand}. Published in Spanish, the legally prevailing text.",
+    "title": "Terms and Conditions",
+    "effectiveDate": "In effect since {date}",
+    "version": "Version {version}",
+    "contentHash": "Fingerprint: {hash}"
   },
   "privacy": {
     "metaTitle": "Privacy Policy · {brand}",
