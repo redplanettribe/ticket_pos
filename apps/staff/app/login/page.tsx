@@ -1,11 +1,47 @@
+import { cookies } from "next/headers";
+
+import { callBackend } from "@/lib/api";
 import { GOOGLE_SIGN_IN_START_PATH, isGoogleSignInConfigured } from "@/lib/google-signin";
 import { resolveSignInIntent } from "@/lib/login-copy";
+import { PENDING_TERMS_COOKIE } from "@/lib/pending-terms";
+import { storefrontTermsUrl } from "@/lib/storefront";
 
-import { LoginForm } from "./login-form";
+import { LoginForm, type PendingTermsStep } from "./login-form";
 
 type LoginPageProps = {
-  searchParams: Promise<{ google?: string; intent?: string | string[] }>;
+  searchParams: Promise<{ google?: string; intent?: string | string[]; terms?: string }>;
 };
+
+/**
+ * The terms step a Google sign-in was held at (#538): the callback parked the
+ * single-use token in an httpOnly cookie and sent the browser here. The page
+ * confirms the cookie exists and fetches the checkbox label from the public
+ * terms endpoint — the label is evidence and comes from the backend artifact,
+ * never from a catalog — but the token itself stays server-side; the accept
+ * route reads it from the cookie. A missing cookie or a failed fetch renders
+ * the ordinary card: the person signs in again, which re-mints everything.
+ */
+async function pendingTermsFromCookie(): Promise<PendingTermsStep | null> {
+  const store = await cookies();
+  if (!store.get(PENDING_TERMS_COOKIE)?.value) {
+    return null;
+  }
+  try {
+    const envelope = await callBackend<{ acceptance_label: string; version: string }>(
+      "/api/v1/public/terms/es",
+    );
+    if (!envelope.data) {
+      return null;
+    }
+    return {
+      acceptanceLabel: envelope.data.acceptance_label,
+      version: envelope.data.version,
+      tokenInCookie: true,
+    };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The sign-in page is a server component only so that it can read what this
@@ -30,13 +66,17 @@ type LoginPageProps = {
  * once, in i18n/request.ts, off the cookie and Accept-Language.
  */
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const { google, intent } = await searchParams;
+  const { google, intent, terms } = await searchParams;
+
+  const pendingTerms = terms === "required" ? await pendingTermsFromCookie() : null;
 
   return (
     <LoginForm
       intent={resolveSignInIntent(intent)}
       googleFailed={google === "failed"}
       googleSignInHref={isGoogleSignInConfigured() ? GOOGLE_SIGN_IN_START_PATH : null}
+      termsUrl={storefrontTermsUrl()}
+      initialPendingTerms={pendingTerms}
     />
   );
 }

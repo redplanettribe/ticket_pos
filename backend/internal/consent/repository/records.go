@@ -38,7 +38,12 @@ type Record struct {
 	PolicyAcceptance  sql.NullBool
 	MarketingConsent  sql.NullBool
 	NetworkingConsent sql.NullBool
-	EmailProven       bool
+	// The Terms answer and WHICH EDITION was shown (#536, migration 106). Both
+	// invalid where the box was not shown, which is every surface but the ones
+	// that owe it — and the CHECK constraint holds the pair together.
+	TermsAcceptance sql.NullBool
+	TermsVersionID  sql.NullString
+	EmailProven     bool
 	// The technical proof. Invalid where the surface collected nothing, so that
 	// "not collected" stays distinguishable from "collected as blank".
 	IP        sql.NullString
@@ -71,6 +76,16 @@ type StateWrite struct {
 	// both exactly as they were: a capture where the required box was not shown
 	// must not clear a standing acceptance.
 	AcceptPolicy bool
+	// AcceptTerms stamps terms_accepted_at and terms_version_id with the edition
+	// named beside it (#536, migration 106). False leaves both exactly as they
+	// were, for AcceptPolicy's reason: a capture where the Terms box was not
+	// shown — every withdrawal channel included — must not clear a standing
+	// acceptance. There is no instruction that clears it, which is the
+	// no-withdrawal ruling (ADR 0066) as a shape rather than a rule.
+	AcceptTerms bool
+	// TermsVersionID is the edition AcceptTerms stamps, resolved by the service
+	// from `terms_versions` — empty when AcceptTerms is false.
+	TermsVersionID string
 	// Marketing and Networking are the two optional consents' writes.
 	Marketing  ConsentStateWrite
 	Networking ConsentStateWrite
@@ -109,6 +124,10 @@ type CustomerConsentState struct {
 	PolicyVersionID   sql.NullString
 	MarketingConsent  consent.State
 	NetworkingConsent consent.State
+	// The Terms pair (#536, migration 106): null where no edition was ever
+	// accepted, which is every Customer on the day the feature ships.
+	TermsAcceptedAt sql.NullTime
+	TermsVersionID  sql.NullString
 }
 
 // priorState is one optional consent's prior-state column: what the state was
@@ -140,7 +159,8 @@ var ErrCustomerNotFound = errors.New("customer not found")
 // One string, read two ways below, so the locking read and the ordinary one
 // cannot answer differently.
 const consentStateQuery = `
-	SELECT policy_accepted_at, policy_version_id, marketing_consent, networking_consent
+	SELECT policy_accepted_at, policy_version_id, marketing_consent, networking_consent,
+	       terms_accepted_at, terms_version_id
 	FROM customers
 	WHERE id = $1
 `
@@ -176,6 +196,8 @@ func scanConsentState(row *sql.Row) (CustomerConsentState, error) {
 		&state.PolicyVersionID,
 		&marketing,
 		&networking,
+		&state.TermsAcceptedAt,
+		&state.TermsVersionID,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return CustomerConsentState{}, ErrCustomerNotFound
@@ -413,15 +435,17 @@ func (r *Repository) AppendTx(ctx context.Context, tx *sql.Tx, record Record, st
 		INSERT INTO consent_records (
 			customer_id, email, channel, captured_at, policy_version_id,
 			policy_acceptance, marketing_consent, networking_consent,
+			terms_acceptance, terms_version_id,
 			email_proven, ip, user_agent, session_id, origin_url,
 			prior_marketing_consent, prior_networking_consent,
 			recorded_by, request_reference
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 		RETURNING id
 	`,
 		record.CustomerID, record.Email, string(record.Channel), record.CapturedAt, record.PolicyVersionID,
 		record.PolicyAcceptance, record.MarketingConsent, record.NetworkingConsent,
+		record.TermsAcceptance, record.TermsVersionID,
 		record.EmailProven, record.IP, record.UserAgent, record.SessionID, record.OriginURL,
 		priorState(record.MarketingConsent, prior.MarketingConsent),
 		priorState(record.NetworkingConsent, prior.NetworkingConsent),
@@ -459,16 +483,21 @@ func (r *Repository) AppendTx(ctx context.Context, tx *sql.Tx, record Record, st
 				WHEN $8 AND networking_consent IS NOT NULL AND networking_consent <> 'pending_confirmation' THEN networking_consent
 				ELSE $7::text
 			END,
-			digest_enabled = COALESCE($9::boolean, digest_enabled)
+			digest_enabled = COALESCE($9::boolean, digest_enabled),
+			terms_accepted_at = CASE WHEN $10 THEN $3 ELSE terms_accepted_at END,
+			terms_version_id  = CASE WHEN $10 THEN $11::uuid ELSE terms_version_id END
 		WHERE id = $1
-		RETURNING policy_accepted_at, policy_version_id, marketing_consent, networking_consent
+		RETURNING policy_accepted_at, policy_version_id, marketing_consent, networking_consent,
+		          terms_accepted_at, terms_version_id
 	`,
 		record.CustomerID,
 		state.AcceptPolicy, record.CapturedAt, record.PolicyVersionID,
 		string(state.Marketing.State), state.Marketing.OnlyWhenUnanswered,
 		string(state.Networking.State), state.Networking.OnlyWhenUnanswered,
 		state.DigestEnabled,
-	).Scan(&resulting.PolicyAcceptedAt, &resulting.PolicyVersionID, &marketing, &networking)
+		state.AcceptTerms, sql.NullString{String: state.TermsVersionID, Valid: state.TermsVersionID != ""},
+	).Scan(&resulting.PolicyAcceptedAt, &resulting.PolicyVersionID, &marketing, &networking,
+		&resulting.TermsAcceptedAt, &resulting.TermsVersionID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", CustomerConsentState{}, CustomerConsentState{}, ErrCustomerNotFound
 	}

@@ -168,6 +168,9 @@ services:
       # onwards over the Compose network. So this is server-only and runtime,
       # and Staff needs no NEXT_PUBLIC_* build args at all.
       API_URL: http://api:8080
+      # The parity Storefront's PUBLISHED origin, for the terms step's link out
+      # (#538) — followed by a browser, so the published port.
+      STOREFRONT_BASE_URL: http://localhost:64603
     depends_on:
       api:
         condition: service_healthy

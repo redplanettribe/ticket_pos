@@ -205,12 +205,16 @@ func TestWithdrawAllSettlesAPendingConfirmationAsNo(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
 
+	// Sign in first, then pend: the Terms re-gate's consent step answers the
+	// optional boxes, and a guest's tick only pends over unanswered (#536).
+	token := customerSignIn(t, env, "ana@example.com")
+	resetOptionalConsentsToUnanswered(t, env, "ana@example.com")
+
 	guestCheckoutPending(t, env, sessionID, "ana@example.com", "pending-fest", boolPtr(true), boolPtr(true))
 	if state := readConsentState(t, env, "ana@example.com"); state.MarketingConsent.String != "pending_confirmation" {
 		t.Fatalf("marketing_consent = %q, want the pending state this test needs", state.MarketingConsent.String)
 	}
 
-	token := customerSignIn(t, env, "ana@example.com")
 	view := withdrawAll(t, env, token)
 
 	wantConsents(t, view.Consents, "denied", "denied", "the owner settled both pending ticks as No")

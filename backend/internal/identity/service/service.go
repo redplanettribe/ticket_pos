@@ -113,6 +113,10 @@ type Service struct {
 	// this service accepts, and like otp it establishes an email and nothing
 	// more (ADR 0011).
 	google *googleauth.Client
+	// termsVersions is the sign-in gate's one read of the consent module: which
+	// Terms edition is current (#538, ADR 0066). See TermsVersionSource on why
+	// it is an interface and why it is this narrow.
+	termsVersions TermsVersionSource
 }
 
 // New returns an identity service.
@@ -123,15 +127,17 @@ func New(
 	otpService *otp.Service,
 	logger platform.Logger,
 	google *googleauth.Client,
+	termsVersions TermsVersionSource,
 ) *Service {
 	return &Service{
-		repo:        repo,
-		catalogRepo: catalogRepo,
-		storage:     objectStorage,
-		otp:         otpService,
-		logger:      logger,
-		now:         time.Now,
-		google:      google,
+		repo:          repo,
+		catalogRepo:   catalogRepo,
+		storage:       objectStorage,
+		otp:           otpService,
+		logger:        logger,
+		now:           time.Now,
+		google:        google,
+		termsVersions: termsVersions,
 	}
 }
 
@@ -189,18 +195,20 @@ func (s *Service) staffMailLocale(ctx context.Context, email string) platform.Lo
 	return platform.ResolveStaffLocale(stored)
 }
 
-// VerifyOTP validates a staff-purpose passcode and creates a Staff Session.
-// A passcode issued for any other purpose is not accepted here.
+// VerifyOTP validates a staff-purpose passcode and completes the sign-in: a
+// Staff Session, or — for an email owing a Terms Acceptance of the current
+// edition — a terms-required outcome instead (#538). A passcode issued for any
+// other purpose is not accepted here.
 //
 // detectedLocale is the language the login page was rendered in, as the caller
 // detected it. It is remembered as the person's Staff Locale if they have none,
 // and ignored otherwise — see signInProvenEmail.
-func (s *Service) VerifyOTP(ctx context.Context, email, code, detectedLocale string) (*SessionView, string, error) {
+func (s *Service) VerifyOTP(ctx context.Context, email, code, detectedLocale string) (*SignInOutcome, error) {
 	email = platform.NormalizeEmail(email)
 	now := s.now()
 
 	if err := s.otp.Verify(ctx, otpPurpose, email, code); err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	return s.signInProvenEmail(ctx, email, detectedLocale, now)
@@ -232,17 +240,52 @@ func (s *Service) VerifyOTP(ctx context.Context, email, code, detectedLocale str
 // worth refusing a session over — the person is proven and the session is what
 // they came for, so a write error is logged and the sign-in continues.
 //
+// THE TERMS GATE LIVES HERE, at the convergence, for the reason the customer
+// consent gate lives at its own (#538, ADR 0066): both doors prove the same
+// fact, so both owe the same question afterwards — has this email a Staff
+// Terms Acceptance of the current Terms Version? A gate written into VerifyOTP
+// would leave Google Sign-In an unguarded way past it. The check runs AFTER
+// the proof and never before it, so the passcode request endpoint stays the
+// non-oracle it is. A person gated here is minted NO SESSION: the locale is
+// still remembered — that write costs them nothing and must survive an
+// abandoned terms step — but the credential is withheld, and live sessions
+// minted before the gate shipped are deliberately untouched.
+//
 // The email must already be normalised and proven by the caller.
-func (s *Service) signInProvenEmail(ctx context.Context, email, detectedLocale string, now time.Time) (*SessionView, string, error) {
-	sessionID, err := newSessionToken()
-	if err != nil {
-		return nil, "", err
-	}
-
+func (s *Service) signInProvenEmail(ctx context.Context, email, detectedLocale string, now time.Time) (*SignInOutcome, error) {
 	if parsed, ok := platform.ParseLocale(detectedLocale); ok {
 		if err := s.repo.RememberStaffLocale(ctx, email, string(parsed), now); err != nil {
 			s.logger.Error("remember staff locale", "error", err)
 		}
+	}
+
+	required, err := s.gateOnTerms(ctx, email, now)
+	if err != nil {
+		return nil, err
+	}
+	if required != nil {
+		return &SignInOutcome{TermsRequired: required}, nil
+	}
+
+	session, view, err := s.mintStaffSession(ctx, email, now)
+	if err != nil {
+		return nil, err
+	}
+	return &SignInOutcome{Session: view, SessionID: session.ID}, nil
+}
+
+// mintStaffSession issues the Staff Session a proven email earns, and is the
+// one place that does: both sign-in doors reach it through signInProvenEmail,
+// and the terms step reaches it directly when an acceptance finishes a sign-in
+// that was held. The session an acceptance produces must be THE SAME session
+// the sign-in would have produced — same window, same lone-membership
+// auto-selection, same view on the wire — and one statement minting it is the
+// only way to guarantee that (the customer door's mintSession, for its
+// reasons).
+func (s *Service) mintStaffSession(ctx context.Context, email string, now time.Time) (repository.Session, *SessionView, error) {
+	sessionID, err := newSessionToken()
+	if err != nil {
+		return repository.Session{}, nil, err
 	}
 
 	session := repository.Session{
@@ -255,21 +298,21 @@ func (s *Service) signInProvenEmail(ctx context.Context, email, detectedLocale s
 
 	memberships, err := s.repo.ListMemberships(ctx, email)
 	if err != nil {
-		return nil, "", err
+		return repository.Session{}, nil, err
 	}
 	if len(memberships) == 1 {
 		session.ActiveMemberID = sql.NullString{String: memberships[0].MemberID, Valid: true}
 	}
 
 	if err := s.repo.CreateSession(ctx, session); err != nil {
-		return nil, "", err
+		return repository.Session{}, nil, err
 	}
 
 	view, err := s.buildSessionView(ctx, &session)
 	if err != nil {
-		return nil, "", err
+		return repository.Session{}, nil, err
 	}
-	return view, sessionID, nil
+	return session, view, nil
 }
 
 // GetSession loads and optionally extends a session.

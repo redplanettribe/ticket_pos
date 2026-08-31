@@ -768,6 +768,11 @@ func registerAuthRoutes(mux *http.ServeMux, app *App) {
 	// auth-fork afterwards (ADR 0011). The exchange uses the staff OAuth client,
 	// so a code obtained on the Storefront is not redeemable here.
 	mux.HandleFunc("POST /api/v1/auth/google/verify", h.VerifyGoogle)
+	// The terms step both doors above can be held at (#538, ADR 0066): spends
+	// the pending-terms token a gated verify returned and mints the Staff
+	// Session the sign-in withheld. Unauthenticated because the token IS the
+	// credential, exactly as the customer consent submission is.
+	mux.HandleFunc("POST /api/v1/auth/terms/accept", h.AcceptTerms)
 	mux.HandleFunc("GET /api/v1/auth/session", h.GetSession)
 	mux.HandleFunc("POST /api/v1/auth/logout", h.Logout)
 }

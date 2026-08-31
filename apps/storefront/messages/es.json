@@ -358,6 +358,7 @@
     "consent": {
       "description": "Antes de iniciar tu sesión, lee cómo tratamos tus datos e indícanos qué autorizas.",
       "readPolicy": "Leer la Política de Privacidad completa",
+      "readTerms": "Leer los Términos y Condiciones completos",
       "optional": "Opcional",
       "submit": "Aceptar e iniciar sesión",
       "unavailable": "Ahora mismo no podemos mostrarte el aviso de privacidad, así que no podemos terminar de iniciar tu sesión. Inténtalo de nuevo en un momento.",

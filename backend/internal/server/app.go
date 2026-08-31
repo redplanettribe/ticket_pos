@@ -195,7 +195,14 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 
 	identityRepo := identityrepo.New(db)
 	catalogRepo := catalogrepo.New(db)
-	identityService := identitysvc.New(identityRepo, catalogRepo, objectStorage, otpService, platformLogger, staffGoogle)
+	// Built here, above the domain modules, because identity's sign-in gate
+	// reads the current Terms Version through it (#538, ADR 0066) — the one
+	// read identity makes of the consent module, through the narrow
+	// TermsVersionSource interface identity declares. The consent service and
+	// handler are still built below, with the other domain modules, from this
+	// same repository.
+	consentRepo := consentrepo.New(db)
+	identityService := identitysvc.New(identityRepo, catalogRepo, objectStorage, otpService, platformLogger, staffGoogle, consentRepo)
 	if options.clock != nil {
 		identityService = identityService.WithClock(options.clock)
 	}
@@ -228,7 +235,6 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// direction is the whole design: customers may depend on consent, consent may
 	// never depend on customers, and the module that decides whether a Customer
 	// Session may be minted must not be the one that owns Customer Sessions.
-	consentRepo := consentrepo.New(db)
 	consentService := consentsvc.New(consentRepo, platformLogger)
 	consentHandler := consenthandler.New(consentService)
 	if options.clock != nil {

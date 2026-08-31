@@ -128,6 +128,23 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 		return consent.Receipt{}, err
 	}
 
+	// The Terms edition is resolved ONLY when the box was shown (#536, ADR
+	// 0066), because unlike the Policy Version it is part of the answer's
+	// evidence rather than of every act's: a capture that said nothing about the
+	// Terms names no edition, and migration 106's CHECK holds answer and edition
+	// together. Resolved server-side like the Policy Version and never a
+	// parameter — which edition somebody accepted is the platform's finding.
+	var termsVersion repository.TermsVersion
+	if capture.Answers.TermsAcceptance != nil {
+		termsVersion, err = s.repo.CurrentTermsVersion(ctx)
+		if errors.Is(err, repository.ErrNoCurrentTermsVersion) {
+			return consent.Receipt{}, consent.ErrNoCurrentTermsVersion()
+		}
+		if err != nil {
+			return consent.Receipt{}, err
+		}
+	}
+
 	now := s.now()
 	record := repository.Record{
 		CustomerID:        capture.CustomerID,
@@ -138,6 +155,8 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 		PolicyAcceptance:  nullBool(capture.Answers.PolicyAcceptance),
 		MarketingConsent:  nullBool(capture.Answers.MarketingConsent),
 		NetworkingConsent: nullBool(capture.Answers.NetworkingConsent),
+		TermsAcceptance:   nullBool(capture.Answers.TermsAcceptance),
+		TermsVersionID:    nullString(termsVersion.ID),
 		EmailProven:       capture.EmailProven,
 		IP:                nullString(capture.Evidence.IP),
 		UserAgent:         nullString(capture.Evidence.UserAgent),
@@ -152,10 +171,15 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 	}
 
 	state := repository.StateWrite{
-		AcceptPolicy:  capture.Answers.PolicyAcceptance != nil && *capture.Answers.PolicyAcceptance,
-		Marketing:     optionalStateWrite(capture.Answers.MarketingConsent, capture.EmailProven),
-		Networking:    optionalStateWrite(capture.Answers.NetworkingConsent, capture.EmailProven),
-		DigestEnabled: digestLockstep(capture.Answers.MarketingConsent, capture.EmailProven),
+		AcceptPolicy: capture.Answers.PolicyAcceptance != nil && *capture.Answers.PolicyAcceptance,
+		// A tick stamps the current edition; anything else — not shown, or shown
+		// and refused — leaves the standing state exactly as it was. Nothing can
+		// clear it: Terms acceptance has no withdrawal path (ADR 0066).
+		AcceptTerms:    capture.Answers.TermsAcceptance != nil && *capture.Answers.TermsAcceptance,
+		TermsVersionID: termsVersion.ID,
+		Marketing:      optionalStateWrite(capture.Answers.MarketingConsent, capture.EmailProven),
+		Networking:     optionalStateWrite(capture.Answers.NetworkingConsent, capture.EmailProven),
+		DigestEnabled:  digestLockstep(capture.Answers.MarketingConsent, capture.EmailProven),
 	}
 
 	var recordID string
@@ -241,6 +265,14 @@ func (s *Service) Outstanding(ctx context.Context, customerID string) (consent.O
 		return consent.Outstanding{}, err
 	}
 
+	termsVersion, err := s.repo.CurrentTermsVersion(ctx)
+	if errors.Is(err, repository.ErrNoCurrentTermsVersion) {
+		return consent.Outstanding{}, consent.ErrNoCurrentTermsVersion()
+	}
+	if err != nil {
+		return consent.Outstanding{}, err
+	}
+
 	return consent.Outstanding{
 		// Acceptance is of a VERSION: an acceptance of any other edition is not
 		// an acceptance of this one, which is what makes publishing a row re-gate
@@ -250,6 +282,10 @@ func (s *Service) Outstanding(ctx context.Context, customerID string) (consent.O
 		// not the owner's answer, and the owner gets asked (ADR 0035).
 		MarketingConsent:  !state.MarketingConsent.Answered(),
 		NetworkingConsent: !state.NetworkingConsent.Answered(),
+		// The same version rule over the parallel table (#536, ADR 0066): the two
+		// documents re-gate independently, and nobody is grandfathered here
+		// either — on the day the seed lands, every Customer owes edition "1".
+		TermsAcceptance: !state.TermsVersionID.Valid || state.TermsVersionID.String != termsVersion.ID,
 	}, nil
 }
 

@@ -73,7 +73,12 @@
     "sendFailed": "No se pudo enviar el código",
     "verifyFailed": "No se pudo verificar el código",
     "sessionFailed": "No se pudo cargar la sesión",
-    "selectOrganizationFailed": "Inició sesión, pero no pudimos abrir su organización. Vuelva a intentarlo."
+    "selectOrganizationFailed": "Inició sesión, pero no pudimos abrir su organización. Vuelva a intentarlo.",
+    "termsDescription": "Un paso más: acepte los Términos y Condiciones para continuar.",
+    "termsLinkLabel": "Leer los Términos y Condiciones completos",
+    "termsAccept": "Aceptar y continuar",
+    "termsAccepting": "Aceptando...",
+    "termsFailed": "No se pudo registrar su aceptación. Vuelva a intentarlo o inicie sesión de nuevo."
   },
   "events": {
     "title": "Eventos",

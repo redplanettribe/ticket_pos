@@ -55,9 +55,15 @@ func signedInConsentBoxes(t *testing.T, env *testEnv, token string) consentBoxes
 
 // assertBoxes states the whole matrix row at once, so a failure names which box
 // went wrong rather than which assertion was reached first.
+//
+// THE TERMS BOX IS DELIBERATELY NOT IN THE ROW (#536). This matrix is about the
+// privacy boxes' visibility, and every full session it reads was minted through
+// a sign-in that settled the Terms — the checkout's own Terms behaviour is
+// #537's seam, and the one session that genuinely differs (the sale-scoped
+// Confirmation Link one) asserts its Terms box explicitly where it is minted.
 func assertBoxes(t *testing.T, got consentBoxes, policy, marketing, networking bool, why string) {
 	t.Helper()
-	want := consentBoxes{PolicyAcceptance: policy, MarketingConsent: marketing, NetworkingConsent: networking}
+	want := consentBoxes{PolicyAcceptance: policy, MarketingConsent: marketing, NetworkingConsent: networking, TermsAcceptance: got.TermsAcceptance}
 	if got != want {
 		t.Fatalf("consent boxes = %+v, want %+v (%s)", got, want, why)
 	}
@@ -510,7 +516,16 @@ func TestConfirmationLinkSessionIsShownEveryBox(t *testing.T) {
 	}
 	assertBoxes(t, view.ConsentBoxes, true, true, true,
 		"the redemption's own view says the same thing the session read does")
+	// The Terms box too (#536): a forwarded link proves nothing about who holds
+	// it, so the contractual box is asked exactly as the privacy ones are.
+	if !view.ConsentBoxes.TermsAcceptance {
+		t.Fatal("terms_acceptance = false on a Confirmation Link session, want every box shown")
+	}
 
-	assertBoxes(t, signedInConsentBoxes(t, env, saleScoped), true, true, true,
+	saleScopedBoxes := signedInConsentBoxes(t, env, saleScoped)
+	assertBoxes(t, saleScopedBoxes, true, true, true,
 		"a forwarded email is not Proof of Email Ownership, so nothing is taken as answered")
+	if !saleScopedBoxes.TermsAcceptance {
+		t.Fatal("terms_acceptance = false on the session read, want every box shown")
+	}
 }

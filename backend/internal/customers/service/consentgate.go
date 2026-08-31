@@ -98,7 +98,8 @@ type SignInOutcome struct {
 	Session   *CustomerSessionView `json:"session"`
 	SessionID string               `json:"session_id"`
 	// ConsentRequired is non-nil when no session was minted because the Customer
-	// has no Policy Acceptance of the current Policy Version.
+	// has no Policy Acceptance of the current Policy Version, no Terms
+	// Acceptance of the current Terms Version (#536, ADR 0066), or both.
 	ConsentRequired *ConsentRequiredView `json:"consent_required"`
 }
 
@@ -126,8 +127,13 @@ type ConsentRequiredView struct {
 
 // ConsentBoxesView is which checkboxes a capture surface must render.
 //
-// PolicyAcceptance is always true here: this outcome exists precisely because
-// the current Policy Version is unaccepted. The optional two are true only
+// The two REQUIRED boxes — Policy Acceptance and, since #536, the Terms — are
+// each true exactly where they are owed, and on a consent-required outcome at
+// least one of them is: the outcome exists precisely because a required
+// acceptance is outstanding. They are owed independently, because the two
+// documents version independently (ADR 0066): a Policy bump re-shows the
+// policy box alone, a Terms edition re-shows the terms box alone, and a person
+// current on both is never stopped at all. The optional two are true only
 // where the Customer's state is unanswered — with Pending Confirmation counting
 // as unanswered, because somebody else's tick is not the owner's answer — so a
 // Customer re-prompted by a version bump is shown the required box ALONE and
@@ -140,6 +146,7 @@ type ConsentBoxesView struct {
 	PolicyAcceptance  bool `json:"policy_acceptance"`
 	MarketingConsent  bool `json:"marketing_consent"`
 	NetworkingConsent bool `json:"networking_consent"`
+	TermsAcceptance   bool `json:"terms_acceptance"`
 }
 
 // ConsentSubmission is a consent step being finished: the token, what was
@@ -150,6 +157,11 @@ type ConsentSubmission struct {
 	// PolicyAcceptance is the required box. False is refused by the API and not
 	// merely by a disabled button — see consent.ErrPolicyAcceptanceRequired.
 	PolicyAcceptance bool
+	// TermsAcceptance is the other required box (#536, ADR 0066), required
+	// exactly where it is OWED: a Customer re-gated by a Policy bump alone is
+	// not shown it and not judged on it. False where owed is refused by the API
+	// — see consent.ErrTermsAcceptanceRequired.
+	TermsAcceptance bool
 	// MarketingConsent and NetworkingConsent are the optional boxes as they were
 	// submitted. False means SHOWN AND LEFT UNTICKED, which is an explicit No,
 	// and is recorded as `denied` rather than as silence (ADR 0034).
@@ -200,12 +212,6 @@ func (s *Service) SubmitConsent(ctx context.Context, submission ConsentSubmissio
 		return nil, customers.ErrPendingConsentInvalid()
 	}
 
-	// The required box, refused by the API. The Storefront disables its submit
-	// button too, and that is a courtesy; this is the guarantee.
-	if !submission.PolicyAcceptance {
-		return nil, consent.ErrPolicyAcceptanceRequired()
-	}
-
 	customer, err := s.repo.GetCustomerByID(ctx, pending.CustomerID)
 	if err != nil {
 		return nil, err
@@ -226,8 +232,36 @@ func (s *Service) SubmitConsent(ctx context.Context, submission ConsentSubmissio
 		return nil, err
 	}
 
-	accepted := true
-	answers := consent.Answers{PolicyAcceptance: &accepted}
+	// The required boxes, refused by the API — the Storefront disables its
+	// submit button too, and that is a courtesy; this is the guarantee.
+	//
+	// ADR 0039's rule STANDS: a sign-in submission carries a Policy Acceptance,
+	// whatever this Customer has already accepted, because the grant-shaped
+	// submission a stolen withdrawal-door token could otherwise smuggle through
+	// must keep meeting the same wall it always did
+	// (consent_withdrawal_without_signin_test.go). The ONE exception, and the
+	// only reading under which #536 is implementable at all, is the step whose
+	// only owed required box is the Terms: a Terms-only re-gate showed no
+	// policy box, and refusing over — or evidencing an answer to — a box the
+	// person never saw would be worse than the rule it bends.
+	termsOnlyStep := outstanding.TermsAcceptance && !outstanding.PolicyAcceptance
+	if !termsOnlyStep && !submission.PolicyAcceptance {
+		return nil, consent.ErrPolicyAcceptanceRequired()
+	}
+	// The Terms box is required exactly where it is OWED (#536, ADR 0066).
+	if outstanding.TermsAcceptance && !submission.TermsAcceptance {
+		return nil, consent.ErrTermsAcceptanceRequired()
+	}
+
+	answers := consent.Answers{}
+	if !termsOnlyStep {
+		accepted := true
+		answers.PolicyAcceptance = &accepted
+	}
+	if outstanding.TermsAcceptance {
+		acceptedTerms := true
+		answers.TermsAcceptance = &acceptedTerms
+	}
 	if outstanding.MarketingConsent {
 		marketing := submission.MarketingConsent
 		answers.MarketingConsent = &marketing
@@ -287,8 +321,9 @@ func (s *Service) SubmitConsent(ctx context.Context, submission ConsentSubmissio
 // gateOnConsent decides what a proven email earns: a Customer Session, or a
 // consent step.
 //
-// The predicate is one thing and one thing only — no Policy Acceptance of the
-// CURRENT Policy Version — and it has no special cases in it. A Customer
+// The predicate is required acceptances and nothing else — no Policy
+// Acceptance of the CURRENT Policy Version, or no Terms Acceptance of the
+// current Terms Version (#536, ADR 0066) — and it has no special cases in it. A Customer
 // created by a box-office sale, one from a Sale Import, one who has been
 // signing in since before consent existed, and one who accepted an edition that
 // has since been superseded are all gated by the same test for the same reason.
@@ -305,7 +340,7 @@ func (s *Service) SubmitConsent(ctx context.Context, submission ConsentSubmissio
 // that the boxes named below and the session minted just after cannot come from
 // two different readings of the same Customer.
 func (s *Service) gateOnConsent(ctx context.Context, customer *repository.Customer, outstanding consent.Outstanding, now time.Time) (*ConsentRequiredView, error) {
-	if !outstanding.PolicyAcceptance {
+	if !outstanding.PolicyAcceptance && !outstanding.TermsAcceptance {
 		return nil, nil
 	}
 
@@ -318,8 +353,11 @@ func (s *Service) gateOnConsent(ctx context.Context, customer *repository.Custom
 		PendingConsentToken: token,
 		ExpiresAt:           expiresAt.UTC().Format(time.RFC3339),
 		Boxes: ConsentBoxesView{
-			// Always: this outcome exists because it is outstanding.
-			PolicyAcceptance:  true,
+			// Each required box exactly where it is owed. At least one is — this
+			// outcome exists because it is outstanding — and the other is not
+			// re-shown to a person who has already accepted it (#536).
+			PolicyAcceptance:  outstanding.PolicyAcceptance,
+			TermsAcceptance:   outstanding.TermsAcceptance,
 			MarketingConsent:  outstanding.MarketingConsent,
 			NetworkingConsent: outstanding.NetworkingConsent,
 		},

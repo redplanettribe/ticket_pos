@@ -73,7 +73,7 @@ func TestGoogleSignInWithConsentOutstandingMintsNoSession(t *testing.T) {
 	}
 	// A first sign-in has answered nothing, so all three boxes are shown — the
 	// same set the passcode door is told to render.
-	want := consentBoxes{PolicyAcceptance: true, MarketingConsent: true, NetworkingConsent: true}
+	want := consentBoxes{PolicyAcceptance: true, MarketingConsent: true, NetworkingConsent: true, TermsAcceptance: true}
 	if data.ConsentRequired.Boxes != want {
 		t.Fatalf("boxes = %+v, want %+v", data.ConsentRequired.Boxes, want)
 	}

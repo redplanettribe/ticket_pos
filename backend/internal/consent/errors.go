@@ -84,6 +84,21 @@ func ErrConsentGrantNotPermitted() apperror.DomainError {
 	)
 }
 
+// ErrTermsAcceptanceRequired is returned when a submission that owes the Terms
+// box arrives without it ticked (#536, ADR 0066).
+//
+// The refusal is the API's, exactly as ErrPolicyAcceptanceRequired's is: the
+// disabled submit button is a courtesy, this is the guarantee. 400 rather than
+// 403 for the same reason — nothing about the caller is unauthorized, and
+// restating the request with the box ticked is exactly what fixes it.
+func ErrTermsAcceptanceRequired() apperror.DomainError {
+	return apperror.New(
+		"TERMS_ACCEPTANCE_REQUIRED",
+		"The Términos y Condiciones must be accepted to continue.",
+		nil,
+	)
+}
+
 // ErrNoCurrentTermsVersion is returned when no Terms Version is in effect.
 //
 // Unreachable for the reason ErrNoCurrentPolicyVersion is: migration 105 seeds

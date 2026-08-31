@@ -134,6 +134,14 @@ type Answers struct {
 	PolicyAcceptance  *bool
 	MarketingConsent  *bool
 	NetworkingConsent *bool
+	// TermsAcceptance is the Términos y Condiciones box (#536, ADR 0066): the
+	// contractual acceptance, captured beside the privacy answers but never one
+	// of them. Nil is load-bearing here exactly as above — the box was not shown
+	// on this surface — and it is the value every existing surface passes: a
+	// settings toggle, an unsubscribe, a Withdraw All and an operator-recorded
+	// withdrawal all say nothing about the Terms, which is what keeps the
+	// no-withdrawal ruling structural rather than remembered.
+	TermsAcceptance *bool
 }
 
 // Evidence is the technical proof of one capture act: the circumstances, as the
@@ -323,11 +331,17 @@ type Outstanding struct {
 	PolicyAcceptance  bool
 	MarketingConsent  bool
 	NetworkingConsent bool
+	// TermsAcceptance is outstanding when there is no recorded acceptance of the
+	// CURRENT Terms Version (#536, ADR 0066) — the same version-not-document rule
+	// PolicyAcceptance states, over the parallel table, so publishing a Terms
+	// edition re-gates everybody without a row changing and without re-gating
+	// the Privacy Policy, or vice versa.
+	TermsAcceptance bool
 }
 
 // Any reports whether anything is outstanding at all.
 func (o Outstanding) Any() bool {
-	return o.PolicyAcceptance || o.MarketingConsent || o.NetworkingConsent
+	return o.PolicyAcceptance || o.MarketingConsent || o.NetworkingConsent || o.TermsAcceptance
 }
 
 // Pending is which optional consents currently sit in Pending Confirmation:

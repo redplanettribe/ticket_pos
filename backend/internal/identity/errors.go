@@ -83,6 +83,22 @@ func ErrInvalidLogoImageKey() apperror.DomainError {
 	return apperror.New("INVALID_LOGO_IMAGE_KEY", "Logo image key is not valid for this organization.", nil)
 }
 
+// ErrPendingTermsInvalid is returned for a pending-terms token that is
+// unknown, spent or expired (#538). One refusal for all three, deliberately
+// indistinguishable, exactly as the customer side's pending-consent token
+// gets: a token cannot be probed for a different answer, and the recovery is
+// to sign in again.
+func ErrPendingTermsInvalid() apperror.DomainError {
+	return apperror.New("PENDING_TERMS_INVALID", "This sign-in can no longer be finished. Please sign in again.", nil)
+}
+
+// ErrTermsAcceptanceRequired is returned when a terms submission arrives with
+// the required box unticked (#538). The refusal lives in the API and not only
+// in the form's disabled button.
+func ErrTermsAcceptanceRequired() apperror.DomainError {
+	return apperror.New("TERMS_ACCEPTANCE_REQUIRED", "The Terms and Conditions must be accepted to continue.", nil)
+}
+
 // ErrHouseOrganizationCurrencyUnsupported is returned when an Organization is
 // designated a House Organization while trading in a currency the platform's
 // Issuer does not issue Sale Invoices in (#472, ADR 0060). The message names

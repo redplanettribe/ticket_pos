@@ -25,6 +25,7 @@ type consentBoxes struct {
 	PolicyAcceptance  bool `json:"policy_acceptance"`
 	MarketingConsent  bool `json:"marketing_consent"`
 	NetworkingConsent bool `json:"networking_consent"`
+	TermsAcceptance   bool `json:"terms_acceptance"`
 }
 
 // consentRequiredOutcome is the shape a verify answers with when it minted no
@@ -99,6 +100,10 @@ func consentAnswers(token string, policy, marketing, networking bool) map[string
 		"policy_acceptance":     policy,
 		"marketing_consent":     marketing,
 		"networking_consent":    networking,
+		// Ticked by default since #536: every gated sign-in owes Terms edition 1,
+		// and a browser shown the required box ticks it. A test about the Terms
+		// box itself overrides this key (customer_terms_acceptance_test.go).
+		"terms_acceptance": true,
 	}
 }
 
@@ -256,7 +261,7 @@ func TestSignInWithConsentOutstandingMintsNoSession(t *testing.T) {
 		t.Fatal("expected a pending-consent token")
 	}
 	// A first sign-in has answered nothing, so all three boxes are shown.
-	want := consentBoxes{PolicyAcceptance: true, MarketingConsent: true, NetworkingConsent: true}
+	want := consentBoxes{PolicyAcceptance: true, MarketingConsent: true, NetworkingConsent: true, TermsAcceptance: true}
 	if data.ConsentRequired.Boxes != want {
 		t.Fatalf("boxes = %+v, want %+v", data.ConsentRequired.Boxes, want)
 	}
@@ -700,7 +705,7 @@ func TestBoxOfficeCustomerIsGatedByTheSamePredicate(t *testing.T) {
 	if data.ConsentRequired == nil {
 		t.Fatal("a Customer created by a box-office sale must be prompted at their first sign-in")
 	}
-	want := consentBoxes{PolicyAcceptance: true, MarketingConsent: true, NetworkingConsent: true}
+	want := consentBoxes{PolicyAcceptance: true, MarketingConsent: true, NetworkingConsent: true, TermsAcceptance: true}
 	if data.ConsentRequired.Boxes != want {
 		t.Fatalf("boxes = %+v, want %+v — the same predicate, with no special case", data.ConsentRequired.Boxes, want)
 	}

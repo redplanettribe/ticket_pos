@@ -73,7 +73,12 @@
     "sendFailed": "Could not send passcode",
     "verifyFailed": "Could not verify passcode",
     "sessionFailed": "Could not load session",
-    "selectOrganizationFailed": "Signed in, but we couldn't open your organization. Try again."
+    "selectOrganizationFailed": "Signed in, but we couldn't open your organization. Try again.",
+    "termsDescription": "One more step: accept the Terms and Conditions to continue.",
+    "termsLinkLabel": "Read the full Terms and Conditions",
+    "termsAccept": "Accept and continue",
+    "termsAccepting": "Accepting...",
+    "termsFailed": "Could not record your acceptance. Try again, or sign in once more."
   },
   "events": {
     "title": "Events",

@@ -10,10 +10,15 @@ type MessageData struct {
 	Message string `json:"message"`
 }
 
-// VerifyOTPData is returned after a successful OTP verification.
+// VerifyOTPData is returned after a successful OTP verification: a Staff
+// Session, or a terms-required outcome instead of one (#538, ADR 0066).
 type VerifyOTPData struct {
 	Session   *service.SessionView `json:"session"`
 	SessionID string               `json:"session_id"`
+	// TermsRequired is non-nil when no session was minted because the email owes
+	// a Terms Acceptance of the current Terms Version; Session and SessionID are
+	// then empty. Finished at /api/v1/auth/terms/accept.
+	TermsRequired *service.TermsRequiredView `json:"terms_required"`
 }
 
 // EnvelopeOTPRequest documents POST /api/v1/auth/otp/request success responses.
@@ -34,6 +39,16 @@ type EnvelopeVerifyOTP struct {
 // responses. It is the VerifyOTP payload verbatim, because the two doors mint
 // the same Staff Session and nothing on the wire says which was used.
 type EnvelopeVerifyGoogle struct {
+	Data      VerifyOTPData      `json:"data"`
+	Error     *platform.APIError `json:"error"`
+	RequestID string             `json:"request_id"`
+}
+
+// EnvelopeAcceptTerms documents POST /api/v1/auth/terms/accept success
+// responses. It is the VerifyOTP payload verbatim, because a finished terms
+// step mints exactly the session the verify would have — `terms_required` is
+// null here, the way `session` was null on the response that led here.
+type EnvelopeAcceptTerms struct {
 	Data      VerifyOTPData      `json:"data"`
 	Error     *platform.APIError `json:"error"`
 	RequestID string             `json:"request_id"`

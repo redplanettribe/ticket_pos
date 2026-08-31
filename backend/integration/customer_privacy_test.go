@@ -193,6 +193,12 @@ func TestPrivacyPageShowsAPendingConfirmationAsUnresolved(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
 
+	// The owner signs in BEFORE the guest's tick lands, because the one-time
+	// Terms re-gate (#536) makes the sign-in a consent step that answers the
+	// optional boxes — and an answered box cannot be pended over.
+	token := customerSignIn(t, env, "ana@example.com")
+	resetOptionalConsentsToUnanswered(t, env, "ana@example.com")
+
 	guestCheckoutPending(t, env, sessionID, "ana@example.com", "pending-fest", boolPtr(true), nil)
 	if state := readConsentState(t, env, "ana@example.com"); state.MarketingConsent.String != "pending_confirmation" {
 		t.Fatalf("marketing_consent = %q, want the pending state this test needs", state.MarketingConsent.String)
@@ -201,7 +207,7 @@ func TestPrivacyPageShowsAPendingConfirmationAsUnresolved(t *testing.T) {
 	// Both of the two states that are NOT answers, on one screen: the guest's
 	// unresolved tick, and the box that guest was never shown. Neither may be
 	// drawn as something the owner said.
-	wantConsents(t, readPrivacy(t, env, customerSignIn(t, env, "ana@example.com")).Consents,
+	wantConsents(t, readPrivacy(t, env, token).Consents,
 		"pending_confirmation", "unanswered",
 		"somebody else's unresolved tick is not the owner's answer and must be shown as neither")
 }
@@ -406,8 +412,11 @@ func TestAPendingConfirmationIsSettledEitherWayFromThePrivacyPage(t *testing.T) 
 
 	// Refused. Settling somebody else's tick as No is a withdrawal too: something
 	// had been standing against this address and stops standing.
-	guestCheckoutPending(t, env, sessionID, "ana@example.com", "pending-fest", boolPtr(true), nil)
+	// Sign in first, then pend: the Terms re-gate's consent step answers the
+	// optional boxes, and a guest's tick only pends over unanswered (#536).
 	anaToken := customerSignIn(t, env, "ana@example.com")
+	resetOptionalConsentsToUnanswered(t, env, "ana@example.com")
+	guestCheckoutPending(t, env, sessionID, "ana@example.com", "pending-fest", boolPtr(true), nil)
 	wantConsents(t, setOptionalConsent(t, env, anaToken, "marketing", false), "denied", "unanswered",
 		"the owner settled a Pending Confirmation as No")
 	onlyWithdrawalConfirmation(t, env, "ana@example.com")
@@ -415,8 +424,9 @@ func TestAPendingConfirmationIsSettledEitherWayFromThePrivacyPage(t *testing.T) 
 
 	// Confirmed. The same starting state, settled the other way, and it sends
 	// nothing: this is a grant.
-	guestCheckoutPending(t, env, sessionID, "bruno@example.com", "pending-fest-two", boolPtr(true), nil)
 	brunoToken := customerSignIn(t, env, "bruno@example.com")
+	resetOptionalConsentsToUnanswered(t, env, "bruno@example.com")
+	guestCheckoutPending(t, env, sessionID, "bruno@example.com", "pending-fest-two", boolPtr(true), nil)
 	wantConsents(t, setOptionalConsent(t, env, brunoToken, "marketing", true), "granted", "unanswered",
 		"the owner settled a Pending Confirmation as Yes")
 	wantNoWithdrawalConfirmation(t, env, "bruno@example.com",

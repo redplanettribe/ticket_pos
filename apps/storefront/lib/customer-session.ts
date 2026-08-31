@@ -170,6 +170,13 @@ export type ConsentRequired = {
     policy_acceptance: boolean;
     marketing_consent: boolean;
     networking_consent: boolean;
+    /**
+     * The Terms box (#536, ADR 0066): the other REQUIRED box, owed
+     * independently of the policy's because the two documents version
+     * independently. On a consent-required outcome at least one of the two
+     * required boxes is true.
+     */
+    terms_acceptance: boolean;
   };
 };
 

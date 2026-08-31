@@ -42,6 +42,13 @@ func TestOpenAPIContract(t *testing.T) {
 	if _, ok := doc.Paths["/api/v1/auth/otp/request"]; !ok {
 		t.Fatal("missing auth OTP request path")
 	}
+	// The terms step the staff sign-in gate holds a proven email at (#538).
+	if _, ok := doc.Paths["/api/v1/auth/terms/accept"]; !ok {
+		t.Fatal("missing auth terms accept path")
+	}
+	if _, ok := doc.Components.Schemas["openapi.EnvelopeAcceptTerms"]; !ok {
+		t.Fatal("missing typed accept-terms envelope schema")
+	}
 }
 
 func openAPISpecPath(t *testing.T) string {

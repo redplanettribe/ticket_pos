@@ -19,6 +19,17 @@ components:
         ticket_sale_id:
           type: string
       type: object
+    handler.acceptTermsBody:
+      properties:
+        pending_terms_token:
+          description: PendingTermsToken is the single-use token a gated verify returned.
+          type: string
+        terms_acceptance:
+          description: |-
+            TermsAcceptance is the one required box. Absent is false and false is
+            refused — the API's guarantee, not the form's.
+          type: boolean
+      type: object
     handler.additionalFieldBody:
       properties:
         name:
@@ -338,6 +349,20 @@ components:
             Policy Acceptance at all can be the other act. The two readings agree
             everywhere they overlap: absent is false on the sign-in path exactly as it
             has always been.
+          type: boolean
+        terms_acceptance:
+          description: |-
+            TermsAcceptance is the Terms box (#536, ADR 0066), required exactly where
+            it is OWED — the service judges it against the same recomputed Outstanding
+            the optional answers are read against, so a Customer re-gated by a Policy
+            bump alone is not refused over a box they were never shown. Like the
+            acceptance above it carries no edition: which Terms Version is being
+            accepted is resolved server-side at the moment of capture.
+
+            A POINTER FOR THE SAME REASON POLICY ACCEPTANCE IS ONE: a submission
+            mentioning it at all is a sign-in submission, whatever it says — the Terms
+            have no withdrawal path at all (ADR 0066), so no reading of this field may
+            ever steer a submission onto the withdrawal branch.
           type: boolean
       type: object
     handler.consentWithdrawalProofBody:
@@ -1115,6 +1140,15 @@ components:
         session:
           $ref: '#/components/schemas/service.CustomerSessionView'
         session_id:
+          type: string
+      type: object
+    openapi.EnvelopeAcceptTerms:
+      properties:
+        data:
+          $ref: '#/components/schemas/openapi.VerifyOTPData'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
           type: string
       type: object
     openapi.EnvelopeAffiliateLink:
@@ -2068,6 +2102,8 @@ components:
           $ref: '#/components/schemas/service.SessionView'
         session_id:
           type: string
+        terms_required:
+          $ref: '#/components/schemas/service.TermsRequiredView'
       type: object
     platform.APIError:
       properties:
@@ -2654,6 +2690,8 @@ components:
         networking_consent:
           type: boolean
         policy_acceptance:
+          type: boolean
+        terms_acceptance:
           type: boolean
       type: object
     service.ConsentConfirmationView:
@@ -6036,6 +6074,32 @@ components:
         name:
           type: string
       type: object
+    service.TermsRequiredView:
+      description: |-
+        TermsRequired is non-nil when no session was minted because the email owes
+        a Terms Acceptance of the current Terms Version; Session and SessionID are
+        then empty. Finished at /api/v1/auth/terms/accept.
+      properties:
+        acceptance_label:
+          description: |-
+            AcceptanceLabel is the mandatory, un-premarked checkbox's label, markdown,
+            verbatim from the embedded artifact (§3). The UI renders it beside a link
+            to the public Storefront terms page and may not reword or pre-tick it —
+            the Staff app hosts no copy of the document.
+          type: string
+        expires_at:
+          description: ExpiresAt is when that token stops working, RFC 3339.
+          type: string
+        pending_terms_token:
+          description: |-
+            PendingTermsToken is the single-use, short-lived credential that exchanges
+            an acceptance for the session this sign-in did not mint. A server-side row
+            (migration 107), so spending it destroys it.
+          type: string
+        version:
+          description: Version is the edition label being accepted ("1").
+          type: string
+      type: object
     service.TermsView:
       properties:
         acceptance_label:
@@ -6668,12 +6732,16 @@ paths:
       - auth
   /api/v1/auth/otp/verify:
     post:
-      description: Verifies a one-time passcode and creates a server-side session.
+      description: 'Verifies a one-time passcode and completes the sign-in. The outcome
+        has exactly two shapes: `session` and `session_id`, or — for an email with
+        no Terms Acceptance of the current Terms Version — `terms_required` with a
+        single-use `pending_terms_token`, the edition label and the checkbox label,
+        and NO session (#538, ADR 0066). The terms step is finished at /api/v1/auth/terms/accept.
         An optional `locale` names the language the login page was rendered in, as
-        the caller detected it, and is remembered as the person's Staff Locale — but
-        only if they have none. It never overwrites a stored one, because a detected
+        the caller detected it, and is remembered as the person''s Staff Locale —
+        but only if they have none. It never overwrites a stored one, because a detected
         language must not overrule a chosen one. A language the platform does not
-        serve is ignored rather than refused, and never fails the sign-in.
+        serve is ignored rather than refused, and never fails the sign-in.'
       requestBody:
         content:
           application/json:
@@ -6732,6 +6800,53 @@ paths:
       security:
       - BearerAuth: []
       summary: Get session
+      tags:
+      - auth
+  /api/v1/auth/terms/accept:
+    post:
+      description: 'Spends the short-lived, single-use `pending_terms_token` from
+        a verify response whose outcome was `terms_required`, records one append-only
+        Staff Terms Acceptance — the current Terms edition, the capacity "organizer",
+        the timestamp, and the technical proof (IP, user agent, session, origin URL)
+        — and mints the Staff Session the sign-in withheld; the response carries `session`
+        and `session_id` exactly as a verify does (#538, ADR 0066). `terms_acceptance`
+        must be true: an unticked box is refused with TERMS_ACCEPTANCE_REQUIRED, and
+        the refusal lives in the API, not only in the form. The token is spent whatever
+        the outcome, so a refused submission is restarted by signing in again; abandoning
+        the step records nothing and leaves no session. One acceptance per email per
+        edition: subsequent sign-ins pass with no extra step until a later Terms Version
+        is published.'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/handler.acceptTermsBody'
+                description: Pending terms token and the ticked box
+                summary: body
+        description: Pending terms token and the ticked box
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeAcceptTerms'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+      summary: Accept the Terms and finish a staff sign-in
       tags:
       - auth
   /api/v1/customer/auth/confirmation-link:
@@ -6815,8 +6930,17 @@ paths:
         from their own account. A withdrawal that moved a consent out of `granted`
         or `pending_confirmation` writes its Consent Record with the prior state and
         is confirmed to the Customer by email in their Mail Locale; one that moved
-        nothing records the act and sends nothing. The Policy Version is resolved
-        server-side and is never accepted from the request. The token is spent whatever
+        nothing records the act and sends nothing. THE TERMS BOX (#536, ADR 0066)
+        rides the same submission: when the verify''s `boxes.terms_acceptance` was
+        true the Customer owes acceptance of the current Términos y Condiciones edition,
+        and a sign-in submission without `terms_acceptance: true` is refused with
+        TERMS_ACCEPTANCE_REQUIRED; where the box was not owed the field is ignored.
+        Each required box is judged only where owed, so a Customer re-gated by one
+        document alone is never refused over the other''s box. A recorded Terms acceptance
+        stamps the Customer with the edition and is carried on the same Consent Record;
+        it is contractual, has no withdrawal path, and no submission on the withdrawal
+        branch can name it. The Policy Version and the Terms Version are resolved
+        server-side and are never accepted from the request. The token is spent whatever
         the outcome and whichever act was attempted, so a refused submission is restarted
         by proving the address again; abandoning the step records nothing and leaves
         no session at all.'

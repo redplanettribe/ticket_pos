@@ -38,7 +38,7 @@ import (
 // the Staff Locale on the same terms the passcode door remembers it: only when
 // the person has none. Both doors are equal Proof of Email Ownership, and both
 // were opened from a page that knew its own language.
-func (s *Service) VerifyGoogleSignIn(ctx context.Context, code, codeVerifier, redirectURI, detectedLocale string) (*SessionView, string, error) {
+func (s *Service) VerifyGoogleSignIn(ctx context.Context, code, codeVerifier, redirectURI, detectedLocale string) (*SignInOutcome, error) {
 	email, err := s.google.VerifiedEmail(ctx, googleauth.Exchange{
 		Code:         code,
 		CodeVerifier: codeVerifier,
@@ -47,7 +47,7 @@ func (s *Service) VerifyGoogleSignIn(ctx context.Context, code, codeVerifier, re
 	if err != nil {
 		// One generic error, whatever went wrong, and nothing written: a refused
 		// exchange leaves no Staff Session behind.
-		return nil, "", err
+		return nil, err
 	}
 
 	return s.signInProvenEmail(ctx, platform.NormalizeEmail(email), detectedLocale, s.now())

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/peter/ticket_pos/backend/internal/consent"
 	"github.com/peter/ticket_pos/backend/internal/identity/middleware"
 	"github.com/peter/ticket_pos/backend/internal/identity/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
@@ -60,9 +61,12 @@ type selectOrganizationBody struct {
 	MemberID string `json:"member_id"`
 }
 
-type verifyOTPResponse struct {
-	Session   *service.SessionView `json:"session"`
-	SessionID string               `json:"session_id"`
+type acceptTermsBody struct {
+	// PendingTermsToken is the single-use token a gated verify returned.
+	PendingTermsToken string `json:"pending_terms_token"`
+	// TermsAcceptance is the one required box. Absent is false and false is
+	// refused — the API's guarantee, not the form's.
+	TermsAcceptance bool `json:"terms_acceptance"`
 }
 
 // RequestOTP sends a one-time passcode to the given email.
@@ -103,7 +107,7 @@ func (h *Handler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 // VerifyOTP validates a passcode and creates a session.
 //
 // @Summary      Verify OTP
-// @Description  Verifies a one-time passcode and creates a server-side session. An optional `locale` names the language the login page was rendered in, as the caller detected it, and is remembered as the person's Staff Locale — but only if they have none. It never overwrites a stored one, because a detected language must not overrule a chosen one. A language the platform does not serve is ignored rather than refused, and never fails the sign-in.
+// @Description  Verifies a one-time passcode and completes the sign-in. The outcome has exactly two shapes: `session` and `session_id`, or — for an email with no Terms Acceptance of the current Terms Version — `terms_required` with a single-use `pending_terms_token`, the edition label and the checkbox label, and NO session (#538, ADR 0066). The terms step is finished at /api/v1/auth/terms/accept. An optional `locale` names the language the login page was rendered in, as the caller detected it, and is remembered as the person's Staff Locale — but only if they have none. It never overwrites a stored one, because a detected language must not overrule a chosen one. A language the platform does not serve is ignored rather than refused, and never fails the sign-in.
 // @Tags         auth
 // @Accept       json
 // @Produce      json
@@ -131,16 +135,13 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, sessionID, err := h.svc.VerifyOTP(r.Context(), body.Email, body.Code, body.Locale)
+	outcome, err := h.svc.VerifyOTP(r.Context(), body.Email, body.Code, body.Locale)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
 	}
 
-	_ = platform.WriteSuccess(w, reqID, http.StatusOK, verifyOTPResponse{
-		Session:   session,
-		SessionID: sessionID,
-	})
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, outcome)
 }
 
 // VerifyGoogle completes a Google Sign-In and issues a Staff Session.
@@ -190,16 +191,63 @@ func (h *Handler) VerifyGoogle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, sessionID, err := h.svc.VerifyGoogleSignIn(r.Context(), body.Code, body.CodeVerifier, body.RedirectURI, body.Locale)
+	outcome, err := h.svc.VerifyGoogleSignIn(r.Context(), body.Code, body.CodeVerifier, body.RedirectURI, body.Locale)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
 	}
 
-	_ = platform.WriteSuccess(w, reqID, http.StatusOK, verifyOTPResponse{
-		Session:   session,
-		SessionID: sessionID,
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, outcome)
+}
+
+// AcceptTerms finishes a sign-in the terms gate held: it spends the
+// pending-terms token, records one Staff Terms Acceptance, and mints the Staff
+// Session the verify withheld (#538, ADR 0066).
+//
+// Unauthenticated, because the token IS the credential — the same reason the
+// customer consent submission is. It reveals nothing to anybody who does not
+// already hold one: an unknown, spent or expired token gets one
+// indistinguishable refusal.
+//
+// @Summary      Accept the Terms and finish a staff sign-in
+// @Description  Spends the short-lived, single-use `pending_terms_token` from a verify response whose outcome was `terms_required`, records one append-only Staff Terms Acceptance — the current Terms edition, the capacity "organizer", the timestamp, and the technical proof (IP, user agent, session, origin URL) — and mints the Staff Session the sign-in withheld; the response carries `session` and `session_id` exactly as a verify does (#538, ADR 0066). `terms_acceptance` must be true: an unticked box is refused with TERMS_ACCEPTANCE_REQUIRED, and the refusal lives in the API, not only in the form. The token is spent whatever the outcome, so a refused submission is restarted by signing in again; abandoning the step records nothing and leaves no session. One acceptance per email per edition: subsequent sign-ins pass with no extra step until a later Terms Version is published.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body  body      acceptTermsBody  true  "Pending terms token and the ticked box"
+// @Success      200   {object}  openapi.EnvelopeAcceptTerms
+// @Failure      400   {object}  platform.Envelope
+// @Failure      401   {object}  platform.Envelope
+// @Router       /api/v1/auth/terms/accept [post]
+func (h *Handler) AcceptTerms(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	var body acceptTermsBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return
+	}
+
+	if strings.TrimSpace(body.PendingTermsToken) == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
+			{Field: "pending_terms_token", Code: platform.CodeRequired, Message: "is required"},
+		})
+		return
+	}
+
+	outcome, err := h.svc.AcceptTerms(r.Context(), service.TermsAcceptanceSubmission{
+		Token:           body.PendingTermsToken,
+		TermsAcceptance: body.TermsAcceptance,
+		// The technical proof is derived from the REQUEST and never from the
+		// body — the one spelling every capture surface shares.
+		Evidence: consent.EvidenceFromRequest(r),
 	})
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, outcome)
 }
 
 // GetSession returns the current authenticated session.

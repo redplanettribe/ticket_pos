@@ -396,7 +396,7 @@ func (s *Service) sessionView(customer *repository.Customer, session *repository
 	// buyer's own assertion. Applied HERE rather than at each caller so that no
 	// future caller can mint one of these views and forget it.
 	if session.TicketSaleID.Valid {
-		view.ConsentBoxes = ConsentBoxesView{PolicyAcceptance: true, MarketingConsent: true, NetworkingConsent: true}
+		view.ConsentBoxes = ConsentBoxesView{PolicyAcceptance: true, MarketingConsent: true, NetworkingConsent: true, TermsAcceptance: true}
 	}
 	if customer.TaxIDType.Valid && customer.TaxIDNumber.Valid {
 		taxIDType, taxIDNumber := customer.TaxIDType.String, customer.TaxIDNumber.String
