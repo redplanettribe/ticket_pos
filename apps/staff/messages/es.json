@@ -1843,6 +1843,8 @@
     },
     "legalAcceptances": {
       "breadcrumbLegalCenter": "Centro legal",
+      "openCustomersLink": "Quién debe una aceptación: clientes",
+      "openStaffLink": "Quién debe una aceptación: personal",
       "customersTitle": "Aceptaciones de clientes",
       "customersDescription": "Quién ha aceptado la política de privacidad y los términos vigentes, y quién sigue debiendo una aceptación.",
       "customersTableHeading": "Clientes",

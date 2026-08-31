@@ -104,6 +104,7 @@ export function OperatorLegalClient() {
   // The access log's own copy (#569), so the link is named by the screen it
   // leads to rather than by a second name kept here.
   const tAccessLog = useTranslations("operator.legalAccessLog");
+  const tAcceptances = useTranslations("operator.legalAcceptances");
   const tOperator = useTranslations("operator");
   const errorCopy = useMessages().errors;
   const readerLocale = toAppLocale(useLocale());
@@ -377,7 +378,21 @@ export function OperatorLegalClient() {
         the record of what this one's reading screens have been used for. A
         plain link and not a card: it is a place to go, not a thing to do.
       */}
-      <p className="text-sm">
+      {/*
+        THE ACCEPTANCE BROWSERS (#565) are reached from here too. They answer
+        "who owes an acceptance", which is a question about the editions this
+        screen publishes, so the Legal Center is where you go looking for them.
+      */}
+      <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+        <Link
+          className="underline underline-offset-4"
+          href="/operator/legal/acceptances/customers"
+        >
+          {tAcceptances("openCustomersLink")}
+        </Link>
+        <Link className="underline underline-offset-4" href="/operator/legal/acceptances/staff">
+          {tAcceptances("openStaffLink")}
+        </Link>
         <Link className="underline underline-offset-4" href="/operator/legal/access-log">
           {tAccessLog("openLink")}
         </Link>
@@ -629,6 +644,9 @@ export function OperatorLegalClient() {
               className="font-mono"
               value={newSlug}
               onChange={(event) => setNewSlug(event.target.value)}
+              // A slug is an identifier, not prose: it is typed the same in every
+              // language and is never translated, so this example stays literal.
+              // eslint-disable-next-line i18next/no-literal-string
               placeholder="label-analytics-consent"
             />
           </div>
