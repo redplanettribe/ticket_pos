@@ -671,6 +671,13 @@ export type BeginCheckoutRequest = {
   marketing_consent?: boolean;
   networking_consent?: boolean;
   /**
+   * The Terms box (#537, ADR 0066): the checkout's other REQUIRED answer, owed
+   * independently of `policy_acceptance` because the two documents version
+   * independently, and — like it — sent only when the dialog drew the box. The
+   * API refuses with TERMS_ACCEPTANCE_REQUIRED where it was owed and not given.
+   */
+  terms_acceptance?: boolean;
+  /**
    * What the buyer filled in on the checkout's skippable answer section (#311,
    * ADR 0044): one entry per (Ticket Type, ticket index, Ticket Question) they
    * actually replied to.
