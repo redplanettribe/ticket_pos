@@ -105,6 +105,32 @@ type OperatorLegalDraft struct {
 	// UpdatedBy and UpdatedAt are absent on a draft that was never saved.
 	UpdatedBy string     `json:"updated_by"`
 	UpdatedAt *time.Time `json:"updated_at"`
+
+	// What the operator has LOOKED AT (#562), which #563 reads as publish
+	// preconditions: `canPublish = complete && previewed_all && seen_diff`.
+	//
+	// All of it is reported against the draft AS IT NOW STANDS. A preview of
+	// words that have since been rewritten is not listed, and a diff seen
+	// against an edition that is no longer current does not count, because both
+	// are remembered by WHAT they were of rather than as a flag — see
+	// legaldraftreview.go. A draft that was never saved has reviewed nothing,
+	// which falls out of the same rule with no special case.
+
+	// Previewed is every cell seen rendered at its current text.
+	Previewed []OperatorLegalPreviewedCell `json:"previewed"`
+	// PreviewGaps is every cell that still has to be looked at: the draft's
+	// cells, in the languages it intends to publish, that this list does not
+	// cover. The editor points at them so the operator can finish rather than
+	// hunt.
+	PreviewGaps []OperatorLegalCellRef `json:"preview_gaps"`
+	// PreviewedAll is PreviewGaps being empty, sent as its own answer so the
+	// publish step never has to derive the rule a second time.
+	PreviewedAll bool `json:"previewed_all"`
+	// SeenDiff is true when the diff on record is still a diff of this draft
+	// against what is published now.
+	SeenDiff   bool   `json:"seen_diff"`
+	DiffSeenBy string `json:"diff_seen_by"`
+	DiffSeenAt string `json:"diff_seen_at"`
 }
 
 // OperatorLegalWorkspace is everything the Legal Center's editor needs for one
@@ -180,9 +206,23 @@ func (s *Service) LegalWorkspace(ctx context.Context, document string) (*Operato
 				BaseIsCurrent:    true,
 				PublishedLocales: published.Locales,
 				Artifacts:        published.Artifacts,
+				// Nothing has been reviewed, because there is nothing to have
+				// reviewed. Not a special case so much as the same rule with an
+				// empty draft: a preview is of a cell of a SAVED draft (#562).
+				Previewed:   []OperatorLegalPreviewedCell{},
+				PreviewGaps: []OperatorLegalCellRef{},
 			},
 		}, nil
 	case err != nil:
+		return nil, err
+	}
+
+	// The review state is read in the same call as the draft, for the reason the
+	// workspace is one payload at all: "what has been looked at" is a statement
+	// about THIS draft against THIS published edition, and a second read could
+	// straddle a save or a publication and answer about neither.
+	review, err := s.draftReview(ctx, document, stored, published.VersionID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -199,6 +239,12 @@ func (s *Service) LegalWorkspace(ctx context.Context, document string) (*Operato
 			Artifacts:        groupArtifacts(stored.Artifacts),
 			UpdatedBy:        stored.UpdatedBy,
 			UpdatedAt:        &updatedAt,
+			Previewed:        review.Previewed,
+			PreviewGaps:      review.PreviewGaps,
+			PreviewedAll:     review.PreviewedAll,
+			SeenDiff:         review.SeenDiff,
+			DiffSeenBy:       review.DiffSeenBy,
+			DiffSeenAt:       review.DiffSeenAt,
 		},
 	}, nil
 }

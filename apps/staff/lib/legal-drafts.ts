@@ -253,3 +253,356 @@ export function toArtifactList(draft: ArtifactSet): { slug: string; bodies: Reco
     return { slug, bodies: written };
   });
 }
+
+/* ==========================================================================
+ * The diff (#562)
+ *
+ * What the operator is shown before they are allowed to publish: what this
+ * draft CHANGES about the edition people are held to today. It lives here, with
+ * the rest of the rules, and not in the component that draws it, because it is
+ * the same kind of thing as `completeness` — a total function over two
+ * ArtifactSets — and because a diff nobody can unit-test is a diff nobody can
+ * trust, while what it is FOR is trust.
+ *
+ * THE UNIT IS THE (ARTIFACT × LOCALE) CELL. Not the document and not the
+ * artifact: a change to the Spanish policy and a change to an English checkbox
+ * label are two different facts about two different readers, and tangling them
+ * into one "the policy changed" is exactly the kind of summary that gets a
+ * paragraph published nobody meant to publish.
+ * ========================================================================== */
+
+/** What happened to one run of words. */
+export type DiffOp = "same" | "added" | "removed";
+
+/**
+ * One run of words, all of which had the same thing happen to them. Runs are
+ * merged, so a rewritten sentence is one `removed` token and one `added` token
+ * rather than forty of each.
+ */
+export type DiffToken = { op: DiffOp; text: string };
+
+/**
+ * The word-level diff of two pieces of text, by LONGEST COMMON SUBSEQUENCE.
+ *
+ * WORD-LEVEL AND NOT LINE-LEVEL, because these documents are ~280 lines of
+ * prose where a correction is usually two words inside one of them. A line diff
+ * would show the whole paragraph struck out and the whole paragraph added back,
+ * and an operator asked to check that would be checking nothing — the entire
+ * value of the screen is that a two-word fix LOOKS like a two-word fix.
+ *
+ * WHITESPACE IS TOKENISED TOO, and kept in the tokens, so that rejoining every
+ * token's text reproduces the input exactly. That matters more here than in an
+ * ordinary diff: the renderer runs `remark-breaks`, so a newline is a <br> in
+ * the published document, and a diff that quietly normalised whitespace would
+ * hide the one class of edit that changes the layout of a legal document
+ * without changing a word of it.
+ *
+ * TOTAL, including for text nobody would write: either side empty, both empty,
+ * and text far too long to diff — see the guard below, which degrades to "all
+ * of this went, all of that arrived" rather than to a hung tab.
+ */
+export function wordDiff(before: string, after: string): DiffToken[] {
+  return mergeTokens(diffSequences(tokenize(before), tokenize(after)));
+}
+
+/** Words and whitespace runs, in order, losslessly. */
+function tokenize(text: string): string[] {
+  return text.match(/\s+|\S+/g) ?? [];
+}
+
+/**
+ * The most tokens either side may carry before the LCS table is abandoned.
+ *
+ * The table is O(n×m) cells, and this module runs in a browser tab holding a
+ * legal document. A cell that exceeds it is reported as a wholesale replacement,
+ * which is honest — every word did change position — and is what a diff of two
+ * unrelated texts looks like anyway. `diffHunks` feeds this function ONE LINE at
+ * a time, so nothing an operator actually writes comes near the bound.
+ */
+const MAX_DIFF_TOKENS = 2500;
+
+/** The LCS walk itself, over any two sequences of comparable strings. */
+function diffSequences(before: readonly string[], after: readonly string[]): DiffToken[] {
+  // Common ends are matched off first. It is the difference between diffing a
+  // paragraph and diffing the two words inside it that moved, and it is what
+  // keeps the table below small on the edits people actually make.
+  let head = 0;
+  while (head < before.length && head < after.length && before[head] === after[head]) head += 1;
+  let tail = 0;
+  while (
+    tail < before.length - head &&
+    tail < after.length - head &&
+    before[before.length - 1 - tail] === after[after.length - 1 - tail]
+  ) {
+    tail += 1;
+  }
+
+  const middleBefore = before.slice(head, before.length - tail);
+  const middleAfter = after.slice(head, after.length - tail);
+
+  const tokens: DiffToken[] = [];
+  for (const text of before.slice(0, head)) tokens.push({ op: "same", text });
+
+  if (middleBefore.length > MAX_DIFF_TOKENS || middleAfter.length > MAX_DIFF_TOKENS) {
+    for (const text of middleBefore) tokens.push({ op: "removed", text });
+    for (const text of middleAfter) tokens.push({ op: "added", text });
+  } else {
+    tokens.push(...lcsWalk(middleBefore, middleAfter));
+  }
+
+  for (const text of before.slice(before.length - tail)) tokens.push({ op: "same", text });
+  return tokens;
+}
+
+/**
+ * The classic LCS dynamic program, walked forwards into edit operations.
+ *
+ * `lengths[i][j]` is the length of the longest common subsequence of the
+ * suffixes starting at i and j, so the forward walk can always pick the branch
+ * that keeps the most in common. Ties go to REMOVED first, which is what puts a
+ * replaced phrase's old words before its new ones — the order a person reads a
+ * correction in.
+ */
+function lcsWalk(before: readonly string[], after: readonly string[]): DiffToken[] {
+  const columns = after.length + 1;
+  const lengths = new Uint32Array((before.length + 1) * columns);
+  for (let i = before.length - 1; i >= 0; i -= 1) {
+    for (let j = after.length - 1; j >= 0; j -= 1) {
+      lengths[i * columns + j] =
+        before[i] === after[j]
+          ? lengths[(i + 1) * columns + j + 1] + 1
+          : Math.max(lengths[(i + 1) * columns + j], lengths[i * columns + j + 1]);
+    }
+  }
+
+  const tokens: DiffToken[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < before.length && j < after.length) {
+    if (before[i] === after[j]) {
+      tokens.push({ op: "same", text: before[i] });
+      i += 1;
+      j += 1;
+    } else if (lengths[(i + 1) * columns + j] >= lengths[i * columns + j + 1]) {
+      tokens.push({ op: "removed", text: before[i] });
+      i += 1;
+    } else {
+      tokens.push({ op: "added", text: after[j] });
+      j += 1;
+    }
+  }
+  while (i < before.length) {
+    tokens.push({ op: "removed", text: before[i] });
+    i += 1;
+  }
+  while (j < after.length) {
+    tokens.push({ op: "added", text: after[j] });
+    j += 1;
+  }
+  return tokens;
+}
+
+/** Adjacent runs of one op become one token, so the rendering is spans and not confetti. */
+function mergeTokens(tokens: readonly DiffToken[]): DiffToken[] {
+  const merged: DiffToken[] = [];
+  for (const token of tokens) {
+    const last = merged[merged.length - 1];
+    if (last && last.op === token.op) {
+      last.text += token.text;
+      continue;
+    }
+    merged.push({ ...token });
+  }
+  return merged;
+}
+
+/** What happened to one line of one cell. */
+export type DiffRowKind = "same" | "added" | "removed" | "changed";
+
+/**
+ * One line of a cell's diff. `changed` is a line that exists on both sides with
+ * different words in it, and it is the only kind whose tokens are worth reading
+ * closely — the other three carry a single token holding the whole line, so a
+ * renderer can treat every row the same way.
+ *
+ * The line NUMBERS are 1-based and are the numbers on each side, which differ
+ * once anything has been inserted. Null means the line is not on that side.
+ */
+export type DiffRow = {
+  kind: DiffRowKind;
+  beforeLine: number | null;
+  afterLine: number | null;
+  tokens: DiffToken[];
+};
+
+/** A run of rows worth showing, and how many unchanged lines were skipped to reach it. */
+export type DiffHunk = {
+  /** Unchanged lines elided immediately before this hunk. Zero for a hunk that starts at the top. */
+  skippedBefore: number;
+  rows: DiffRow[];
+};
+
+/**
+ * One cell's diff, as hunks with context.
+ *
+ * WHY HUNKS. The Privacy Policy is ~280 lines. A two-word fix in it must show
+ * two words, not 280 lines with two of them highlighted somewhere in the middle
+ * — an operator scrolling a wall of unchanged text to look for a change is an
+ * operator who will stop looking. Long unchanged runs collapse, and how many
+ * lines went with them is REPORTED rather than silently dropped, because "42
+ * unchanged lines" is a fact the operator can check against their own memory of
+ * what they edited.
+ *
+ * `context` lines of unchanged text survive on each side of a change, because a
+ * changed line with nothing around it is a sentence out of context and the
+ * question being asked is whether it reads correctly IN the document.
+ *
+ * A removed line and an added line that meet at the same place are paired into
+ * one `changed` row and diffed word by word. That pairing is a heuristic and
+ * this is it stated plainly: within a block of edits the n-th removal is shown
+ * against the n-th addition, and whatever is left over stays a whole removed or
+ * whole added line. It is what makes an edited paragraph read as an edit; it can
+ * pair two lines that have nothing to do with each other, in which case the row
+ * degenerates to "all of this went, all of that arrived" — which is what the
+ * unpaired rows would have shown anyway.
+ */
+export function diffHunks(
+  before: string,
+  after: string,
+  context = 3,
+): { hunks: DiffHunk[]; unchangedLines: number } {
+  const rows = pairChangedLines(diffSequences(splitLines(before), splitLines(after)));
+  const unchangedLines = rows.filter((row) => row.kind === "same").length;
+
+  // Which rows are near enough to a change to be worth showing.
+  const keep = rows.map((row) => row.kind !== "same");
+  for (let index = 0; index < rows.length; index += 1) {
+    if (rows[index].kind === "same") continue;
+    for (let offset = 1; offset <= context; offset += 1) {
+      if (index - offset >= 0) keep[index - offset] = true;
+      if (index + offset < rows.length) keep[index + offset] = true;
+    }
+  }
+
+  const hunks: DiffHunk[] = [];
+  let skipped = 0;
+  let current: DiffHunk | null = null;
+  for (let index = 0; index < rows.length; index += 1) {
+    if (!keep[index]) {
+      skipped += 1;
+      current = null;
+      continue;
+    }
+    if (!current) {
+      current = { skippedBefore: skipped, rows: [] };
+      hunks.push(current);
+      skipped = 0;
+    }
+    current.rows.push(rows[index]);
+  }
+  return { hunks, unchangedLines };
+}
+
+/**
+ * Lines, with an empty string meaning NO LINES rather than one empty one.
+ *
+ * `"".split("\n")` is `[""]`, which would make an empty cell diff as a document
+ * containing one blank line — and an empty cell is a cell nobody has written.
+ */
+function splitLines(text: string): string[] {
+  return text === "" ? [] : text.split("\n");
+}
+
+/** The line-level ops turned into rows, pairing replacements as they go. */
+function pairChangedLines(ops: readonly DiffToken[]): DiffRow[] {
+  const rows: DiffRow[] = [];
+  let beforeLine = 0;
+  let afterLine = 0;
+
+  for (let index = 0; index < ops.length; ) {
+    if (ops[index].op === "same") {
+      beforeLine += 1;
+      afterLine += 1;
+      rows.push({ kind: "same", beforeLine, afterLine, tokens: [{ op: "same", text: ops[index].text }] });
+      index += 1;
+      continue;
+    }
+
+    // One block of edits: everything removed here, then everything added here.
+    const removed: string[] = [];
+    const added: string[] = [];
+    while (index < ops.length && ops[index].op === "removed") {
+      removed.push(ops[index].text);
+      index += 1;
+    }
+    while (index < ops.length && ops[index].op === "added") {
+      added.push(ops[index].text);
+      index += 1;
+    }
+
+    const paired = Math.min(removed.length, added.length);
+    for (let n = 0; n < paired; n += 1) {
+      beforeLine += 1;
+      afterLine += 1;
+      rows.push({ kind: "changed", beforeLine, afterLine, tokens: wordDiff(removed[n], added[n]) });
+    }
+    for (const text of removed.slice(paired)) {
+      beforeLine += 1;
+      rows.push({ kind: "removed", beforeLine, afterLine: null, tokens: [{ op: "removed", text }] });
+    }
+    for (const text of added.slice(paired)) {
+      afterLine += 1;
+      rows.push({ kind: "added", beforeLine: null, afterLine, tokens: [{ op: "added", text }] });
+    }
+  }
+  return rows;
+}
+
+/** One cell of the diff: one artifact, in one language, on both sides. */
+export type CellDiff = {
+  slug: string;
+  locale: AppLocale;
+  status: CellStatus;
+  /** The published text, or "" where the artifact is new. */
+  before: string;
+  /** The draft's text, or "" where the artifact has been taken out. */
+  after: string;
+};
+
+/**
+ * Every cell of the diff, SORTED SO THE STRUCTURAL CHANGES COME FIRST.
+ *
+ * An artifact that appeared or disappeared is not a wording change and must not
+ * be read as one: somebody is now being asked for a consent they were not asked
+ * for, or has stopped being asked for one. Buried three screens down among comma
+ * fixes it would be missed, so it sorts to the top and the component renders it
+ * WHOLE rather than as hunks — there is no "unchanged run" to collapse in text
+ * that is entirely new or entirely gone.
+ *
+ * Unchanged cells sort last and are the ones the caller collapses; they are
+ * RETURNED rather than dropped so that the count is the list's own length and
+ * "12 of 12 unchanged" cannot drift from what is on screen.
+ */
+export function diffCells(
+  published: ArtifactSet,
+  draft: ArtifactSet,
+  locales: readonly AppLocale[] = LOCALES,
+): CellDiff[] {
+  const cells: CellDiff[] = [];
+  for (const slug of allSlugs(published, draft)) {
+    for (const locale of locales) {
+      cells.push({
+        slug,
+        locale,
+        status: cellStatus(published, draft, slug, locale),
+        before: published[slug]?.[locale] ?? "",
+        after: draft[slug]?.[locale] ?? "",
+      });
+    }
+  }
+  // A STABLE sort over the union order built above, so two renders of one draft
+  // put the cells in the same places and an operator's eye can go back to where
+  // it was.
+  const rank: Record<CellStatus, number> = { added: 0, removed: 0, modified: 1, missing: 2, unchanged: 3 };
+  return cells.sort((a, b) => rank[a.status] - rank[b.status]);
+}

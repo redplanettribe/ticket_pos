@@ -44,10 +44,15 @@ import {
 import {
   discardOperatorLegalDraft,
   fetchOperatorLegalWorkspace,
+  previewOperatorLegalCell,
   saveOperatorLegalDraft,
+  seeOperatorLegalDiff,
   type OperatorLegalDocument,
   type OperatorLegalWorkspace,
 } from "@/lib/operator-api";
+
+import { LegalDiff } from "./legal-diff";
+import { LegalPreviewDialog } from "./legal-preview";
 
 /**
  * The Legal Center (#561, spec #556): where the platform's own agreements — the
@@ -107,6 +112,11 @@ export function OperatorLegalClient() {
   const [saving, setSaving] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  // #562: what the operator has LOOKED AT. Both of these act on the SAVED draft
+  // and are unavailable while there are unsaved changes — see previewable below.
+  const [previewCell, setPreviewCell] = useState<{ slug: string; locale: string; body: string } | null>(null);
+  const [showDiff, setShowDiff] = useState(false);
 
   /**
    * The words for a language and for a cell's state, resolved STATICALLY.
@@ -204,6 +214,54 @@ export function OperatorLegalClient() {
     () => hasChanges(publishedSet, draftSet, publishedLocales),
     [publishedSet, draftSet, publishedLocales],
   );
+
+  /**
+   * The draft AS SAVED, which is what the preview and the diff are about (#562).
+   *
+   * NOT `draftSet`, which is what is in the textareas. A preview promises a look
+   * at the text that will be published, and unsaved text will not be; a diff
+   * whose "after" side is unsaved would show consequences that no publish could
+   * have. The editor therefore offers neither while there are unsaved changes
+   * and says why, rather than quietly previewing something else.
+   */
+  const savedDraftSet: ArtifactSet = useMemo(
+    () => toArtifactSet(workspace?.draft.artifacts ?? []),
+    [workspace],
+  );
+
+  /** The cells already seen rendered, at the text they now hold. */
+  const previewedKeys = useMemo(
+    () => new Set((workspace?.draft.previewed ?? []).map((cell) => `${cell.slug}:${cell.locale}`)),
+    [workspace],
+  );
+  const previewGapCount = workspace?.draft.preview_gaps.length ?? 0;
+  const previewedCount = workspace?.draft.previewed.length ?? 0;
+  const reviewable = Boolean(workspace?.draft.stored) && !dirty;
+
+  const openPreview = async (slug: string, locale: AppLocale) => {
+    const body = savedDraftSet[slug]?.[locale] ?? "";
+    if (!body.trim()) {
+      toast.error(t("previewEmpty"));
+      return;
+    }
+    // Shown first and recorded after: what the operator sees is the point, and a
+    // failed recording must not withhold the rendering they asked for.
+    setPreviewCell({ slug, locale, body });
+    try {
+      adopt(await previewOperatorLegalCell(document, { slug, locale }));
+    } catch (error: unknown) {
+      toast.error(error instanceof ApiError ? apiErrorMessage(errorCopy, error) : t("previewFailed"));
+    }
+  };
+
+  const openDiff = async () => {
+    setShowDiff(true);
+    try {
+      adopt(await seeOperatorLegalDiff(document));
+    } catch (error: unknown) {
+      toast.error(error instanceof ApiError ? apiErrorMessage(errorCopy, error) : t("diffFailed"));
+    }
+  };
 
   const setBody = (slug: string, locale: AppLocale, body: string) => {
     setRows((current) =>
@@ -454,9 +512,32 @@ export function OperatorLegalClient() {
                         <CompletenessDot status={status} label={statusLabel(status)} />
                         <span>{localeName(locale)}</span>
                       </Label>
-                      {publishesThis ? null : (
-                        <span className="text-xs text-muted-foreground">{t("notPublishedHere")}</span>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {publishesThis ? null : (
+                          <span className="text-xs text-muted-foreground">{t("notPublishedHere")}</span>
+                        )}
+                        {/*
+                          PREVIEW (#562): the artifact rendered by the same
+                          Markdown component the Storefront renders, so nobody
+                          publishes text they have only seen as a textarea. It
+                          acts on the SAVED draft, so it waits for a save rather
+                          than promising a look at text that will not be
+                          published.
+                        */}
+                        {previewedKeys.has(`${spec.slug}:${locale}`) ? (
+                          <Badge variant="outline">{t("previewedTick")}</Badge>
+                        ) : null}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={!reviewable}
+                          title={reviewable ? undefined : t("previewSaveFirst")}
+                          onClick={() => void openPreview(spec.slug, locale)}
+                        >
+                          {t("preview")}
+                        </Button>
+                      </div>
                     </div>
                     <Textarea
                       id={`${spec.slug}-${locale}`}
@@ -498,6 +579,64 @@ export function OperatorLegalClient() {
         </CardContent>
       </Card>
 
+      {/*
+        WHAT THIS DRAFT CHANGES (#562), and the record that it was looked at.
+        Both are shown here rather than at the publish step because an operator
+        should meet a hole, a surprise or a structural change while they can
+        still do something about it — and because #563 will refuse to offer a
+        publish button until every artifact has been previewed and this diff has
+        been seen. The rules are stated now so they are not a surprise then.
+      */}
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("diffHeading")}</CardTitle>
+          <CardDescription>{t("diffHint")}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!reviewable ? (
+            <p className="text-sm text-muted-foreground">{t("reviewSaveFirst")}</p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" variant="outline" onClick={() => void openDiff()}>
+                  {showDiff ? t("diffRefresh") : t("diffShow")}
+                </Button>
+                {showDiff ? (
+                  <Button type="button" variant="outline" onClick={() => setShowDiff(false)}>
+                    {t("diffHide")}
+                  </Button>
+                ) : null}
+              </div>
+              {showDiff ? (
+                <LegalDiff
+                  published={publishedSet}
+                  draft={savedDraftSet}
+                  locales={publishedLocales}
+                  localeName={localeName}
+                />
+              ) : null}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("reviewHeading")}</CardTitle>
+          <CardDescription>{t("reviewHint")}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <p className="text-sm">
+            {workspace.draft.previewed_all && previewedCount > 0
+              ? t("reviewPreviewedAll")
+              : t("reviewPreviewedSome", { n: previewedCount, left: previewGapCount })}
+          </p>
+          <p className="text-sm">
+            {workspace.draft.seen_diff ? t("reviewDiffSeen") : t("reviewDiffNotSeen")}
+          </p>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardContent className="space-y-4 pt-6">
           <p className="text-sm">
@@ -520,6 +659,12 @@ export function OperatorLegalClient() {
           </div>
         </CardContent>
       </Card>
+
+      <LegalPreviewDialog
+        cell={previewCell}
+        localeName={(locale) => localeName(toAppLocale(locale))}
+        onClose={() => setPreviewCell(null)}
+      />
 
       <Dialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>
         <DialogContent>

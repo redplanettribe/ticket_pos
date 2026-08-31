@@ -1764,6 +1764,31 @@ export type OperatorLegalDraft = {
   artifacts: OperatorLegalArtifact[];
   updated_by: string;
   updated_at: string | null;
+  /**
+   * What the operator has LOOKED AT (#562), which #563 turns into publish
+   * preconditions. All of it is reported against the draft AS IT NOW STANDS: a
+   * preview of words that have since been rewritten is not listed, and a diff
+   * seen against an edition that is no longer current does not count.
+   */
+  previewed: OperatorLegalPreviewedCell[];
+  /** The cells still to be looked at — the draft's own, in the languages it publishes. */
+  preview_gaps: OperatorLegalCellRef[];
+  previewed_all: boolean;
+  seen_diff: boolean;
+  diff_seen_by: string;
+  diff_seen_at: string;
+};
+
+/** One cell of the editor's grid: one artifact in one language. */
+export type OperatorLegalCellRef = {
+  slug: string;
+  locale: AppLocale;
+};
+
+/** One cell seen rendered, at the text it now holds. */
+export type OperatorLegalPreviewedCell = OperatorLegalCellRef & {
+  previewed_by: string;
+  previewed_at: string;
 };
 
 /** Everything the editor needs for one document, in one read. */
@@ -1810,4 +1835,36 @@ export async function discardOperatorLegalDraft(
   return fetchEventsJSON<OperatorLegalWorkspace>(`/api/operator/legal/documents/${document}/draft`, {
     method: "DELETE",
   });
+}
+
+/**
+ * Records that one artifact was seen rendered, in one language (#562).
+ *
+ * IT SENDS NO TEXT. The rendering happens in the browser, through the same
+ * `Markdown` component the Storefront renders, over text this workspace already
+ * carries; the API remembers the draft's OWN text at that slug, so a client
+ * cannot claim to have previewed something the draft does not say.
+ */
+export async function previewOperatorLegalCell(
+  document: OperatorLegalDocument,
+  cell: { slug: string; locale: AppLocale },
+): Promise<OperatorLegalWorkspace> {
+  return fetchEventsJSON<OperatorLegalWorkspace>(
+    `/api/operator/legal/documents/${document}/draft/previews`,
+    { method: "POST", body: JSON.stringify(cell) },
+  );
+}
+
+/**
+ * Records that the diff against the current edition was put on screen (#562).
+ * No body: the API stamps both sides of the comparison itself, so the record
+ * lapses when the draft is edited or somebody publishes underneath it.
+ */
+export async function seeOperatorLegalDiff(
+  document: OperatorLegalDocument,
+): Promise<OperatorLegalWorkspace> {
+  return fetchEventsJSON<OperatorLegalWorkspace>(
+    `/api/operator/legal/documents/${document}/draft/diff-seen`,
+    { method: "POST" },
+  );
 }

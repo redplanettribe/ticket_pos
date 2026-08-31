@@ -135,3 +135,90 @@ func (h *Handler) DiscardLegalDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, workspace)
 }
+
+// legalPreviewBody names the cell that was put on screen: one artifact in one
+// language.
+//
+// IT CARRIES NO TEXT. What was previewed is whatever the draft says — the
+// preview renders text the workspace read already handed over — and a body that
+// could name its own text would let a client claim to have previewed something
+// the draft does not contain.
+type legalPreviewBody struct {
+	Slug   string `json:"slug"`
+	Locale string `json:"locale"`
+}
+
+// PreviewLegalDraftCell records that one artifact was seen rendered.
+//
+// @Summary      Record that a draft artifact was previewed
+// @Description  Records that the operator has seen ONE artifact of the draft rendered in ONE language, as a reader will see it (#562, spec #556). THE RENDERING HAPPENS IN THE BROWSER, through the same `Markdown` component the Storefront's privacy-policy page uses, over text the workspace read already carried: there is no server-side render call and NO PREVIEW ROUTE ON THE PUBLIC SIDE, because the public route resolves what is current itself and refuses to be told which edition to serve. What this call records is only that somebody looked. A PREVIEW IS A LOG LINE AND NEVER AN AUDIT ROW (#545, amending #544): no `consent_access_log` row is written, now or ever, so every row in that table stays a touch of somebody's data — an operator reading the platform's own unpublished words has touched nobody's. Remembered by the DIGEST OF THE TEXT that was on screen, so previewing a paragraph and then rewriting it does not leave a preview standing over words nobody has seen; previewing the same cell twice is one fact. Every artifact of the draft, in every language it intends to publish, must be previewed before #563 will offer a publish button — `draft.previewed_all` on the response is that answer, and `draft.preview_gaps` names what is left. The body is `{slug, locale}` and carries no text. Refused: 409 LEGAL_DRAFT_NOT_STORED when the document has no saved draft (a preview promises a look at the text that will be published, and unsaved text will not be), 400 LEGAL_DRAFT_CELL_NOT_FOUND when the draft has no text for that artifact in that language, 400 LEGAL_DRAFT_LOCALE_UNSUPPORTED, 400 LEGAL_DRAFT_SLUG_REQUIRED, 404 LEGAL_DOCUMENT_NOT_FOUND. Answers with the whole workspace, as the other Legal Center calls do. Platform Operator only.
+// @Tags         operator
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        document  path  string            true  "policy or terms"
+// @Param        body      body  legalPreviewBody  true  "The cell that was previewed"
+// @Success      200  {object}  openapi.EnvelopeOperatorLegalWorkspace
+// @Failure      400  {object}  platform.Envelope
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Failure      409  {object}  platform.Envelope
+// @Router       /api/v1/operator/legal/documents/{document}/draft/previews [post]
+func (h *Handler) PreviewLegalDraftCell(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	var body legalPreviewBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return
+	}
+
+	session, ok := middleware.SessionFromContext(r.Context())
+	if !ok {
+		_ = platform.WriteUnauthorized(w, reqID, "Missing session token")
+		return
+	}
+
+	workspace, err := h.svc.PreviewLegalDraftCell(r.Context(), strings.TrimSpace(r.PathValue("document")), consentsvc.PreviewLegalDraftCellInput{
+		Slug:   body.Slug,
+		Locale: body.Locale,
+		By:     session.Email,
+	})
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, workspace)
+}
+
+// SeeLegalDraftDiff records that the diff against the current edition was shown.
+//
+// @Summary      Record that the draft's diff against the current edition was seen
+// @Description  Records that the operator has been shown what this draft CHANGES about the currently published edition (#562, spec #556) — the second of the two things #563 requires before a publish button exists, so that no publication happens without its consequence having been displayed. THE DIFF IS COMPUTED IN THE BROWSER, from the published edition and the draft that the workspace read already carried together in one payload; this call records only that it was on screen, and takes no body. It is remembered against BOTH SIDES — the draft's text and the published version it was compared with — so a diff stops counting the moment either moves: rewrite a paragraph and it lapses, and so does somebody else publishing underneath the draft, which is the situation `base_is_current` already warns about. `draft.seen_diff` on the response is the answer. Like a preview, it writes a `platform.Logger` line and no `consent_access_log` row (#545). Refused: 409 LEGAL_DRAFT_NOT_STORED when the document has no saved draft, 404 LEGAL_DOCUMENT_NOT_FOUND for anything that is not `policy` or `terms`. Answers with the whole workspace. Platform Operator only.
+// @Tags         operator
+// @Produce      json
+// @Security     BearerAuth
+// @Param        document  path  string  true  "policy or terms"
+// @Success      200  {object}  openapi.EnvelopeOperatorLegalWorkspace
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Failure      409  {object}  platform.Envelope
+// @Router       /api/v1/operator/legal/documents/{document}/draft/diff-seen [post]
+func (h *Handler) SeeLegalDraftDiff(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	session, ok := middleware.SessionFromContext(r.Context())
+	if !ok {
+		_ = platform.WriteUnauthorized(w, reqID, "Missing session token")
+		return
+	}
+
+	workspace, err := h.svc.SeeLegalDraftDiff(r.Context(), strings.TrimSpace(r.PathValue("document")), session.Email)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, workspace)
+}

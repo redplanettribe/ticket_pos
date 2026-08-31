@@ -27,10 +27,16 @@ import (
 // Center's one mutable draft per document, and the published edition it is
 // written against.
 //
-// Three methods and no more. There is deliberately nothing here that PUBLISHES
-// — that arrives with its own confirmation step (#563) — and nothing that
-// reaches a Consent Record: the Legal Center writes the platform's words, never
-// anybody's evidence.
+// Five methods, and still nothing that PUBLISHES — that arrives with its own
+// confirmation step (#563) — and nothing that reaches a Consent Record: the
+// Legal Center writes the platform's words, never anybody's evidence.
+//
+// The last two are #562's: they record what the operator has LOOKED AT. They
+// record and do not render. The preview itself is drawn in the browser by the
+// same component the Storefront renders, over text the workspace read already
+// carried, so there is no "render this draft" call here and no preview route on
+// the public side — the public route resolves what is current itself and refuses
+// to be told which edition to serve.
 type LegalDocuments interface {
 	// LegalWorkspace reads one document's published edition and its draft
 	// together. It answers LEGAL_DOCUMENT_NOT_FOUND for anything that is not
@@ -44,6 +50,14 @@ type LegalDocuments interface {
 	// DiscardLegalDraft throws the draft away, leaving the document as its
 	// published edition. Discarding when there is no draft is a success.
 	DiscardLegalDraft(ctx context.Context, document string) (*consentsvc.OperatorLegalWorkspace, error)
+	// PreviewLegalDraftCell records that one artifact was seen rendered in one
+	// language. Idempotent, and remembered by the text that was on screen, so a
+	// preview lapses by itself when the words are rewritten.
+	PreviewLegalDraftCell(ctx context.Context, document string, input consentsvc.PreviewLegalDraftCellInput) (*consentsvc.OperatorLegalWorkspace, error)
+	// SeeLegalDraftDiff records that the diff against the current edition was
+	// put on screen. Remembered against both sides, so it lapses if somebody
+	// publishes underneath the draft.
+	SeeLegalDraftDiff(ctx context.Context, document string, by string) (*consentsvc.OperatorLegalWorkspace, error)
 }
 
 // LegalWorkspace is the Legal Center's one read: what is published, what is
@@ -63,4 +77,18 @@ func (s *Service) SaveLegalDraft(ctx context.Context, document string, input con
 // is not a commitment.
 func (s *Service) DiscardLegalDraft(ctx context.Context, document string) (*consentsvc.OperatorLegalWorkspace, error) {
 	return s.legal.DiscardLegalDraft(ctx, document)
+}
+
+// PreviewLegalDraftCell records that the operator has seen one artifact
+// rendered as a reader will see it (#562). It changes no text and publishes
+// nothing; it is the platform noticing that somebody looked.
+func (s *Service) PreviewLegalDraftCell(ctx context.Context, document string, input consentsvc.PreviewLegalDraftCellInput) (*consentsvc.OperatorLegalWorkspace, error) {
+	return s.legal.PreviewLegalDraftCell(ctx, document, input)
+}
+
+// SeeLegalDraftDiff records that the operator has been shown what this draft
+// changes about the current edition — the other half of what #563 requires
+// before a publish button exists.
+func (s *Service) SeeLegalDraftDiff(ctx context.Context, document string, by string) (*consentsvc.OperatorLegalWorkspace, error) {
+	return s.legal.SeeLegalDraftDiff(ctx, document, by)
 }

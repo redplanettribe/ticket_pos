@@ -4,12 +4,17 @@ import test from "node:test";
 import {
   cellStatus,
   completeness,
+  diffCells,
+  diffHunks,
   draftSlugs,
   hasChanges,
   isStructuralChange,
   toArtifactList,
   toArtifactSet,
+  wordDiff,
   type ArtifactSet,
+  type DiffOp,
+  type DiffToken,
 } from "./legal-drafts.ts";
 
 /**
@@ -228,4 +233,179 @@ test("the list going back carries no ordinals, so nothing can disagree with the 
     { slug: "policy", bodies: { en: "c", es: "d" } },
   ]);
   assert.equal(Object.hasOwn(list[0], "ordinal"), false);
+});
+
+// --- wordDiff / diffHunks / diffCells (#562) --------------------------------
+
+/**
+ * The diff, tested where it lives.
+ *
+ * These three are what the operator is shown before publishing is allowed, and
+ * #563 will not enable the button until they have been. Rendering them into a
+ * component and reading spans back out of the DOM would test React; what needs
+ * testing is that a two-word fix reads as two words, that an artifact appearing
+ * or disappearing is never buried among comma fixes, and that every one of them
+ * answers for text nobody would write.
+ */
+
+/** Rejoining every token reproduces each side, which is the diff's own honesty check. */
+function reassemble(tokens: DiffToken[], ops: DiffOp[]): string {
+  return tokens
+    .filter((token) => ops.includes(token.op))
+    .map((token) => token.text)
+    .join("");
+}
+
+test("a two-word fix in a sentence is a two-word diff", () => {
+  const tokens = wordDiff("We keep your name for ever.", "We keep your full name for ever.");
+  assert.deepEqual(
+    tokens.filter((token) => token.op !== "same"),
+    [{ op: "added", text: "full " }],
+  );
+});
+
+test("wordDiff is lossless: the same tokens rebuild both sides exactly", () => {
+  const before = "Line one\nLine two  with   odd spacing\n";
+  const after = "Line one\nLine three with odd spacing\n";
+  const tokens = wordDiff(before, after);
+  assert.equal(reassemble(tokens, ["same", "removed"]), before);
+  assert.equal(reassemble(tokens, ["same", "added"]), after);
+});
+
+test("wordDiff answers for empty text on either side, and for no change at all", () => {
+  assert.deepEqual(wordDiff("", ""), []);
+  assert.deepEqual(wordDiff("", "new"), [{ op: "added", text: "new" }]);
+  assert.deepEqual(wordDiff("gone", ""), [{ op: "removed", text: "gone" }]);
+  assert.deepEqual(wordDiff("same words", "same words"), [{ op: "same", text: "same words" }]);
+});
+
+test("a moved word is one removal and one addition, not a rewrite of the sentence", () => {
+  const tokens = wordDiff("alpha beta gamma", "alpha gamma beta");
+  // Whatever the LCS picks, the shared spine must survive: this is the property
+  // that separates a subsequence diff from "everything changed".
+  const kept = reassemble(tokens, ["same"]);
+  assert.ok(kept.includes("alpha"));
+  assert.ok(kept.includes("gamma") || kept.includes("beta"));
+});
+
+test("a two-word fix in a long document collapses to one hunk, and the rest is counted", () => {
+  const lines = Array.from({ length: 280 }, (_, index) => `Clause ${index + 1}.`);
+  const before = lines.join("\n");
+  const edited = [...lines];
+  edited[139] = "Clause 140, as amended.";
+  const { hunks, unchangedLines } = diffHunks(before, edited.join("\n"));
+
+  assert.equal(hunks.length, 1);
+  // Three lines of context each side, and the changed line itself.
+  assert.equal(hunks[0].rows.length, 7);
+  assert.equal(hunks[0].rows.filter((row) => row.kind === "changed").length, 1);
+  // 139 lines before the hunk, minus the three kept as context.
+  assert.equal(hunks[0].skippedBefore, 136);
+  assert.equal(unchangedLines, 279);
+});
+
+test("the changed line inside a hunk is diffed word by word", () => {
+  const { hunks } = diffHunks("one\ntwo\nthree", "one\ntwo point five\nthree");
+  const changed = hunks[0].rows.find((row) => row.kind === "changed");
+  assert.ok(changed);
+  assert.deepEqual(
+    changed.tokens.filter((token) => token.op !== "same"),
+    [{ op: "added", text: " point five" }],
+  );
+  assert.equal(changed.beforeLine, 2);
+  assert.equal(changed.afterLine, 2);
+});
+
+test("an inserted line is an added row, and the line numbers diverge after it", () => {
+  const { hunks } = diffHunks("a\nb", "a\ninserted\nb");
+  const rows = hunks[0].rows;
+  assert.deepEqual(
+    rows.map((row) => [row.kind, row.beforeLine, row.afterLine]),
+    [
+      ["same", 1, 1],
+      ["added", null, 2],
+      ["same", 2, 3],
+    ],
+  );
+});
+
+test("two distant edits are two hunks, each carrying what it skipped to get there", () => {
+  const lines = Array.from({ length: 60 }, (_, index) => `line ${index + 1}`);
+  const edited = [...lines];
+  edited[4] = "line 5 edited";
+  edited[54] = "line 55 edited";
+  const { hunks, unchangedLines } = diffHunks(lines.join("\n"), edited.join("\n"));
+  assert.equal(hunks.length, 2);
+  assert.equal(hunks[0].skippedBefore, 1);
+  assert.equal(hunks[1].skippedBefore, 43);
+  assert.equal(unchangedLines, 58);
+});
+
+test("an unchanged document has no hunks at all, and says how many lines it kept", () => {
+  const text = "one\ntwo\nthree";
+  assert.deepEqual(diffHunks(text, text), {
+    hunks: [],
+    unchangedLines: 3,
+  });
+});
+
+test("an empty side is every line added or every line removed, and never a phantom blank line", () => {
+  assert.deepEqual(diffHunks("", "").hunks, []);
+  const added = diffHunks("", "one\ntwo");
+  assert.deepEqual(
+    added.hunks[0].rows.map((row) => row.kind),
+    ["added", "added"],
+  );
+  const removed = diffHunks("one\ntwo", "");
+  assert.deepEqual(
+    removed.hunks[0].rows.map((row) => row.kind),
+    ["removed", "removed"],
+  );
+});
+
+test("an added artifact sorts before every wording change", () => {
+  const draft: ArtifactSet = {
+    ...structuredClone(PUBLISHED),
+    policy: { en: "# Policy\n\nLonger.", es: "# Política\n\nLarga." },
+    "label-analytics-consent": { en: "I agree to analytics.", es: "Acepto analítica." },
+  };
+  const cells = diffCells(PUBLISHED, draft, ["en", "es"]);
+  assert.equal(cells[0].status, "added");
+  assert.equal(cells[0].slug, "label-analytics-consent");
+  assert.equal(cells[1].status, "added");
+  // The reworded policy comes after both halves of the structural change.
+  const modified = cells.filter((cell) => cell.status === "modified");
+  assert.deepEqual(modified.map((cell) => [cell.slug, cell.locale]), [["policy", "en"]]);
+});
+
+test("a removed artifact sorts first too, carrying the text that is going away", () => {
+  const draft = structuredClone(PUBLISHED);
+  delete draft["label-policy-acceptance"];
+  const cells = diffCells(PUBLISHED, draft, ["en", "es"]);
+  assert.deepEqual(
+    cells.slice(0, 2).map((cell) => [cell.slug, cell.locale, cell.status]),
+    [
+      ["label-policy-acceptance", "en", "removed"],
+      ["label-policy-acceptance", "es", "removed"],
+    ],
+  );
+  assert.equal(cells[0].before, "I accept the policy.");
+  assert.equal(cells[0].after, "");
+});
+
+test("unchanged cells are returned, last, so the count on screen is the list's own length", () => {
+  const draft = reworded();
+  const cells = diffCells(PUBLISHED, draft, ["en", "es"]);
+  assert.equal(cells.length, 6);
+  const unchanged = cells.filter((cell) => cell.status === "unchanged");
+  assert.equal(unchanged.length, 5);
+  // Every one of them is at the end of the list.
+  assert.deepEqual(cells.slice(1), unchanged);
+});
+
+test("the diff's unit is the cell: Spanish is untangled from English", () => {
+  const draft = reworded();
+  const cells = diffCells(PUBLISHED, draft, ["en", "es"]);
+  const modified = cells.filter((cell) => cell.status === "modified");
+  assert.deepEqual(modified.map((cell) => [cell.slug, cell.locale]), [["short-notice", "en"]]);
 });
