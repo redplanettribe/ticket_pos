@@ -85,6 +85,12 @@ func currentTermsVersionID(t *testing.T, env *testEnv) string {
 
 // publishTermsVersion inserts a later Terms edition, which is the WHOLE of a
 // version bump: no code changes, no data migration (#536).
+//
+// It publishes TEXT with the row, because since #558 that is what an edition
+// is: a row with no artifacts is an edition nobody can be shown, so the sign-in
+// gate refuses to display it and the public page 404s. The fingerprint here is
+// junk on purpose — these tests are about re-gating, not about evidence, and a
+// mismatch is logged and served rather than refused (service.termsViews).
 func publishTermsVersion(t *testing.T, env *testEnv, label string) string {
 	t.Helper()
 	var id string
@@ -94,6 +100,15 @@ func publishTermsVersion(t *testing.T, env *testEnv, label string) string {
 		RETURNING id
 	`, label).Scan(&id); err != nil {
 		t.Fatalf("publish terms version %q: %v", label, err)
+	}
+	if _, err := env.db.Exec(`
+		INSERT INTO terms_version_artifacts (version_id, locale, slug, ordinal, body)
+		SELECT $1, locale, slug, ordinal, format('%s (%s, edition %s)', slug, locale, $2::text)
+		FROM (VALUES ('en', 'label-terms-acceptance', 1), ('en', 'terms', 2),
+		             ('es', 'label-terms-acceptance', 1), ('es', 'terms', 2))
+		     AS artifact (locale, slug, ordinal)
+	`, id, label); err != nil {
+		t.Fatalf("publish terms version %q text: %v", label, err)
 	}
 	return id
 }

@@ -136,6 +136,11 @@ func TestMain(m *testing.M) {
 	app, err := server.NewApp(ctx, cfg,
 		server.WithEmailSender(email),
 		server.WithClock(func() time.Time { return fixedClock }),
+		// No legal-text cache. The consent service caches the current Privacy
+		// Policy and Terms editions for a minute in production (#558); in here
+		// that would be a source of answers from the wrong edition, because this
+		// package shares one app across every test and some of them publish.
+		server.WithLegalTextCacheTTL(0),
 		server.WithObjectStorage(sharedStorage),
 	)
 	if err != nil {
@@ -294,6 +299,17 @@ func resetDatabase(ctx context.Context, db *sql.DB) error {
 	// The list is of the SEEDED labels rather than "everything but the
 	// placeholder", so that publishing an edition does not quietly delete it here
 	// and hand every test back to a superseded one.
+	//
+	// The TEXT of such an edition goes first (#558): artifacts reference their
+	// edition ON DELETE RESTRICT, because a published edition is never deleted
+	// out from under the evidence pointing at it, so the child rows are cleared
+	// explicitly rather than cascaded.
+	if _, err := db.ExecContext(ctx, `
+		DELETE FROM policy_version_artifacts
+		WHERE version_id IN (SELECT id FROM policy_versions WHERE label NOT IN ('0-placeholder', '1'))
+	`); err != nil {
+		return fmt.Errorf("clear published policy version text: %w", err)
+	}
 	if _, err := db.ExecContext(ctx, `DELETE FROM policy_versions WHERE label NOT IN ('0-placeholder', '1')`); err != nil {
 		return fmt.Errorf("clear published policy versions: %w", err)
 	}
@@ -301,6 +317,12 @@ func resetDatabase(ctx context.Context, db *sql.DB) error {
 	// `terms_versions` lives under the same rule for the same reason: migration
 	// 105 seeds edition "1" as the current Terms Version every test runs under,
 	// and the re-gating tests publish a later edition to prove it re-gates.
+	if _, err := db.ExecContext(ctx, `
+		DELETE FROM terms_version_artifacts
+		WHERE version_id IN (SELECT id FROM terms_versions WHERE label <> '1')
+	`); err != nil {
+		return fmt.Errorf("clear published terms version text: %w", err)
+	}
 	if _, err := db.ExecContext(ctx, `DELETE FROM terms_versions WHERE label <> '1'`); err != nil {
 		return fmt.Errorf("clear published terms versions: %w", err)
 	}

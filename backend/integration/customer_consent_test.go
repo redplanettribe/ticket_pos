@@ -217,6 +217,23 @@ func publishPolicyVersion(t *testing.T, env *testEnv, label string) string {
 	`, label).Scan(&id); err != nil {
 		t.Fatalf("publish policy version %q: %v", label, err)
 	}
+	// Text with the row: since #558 an edition without artifacts is one no
+	// reader can be shown, so the public policy page would 404 in every
+	// language. The fingerprint above is junk on purpose — these tests are about
+	// re-gating, and a mismatch is logged and served rather than refused.
+	if _, err := env.db.Exec(`
+		INSERT INTO policy_version_artifacts (version_id, locale, slug, ordinal, body)
+		SELECT $1, locale, slug, ordinal, format('%s (%s, edition %s)', slug, locale, $2::text)
+		FROM (VALUES ('en', 'short-notice', 1), ('en', 'label-policy-acceptance', 2),
+		             ('en', 'label-marketing-consent', 3), ('en', 'label-networking-consent', 4),
+		             ('en', 'policy', 5),
+		             ('es', 'short-notice', 1), ('es', 'label-policy-acceptance', 2),
+		             ('es', 'label-marketing-consent', 3), ('es', 'label-networking-consent', 4),
+		             ('es', 'policy', 5))
+		     AS artifact (locale, slug, ordinal)
+	`, id, label); err != nil {
+		t.Fatalf("publish policy version %q text: %v", label, err)
+	}
 	return id
 }
 

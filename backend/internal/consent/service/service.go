@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/consent"
+	"github.com/peter/ticket_pos/backend/internal/consent/legal"
 	"github.com/peter/ticket_pos/backend/internal/consent/policy"
 	"github.com/peter/ticket_pos/backend/internal/consent/repository"
 	"github.com/peter/ticket_pos/backend/internal/platform"
@@ -22,11 +23,36 @@ type Service struct {
 	// use — and it is a field rather than a call to time.Now so the integration
 	// harness can capture evidence at a time it chose.
 	now func() time.Time
+	// policyCache and termsCache hold the current edition of each document,
+	// ready to serve, for DefaultLegalTextCacheTTL. They are aged on the WALL
+	// CLOCK and not on `now` above: `now` is the evidence clock, which the
+	// integration harness freezes, and a cache that never aged would serve one
+	// edition for the lifetime of the process.
+	policyCache *editionCache[PolicyView]
+	termsCache  *editionCache[TermsView]
 }
 
 // New builds the consent Service.
 func New(repo *repository.Repository, logger platform.Logger) *Service {
-	return &Service{repo: repo, logger: logger, now: time.Now}
+	return &Service{
+		repo:        repo,
+		logger:      logger,
+		now:         time.Now,
+		policyCache: newEditionCache[PolicyView](DefaultLegalTextCacheTTL),
+		termsCache:  newEditionCache[TermsView](DefaultLegalTextCacheTTL),
+	}
+}
+
+// WithLegalTextCacheTTL replaces how long a filled legal document is served
+// before it is read again. Zero or less disables the cache: every read of the
+// policy or the terms goes to the database.
+//
+// It exists for the integration harness, which publishes editions mid-run
+// against a frozen clock, and for nothing else — production takes the default.
+func (s *Service) WithLegalTextCacheTTL(ttl time.Duration) *Service {
+	s.policyCache = newEditionCache[PolicyView](ttl)
+	s.termsCache = newEditionCache[TermsView](ttl)
+	return s
 }
 
 // WithClock replaces the clock every Consent Record is stamped with. Same
@@ -84,41 +110,76 @@ func (s *Service) CurrentPolicy(ctx context.Context, rawLocale string) (PolicyVi
 		return PolicyView{}, consent.ErrPolicyLocaleNotPublished()
 	}
 
-	document, ok := policy.For(locale)
+	views, ok := s.policyCache.load(time.Now())
 	if !ok {
+		edition, err := s.repo.CurrentPolicyEdition(ctx)
+		if errors.Is(err, repository.ErrNoCurrentPolicyVersion) {
+			return PolicyView{}, consent.ErrNoCurrentPolicyVersion()
+		}
+		if err != nil {
+			return PolicyView{}, err
+		}
+		views = s.policyViews(edition)
+		s.policyCache.store(views, time.Now())
+	}
+
+	// WHICH LANGUAGES EXIST IS THE EDITION'S OWN ANSWER, read from its rows.
+	// An edition published without a translation stops serving that language
+	// the moment it becomes current, with no deploy either way — and a language
+	// this platform does not publish at all is refused rather than answered in
+	// another one, which would present a notice the reader cannot read as the
+	// notice they accepted.
+	view, published := views[locale]
+	if !published {
 		return PolicyView{}, consent.ErrPolicyLocaleNotPublished()
 	}
+	return view, nil
+}
 
-	version, err := s.repo.CurrentPolicyVersion(ctx)
-	if errors.Is(err, repository.ErrNoCurrentPolicyVersion) {
-		return PolicyView{}, consent.ErrNoCurrentPolicyVersion()
-	}
-	if err != nil {
-		return PolicyView{}, err
-	}
+// policyViews turns one read of one edition into the answer for every language
+// it publishes, and verifies the fingerprint on the way. Called once per cache
+// fill.
+func (s *Service) policyViews(edition repository.PolicyEdition) map[platform.Locale]PolicyView {
+	version := edition.Version
 
 	// The row's fingerprint and the text about to be served disagreeing means
-	// the deployed binary is not the one that published this edition — a rolled
-	// back backend, or a hand-edited row. It is not fatal: the reader still gets
-	// a complete, current notice, and refusing to show a privacy policy is worse
-	// for them than showing one whose fingerprint is stale. But it must not pass
-	// silently, because every acceptance recorded in this state is evidence
-	// pointing at text that was not on screen.
-	if version.ContentHash != policy.ContentHash() {
-		s.logger.Error("policy version content hash does not match the embedded artifacts",
+	// somebody has written to these tables outside a publication: a hand-edited
+	// row, a half-restored backup, an artifact added to a published edition. It
+	// is not fatal — the reader still gets a complete, current notice, and
+	// refusing to show somebody a privacy policy is worse for them than showing
+	// one whose fingerprint is stale — but it must never pass silently, because
+	// every acceptance recorded in this state is evidence pointing at text that
+	// was not on screen.
+	if computed := legal.ContentHash(edition.Artifacts); computed != version.ContentHash {
+		s.logger.Error("policy version content hash does not match its stored artifacts",
 			"version", version.Label,
 			"recorded_hash", version.ContentHash,
-			"embedded_hash", policy.ContentHash(),
+			"stored_hash", computed,
 		)
 	}
 
-	return PolicyView{
-		Version:       version.Label,
-		EffectiveDate: version.EffectiveDate.Format("2006-01-02"),
-		ContentHash:   version.ContentHash,
-		Locale:        document.Locale,
-		ShortNotice:   document.ShortNotice,
-		ConsentLabels: document.ConsentLabels,
-		BodyMarkdown:  document.BodyMarkdown,
-	}, nil
+	documents := policy.Documents(edition.Artifacts)
+	views := make(map[platform.Locale]PolicyView, len(documents))
+	for locale, document := range documents {
+		views[locale] = PolicyView{
+			Version:       version.Label,
+			EffectiveDate: version.EffectiveDate.Format("2006-01-02"),
+			ContentHash:   version.ContentHash,
+			Locale:        document.Locale,
+			ShortNotice:   document.ShortNotice,
+			ConsentLabels: document.ConsentLabels,
+			BodyMarkdown:  document.BodyMarkdown,
+		}
+	}
+
+	// A language with rows that do not add up to a whole document is inside the
+	// fingerprint but cannot be served, so it is refused like an unpublished one
+	// — loudly, because it is a publication bug rather than a reader's mistake.
+	if missing := len(legal.Locales(edition.Artifacts)) - len(views); missing > 0 {
+		s.logger.Error("policy version publishes a language with an incomplete artifact set",
+			"version", version.Label,
+			"incomplete_languages", missing,
+		)
+	}
+	return views
 }

@@ -99,15 +99,37 @@ CREATE TABLE policy_versions (
 -- when this edition became current, and so that a deployment in any timezone
 -- finds it already in effect rather than pending until midnight.
 --
--- THE HASH BELOW IS NOT MAINTAINED BY HAND. It is the value
--- `policy.ContentHash()` computes from the embedded artifacts, and
--- backend/internal/consent/policy/seed_test.go recomputes it from this very
--- file and fails if the two disagree. Editing the policy text without
--- publishing a new edition therefore breaks the build, which is the acceptance
--- criterion of #250 and the only reason this column can be trusted.
+-- THE HASH BELOW IS THE ONE PRODUCTION HOLDS, and it is the fingerprint of the
+-- placeholder text as this edition was actually published: the text that
+-- migration 109 now carries as rows under the label `0-placeholder`.
+--
+-- IT WAS CORRECTED IN PLACE, ONCE, BY #558, AND THIS IS THE ONLY KIND OF EDIT
+-- THAT IS EVER LEGITIMATE HERE. The placeholder prose was edited three times
+-- after this migration had already been applied to production — to name the
+-- real controller, its RUC and its data protection contact — and each time the
+-- literal in this file was rewritten to match the new text. Production had
+-- long since inserted its row, so those rewrites reached nothing but databases
+-- created afterwards, and the same edition ended up with different fingerprints
+-- in different databases: production's row says
+-- 42d9c2c7…, while this file had drifted to a value no
+-- row anywhere carries.
+--
+-- Restoring the value production holds is not "rewriting a hash". THE HASH ON A
+-- ROW IS NEVER REWRITTEN — that row is the record of what eleven Customers were
+-- shown, and #558's migration proves the text it stores against it rather than
+-- the other way round. What is corrected here is a SEED literal, which reaches
+-- only databases that have not yet applied migration 060 (the runner keys
+-- `schema_migrations` on the filename), so that a database built from scratch
+-- today reproduces production's editions instead of inventing its own.
+--
+-- The text this value fingerprints no longer exists in this repository as
+-- files. It lives in migration 109, and
+-- backend/internal/consent/legal/preimage_test.go recomputes THIS literal from
+-- it — so the guarantee the deleted seed_test.go gave for the newest edition
+-- alone now covers every edition, including this one.
 INSERT INTO policy_versions (label, effective_date, content_hash)
 VALUES (
     '0-placeholder',
     DATE '2026-08-01',
-    '8f00d52d4c009af2677dfb1fa08d05f7ebd1f6a8fd98328e46a8c4862f6f5449'
+    '42d9c2c79c523359033bac14abcfea0c28a808e980e496e7b2d66979d55f0a2b'
 );

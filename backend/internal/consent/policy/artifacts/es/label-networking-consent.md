@@ -1,1 +1,0 @@
-Autorizo a **Multiticketing** a mostrar mis datos de perfil, a través de su aplicación complementaria de networking, a otros asistentes del mismo evento y a los organizadores de ese evento. Es opcional y puedo revocarlo en cualquier momento.

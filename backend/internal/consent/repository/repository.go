@@ -25,11 +25,11 @@ func New(db *platform.DB) *Repository {
 // PolicyVersion is one published edition of the Privacy Policy, as the
 // `policy_versions` row records it.
 //
-// It carries no text. The text of the edition is embedded in the binary
-// (internal/consent/policy); this row carries the label a human names it by,
-// the day it took effect, and the fingerprint that ties the two together. A
-// text column here would be a second copy of the policy that nothing could
-// keep honest.
+// It carries no text of its own: this row is the label a human names the
+// edition by, the day it took effect, and the fingerprint that ties the two to
+// the words. The words are the edition's artifact rows
+// (policy_version_artifacts, migration 109) — read WITH this row and never
+// separately, see CurrentPolicyEdition.
 type PolicyVersion struct {
 	ID            string
 	Label         string

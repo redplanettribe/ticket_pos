@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/consent"
@@ -26,16 +27,24 @@ const pendingTermsDuration = 15 * time.Minute
 const capacityOrganizer = "organizer"
 
 // TermsVersionSource is what the sign-in gate needs to know about the Terms:
-// which edition is current. It is the narrowest possible slice of the consent
-// module — one read, no way to record anything — declared HERE, on the side
-// that calls it, the house pattern for a cross-module dependency (ConsentGate,
-// OrganizationResolver). identity may depend on consent; consent must never
-// depend on identity, and an interface this thin keeps the gate from ever
-// asking the consent module to do the gating.
+// which edition is current, AND the words on the box it is about to show. It is
+// the narrowest possible slice of the consent module — one read, no way to
+// record anything — declared HERE, on the side that calls it, the house pattern
+// for a cross-module dependency (ConsentGate, OrganizationResolver). identity
+// may depend on consent; consent must never depend on identity, and an
+// interface this thin keeps the gate from ever asking the consent module to do
+// the gating.
+//
+// ONE READ FOR BOTH, and that is the whole reason this is CurrentTermsEdition
+// rather than a version read plus a label read (#558). The acceptance this gate
+// is about to sell is pinned to the edition id it reads here, and the label it
+// shows must be that same edition's words — two reads could straddle a
+// publication and produce a Staff Terms Acceptance evidencing text that was not
+// on screen.
 //
 // consentrepo.Repository satisfies it as-is.
 type TermsVersionSource interface {
-	CurrentTermsVersion(ctx context.Context) (consentrepo.TermsVersion, error)
+	CurrentTermsEdition(ctx context.Context) (consentrepo.TermsEdition, error)
 }
 
 // SignInOutcome is what a completed Proof of Email Ownership produces on the
@@ -124,10 +133,11 @@ type TermsAcceptanceSubmission struct {
 // Spanish prevails (§37), and the link beside the box goes to the prevailing
 // text.
 func (s *Service) gateOnTerms(ctx context.Context, email string, pageLocale platform.Locale, now time.Time) (*TermsRequiredView, error) {
-	version, err := s.termsVersions.CurrentTermsVersion(ctx)
+	edition, err := s.termsVersions.CurrentTermsEdition(ctx)
 	if err != nil {
 		return nil, err
 	}
+	version := edition.Version
 
 	accepted, err := s.repo.HasTermsAcceptance(ctx, email, version.ID)
 	if err != nil {
@@ -150,6 +160,11 @@ func (s *Service) gateOnTerms(ctx context.Context, email string, pageLocale plat
 		ExpiresAt:      now.Add(pendingTermsDuration),
 		CreatedAt:      now,
 	}
+	label, err := acceptanceLabel(edition, pageLocale)
+	if err != nil {
+		return nil, err
+	}
+
 	if err := s.repo.CreatePendingStaffTerms(ctx, pending); err != nil {
 		return nil, err
 	}
@@ -158,7 +173,7 @@ func (s *Service) gateOnTerms(ctx context.Context, email string, pageLocale plat
 		PendingTermsToken: token,
 		ExpiresAt:         pending.ExpiresAt.UTC().Format(time.RFC3339),
 		Version:           version.Label,
-		AcceptanceLabel:   acceptanceLabel(pageLocale),
+		AcceptanceLabel:   label,
 	}, nil
 }
 
@@ -225,18 +240,27 @@ func (s *Service) AcceptTerms(ctx context.Context, submission TermsAcceptanceSub
 	return &SignInOutcome{Session: view, SessionID: session.ID}, nil
 }
 
-// acceptanceLabel is the checkbox's words in one language, floored at the
-// prevailing text.
+// acceptanceLabel is the checkbox's words in one language, taken from the
+// edition that was just read, floored at the prevailing text.
 //
-// The floor is not defensive tidiness: an unpublished language reaching here
-// would otherwise serve a person an EMPTY label — a mandatory contractual box
-// with nothing written beside it, which is the one thing §3 forbids outright.
-// Falling back to the text that legally binds them is the only safe answer, and
-// terms.Locales covering every Locale the platform parses makes it unreachable.
-func acceptanceLabel(locale platform.Locale) string {
-	if doc, ok := terms.For(locale); ok {
-		return doc.AcceptanceLabel
+// The floor is not defensive tidiness: a language this edition does not publish
+// reaching here would otherwise serve a person an EMPTY label — a mandatory
+// contractual box with nothing written beside it, which is the one thing §3
+// forbids outright. Falling back to the text that legally binds them is the
+// only safe answer.
+//
+// And if even the prevailing text is missing, THE SIGN-IN FAILS. That is now
+// reachable in a way it was not when the words were compiled into this binary:
+// the text is data, and data can be absent. A gate that cannot state the
+// contract must not sell a session past itself, so this refuses rather than
+// showing an empty box — the same trade the gate makes when the read itself
+// fails.
+func acceptanceLabel(edition consentrepo.TermsEdition, locale platform.Locale) (string, error) {
+	if doc, ok := terms.DocumentFrom(locale, edition.Artifacts); ok {
+		return doc.AcceptanceLabel, nil
 	}
-	doc, _ := terms.For(terms.PrevailingLocale)
-	return doc.AcceptanceLabel
+	if doc, ok := terms.DocumentFrom(terms.PrevailingLocale, edition.Artifacts); ok {
+		return doc.AcceptanceLabel, nil
+	}
+	return "", fmt.Errorf("terms edition %q publishes no acceptance label", edition.Version.Label)
 }

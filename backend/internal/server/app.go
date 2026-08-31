@@ -100,6 +100,10 @@ type appOptions struct {
 	emailSender   platform.EmailSender
 	clock         func() time.Time
 	objectStorage storage.ObjectStorage
+	// legalTextCacheTTL, when set, replaces the consent service's default
+	// 60-second cache of the current legal editions. Set to zero by the
+	// integration harness, which publishes editions mid-run.
+	legalTextCacheTTL *time.Duration
 }
 
 // WithEmailSender overrides the configured email sender.
@@ -113,6 +117,15 @@ func WithEmailSender(sender platform.EmailSender) Option {
 func WithClock(now func() time.Time) Option {
 	return func(o *appOptions) {
 		o.clock = now
+	}
+}
+
+// WithLegalTextCacheTTL overrides how long the consent service serves a filled
+// Privacy Policy or Terms edition before reading it again (tests). Zero
+// disables the cache.
+func WithLegalTextCacheTTL(ttl time.Duration) Option {
+	return func(o *appOptions) {
+		o.legalTextCacheTTL = &ttl
 	}
 }
 
@@ -230,7 +243,7 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	}
 
 	// Consent (#250, #251, parent #249). It depends on nothing but the database
-	// and the Privacy Policy text embedded in this binary, so it is built FIRST
+	// — which since #558 is where the legal text lives too — so it is built FIRST
 	// among the domain modules — before customers, which depends on it. The
 	// direction is the whole design: customers may depend on consent, consent may
 	// never depend on customers, and the module that decides whether a Customer
@@ -242,6 +255,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		// fixed clock has to reach it like it reaches every other service that
 		// writes a timestamp anybody asserts on.
 		consentService = consentService.WithClock(options.clock)
+	}
+	if options.legalTextCacheTTL != nil {
+		consentService = consentService.WithLegalTextCacheTTL(*options.legalTextCacheTTL)
 	}
 
 	customersRepo := customersrepo.New(db)

@@ -1,145 +1,118 @@
 package policy_test
 
 import (
-	"regexp"
-	"strings"
 	"testing"
 
+	"github.com/peter/ticket_pos/backend/internal/consent/legal"
 	"github.com/peter/ticket_pos/backend/internal/consent/policy"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
-// Both Locales carry a complete artifact set. A Locale published with an empty
-// Short Notice or a missing checkbox label is a capture moment with nothing on
-// it, which is worse than not offering that language at all.
-func TestEveryPublishedLocaleCarriesTheWholeArtifactSet(t *testing.T) {
+// This package used to hold the policy text and the tests that read it. The
+// text is rows now (migration 109), and those content guards moved to
+// internal/consent/legal, where the stored text is. What is left here is the
+// assembly: an edition's rows in, a Document a surface can render out — and
+// the refusals that keep a half-published language off a reader's screen.
+
+func edition(locales []platform.Locale, drop string) []legal.Artifact {
+	slugs := []string{
+		policy.SlugShortNotice,
+		policy.SlugPolicyAcceptanceLabel,
+		policy.SlugMarketingConsentLabel,
+		policy.SlugNetworkingConsentLabel,
+		policy.SlugPolicy,
+	}
+	var artifacts []legal.Artifact
+	for _, locale := range locales {
+		ordinal := 0
+		for _, slug := range slugs {
+			ordinal++
+			if slug == drop {
+				continue
+			}
+			artifacts = append(artifacts, legal.Artifact{
+				Locale:  locale,
+				Slug:    slug,
+				Ordinal: ordinal,
+				Body:    string(locale) + " " + slug,
+			})
+		}
+	}
+	return artifacts
+}
+
+// The whole artifact set becomes the whole document, each slug in its own
+// field: this is the mapping the public endpoint and every capture surface
+// render from.
+func TestAWholeArtifactSetBecomesAWholeDocument(t *testing.T) {
 	t.Parallel()
 
-	for _, locale := range policy.Locales {
-		doc, ok := policy.For(locale)
-		if !ok {
-			t.Fatalf("locale %s is published but has no document", locale)
+	document, ok := policy.DocumentFrom(platform.LocaleES, edition([]platform.Locale{platform.LocaleEN, platform.LocaleES}, ""))
+	if !ok {
+		t.Fatal("a complete artifact set did not assemble")
+	}
+	if document.Locale != platform.LocaleES {
+		t.Errorf("locale = %q, want es", document.Locale)
+	}
+	for name, got := range map[string]string{
+		"short notice":             document.ShortNotice,
+		"body":                     document.BodyMarkdown,
+		"policy acceptance label":  document.ConsentLabels.PolicyAcceptance,
+		"marketing consent label":  document.ConsentLabels.MarketingConsent,
+		"networking consent label": document.ConsentLabels.NetworkingConsent,
+	} {
+		if got == "" {
+			t.Errorf("%s is empty", name)
 		}
-		for name, text := range map[string]string{
-			"short notice":             doc.ShortNotice,
-			"body":                     doc.BodyMarkdown,
-			"policy acceptance label":  doc.ConsentLabels.PolicyAcceptance,
-			"marketing consent label":  doc.ConsentLabels.MarketingConsent,
-			"networking consent label": doc.ConsentLabels.NetworkingConsent,
-		} {
-			if strings.TrimSpace(text) == "" {
-				t.Errorf("locale %s: %s is empty", locale, name)
-			}
-		}
+	}
+	// Each field carries its OWN slug's text: a mapping that crossed two labels
+	// over would put the marketing wording beside the networking box, which no
+	// hash would notice because the same bytes are in the edition.
+	if document.ConsentLabels.MarketingConsent != "es "+policy.SlugMarketingConsentLabel {
+		t.Errorf("the marketing label carries %q", document.ConsentLabels.MarketingConsent)
+	}
+	if document.BodyMarkdown != "es "+policy.SlugPolicy {
+		t.Errorf("the body carries %q", document.BodyMarkdown)
 	}
 }
 
-// A Locale this platform does not publish is answered with nothing, never with
-// English wearing another language's name. See policy.For.
+// A language this edition does not publish is answered with nothing, never with
+// another language wearing its name.
 func TestAnUnpublishedLocaleHasNoDocument(t *testing.T) {
 	t.Parallel()
 
-	if _, ok := policy.For(platform.Locale("fr")); ok {
+	if _, ok := policy.DocumentFrom(platform.Locale("fr"), edition([]platform.Locale{platform.LocaleEN, platform.LocaleES}, "")); ok {
 		t.Fatal("an unpublished Locale returned a document")
 	}
 }
 
-// ADR 0034: Marketing Consent and the Follow Digest are one switch, and the
-// checkbox copy "names the Digest explicitly, so nobody grants or declines it
-// without being told what it covers". This is that requirement as a test — the
-// Digest is the only marketing mail the platform actually sends today, so a
-// label that omitted it would be asking for consent to nothing while turning
-// something on.
-func TestTheMarketingLabelNamesTheFollowDigest(t *testing.T) {
+// A language with a MISSING artifact is refused as if it were unpublished. A
+// capture moment with a blank checkbox label beside it is worse than an honest
+// 404, and the missing bytes are still inside the edition's fingerprint.
+func TestAnIncompleteLocaleIsRefused(t *testing.T) {
 	t.Parallel()
 
-	for locale, want := range map[platform.Locale]string{
-		platform.LocaleEN: "Follow Digest",
-		platform.LocaleES: "Follow Digest",
-	} {
-		doc, _ := policy.For(locale)
-		if !strings.Contains(doc.ConsentLabels.MarketingConsent, want) {
-			t.Errorf("locale %s marketing label does not name the Digest: %q", locale, doc.ConsentLabels.MarketingConsent)
-		}
+	artifacts := edition([]platform.Locale{platform.LocaleEN}, policy.SlugMarketingConsentLabel)
+	if _, ok := policy.DocumentFrom(platform.LocaleEN, artifacts); ok {
+		t.Fatal("a language missing an artifact assembled into a document")
+	}
+	if documents := policy.Documents(artifacts); len(documents) != 0 {
+		t.Fatalf("Documents returned %d languages, want none", len(documents))
 	}
 }
 
-// Networking Consent authorizes TWO audiences (CONTEXT.md), and a Customer who
-// is told about one of them has not been told what they are authorizing.
-func TestTheNetworkingLabelNamesBothAudiences(t *testing.T) {
+// Documents is what one cache fill produces: every language of one edition,
+// from one read, so two languages can never come from two editions.
+func TestDocumentsCoversEveryCompletelyPublishedLanguage(t *testing.T) {
 	t.Parallel()
 
-	for locale, wants := range map[platform.Locale][]string{
-		platform.LocaleEN: {"attendees", "organizers"},
-		platform.LocaleES: {"asistentes", "organizadores"},
-	} {
-		doc, _ := policy.For(locale)
-		for _, want := range wants {
-			if !strings.Contains(doc.ConsentLabels.NetworkingConsent, want) {
-				t.Errorf("locale %s networking label does not name %q: %q", locale, want, doc.ConsentLabels.NetworkingConsent)
-			}
+	documents := policy.Documents(edition([]platform.Locale{platform.LocaleEN, platform.LocaleES}, ""))
+	if len(documents) != 2 {
+		t.Fatalf("assembled %d languages, want 2", len(documents))
+	}
+	for locale, document := range documents {
+		if document.Locale != locale {
+			t.Errorf("the %s document reports locale %q", locale, document.Locale)
 		}
-	}
-}
-
-// The published text IDENTIFIES ITS CONTROLLER and says where to write. This
-// replaced the test that asserted the opposite — that bracketed placeholders
-// were still visible — which existed to stop unreviewed prose being mistaken
-// for a finished policy. Edition 1 is the finished policy, so the guard
-// inverts: what would now be wrong is a body that named nobody.
-//
-// A notice that cannot say who is processing the data, or to whom a deletion
-// request goes, fails the thing a privacy notice is for, and it would fail it
-// silently — the page would still render, the hash would still verify, and only
-// a reader would find out.
-func TestThePublishedTextIdentifiesTheController(t *testing.T) {
-	t.Parallel()
-
-	for _, locale := range policy.Locales {
-		doc, _ := policy.For(locale)
-		for _, want := range []string{"REDPLANETTRIBE", "1793228468001", "info@redplanettribe.org"} {
-			if !strings.Contains(doc.BodyMarkdown, want) {
-				t.Errorf("locale %s body does not carry %q", locale, want)
-			}
-			if !strings.Contains(doc.ShortNotice, want) {
-				t.Errorf("locale %s short notice does not carry %q", locale, want)
-			}
-		}
-	}
-}
-
-// No bracketed placeholder survives into the published editions. The drop filled
-// in the ones the placeholder text carried; this fails if a future edit
-// reintroduces one, or if a section of a legal document lands with a slot in it
-// that somebody meant to come back to.
-func TestThePublishedTextHasNoPlaceholdersLeft(t *testing.T) {
-	t.Parallel()
-
-	bracketed := regexp.MustCompile(`\[[A-ZÁÉÍÓÚÑ /]{4,}\]`)
-	for _, locale := range policy.Locales {
-		doc, _ := policy.For(locale)
-		for name, text := range map[string]string{
-			"body":         doc.BodyMarkdown,
-			"short notice": doc.ShortNotice,
-		} {
-			if found := bracketed.FindString(text); found != "" {
-				t.Errorf("locale %s %s still carries the placeholder %s", locale, name, found)
-			}
-		}
-	}
-}
-
-// The fingerprint is over the served text, so it must move when the served text
-// moves and must not move otherwise. This pins the second half — the same input
-// hashes the same way twice — and its real value is as a statement of intent
-// beside seed_test.go, which pins the first.
-func TestTheContentHashIsStable(t *testing.T) {
-	t.Parallel()
-
-	if first, second := policy.ContentHash(), policy.ContentHash(); first != second {
-		t.Fatalf("content hash is not stable: %s then %s", first, second)
-	}
-	if len(policy.ContentHash()) != 64 {
-		t.Fatalf("content hash is not a hex SHA-256: %q", policy.ContentHash())
 	}
 }

@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/consent"
+	"github.com/peter/ticket_pos/backend/internal/consent/legal"
 	"github.com/peter/ticket_pos/backend/internal/consent/repository"
 	"github.com/peter/ticket_pos/backend/internal/consent/terms"
 	"github.com/peter/ticket_pos/backend/internal/platform"
@@ -77,37 +79,61 @@ func (s *Service) CurrentTerms(ctx context.Context, rawLocale string) (TermsView
 		return TermsView{}, consent.ErrTermsLocaleNotPublished()
 	}
 
-	document, ok := terms.For(locale)
+	views, ok := s.termsCache.load(time.Now())
 	if !ok {
+		edition, err := s.repo.CurrentTermsEdition(ctx)
+		if errors.Is(err, repository.ErrNoCurrentTermsVersion) {
+			return TermsView{}, consent.ErrNoCurrentTermsVersion()
+		}
+		if err != nil {
+			return TermsView{}, err
+		}
+		views = s.termsViews(edition)
+		s.termsCache.store(views, time.Now())
+	}
+
+	view, published := views[locale]
+	if !published {
 		return TermsView{}, consent.ErrTermsLocaleNotPublished()
 	}
+	return view, nil
+}
 
-	version, err := s.repo.CurrentTermsVersion(ctx)
-	if errors.Is(err, repository.ErrNoCurrentTermsVersion) {
-		return TermsView{}, consent.ErrNoCurrentTermsVersion()
-	}
-	if err != nil {
-		return TermsView{}, err
-	}
+// termsViews turns one read of one edition into the answer for every language
+// it publishes, verifying the fingerprint on the way — policyViews' shape, for
+// its reasons. Called once per cache fill.
+func (s *Service) termsViews(edition repository.TermsEdition) map[platform.Locale]TermsView {
+	version := edition.Version
 
-	// A mismatch means the deployed binary is not the one that published this
-	// edition. Not fatal, for CurrentPolicy's reason — the reader still gets the
-	// current text — but never silent, because every acceptance recorded in this
-	// state is evidence pointing at text that was not on screen.
-	if version.ContentHash != terms.ContentHash() {
-		s.logger.Error("terms version content hash does not match the embedded artifacts",
+	// Never silent, never fatal: the reader gets the current contract, and the
+	// mismatch is logged because every acceptance recorded in this state points
+	// at text that was not on screen (policyViews).
+	if computed := legal.ContentHash(edition.Artifacts); computed != version.ContentHash {
+		s.logger.Error("terms version content hash does not match its stored artifacts",
 			"version", version.Label,
 			"recorded_hash", version.ContentHash,
-			"embedded_hash", terms.ContentHash(),
+			"stored_hash", computed,
 		)
 	}
 
-	return TermsView{
-		Version:         version.Label,
-		EffectiveDate:   version.EffectiveDate.Format("2006-01-02"),
-		ContentHash:     version.ContentHash,
-		Locale:          document.Locale,
-		AcceptanceLabel: document.AcceptanceLabel,
-		BodyMarkdown:    document.BodyMarkdown,
-	}, nil
+	documents := terms.Documents(edition.Artifacts)
+	views := make(map[platform.Locale]TermsView, len(documents))
+	for locale, document := range documents {
+		views[locale] = TermsView{
+			Version:         version.Label,
+			EffectiveDate:   version.EffectiveDate.Format("2006-01-02"),
+			ContentHash:     version.ContentHash,
+			Locale:          document.Locale,
+			AcceptanceLabel: document.AcceptanceLabel,
+			BodyMarkdown:    document.BodyMarkdown,
+		}
+	}
+
+	if missing := len(legal.Locales(edition.Artifacts)) - len(views); missing > 0 {
+		s.logger.Error("terms version publishes a language with an incomplete artifact set",
+			"version", version.Label,
+			"incomplete_languages", missing,
+		)
+	}
+	return views
 }

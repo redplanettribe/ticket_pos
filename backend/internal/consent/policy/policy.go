@@ -1,60 +1,67 @@
-// Package policy holds the Privacy Policy and its Short Notice as embedded
-// per-Locale documents, and computes the fingerprint a Policy Version is
-// recorded under.
+// Package policy is the shape of the Privacy Policy: what a reader can be
+// shown under one edition, and which stored artifact fills each part of it.
 //
-// THE ARTIFACT LIVES HERE AND NOT IN THE STOREFRONT CATALOG, and that is the
-// whole design. A Policy Version records the SHA-256 "of the exact rendered
-// notice + policy text" (#249) so that a compliance officer can prove what a
-// person was shown when they accepted. A hash can only prove that if the bytes
-// it was taken over are the same bytes that reached the reader. Copy sitting in
-// `apps/storefront/messages/{en,es}.json` is compiled into a separate runtime,
-// deployed on its own cadence, and reachable from no Go test — the hash would
-// have been of a file nobody could show a court, and nothing would notice when
-// the two drifted. Embedded here, the text the endpoint serves, the text the
-// page renders and the text the hash covers are one thing, and
-// `seed_test.go` fails the build the moment they stop being one thing.
+// THE TEXT NO LONGER LIVES HERE. Until #558 the policy body, the Short Notice
+// and the three checkbox labels were Markdown files compiled into this binary
+// (ADR 0036), and this package read them at startup. They are rows now
+// (policy_version_artifacts, migration 109), and this package is what turns an
+// edition's rows back into the document a surface renders.
 //
-// ADR 0036 records this decision. It is a deliberate, narrow exception to ADR
-// 0027, which holds that the API
-// stays Locale-unaware and that words for machine-keyed things live in the
-// Storefront catalog. That rule is about COPY — words this product chooses for
-// concepts the database owns, where the worst case of drift is an English chip
-// in a Spanish page. This is not copy, it is EVIDENCE: a legal artifact whose
-// integrity is the feature, whose editions are published rather than restyled,
-// and which is quoted back in an audit. The Storefront keeps its half of ADR
-// 0027 — the page's chrome (its heading, its "last updated" label, its link
-// text) is catalog copy like everything else, and only the policy body, the
-// Short Notice and the three checkbox labels come from here.
+// The move does not weaken the argument ADR 0036 made; it satisfies it
+// somewhere else. What that ADR was defending was that the text a Policy
+// Version's SHA-256 is taken over must be the text the reader is actually
+// served — not a copy of it in a message catalog on its own deploy cadence,
+// which nothing could keep honest. That property is now held by the DATABASE:
+// the endpoint serves these rows, the fingerprint is recomputed over these rows
+// on every cache fill, and migration 109 proved the rows against the hash every
+// existing acceptance already points at. What the embedded files bought and the
+// rows do not is a BUILD-TIME failure, and it bought less than it looked like —
+// the seed drift test only ever guarded the newest edition, which is how a
+// published edition's hash came to be rewritten three times without CI
+// noticing. It is replaced by a stronger test over every edition
+// (internal/consent/legal).
 //
-// EVERY EMBEDDED FILE IS SERVED, and that invariant is what makes the hash
-// honest. There is no artifact here that a reader cannot reach, so no edit can
-// change the fingerprint without changing what somebody sees, and no edit can
-// change what somebody sees without changing the fingerprint.
+// What stays true, and is the reason this package still exists: the Storefront
+// keeps its half of ADR 0027. The page's chrome — its heading, its "last
+// updated" label, its link text — is catalog copy like everything else, and
+// only the policy body, the Short Notice and the three checkbox labels are
+// evidence served from here.
 //
-// The files are authored ONE LINE PER BLOCK — a paragraph, a list item or a
-// table row is a single long line, never hard-wrapped. The Storefront renders
-// them through `@ticket-pos/ui`'s Markdown component, which runs remark-breaks
-// and turns a wrapped line into a `<br>`; a legal document typeset with a break
-// every 79 characters is a rendering artifact in a document whose rendering is
-// the thing being attested to. Long lines in the source are the price of the
-// served text being exactly the authored text.
+// EVERY ARTIFACT OF AN EDITION IS SERVED, and that invariant is what makes the
+// hash honest: a slug this package does not render is bytes inside the
+// fingerprint that no reader can be shown, so DocumentFrom refuses an edition
+// that is missing one and nothing silently ignores an extra.
+//
+// The text is authored ONE LINE PER BLOCK — a paragraph, a list item or a table
+// row is a single long line, never hard-wrapped. The Storefront renders it
+// through @ticket-pos/ui's Markdown component, which runs remark-breaks and
+// turns a wrapped line into a <br>; a legal document typeset with a break every
+// 79 characters is a rendering artifact in a document whose rendering is the
+// thing being attested to.
 package policy
 
 import (
-	"crypto/sha256"
-	"embed"
-	"encoding/hex"
-	"fmt"
-	"strings"
-
+	"github.com/peter/ticket_pos/backend/internal/consent/legal"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
-// artifacts holds the Privacy Policy artifact set: one directory per Locale,
-// each with the policy body, the Short Notice, and the three consent labels.
-//
-//go:embed artifacts
-var artifacts embed.FS
+// The artifact slugs one Policy Version publishes, in each language. The
+// ORDINALS that decide the fingerprint are on the rows and not here: an
+// operator adding an artifact must not need a deploy to change how an edition
+// is hashed (legal.ContentHash).
+const (
+	// SlugShortNotice is the condensed notice shown inline above the consent
+	// boxes at a capture moment.
+	SlugShortNotice = "short-notice"
+	// SlugPolicyAcceptanceLabel is the required checkbox's label.
+	SlugPolicyAcceptanceLabel = "label-policy-acceptance"
+	// SlugMarketingConsentLabel is the optional marketing checkbox's label.
+	SlugMarketingConsentLabel = "label-marketing-consent"
+	// SlugNetworkingConsentLabel is the optional networking checkbox's label.
+	SlugNetworkingConsentLabel = "label-networking-consent"
+	// SlugPolicy is the full Privacy Policy, the public page's body.
+	SlugPolicy = "policy"
+)
 
 // ConsentLabels are the three checkbox labels shown at a capture moment, in one
 // Locale.
@@ -77,14 +84,14 @@ type ConsentLabels struct {
 	NetworkingConsent string `json:"networking_consent"`
 }
 
-// Document is one Locale's rendering of the current Policy Version: everything
-// a reader can be shown, and nothing else.
+// Document is one Locale's rendering of a Policy Version: everything a reader
+// can be shown, and nothing else.
 //
-// Its fields ARE the hash preimage (see ContentHash). A field added here that a
-// reader never sees would put bytes in the fingerprint that no page can be
-// checked against; a field a reader sees that is not here is text the
-// fingerprint does not cover. Either one breaks the only property this whole
-// arrangement exists to have.
+// Its fields are exactly the artifacts the fingerprint is taken over. A field
+// here that no artifact fills would be a document with a hole in it; an
+// artifact no field reads would be bytes in the fingerprint that no page can be
+// checked against. Either one breaks the only property this whole arrangement
+// exists to have, which is why DocumentFrom insists on the full set.
 type Document struct {
 	Locale        platform.Locale `json:"locale"`
 	ShortNotice   string          `json:"short_notice"`
@@ -92,97 +99,60 @@ type Document struct {
 	BodyMarkdown  string          `json:"body_markdown"`
 }
 
-// Locales are the Locales the Privacy Policy is published in, in the order the
-// fingerprint walks them.
+// DocumentFrom assembles one language's Document out of an edition's stored
+// artifacts, reporting whether that edition publishes that language COMPLETELY.
 //
-// Fixed, and not derived from the embedded directory listing: the order decides
-// the hash, and a hash that depended on how a filesystem sorted names would be
-// a hash that could change without the text changing.
-var Locales = []platform.Locale{platform.LocaleEN, platform.LocaleES}
-
-// documents is the artifact set, read once at startup. Reading the embedded
-// files is infallible in a binary that compiled, so a missing or empty artifact
-// panics here rather than serving a Customer a blank notice.
-var documents = mustLoadAll()
-
-// For reports the current Policy Version's artifact in one Locale, reporting
-// whether the platform publishes that Locale at all.
-//
-// It never falls back to English. A Locale this platform does not serve is a
-// caller's mistake, and answering it with a document in another language would
-// be a notice the reader cannot read presented as the notice they accepted.
-func For(locale platform.Locale) (Document, bool) {
-	doc, ok := documents[locale]
-	return doc, ok
-}
-
-// ContentHash is the SHA-256 of the whole artifact set, hex-encoded: the value a
-// Policy Version row carries, and the thing #249's evidence requirement rests
-// on.
-//
-// It is taken over the SERVED VALUES rather than over the raw files, because
-// what has to be provable is what a reader was shown, not how the repository
-// stored it. Trimming, and any future normalisation, therefore happens before
-// the hash rather than after it.
-//
-// It covers EVERY Locale at once, because a Policy Version is one published
-// edition of the policy and not one per language: a Customer accepts the
-// edition, in whichever language they read it, and an edit to the Spanish text
-// alone is still a new edition. Per-Locale hashes would let the two languages
-// drift into separate editions under one version label, which is the exact
-// thing the label exists to prevent.
-//
-// The preimage is length-framed. Concatenating "abc" + "de" and "ab" + "cde"
-// gives the same bytes and would give the same hash, so every field is written
-// as its byte length, a newline, and the field — moving a sentence from the
-// Short Notice into a label cannot leave the fingerprint untouched.
-func ContentHash() string {
-	sum := sha256.New()
-	for _, locale := range Locales {
-		doc := documents[locale]
-		writeField(sum, string(locale))
-		writeField(sum, doc.ShortNotice)
-		writeField(sum, doc.ConsentLabels.PolicyAcceptance)
-		writeField(sum, doc.ConsentLabels.MarketingConsent)
-		writeField(sum, doc.ConsentLabels.NetworkingConsent)
-		writeField(sum, doc.BodyMarkdown)
+// It never falls back to another language. A Locale an edition does not publish
+// is answered with nothing — serving the document in a language the reader did
+// not ask for would present a notice they may not be able to read as the notice
+// they accepted — and an edition publishing a language with a missing artifact
+// is treated as not publishing it at all, because a capture moment with a blank
+// checkbox label beside it is worse than an honest 404.
+func DocumentFrom(locale platform.Locale, artifacts []legal.Artifact) (Document, bool) {
+	document := Document{Locale: locale}
+	found := 0
+	for _, artifact := range artifacts {
+		if artifact.Locale != locale {
+			continue
+		}
+		switch artifact.Slug {
+		case SlugShortNotice:
+			document.ShortNotice = artifact.Body
+		case SlugPolicyAcceptanceLabel:
+			document.ConsentLabels.PolicyAcceptance = artifact.Body
+		case SlugMarketingConsentLabel:
+			document.ConsentLabels.MarketingConsent = artifact.Body
+		case SlugNetworkingConsentLabel:
+			document.ConsentLabels.NetworkingConsent = artifact.Body
+		case SlugPolicy:
+			document.BodyMarkdown = artifact.Body
+		default:
+			// An artifact this binary does not render. It is inside the
+			// fingerprint, so it is not ignorable — but it is also not this
+			// function's to refuse: the service logs it, once per cache fill,
+			// where a logger exists.
+			continue
+		}
+		found++
 	}
-	return hex.EncodeToString(sum.Sum(nil))
+	if found != 5 {
+		return Document{}, false
+	}
+	return document, true
 }
 
-func writeField(sum interface{ Write([]byte) (int, error) }, value string) {
-	fmt.Fprintf(sum, "%d\n%s", len(value), value)
-}
-
-func mustLoadAll() map[platform.Locale]Document {
-	loaded := make(map[platform.Locale]Document, len(Locales))
-	for _, locale := range Locales {
-		loaded[locale] = Document{
-			Locale:       locale,
-			ShortNotice:  mustRead(locale, "short-notice.md"),
-			BodyMarkdown: mustRead(locale, "policy.md"),
-			ConsentLabels: ConsentLabels{
-				PolicyAcceptance:  mustRead(locale, "label-policy-acceptance.md"),
-				MarketingConsent:  mustRead(locale, "label-marketing-consent.md"),
-				NetworkingConsent: mustRead(locale, "label-networking-consent.md"),
-			},
+// Documents assembles every language an edition publishes completely, keyed by
+// Locale.
+//
+// This is what one cache fill produces: every language of one edition, built
+// from ONE read, so that the text a surface renders and the fingerprint an
+// acceptance records can never come from two different reads of the table.
+func Documents(artifacts []legal.Artifact) map[platform.Locale]Document {
+	documents := make(map[platform.Locale]Document, 2)
+	for _, locale := range legal.Locales(artifacts) {
+		if document, ok := DocumentFrom(locale, artifacts); ok {
+			documents[locale] = document
 		}
 	}
-	return loaded
-}
-
-func mustRead(locale platform.Locale, name string) string {
-	path := fmt.Sprintf("artifacts/%s/%s", locale, name)
-	raw, err := artifacts.ReadFile(path)
-	if err != nil {
-		panic(fmt.Sprintf("policy: read embedded artifact %s: %v", path, err))
-	}
-	// Trailing newlines are a text-editor convention, not part of the notice.
-	// Trimming here rather than at render time keeps the hash over what is
-	// served: see ContentHash.
-	text := strings.TrimSpace(string(raw))
-	if text == "" {
-		panic(fmt.Sprintf("policy: embedded artifact %s is empty", path))
-	}
-	return text
+	return documents
 }
