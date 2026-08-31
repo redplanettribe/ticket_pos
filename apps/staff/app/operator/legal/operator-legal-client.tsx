@@ -53,6 +53,7 @@ import {
 
 import { LegalDiff } from "./legal-diff";
 import { LegalPreviewDialog } from "./legal-preview";
+import { LegalPublish } from "./legal-publish";
 
 /**
  * The Legal Center (#561, spec #556): where the platform's own agreements — the
@@ -79,10 +80,13 @@ import { LegalPreviewDialog } from "./legal-preview";
  * appears in the wild, so nobody edits the Short Notice thinking it is the
  * policy.
  *
- * NOTHING HERE PUBLISHES. The preview and diff are #562, the publication is
- * #563. The completeness dots and the structural-change note are shown now
- * because they are the rules that will refuse a publication then, and an
- * operator should learn about a hole while they can still fill it.
+ * THE EDITOR ITSELF PUBLISHES NOTHING. Every keystroke, every language toggle
+ * and every Save changes no page a reader can see. The publication is one card,
+ * last on the page (LegalPublish, #563), and it acts on the SAVED draft — the
+ * text that was previewed and diffed — never on what is in the textareas. The
+ * completeness dots and the structural-change note are here rather than there
+ * because they are the rules that will refuse a publication, and an operator
+ * should learn about a hole while they can still fill it.
  */
 
 type DraftRow = { slug: string; bodies: Partial<Record<AppLocale, string>> };
@@ -426,17 +430,44 @@ export function OperatorLegalClient() {
             dropping is the only direction there is to exercise.
           */}
           <div className="flex flex-wrap gap-4">
-            {supportedLocales.map((locale) => (
-              <label key={locale} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={publishedLocales.includes(locale)}
-                  onChange={() => toggleLocale(locale)}
-                />
-                <span>{localeName(locale)}</span>
-              </label>
-            ))}
+            {supportedLocales.map((locale) => {
+              // ONE LANGUAGE CANNOT BE UNTICKED (#563), and which one is the
+              // API's answer rather than a constant spelled here: it is a
+              // constant of the DOCUMENT's own package, resting on a different
+              // footing for each document — a statute for the notice, a clause of
+              // the contract for the agreement. Both sentences are below; neither
+              // names the rule, because "prevailing" and "mandatory" are the
+              // names of two Go constants and not words for a screen.
+              const locked = locale === workspace.publish.protected_locale;
+              return (
+                <label key={locale} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={publishedLocales.includes(locale)}
+                    disabled={locked}
+                    title={
+                      locked
+                        ? document === "policy"
+                          ? t("protectedLocalePolicy")
+                          : t("protectedLocaleTerms")
+                        : undefined
+                    }
+                    onChange={() => toggleLocale(locale)}
+                  />
+                  <span>{localeName(locale)}</span>
+                </label>
+              );
+            })}
           </div>
+          {/*
+            The consequence and the reason, as two message keys: the toggle says
+            what cannot happen, and the sentence beside it says on whose authority.
+            The law's name is a proper noun and is not translated in either
+            catalog.
+          */}
+          <p className="text-xs text-muted-foreground">
+            {document === "policy" ? t("protectedLocalePolicy") : t("protectedLocaleTerms")}
+          </p>
           {publishedLocales.length === 0 ? (
             <p className="text-sm text-destructive">{t("noLanguages")}</p>
           ) : null}
@@ -636,6 +667,20 @@ export function OperatorLegalClient() {
           </p>
         </CardContent>
       </Card>
+
+      {/*
+        THE PUBLICATION (#563), last on the page and after everything it depends
+        on: the languages, the words, the diff and the record that both were
+        looked at. It is the only thing on this screen a reader can see the
+        effect of, and it is the only thing that cannot be undone by discarding a
+        draft.
+      */}
+      <LegalPublish
+        document={document}
+        workspace={workspace}
+        dirty={dirty}
+        onPublished={adopt}
+      />
 
       <Card>
         <CardContent className="space-y-4 pt-6">

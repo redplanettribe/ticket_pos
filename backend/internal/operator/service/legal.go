@@ -58,6 +58,14 @@ type LegalDocuments interface {
 	// put on screen. Remembered against both sides, so it lapses if somebody
 	// publishes underneath the draft.
 	SeeLegalDraftDiff(ctx context.Context, document string, by string) (*consentsvc.OperatorLegalWorkspace, error)
+	// PublishLegalEdition publishes the draft as a new edition or as a
+	// correction (#563). It answers every publish refusal — an incomplete
+	// draft, an unpreviewed cell, an unseen diff, a structural or locale-set
+	// change offered as a correction, a correction that corrects nothing, a
+	// missing reason, an effective date that is not one or is not a night away,
+	// and a draft that would stop publishing the language its document may not
+	// be published without.
+	PublishLegalEdition(ctx context.Context, document string, input consentsvc.PublishLegalEditionInput) (*consentsvc.OperatorLegalWorkspace, error)
 }
 
 // LegalWorkspace is the Legal Center's one read: what is published, what is
@@ -91,4 +99,18 @@ func (s *Service) PreviewLegalDraftCell(ctx context.Context, document string, in
 // before a publish button exists.
 func (s *Service) SeeLegalDraftDiff(ctx context.Context, document string, by string) (*consentsvc.OperatorLegalWorkspace, error) {
 	return s.legal.SeeLegalDraftDiff(ctx, document, by)
+}
+
+// PublishLegalEdition is the sixth method and the first that a reader can see
+// the effect of (#563): the draft becomes a published edition, or a correction
+// to one.
+//
+// Still nothing owned here. The two acts, the lineage, the fingerprint, the
+// overnight delay and every refusal belong to the consent module; this side is
+// the operator namespace's door onto them, and it is the namespace's own gate —
+// the operator allowlist, no Membership at all — that makes "an Org Admin cannot
+// rewrite the contract other venues' buyers are held to" structural rather than
+// remembered.
+func (s *Service) PublishLegalEdition(ctx context.Context, document string, input consentsvc.PublishLegalEditionInput) (*consentsvc.OperatorLegalWorkspace, error) {
+	return s.legal.PublishLegalEdition(ctx, document, input)
 }

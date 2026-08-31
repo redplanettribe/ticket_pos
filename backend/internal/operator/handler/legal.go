@@ -222,3 +222,69 @@ func (h *Handler) SeeLegalDraftDiff(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, workspace)
 }
+
+// legalPublishBody is one publication as the operator asked for it.
+//
+// IT CARRIES NO LABEL AND NO TEXT. The label is rendered from the lineage
+// (legal.Lineage.Label) and migration 110's CHECK refuses anything else, so
+// there is no path by which an edition acquires a name somebody typed; the text
+// is the SAVED draft, exactly as it was previewed and diffed, so a body that
+// could restate it would let the publication differ from what was on screen.
+type legalPublishBody struct {
+	// Kind is "edition" or "correction". No default: which act this is decides
+	// whether the whole customer base is re-gated.
+	Kind string `json:"kind"`
+	// EffectiveDate is YYYY-MM-DD, 00:00 America/Guayaquil. Required and at
+	// least tomorrow on an edition; refused on a correction, which is immediate.
+	EffectiveDate string `json:"effective_date"`
+	// Reason is the typed correction reason. Required on a correction.
+	Reason string `json:"reason"`
+}
+
+// PublishLegalEdition publishes the draft: a new edition, or a correction.
+//
+// @Summary      Publish a legal document's draft as a new edition or as a correction
+// @Description  Publishes the document's SAVED draft (#563, spec #556, ADR 0067). TWO ACTS AND NOT ONE. `kind: "edition"` is a GATING publication: it takes the next generation at revision 0, RE-GATES everybody standing below it, and must take effect NO EARLIER THAN TOMORROW — an irreversible re-gate gets a night in which the operator can change their mind, and "now" is refused. `kind: "correction"` takes the next revision within the published edition's generation, FLAT (`1.1`, `1.2`, never `1.1.1`), RE-GATES NOBODY, requires a typed reason, and TAKES EFFECT IMMEDIATELY so a typo fix does not wait overnight — it therefore names no effective date and is refused if it does. `correct now, publish a gating edition effective tomorrow` is an available path, so urgency never forces a choice between speed and honesty. LABELS ARE SYSTEM-GENERATED AND CANNOT BE TYPED, and the body carries no text: what is published is the draft as saved, previewed and diffed. NOTHING IS EVER MUTATED — a correction is a NEW ROW, and the old bytes stay exactly as the acceptances that fingerprint them expect. The version row records who published, when, the diff summary, the typed reason and THE HEADCOUNT AS IT STOOD ON THE BUTTON (migration 112), because provenance belongs on the immutable row the evidence already points at. THERE IS NO APPROVAL STEP on either act: production holds one Platform Operator, so a two-person rule would deadlock, and the substitute for review is the overnight delay plus proof that the consequence was displayed. PUBLISHING REVOKES NO SESSION in either population, and there is no control for it (#570). Refused: 409 LEGAL_DRAFT_NOT_STORED (no saved draft), 400 LEGAL_PUBLISH_KIND_UNKNOWN, 400 LEGAL_PUBLISH_INCOMPLETE with the gaps (an artifact missing in a published language, so no reader meets a document with a hole in it), 409 LEGAL_PUBLISH_NOT_PREVIEWED with the gaps, 409 LEGAL_PUBLISH_DIFF_NOT_SEEN (which also catches somebody publishing underneath the draft, since the seen diff names both sides), 400 LEGAL_CORRECTION_STRUCTURAL (a correction cannot add or remove an artifact — the one structural change the code can prove is not a typo), 400 LEGAL_CORRECTION_LOCALE_SET_CHANGED (that reshapes the hash preimage rather than the fingerprint), 400 LEGAL_CORRECTION_EMPTY_DIFF (a correction that corrects nothing cannot be recorded — an empty diff IS publishable as a gating edition), 400 LEGAL_CORRECTION_REASON_REQUIRED, 400 LEGAL_CORRECTION_EFFECTIVE_DATE_REFUSED, 400 LEGAL_EFFECTIVE_DATE_INVALID, 400 LEGAL_GATING_EFFECTIVE_DATE_TOO_SOON carrying `earliest_effective_date`, 400 LEGAL_PROTECTED_LOCALE_REQUIRED in BOTH kinds when the draft would stop publishing the language the document may not be published without (a CONSTANT per document and never a column, consulted only at publish), 404 LEGAL_DOCUMENT_NOT_FOUND. Answers with the whole workspace, whose draft is once again a copy of the published edition because the draft became it. Platform Operator only.
+// @Tags         operator
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        document  path  string            true  "policy or terms"
+// @Param        body      body  legalPublishBody  true  "The publication"
+// @Success      200  {object}  openapi.EnvelopeOperatorLegalWorkspace
+// @Failure      400  {object}  platform.Envelope
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Failure      409  {object}  platform.Envelope
+// @Router       /api/v1/operator/legal/documents/{document}/publications [post]
+func (h *Handler) PublishLegalEdition(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	var body legalPublishBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return
+	}
+
+	session, ok := middleware.SessionFromContext(r.Context())
+	if !ok {
+		_ = platform.WriteUnauthorized(w, reqID, "Missing session token")
+		return
+	}
+
+	workspace, err := h.svc.PublishLegalEdition(r.Context(), strings.TrimSpace(r.PathValue("document")), consentsvc.PublishLegalEditionInput{
+		Kind:          body.Kind,
+		EffectiveDate: body.EffectiveDate,
+		Reason:        body.Reason,
+		// Who published, from the Staff Session and never from the body: the
+		// provenance on the version row is the platform's finding about who
+		// pressed the button, not the client's assertion about it.
+		By: session.Email,
+	})
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, workspace)
+}

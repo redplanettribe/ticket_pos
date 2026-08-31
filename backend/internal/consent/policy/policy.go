@@ -63,6 +63,36 @@ const (
 	SlugPolicy = "policy"
 )
 
+// MandatoryLocale is the language this notice MUST be published in: Spanish,
+// because the Ley Orgánica de Protección de Datos Personales requires the notice
+// to be given in it (#563).
+//
+// IT IS NOT terms.PrevailingLocale, AND THE TWO NAMES ARE THE POINT. They hold
+// the same value today and rest on entirely different footings, and a shared
+// name would flatten the stronger one into the weaker:
+//
+//   - "Prevailing" is a device for resolving a DISCREPANCY BETWEEN TWO TEXTS OF
+//     ONE AGREEMENT — the Terms' own §37, a clause the Foundation wrote and
+//     could amend tomorrow. It says which words WIN, not which words must exist.
+//   - "Mandatory" here is a STATUTORY DUTY about a NOTICE, which is not an
+//     agreement and has no second text to prevail over. Nobody at this platform
+//     can amend it.
+//
+// So the Policy's guard is the stronger of the two, and the two documents can
+// publish different language sets without either borrowing the other's reason.
+//
+// A CONSTANT, NEVER A COLUMN. A column is settable, so "unpublish Spanish" would
+// become "set the column, then unpublish Spanish" — through the same editor, by
+// the same one person, with no second pair of eyes anywhere in the platform
+// (production holds ONE platform_operators row). As a constant it costs a code
+// change, a review and a manual deploy, which is the strongest guard this design
+// has.
+//
+// CONSULTED ONLY AT PUBLISH, never when validating history. A future change to
+// the duty must not retroactively invalidate editions published honestly under
+// the old one, so nothing that reads a published edition asks this question.
+const MandatoryLocale = platform.LocaleES
+
 // ConsentLabels are the three checkbox labels shown at a capture moment, in one
 // Locale.
 //
