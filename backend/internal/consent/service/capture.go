@@ -171,6 +171,13 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 		UserAgent:         nullString(capture.Evidence.UserAgent),
 		SessionID:         nullString(capture.Evidence.SessionID),
 		OriginURL:         nullString(capture.Evidence.OriginURL),
+		// The language of the text that was actually on screen, as the surface
+		// that rendered it reports it (#567). Written verbatim and never
+		// inferred: this service knows which EDITION it resolved, but an edition
+		// publishes several languages and only the renderer knows which one it
+		// served — so a channel that showed no document passes nothing and stores
+		// NULL, which is the truth about it.
+		PresentedLocale: nullString(string(capture.Evidence.PresentedLocale)),
 		// Null on every act a Customer performed themselves, which is every
 		// channel but the Operator's (#271). Empty becomes SQL NULL rather than
 		// the empty string, so "recorded by nobody" has exactly one spelling —

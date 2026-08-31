@@ -174,10 +174,14 @@ func (s *Service) gateOnTerms(ctx context.Context, email string, pageLocale plat
 		ExpiresAt:      now.Add(pendingTermsDuration),
 		CreatedAt:      now,
 	}
-	label, err := acceptanceLabel(edition, pageLocale)
+	label, labelLocale, err := acceptanceLabel(edition, pageLocale)
 	if err != nil {
 		return nil, err
 	}
+	// Pinned beside the edition, and for the same reason (#567): the acceptance
+	// this token buys is written by a LATER request, which knows what was ticked
+	// but not what was shown.
+	pending.LabelLocale = string(labelLocale)
 
 	if err := s.repo.CreatePendingStaffTerms(ctx, pending); err != nil {
 		return nil, err
@@ -247,6 +251,11 @@ func (s *Service) AcceptTerms(ctx context.Context, submission TermsAcceptanceSub
 		UserAgent:      submission.Evidence.UserAgent,
 		SessionID:      session.ID,
 		OriginURL:      submission.Evidence.OriginURL,
+		// The language the acceptance label was served in, from the token that
+		// showed it (#567). Not re-derived from this request: it renders no text,
+		// and the language it is made in says nothing about the language the box
+		// was worded in minutes ago.
+		PresentedLocale: pending.LabelLocale,
 	}); err != nil {
 		return nil, err
 	}
@@ -263,18 +272,26 @@ func (s *Service) AcceptTerms(ctx context.Context, submission TermsAcceptanceSub
 // forbids outright. Falling back to the text that legally binds them is the
 // only safe answer.
 //
+// IT RETURNS THE LOCALE IT ACTUALLY USED, and that is not a convenience (#567,
+// migration 115). The fallback above is exactly the case where the request's
+// locale is a LIE about what was read: the login page is in English, the
+// edition publishes only Spanish, and the person is shown Spanish. The
+// acceptance row records which language somebody was shown, so it must record
+// what this function chose and not what it was asked for — which is only
+// knowable here, at the one point where the choice is made.
+//
 // And if even the prevailing text is missing, THE SIGN-IN FAILS. That is now
 // reachable in a way it was not when the words were compiled into this binary:
 // the text is data, and data can be absent. A gate that cannot state the
 // contract must not sell a session past itself, so this refuses rather than
 // showing an empty box — the same trade the gate makes when the read itself
 // fails.
-func acceptanceLabel(edition consentrepo.TermsEdition, locale platform.Locale) (string, error) {
+func acceptanceLabel(edition consentrepo.TermsEdition, locale platform.Locale) (string, platform.Locale, error) {
 	if doc, ok := terms.DocumentFrom(locale, edition.Artifacts); ok {
-		return doc.AcceptanceLabel, nil
+		return doc.AcceptanceLabel, locale, nil
 	}
 	if doc, ok := terms.DocumentFrom(terms.PrevailingLocale, edition.Artifacts); ok {
-		return doc.AcceptanceLabel, nil
+		return doc.AcceptanceLabel, terms.PrevailingLocale, nil
 	}
-	return "", fmt.Errorf("terms edition %q publishes no acceptance label", edition.Version.Label)
+	return "", "", fmt.Errorf("terms edition %q publishes no acceptance label", edition.Version.Label)
 }

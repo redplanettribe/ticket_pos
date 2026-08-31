@@ -399,6 +399,17 @@ export function SignInForm({
           // session it just minted (#219). Losing it here would punish somebody
           // for having been asked about consent.
           ...(followIntent ? { follow: followIntent } : {}),
+          // WHICH LANGUAGE THIS STEP ACTUALLY SHOWED (#567). It is
+          // `policy.locale` — the language the API says it served — and
+          // deliberately not `locale`, the language of the address this page is
+          // being read at: the first is what was rendered above these boxes, the
+          // second is only what was asked for. They agree today, because the
+          // public policy endpoint answers strictly and this step renders
+          // nothing at all when the read fails (#559), and sending the served
+          // one anyway is what keeps the record honest on the day they stop
+          // agreeing. The API drops anything it does not recognise, so this can
+          // never be the reason a sign-in fails.
+          ...(policy ? { presented_locale: policy.locale } : {}),
         }),
       });
       const envelope = (await response.json()) as Envelope<unknown>;

@@ -17,8 +17,19 @@ type PendingStaffTerms struct {
 	// TermsVersionID is the edition the terms step showed, pinned at mint so
 	// the acceptance evidences the text that was on screen (#537's rule).
 	TermsVersionID string
-	ExpiresAt      time.Time
-	CreatedAt      time.Time
+	// LabelLocale is the language the acceptance label was SERVED in, pinned at
+	// mint for the reason the edition beside it is (#567, migration 115): the
+	// label is rendered by the request that issues this token and the evidence
+	// is written by the request that spends it, and only the first of the two
+	// knows what was on screen. It is the locale the renderer actually used —
+	// which is not always the one the login page asked for, because an edition
+	// that publishes no artifact in that language is floored at the prevailing
+	// text (identity/service.acceptanceLabel).
+	//
+	// Empty is stored as SQL NULL, and reaches the acceptance row as NULL.
+	LabelLocale string
+	ExpiresAt   time.Time
+	CreatedAt   time.Time
 }
 
 // StaffTermsAcceptance is the append-only evidence row a terms submission
@@ -33,6 +44,10 @@ type StaffTermsAcceptance struct {
 	UserAgent      string
 	SessionID      string
 	OriginURL      string
+	// PresentedLocale is the language of the text this person was actually
+	// shown, carried here from the held sign-in that showed it (#567). Empty
+	// where nothing can say — stored as NULL, never guessed.
+	PresentedLocale string
 }
 
 // HasSatisfyingTermsAcceptance reports whether this email has accepted, as an
@@ -79,20 +94,23 @@ func (r *Repository) HasSatisfyingTermsAcceptance(ctx context.Context, email str
 func (r *Repository) InsertTermsAcceptance(ctx context.Context, acceptance StaffTermsAcceptance) error {
 	_, err := r.db.Pool.ExecContext(ctx, `
 		INSERT INTO staff_terms_acceptances
-			(email, terms_version_id, capacity, accepted_at, ip, user_agent, session_id, origin_url)
-		VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''))
+			(email, terms_version_id, capacity, accepted_at, ip, user_agent, session_id, origin_url,
+			 presented_locale)
+		VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''),
+		        NULLIF($9, ''))
 		ON CONFLICT (email, terms_version_id, capacity) DO NOTHING
 	`, acceptance.Email, acceptance.TermsVersionID, acceptance.Capacity, acceptance.AcceptedAt,
-		acceptance.IP, acceptance.UserAgent, acceptance.SessionID, acceptance.OriginURL)
+		acceptance.IP, acceptance.UserAgent, acceptance.SessionID, acceptance.OriginURL,
+		acceptance.PresentedLocale)
 	return err
 }
 
 // CreatePendingStaffTerms holds a proven email for the terms step.
 func (r *Repository) CreatePendingStaffTerms(ctx context.Context, pending PendingStaffTerms) error {
 	_, err := r.db.Pool.ExecContext(ctx, `
-		INSERT INTO pending_staff_terms (id, email, terms_version_id, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, $5)
-	`, pending.ID, pending.Email, pending.TermsVersionID, pending.ExpiresAt, pending.CreatedAt)
+		INSERT INTO pending_staff_terms (id, email, terms_version_id, label_locale, expires_at, created_at)
+		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6)
+	`, pending.ID, pending.Email, pending.TermsVersionID, pending.LabelLocale, pending.ExpiresAt, pending.CreatedAt)
 	return err
 }
 
@@ -104,15 +122,19 @@ func (r *Repository) ConsumePendingStaffTerms(ctx context.Context, id string) (*
 	row := r.db.Pool.QueryRowContext(ctx, `
 		DELETE FROM pending_staff_terms
 		WHERE id = $1
-		RETURNING id, email, terms_version_id, expires_at, created_at
+		RETURNING id, email, terms_version_id, label_locale, expires_at, created_at
 	`, id)
 
-	var pending PendingStaffTerms
-	if err := row.Scan(&pending.ID, &pending.Email, &pending.TermsVersionID, &pending.ExpiresAt, &pending.CreatedAt); err != nil {
+	var (
+		pending     PendingStaffTerms
+		labelLocale sql.NullString
+	)
+	if err := row.Scan(&pending.ID, &pending.Email, &pending.TermsVersionID, &labelLocale, &pending.ExpiresAt, &pending.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
+	pending.LabelLocale = labelLocale.String
 	return &pending, nil
 }

@@ -175,6 +175,16 @@ type ConsentSubmission struct {
 	NetworkingConsent bool
 	// Evidence is the technical proof of this act, derived by the handler from the
 	// request itself and never from the body.
+	//
+	// Evidence.PresentedLocale is the one part of it that CANNOT be derived from
+	// the request (#567): it is the language of the Short Notice and the labels
+	// this step actually rendered, which the Storefront reads off the policy
+	// payload it drew them from and sends back. The page's own language is not
+	// an answer — it is what the page ASKED for — and this is what it was
+	// served. It is a corroborating detail and never a credential: the worst a
+	// crafted value can do is misdescribe the act it rides on, which is why the
+	// handler drops anything that is not a language this platform serves rather
+	// than failing a sign-in over it.
 	Evidence consent.Evidence
 }
 
@@ -310,6 +320,10 @@ func (s *Service) SubmitConsent(ctx context.Context, submission ConsentSubmissio
 			UserAgent: submission.Evidence.UserAgent,
 			SessionID: session.ID,
 			OriginURL: submission.Evidence.OriginURL,
+			// Which language the notice beside these boxes was written in
+			// (#567). Relayed exactly as it arrived, like every other field
+			// here but the session: this module observed none of it.
+			PresentedLocale: submission.Evidence.PresentedLocale,
 		},
 	}); err != nil {
 		return nil, err
