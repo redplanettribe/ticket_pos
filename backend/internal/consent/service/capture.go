@@ -120,10 +120,14 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 		return consent.Receipt{}, err
 	}
 
-	version, err := s.repo.CurrentPolicyVersion(ctx)
-	if errors.Is(err, repository.ErrNoCurrentPolicyVersion) {
-		return consent.Receipt{}, consent.ErrNoCurrentPolicyVersion()
-	}
+	// THE EDITION IS RESOLVED FROM THE SAME READ THE TEXT WAS SERVED FROM
+	// (#558). currentPolicyEdition carries the version row's id inside the very
+	// entry that carried the notice and the labels to the screen, so the id
+	// stamped on this record and the bytes the person saw come from one read of
+	// one edition. Reading the current version row again here — which is what
+	// this did — would, at a midnight rollover, name edition N+1 as evidence of
+	// text N: an acceptance recorded against bytes nobody was shown.
+	edition, err := s.currentPolicyEdition(ctx)
 	if err != nil {
 		return consent.Receipt{}, err
 	}
@@ -143,14 +147,13 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 	if capture.Answers.TermsAcceptance != nil {
 		termsVersionID = capture.TermsVersionID
 		if termsVersionID == "" {
-			termsVersion, err := s.repo.CurrentTermsVersion(ctx)
-			if errors.Is(err, repository.ErrNoCurrentTermsVersion) {
-				return consent.Receipt{}, consent.ErrNoCurrentTermsVersion()
-			}
+			// From the cached edition, for the reason above: one read answers
+			// both "what was shown" and "what is recorded".
+			termsEdition, err := s.currentTermsEdition(ctx)
 			if err != nil {
 				return consent.Receipt{}, err
 			}
-			termsVersionID = termsVersion.ID
+			termsVersionID = termsEdition.version.ID
 		}
 	}
 
@@ -160,7 +163,7 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 		Email:             capture.Email,
 		Channel:           capture.Channel,
 		CapturedAt:        now,
-		PolicyVersionID:   version.ID,
+		PolicyVersionID:   edition.version.ID,
 		PolicyAcceptance:  nullBool(capture.Answers.PolicyAcceptance),
 		MarketingConsent:  nullBool(capture.Answers.MarketingConsent),
 		NetworkingConsent: nullBool(capture.Answers.NetworkingConsent),
@@ -212,8 +215,8 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 	return consent.Receipt{
 		RecordID:           recordID,
 		CapturedAt:         now,
-		PolicyVersionID:    version.ID,
-		PolicyVersionLabel: version.Label,
+		PolicyVersionID:    edition.version.ID,
+		PolicyVersionLabel: edition.version.Label,
 		MarketingConsent:   resulting.MarketingConsent,
 		NetworkingConsent:  resulting.NetworkingConsent,
 		// What this act TOOK AWAY, decided here and nowhere else (#267). Both

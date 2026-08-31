@@ -73,7 +73,21 @@ CREATE TABLE policy_version_artifacts (
     -- bytes served and the bytes hashed, with no normalisation step in between
     -- that a future reader could forget. The CHECK enforces it, so a paste with
     -- a trailing newline cannot quietly change an edition's hash.
-    body TEXT NOT NULL CHECK (body <> '' AND body = btrim(body)),
+    --
+    -- THE CHARACTER SET IS SPELLED OUT ON PURPOSE. Bare `btrim(body)` strips
+    -- SPACES ONLY, so it would have admitted a trailing newline — the very
+    -- paste this constraint exists to catch, and the reason the claim above is
+    -- worth anything at all. E' \t\n\v\f\r' is every ASCII whitespace
+    -- character, so anything strings.TrimSpace has already trimmed passes here
+    -- and no writer is ever refused for a body Go considers trimmed.
+    --
+    -- It is not literally TrimSpace: that also strips the Unicode spaces
+    -- (U+00A0, U+2028, …), which this CHECK would admit at an edge. Postgres has
+    -- no built-in for that class, and the gap is the harmless direction — the
+    -- Go writer trims them before the insert, so a row could only acquire one
+    -- by being written by hand, which is the case the fingerprint mismatch
+    -- logged on every read (policyEditionFrom) exists to shout about.
+    body TEXT NOT NULL CHECK (body <> '' AND body = btrim(body, E' \t\n\v\f\r')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     -- One text per artifact per language per edition.
     UNIQUE (version_id, locale, slug),
@@ -95,7 +109,7 @@ CREATE TABLE terms_version_artifacts (
     -- 'label-terms-acceptance', 'terms'.
     slug TEXT NOT NULL,
     ordinal INT NOT NULL,
-    body TEXT NOT NULL CHECK (body <> '' AND body = btrim(body)),
+    body TEXT NOT NULL CHECK (body <> '' AND body = btrim(body, E' \t\n\v\f\r')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (version_id, locale, slug),
     UNIQUE (version_id, locale, ordinal)

@@ -237,12 +237,15 @@ type StaffAcceptanceRecordView struct {
 // exists to prevent, and swallowing the error would hide the day the log
 // stopped working until the day somebody needed it.
 //
-// THE PAGED HISTORY BESIDE THIS (CustomerConsentActs) WRITES NO SECOND ROW. It
-// is page two of a record that has already been opened — the screen fires this
-// read first, and the history refuses an id whose record does not exist — so a
-// row per page would put three `subject_read`s in the log for one screen and
-// one "load more". The act is OPENING SOMEBODY'S RECORD, and it is recorded
-// once.
+// THE PAGED HISTORY BESIDE THIS (CustomerConsentActs) LOGS TOO, and the
+// exemption that keeps one screen from writing three rows lives on the INTERNAL
+// callers rather than on the route: customerLegalRecord below, and the Evidence
+// Pack's own act walk, each of which is part of an act logged once in its own
+// right by whoever performed it. A route is not an internal caller. It serves
+// twenty-five of somebody's consent acts to anybody holding an operator token,
+// reachable without ever opening the record, and an unlogged read of somebody's
+// data is exactly what this feature exists to prevent. A duplicate row when an
+// operator pages is honest; a silent page is not.
 func (s *Service) CustomerLegalRecord(ctx context.Context, actor, customerID string) (*CustomerLegalRecordView, error) {
 	view, err := s.customerLegalRecord(ctx, customerID)
 	if err != nil {
@@ -304,6 +307,9 @@ func (s *Service) customerLegalRecord(ctx context.Context, customerID string) (*
 // Nothing on this path puts an address in a request line, which is the rule —
 // not "no query strings".
 type CustomerConsentActsInput struct {
+	// Actor is the operator reading, from their Staff Session and never from a
+	// body: this page is a read of somebody's data and is logged by name (#569).
+	Actor      string
 	CustomerID string
 	// Cursor is the previous page's next_cursor. AN UNPARSEABLE CURSOR IS
 	// TREATED AS ABSENT and serves the first page, following the browsers and
@@ -318,13 +324,28 @@ type CustomerConsentActsInput struct {
 	Limit int
 }
 
-// CustomerConsentActs answers one page of one person's history.
+// CustomerConsentActs answers one page of one person's history, AND RECORDS
+// THAT IT WAS READ (#569).
+//
+// LOGGED LIKE THE RECORD ITSELF, and for the same reason: the subject is the
+// act. This route hands over up to twenty-five of one person's consent acts,
+// and it can be called on its own — a "load more" is one request, and so is a
+// script with a cursor. Exempting it because the screen usually opens the
+// record first would make the log a record of a UI's habits rather than of
+// reads. The exemption for the two INTERNAL callers stands (see
+// CustomerLegalRecord), so one screen still writes one row per request the
+// operator actually made.
+//
+// A FAILURE TO LOG FAILS THE READ, as everywhere on this path.
 func (s *Service) CustomerConsentActs(ctx context.Context, input CustomerConsentActsInput) (*ConsentActPage, error) {
 	// The record read is performed first and its refusal is the one that
 	// travels: an id naming nobody is LEGAL_SUBJECT_NOT_FOUND on BOTH endpoints,
 	// so a stale link is answered the same way whichever of the two the screen
-	// happens to fire first.
-	if _, err := s.legalRecords.CustomerLegalRecord(ctx, strings.TrimSpace(input.CustomerID)); err != nil {
+	// happens to fire first. It is also where the person's ADDRESS comes from
+	// for the log row: the request line carries an opaque id, and the log names
+	// the human being.
+	record, err := s.legalRecords.CustomerLegalRecord(ctx, strings.TrimSpace(input.CustomerID))
+	if err != nil {
 		return nil, err
 	}
 
@@ -355,6 +376,10 @@ func (s *Service) CustomerConsentActs(ctx context.Context, input CustomerConsent
 		page.Acts = append(page.Acts, act)
 	}
 	page.VisibleCount = len(page.Acts)
+
+	if err := s.recordSubjectRead(ctx, input.Actor, record.ID, record.Email); err != nil {
+		return nil, err
+	}
 	return page, nil
 }
 

@@ -92,7 +92,7 @@ func currentTermsVersionID(t *testing.T, env *testEnv) string {
 // is: a row with no artifacts is an edition nobody can be shown, so the sign-in
 // gate refuses to display it and the public page 404s. The fingerprint here is
 // junk on purpose — these tests are about re-gating, not about evidence, and a
-// mismatch is logged and served rather than refused (service.termsViews).
+// mismatch is logged and served rather than refused (service.termsEditionFrom).
 // It takes a LINEAGE and not a label — publishPolicyVersion's rule (#560) over
 // the parallel table.
 func publishTermsVersion(t *testing.T, env *testEnv, generation, revision int) string {

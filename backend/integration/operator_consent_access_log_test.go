@@ -245,12 +245,24 @@ func TestASubjectReadAndAnExportAreLoggedByName(t *testing.T) {
 		t.Fatalf("a subject read carries a list read's columns: %+v", read)
 	}
 
-	// THE PAGED HISTORY IS NOT A SECOND ACT. It is page two of a record already
-	// opened, and a row per page would put three subject_reads in the log for
-	// one screen.
+	// THE PAGED HISTORY IS ALSO A READ OF SOMEBODY'S DATA, and is logged (#569).
+	// It serves twenty-five of this person's consent acts, on a route anybody
+	// holding an operator token can call WITHOUT EVER OPENING THE RECORD, so
+	// exempting it would leave the one publicly reachable read of somebody's
+	// evidence unrecorded. A duplicate row when an operator pages is honest; a
+	// silent page is not. The exemption stayed where it belongs — on the
+	// INTERNAL callers, so this screen still writes one row per request the
+	// operator actually made rather than three for one page load.
 	readConsentActs(t, env, sessionID, customerID, "")
-	if rows := accessLogRowsOf(t, env, "subject_read"); len(rows) != 1 {
-		t.Fatalf("subject_read rows = %d after paging the history; want the one record opening", len(rows))
+	reads = accessLogRowsOf(t, env, "subject_read")
+	if len(reads) != 2 {
+		t.Fatalf("subject_read rows = %d after paging the history; want the record opening and the page", len(reads))
+	}
+	for _, row := range reads {
+		if row.SubjectEmail == nil || *row.SubjectEmail != "ana@example.com" ||
+			row.SubjectCustomerID == nil || *row.SubjectCustomerID != customerID {
+			t.Fatalf("a subject read named %+v; want the person whose data was served", row)
+		}
 	}
 
 	// THE EXPORT, with the file's own fingerprint.
@@ -272,6 +284,11 @@ func TestASubjectReadAndAnExportAreLoggedByName(t *testing.T) {
 	// header and the file in somebody's mailbox all meet on one value.
 	if !strings.Contains(pack.Filename, pack.SHA256[:16]) {
 		t.Fatalf("filename %q does not carry the fingerprint the log recorded", pack.Filename)
+	}
+	// THE PACK'S OWN WALK OF THE HISTORY IS NOT A SUBJECT READ. It pages the
+	// same acts internally, and an export is one act with one row of its own.
+	if rows := accessLogRowsOf(t, env, "subject_read"); len(rows) != 2 {
+		t.Fatalf("subject_read rows = %d after the export; the pack's internal act walk must add none", len(rows))
 	}
 }
 

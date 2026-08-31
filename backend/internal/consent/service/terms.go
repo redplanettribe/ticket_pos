@@ -49,14 +49,16 @@ type TermsView struct {
 // later evidences that edition rather than whichever is current by then. The
 // finding stays this module's; the caller only carries it.
 func (s *Service) CurrentTermsVersionID(ctx context.Context) (string, error) {
-	version, err := s.repo.CurrentTermsVersion(ctx)
-	if errors.Is(err, repository.ErrNoCurrentTermsVersion) {
-		return "", consent.ErrNoCurrentTermsVersion()
-	}
+	// FROM THE SAME CACHED EDITION THE TEXT WAS SERVED FROM, and never a second
+	// read of the version row (#558). The surface calling this has just rendered
+	// the acceptance label out of currentTermsEdition; a fresh read here could
+	// answer about the edition that became current in between, snapshotting an
+	// edition nobody was shown — the very failure the held id exists to prevent.
+	edition, err := s.currentTermsEdition(ctx)
 	if err != nil {
 		return "", err
 	}
-	return version.ID, nil
+	return edition.version.ID, nil
 }
 
 // CurrentTerms reports the Terms Version in effect, rendered in one Locale.
@@ -79,35 +81,56 @@ func (s *Service) CurrentTerms(ctx context.Context, rawLocale string) (TermsView
 		return TermsView{}, consent.ErrTermsLocaleNotPublished()
 	}
 
-	views, ok := s.termsCache.load(time.Now())
-	if !ok {
-		edition, err := s.repo.CurrentTermsEdition(ctx)
-		if errors.Is(err, repository.ErrNoCurrentTermsVersion) {
-			return TermsView{}, consent.ErrNoCurrentTermsVersion()
-		}
-		if err != nil {
-			return TermsView{}, err
-		}
-		views = s.termsViews(edition)
-		s.termsCache.store(views, time.Now())
+	edition, err := s.currentTermsEdition(ctx)
+	if err != nil {
+		return TermsView{}, err
 	}
 
-	view, published := views[locale]
+	view, published := edition.views[locale]
 	if !published {
 		return TermsView{}, consent.ErrTermsLocaleNotPublished()
 	}
 	return view, nil
 }
 
-// termsViews turns one read of one edition into the answer for every language
-// it publishes, verifying the fingerprint on the way — policyViews' shape, for
-// its reasons. Called once per cache fill.
-func (s *Service) termsViews(edition repository.TermsEdition) map[platform.Locale]TermsView {
+// currentTermsEdition is THE read of the Terms' current edition — text,
+// fingerprint and the version row's id — served from the cache and filled from
+// one query when it is cold. currentPolicyEdition's shape, for its reasons:
+// every path goes through here so that what was shown and what is recorded are
+// two fields of one read (#558).
+func (s *Service) currentTermsEdition(ctx context.Context) (termsEdition, error) {
+	if cached, ok := s.termsCache.load(time.Now()); ok {
+		return cached, nil
+	}
+	read, err := s.repo.CurrentTermsEdition(ctx)
+	if errors.Is(err, repository.ErrNoCurrentTermsVersion) {
+		return termsEdition{}, consent.ErrNoCurrentTermsVersion()
+	}
+	if err != nil {
+		return termsEdition{}, err
+	}
+	edition := s.termsEditionFrom(read)
+	s.termsCache.store(edition, time.Now())
+	return edition, nil
+}
+
+// termsEdition is one filled cache entry: which edition row it is, and the
+// answer for every language it publishes. The id stays off TermsView for the
+// reason it stays off PolicyView — see policyEdition.
+type termsEdition struct {
+	version repository.TermsVersion
+	views   map[platform.Locale]TermsView
+}
+
+// termsEditionFrom turns one read of one edition into the cache entry, verifying
+// the fingerprint on the way — policyEditionFrom's shape, for its reasons.
+// Called once per cache fill.
+func (s *Service) termsEditionFrom(edition repository.TermsEdition) termsEdition {
 	version := edition.Version
 
 	// Never silent, never fatal: the reader gets the current contract, and the
 	// mismatch is logged because every acceptance recorded in this state points
-	// at text that was not on screen (policyViews).
+	// at text that was not on screen (policyEditionFrom).
 	if computed := legal.ContentHash(edition.Artifacts); computed != version.ContentHash {
 		s.logger.Error("terms version content hash does not match its stored artifacts",
 			"version", version.Label,
@@ -135,5 +158,5 @@ func (s *Service) termsViews(edition repository.TermsEdition) map[platform.Local
 			"incomplete_languages", missing,
 		)
 	}
-	return views
+	return termsEdition{version: version, views: views}
 }

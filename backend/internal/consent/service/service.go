@@ -28,8 +28,8 @@ type Service struct {
 	// CLOCK and not on `now` above: `now` is the evidence clock, which the
 	// integration harness freezes, and a cache that never aged would serve one
 	// edition for the lifetime of the process.
-	policyCache *editionCache[PolicyView]
-	termsCache  *editionCache[TermsView]
+	policyCache *editionCache[policyEdition]
+	termsCache  *editionCache[termsEdition]
 }
 
 // New builds the consent Service.
@@ -38,8 +38,8 @@ func New(repo *repository.Repository, logger platform.Logger) *Service {
 		repo:        repo,
 		logger:      logger,
 		now:         time.Now,
-		policyCache: newEditionCache[PolicyView](DefaultLegalTextCacheTTL),
-		termsCache:  newEditionCache[TermsView](DefaultLegalTextCacheTTL),
+		policyCache: newEditionCache[policyEdition](DefaultLegalTextCacheTTL),
+		termsCache:  newEditionCache[termsEdition](DefaultLegalTextCacheTTL),
 	}
 }
 
@@ -50,8 +50,8 @@ func New(repo *repository.Repository, logger platform.Logger) *Service {
 // It exists for the integration harness, which publishes editions mid-run
 // against a frozen clock, and for nothing else — production takes the default.
 func (s *Service) WithLegalTextCacheTTL(ttl time.Duration) *Service {
-	s.policyCache = newEditionCache[PolicyView](ttl)
-	s.termsCache = newEditionCache[TermsView](ttl)
+	s.policyCache = newEditionCache[policyEdition](ttl)
+	s.termsCache = newEditionCache[termsEdition](ttl)
 	return s
 }
 
@@ -110,17 +110,9 @@ func (s *Service) CurrentPolicy(ctx context.Context, rawLocale string) (PolicyVi
 		return PolicyView{}, consent.ErrPolicyLocaleNotPublished()
 	}
 
-	views, ok := s.policyCache.load(time.Now())
-	if !ok {
-		edition, err := s.repo.CurrentPolicyEdition(ctx)
-		if errors.Is(err, repository.ErrNoCurrentPolicyVersion) {
-			return PolicyView{}, consent.ErrNoCurrentPolicyVersion()
-		}
-		if err != nil {
-			return PolicyView{}, err
-		}
-		views = s.policyViews(edition)
-		s.policyCache.store(views, time.Now())
+	edition, err := s.currentPolicyEdition(ctx)
+	if err != nil {
+		return PolicyView{}, err
 	}
 
 	// WHICH LANGUAGES EXIST IS THE EDITION'S OWN ANSWER, read from its rows.
@@ -129,17 +121,62 @@ func (s *Service) CurrentPolicy(ctx context.Context, rawLocale string) (PolicyVi
 	// this platform does not publish at all is refused rather than answered in
 	// another one, which would present a notice the reader cannot read as the
 	// notice they accepted.
-	view, published := views[locale]
+	view, published := edition.views[locale]
 	if !published {
 		return PolicyView{}, consent.ErrPolicyLocaleNotPublished()
 	}
 	return view, nil
 }
 
-// policyViews turns one read of one edition into the answer for every language
-// it publishes, and verifies the fingerprint on the way. Called once per cache
-// fill.
-func (s *Service) policyViews(edition repository.PolicyEdition) map[platform.Locale]PolicyView {
+// currentPolicyEdition is THE read of the Privacy Policy's current edition —
+// text, fingerprint and the version row's id — served from the cache and filled
+// from one query when it is cold.
+//
+// EVERY PATH GOES THROUGH HERE, the render and the capture alike (#558). What a
+// reader was shown and which edition a Consent Record names are then two fields
+// of one value taken from one read: at a midnight rollover the capture cannot
+// stamp edition N+1 on text N, because there is no second read to disagree
+// with the first. A caller that needs only the id still takes the whole
+// edition, since "only the id" is exactly the shortcut that reintroduces the
+// second read.
+func (s *Service) currentPolicyEdition(ctx context.Context) (policyEdition, error) {
+	if cached, ok := s.policyCache.load(time.Now()); ok {
+		return cached, nil
+	}
+	read, err := s.repo.CurrentPolicyEdition(ctx)
+	if errors.Is(err, repository.ErrNoCurrentPolicyVersion) {
+		return policyEdition{}, consent.ErrNoCurrentPolicyVersion()
+	}
+	if err != nil {
+		return policyEdition{}, err
+	}
+	edition := s.policyEditionFrom(read)
+	s.policyCache.store(edition, time.Now())
+	return edition, nil
+}
+
+// policyEdition is one filled cache entry: the edition row itself, and the
+// answer for every language that edition publishes.
+//
+// THE VERSION ROW IS NOT ON PolicyView and must not become a field of it. Its
+// id is the platform's finding about a moment, never something a client is
+// handed and could send back (see PolicyView), so it travels beside the views
+// and stops at this package's edge — which is also what lets the capture path
+// stamp a record from the entry the reader was served.
+//
+// The whole row is kept rather than the id alone, because a Receipt names the
+// LABEL too and an edition that publishes no complete document in any language
+// would otherwise have no answer to give: the views map can be empty (it is
+// logged, loudly, when it is), the version row never is.
+type policyEdition struct {
+	version repository.PolicyVersion
+	views   map[platform.Locale]PolicyView
+}
+
+// policyEditionFrom turns one read of one edition into the cache entry: the answer
+// for every language it publishes, and the id of the row they all came from.
+// It verifies the fingerprint on the way. Called once per cache fill.
+func (s *Service) policyEditionFrom(edition repository.PolicyEdition) policyEdition {
 	version := edition.Version
 
 	// The row's fingerprint and the text about to be served disagreeing means
@@ -181,5 +218,5 @@ func (s *Service) policyViews(edition repository.PolicyEdition) map[platform.Loc
 			"incomplete_languages", missing,
 		)
 	}
-	return views
+	return policyEdition{version: version, views: views}
 }

@@ -38,8 +38,8 @@ type TermsEdition struct {
 // its text, in one query.
 //
 // THE CURRENT-EDITION RULE IS UNCHANGED and must stay unchanged: the latest
-// effective date that has ARRIVED, ties broken by insertion order
-// (CurrentPolicyVersion). That `effective_date <= CURRENT_DATE` is what makes a
+// effective date that has ARRIVED, ties broken by insertion order. That
+// `effective_date <= CURRENT_DATE` is what makes a
 // scheduled edition free — the query moves at midnight, so nothing fires, no
 // job runs and no cache is invalidated by anything but its own age. Adding a
 // publication hook here would quietly make the scheduled edition depend on that
@@ -51,6 +51,12 @@ type TermsEdition struct {
 // and becoming current on its own date is this line. It is the same shape as the
 // rule beside it — a fact the database checks as it chooses the row — so a
 // cancellation needs nothing to fire either.
+//
+// CURRENT_DATE is the database's day, which is UTC in every environment this
+// runs in. That is the coarsest thing about this query and it is fine: an
+// edition becoming current a few hours early or late relative to Ecuador is
+// invisible to everyone, because what changes at the boundary is which label a
+// re-acceptance is recorded under, not whether anyone is asked.
 //
 // A LEFT JOIN, so an edition with no artifacts at all is a version with empty
 // text rather than "no current version": the two are different failures and the

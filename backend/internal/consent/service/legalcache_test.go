@@ -14,7 +14,7 @@ func TestAFilledEditionIsServedUntilItsTTLElapses(t *testing.T) {
 	t.Parallel()
 
 	start := time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
-	cache := newEditionCache[string](60 * time.Second)
+	cache := newEditionCache[map[platform.Locale]string](60 * time.Second)
 	cache.store(map[platform.Locale]string{platform.LocaleEN: "first"}, start)
 
 	if _, ok := cache.load(start.Add(59 * time.Second)); !ok {
@@ -31,7 +31,7 @@ func TestAFilledEditionIsServedUntilItsTTLElapses(t *testing.T) {
 func TestAColdCacheIsAMiss(t *testing.T) {
 	t.Parallel()
 
-	if _, ok := newEditionCache[string](60 * time.Second).load(time.Now()); ok {
+	if _, ok := newEditionCache[map[platform.Locale]string](60 * time.Second).load(time.Now()); ok {
 		t.Fatal("a cache that has never been filled reported a hit")
 	}
 }
@@ -43,7 +43,7 @@ func TestOneFillReplacesEveryLanguageTogether(t *testing.T) {
 	t.Parallel()
 
 	start := time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
-	cache := newEditionCache[string](60 * time.Second)
+	cache := newEditionCache[map[platform.Locale]string](60 * time.Second)
 	cache.store(map[platform.Locale]string{
 		platform.LocaleEN: "edition one, english",
 		platform.LocaleES: "edition one, spanish",
@@ -69,7 +69,7 @@ func TestALanguageTheEditionDoesNotPublishIsSimplyAbsent(t *testing.T) {
 	t.Parallel()
 
 	start := time.Now()
-	cache := newEditionCache[string](60 * time.Second)
+	cache := newEditionCache[map[platform.Locale]string](60 * time.Second)
 	cache.store(map[platform.Locale]string{platform.LocaleES: "solo español"}, start)
 
 	views, _ := cache.load(start)
@@ -85,7 +85,7 @@ func TestAZeroTTLDisablesTheCache(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
-	cache := newEditionCache[string](0)
+	cache := newEditionCache[map[platform.Locale]string](0)
 	cache.store(map[platform.Locale]string{platform.LocaleEN: "cached"}, now)
 	if _, ok := cache.load(now); ok {
 		t.Fatal("a cache with no TTL served a fill")
