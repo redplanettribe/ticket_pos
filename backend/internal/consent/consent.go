@@ -199,6 +199,18 @@ type Capture struct {
 	EmailProven bool
 	// Answers is what the person did with the boxes they were shown.
 	Answers Answers
+	// TermsVersionID is the Terms edition the surface HELD alongside a Terms
+	// answer that had to survive a Payment Provider redirect (#537): resolved
+	// server-side at begin-checkout, snapshotted on the Payment (migration 108),
+	// and presented here so the record evidences the edition the buyer was
+	// actually shown rather than whichever is current by the time the provider
+	// answers. Empty on every other surface, where the answer is captured in
+	// the same request it was given in and the current edition IS the shown
+	// one — an empty value means "resolve the current edition", never "no
+	// edition". It is only ever read when Answers.TermsAcceptance is non-nil,
+	// and it never comes from a request body: both writers of this field are
+	// this platform's own held snapshots.
+	TermsVersionID string
 	// Evidence is the circumstances.
 	Evidence Evidence
 	// RecordedBy is the staff member who entered this act on the Customer's

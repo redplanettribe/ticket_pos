@@ -16,7 +16,7 @@ import { getFormatLocale } from "@/i18n/format-locale.server";
 import { Link } from "@/i18n/navigation";
 import { affiliateCodeFromRef, recordEventPageView } from "@/lib/affiliate-click";
 import { localeAlternates } from "@/lib/alternates";
-import { getPrivacyPolicy, getPublicEvent } from "@/lib/api";
+import { getPrivacyPolicy, getPublicEvent, getTerms } from "@/lib/api";
 import { checkoutIdentity } from "@/lib/checkout-identity";
 import { opensCheckout } from "@/lib/checkout-signin";
 import { customerSessionToken, getCustomerSession, getFollows } from "@/lib/customer-session";
@@ -370,6 +370,11 @@ export default async function EventPage({ params, searchParams }: EventPageProps
                 // dialog does. Null when the API could not be reached, which
                 // the dialog turns into an honest refusal to collect consent.
                 policy={await getPrivacyPolicy(locale)}
+                // The current Terms Version's checkbox label, read the same
+                // way for the same evidential reason (#537): the one buyer
+                // still owed the Terms — a live session spanning an edition —
+                // must be shown the exact words being accepted.
+                terms={await getTerms(locale)}
               />
             )}
           </section>

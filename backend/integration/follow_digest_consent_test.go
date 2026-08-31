@@ -189,6 +189,21 @@ func TestDigestSendsToUnansweredCustomerWithLegacyFlag(t *testing.T) {
 	}
 }
 
+// resetDigestFlagOff puts one Customer's Follow Digest flag back to the off a
+// new row is born with (migration 065). It exists beside
+// resetOptionalConsentsToUnanswered for the same #536 reason: settling the
+// Terms at a fixture sign-in answers the marketing box, which switches the
+// Digest on — and the tests about a Customer nobody has asked need the flag as
+// such an account would genuinely have it.
+func resetDigestFlagOff(t *testing.T, env *testEnv, email string) {
+	t.Helper()
+	if _, err := env.db.Exec(`
+		UPDATE customers SET digest_enabled = false WHERE email = $1
+	`, email); err != nil {
+		t.Fatalf("reset digest flag for %q: %v", email, err)
+	}
+}
+
 // TestDigestSilentForACustomerBornDeclining is the other side of the transition
 // clause, and the reason the legacy default had to stop applying to new rows
 // (migration 065).
@@ -206,6 +221,15 @@ func TestDigestSilentForACustomerBornDeclining(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Consent Fest", "consent-fest", 1000, 10)
+
+	// Her Terms are settled at a sign-in of her own first (#536), and her
+	// optional consents and Digest flag put back to never-answered/off — the
+	// state of an account whose owner has not signed in since the boxes existed
+	// (migration 065 defaults new rows off) — so the Follow below is not
+	// preceded by a consent step that would grant the very box she declines.
+	customerSignIn(t, env, "ana@example.com")
+	resetOptionalConsentsToUnanswered(t, env, "ana@example.com")
+	resetDigestFlagOff(t, env, "ana@example.com")
 
 	// The decline, on the surface that could not prove who was typing: a guest
 	// Payment begun before ADR 0054 closed that door (#386), settling here. The

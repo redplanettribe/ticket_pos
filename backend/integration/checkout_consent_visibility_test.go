@@ -276,6 +276,14 @@ func TestPendingConfirmationCountsAsUnansweredAtCheckout(t *testing.T) {
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Consent Fest", "consent-fest", 1000, 10)
 	line := cartLine(gaID, 1)
 
+	// Ana has signed in before — which settles the Terms (#536), the one thing a
+	// stranger's checkout can never do for her — and her optional consents are
+	// put back to never-answered so the pending below has an unanswered box to
+	// pend over, the state genuinely reachable by an account whose owner has not
+	// signed in since the boxes existed (see resetOptionalConsentsToUnanswered).
+	customerSignIn(t, env, "ana@example.com")
+	resetOptionalConsentsToUnanswered(t, env, "ana@example.com")
+
 	// A stranger bought a ticket under her address and ticked everything — a
 	// checkout begun before ADR 0054 closed that door (beginLegacyGuestCheckout),
 	// settling here. Nothing creates this state any more; every row of it that
@@ -290,7 +298,8 @@ func TestPendingConfirmationCountsAsUnansweredAtCheckout(t *testing.T) {
 
 	// She then signs in herself, and is NOT held at the door: the stranger's
 	// Policy Acceptance was recorded against her Customer unconditionally, because
-	// it is a fact about that sale rather than a claim on her inbox (ADR 0035).
+	// it is a fact about that sale rather than a claim on her inbox (ADR 0035),
+	// and her Terms were settled at her own earlier sign-in.
 	// So the checkout is the surface that gets to ask her about the pendings.
 	verify := startSignIn(t, env, "ana@example.com")
 	if verify.ConsentRequired != nil {

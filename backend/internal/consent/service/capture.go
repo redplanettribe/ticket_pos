@@ -134,14 +134,23 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 	// Terms names no edition, and migration 106's CHECK holds answer and edition
 	// together. Resolved server-side like the Policy Version and never a
 	// parameter — which edition somebody accepted is the platform's finding.
-	var termsVersion repository.TermsVersion
+	// A checkout that held its answer across a provider redirect also held the
+	// edition it was answered about (#537, migration 108), and the held edition
+	// wins: recording the current one instead would claim an acceptance of a
+	// text the buyer may never have been shown. Everywhere else the field is
+	// empty and the current edition is, correctly, the shown one.
+	var termsVersionID string
 	if capture.Answers.TermsAcceptance != nil {
-		termsVersion, err = s.repo.CurrentTermsVersion(ctx)
-		if errors.Is(err, repository.ErrNoCurrentTermsVersion) {
-			return consent.Receipt{}, consent.ErrNoCurrentTermsVersion()
-		}
-		if err != nil {
-			return consent.Receipt{}, err
+		termsVersionID = capture.TermsVersionID
+		if termsVersionID == "" {
+			termsVersion, err := s.repo.CurrentTermsVersion(ctx)
+			if errors.Is(err, repository.ErrNoCurrentTermsVersion) {
+				return consent.Receipt{}, consent.ErrNoCurrentTermsVersion()
+			}
+			if err != nil {
+				return consent.Receipt{}, err
+			}
+			termsVersionID = termsVersion.ID
 		}
 	}
 
@@ -156,7 +165,7 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 		MarketingConsent:  nullBool(capture.Answers.MarketingConsent),
 		NetworkingConsent: nullBool(capture.Answers.NetworkingConsent),
 		TermsAcceptance:   nullBool(capture.Answers.TermsAcceptance),
-		TermsVersionID:    nullString(termsVersion.ID),
+		TermsVersionID:    nullString(termsVersionID),
 		EmailProven:       capture.EmailProven,
 		IP:                nullString(capture.Evidence.IP),
 		UserAgent:         nullString(capture.Evidence.UserAgent),
@@ -176,7 +185,7 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 		// and refused — leaves the standing state exactly as it was. Nothing can
 		// clear it: Terms acceptance has no withdrawal path (ADR 0066).
 		AcceptTerms:    capture.Answers.TermsAcceptance != nil && *capture.Answers.TermsAcceptance,
-		TermsVersionID: termsVersion.ID,
+		TermsVersionID: termsVersionID,
 		Marketing:      optionalStateWrite(capture.Answers.MarketingConsent, capture.EmailProven),
 		Networking:     optionalStateWrite(capture.Answers.NetworkingConsent, capture.EmailProven),
 		DigestEnabled:  digestLockstep(capture.Answers.MarketingConsent, capture.EmailProven),

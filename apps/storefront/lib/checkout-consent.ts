@@ -30,11 +30,20 @@
  * this dialog.
  */
 
-/** The three boxes, in the API's own vocabulary and shape. */
+/**
+ * The four boxes, in the API's own vocabulary and shape. The Terms box joined
+ * in #537 (ADR 0066): the other REQUIRED box, owed independently of the
+ * policy's because the two documents version independently — and, like every
+ * box here, ordinarily false because it was settled at sign-in (#536). It is
+ * drawn here for exactly one person: a Customer whose live session spans a
+ * Terms edition — the one-time re-gate, or a later bump — for whom this
+ * dialog is the backstop that lets no Online Sale complete unaccepted.
+ */
 export type ConsentBoxes = {
   policy_acceptance: boolean;
   marketing_consent: boolean;
   networking_consent: boolean;
+  terms_acceptance: boolean;
 };
 
 /**
@@ -44,5 +53,10 @@ export type ConsentBoxes = {
  * ordinary case rather than the reward for a returning buyer.
  */
 export function anyConsentBox(boxes: ConsentBoxes): boolean {
-  return boxes.policy_acceptance || boxes.marketing_consent || boxes.networking_consent;
+  return (
+    boxes.policy_acceptance ||
+    boxes.marketing_consent ||
+    boxes.networking_consent ||
+    boxes.terms_acceptance
+  );
 }

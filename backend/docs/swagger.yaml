@@ -206,6 +206,14 @@ components:
             answered everything sends none of these at all. Which boxes they were owed
             is still the SERVICE's finding and never this body's assertion.
           type: boolean
+        terms_acceptance:
+          description: |-
+            TermsAcceptance is the Términos y Condiciones box (#537, ADR 0066),
+            under the same nil discipline: it is drawn only for a Customer whose
+            live session spans the current Terms edition — the one-time re-gate, or
+            any later bump — and the API refuses the checkout without it exactly as
+            it does the policy's (TERMS_ACCEPTANCE_REQUIRED).
+          type: boolean
       type: object
     handler.buyerAssignmentBody:
       properties:
@@ -7755,23 +7763,29 @@ paths:
         no consent fields at all, is owed nothing, writes no Consent Record, and is
         not asked again; one who still owes Policy Acceptance must send it present
         and true or the checkout is refused 400 POLICY_ACCEPTANCE_REQUIRED with no
-        Payment created. An answer for a box the buyer was not owed is dropped rather
-        than applied. Purchase Limits, Affiliate Link attribution, `locale`, and the
-        skippable `answers` section all behave exactly as they do on the public route,
-        including that nothing about an answer can ever refuse or delay a checkout
-        (ADR 0044). The technical proof stored with a consent record (IP, user agent,
-        origin URL) is taken from the request and never from this body, and the Policy
-        Version accepted is resolved server-side. The response REPORTS THE ADDRESS
-        THE SALE WAS ADDRESSED TO in `addressed_to` (#387): the address read off the
-        session, echoed back so the caller learns it from this API rather than inferring
-        it from a browser. That is what lets the Storefront''s return leg still recognise
-        a buyer whose Customer Session did not survive the trip to the Payment Provider
-        — a cleared cookie jar, a provider webview, a revoked session, a different
-        browser — and it grants nothing, because signing in still costs a passcode
-        or a Google round trip. Confirming this checkout uses the same public confirm
-        route, which stays public and idempotent: it is the Payment Provider''s return
-        leg and must work for a browser that has lost everything, which is the same
-        fact `addressed_to` exists to survive.'
+        Payment created. The Terms box behaves identically where owed (#537, ADR 0066):
+        a Customer whose live session spans the current Terms edition — the one-time
+        re-gate, or a later bump — must send terms_acceptance present and true or
+        the checkout is refused 400 TERMS_ACCEPTANCE_REQUIRED, and the answer is held
+        on the Payment together with the edition it was answered about, so the Consent
+        Record written at commit evidences the text the buyer was shown rather than
+        whichever edition is current when the provider answers. An answer for a box
+        the buyer was not owed is dropped rather than applied. Purchase Limits, Affiliate
+        Link attribution, `locale`, and the skippable `answers` section all behave
+        exactly as they do on the public route, including that nothing about an answer
+        can ever refuse or delay a checkout (ADR 0044). The technical proof stored
+        with a consent record (IP, user agent, origin URL) is taken from the request
+        and never from this body, and the Policy Version accepted is resolved server-side.
+        The response REPORTS THE ADDRESS THE SALE WAS ADDRESSED TO in `addressed_to`
+        (#387): the address read off the session, echoed back so the caller learns
+        it from this API rather than inferring it from a browser. That is what lets
+        the Storefront''s return leg still recognise a buyer whose Customer Session
+        did not survive the trip to the Payment Provider — a cleared cookie jar, a
+        provider webview, a revoked session, a different browser — and it grants nothing,
+        because signing in still costs a passcode or a Google round trip. Confirming
+        this checkout uses the same public confirm route, which stays public and idempotent:
+        it is the Payment Provider''s return leg and must work for a browser that
+        has lost everything, which is the same fact `addressed_to` exists to survive.'
       parameters:
       - description: Organization slug
         in: path

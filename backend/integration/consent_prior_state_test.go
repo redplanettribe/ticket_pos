@@ -164,6 +164,12 @@ func TestPendingConfirmationIsRecordedAsThePriorStateItWas(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
 
+	// The owner's Terms are settled at a sign-in of her own first (#536), and
+	// her optional consents put back to never-answered, so the sign-in below is
+	// not stopped at a step that would resolve the pending as her own grant.
+	customerSignIn(t, env, "ana@example.com")
+	resetOptionalConsentsToUnanswered(t, env, "ana@example.com")
+
 	// A guest checkout that pends Marketing. The token in the receipt is not
 	// pressed: what is under test is the state it left behind.
 	guestCheckoutPending(t, env, sessionID, "ana@example.com", "pending-fest", boolPtr(true), nil)
@@ -173,9 +179,10 @@ func TestPendingConfirmationIsRecordedAsThePriorStateItWas(t *testing.T) {
 
 	// The owner proves the address and uses their own switch. The guest's
 	// checkout already accepted the current Policy Version — it is a fact about
-	// that sale (ADR 0035) — so this sign-in is not gated and asks nothing; the
-	// pending is resolved by the Customer Area toggle instead, which is exactly
-	// the route the spec describes for an owner settling somebody else's tick.
+	// that sale (ADR 0035) — and the Terms were settled at the earlier sign-in,
+	// so this sign-in is not gated and asks nothing; the pending is resolved by
+	// the Customer Area toggle instead, which is exactly the route the spec
+	// describes for an owner settling somebody else's tick.
 	token := customerSignIn(t, env, "ana@example.com")
 	setDigestEnabled(t, env, token, false)
 

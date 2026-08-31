@@ -201,6 +201,14 @@ type ConsentCapturer interface {
 	// asks it only about the Customer whose own Customer Session the request
 	// carries: it is a fact about a known Customer, and nobody else may learn it.
 	Outstanding(ctx context.Context, customerID string) (consent.Outstanding, error)
+	// CurrentTermsVersionID names the Terms edition in effect right now (#537).
+	// Sales asks it for exactly one purpose: an owed Terms answer must be held
+	// on the Payment WITH the edition it was answered about, because the commit
+	// leg runs on the provider's schedule and an edition published between the
+	// two legs must not let the record claim an acceptance of a text nobody was
+	// shown. Which edition is current stays the consent module's finding; sales
+	// only ever snapshots the answer it was handed.
+	CurrentTermsVersionID(ctx context.Context) (string, error)
 }
 
 // AffiliateLinkResolver is what sales needs from Affiliate Links: given the

@@ -284,6 +284,7 @@
     "consent": {
       "notice": "Cómo tratamos sus datos",
       "readPolicy": "Leer la Política de Privacidad completa",
+      "readTerms": "Leer los Términos y Condiciones completos",
       "optional": "Opcional",
       "unavailable": "Ahora mismo no podemos mostrarle el aviso de privacidad, así que no podemos procesar su compra. Inténtelo de nuevo en un momento."
     },

@@ -284,6 +284,7 @@
     "consent": {
       "notice": "How we handle your data",
       "readPolicy": "Read the full Privacy Policy",
+      "readTerms": "Read the full Términos y Condiciones",
       "optional": "Optional",
       "unavailable": "We can't show the privacy notice right now, so we can't take your purchase. Please try again in a moment."
     },

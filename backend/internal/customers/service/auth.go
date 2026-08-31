@@ -388,6 +388,13 @@ func (s *Service) sessionView(customer *repository.Customer, session *repository
 			PolicyAcceptance:  outstanding.PolicyAcceptance,
 			MarketingConsent:  outstanding.MarketingConsent,
 			NetworkingConsent: outstanding.NetworkingConsent,
+			// The Terms box reaches the checkout dialog through this same read
+			// (#537): a session minted before the current edition took effect —
+			// the one-time re-gate, or any later bump — owes the box at the
+			// dialog, which is the backstop that lets no Online Sale complete
+			// unaccepted. Ordinarily false, because a sign-in since #536 cannot
+			// finish without settling it.
+			TermsAcceptance: outstanding.TermsAcceptance,
 		},
 	}
 	// A Confirmation Link session proves nothing about who is holding it, so a
