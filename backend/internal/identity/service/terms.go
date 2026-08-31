@@ -103,6 +103,17 @@ type TermsRequiredView struct {
 	// page and may not reword or pre-tick it — the Staff app hosts no copy of the
 	// document.
 	AcceptanceLabel string `json:"acceptance_label"`
+	// LabelLocale is the language the label above was ACTUALLY served in, which
+	// is the requested one in the ordinary case and the prevailing one when this
+	// edition publishes no artifact in it (acceptanceLabel's floor).
+	//
+	// It is on the wire so the link beside the box can open the document the
+	// words came from: a reader floored at the prevailing text needs the Spanish
+	// page, and sending them to a translation this edition does not publish is a
+	// link into a not-found page (#559's rule, told rather than guessed). The
+	// same value is pinned server-side as the acceptance's presented locale
+	// (#567); this field is the renderer's copy of it, never the source of it.
+	LabelLocale string `json:"label_locale"`
 }
 
 // TermsAcceptanceSubmission is a terms step being finished: the token, the one
@@ -143,23 +154,26 @@ type TermsAcceptanceSubmission struct {
 // Spanish prevails (§37), and the link beside the box goes to the prevailing
 // text.
 func (s *Service) gateOnTerms(ctx context.Context, email string, pageLocale platform.Locale, now time.Time) (*TermsRequiredView, error) {
+	// The predicate first, and the current edition only for somebody who owes
+	// one (#570). The two reads may go in either order — the current edition is
+	// always a member of its own satisfying set, so nobody shown an edition is
+	// refused their acceptance of it — and asking "who owes" first is what lets
+	// the live-session gate share this exact function: the navigation check runs
+	// on every page and must not read text for the ninety-nine people out of a
+	// hundred who owe nothing.
+	outstanding, err := s.TermsOutstanding(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+	if !outstanding {
+		return nil, nil
+	}
+
 	edition, err := s.termsVersions.CurrentTermsEdition(ctx)
 	if err != nil {
 		return nil, err
 	}
 	version := edition.Version
-
-	satisfying, err := s.termsVersions.SatisfyingTermsEditions(ctx)
-	if err != nil {
-		return nil, err
-	}
-	accepted, err := s.repo.HasSatisfyingTermsAcceptance(ctx, email, satisfying.IDs())
-	if err != nil {
-		return nil, err
-	}
-	if accepted {
-		return nil, nil
-	}
 
 	token, err := newSessionToken()
 	if err != nil {
@@ -192,6 +206,7 @@ func (s *Service) gateOnTerms(ctx context.Context, email string, pageLocale plat
 		ExpiresAt:         pending.ExpiresAt.UTC().Format(time.RFC3339),
 		Version:           version.Label,
 		AcceptanceLabel:   label,
+		LabelLocale:       string(labelLocale),
 	}, nil
 }
 

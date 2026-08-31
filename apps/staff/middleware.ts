@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 import { APIError, callBackend } from "@/lib/api";
 import { signedInLandingPath } from "@/lib/auth-fork";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
+import { decideTermsGate } from "@/lib/terms-gate";
 
 const publicPaths = ["/login"];
 
@@ -18,6 +19,13 @@ type SessionData = {
   is_platform_operator?: boolean;
   active_member: { member_id: string; organization_name?: string } | null;
   memberships: Array<{ member_id: string; organization_name?: string }>;
+  /**
+   * Whether this session's holder owes a Terms Acceptance of an edition that
+   * still satisfies the gate (#570, ADR 0067). Only this route computes it;
+   * null means "not asked" or "the read failed", and neither diverts anybody —
+   * see lib/terms-gate.
+   */
+  terms_outstanding?: boolean | null;
 };
 
 function isPathMatch(pathname: string, paths: string[]): boolean {
@@ -130,6 +138,33 @@ export async function middleware(request: NextRequest) {
     const response = NextResponse.redirect(loginUrl);
     response.cookies.delete(SESSION_COOKIE_NAME);
     return response;
+  }
+
+  // The Terms gate, on the LIVE session (#570, ADR 0067's amendment to ADR
+  // 0066). It sits here, after the session is resolved and BEFORE both the
+  // operator fork and the membership fork, because everybody on this platform
+  // owes the same acceptance: the operator who published the edition meets
+  // their own interstitial, and somebody who is a Member of nothing is not
+  // waved through on their way to the create-organization page.
+  //
+  // The decision itself is lib/terms-gate's, tested there; this is the
+  // plumbing. Note what is NOT here: nothing is revoked, nothing re-minted, the
+  // session cookie is untouched and no passcode is spent. A publish revokes no
+  // session in either population and there is no control that offers to.
+  //
+  // `/api/` never reaches this line — the short-circuit at the top of this
+  // function returns before any session is even resolved — so a sale in
+  // progress commits and no in-flight mutation is refused.
+  const termsGate = decideTermsGate({
+    pathname,
+    search: request.nextUrl.search,
+    termsOutstanding: session.terms_outstanding,
+  });
+  if (termsGate.kind === "interstitial") {
+    const gateUrl = request.nextUrl.clone();
+    gateUrl.pathname = termsGate.pathname;
+    gateUrl.search = termsGate.search;
+    return NextResponse.redirect(gateUrl);
   }
 
   // Operator authority is orthogonal to Membership (ADR 0015): an operator with

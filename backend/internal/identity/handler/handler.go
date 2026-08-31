@@ -268,7 +268,13 @@ func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := h.svc.GetSession(r.Context(), token)
+	// The one route that asks whether this session owes a Terms Acceptance:
+	// the staff app's middleware resolves the session here on every page
+	// navigation, and `terms_outstanding` is what it diverts to the interstitial
+	// on (#570, ADR 0067). Asking here and not in buildSessionView keeps the
+	// consent read off every authenticated staff API request, where a failure
+	// would refuse an in-flight mutation.
+	session, err := h.svc.GetSessionWithTermsGate(r.Context(), token)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
