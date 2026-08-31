@@ -75,12 +75,24 @@ type EvidencePack struct {
 // LEGAL_SUBJECT_NOT_FOUND for an id nobody holds, which is the record read's
 // own refusal: a stale link is answered the same way whichever thing the
 // operator clicked.
-func (s *Service) CustomerEvidencePack(ctx context.Context, customerID string) (*EvidencePack, error) {
+// THE EXPORT IS LOGGED BY NAME AND WITH THE FILE'S OWN FINGERPRINT (#569), and
+// the customer id goes on the row because this route was keyed on it — so the
+// log can link back to the record the pack came from, and so deleting that
+// Customer fails loudly (migration 116's RESTRICT) rather than quietly
+// destroying the record of what was disclosed about them.
+func (s *Service) CustomerEvidencePack(ctx context.Context, actor, customerID string) (*EvidencePack, error) {
 	record, err := s.legalRecords.CustomerLegalRecord(ctx, strings.TrimSpace(customerID))
 	if err != nil {
 		return nil, err
 	}
-	return s.evidencePack(ctx, record.Email, record.ID)
+	pack, err := s.evidencePack(ctx, record.Email, record.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.recordEvidenceExport(ctx, actor, record.ID, record.Email, pack.SHA256); err != nil {
+		return nil, err
+	}
+	return pack, nil
 }
 
 // StaffEvidencePack generates the pack for the staff person this digest names.
@@ -91,7 +103,13 @@ func (s *Service) CustomerEvidencePack(ctx context.Context, customerID string) (
 // screen's reason: with no key the match would resolve an arbitrary digest to
 // the first person in the list, which is not a degraded answer but the wrong
 // person's evidence.
-func (s *Service) StaffEvidencePack(ctx context.Context, digest string) (*EvidencePack, error) {
+// IT IS LOGGED AS A PLAIN ADDRESS AND NEVER AS THE DIGEST (#569) — the digest
+// depends on a rotatable key and would orphan the row — and with NO CUSTOMER ID
+// even where the cross-link resolves one, because the act was performed against
+// the staff record. The `pack_sha256` is the same value the file's name is keyed
+// on and the same value migration 118 stores, so the two rows about one handover
+// meet on the one fact that cannot be misremembered.
+func (s *Service) StaffEvidencePack(ctx context.Context, actor, digest string) (*EvidencePack, error) {
 	email, err := s.resolveStaffDigest(ctx, digest)
 	if err != nil {
 		return nil, err
@@ -102,7 +120,14 @@ func (s *Service) StaffEvidencePack(ctx context.Context, digest string) (*Eviden
 	if err != nil {
 		return nil, err
 	}
-	return s.evidencePack(ctx, email, customerID)
+	pack, err := s.evidencePack(ctx, email, customerID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.recordEvidenceExport(ctx, actor, "", email, pack.SHA256); err != nil {
+		return nil, err
+	}
+	return pack, nil
 }
 
 // evidencePack builds one pack for one address, from both populations.

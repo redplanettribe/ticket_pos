@@ -198,6 +198,11 @@ func operatorRoutes(orgID string) []struct {
 		// authority here is a property of the address, not of the verb.
 		{http.MethodPost, "/api/v1/operator/legal/documents/policy/draft/previews"},
 		{http.MethodPost, "/api/v1/operator/legal/documents/policy/draft/diff-seen"},
+		// And #569's: the record of the platform's own reads of people's data.
+		// It is on this list because reading an audit log is exactly the kind of
+		// thing whose gate must be a property of the address rather than of
+		// whoever remembered to check.
+		{http.MethodGet, "/api/v1/operator/legal/access-log"},
 	}
 }
 

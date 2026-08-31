@@ -399,6 +399,28 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("GET /api/v1/operator/legal/customers/{customerID}/evidence-pack", operator(http.HandlerFunc(h.DownloadCustomerEvidencePack)))
 	mux.Handle("GET /api/v1/operator/legal/staff/{digest}/evidence-pack", operator(http.HandlerFunc(h.DownloadStaffEvidencePack)))
 
+	// THE CONSENT ACCESS LOG (#569, ADR 0067): the platform's record of its own
+	// reads of people's data, and the last surface of the Legal Center.
+	//
+	// It exists because every other act above leaves a domain row to hang
+	// attribution off and A READ LEAVES NOTHING. Four acts write to it — a page
+	// of either browser, one record opened, one pack handed over, and THIS READ
+	// — so that a touch of somebody's data is recorded however it is reached.
+	// A withdrawal, a preview and a publication write nothing to it: each is
+	// already evidenced by a row that says more, and keeping this table to
+	// touches of people's data is what makes it readable.
+	//
+	// A GET WITH A QUERY STRING and not a POST-that-reads, because nothing in
+	// the request line is a data subject: the actor is a platform operator, the
+	// act is a vocabulary word, the dates are dates, and the cursor is a
+	// timestamp and a row id.
+	//
+	// ONE ROUTE, AND THE MISSING ONES ARE THE DESIGN. There is no purge, no
+	// retention window, no export and NO SUBJECT FILTER — an audit log
+	// searchable by the person it is about would be a second way to look people
+	// up, keyed on the record of people being looked up.
+	mux.Handle("GET /api/v1/operator/legal/access-log", operator(http.HandlerFunc(h.GetLegalAccessLog)))
+
 	// Tax invoicing (#450, ADR 0059): the platform's Issuer with each country's
 	// Tax Authority, and — from #454 — the Tax Invoices it issues by hand. The
 	// platform is the sole Issuer, so this is operator-only by construction and

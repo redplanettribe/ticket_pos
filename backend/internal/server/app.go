@@ -574,6 +574,14 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// halves: it MINTS a digest on the browser and on the customer record's
 	// cross-link, and MATCHES one on the way in to the staff record.
 	operatorService = operatorService.WithLegalRecords(consentService, identityService)
+	// And the record of the platform's own looking (#569). ONE SEAM AND ONE
+	// MODULE: consent owns the table, because what it is about is consent
+	// evidence — its subject is a Customer and its FK is `customers` — and the
+	// operator surface owns no tables (ADR 0015). It is tied on LAST because
+	// everything it audits is tied on above it: the browsers, the records and
+	// the Evidence Pack all write to it, and a build that composed the surfaces
+	// without this line would serve reads that nothing wrote down.
+	operatorService = operatorService.WithLegalAccessLog(consentService)
 	operatorHandler := operatorhandler.New(operatorService)
 
 	// Tax invoicing (#450, ADR 0059). Served on the operator namespace but not

@@ -170,6 +170,16 @@ type LegalAcceptanceBrowseInput struct {
 	// SearchEmail narrows to addresses containing this fragment, so the
 	// one-step lookup the old surface gave is not lost.
 	SearchEmail string
+	// Actor is the operator doing the browsing, taken from the Staff Session
+	// and NEVER from the body — the same rule every other attributed act on
+	// this platform follows. It is here so that the page can be recorded in the
+	// consent access log (#569): browsing a population is a touch of people's
+	// data, and a read is the one act that leaves no domain row of its own.
+	//
+	// IT DOES NOT AFFECT WHAT IS SERVED. The page an operator sees does not
+	// depend on who they are; this field only decides whose name is on the log
+	// row.
+	Actor string
 }
 
 // BrowseCustomerAcceptances answers one page of the customer browser.
@@ -208,8 +218,31 @@ func (s *Service) BrowseCustomerAcceptances(ctx context.Context, input LegalAcce
 			TermsStanding:  item.TermsStanding,
 		})
 	}
+
+	// THE QUESTION IS LOGGED AND THE ANSWER IS NOT (#569). What goes into the
+	// access log is which population was browsed, which document, which filter,
+	// WHETHER a search narrowed it, and how many rows came back — never the
+	// rows. A log that recorded the roster would be an unbounded second copy of
+	// the list it audits, and the search fragment is an email address, so it
+	// stops here: only the boolean travels.
+	//
+	// AFTER THE PAGE IS BUILT, so the count is the count actually served; and a
+	// failure to log fails the read, because a read of somebody's data that was
+	// not recorded is the one outcome this feature exists to prevent.
+	if err := s.recordListRead(ctx, input.Actor, accessPopulationCustomer, strings.TrimSpace(input.Document),
+		string(standing), normalizeAcceptanceSearch(input.SearchEmail) != "", len(page.Rows)); err != nil {
+		return nil, err
+	}
 	return page, nil
 }
+
+// The two populations, in migration 116's vocabulary. Constants rather than
+// literals at the two call sites, so the customer browser and the staff browser
+// cannot come to spell the same word differently in an append-only log.
+const (
+	accessPopulationCustomer = "customer"
+	accessPopulationStaff    = "staff"
+)
 
 // BrowseStaffAcceptances answers one page of the staff browser.
 //
@@ -271,6 +304,15 @@ func (s *Service) BrowseStaffAcceptances(ctx context.Context, input LegalAccepta
 			Email:    item.Email,
 			Standing: item.Standing,
 		})
+	}
+
+	// The same row the customer browser writes, over the other population. The
+	// DIGESTS ON THIS PAGE ARE NOT LOGGED and neither are the addresses behind
+	// them: a `list_read` records the question, and the digest is a URL key
+	// written to no row anywhere (#565).
+	if err := s.recordListRead(ctx, input.Actor, accessPopulationStaff, consentsvc.LegalDocumentTerms,
+		string(standing), normalizeAcceptanceSearch(input.SearchEmail) != "", len(page.Rows)); err != nil {
+		return nil, err
 	}
 	return page, nil
 }

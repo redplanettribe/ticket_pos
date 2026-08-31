@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/peter/ticket_pos/backend/internal/identity/middleware"
 	"github.com/peter/ticket_pos/backend/internal/operator/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
@@ -48,7 +49,15 @@ import (
 func (h *Handler) GetCustomerLegalRecord(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
 
-	view, err := h.svc.CustomerLegalRecord(r.Context(), strings.TrimSpace(r.PathValue("customerID")))
+	// Who read this record, from the Staff Session and never from a body: the
+	// read is recorded in the consent access log (#569).
+	session, ok := middleware.SessionFromContext(r.Context())
+	if !ok {
+		_ = platform.WriteUnauthorized(w, reqID, "Missing session token")
+		return
+	}
+
+	view, err := h.svc.CustomerLegalRecord(r.Context(), session.Email, strings.TrimSpace(r.PathValue("customerID")))
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
@@ -103,7 +112,13 @@ func (h *Handler) ListCustomerConsentRecords(w http.ResponseWriter, r *http.Requ
 func (h *Handler) GetStaffLegalRecord(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
 
-	view, err := h.svc.StaffLegalRecord(r.Context(), r.PathValue("digest"))
+	session, ok := middleware.SessionFromContext(r.Context())
+	if !ok {
+		_ = platform.WriteUnauthorized(w, reqID, "Missing session token")
+		return
+	}
+
+	view, err := h.svc.StaffLegalRecord(r.Context(), session.Email, r.PathValue("digest"))
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return

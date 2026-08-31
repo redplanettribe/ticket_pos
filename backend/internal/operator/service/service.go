@@ -180,6 +180,14 @@ type Service struct {
 	// them is an address, resolved server-side. See legalsubject.go.
 	legalRecords      LegalRecords
 	legalStaffRecords LegalStaffRecords
+	// accessLog is the platform's record of its own reads of people's data
+	// (#569): the one place a read leaves a trace, because a read produces no
+	// domain row to hang attribution off. Four acts are written to it —
+	// browsing a population, opening a record, exporting a pack, and reading
+	// the log itself — and pointedly not a withdrawal, a preview or a
+	// publication, each of which is already evidenced by a row that is better.
+	// See legalaccesslog.go.
+	accessLog LegalAccessLog
 	// staffDigester names a staff person in a URL without disclosing their
 	// address (#565, ADR 0046). An unconfigured one makes the staff browser
 	// REFUSE TO SERVE; it never falls back to an empty key.

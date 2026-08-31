@@ -223,8 +223,42 @@ type StaffAcceptanceRecordView struct {
 	PresentedLocale *string `json:"presented_locale"`
 }
 
-// CustomerLegalRecord reads one Customer's record, cross-linked.
-func (s *Service) CustomerLegalRecord(ctx context.Context, customerID string) (*CustomerLegalRecordView, error) {
+// CustomerLegalRecord reads one Customer's record, cross-linked, AND RECORDS
+// THAT IT WAS READ (#569).
+//
+// LOGGED BY NAME, because here the subject IS the act: "somebody's record was
+// opened" with the somebody left out records nothing anybody could rely on. The
+// row carries the Customer's id — so the log can link back to the record that
+// was read without putting an address in a URL — and their address, which is
+// how a human recognises the person a year later.
+//
+// A FAILURE TO LOG FAILS THE READ, for the reason it does on the browsers: a
+// read of somebody's data that was not recorded is exactly what this feature
+// exists to prevent, and swallowing the error would hide the day the log
+// stopped working until the day somebody needed it.
+//
+// THE PAGED HISTORY BESIDE THIS (CustomerConsentActs) WRITES NO SECOND ROW. It
+// is page two of a record that has already been opened — the screen fires this
+// read first, and the history refuses an id whose record does not exist — so a
+// row per page would put three `subject_read`s in the log for one screen and
+// one "load more". The act is OPENING SOMEBODY'S RECORD, and it is recorded
+// once.
+func (s *Service) CustomerLegalRecord(ctx context.Context, actor, customerID string) (*CustomerLegalRecordView, error) {
+	view, err := s.customerLegalRecord(ctx, customerID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.recordSubjectRead(ctx, actor, view.Customer.ID, view.Customer.Email); err != nil {
+		return nil, err
+	}
+	return view, nil
+}
+
+// customerLegalRecord is the read itself, unlogged, for the callers INSIDE this
+// service that are not an operator opening a record: the history's
+// existence check and the Evidence Pack's assembly, each of which is part of an
+// act that is logged once, in its own right, by whoever performed it.
+func (s *Service) customerLegalRecord(ctx context.Context, customerID string) (*CustomerLegalRecordView, error) {
 	record, err := s.legalRecords.CustomerLegalRecord(ctx, strings.TrimSpace(customerID))
 	if err != nil {
 		return nil, err
@@ -339,7 +373,17 @@ func (s *Service) CustomerConsentActs(ctx context.Context, input CustomerConsent
 // match would resolve an arbitrary digest to the first person in the list. That
 // is not a degraded answer, it is the wrong person's record, and it is refused
 // with 503 rather than served.
-func (s *Service) StaffLegalRecord(ctx context.Context, digest string) (*StaffLegalRecordView, error) {
+// IT IS LOGGED AS A PLAIN ADDRESS AND NEVER AS THE DIGEST (#569). The digest is
+// the key this record was REACHED by, but it is derived from the deployment's
+// link secret, so a rotation would leave every historic log row naming nobody —
+// orphaning a log whose whole purpose is to still mean something in five years.
+// The digest is resolved to the person first, and the person is what is written
+// down.
+//
+// AND NO CUSTOMER ID, even where the cross-link resolves one. What was read is
+// the STAFF record; a log row pointing at the Customer record would say an act
+// was performed against a screen nobody opened.
+func (s *Service) StaffLegalRecord(ctx context.Context, actor, digest string) (*StaffLegalRecordView, error) {
 	email, err := s.resolveStaffDigest(ctx, digest)
 	if err != nil {
 		return nil, err
@@ -387,6 +431,11 @@ func (s *Service) StaffLegalRecord(ctx context.Context, digest string) (*StaffLe
 	}
 	if customerID != "" {
 		view.CustomerID = pointerTo(customerID)
+	}
+
+	// The subject read, recorded by name. Empty customer id: see above.
+	if err := s.recordSubjectRead(ctx, actor, "", record.Email); err != nil {
+		return nil, err
 	}
 	return view, nil
 }

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/peter/ticket_pos/backend/internal/identity/middleware"
 	"github.com/peter/ticket_pos/backend/internal/operator/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
@@ -72,11 +73,21 @@ func (h *Handler) BrowseCustomerAcceptances(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Who browsed, from the Staff Session and never from the body: the page is
+	// recorded in the consent access log (#569), and "who read this" must not
+	// be something a caller can claim.
+	session, ok := middleware.SessionFromContext(r.Context())
+	if !ok {
+		_ = platform.WriteUnauthorized(w, reqID, "Missing session token")
+		return
+	}
+
 	page, err := h.svc.BrowseCustomerAcceptances(r.Context(), service.LegalAcceptanceBrowseInput{
 		Document:    r.PathValue("document"),
 		Standing:    body.Standing,
 		Cursor:      body.Cursor,
 		SearchEmail: body.SearchEmail,
+		Actor:       session.Email,
 	})
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
@@ -110,11 +121,18 @@ func (h *Handler) BrowseStaffAcceptances(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	session, ok := middleware.SessionFromContext(r.Context())
+	if !ok {
+		_ = platform.WriteUnauthorized(w, reqID, "Missing session token")
+		return
+	}
+
 	page, err := h.svc.BrowseStaffAcceptances(r.Context(), service.LegalAcceptanceBrowseInput{
 		Document:    r.PathValue("document"),
 		Standing:    body.Standing,
 		Cursor:      body.Cursor,
 		SearchEmail: body.SearchEmail,
+		Actor:       session.Email,
 	})
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)

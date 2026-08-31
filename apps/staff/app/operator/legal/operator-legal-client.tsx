@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import Link from "next/link";
+
 import { toAppLocale, type AppLocale } from "@ticket-pos/locale";
 import {
   Alert,
@@ -99,6 +101,9 @@ const SLUG_PATTERN = /^[a-z][a-z0-9-]*$/;
 
 export function OperatorLegalClient() {
   const t = useTranslations("operator.legal");
+  // The access log's own copy (#569), so the link is named by the screen it
+  // leads to rather than by a second name kept here.
+  const tAccessLog = useTranslations("operator.legalAccessLog");
   const tOperator = useTranslations("operator");
   const errorCopy = useMessages().errors;
   const readerLocale = toAppLocale(useLocale());
@@ -365,6 +370,18 @@ export function OperatorLegalClient() {
   return (
     <div className="space-y-6">
       <PageHeader title={t("title")} description={t("description")} />
+
+      {/*
+        THE ACCESS LOG (#569), reachable from the Legal Center's own landing
+        page because that is where it lives — it is not a sibling surface but
+        the record of what this one's reading screens have been used for. A
+        plain link and not a card: it is a place to go, not a thing to do.
+      */}
+      <p className="text-sm">
+        <Link className="underline underline-offset-4" href="/operator/legal/access-log">
+          {tAccessLog("openLink")}
+        </Link>
+      </p>
 
       {/* One tab per document. They version independently (ADR 0066) and are never edited together. */}
       <div className="flex gap-2">

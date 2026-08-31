@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/peter/ticket_pos/backend/internal/identity/middleware"
 	"github.com/peter/ticket_pos/backend/internal/operator/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
@@ -82,11 +83,20 @@ func (h *Handler) servePack(
 	w http.ResponseWriter,
 	r *http.Request,
 	key string,
-	generate func(context.Context, string) (*service.EvidencePack, error),
+	generate func(ctx context.Context, actor, key string) (*service.EvidencePack, error),
 ) {
 	reqID := platform.RequestID(r.Context())
 
-	pack, err := generate(r.Context(), key)
+	// Who exported, from the Staff Session and never from a body: the handover
+	// is recorded in the consent access log with this actor, the subject and
+	// the pack's own fingerprint (#569).
+	session, ok := middleware.SessionFromContext(r.Context())
+	if !ok {
+		_ = platform.WriteUnauthorized(w, reqID, "Missing session token")
+		return
+	}
+
+	pack, err := generate(r.Context(), session.Email, key)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
