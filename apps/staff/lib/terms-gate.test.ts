@@ -4,7 +4,9 @@ import test from "node:test";
 import {
   RETURN_PARAM,
   TERMS_GATE_PATH,
+  asksAdulthoodDeclaration,
   decideTermsGate,
+  termsGateAnswersComplete,
   termsGateReturnPath,
 } from "./terms-gate.ts";
 
@@ -108,6 +110,86 @@ test("a return path into the gate or the API lands on the app root instead", () 
   for (const next of [TERMS_GATE_PATH, `${TERMS_GATE_PATH}?next=/x`, "/api/auth/session"]) {
     assert.equal(termsGateReturnPath(next), "/", next);
   }
+});
+
+// The Adulthood Declaration's half of the gate (#587, ADR 0069): which boxes
+// are owed, and when the submit button may be pressed.
+//
+// Extracted here rather than tested in a component for the file's whole reason:
+// no component-testing stack exists in this repo and none is being introduced,
+// and the alternative — Playwright — cannot be green in one run. So the
+// rendering DECISION lives in a pure function and the two forms only draw it.
+
+test("the label's presence is the whole of whether the second box is drawn", () => {
+  assert.equal(asksAdulthoodDeclaration("Declaro ser mayor de edad"), true);
+  // Absent from the payload: this edition carries no artifact and asks nothing.
+  for (const label of [undefined, null, ""]) {
+    assert.equal(asksAdulthoodDeclaration(label), false, String(label));
+  }
+  // A box with nothing written beside it is the one thing §3 forbids, so
+  // whitespace is not words.
+  assert.equal(asksAdulthoodDeclaration("   \n "), false);
+});
+
+test("an edition that does not ask is satisfied by the Terms box alone", () => {
+  assert.equal(
+    termsGateAnswersComplete({ termsAccepted: true, adulthoodDeclared: false }),
+    true,
+  );
+  assert.equal(
+    termsGateAnswersComplete({ termsAccepted: false, adulthoodDeclared: true }),
+    false,
+  );
+});
+
+test("an edition that asks owes both boxes before the button may be pressed", () => {
+  const label = "I declare that I am eighteen years of age or older";
+  assert.equal(
+    termsGateAnswersComplete({
+      adulthoodDeclarationLabel: label,
+      termsAccepted: true,
+      adulthoodDeclared: true,
+    }),
+    true,
+  );
+  for (const [termsAccepted, adulthoodDeclared] of [
+    [true, false],
+    [false, true],
+    [false, false],
+  ] as const) {
+    assert.equal(
+      termsGateAnswersComplete({
+        adulthoodDeclarationLabel: label,
+        termsAccepted,
+        adulthoodDeclared,
+      }),
+      false,
+      `${termsAccepted}/${adulthoodDeclared}`,
+    );
+  }
+});
+
+// The two boxes are two boxes: accepting the Terms is not declaring adulthood,
+// and one control cannot say both — declining the Terms means "I do not agree"
+// and declining this means "I am a child".
+test("ticking the Terms box does not answer the declaration", () => {
+  assert.equal(
+    termsGateAnswersComplete({
+      adulthoodDeclarationLabel: "Declaro ser mayor de edad",
+      termsAccepted: true,
+      adulthoodDeclared: false,
+    }),
+    false,
+  );
+});
+
+// The declaration changes nothing about which navigations are diverted. It has
+// no gate of its own — it rides the Terms gate — so the middleware still asks
+// exactly one question, and `/api/` stays ungated so a sale in progress at the
+// box office commits.
+test("the declaration adds no gate of its own to the navigation decision", () => {
+  assert.equal(decideTermsGate({ pathname: "/pos", termsOutstanding: false }).kind, "allow");
+  assert.equal(decideTermsGate({ pathname: "/api/events/abc/sales", termsOutstanding: true }).kind, "allow");
 });
 
 // The round trip is what the two functions owe each other: whatever the

@@ -228,6 +228,16 @@ type StaffAcceptanceRecordView struct {
 	// staff channel that shows nothing, so "this field does not apply" is not a
 	// state this record can be in and there is no third case to spell.
 	PresentedLocale *string `json:"presented_locale"`
+	// AdulthoodDeclaration is the 18+ box ticked beside this acceptance (#590,
+	// ADR 0069). TRUE OR NULL AND NEVER FALSE: a refusal is refused before the
+	// insert, so the platform holds no row saying anybody declared themselves a
+	// minor, and null means the edition this row names carried no such box.
+	//
+	// THE SCREEN SPELLS THE NULL "never asked". It is published as null rather
+	// than omitted for the reason every other answer on this payload is: a key
+	// that disappeared would leave the reader to decide what its absence meant,
+	// and the one wrong guess is "No".
+	AdulthoodDeclaration *bool `json:"adulthood_declaration"`
 }
 
 // CustomerLegalRecord reads one Customer's record, cross-linked, AND RECORDS
@@ -445,13 +455,14 @@ func (s *Service) StaffLegalRecord(ctx context.Context, actor, digest string) (*
 				ID:    acceptance.TermsEditionID,
 				Label: labels[acceptance.TermsEditionID],
 			},
-			Capacity:        acceptance.Capacity,
-			AcceptedAt:      acceptance.AcceptedAt,
-			IP:              acceptance.IP,
-			UserAgent:       acceptance.UserAgent,
-			SessionID:       acceptance.SessionID,
-			OriginURL:       acceptance.OriginURL,
-			PresentedLocale: acceptance.PresentedLocale,
+			Capacity:             acceptance.Capacity,
+			AcceptedAt:           acceptance.AcceptedAt,
+			IP:                   acceptance.IP,
+			UserAgent:            acceptance.UserAgent,
+			SessionID:            acceptance.SessionID,
+			OriginURL:            acceptance.OriginURL,
+			PresentedLocale:      acceptance.PresentedLocale,
+			AdulthoodDeclaration: acceptance.AdulthoodDeclaration,
 		})
 	}
 

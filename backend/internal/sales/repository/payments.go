@@ -132,6 +132,12 @@ type CreatePaymentInput struct {
 	// and held beside the answer, because the commit leg must evidence the
 	// edition the buyer was shown and not whichever is current when the
 	// provider answers. Empty exactly when Consent.TermsAcceptance is nil.
+	//
+	// It is the edition the Adulthood Declaration below was declared under too
+	// (#588, ADR 0069), and there is deliberately no second column for that: the
+	// declaration is worded by an Artifact ON this edition, so the edition that
+	// names the Terms text is the edition that names the words beside the second
+	// box. Migration 119's paired CHECK is that fact in the schema.
 	ConsentTermsVersionID string
 	// ConsentEvidence is the technical proof of that same act, derived from the
 	// request and never from its body. Empty fields are stored NULL, because
@@ -158,11 +164,12 @@ func (r *Repository) CreatePayment(ctx context.Context, in CreatePaymentInput) (
 			customer_phone, affiliate_link_id, locale,
 			consent_policy_acceptance, consent_marketing, consent_networking,
 			consent_terms_acceptance, consent_terms_version_id,
+			consent_adulthood_declaration,
 			consent_ip, consent_user_agent, consent_origin_url,
 			created_at, updated_at
 		)
 		VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $10, $11, $12, $13, $14, $15,
-			$16, $17, $18, $22, $23, $19, $20, $21, $9, $9)
+			$16, $17, $18, $22, $23, $24, $19, $20, $21, $9, $9)
 		RETURNING id
 	`, in.EventID, in.OrganizationID, in.Provider, in.ClientTransactionID,
 		in.AmountCents, in.Customer.Email, in.Customer.FirstName, in.Customer.LastName, in.Now,
@@ -170,7 +177,13 @@ func (r *Repository) CreatePayment(ctx context.Context, in CreatePaymentInput) (
 		nullString(in.Customer.Phone), nullString(in.AffiliateLinkID), nullString(in.Locale),
 		nullBool(in.Consent.PolicyAcceptance), nullBool(in.Consent.MarketingConsent), nullBool(in.Consent.NetworkingConsent),
 		nullString(in.ConsentEvidence.IP), nullString(in.ConsentEvidence.UserAgent), nullString(in.ConsentEvidence.OriginURL),
-		nullBool(in.Consent.TermsAcceptance), nullString(in.ConsentTermsVersionID)).Scan(&paymentID)
+		nullBool(in.Consent.TermsAcceptance), nullString(in.ConsentTermsVersionID),
+		// Only ever TRUE or NULL (#588, ADR 0069): a `false` is refused by the
+		// service before this row exists, so the checkout that would write one
+		// never reaches a Payment at all. The NULL is the ordinary value — the
+		// box was not drawn — and migration 119's CHECK holds it to the Terms
+		// answer two arguments above.
+		nullBool(in.Consent.AdulthoodDeclaration)).Scan(&paymentID)
 	if err != nil {
 		return "", err
 	}
@@ -488,6 +501,12 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	// All three answers NULL means no capture act: a Payment begun before the
 	// dialog had a consent section, and nothing to evidence.
 	var consentPolicy, consentMarketing, consentNetworking, consentTerms sql.NullBool
+	// The Adulthood Declaration the Payment has been holding since begin (#588,
+	// migration 119), read on this same row and for this same reason: the
+	// declaration was made minutes ago, under an edition that may no longer be
+	// current, and the provider's return leg carries a transaction id and
+	// nothing else. NULL here is "the box was not drawn at begin" and never a No.
+	var consentAdulthood sql.NullBool
 	var consentIP, consentUserAgent, consentOriginURL, consentTermsVersionID sql.NullString
 	err = tx.QueryRowContext(ctx, `
 		SELECT id, event_id, organization_id, status, customer_email, customer_first_name, customer_last_name,
@@ -495,6 +514,7 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 		       affiliate_link_id, locale,
 		       consent_policy_acceptance, consent_marketing, consent_networking,
 		       consent_terms_acceptance, consent_terms_version_id,
+		       consent_adulthood_declaration,
 		       consent_ip, consent_user_agent, consent_origin_url
 		FROM payments
 		WHERE client_transaction_id = $1
@@ -502,7 +522,7 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	`, in.ClientTransactionID).Scan(&paymentID, &eventID, &orgID, &status, &email, &firstName, &lastName,
 		&taxIDType, &taxIDNumber, &phone, &sessionAuthorized, &affiliateLinkID, &locale,
 		&consentPolicy, &consentMarketing, &consentNetworking,
-		&consentTerms, &consentTermsVersionID,
+		&consentTerms, &consentTermsVersionID, &consentAdulthood,
 		&consentIP, &consentUserAgent, &consentOriginURL)
 	if err != nil {
 		return nil, err
@@ -632,6 +652,13 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	// it settles include ones begun before that route existed. Hardcoding a `true`
 	// here would rewrite what was true of those checkouts at the moment they
 	// happened, which is the one thing an evidence log may not do.
+	//
+	// THE ADULTHOOD DECLARATION IS DELIBERATELY ABSENT FROM THE DISJUNCTION, and
+	// its absence changes no answer (#588): migration 119's CHECK makes a held
+	// declaration imply a held Terms answer, so naming it would add a term that
+	// can never decide the result. Leaving it out is how the rule that it RIDES
+	// the Terms box stays legible here — the same verdict consent.Outstanding.Any
+	// reaches about the same field, for the same reason.
 	if in.CaptureConsent != nil && (consentPolicy.Valid || consentMarketing.Valid || consentNetworking.Valid || consentTerms.Valid) {
 		if err := in.CaptureConsent(ctx, tx, consent.Capture{
 			CustomerID: recorded[0].CustomerID,
@@ -647,6 +674,13 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 				MarketingConsent:  nullableBool(consentMarketing),
 				NetworkingConsent: nullableBool(consentNetworking),
 				TermsAcceptance:   nullableBool(consentTerms),
+				// The declaration reaches the evidence log here and nowhere
+				// else (#588, ADR 0069). It is the held answer that travels,
+				// never a fresh look at whichever edition is current now: the
+				// record must evidence the text the buyer was actually shown,
+				// and `consentTermsVersionID` below names that edition for both
+				// answers at once.
+				AdulthoodDeclaration: nullableBool(consentAdulthood),
 			},
 			// The edition the Terms answer was held WITH (#537, migration 108):
 			// the capture evidences the text the buyer was shown at begin, not

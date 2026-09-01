@@ -305,6 +305,7 @@ const NO_CONSENT_BOXES = {
   marketing_consent: false,
   networking_consent: false,
   terms_acceptance: false,
+  adulthood_declaration: false,
 };
 
 export function TicketSelection({
@@ -414,6 +415,13 @@ export function TicketSelection({
   // The Terms box (#537, ADR 0066): contractual, separate, and under the same
   // no-prefill rule as the three above.
   const [termsAccepted, setTermsAccepted] = useState(false);
+  // The Adulthood Declaration (#588, ADR 0069): its own box, its own state, its
+  // own answer, and never folded into termsAccepted. A combined tick would
+  // evidence only that somebody accepted a document containing an age sentence,
+  // which is the inference this feature exists to replace — and the two
+  // refusals mean different things: declining the Terms is "I do not agree",
+  // declining this is "I am a child", and one control cannot say both.
+  const [adulthoodDeclared, setAdulthoodDeclared] = useState(false);
   // What the buyer has typed into the answer section, keyed by (Ticket Type,
   // ticket number, question) (#311).
   //
@@ -593,6 +601,14 @@ export function TicketSelection({
           ...(consentBoxes.marketing_consent ? { marketing_consent: marketingConsent } : {}),
           ...(consentBoxes.networking_consent ? { networking_consent: networkingConsent } : {}),
           ...(consentBoxes.terms_acceptance ? { terms_acceptance: termsAccepted } : {}),
+          // The declaration, sent only where it was drawn (#588). Where it was
+          // owed and left unticked this sends `false` and the API refuses the
+          // checkout with ADULTHOOD_DECLARATION_REQUIRED, creating no Payment
+          // and writing nothing at all — the disabled button below is the
+          // courtesy, that refusal is the guarantee.
+          ...(consentBoxes.adulthood_declaration
+            ? { adulthood_declaration: adulthoodDeclared }
+            : {}),
           // The answer section, as far as the buyer filled it in. The key is
           // dropped entirely when they skipped it — which is the ordinary case
           // and an explicitly supported way to check out — so a cart with
@@ -982,7 +998,9 @@ export function TicketSelection({
             <Alert variant="destructive">
               <AlertDescription>{t("identity.required")}</AlertDescription>
             </Alert>
-          ) : !policy || (consentBoxes.terms_acceptance && !terms) ? (
+          ) : !policy ||
+            (consentBoxes.terms_acceptance && !terms) ||
+            (consentBoxes.adulthood_declaration && !terms?.adulthood_declaration_label) ? (
             /*
               No notice, no form. The API could not be reached for the current
               Policy Version, so this dialog cannot show what is being accepted
@@ -995,6 +1013,16 @@ export function TicketSelection({
               only where its box is OWED: a buyer current on the Terms loses
               nothing to a failed read of a document they are not being asked
               about.
+
+              The Adulthood Declaration's LABEL is under it too (#588). Its box
+              is owed only where the Terms box is, so `terms` is already present
+              by the time it matters; what can still be missing is the label
+              itself, on an edition published with the artifact in the
+              prevailing text and not in the translation. That reader is owed a
+              box this app cannot word, and the honest failure beats both
+              alternatives — skipping the box would send a checkout the API is
+              about to refuse, and drawing it wordless is what ADR 0069 §3
+              forbids.
             */
             <Alert variant="destructive">
               <AlertDescription>{t("consent.unavailable")}</AlertDescription>
@@ -1247,6 +1275,34 @@ export function TicketSelection({
                       </p>
                     </>
                   ) : null}
+                  {/*
+                    The Adulthood Declaration (#588, ADR 0069): a SECOND box
+                    beside the Terms one, mandatory, un-premarked, and worded by
+                    the backend artifact exactly as its neighbour is — the label
+                    is evidence, covered by the edition's fingerprint, so
+                    nothing here may reword it and no catalog string may stand
+                    in for it.
+
+                    Drawn iff the edition in effect publishes the label, which
+                    is why it needs both the box AND the words before it
+                    appears: the answer to "does this edition ask?" is the
+                    presence of the artifact, and an edition that carries none
+                    draws nothing here and owes nothing at the API.
+
+                    Its DOM id is `consent-adulthood-declaration`, the
+                    `#consent-<box>` convention this dialog and the sign-in step
+                    already share and the e2e specs assert absence against.
+                  */}
+                  {consentBoxes.adulthood_declaration && terms?.adulthood_declaration_label ? (
+                    <ConsentCheckbox
+                      id="consent-adulthood-declaration"
+                      checked={adulthoodDeclared}
+                      onChange={setAdulthoodDeclared}
+                      label={terms.adulthood_declaration_label}
+                      optionalLabel={null}
+                      className="bg-background"
+                    />
+                  ) : null}
                 </div>
               ) : null}
               <Button
@@ -1270,7 +1326,8 @@ export function TicketSelection({
                 disabled={
                   submitting ||
                   (consentBoxes.policy_acceptance && !policyAccepted) ||
-                  (consentBoxes.terms_acceptance && !termsAccepted)
+                  (consentBoxes.terms_acceptance && !termsAccepted) ||
+                  (consentBoxes.adulthood_declaration && !adulthoodDeclared)
                 }
                 aria-busy={submitting}
               >

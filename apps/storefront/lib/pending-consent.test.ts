@@ -24,6 +24,7 @@ const held: ConsentRequired = {
     marketing_consent: true,
     networking_consent: true,
     terms_acceptance: true,
+    adulthood_declaration: true,
   },
 };
 
@@ -41,6 +42,7 @@ test("the boxes the API asked for are the boxes that come back", () => {
       marketing_consent: false,
       networking_consent: false,
       terms_acceptance: false,
+      adulthood_declaration: false,
     },
   };
   assert.deepEqual(decodePendingConsent(encodePendingConsent(requiredOnly)), requiredOnly);
@@ -55,9 +57,42 @@ test("the boxes the API asked for are the boxes that come back", () => {
       marketing_consent: false,
       networking_consent: false,
       terms_acceptance: true,
+      adulthood_declaration: false,
     },
   };
   assert.deepEqual(decodePendingConsent(encodePendingConsent(termsOnly)), termsOnly);
+
+  // And the step that owes the Terms box AND the Adulthood Declaration beside
+  // it (#586): the declaration rides the acceptance, so it never travels
+  // without it, and the cookie carries the pair.
+  const withDeclaration: ConsentRequired = {
+    ...held,
+    boxes: {
+      policy_acceptance: false,
+      marketing_consent: false,
+      networking_consent: false,
+      terms_acceptance: true,
+      adulthood_declaration: true,
+    },
+  };
+  assert.deepEqual(decodePendingConsent(encodePendingConsent(withDeclaration)), withDeclaration);
+});
+
+test("a cookie written before the declaration existed reads it as not shown", () => {
+  // THE ENCODING IS POSITIONAL, so a new answer is only ever APPENDED (#586):
+  // an index must go on meaning what it has always meant, because a cookie
+  // minted by the previous deploy is still in somebody's browser for the next
+  // fifteen minutes. A four-element tuple is exactly that cookie, and the box it
+  // predates reads false — the safe direction, and the truthful one, since it
+  // was minted under an edition that drew no such box.
+  const decoded = decodePendingConsent(btoa(JSON.stringify({ t: "abc", b: [true, false, false, true] })));
+  assert.deepEqual(decoded?.boxes, {
+    policy_acceptance: true,
+    marketing_consent: false,
+    networking_consent: false,
+    terms_acceptance: true,
+    adulthood_declaration: false,
+  });
 });
 
 test("the token never appears in the cookie in the clear", () => {
@@ -110,6 +145,7 @@ test("optional boxes default to not shown, never to shown", () => {
     marketing_consent: false,
     networking_consent: false,
     terms_acceptance: false,
+    adulthood_declaration: false,
   });
 });
 

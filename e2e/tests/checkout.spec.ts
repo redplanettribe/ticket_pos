@@ -297,7 +297,22 @@ test("a declined payment lands on the failure page and retry returns the selecti
 // The guest case is gone with the guests. There is no address to type here any
 // more, so there is no way to turn a signed-in checkout back into somebody
 // else's — which was the other half of the journey this replaces.
-const CONSENT_BOX_IDS = ["#consent-policy-acceptance", "#consent-marketing", "#consent-networking"];
+//
+// EVERY BOX THE DIALOG CAN DRAW BELONGS ON THIS LIST, and a box added to the
+// dialog without being added here is the failure this comment exists to
+// prevent: the assertion below goes on passing while silently no longer
+// checking the thing it names. The Terms box and the Adulthood Declaration
+// joined it for that reason (#537, #588) — both are drawn only for a Customer
+// re-gated mid-session, which is exactly NOT the Customer this test signs in,
+// so their absence here is a real claim about a fully-answered buyer rather
+// than a coincidence of the fixture.
+const CONSENT_BOX_IDS = [
+  "#consent-policy-acceptance",
+  "#consent-marketing",
+  "#consent-networking",
+  "#consent-terms-acceptance",
+  "#consent-adulthood-declaration",
+];
 
 test("a Customer who answered consent at sign-in is asked nothing at checkout", async ({
   page,

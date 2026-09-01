@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 )
 
 // Consent capture at the Storefront checkout (#253, parent #249): the gate that
@@ -882,5 +883,72 @@ func TestCheckoutConsentEvidenceIsNotTakenFromTheBody(t *testing.T) {
 	}
 	if record.OriginURL.String == "http://evil.example/" {
 		t.Fatal("recorded origin url came from the body")
+	}
+}
+
+// TestCheckoutCapturesEveryOwedBoxInOneAct is the owed set at its widest, which
+// is the shape #588 completes: a Customer caught mid-session by a Policy Version
+// AND by a Terms edition that carries the `label-adulthood-declaration`
+// Artifact, with both optional boxes never answered. Five boxes, one dialog, one
+// capture act, one Consent Record.
+//
+// It lives here rather than in checkout_terms_test.go because what it is about
+// is the SET — that the boxes are owed independently, refused independently and
+// recorded together — and this file is where the owed set is reasoned about.
+// The declaration's own rules are pinned beside the Terms box they ride.
+func TestCheckoutCapturesEveryOwedBoxInOneAct(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	_, gaID := publishCheckoutEvent(t, env, sessionID, "Every Box Fest", "every-box-fest", 1000, 10)
+
+	token := signedInOwingEveryBox(t, env, "elena@example.com")
+	shownEdition := publishTermsVersionAskingAdulthood(t, env, 2, 0)
+	boxes := signedInConsentBoxes(t, env, token)
+	if !boxes.PolicyAcceptance || !boxes.MarketingConsent || !boxes.NetworkingConsent ||
+		!boxes.TermsAcceptance || !boxes.AdulthoodDeclaration {
+		t.Fatalf("boxes = %+v, want every one of the five owed", boxes)
+	}
+	setSignInClock(t, env, env.fixedClock.Add(time.Hour))
+
+	// The declaration is refused on its own account even when everything else
+	// is in order: it is not folded into the Terms box, so accepting the
+	// document does not answer it.
+	unticked := consentCheckoutBody("Elena", "Ríos", boolPtr(true), boolPtr(true), boolPtr(false), cartLine(gaID, 1))
+	unticked["terms_acceptance"] = true
+	unticked["adulthood_declaration"] = false
+	resp, envelope := beginCheckoutWithEvidence(t, env, "test-org", "every-box-fest", token, unticked)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("begin with the declaration unticked: status=%d, want 400", resp.StatusCode)
+	}
+	if envelope.Error == nil || envelope.Error.Code != "ADULTHOOD_DECLARATION_REQUIRED" {
+		t.Fatalf("error = %+v, want ADULTHOOD_DECLARATION_REQUIRED", envelope.Error)
+	}
+
+	// And the whole set, answered as a person would leave it: the required
+	// three ticked, one optional taken and one declined — a declined optional
+	// being an explicit No and not a silence (ADR 0034).
+	body := consentCheckoutBody("Elena", "Ríos", boolPtr(true), boolPtr(true), boolPtr(false), cartLine(gaID, 1))
+	body["terms_acceptance"] = true
+	body["adulthood_declaration"] = true
+	begin := beginCheckoutWithEvidenceOK(t, env, "test-org", "every-box-fest", token, body)
+	if confirmed := confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved"); confirmed.Status != "approved" {
+		t.Fatalf("confirm status = %q, want approved", confirmed.Status)
+	}
+
+	records := consentRecordsOn(t, env, "elena@example.com", "checkout")
+	if len(records) != 1 {
+		t.Fatalf("checkout consent records = %d, want one act for one dialog", len(records))
+	}
+	got := records[0]
+	if !got.PolicyAcceptance.Bool || !got.MarketingConsent.Bool || got.NetworkingConsent.Bool {
+		t.Fatalf("recorded privacy answers = %+v, want the pair she gave", got)
+	}
+	if !got.AdulthoodDeclaration.Valid || !got.AdulthoodDeclaration.Bool {
+		t.Fatalf("recorded adulthood_declaration = %+v, want true", got.AdulthoodDeclaration)
+	}
+	terms := readTermsAnswers(t, env, "elena@example.com")
+	last := terms[len(terms)-1]
+	if !last.Answer.Valid || !last.Answer.Bool || !last.VersionID.Valid || last.VersionID.String != shownEdition {
+		t.Fatalf("recorded terms pair = (%+v, %+v), want the acceptance beside the edition that worded both boxes", last.Answer, last.VersionID)
 	}
 }

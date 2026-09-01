@@ -49,6 +49,80 @@ func TestAWholeArtifactSetBecomesAWholeDocument(t *testing.T) {
 	}
 }
 
+// THE EDITION IN EFFECT TODAY, which carries no Adulthood Declaration Artifact,
+// still assembles — in both languages, with the field empty (ADR 0069). This is
+// the assertion that decides whether this binary can be deployed before an
+// operator publishes anything: requiring the Artifact would refuse the current
+// edition and take the public terms page, the sign-in gate and the staff
+// interstitial down until somebody published.
+func TestAnEditionWithoutTheAdulthoodDeclarationIsStillWhole(t *testing.T) {
+	t.Parallel()
+
+	artifacts := edition([]platform.Locale{platform.LocaleEN, platform.LocaleES}, "")
+	for _, locale := range []platform.Locale{platform.LocaleEN, platform.LocaleES} {
+		document, ok := terms.DocumentFrom(locale, artifacts)
+		if !ok {
+			t.Fatalf("the %s edition without an adulthood declaration label did not assemble", locale)
+		}
+		if document.AdulthoodDeclarationLabel != "" {
+			t.Errorf("the %s document invented an adulthood declaration label: %q", locale, document.AdulthoodDeclarationLabel)
+		}
+	}
+	if documents := terms.Documents(artifacts); len(documents) != 2 {
+		t.Errorf("assembled %d languages, want both", len(documents))
+	}
+}
+
+// An edition that DOES carry it serves the wording, in both languages: the
+// words a person was shown when they declared, which is the whole of what the
+// declaration evidences.
+func TestAnEditionCarryingTheAdulthoodDeclarationServesItsWording(t *testing.T) {
+	t.Parallel()
+
+	artifacts := edition([]platform.Locale{platform.LocaleEN, platform.LocaleES}, "")
+	for _, locale := range []platform.Locale{platform.LocaleEN, platform.LocaleES} {
+		artifacts = append(artifacts, legal.Artifact{
+			Locale:  locale,
+			Slug:    terms.SlugAdulthoodDeclarationLabel,
+			Ordinal: 3,
+			Body:    string(locale) + " " + terms.SlugAdulthoodDeclarationLabel,
+		})
+	}
+
+	for _, locale := range []platform.Locale{platform.LocaleEN, platform.LocaleES} {
+		document, ok := terms.DocumentFrom(locale, artifacts)
+		if !ok {
+			t.Fatalf("the %s edition carrying an adulthood declaration label did not assemble", locale)
+		}
+		if want := string(locale) + " " + terms.SlugAdulthoodDeclarationLabel; document.AdulthoodDeclarationLabel != want {
+			t.Errorf("the %s adulthood declaration label carries %q, want %q", locale, document.AdulthoodDeclarationLabel, want)
+		}
+		if document.AcceptanceLabel != string(locale)+" "+terms.SlugAcceptanceLabel {
+			t.Errorf("the %s acceptance label moved: %q", locale, document.AcceptanceLabel)
+		}
+	}
+}
+
+// The optional Artifact does not stand in for a required one. Completeness is
+// every required slug and not a count of slugs found, so an edition carrying an
+// adulthood declaration label INSTEAD of its acceptance label is refused as
+// firmly as one carrying nothing in its place — §3 again.
+func TestTheAdulthoodDeclarationDoesNotSubstituteForTheAcceptanceLabel(t *testing.T) {
+	t.Parallel()
+
+	artifacts := edition([]platform.Locale{platform.LocaleES}, terms.SlugAcceptanceLabel)
+	artifacts = append(artifacts, legal.Artifact{
+		Locale:  platform.LocaleES,
+		Slug:    terms.SlugAdulthoodDeclarationLabel,
+		Ordinal: 2,
+		Body:    "es " + terms.SlugAdulthoodDeclarationLabel,
+	})
+
+	if _, ok := terms.DocumentFrom(platform.LocaleES, artifacts); ok {
+		t.Error("an edition with no acceptance label assembled because another artifact made up the count")
+	}
+}
+
 // A language this edition does not publish is refused rather than answered in
 // another one: a contract the reader cannot read must never be presented as the
 // one they accepted.

@@ -146,6 +146,14 @@ func domainHTTPStatus(code string) int {
 	// unauthorized, and re-sending with the box ticked is exactly what fixes it.
 	case "TERMS_ACCEPTANCE_REQUIRED":
 		return http.StatusBadRequest
+	// The Adulthood Declaration box unticked (#586, ADR 0069). 400 beside the
+	// two acceptance refusals above and for their reason — nothing about the
+	// caller is unauthorized, and restating the request with the box ticked is
+	// exactly what fixes it. Emphatically NOT 403: this platform has no idea how
+	// old anybody is and a status meaning "you may not" would claim otherwise.
+	// See consent.ErrAdulthoodDeclarationRequired.
+	case "ADULTHOOD_DECLARATION_REQUIRED":
+		return http.StatusBadRequest
 	// A capture on a withdraw-only channel that tried to grant something (#271).
 	// 400 beside its neighbour above and for the mirror reason: nothing about the
 	// caller is unauthorized — a Platform Operator is entitled to be here and

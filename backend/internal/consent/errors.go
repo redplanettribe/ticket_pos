@@ -117,6 +117,42 @@ func ErrTermsAcceptanceRequired() apperror.DomainError {
 	)
 }
 
+// ErrAdulthoodDeclarationRequired is returned when a submission that owes the
+// Adulthood Declaration box arrives without it ticked (#586, ADR 0069).
+//
+// IT LIVES HERE, BESIDE THE TWO ACCEPTANCE REFUSALS, because all four capture
+// points share it: the sign-in consent step (#586), the staff interstitial and
+// staff sign-in gate (#587) and the online checkout (#588) each refuse the same
+// untick with the same code, and a second spelling of it on the staff side
+// would be a second thing to keep true about one rule.
+//
+// 400 rather than 403, exactly as ErrTermsAcceptanceRequired is: nothing about
+// the caller is unauthorized — the platform has no idea how old anybody is and
+// is not claiming to — and restating the request with the box ticked is
+// precisely what fixes it. A 403 would say "you may not", which is a verdict
+// about a person this platform is in no position to reach.
+//
+// IT IS RETURNED BEFORE ANY Capture, and that ordering is the feature. Nothing
+// whatever is written: no Consent Record, no current state, no Staff Terms
+// Acceptance, no held answer on a Payment, no session. The platform keeps NO
+// RECORD OF ANYONE WHO SAYS THEY ARE A MINOR — such a row would be a permanent,
+// unverified assertion that a named individual is a child, on a table that is
+// never edited and never deleted, about the one population the Privacy Policy
+// promises not to knowingly process, and it would go stale in the worst
+// direction as that person turned eighteen with no edit path to say so.
+//
+// THE MESSAGE STATES THE RULE AND NOT A FIELD VALIDATION. "The box is required"
+// would be a sentence about a form; what the contract says is that only persons
+// who have reached eighteen years of age may buy through Multiticketing, and
+// that is what a person who unticks it is being told.
+func ErrAdulthoodDeclarationRequired() apperror.DomainError {
+	return apperror.New(
+		"ADULTHOOD_DECLARATION_REQUIRED",
+		"You must be eighteen or older to use Multiticketing.",
+		nil,
+	)
+}
+
 // ErrNoCurrentTermsVersion is returned when no Terms Version is in effect.
 //
 // Unreachable for the reason ErrNoCurrentPolicyVersion is: migration 105 seeds

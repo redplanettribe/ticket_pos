@@ -3,6 +3,7 @@ package evidence_test
 import (
 	"archive/zip"
 	"bytes"
+	"compress/zlib"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -123,20 +124,25 @@ func aFullInput() evidence.Input {
 				NetworkingConsent: nil,
 				TermsAcceptance:   boolean(true),
 				TermsEdition:      &consentsvc.LegalEditionRef{ID: terms.ID, Label: terms.Label},
-				EmailProven:       true,
-				IP:                text("203.0.113.9"),
-				UserAgent:         text("Mozilla/5.0 (X11; Linux x86_64)"),
-				PresentedLocale:   shown("es"),
+				// The 18+ box, ticked in the same act that accepted the Terms
+				// (#590). The withdrawal above it declares nothing, which is
+				// the "never asked" case one row up.
+				AdulthoodDeclaration: boolean(true),
+				EmailProven:          true,
+				IP:                   text("203.0.113.9"),
+				UserAgent:            text("Mozilla/5.0 (X11; Linux x86_64)"),
+				PresentedLocale:      shown("es"),
 			},
 		},
 		Staff: &evidence.StaffSubject{
 			Acceptances: []evidence.StaffAcceptance{{
-				ID:              "66666666-6666-6666-6666-666666666666",
-				TermsEdition:    consentsvc.LegalEditionRef{ID: terms.ID, Label: terms.Label},
-				Capacity:        "organizer",
-				AcceptedAt:      time.Date(2026, 3, 4, 8, 30, 0, 0, time.UTC),
-				IP:              text("198.51.100.4"),
-				PresentedLocale: text("en"),
+				ID:                   "66666666-6666-6666-6666-666666666666",
+				TermsEdition:         consentsvc.LegalEditionRef{ID: terms.ID, Label: terms.Label},
+				Capacity:             "organizer",
+				AcceptedAt:           time.Date(2026, 3, 4, 8, 30, 0, 0, time.UTC),
+				IP:                   text("198.51.100.4"),
+				PresentedLocale:      text("en"),
+				AdulthoodDeclaration: boolean(true),
 			}},
 		},
 		Editions: []evidence.Edition{policy, terms},
@@ -437,6 +443,138 @@ func TestWithdrawalsAreTheActsThemselves(t *testing.T) {
 	if _, present := first["presented_locale"]; present {
 		t.Fatalf("presented_locale is present on a channel that shows no document")
 	}
+}
+
+// THE ADULTHOOD DECLARATION IN THE PACK (#590, ADR 0069).
+
+// TestThePackCarriesTheDeclarationForBothPopulations is the payoff: "show me
+// that this individual affirmed they were an adult" answered out of a file, for
+// the attendee capacity and the organizer one, under one address.
+func TestThePackCarriesTheDeclarationForBothPopulations(t *testing.T) {
+	pack := build(t, aFullInput(), time.Date(2026, 4, 6, 0, 0, 0, 0, time.UTC))
+	_, bodies := entries(t, pack.Body)
+	parsed := record(t, bodies)
+
+	acts, _ := parsed["customer_acts"].([]any)
+	declaring, _ := acts[1].(map[string]any)
+	if declaring["adulthood_declaration"] != true {
+		t.Fatalf("the act that ticked the box carries %v", declaring["adulthood_declaration"])
+	}
+	// AND IT NAMES NO EDITION OF ITS OWN. The words declared under are an
+	// Artifact of the Terms edition the act already names, so a second
+	// reference would be a second thing that could disagree about them.
+	for _, forbidden := range []string{"adulthood_edition", "adulthood_version_id", "adulthood_declaration_edition"} {
+		if _, present := declaring[forbidden]; present {
+			t.Fatalf("an act carries %q; the declaration rides terms_edition", forbidden)
+		}
+	}
+
+	staff, _ := parsed["staff"].(map[string]any)
+	acceptances, _ := staff["acceptances"].([]any)
+	organizer, _ := acceptances[0].(map[string]any)
+	if organizer["adulthood_declaration"] != true {
+		t.Fatalf("the organizer acceptance carries %v", organizer["adulthood_declaration"])
+	}
+
+	// THE PDF READS CONSISTENTLY WITH record.json, because it is rendered from
+	// record.json's own value: both say the same thing about the same act.
+	text := pdfStreams(t, bodies[evidence.EvidenceEntry])
+	if !strings.Contains(text, "Adulthood: yes") {
+		t.Fatal("evidence.pdf never states the declaration the record carries")
+	}
+	if !strings.Contains(text, "Declared 18+") {
+		t.Fatal("the staff acceptances table has no declaration column")
+	}
+}
+
+// TestAnActUnderANonArtifactEditionReadsNeverAskedAndNeverNo is the null, in
+// both files and in both populations.
+//
+// It is the assertion this feature turns on. A refusal writes nothing, so a
+// null can only ever mean "the edition in effect asked nobody" — and a document
+// that rendered it as "no", or as a blank a reader fills in for themselves,
+// would be publishing an unverified claim that a named individual is a child.
+func TestAnActUnderANonArtifactEditionReadsNeverAskedAndNeverNo(t *testing.T) {
+	in := aFullInput()
+	// Both halves captured before any operator published the Artifact.
+	in.Acts[1].AdulthoodDeclaration = nil
+	in.Staff.Acceptances[0].AdulthoodDeclaration = nil
+
+	pack := build(t, in, time.Date(2026, 4, 6, 0, 0, 0, 0, time.UTC))
+	_, bodies := entries(t, pack.Body)
+	parsed := record(t, bodies)
+
+	// NULL AND NOT ABSENT: a key that vanished would leave the reader to decide
+	// what its absence meant, and the one wrong guess is "No".
+	for _, act := range parsed["customer_acts"].([]any) {
+		item, _ := act.(map[string]any)
+		value, present := item["adulthood_declaration"]
+		if !present {
+			t.Fatalf("an act omits adulthood_declaration entirely: %v", item["id"])
+		}
+		if value != nil {
+			t.Fatalf("adulthood_declaration = %v; want null", value)
+		}
+	}
+	staff, _ := parsed["staff"].(map[string]any)
+	acceptance, _ := staff["acceptances"].([]any)[0].(map[string]any)
+	if value, present := acceptance["adulthood_declaration"]; !present || value != nil {
+		t.Fatalf("the staff acceptance's declaration = %v (present=%v); want null", value, present)
+	}
+
+	text := pdfStreams(t, bodies[evidence.EvidenceEntry])
+	if !strings.Contains(text, "Adulthood: never asked") {
+		t.Fatal("evidence.pdf does not spell an unasked declaration 'never asked'")
+	}
+	if strings.Contains(text, "Adulthood: no") {
+		t.Fatal("evidence.pdf read a null as a refusal")
+	}
+}
+
+// TestTheDeclarationDoesNotDisturbDeterminism. "Declared on such a date under
+// such an edition" is a finished fact carrying no time-varying value, so the
+// ruling migration 118 rests on holds over it unchanged.
+func TestTheDeclarationDoesNotDisturbDeterminism(t *testing.T) {
+	monday := build(t, aFullInput(), time.Date(2026, 4, 6, 9, 0, 0, 0, time.UTC))
+	later := build(t, aFullInput(), time.Date(2027, 9, 30, 23, 45, 0, 0, time.FixedZone("x", 3600)))
+
+	if !bytes.Equal(monday.Body, later.Body) {
+		t.Fatalf("two packs carrying a declaration differ: %d vs %d bytes", len(monday.Body), len(later.Body))
+	}
+	// And a pack that DECLARES differs from one that never asked — the proof
+	// that the assertion above is not passing because the field never reached
+	// the bytes.
+	unasked := aFullInput()
+	unasked.Acts[1].AdulthoodDeclaration = nil
+	if bytes.Equal(monday.Body, build(t, unasked, time.Date(2026, 4, 6, 9, 0, 0, 0, time.UTC)).Body) {
+		t.Fatal("a declared act and an unasked one produce the same pack")
+	}
+}
+
+// streamPattern and pdfStreams inflate the PDF's content streams so the text an
+// fpdf page drew can be read back out of it. Borrowed from the RIDE's tests
+// (ADR 0062), which is where this document's whole rendering approach is from:
+// asserting against the code that wrote the page would prove nothing about what
+// is on it.
+var streamPattern = regexp.MustCompile(`(?s)stream\r?\n(.*?)\r?\nendstream`)
+
+func pdfStreams(t *testing.T, pdf []byte) string {
+	t.Helper()
+	var out strings.Builder
+	for _, match := range streamPattern.FindAllSubmatch(pdf, -1) {
+		reader, err := zlib.NewReader(bytes.NewReader(match[1]))
+		if err != nil {
+			// An uncompressed stream: keep the raw bytes.
+			out.Write(match[1])
+			continue
+		}
+		inflated, err := io.ReadAll(reader)
+		if err != nil && len(inflated) == 0 {
+			t.Fatalf("inflate stream: %v", err)
+		}
+		out.Write(inflated)
+	}
+	return out.String()
 }
 
 // hexToken is a run of lowercase hex, which is how a Staff Digest would appear

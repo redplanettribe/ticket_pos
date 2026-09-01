@@ -39,6 +39,16 @@ type TermsView struct {
 	// AcceptanceLabel is the mandatory checkbox's label, markdown. The UI may
 	// not reword or pre-tick it.
 	AcceptanceLabel string `json:"acceptance_label"`
+	// AdulthoodDeclarationLabel is the Adulthood Declaration's own mandatory,
+	// un-premarked checkbox label, markdown — ABSENT FROM THE PAYLOAD when the
+	// edition in effect does not carry the Artifact (ADR 0069).
+	//
+	// A surface draws the second box iff this field arrives, which is why it is
+	// omitempty rather than an empty string: "this edition does not ask" and
+	// "this edition asks with nothing written beside the box" must not look the
+	// same on the wire. The current edition carries no such Artifact, so today
+	// this field is simply not there.
+	AdulthoodDeclarationLabel string `json:"adulthood_declaration_label,omitempty"`
 	// BodyMarkdown is the full Términos y Condiciones, markdown.
 	BodyMarkdown string `json:"body_markdown"`
 }
@@ -122,6 +132,30 @@ type termsEdition struct {
 	views   map[platform.Locale]TermsView
 }
 
+// asksAdulthoodDeclaration reports whether this edition draws the Adulthood
+// Declaration box at all: whether it carries the
+// `label-adulthood-declaration` Artifact (#586, ADR 0069).
+//
+// IT IS A FACT ABOUT THE EDITION AND NOT ABOUT THE READER, so it is answered
+// from the PREVAILING Locale's document and never from whichever language a
+// particular surface happens to be rendering. The Spanish text is the contract
+// (§37) and the English one is the courtesy translation that says so in its own
+// first line, so "does this edition ask?" is a question about the operative
+// text — and asking it per-Locale would make the box owed to a Spanish reader
+// and not to an English one, which is a gate that varies by language.
+//
+// The corollary is worth stating, because it is the failure mode: an edition
+// published carrying the Artifact in Spanish but NOT in English owes the box to
+// everybody and can word it for only half of them, and the English reader's
+// surface has no label to draw. That is an incomplete publish — the Legal
+// Draft authors both languages in parallel columns for exactly this reason —
+// and it fails LOUDLY, with a person unable to finish a sign-in, rather than
+// quietly signing them in without a declaration. Loud is the right side of that
+// trade: the alternative silently drops a required box.
+func (e termsEdition) asksAdulthoodDeclaration() bool {
+	return e.views[terms.PrevailingLocale].AdulthoodDeclarationLabel != ""
+}
+
 // termsEditionFrom turns one read of one edition into the cache entry, verifying
 // the fingerprint on the way — policyEditionFrom's shape, for its reasons.
 // Called once per cache fill.
@@ -148,7 +182,11 @@ func (s *Service) termsEditionFrom(edition repository.TermsEdition) termsEdition
 			ContentHash:     version.ContentHash,
 			Locale:          document.Locale,
 			AcceptanceLabel: document.AcceptanceLabel,
-			BodyMarkdown:    document.BodyMarkdown,
+			// Empty when this edition does not ask, and carried straight through
+			// when it does: what to show is a fact about the edition in effect,
+			// derived here rather than configured (ADR 0069).
+			AdulthoodDeclarationLabel: document.AdulthoodDeclarationLabel,
+			BodyMarkdown:              document.BodyMarkdown,
 		}
 	}
 

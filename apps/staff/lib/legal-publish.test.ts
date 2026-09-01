@@ -8,6 +8,7 @@ import {
   localeSetChanged,
   protectedLocaleDropped,
 } from "./legal-publish.ts";
+import { isStructuralChange, type ArtifactSet } from "./legal-drafts.ts";
 
 /**
  * The publish step's rules (#563), tested directly.
@@ -60,6 +61,48 @@ test("protectedLocaleDropped notices the one language that cannot go", () => {
   assert.equal(protectedLocaleDropped("es", ["en", "es"]), false);
   assert.equal(protectedLocaleDropped("es", ["en"]), true);
   assert.equal(protectedLocaleDropped("es", []), true);
+});
+
+test("the adulthood declaration's arrival is offered as an edition and refused as a correction", () => {
+  // The two modules meet here on purpose: `isStructuralChange` is asked about a
+  // real draft — the Terms with the declaration's label inserted between the
+  // checkbox label and the body — and its answer is what this module turns into
+  // the screen's refusal. THE SLUG IS NOWHERE IN EITHER MODULE'S RULES; it is
+  // an artifact the draft gained, which is all the machinery needs to know.
+  const published: ArtifactSet = {
+    "label-terms-acceptance": { en: "I accept the terms.", es: "Acepto los términos." },
+    terms: { en: "# Terms", es: "# Términos" },
+  };
+  const draft: ArtifactSet = {
+    "label-terms-acceptance": published["label-terms-acceptance"],
+    "label-adulthood-declaration": {
+      en: "I am eighteen years of age or older.",
+      es: "Soy mayor de dieciocho años.",
+    },
+    terms: published.terms,
+  };
+
+  const structural = isStructuralChange(published, draft);
+  assert.equal(structural, true);
+
+  const state = {
+    canPublish: canPublishDraft({ complete: true, previewedAll: true, seenDiff: true }),
+    structural,
+    localeSetChanged: localeSetChanged(["en", "es"], ["en", "es"]),
+    emptyDiff: false,
+  };
+  // A fully reviewed, complete draft: the gating edition is on offer and the
+  // correction is not, and the sentence the operator reads says which fact
+  // about the draft withheld it.
+  assert.equal(state.canPublish, true);
+  assert.equal(correctionBlocker(state), "structural");
+
+  // AND THE SAME IN REVERSE. Dropping the label in a later edition is structural
+  // too, so stopping the collection costs a gating publication as well — no
+  // ratchet, and no rule anywhere naming this one checkbox.
+  const removalState = { ...state, structural: isStructuralChange(draft, published) };
+  assert.equal(removalState.structural, true);
+  assert.equal(correctionBlocker(removalState), "structural");
 });
 
 test("formatHeadcount groups the number the operator is accepting", () => {

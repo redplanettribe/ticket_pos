@@ -83,11 +83,19 @@ export function encodePendingConsent(consent: ConsentRequired): string {
       JSON.stringify({
         t: consent.pending_consent_token,
         x: consent.expires_at,
+        // A POSITIONAL TUPLE, so an index means what it has always meant and a
+        // new answer is only ever APPENDED (#586). A cookie written by the
+        // deploy before this one is still in somebody's browser for the next
+        // fifteen minutes, and reordering these would silently re-read their
+        // Terms answer as a Policy answer. New boxes go on the end, and a short
+        // tuple simply reads `undefined` for the box it predates — which the
+        // decoder turns into false, the safe direction.
         b: [
           consent.boxes.policy_acceptance,
           consent.boxes.marketing_consent,
           consent.boxes.networking_consent,
           consent.boxes.terms_acceptance,
+          consent.boxes.adulthood_declaration,
         ],
       }),
     ),
@@ -143,6 +151,11 @@ export function decodePendingConsent(raw: string | null | undefined): ConsentReq
       marketing_consent: boxes[1] === true,
       networking_consent: boxes[2] === true,
       terms_acceptance: boxes[3] === true,
+      // Index 4, appended (#586). A cookie written before this shipped has no
+      // fourth element and reads false, which is exactly right: it was minted
+      // under an edition that drew no such box, and the API recomputes what is
+      // owed at the write in any case.
+      adulthood_declaration: boxes[4] === true,
     },
   };
 }

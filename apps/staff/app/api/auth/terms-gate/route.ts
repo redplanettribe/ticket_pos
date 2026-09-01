@@ -36,6 +36,7 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => ({}))) as {
       gate_token?: string;
       terms_acceptance?: boolean;
+      adulthood_declaration?: boolean;
     };
 
     const envelope = await callBackend<{ accepted: boolean }>("/api/v1/staff/terms/accept", {
@@ -46,6 +47,13 @@ export async function POST(request: Request) {
         // The API refuses an unticked box; this relays the answer as given and
         // never upgrades it.
         terms_acceptance: body.terms_acceptance === true,
+        // The Adulthood Declaration beside it (#587, ADR 0069), relayed under
+        // exactly the same rule: an answer this relay does not have is `false`,
+        // and false where the pinned edition asks is the API's refusal to make,
+        // never this route's to soften. Sent unconditionally because the API
+        // ignores it wherever the edition does not ask — the edition decides
+        // what is owed, and this relay decides nothing.
+        adulthood_declaration: body.adulthood_declaration === true,
       }),
     });
     return NextResponse.json(envelope);

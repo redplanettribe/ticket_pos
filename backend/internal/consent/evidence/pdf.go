@@ -54,6 +54,12 @@ const (
 // than pushing the edition column off the page.
 var actColumns = []float64{26, 22, 52, 30, 50}
 
+// The staff acceptances table's columns, which are ITS OWN and no longer the
+// acts table's (#590): the declaration is a column there rather than a line
+// folded into another cell, because a fact somebody has to go looking for
+// inside a paragraph is a fact an auditor reports as missing.
+var staffAcceptanceColumns = []float64{24, 20, 40, 24, 24, 48}
+
 // page wraps the fpdf document with the cp1252 translator every drawing call
 // needs: fpdf's core fonts are not Unicode, so "ó", "ñ" and an em-dash have to
 // reach the page as their code-page bytes.
@@ -239,20 +245,22 @@ func (p *page) staffAcceptances(record recordFile) {
 		"most one acceptance per edition per capacity.", len(record.Staff.Acceptances)))
 	p.gap()
 
-	p.tableHeader([]string{"Accepted (UTC)", "Capacity", "Edition", "Language shown", "Evidence"})
+	p.tableHeaderWidths([]string{"Accepted (UTC)", "Capacity", "Edition", "Language shown",
+		"Declared 18+", "Evidence"}, staffAcceptanceColumns)
 	for _, acceptance := range record.Staff.Acceptances {
-		p.tableRow([]string{
+		p.tableRowWidths([]string{
 			acceptance.AcceptedAt.UTC().Format("2006-01-02\n15:04:05"),
 			acceptance.Capacity,
 			editionName(acceptance.TermsEdition),
 			word(acceptance.PresentedLocale, "not recorded"),
+			declaration(acceptance.AdulthoodDeclaration),
 			strings.Join(compact([]string{
 				labelled("IP", acceptance.IP),
 				labelled("Session", acceptance.SessionID),
 				labelled("Origin", acceptance.OriginURL),
 				labelled("Agent", acceptance.UserAgent),
 			}), "\n"),
-		})
+		}, staffAcceptanceColumns)
 	}
 	p.gap()
 	p.small(packLimitationStaff)
@@ -402,6 +410,11 @@ func actAnswers(act consentsvc.ConsentActItem) string {
 	lines := []string{
 		"Policy: " + answer(act.PolicyAcceptance),
 		"Terms: " + answer(act.TermsAcceptance),
+		// The declaration is printed on EVERY act, including the ones that
+		// never asked for it, so a reader counting rows finds an answer beside
+		// each one rather than having to work out whether a missing line means
+		// "not asked" or "not printed".
+		"Adulthood: " + declaration(act.AdulthoodDeclaration),
 		"Marketing: " + answer(act.MarketingConsent) + prior(act.PriorMarketingConsent),
 		"Networking: " + answer(act.NetworkingConsent) + prior(act.PriorNetworkingConsent),
 	}
@@ -460,6 +473,31 @@ func actEvidence(act consentsvc.ConsentActItem) string {
 func answer(value *bool) string {
 	if value == nil {
 		return "not shown"
+	}
+	if *value {
+		return "yes"
+	}
+	return "no"
+}
+
+// declaration spells the Adulthood Declaration (#590, ADR 0069), and it is a
+// SEPARATE FUNCTION FROM `answer` because its null is a different sentence.
+//
+// A null answer elsewhere means "the box was not on that surface". A null here
+// means THE EDITION IN EFFECT ASKED NOBODY — the Artifact had not been published
+// when the act happened — so the pack says "never asked", the same words the
+// record screen uses for a question that was never put. Reading it as "no" would
+// be reading a claim that a named individual is a child out of a row that says
+// nothing of the kind, which is the one misreading this whole feature exists to
+// make impossible.
+//
+// The `false` arm is unreachable by construction — a refusal is refused before
+// any capture and writes nothing — and it prints "no" rather than panicking or
+// silently rendering "never asked", because if such a row ever existed an
+// evidence document must say what it says.
+func declaration(value *bool) string {
+	if value == nil {
+		return "never asked"
 	}
 	if *value {
 		return "yes"

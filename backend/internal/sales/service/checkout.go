@@ -370,6 +370,39 @@ func (s *Service) owedConsentAnswers(ctx context.Context, in BeginCheckoutInput)
 			return consent.Answers{}, "", err
 		}
 	}
+	// The Adulthood Declaration beside it (#588, ADR 0069), which is the LAST of
+	// the four capture points and the one that catches whoever the other three
+	// missed: a Customer holding a live session when a Gating Edition carrying
+	// the `label-adulthood-declaration` Artifact takes effect under their feet.
+	// The sign-in gate cannot re-run on a session already minted, so this dialog
+	// is where they meet the box, and this branch is what makes "no Online Sale
+	// completes without it" true rather than aspirational.
+	//
+	// IT IS OWED ONLY WHERE THE TERMS BOX IS, which is why it is checked after
+	// that box and never instead of it: the declaration rides the Terms gate and
+	// has none of its own (consent.Outstanding.AdulthoodDeclaration). A buyer
+	// unticking both therefore meets TERMS_ACCEPTANCE_REQUIRED first — the same
+	// order the sign-in consent step refuses in, and the one that names the
+	// document the whole act is about.
+	//
+	// The refusal is the whole feature and not a validation: a person who says
+	// they are not eighteen leaves this platform holding NOTHING about that
+	// answer. Nothing is written by this point — no Payment, no hold, no
+	// evidence — and the answer is refused HERE, before BeginCheckout reaches
+	// the provider, for the reason POLICY_ACCEPTANCE_REQUIRED is: a Payment
+	// approved and then declined over a checkbox is the incident this placement
+	// exists to make unspellable.
+	//
+	// The answer needs no edition of its own beside it. `termsVersionID` above
+	// is already resolved on exactly the branch that can set this one, and the
+	// edition it names is the edition whose Artifact worded the box — which is
+	// what migration 119's paired CHECK says in the schema.
+	if owed.AdulthoodDeclaration {
+		if in.Consent.AdulthoodDeclaration == nil || !*in.Consent.AdulthoodDeclaration {
+			return consent.Answers{}, "", consent.ErrAdulthoodDeclarationRequired()
+		}
+		answers.AdulthoodDeclaration = in.Consent.AdulthoodDeclaration
+	}
 	if owed.MarketingConsent {
 		answers.MarketingConsent = in.Consent.MarketingConsent
 	}

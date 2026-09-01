@@ -84,6 +84,15 @@ export type ConsentAct = {
   prior_networking_consent: string | null;
   terms_acceptance: boolean | null;
   terms_edition: LegalEditionRef | null;
+  /**
+   * The 18+ box answered in the same act (#590, ADR 0069).
+   *
+   * TRUE OR NULL AND NEVER FALSE. A refusal is refused before anything is
+   * written, so the platform holds no record of anyone who said they were a
+   * minor — which means the null here is not "No" but "the edition in effect
+   * asked nobody", and the screen spells it "never asked".
+   */
+  adulthood_declaration: boolean | null;
   email_proven: boolean;
   ip: string | null;
   user_agent: string | null;
@@ -137,6 +146,12 @@ export type StaffAcceptanceRecord = {
    * "this does not apply" is not a state a staff acceptance can be in.
    */
   presented_locale: string | null;
+  /**
+   * The 18+ box ticked beside this acceptance, in the organizer capacity. Null
+   * on every acceptance made under an edition that did not carry the artifact,
+   * and never false — see the customer act's field.
+   */
+  adulthood_declaration: boolean | null;
 };
 
 export type StaffLegalRecord = {
@@ -253,6 +268,27 @@ export function answerLabelKey(answer: boolean | null): string {
     return "answerNotShown";
   }
   return answer ? "answerYes" : "answerNo";
+}
+
+/**
+ * The `operator.legalRecords` copy key for an Adulthood Declaration (#590).
+ *
+ * A SEPARATE FUNCTION FROM answerLabelKey BECAUSE THE NULL IS A DIFFERENT
+ * SENTENCE. There, a null is "not shown on that screen" — a box that was not on
+ * that surface. Here it is "never asked": the edition the act was captured
+ * under carried no such box at all, so nobody was ever put the question. Both
+ * are emphatically not "No", and this one could never be, because a No would be
+ * a stored claim that a named person is a child and no such row is ever written.
+ *
+ * The `false` arm is unreachable — a refusal writes nothing — and it is spelled
+ * anyway rather than folded into the null, so that a value nothing can produce
+ * would render as itself instead of as "never asked".
+ */
+export function adulthoodLabelKey(declaration: boolean | null): string {
+  if (declaration === null) {
+    return "consentNeverAsked";
+  }
+  return declaration ? "answerYes" : "answerNo";
 }
 
 /**

@@ -84,6 +84,22 @@ type ConsentRecordRow struct {
 	// invalid where the box was not shown; the CHECK holds the pair together.
 	TermsAcceptance sql.NullBool
 	TermsVersionID  sql.NullString
+	// The Adulthood Declaration made in that same act (#590, migration 119,
+	// ADR 0069) — TRUE OR INVALID AND NEVER FALSE. A refusal is refused before
+	// any capture and writes nothing at all, so there is no row anywhere saying
+	// somebody declared themselves a minor and this column can never scan one.
+	//
+	// Invalid therefore means THE ACT DID NOT ASK: the edition it was captured
+	// against carried no `label-adulthood-declaration` Artifact, or the surface
+	// showed no Terms box at all. That is a third state, not a No, and it stays
+	// a NullBool for exactly the reason the answers above do — the screen and
+	// the Evidence Pack spell it "never asked", which is a sentence a zero value
+	// could not have been recovered into.
+	//
+	// It rides `terms_version_id` beside it for the edition and has no version
+	// column of its own: what was editioned is the WORDING SHOWN, which is an
+	// Artifact of the Terms edition the row already names.
+	AdulthoodDeclaration sql.NullBool
 	// EmailProven is whether the address was proven at the moment of the act.
 	// It is what separates a granted consent from a Pending Confirmation, so it
 	// belongs on the record even though the resulting state is beside it.
@@ -170,7 +186,7 @@ func (r *Repository) CustomerConsentRecords(ctx context.Context, filter ConsentR
 		SELECT id, captured_at, channel, email, policy_version_id,
 		       policy_acceptance, marketing_consent, networking_consent,
 		       prior_marketing_consent, prior_networking_consent,
-		       terms_acceptance, terms_version_id,
+		       terms_acceptance, terms_version_id, adulthood_declaration,
 		       email_proven, ip, user_agent, session_id, origin_url,
 		       presented_locale, recorded_by, request_reference,
 		       confirmed_at, confirmation_sent_at
@@ -203,7 +219,7 @@ func (r *Repository) CustomerConsentRecords(ctx context.Context, filter ConsentR
 			&row.ID, &row.CapturedAt, &row.Channel, &row.Email, &row.PolicyVersionID,
 			&row.PolicyAcceptance, &row.MarketingConsent, &row.NetworkingConsent,
 			&row.PriorMarketingConsent, &row.PriorNetworkingConsent,
-			&row.TermsAcceptance, &row.TermsVersionID,
+			&row.TermsAcceptance, &row.TermsVersionID, &row.AdulthoodDeclaration,
 			&row.EmailProven, &row.IP, &row.UserAgent, &row.SessionID, &row.OriginURL,
 			&row.PresentedLocale, &row.RecordedBy, &row.RequestReference,
 			&row.ConfirmedAt, &row.ConfirmationSentAt,
