@@ -395,6 +395,13 @@ func (s *Service) sessionView(customer *repository.Customer, session *repository
 			// unaccepted. Ordinarily false, because a sign-in since #536 cannot
 			// finish without settling it.
 			TermsAcceptance: outstanding.TermsAcceptance,
+			// And the 18+ box beside it (#586, ADR 0069), from the same
+			// Outstanding and never recomputed here. It reaches the checkout
+			// dialog by the same road the Terms box does, and it is false
+			// wherever the Terms box is — it tracks that box, and under an
+			// edition carrying no Adulthood Declaration Artifact it is simply
+			// always false.
+			AdulthoodDeclaration: outstanding.AdulthoodDeclaration,
 		},
 	}
 	// A Confirmation Link session proves nothing about who is holding it, so a
@@ -403,7 +410,20 @@ func (s *Service) sessionView(customer *repository.Customer, session *repository
 	// buyer's own assertion. Applied HERE rather than at each caller so that no
 	// future caller can mint one of these views and forget it.
 	if session.TicketSaleID.Valid {
-		view.ConsentBoxes = ConsentBoxesView{PolicyAcceptance: true, MarketingConsent: true, NetworkingConsent: true, TermsAcceptance: true}
+		view.ConsentBoxes = ConsentBoxesView{
+			PolicyAcceptance: true, MarketingConsent: true, NetworkingConsent: true, TermsAcceptance: true,
+			// The Adulthood Declaration is NOT forced on with its neighbours,
+			// and that is the one considered exception here (#586, ADR 0069).
+			// The three above are re-asked because a Confirmation Link session
+			// proves nothing about who holds it, so nothing it answers may be
+			// trusted as the owner's; the declaration is different in that a
+			// person who is owed nothing has already made it — a refusal writes
+			// no row, so an acceptance of an Artifact-carrying edition
+			// necessarily carried one. Forcing it on would draw a box this
+			// person has already answered, and — where the edition carries no
+			// Artifact at all — one with no words beside it.
+			AdulthoodDeclaration: outstanding.AdulthoodDeclaration,
+		}
 	}
 	if customer.TaxIDType.Valid && customer.TaxIDNumber.Valid {
 		taxIDType, taxIDNumber := customer.TaxIDType.String, customer.TaxIDNumber.String

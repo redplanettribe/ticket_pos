@@ -147,6 +147,18 @@ type ConsentBoxesView struct {
 	MarketingConsent  bool `json:"marketing_consent"`
 	NetworkingConsent bool `json:"networking_consent"`
 	TermsAcceptance   bool `json:"terms_acceptance"`
+	// AdulthoodDeclaration is the THIRD required box (#586, ADR 0069): the 18+
+	// affirmation, drawn beside the Terms box and never instead of it.
+	//
+	// It is never true where TermsAcceptance is false, because it tracks that
+	// box rather than being owed on its own account — there is no adulthood
+	// gate, no adulthood standing and no second interstitial. It is not true
+	// merely because the Terms box is, either: the box is drawn iff the edition
+	// in effect carries the `label-adulthood-declaration` Artifact, which is
+	// what makes introducing it a publish rather than a deploy. A surface that
+	// gets `true` here has a label to word it with on the terms payload; today,
+	// under an edition that carries no such Artifact, it is simply always false.
+	AdulthoodDeclaration bool `json:"adulthood_declaration"`
 }
 
 // ConsentSubmission is a consent step being finished: the token, what was
@@ -162,6 +174,13 @@ type ConsentSubmission struct {
 	// not shown it and not judged on it. False where owed is refused by the API
 	// — see consent.ErrTermsAcceptanceRequired.
 	TermsAcceptance bool
+	// AdulthoodDeclaration is the 18+ box (#586, ADR 0069), required exactly
+	// where it is OWED, which is only ever where the Terms box is owed and the
+	// edition in effect carries the Artifact. False where owed is refused by the
+	// API BEFORE ANY CAPTURE — see consent.ErrAdulthoodDeclarationRequired — so
+	// a refusal leaves no Consent Record, no current state, no session and no
+	// row of any kind.
+	AdulthoodDeclaration bool
 	// MarketingConsent and NetworkingConsent are the optional boxes as they were
 	// submitted. False means SHOWN AND LEFT UNTICKED, which is an explicit No,
 	// and is recorded as `denied` rather than as silence (ADR 0034).
@@ -262,6 +281,21 @@ func (s *Service) SubmitConsent(ctx context.Context, submission ConsentSubmissio
 	if outstanding.TermsAcceptance && !submission.TermsAcceptance {
 		return nil, consent.ErrTermsAcceptanceRequired()
 	}
+	// And the Adulthood Declaration beside it (#586, ADR 0069), owed only where
+	// the box above is and the edition in effect carries the Artifact.
+	//
+	// REFUSED HERE, ABOVE EVERY WRITE, and that placement is the feature rather
+	// than an ordering preference. Nothing has been written by this point: no
+	// session has been minted, no Consent Record appended, no current state
+	// stamped. A person who says they are not eighteen leaves this platform
+	// holding NOTHING about that answer — no row saying they are a minor, on
+	// tables that are never edited and never deleted — and starts a fresh
+	// sign-in whenever they like, at the cost of the passcode this token was
+	// already spent for. Moving this check below mintSession, or folding it into
+	// the capture, would quietly turn a forgotten refusal into a recorded one.
+	if outstanding.AdulthoodDeclaration && !submission.AdulthoodDeclaration {
+		return nil, consent.ErrAdulthoodDeclarationRequired()
+	}
 
 	answers := consent.Answers{}
 	if !termsOnlyStep {
@@ -271,6 +305,15 @@ func (s *Service) SubmitConsent(ctx context.Context, submission ConsentSubmissio
 	if outstanding.TermsAcceptance {
 		acceptedTerms := true
 		answers.TermsAcceptance = &acceptedTerms
+	}
+	// True or absent, never false: the only submission that reaches this line
+	// with the box owed is one that ticked it, because the untick was refused
+	// above (#586). The answer is recorded although it is derivable from the
+	// edition's Artifact set, so that a finished fact never depends on how rows
+	// are read in the present (ADR 0069).
+	if outstanding.AdulthoodDeclaration {
+		declaredAdulthood := true
+		answers.AdulthoodDeclaration = &declaredAdulthood
 	}
 	if outstanding.MarketingConsent {
 		marketing := submission.MarketingConsent
@@ -370,10 +413,14 @@ func (s *Service) gateOnConsent(ctx context.Context, customer *repository.Custom
 			// Each required box exactly where it is owed. At least one is — this
 			// outcome exists because it is outstanding — and the other is not
 			// re-shown to a person who has already accepted it (#536).
-			PolicyAcceptance:  outstanding.PolicyAcceptance,
-			TermsAcceptance:   outstanding.TermsAcceptance,
-			MarketingConsent:  outstanding.MarketingConsent,
-			NetworkingConsent: outstanding.NetworkingConsent,
+			PolicyAcceptance: outstanding.PolicyAcceptance,
+			TermsAcceptance:  outstanding.TermsAcceptance,
+			// The 18+ box beside the Terms one, from the same read of the same
+			// Outstanding (#586). It cannot disagree with the box it rides,
+			// because it is not computed here — this is a transcription.
+			AdulthoodDeclaration: outstanding.AdulthoodDeclaration,
+			MarketingConsent:     outstanding.MarketingConsent,
+			NetworkingConsent:    outstanding.NetworkingConsent,
 		},
 	}, nil
 }

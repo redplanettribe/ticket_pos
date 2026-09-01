@@ -169,11 +169,22 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 		NetworkingConsent: nullBool(capture.Answers.NetworkingConsent),
 		TermsAcceptance:   nullBool(capture.Answers.TermsAcceptance),
 		TermsVersionID:    nullString(termsVersionID),
-		EmailProven:       capture.EmailProven,
-		IP:                nullString(capture.Evidence.IP),
-		UserAgent:         nullString(capture.Evidence.UserAgent),
-		SessionID:         nullString(capture.Evidence.SessionID),
-		OriginURL:         nullString(capture.Evidence.OriginURL),
+		// The Adulthood Declaration made in this same act (#586, ADR 0069),
+		// written down verbatim and never inferred from the edition's Artifact
+		// set. It needs no edition of its own: the box was shown BECAUSE the
+		// edition beside it carries the Artifact, so `terms_version_id` already
+		// names the exact bytes this person was shown when they declared it.
+		//
+		// Nothing here refuses a false. The refusal happens at every surface
+		// BEFORE this method is reached, which is what makes "a refusal writes no
+		// row of any kind" true of the platform rather than of a code path — see
+		// consent.ErrAdulthoodDeclarationRequired.
+		AdulthoodDeclaration: nullBool(capture.Answers.AdulthoodDeclaration),
+		EmailProven:          capture.EmailProven,
+		IP:                   nullString(capture.Evidence.IP),
+		UserAgent:            nullString(capture.Evidence.UserAgent),
+		SessionID:            nullString(capture.Evidence.SessionID),
+		OriginURL:            nullString(capture.Evidence.OriginURL),
 		// The language of the text that was actually on screen, as the surface
 		// that rendered it reports it (#567). Written verbatim and never
 		// inferred: this service knows which EDITION it resolved, but an edition
@@ -309,6 +320,29 @@ func (s *Service) Outstanding(ctx context.Context, customerID string) (consent.O
 		return consent.Outstanding{}, err
 	}
 
+	// The same version rule over the parallel table (#536, ADR 0066).
+	termsOutstanding := !state.TermsVersionID.Valid || !termsEditions.Contains(state.TermsVersionID.String)
+
+	// THE DECLARATION TRACKS THE TERMS BOX AND ASKS THE EDITION FOR THE REST
+	// (#586, ADR 0069). It is owed when the acceptance is owed and the edition
+	// in effect actually carries the `label-adulthood-declaration` Artifact, and
+	// at no other time — there is no standing to compute, no column to read and
+	// no second population to chase.
+	//
+	// The edition is consulted only on the branch that already owes the Terms,
+	// which is what keeps this method cheap enough to sit on the sign-in path:
+	// somebody Current on the Terms is answered from their own row alone,
+	// exactly as before, and only a person who is being stopped anyway pays for
+	// the (cached) edition read.
+	adulthoodOutstanding := false
+	if termsOutstanding {
+		edition, err := s.currentTermsEdition(ctx)
+		if err != nil {
+			return consent.Outstanding{}, err
+		}
+		adulthoodOutstanding = edition.asksAdulthoodDeclaration()
+	}
+
 	return consent.Outstanding{
 		// Acceptance is of a VERSION: an acceptance of an edition below the
 		// gating floor is not an acceptance of what is in force, which is what
@@ -321,7 +355,12 @@ func (s *Service) Outstanding(ctx context.Context, customerID string) (consent.O
 		// The same version rule over the parallel table (#536, ADR 0066): the two
 		// documents re-gate independently, and nobody is grandfathered here
 		// either — on the day the seed lands, every Customer owes edition "1".
-		TermsAcceptance: !state.TermsVersionID.Valid || !termsEditions.Contains(state.TermsVersionID.String),
+		TermsAcceptance: termsOutstanding,
+		// And the 18+ box, which is owed only where the acceptance above is
+		// (#586). A person Current on an Artifact-carrying edition is therefore
+		// never re-asked: they declared it when they accepted, and a refusal
+		// would have written nothing at all.
+		AdulthoodDeclaration: adulthoodOutstanding,
 	}, nil
 }
 

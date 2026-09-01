@@ -43,7 +43,14 @@ type Record struct {
 	// that owe it — and the CHECK constraint holds the pair together.
 	TermsAcceptance sql.NullBool
 	TermsVersionID  sql.NullString
-	EmailProven     bool
+	// The Adulthood Declaration made in the same act (#586, migration 119),
+	// invalid where the box was not drawn — which is every surface, and every
+	// Terms edition, that does not carry the `label-adulthood-declaration`
+	// Artifact. True or invalid and never FALSE: an untick is refused before the
+	// capture and writes no row at all (ADR 0069), and migration 119's CHECK
+	// pins the answer to the Terms answer above, never the other way round.
+	AdulthoodDeclaration sql.NullBool
+	EmailProven          bool
 	// The technical proof. Invalid where the surface collected nothing, so that
 	// "not collected" stays distinguishable from "collected as blank".
 	IP        sql.NullString
@@ -440,17 +447,17 @@ func (r *Repository) AppendTx(ctx context.Context, tx *sql.Tx, record Record, st
 		INSERT INTO consent_records (
 			customer_id, email, channel, captured_at, policy_version_id,
 			policy_acceptance, marketing_consent, networking_consent,
-			terms_acceptance, terms_version_id,
+			terms_acceptance, terms_version_id, adulthood_declaration,
 			email_proven, ip, user_agent, session_id, origin_url,
 			prior_marketing_consent, prior_networking_consent,
 			recorded_by, request_reference, presented_locale
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 		RETURNING id
 	`,
 		record.CustomerID, record.Email, string(record.Channel), record.CapturedAt, record.PolicyVersionID,
 		record.PolicyAcceptance, record.MarketingConsent, record.NetworkingConsent,
-		record.TermsAcceptance, record.TermsVersionID,
+		record.TermsAcceptance, record.TermsVersionID, record.AdulthoodDeclaration,
 		record.EmailProven, record.IP, record.UserAgent, record.SessionID, record.OriginURL,
 		priorState(record.MarketingConsent, prior.MarketingConsent),
 		priorState(record.NetworkingConsent, prior.NetworkingConsent),

@@ -177,6 +177,17 @@ export type ConsentRequired = {
      * required boxes is true.
      */
     terms_acceptance: boolean;
+    /**
+     * The Adulthood Declaration box (#586, ADR 0069): the 18+ affirmation, drawn
+     * beside the Terms box and never instead of it.
+     *
+     * It TRACKS the box above rather than being owed on its own account — there
+     * is no age gate, no second interstitial and no standing to compute — and it
+     * is true only where the Terms edition in effect also publishes the label to
+     * word it with. So it is never true where `terms_acceptance` is false, and
+     * under today's edition it is simply always false.
+     */
+    adulthood_declaration: boolean;
   };
 };
 

@@ -882,6 +882,18 @@ export type Terms = {
   content_hash: string;
   locale: string;
   acceptance_label: string;
+  /**
+   * The Adulthood Declaration checkbox's label, markdown — ABSENT when the
+   * edition in effect does not carry the artifact (#586, ADR 0069).
+   *
+   * Optional in the type because it is optional on the wire, and the two states
+   * must not be confused: absent means "this edition does not ask", which is
+   * what today's edition says, and a surface draws the box iff the field
+   * arrives. It is evidence exactly as `acceptance_label` is — the edition's
+   * fingerprint covers these bytes — so it is rendered as markdown, never
+   * reworded, and never replaced by anything from a message catalog.
+   */
+  adulthood_declaration_label?: string;
   body_markdown: string;
 };
 

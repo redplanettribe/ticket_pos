@@ -258,6 +258,14 @@ export function SignInForm({
   // The Terms box (#536): the other required, un-premarked answer, false until
   // a person clicks it for the reason the three above are.
   const [termsAccepted, setTermsAccepted] = useState(false);
+  // The Adulthood Declaration (#586, ADR 0069): its own box, its own state, its
+  // own answer. A SEPARATE ONE and never folded into termsAccepted, because a
+  // combined tick evidences only that somebody accepted a document containing an
+  // age sentence — which is the inference this feature exists to replace — and
+  // because the two refusals mean different things: declining the Terms is "I do
+  // not agree", declining this is "I am a child", and one control cannot say
+  // both. False until a person clicks it, like every box above.
+  const [adulthoodDeclared, setAdulthoodDeclared] = useState(false);
   const clearedStaleSession = useRef(false);
 
   // An expired session leaves a cookie behind that will never authenticate
@@ -392,6 +400,14 @@ export function SignInForm({
           // boxes it did not owe.
           ...(consent.boxes.policy_acceptance ? { policy_acceptance: policyAccepted } : {}),
           ...(consent.boxes.terms_acceptance ? { terms_acceptance: termsAccepted } : {}),
+          // The declaration, sent only where it was drawn (#586). Where it was
+          // owed and left unticked this sends `false` and the API refuses it
+          // with ADULTHOOD_DECLARATION_REQUIRED, writing nothing at all — the
+          // disabled button below is the courtesy, that refusal is the
+          // guarantee.
+          ...(consent.boxes.adulthood_declaration
+            ? { adulthood_declaration: adulthoodDeclared }
+            : {}),
           marketing_consent: marketingConsent,
           networking_consent: networkingConsent,
           // The Follow intent rides THIS request now, because this is the one
@@ -540,8 +556,20 @@ export function SignInForm({
           <form className="space-y-4" onSubmit={handleSubmitConsent} noValidate>
             {/* Both required artifacts, or neither: a step owing the Terms box
                 with no backend label to word it would collect a consent to
-                nothing, so it renders the honest failure instead (#536). */}
-            {policy && (!consent?.boxes.terms_acceptance || terms) ? (
+                nothing, so it renders the honest failure instead (#536).
+
+                The Adulthood Declaration is held to the same rule (#586). It is
+                owed only where the Terms box is, so `terms` is already present
+                by then — what can still be missing is the LABEL, on an edition
+                published with the artifact in the prevailing text and not in
+                the translation. That reader is owed a box this app cannot word,
+                and the honest failure is far better than the alternatives:
+                skipping the box would sign somebody in without a declaration the
+                API is about to refuse, and drawing it wordless is exactly what
+                §3 forbids. */}
+            {policy &&
+            (!consent?.boxes.terms_acceptance || terms) &&
+            (!consent?.boxes.adulthood_declaration || terms?.adulthood_declaration_label) ? (
               <>
                 {/*
                   The Short Notice, inline and in full, exactly as the API served
@@ -603,6 +631,46 @@ export function SignInForm({
                     </p>
                   </div>
                 ) : null}
+                {/*
+                  The Adulthood Declaration (#586, ADR 0069): a SECOND box beside
+                  the Terms one, mandatory, un-premarked, and worded by the
+                  backend artifact like its neighbour — the label is evidence,
+                  covered by the edition's fingerprint, so nothing here may
+                  reword it and no catalog string may stand in for it. Drawn iff
+                  the edition in effect publishes the label, which is why it
+                  needs both the box AND the words before it appears: the answer
+                  to "does this edition ask?" is the presence of the artifact.
+
+                  It has its own link out to the full Términos y Condiciones,
+                  rather than borrowing the one above, because the two boxes are
+                  separate affirmations and this one has to stand on its own —
+                  the declaration is made in the contract's terms, and a person
+                  reading only this row must still be able to reach them.
+
+                  The DOM id is `consent-adulthood-declaration`, the
+                  `#consent-<box>` convention the checkout dialog already uses
+                  and the e2e specs assert against.
+                */}
+                {consent?.boxes.adulthood_declaration && terms?.adulthood_declaration_label ? (
+                  <div className="space-y-2">
+                    <ConsentCheckbox
+                      id="consent-adulthood-declaration"
+                      checked={adulthoodDeclared}
+                      onChange={setAdulthoodDeclared}
+                      label={terms.adulthood_declaration_label}
+                      optionalLabel={null}
+                    />
+                    <p className="text-sm">
+                      <Link
+                        href={TERMS_PATH}
+                        target="_blank"
+                        className="font-medium underline underline-offset-4"
+                      >
+                        {t("consent.readTerms")}
+                      </Link>
+                    </p>
+                  </div>
+                ) : null}
                 {/* The optional consents share a row where the width allows
                     it — they are peers, and side by side they read as the two
                     extras they are rather than two more rungs of the same
@@ -640,7 +708,8 @@ export function SignInForm({
                   disabled={
                     loading ||
                     (consent?.boxes.policy_acceptance === true && !policyAccepted) ||
-                    (consent?.boxes.terms_acceptance === true && !termsAccepted)
+                    (consent?.boxes.terms_acceptance === true && !termsAccepted) ||
+                    (consent?.boxes.adulthood_declaration === true && !adulthoodDeclared)
                   }
                   aria-busy={loading}
                 >

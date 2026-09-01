@@ -309,6 +309,24 @@ components:
       type: object
     handler.consentSubmitBody:
       properties:
+        adulthood_declaration:
+          description: |-
+            AdulthoodDeclaration is the 18+ box (#586, ADR 0069): the affirmation that
+            the person is eighteen or older, made in the same act that accepts the
+            Terms and required exactly where the API says it is owed. Absent is false,
+            and false where owed is refused with ADULTHOOD_DECLARATION_REQUIRED before
+            anything at all is written — the disabled submit button is a courtesy, and
+            a curl must not walk past it.
+
+            IT CARRIES NO EDITION AND NO AGE. Which Terms edition worded the box is
+            resolved server-side with the acceptance it rides on, and there is no
+            birthdate, no age and no threshold on this body or anywhere else: the
+            platform records that somebody declared, never that it verified.
+
+            A POINTER FOR THE REASON THE TWO ABOVE ARE: a submission mentioning it is
+            a sign-in submission whatever it says, because a declaration is something
+            affirmed on a required box and never a consent being taken away.
+          type: boolean
         follow:
           description: |-
             Follow is the Follow intent, relayed here for the same reason it is
@@ -3021,6 +3039,20 @@ components:
     service.ConsentBoxesView:
       description: Boxes is what to show.
       properties:
+        adulthood_declaration:
+          description: |-
+            AdulthoodDeclaration is the THIRD required box (#586, ADR 0069): the 18+
+            affirmation, drawn beside the Terms box and never instead of it.
+
+            It is never true where TermsAcceptance is false, because it tracks that
+            box rather than being owed on its own account — there is no adulthood
+            gate, no adulthood standing and no second interstitial. It is not true
+            merely because the Terms box is, either: the box is drawn iff the edition
+            in effect carries the `label-adulthood-declaration` Artifact, which is
+            what makes introducing it a publish rather than a deploy. A surface that
+            gets `true` here has a label to word it with on the terms payload; today,
+            under an edition that carries no such Artifact, it is simply always false.
+          type: boolean
         marketing_consent:
           type: boolean
         networking_consent:
@@ -7860,17 +7892,29 @@ paths:
         document alone is never refused over the other''s box. A recorded Terms acceptance
         stamps the Customer with the edition and is carried on the same Consent Record;
         it is contractual, has no withdrawal path, and no submission on the withdrawal
-        branch can name it. The Policy Version and the Terms Version are resolved
-        server-side and are never accepted from the request. An optional `presented_locale`
-        names the language of the legal TEXT this step rendered — the Short Notice
-        and the checkbox labels, as the public policy endpoint served them — and is
-        recorded on the Consent Record as the language the person was actually shown;
-        it is not the language of the page, which says only what was asked for, and
-        a value naming a language this platform does not serve is dropped rather than
-        refused. It is read on a sign-in submission and ignored on a withdrawal, which
-        renders no document. The token is spent whatever the outcome and whichever
-        act was attempted, so a refused submission is restarted by proving the address
-        again; abandoning the step records nothing and leaves no session at all.'
+        branch can name it. THE ADULTHOOD DECLARATION (#586, ADR 0069) rides that
+        same box: when the verify''s `boxes.adulthood_declaration` was true — which
+        happens only where the Terms box is owed AND the Terms edition in effect publishes
+        the `label-adulthood-declaration` artifact — a sign-in submission without
+        `adulthood_declaration: true` is refused with ADULTHOOD_DECLARATION_REQUIRED,
+        and the refusal is returned BEFORE ANY WRITE, so it mints no session, appends
+        no Consent Record, stamps no state and leaves no row of any kind: the platform
+        keeps no record of anybody who says they are a minor. Where the box was not
+        owed the field is ignored. A ticked declaration is recorded on the same Consent
+        Record as the acceptance it travelled with, under the same edition, and no
+        age, birthdate or threshold is collected anywhere — the platform records that
+        somebody declared, never that it verified. The Policy Version and the Terms
+        Version are resolved server-side and are never accepted from the request.
+        An optional `presented_locale` names the language of the legal TEXT this step
+        rendered — the Short Notice and the checkbox labels, as the public policy
+        endpoint served them — and is recorded on the Consent Record as the language
+        the person was actually shown; it is not the language of the page, which says
+        only what was asked for, and a value naming a language this platform does
+        not serve is dropped rather than refused. It is read on a sign-in submission
+        and ignored on a withdrawal, which renders no document. The token is spent
+        whatever the outcome and whichever act was attempted, so a refused submission
+        is restarted by proving the address again; abandoning the step records nothing
+        and leaves no session at all.'
       requestBody:
         content:
           application/json:
