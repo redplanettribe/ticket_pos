@@ -1758,6 +1758,7 @@
       "surfaceNetworkingConsent": "An optional checkbox at sign-up and at checkout.",
       "surfacePolicy": "The public privacy policy page.",
       "surfaceTermsAcceptance": "The checkbox at sign-up, and before a staff session.",
+      "surfaceAdulthoodDeclaration": "The second checkbox beside the terms, at sign-up and before a staff session. It is only drawn while an edition carries it.",
       "surfaceTerms": "The public terms page.",
       "surfaceUnknown": "Nothing on the platform renders this yet.",
       "statusUnchanged": "Unchanged",

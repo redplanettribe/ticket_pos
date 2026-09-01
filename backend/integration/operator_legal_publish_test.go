@@ -3,6 +3,7 @@ package integration
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -563,5 +564,321 @@ func TestOperatorLegalCorrectNowAndPublishTomorrow(t *testing.T) {
 	}
 	if editions != 3 {
 		t.Fatalf("terms editions = %d; want the seeded 1, the correction 1.1 and the edition 2", editions)
+	}
+}
+
+/* ==========================================================================
+ * The Adulthood Declaration's label (#589, ADR 0069)
+ *
+ * The declaration is introduced by PUBLISHING, never by deploying: an operator
+ * writes `label-adulthood-declaration` into the Terms' Legal Draft and publishes
+ * a Gating Edition, and the box is drawn from that day because the edition in
+ * force carries the Artifact.
+ *
+ * WHAT IS ASSERTED HERE IS THAT THE GENERAL MACHINERY ALREADY DOES IT. Nothing
+ * below asks the platform to know what this checkbox is about; every rule it
+ * leans on is the one that governs any artifact — a slug set that changed is
+ * structural, a structural change is refused as a correction, a gating edition
+ * waits a night and can be taken back during it, and the ordinals are the
+ * draft's own. The slug appears in these tests as text an operator typed, which
+ * is exactly what it is, and if a rule anywhere in the publish path ever needed
+ * to name it, that would be the thing to delete rather than the thing to test.
+ * ========================================================================== */
+
+// adulthoodDeclarationLabel is the wording, as an operator would type it into
+// the two boxes. It is not a constant of the platform and must never become one:
+// the words live in the database (ADR 0067) and eighteen is prose inside them
+// (ADR 0069), so this is a fixture and not an inventory.
+var adulthoodDeclarationLabel = map[string]string{
+	"en": "I am eighteen years of age or older.",
+	"es": "Soy mayor de dieciocho años.",
+}
+
+// withAdulthoodDeclaration inserts the declaration's label BEFORE the body,
+// where it belongs beside the acceptance label — which is also the arrangement
+// that shifts `terms` behind it and moves the hash's preimage order.
+func withAdulthoodDeclaration(artifacts []legalArtifactView) []legalArtifactView {
+	inserted := make([]legalArtifactView, 0, len(artifacts)+1)
+	for _, artifact := range artifacts {
+		if artifact.Slug == "terms" {
+			inserted = append(inserted, legalArtifactView{
+				Slug:   "label-adulthood-declaration",
+				Bodies: adulthoodDeclarationLabel,
+			})
+		}
+		bodies := map[string]string{}
+		for token, body := range artifact.Bodies {
+			bodies[token] = body
+		}
+		inserted = append(inserted, legalArtifactView{Slug: artifact.Slug, Bodies: bodies})
+	}
+	return inserted
+}
+
+// withoutSlug is the other direction: a draft that stops publishing an artifact.
+func withoutSlug(artifacts []legalArtifactView, slug string) []legalArtifactView {
+	kept := make([]legalArtifactView, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		if artifact.Slug == slug {
+			continue
+		}
+		bodies := map[string]string{}
+		for token, body := range artifact.Bodies {
+			bodies[token] = body
+		}
+		kept = append(kept, legalArtifactView{Slug: artifact.Slug, Bodies: bodies})
+	}
+	return kept
+}
+
+// termsArtifactOrder reads one edition's stored slugs in ordinal order, per
+// language — the preimage's own order, from the rows that produce the
+// fingerprint rather than from anything that renders them.
+func termsArtifactOrder(t *testing.T, env *testEnv, label, locale string) []string {
+	t.Helper()
+	rows, err := env.db.QueryContext(t.Context(), `
+		SELECT a.slug FROM terms_version_artifacts a
+		JOIN terms_versions v ON v.id = a.version_id
+		WHERE v.label = $1 AND a.locale = $2
+		ORDER BY a.ordinal
+	`, label, locale)
+	if err != nil {
+		t.Fatalf("read the stored artifacts of edition %q: %v", label, err)
+	}
+	defer rows.Close()
+	var slugs []string
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			t.Fatalf("scan a stored artifact: %v", err)
+		}
+		slugs = append(slugs, slug)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read the stored artifacts of edition %q: %v", label, err)
+	}
+	return slugs
+}
+
+// TestOperatorPublishesTheAdulthoodDeclarationAsAGatingEdition is the act ADR
+// 0069 leaves to an operator, walked at the seam: the label is written into the
+// Terms draft, the correction path REFUSES it, and the only publication left is
+// the gating one — dated at least tomorrow, carrying the headcount it will
+// re-gate, and cancellable until its day.
+func TestOperatorPublishesTheAdulthoodDeclarationAsAGatingEdition(t *testing.T) {
+	env := setupTest(t)
+	sessionID := operatorSession(t, env, "operator@example.com")
+
+	fresh := legalPublishWorkspace(t, env, sessionID, operatorLegalTermsPath)
+	if slugs := slugsOf(fresh.Published.Artifacts); len(slugs) != 2 {
+		t.Fatalf("the edition in force publishes %v; this test is written against the two it was seeded with", slugs)
+	}
+
+	// Somebody standing on the edition in force: the person this publication will
+	// ask again, and the number the confirm step owes the operator.
+	if _, err := env.db.ExecContext(t.Context(), `
+		INSERT INTO customers (email, first_name, last_name, terms_version_id, terms_accepted_at)
+		VALUES ('adult@example.com', 'To', 'Declare', $1, now())
+	`, fresh.Published.VersionID); err != nil {
+		t.Fatalf("seed an accepting customer: %v", err)
+	}
+
+	saved := saveLegalDraftAt(t, env, sessionID, operatorLegalTermsPath,
+		draftBody([]string{"en", "es"}, withAdulthoodDeclaration(fresh.Draft.Artifacts)))
+
+	// STRUCTURAL, because the slug set changed. Not because of what the slug
+	// says: the same answer would come back for any artifact an operator added.
+	if !saved.Publish.Structural || saved.Publish.CanCorrect {
+		t.Fatalf("adding an artifact reads as %+v; want structural, and not correctable", saved.Publish)
+	}
+	// THE HEADCOUNT THE CONFIRM STEP SHOWS. It is the Terms gate's, so it counts
+	// staff as well as Customers; what this pins is that the one Customer seeded
+	// above reached it.
+	if saved.Publish.Headcount != fresh.Publish.Headcount+1 {
+		t.Fatalf("headcount = %d; want the %d already standing plus the seeded Customer",
+			saved.Publish.Headcount, fresh.Publish.Headcount)
+	}
+
+	// THE REVIEW GATES BIND ON THE NEW CELLS TOO, and nothing exempts them: the
+	// two cells nobody has previewed are the two the operator just wrote.
+	gaps := map[string]bool{}
+	for _, gap := range saved.Draft.PreviewGaps {
+		gaps[gap.Slug+"/"+gap.Locale] = true
+	}
+	if !gaps["label-adulthood-declaration/en"] || !gaps["label-adulthood-declaration/es"] {
+		t.Fatalf("preview gaps = %+v; want the new artifact owed in both languages", saved.Draft.PreviewGaps)
+	}
+	resp, body := publishLegal(t, env, sessionID, operatorLegalTermsPath, map[string]any{
+		"kind": "edition", "effective_date": saved.Publish.EarliestEffectiveDate})
+	refusedWith(t, resp, body, http.StatusConflict, "LEGAL_PUBLISH_NOT_PREVIEWED")
+
+	reviewed := reviewWholeDraft(t, env, sessionID, operatorLegalTermsPath)
+	if !reviewed.Publish.CanPublish || reviewed.Publish.CanCorrect {
+		t.Fatalf("after previewing everything and seeing the diff: %+v", reviewed.Publish)
+	}
+
+	// A CORRECTION IS REFUSED. Somebody is now being asked for something they
+	// were not asked for, and no reason makes that a touch-up.
+	resp, body = publishLegal(t, env, sessionID, operatorLegalTermsPath, map[string]any{
+		"kind": "correction", "reason": "The age declaration box was missing from the terms."})
+	refusedWith(t, resp, body, http.StatusBadRequest, "LEGAL_CORRECTION_STRUCTURAL")
+
+	// AT LEAST TOMORROW. Both the unnamed day and the day before the earliest one
+	// are refused, which is the same rule said twice on purpose: whatever today
+	// is, this edition cannot take effect on it.
+	resp, body = publishLegal(t, env, sessionID, operatorLegalTermsPath, map[string]any{"kind": "edition"})
+	refusedWith(t, resp, body, http.StatusBadRequest, "LEGAL_GATING_EFFECTIVE_DATE_TOO_SOON")
+	earliest, err := time.Parse("2006-01-02", reviewed.Publish.EarliestEffectiveDate)
+	if err != nil {
+		t.Fatalf("earliest effective date %q: %v", reviewed.Publish.EarliestEffectiveDate, err)
+	}
+	resp, body = publishLegal(t, env, sessionID, operatorLegalTermsPath, map[string]any{
+		"kind": "edition", "effective_date": earliest.AddDate(0, 0, -1).Format("2006-01-02")})
+	refusedWith(t, resp, body, http.StatusBadRequest, "LEGAL_GATING_EFFECTIVE_DATE_TOO_SOON")
+
+	// The day published for is counted from the DATABASE's, for
+	// scheduleGatingEdition's reason: what makes an edition "waiting" is
+	// `effective_date > CURRENT_DATE`, which Postgres answers and the harness's
+	// fixed clock does not.
+	var today time.Time
+	if err := env.db.QueryRowContext(t.Context(), `SELECT CURRENT_DATE`).Scan(&today); err != nil {
+		t.Fatalf("read the database's day: %v", err)
+	}
+	effective := today.AddDate(0, 0, 2).Format("2006-01-02")
+	published := publishLegalOK(t, env, sessionID, operatorLegalTermsPath, map[string]any{
+		"kind": "edition", "effective_date": effective})
+	if published.Draft.Stored {
+		t.Fatalf("the draft survived its own publication")
+	}
+
+	// THE NUMBER ON THE BUTTON REACHED THE ROW, which is the proof that the
+	// consequence was shown rather than merely computed.
+	var (
+		generation, revision, headcount int
+		hash                            string
+	)
+	if err := env.db.QueryRowContext(t.Context(), `
+		SELECT generation, revision, regated_headcount, content_hash
+		FROM terms_versions WHERE label = '2'
+	`).Scan(&generation, &revision, &headcount, &hash); err != nil {
+		t.Fatalf("read the published edition: %v", err)
+	}
+	if generation != 2 || revision != 0 {
+		t.Fatalf("lineage = %d.%d; want the next generation at revision 0", generation, revision)
+	}
+	if headcount != reviewed.Publish.Headcount {
+		t.Fatalf("the row says %d were re-gated; the confirm step said %d", headcount, reviewed.Publish.Headcount)
+	}
+
+	// THE NEW ARTIFACT TOOK AN ORDINAL AND THE BODY MOVED BEHIND IT, in both
+	// languages. The preimage order therefore differs from the edition it
+	// supersedes — HARMLESS, and the reason the ordinal lives on the row: this is
+	// a new edition with its own fingerprint, nothing anybody accepted was
+	// touched, and no deploy was needed to change how an edition is hashed.
+	for _, locale := range []string{"en", "es"} {
+		want := []string{"label-terms-acceptance", "label-adulthood-declaration", "terms"}
+		if got := termsArtifactOrder(t, env, "2", locale); strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("edition 2 (%s) stores %v; want %v", locale, got, want)
+		}
+		if got := termsArtifactOrder(t, env, "1", locale); strings.Join(got, ",") != "label-terms-acceptance,terms" {
+			t.Fatalf("edition 1 (%s) was rewritten to %v", locale, got)
+		}
+	}
+	if hash == fresh.Published.ContentHash {
+		t.Fatalf("the new edition reproduces the old fingerprint %q, though it publishes different text in a different order", hash)
+	}
+	var supersededHash string
+	if err := env.db.QueryRowContext(t.Context(),
+		`SELECT content_hash FROM terms_versions WHERE id = $1`, fresh.Published.VersionID).Scan(&supersededHash); err != nil {
+		t.Fatalf("the superseded edition went missing: %v", err)
+	}
+	if supersededHash != fresh.Published.ContentHash {
+		t.Fatalf("the superseded edition's fingerprint moved: %q -> %q", fresh.Published.ContentHash, supersededHash)
+	}
+
+	// CANCELLABLE UNTIL IT TAKES EFFECT. The edition is on the banner, it is not
+	// current yet, and taking it back needs no reason — the night the overnight
+	// delay buys, spent.
+	scheduled := legalCancelWorkspace(t, env, sessionID, operatorLegalTermsPath)
+	if len(scheduled.Scheduled) != 1 || scheduled.Scheduled[0].Label != "2" ||
+		scheduled.Scheduled[0].EffectiveDate != effective || !scheduled.Scheduled[0].Gating {
+		t.Fatalf("banner = %+v; want the gating edition 2 waiting for %s", scheduled.Scheduled, effective)
+	}
+	if scheduled.Published.VersionID != fresh.Published.VersionID {
+		t.Fatalf("a scheduled edition became current: %q", scheduled.Published.VersionID)
+	}
+	after := cancelLegalEditionOK(t, env, sessionID, operatorLegalTermsPath, scheduled.Scheduled[0].VersionID)
+	if len(after.Scheduled) != 0 {
+		t.Fatalf("the withdrawn edition is still on the banner: %+v", after.Scheduled)
+	}
+	// And the text of what was nearly published survives, the declaration's label
+	// with it: a withdrawn edition is a record, not a deletion.
+	if got := termsArtifactOrder(t, env, "2", "es"); len(got) != 3 {
+		t.Fatalf("the withdrawn edition kept %v; want the three artifacts it would have published", got)
+	}
+}
+
+// TestTheAdulthoodDeclarationCanBeWithdrawnByAnotherGatingEdition is the NO
+// RATCHET half, at the seam.
+//
+// A later edition may drop the Artifact and thereby stop collecting the
+// declaration. Nothing guards it specially, and nothing needs to: taking an
+// artifact out is a cell removal, a cell removal is structural, and structural
+// forces the same gating publication — a seen diff, a night's delay and the
+// whole population asked again — that introducing it did.
+func TestTheAdulthoodDeclarationCanBeWithdrawnByAnotherGatingEdition(t *testing.T) {
+	env := setupTest(t)
+	sessionID := operatorSession(t, env, "operator@example.com")
+
+	fresh := legalPublishWorkspace(t, env, sessionID, operatorLegalTermsPath)
+	saveLegalDraftAt(t, env, sessionID, operatorLegalTermsPath,
+		draftBody([]string{"en", "es"}, withAdulthoodDeclaration(fresh.Draft.Artifacts)))
+	reviewWholeDraft(t, env, sessionID, operatorLegalTermsPath)
+
+	var today time.Time
+	if err := env.db.QueryRowContext(t.Context(), `SELECT CURRENT_DATE`).Scan(&today); err != nil {
+		t.Fatalf("read the database's day: %v", err)
+	}
+	publishLegalOK(t, env, sessionID, operatorLegalTermsPath, map[string]any{
+		"kind": "edition", "effective_date": today.AddDate(0, 0, 2).Format("2006-01-02")})
+
+	// The morning it takes effect. Nothing fires and nothing is backfilled: the
+	// edition becomes current because the date predicate says so.
+	var versionID string
+	if err := env.db.QueryRowContext(t.Context(),
+		`SELECT id::text FROM terms_versions WHERE label = '2'`).Scan(&versionID); err != nil {
+		t.Fatalf("find the scheduled edition: %v", err)
+	}
+	arriveAt(t, env, "terms_versions", versionID)
+
+	inForce := legalPublishWorkspace(t, env, sessionID, operatorLegalTermsPath)
+	if inForce.Published.VersionID != versionID {
+		t.Fatalf("published = %q; want the edition whose day came, %q", inForce.Published.VersionID, versionID)
+	}
+	// The Artifact is now part of what a reader is shown, in its own position.
+	if got := slugsOf(inForce.Published.Artifacts); strings.Join(got, ",") !=
+		"label-terms-acceptance,label-adulthood-declaration,terms" {
+		t.Fatalf("the edition in force publishes %v", got)
+	}
+
+	// AND OUT AGAIN. The draft drops it; the answer is the same word.
+	dropped := saveLegalDraftAt(t, env, sessionID, operatorLegalTermsPath,
+		draftBody([]string{"en", "es"}, withoutSlug(inForce.Draft.Artifacts, "label-adulthood-declaration")))
+	if !dropped.Publish.Structural || dropped.Publish.CanCorrect {
+		t.Fatalf("removing an artifact reads as %+v; want structural, and not correctable", dropped.Publish)
+	}
+	reviewWholeDraft(t, env, sessionID, operatorLegalTermsPath)
+	resp, body := publishLegal(t, env, sessionID, operatorLegalTermsPath, map[string]any{
+		"kind": "correction", "reason": "We have stopped asking people to declare their age."})
+	refusedWith(t, resp, body, http.StatusBadRequest, "LEGAL_CORRECTION_STRUCTURAL")
+
+	// It goes by a gating edition, dated at least tomorrow, like everything else.
+	withdrawal := legalPublishWorkspace(t, env, sessionID, operatorLegalTermsPath)
+	publishLegalOK(t, env, sessionID, operatorLegalTermsPath, map[string]any{
+		"kind": "edition", "effective_date": withdrawal.Publish.EarliestEffectiveDate})
+	for _, locale := range []string{"en", "es"} {
+		if got := termsArtifactOrder(t, env, "3", locale); strings.Join(got, ",") != "label-terms-acceptance,terms" {
+			t.Fatalf("edition 3 (%s) stores %v; want the declaration gone and the body back at 2", locale, got)
+		}
 	}
 }

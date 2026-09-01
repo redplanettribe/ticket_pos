@@ -1758,6 +1758,7 @@
       "surfaceNetworkingConsent": "Una casilla opcional al registrarse y en el checkout.",
       "surfacePolicy": "La página pública de política de privacidad.",
       "surfaceTermsAcceptance": "La casilla al registrarse y antes de una sesión de staff.",
+      "surfaceAdulthoodDeclaration": "La segunda casilla junto a los términos, al registrarse y antes de una sesión de staff. Solo se muestra mientras una edición la incluye.",
       "surfaceTerms": "La página pública de términos.",
       "surfaceUnknown": "Nada en la plataforma muestra esto todavía.",
       "statusUnchanged": "Sin cambios",

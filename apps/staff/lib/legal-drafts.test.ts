@@ -203,6 +203,82 @@ test("a one-line label and a full document get different sizes; an invented slug
   );
 });
 
+// --- the Adulthood Declaration's label (#589, ADR 0069) --------------------
+
+/** The Terms as they are published today: the checkbox label, then the body. */
+const PUBLISHED_TERMS: ArtifactSet = {
+  "label-terms-acceptance": { en: "I accept the terms.", es: "Acepto los términos." },
+  terms: { en: "# Terms\n\nLong.", es: "# Términos\n\nLargos." },
+};
+
+/** The same Terms with the declaration's label inserted between the two. */
+function withAdulthood(): ArtifactSet {
+  return {
+    "label-terms-acceptance": { ...PUBLISHED_TERMS["label-terms-acceptance"] },
+    "label-adulthood-declaration": {
+      en: "I am eighteen years of age or older.",
+      es: "Soy mayor de dieciocho años.",
+    },
+    terms: { ...PUBLISHED_TERMS.terms },
+  };
+}
+
+test("the adulthood declaration's label is a known one-line artifact, and it takes an ordinal", () => {
+  const specs = draftSlugs(withAdulthood());
+  assert.deepEqual(
+    specs.map((spec) => [spec.slug, spec.ordinal, spec.size, spec.known]),
+    [
+      ["label-terms-acceptance", 1, "line", true],
+      // KNOWN, so the editor does not warn that nothing renders it, and a LINE,
+      // because it is a checkbox label and not a document.
+      ["label-adulthood-declaration", 2, "line", true],
+      // AND THE BODY MOVED BEHIND IT, from 2 to 3. The ordinal is the
+      // fingerprint's preimage order, so this really is a different preimage —
+      // which is harmless and is the point: it is a new edition, nothing that
+      // anybody has accepted is touched, and the shift needed no deploy.
+      ["terms", 3, "document", true],
+    ],
+  );
+  assert.equal(draftSlugs(PUBLISHED_TERMS)[1].ordinal, 2);
+});
+
+test("adding the adulthood declaration is structural, and so is taking it away again", () => {
+  const added = withAdulthood();
+  assert.equal(isStructuralChange(PUBLISHED_TERMS, added), true);
+  assert.equal(cellStatus(PUBLISHED_TERMS, added, "label-adulthood-declaration", "en"), "added");
+  assert.equal(cellStatus(PUBLISHED_TERMS, added, "label-adulthood-declaration", "es"), "added");
+  // The body did not change a word: the structure moved, the text did not.
+  assert.equal(cellStatus(PUBLISHED_TERMS, added, "terms", "es"), "unchanged");
+
+  // NO RATCHET. A later edition may drop it, and that is structural by the same
+  // rule that made adding it structural — there is nothing in this module that
+  // names this slug to make either direction special.
+  const dropped = structuredClone(PUBLISHED_TERMS);
+  assert.equal(isStructuralChange(added, dropped), true);
+  assert.equal(cellStatus(added, dropped, "label-adulthood-declaration", "es"), "removed");
+});
+
+test("a draft that adds the declaration in one language only cannot be published", () => {
+  const halfWritten = withAdulthood();
+  halfWritten["label-adulthood-declaration"] = { en: "I am eighteen years of age or older." };
+  const { complete, gaps } = completeness(PUBLISHED_TERMS, halfWritten);
+  assert.equal(complete, false);
+  assert.deepEqual(gaps, [{ slug: "label-adulthood-declaration", locale: "es" }]);
+});
+
+test("the declaration's arrival sorts to the top of the diff, ahead of any rewording", () => {
+  const draft = withAdulthood();
+  draft.terms = { ...draft.terms, en: "# Terms\n\nLonger." };
+  const cells = diffCells(PUBLISHED_TERMS, draft);
+  assert.deepEqual(
+    cells.slice(0, 2).map((cell) => [cell.slug, cell.status]),
+    [
+      ["label-adulthood-declaration", "added"],
+      ["label-adulthood-declaration", "added"],
+    ],
+  );
+});
+
 test("draftSlugs answers for an empty draft", () => {
   assert.deepEqual(draftSlugs({}), []);
   assert.deepEqual(completeness(PUBLISHED, {}), { complete: true, gaps: [] });
