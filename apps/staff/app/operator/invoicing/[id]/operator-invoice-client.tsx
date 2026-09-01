@@ -358,6 +358,34 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
         </Card>
       ) : null}
 
+      {invoice.abandoned_by && invoice.abandoned_at ? (
+        // The abandonment trail (#578, ADR 0068): who recorded that the SRI
+        // never took this document, when, and why. It stands where the
+        // annulment trail does and says the opposite thing about the SRI, so
+        // a reader of the page is never left to infer which of the two
+        // happened; the number and the bytes it names are still on the page
+        // above, which is the point of saying they are kept.
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("invoicingAbandonmentTitle")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <p>
+              {t("invoicingAbandonmentTrail", {
+                by: invoice.abandoned_by,
+                when: formatDateTime(invoice.abandoned_at, PLATFORM_TIME_ZONE, locale) ?? invoice.abandoned_at,
+              })}
+            </p>
+            {invoice.abandon_note ? (
+              <p>
+                <span className="font-medium text-foreground">{t("invoicingAbandonmentTrailNote")}</span>{" "}
+                <span className="whitespace-pre-wrap">{invoice.abandon_note}</span>
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <OperatorInvoiceActions invoice={invoice} onUpdated={setInvoice} />
       {levers.reissue ? <OperatorInvoiceReissue invoice={invoice} /> : null}
 

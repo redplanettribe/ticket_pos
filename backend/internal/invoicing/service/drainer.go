@@ -406,7 +406,11 @@ func (s *Service) withdrawCreditNoteOfADeadFactura(ctx context.Context, row *rep
 	switch factura.Invoice.Status {
 	case invoicing.InvoiceStatusAuthorized:
 		return false, nil
-	case invoicing.InvoiceStatusWithdrawn, invoicing.InvoiceStatusAnnulled:
+	case invoicing.InvoiceStatusWithdrawn, invoicing.InvoiceStatusAnnulled, invoicing.InvoiceStatusAbandoned:
+		// Abandoned (#578, ADR 0068) is a death like the other two here: the
+		// authority never took the factura, so a Credit Note owed against it
+		// before the operator abandoned it credits nothing and is withdrawn
+		// unsigned, no number consumed.
 	default:
 		return false, fmt.Errorf("invoicing: credit note %s was claimed while its factura is %s", row.Invoice.ID, factura.Invoice.Status)
 	}

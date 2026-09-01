@@ -129,6 +129,64 @@ func ErrInvoiceRefusedByNumber() apperror.DomainError {
 	return apperror.New("INVOICE_REFUSED_BY_NUMBER", "The Tax Authority refuses this document's number. Resending it would submit the same secuencial the authority already rejects, and earn the same refusal. Check status still asks the authority what it holds.", nil)
 }
 
+// The Abandon's refusals (#578, parent #575, ADR 0068), one code each, so
+// the operator's surface names what stood in the way rather than "cannot
+// abandon". Abandoning declares that a document was never a legal document
+// at all, so every fact it rests on is refused by its own name.
+
+// ErrInvoiceAbandoned: Check status, Resend and Abandon are all refused on
+// an abandoned document (#578) — the authority never took it and never
+// will, so there is nothing left to ask about, nothing that would ever be
+// sent, and nothing left to give up. A terminal state is terminal, and this
+// is what makes it so.
+func ErrInvoiceAbandoned() apperror.DomainError {
+	return apperror.New("INVOICE_ABANDONED", "The document was abandoned: the Tax Authority never took it and never will. Nothing can be checked, resent or abandoned for it.", nil)
+}
+
+// ErrInvoiceNotAbandonable: Abandon is allowed only on a document parked
+// needs_attention, rejected or not_authorized (#578) — the three states a
+// refusal leaves a document in, the last two because a manual document's
+// refusals are recorded as such rather than parked. A pending document is
+// still with the authority and is checked, not given up on; an authorized
+// one is a legal artifact and is never disowned this way; an owed one was
+// never sent.
+func ErrInvoiceNotAbandonable(status InvoiceStatus) apperror.DomainError {
+	return apperror.New("INVOICE_NOT_ABANDONABLE", "Only a document the Tax Authority has refused can be abandoned; this one is "+string(status)+".", map[string]string{"status": string(status)})
+}
+
+// ErrInvoiceNotRefusedByNumber: Abandon is offered on a document the
+// authority refuses by NUMBER and on no other (#578, ADR 0068). Whether a
+// document parked for some other reason may ever be abandoned is
+// deliberately undecided until a second case needs it, so this refusal
+// names the fact rather than the policy: the authority did not refuse this
+// document's number, and every refusal it did give has a real remedy.
+func ErrInvoiceNotRefusedByNumber() apperror.DomainError {
+	return apperror.New("INVOICE_NOT_REFUSED_BY_NUMBER", "Only a document the Tax Authority refuses for its number — error 45, secuencial registrado — can be abandoned. This document was refused for another reason, which has its own remedy.", nil)
+}
+
+// ErrInvoiceCheckNotFresh: Abandon was pressed without a fresh Check status
+// immediately beforehand (#578, ADR 0068). Abandoning rests on the
+// authority's own CURRENT answer, and the attempts ledger must carry that
+// answer, timestamped, immediately before the act — the strongest record
+// available if the authority later asks why a number was never declared.
+// The remedy is one press: Check status, then Abandon.
+func ErrInvoiceCheckNotFresh() apperror.DomainError {
+	return apperror.New("INVOICE_CHECK_NOT_FRESH", "Check status first: a document is abandoned only on the Tax Authority's current answer, so a Check must be the last thing on its ledger and recent.", nil)
+}
+
+// ErrInvoiceAbandonInstead: Mark annulled is refused on a document that
+// qualifies for Abandon (#578, ADR 0068), which narrows an existing action
+// deliberately. Mark annulled records an annulment the operator performed
+// BY HAND AT THE AUTHORITY'S PORTAL; for a number the authority never took,
+// the portal shows nothing and there is nothing there to annul, so pressing
+// it would write a true-looking record of an act that never happened. That
+// was the operator's only escape from production's 001-001-000000025 and
+// 26, and it was a falsehood. Abandon is the honest one, and the message
+// says so.
+func ErrInvoiceAbandonInstead() apperror.DomainError {
+	return apperror.New("INVOICE_ABANDON_INSTEAD", "The Tax Authority refuses this document's number and never took it, so there is nothing at its portal to have been annulled. Abandon the document instead.", nil)
+}
+
 // ErrIssuerFieldFrozen: the Issuer detail named in details.field may no
 // longer change — the RUC once any Tax Invoice exists (it is inside every
 // clave de acceso), establecimiento and punto de emisión once a sequence has

@@ -24,8 +24,10 @@ import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { type AppLocale, formatCalendarDay, formatMoney } from "@/lib/format";
 import {
+  INVOICE_STATUSES,
   type InvoiceKind,
   type InvoiceKindFilter,
+  type InvoiceStatusFilter,
   type OperatorInvoiceListItem,
   fetchOperatorInvoices,
   fetchOperatorRecipientWarningCount,
@@ -43,8 +45,9 @@ import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from 
 // and its Sale Confirmation reference beside the manual Tax Invoices, and
 // with no number or date until the Drainer signs it — those cells say so
 // rather than showing a blank, since "not yet" and "unknown" are different.
-// The kind filter (#477) narrows the list to one of the three; the API does
-// the narrowing, so the page's total is the filtered total.
+// The kind filter (#477) narrows the list to one of the three, and the
+// status filter (#578) to one of the nine; the API does the narrowing, so
+// the page's total is the filtered total.
 //
 // The Recipient Warning (#482, ADR 0061): an authorized Sale Invoice the SRI
 // warned about — the Recipient's Tax ID does not exist or is incorrect — is
@@ -58,6 +61,13 @@ import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from 
 // absence. It opens Ventas sin factura, where the backfill lives.
 
 const KIND_FILTERS = ["all", "manual", "sale", "credit_note"] as const satisfies readonly InvoiceKindFilter[];
+
+// The status filter (#578, ADR 0068). It exists so that every number the
+// platform has given up on can be audited — `abandoned` is the state that
+// asked for it — and it offers the whole vocabulary rather than that one
+// word, because a filter that finds one state and not the eight beside it is
+// one the next operator has to ask for again.
+const STATUS_FILTERS = ["all", ...INVOICE_STATUSES] as const satisfies readonly InvoiceStatusFilter[];
 
 const SELECT_CLASS =
   "h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
@@ -120,6 +130,7 @@ export function OperatorInvoicesClient({
   const locale = toAppLocale(useLocale());
   const [items, setItems] = useState<OperatorInvoiceListItem[]>([]);
   const [kind, setKind] = useState<InvoiceKindFilter>("all");
+  const [status, setStatus] = useState<InvoiceStatusFilter>("all");
   const [recipientWarningOnly, setRecipientWarningOnly] = useState(initialRecipientWarningOnly);
   // null while unknown or while the feature is closed: the filter is not drawn.
   const [recipientWarningCount, setRecipientWarningCount] = useState<number | null>(null);
@@ -137,7 +148,7 @@ export function OperatorInvoicesClient({
       // open (404 while closed, read as "no filter") and how many the filter
       // would find. A closed feature must not take the list down with it.
       const [page, warningCount, uninvoiced] = await Promise.all([
-        fetchOperatorInvoices(1, kind, recipientWarningOnly),
+        fetchOperatorInvoices(1, kind, recipientWarningOnly, status),
         fetchOperatorRecipientWarningCount().catch(() => null),
         fetchOperatorUninvoicedHouseSaleCount().catch(() => null),
       ]);
@@ -158,7 +169,7 @@ export function OperatorInvoicesClient({
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, recipientWarningOnly]);
+  }, [kind, status, recipientWarningOnly]);
 
   useEffect(() => {
     void load();
@@ -228,6 +239,20 @@ export function OperatorInvoicesClient({
                   ))}
                 </select>
               </label>
+              <label className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">{t("invoicingStatusFilterLabel")}</span>
+                <select
+                  className={SELECT_CLASS}
+                  value={status}
+                  onChange={(event) => setStatus(event.target.value as InvoiceStatusFilter)}
+                >
+                  {STATUS_FILTERS.map((option) => (
+                    <option key={option} value={option}>
+                      {option === "all" ? t("invoicingStatusFilterAll") : t(INVOICE_STATUS_KEYS[option])}
+                    </option>
+                  ))}
+                </select>
+              </label>
               {recipientWarningCount !== null ? (
                 <label className="flex items-center gap-2 text-sm">
                   <input
@@ -251,9 +276,11 @@ export function OperatorInvoicesClient({
               <p className="text-sm text-muted-foreground">
                 {recipientWarningOnly
                   ? t("invoicingListEmptyForRecipientWarning")
-                  : kind === "all"
-                    ? t("invoicingListEmpty")
-                    : t("invoicingListEmptyForKind")}
+                  : status !== "all"
+                    ? t("invoicingListEmptyForStatus")
+                    : kind === "all"
+                      ? t("invoicingListEmpty")
+                      : t("invoicingListEmptyForKind")}
               </p>
             ) : (
               <div className="overflow-x-auto">

@@ -23,6 +23,25 @@ import type { InvoiceKind, InvoiceStatus } from "./operator-api";
  * is finished; an owed one has not been signed, so there is nothing at the
  * SRI to check, resend or annul.
  *
+ * `abandon` REPLACES `annul` on a document the SRI refuses by NUMBER (#578,
+ * ADR 0068), and the swap is the point rather than a detail. Mark annulled
+ * records an annulment the operator performed by hand at the SRI portal;
+ * for a number the SRI never took, the portal shows nothing under it, so
+ * there is nothing there to have been annulled and the API now refuses the
+ * press with INVOICE_ABANDON_INSTEAD. Abandon is the honest act in its
+ * place: it records that the SRI never took the document and never will.
+ * The two make opposite claims about the SRI and are never offered together.
+ *
+ * Abandon is offered only from the three states a refusal leaves a document
+ * in — `needs_attention` for a Sale Invoice, `rejected` and `not_authorized`
+ * for a manual one, whose refusals are recorded rather than parked — of any
+ * kind, since the number is dead whoever typed the document. Not from
+ * `pending`: the SRI still has the document and it is checked, not given up
+ * on. The API asks for one thing more that this cannot see, a fresh Check
+ * status immediately beforehand, and answers INVOICE_CHECK_NOT_FRESH when
+ * there is none; that is a refusal with a next step — press Check status —
+ * rather than a lever that should not be drawn.
+ *
  * `resend` alone falls away on a document the SRI refuses by NUMBER (#577,
  * ADR 0068). Resend sends the same clave and the same secuencial, which is
  * the whole of what error 45 objects to, so the API refuses it outright with
@@ -45,6 +64,7 @@ export type InvoiceLevers = {
   resend: boolean;
   annul: boolean;
   reissue: boolean;
+  abandon: boolean;
 };
 
 /**
@@ -71,21 +91,26 @@ export function invoiceLevers(
 ): InvoiceLevers {
   const reissue = reissueOffered(status, chain);
   if (!signed) {
-    return { check: false, resend: false, annul: false, reissue: false };
+    return { check: false, resend: false, annul: false, reissue: false, abandon: false };
   }
-  // The refusal by number takes `resend` away wherever it was offered, and
-  // touches nothing else: Check still asks, Mark annulled is still the
-  // operator's record of a portal act (#578 narrows that one, not this).
+  // The refusal by number takes `resend` away wherever it was offered (#577)
+  // and hands `annul` to `abandon` (#578). Check still asks the SRI what it
+  // holds, and its answer is what an Abandon rests on.
   const resend = !refusedByNumber;
   switch (status) {
     case "pending":
+      // Still with the SRI: checked, not given up on. Mark annulled goes all
+      // the same where the number is refused — the portal has nothing to
+      // have been annulled — and this is the one state that offers neither
+      // it nor Abandon.
+      return { check: true, resend, annul: !refusedByNumber, reissue, abandon: false };
     case "needs_attention":
-      return { check: true, resend, annul: true, reissue };
+      return { check: true, resend, annul: !refusedByNumber, reissue, abandon: refusedByNumber };
     case "not_authorized":
     case "rejected":
-      return { check: true, resend, annul: false, reissue };
+      return { check: true, resend, annul: false, reissue, abandon: refusedByNumber };
     default:
-      return { check: false, resend: false, annul: false, reissue };
+      return { check: false, resend: false, annul: false, reissue, abandon: false };
   }
 }
 
@@ -110,5 +135,5 @@ function reissueOffered(status: InvoiceStatus, chain: InvoiceChainFacts): boolea
  * is. Reissue is its own card, rendered on `levers.reissue` alone.
  */
 export function hasInvoiceLevers(levers: InvoiceLevers): boolean {
-  return levers.check || levers.resend || levers.annul;
+  return levers.check || levers.resend || levers.annul || levers.abandon;
 }

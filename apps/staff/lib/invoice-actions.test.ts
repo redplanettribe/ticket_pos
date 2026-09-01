@@ -3,6 +3,23 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { hasInvoiceLevers, invoiceLevers } from "./invoice-actions.ts";
+import type { InvoiceStatus } from "./operator-api.ts";
+
+// Every status, spelled here rather than imported from operator-api: that
+// module reaches the network at import time and `node --test` cannot load
+// it. `satisfies` is what keeps the list honest — a status added there and
+// not here fails typecheck.
+const INVOICE_STATUSES = [
+  "owed",
+  "pending",
+  "authorized",
+  "not_authorized",
+  "rejected",
+  "needs_attention",
+  "withdrawn",
+  "annulled",
+  "abandoned",
+] as const satisfies readonly InvoiceStatus[];
 
 // WHAT THESE ASSERT. The card's sentences live in the catalogs (ADR 0041);
 // what is left is the decision they hang on: which levers a document in
@@ -11,7 +28,7 @@ import { hasInvoiceLevers, invoiceLevers } from "./invoice-actions.ts";
 // queue, the annulment and the trail cannot reach an operator with nothing
 // to say in either language.
 
-const NONE = { check: false, resend: false, annul: false, reissue: false };
+const NONE = { check: false, resend: false, annul: false, reissue: false, abandon: false };
 
 test("a pending or parked document offers check, resend and mark annulled", () => {
   assert.deepEqual(invoiceLevers("pending", true), { ...NONE, check: true, resend: true, annul: true });
@@ -26,7 +43,7 @@ test("a refused manual document keeps check and resend without mark annulled", (
 });
 
 test("a finished document offers nothing", () => {
-  for (const status of ["authorized", "annulled", "withdrawn"] as const) {
+  for (const status of ["authorized", "annulled", "withdrawn", "abandoned"] as const) {
     const levers = invoiceLevers(status, true);
     assert.deepEqual(levers, NONE, status);
     assert.equal(hasInvoiceLevers(levers), false, status);
@@ -87,11 +104,38 @@ test("a document the SRI refuses by number keeps check and loses resend", () => 
   assert.deepEqual(invoiceLevers("needs_attention", true, undefined, true), {
     ...NONE,
     check: true,
-    annul: true,
+    abandon: true,
   });
-  assert.deepEqual(invoiceLevers("not_authorized", true, undefined, true), { ...NONE, check: true });
-  assert.deepEqual(invoiceLevers("rejected", true, undefined, true), { ...NONE, check: true });
-  assert.deepEqual(invoiceLevers("pending", true, undefined, true), { ...NONE, check: true, annul: true });
+  assert.deepEqual(invoiceLevers("not_authorized", true, undefined, true), { ...NONE, check: true, abandon: true });
+  assert.deepEqual(invoiceLevers("rejected", true, undefined, true), { ...NONE, check: true, abandon: true });
+  // Pending is not a refusal: the SRI has said 45 about some earlier send,
+  // and the document is still with the authority, so it is checked rather
+  // than given up on. Mark annulled is gone all the same — there is nothing
+  // at the portal under that number to have been annulled.
+  assert.deepEqual(invoiceLevers("pending", true, undefined, true), { ...NONE, check: true });
+});
+
+// ABANDON AND MARK ANNULLED ARE MUTUALLY EXCLUSIVE (#578, ADR 0068), and
+// that is the point of the feature rather than a tidy invariant: the two
+// make opposite claims about the SRI — it never took the document, or it
+// held the document and the operator disowned it by hand — and exactly one
+// of them can be true of any document. Read over every state, so no future
+// lever can offer both.
+test("no document is ever offered both abandon and mark annulled", () => {
+  for (const status of INVOICE_STATUSES) {
+    for (const refusedByNumber of [true, false]) {
+      const levers = invoiceLevers(status, true, undefined, refusedByNumber);
+      assert.ok(!(levers.abandon && levers.annul), `${status} refusedByNumber=${refusedByNumber}`);
+    }
+  }
+});
+
+// Abandon belongs to the refusal by number and to nothing else: a document
+// parked for a reason with a real remedy is never given up on.
+test("abandon is offered only where the SRI refuses the number", () => {
+  for (const status of INVOICE_STATUSES) {
+    assert.equal(invoiceLevers(status, true, undefined, false).abandon, false, status);
+  }
 });
 
 // Nothing else moves: a document the SRI has not refused by number is
@@ -167,6 +211,26 @@ test("every surface has its words in both languages", () => {
     "invoicingNumberRefusalTitle",
     "invoicingNumberRefusalBody",
     "invoicingResendRefusedByNumber",
+    // Abandon (#578): the button, its note, the confirmation, the trail and
+    // the sentence that says why Mark annulled is gone.
+    "invoicingStatusAbandoned",
+    "invoicingAbandon",
+    "invoicingAbandoning",
+    "invoicingAbandonHint",
+    "invoicingAbandonNoteLabel",
+    "invoicingAbandonNotePlaceholder",
+    "invoicingAbandonConfirmTitle",
+    "invoicingAbandonConfirm",
+    "invoicingAbandonCancel",
+    "invoicingAbandonDone",
+    "invoicingAbandonFailed",
+    "invoicingAnnulRefusedByNumber",
+    "invoicingAbandonmentTitle",
+    "invoicingAbandonmentTrail",
+    "invoicingAbandonmentTrailNote",
+    "invoicingStatusFilterLabel",
+    "invoicingStatusFilterAll",
+    "invoicingListEmptyForStatus",
   ];
   for (const locale of ["en", "es"]) {
     const catalog = JSON.parse(
@@ -187,6 +251,11 @@ test("every surface has its words in both languages", () => {
       "INVOICE_SUPERSEDED",
       "INVOICE_ALREADY_CREDITED",
       "INVOICE_REFUSED_BY_NUMBER",
+      "INVOICE_ABANDONED",
+      "INVOICE_NOT_ABANDONABLE",
+      "INVOICE_NOT_REFUSED_BY_NUMBER",
+      "INVOICE_CHECK_NOT_FRESH",
+      "INVOICE_ABANDON_INSTEAD",
     ]) {
       assert.ok(catalog.errors.envelope[code]?.trim(), `${locale}: errors.envelope.${code} is missing`);
     }

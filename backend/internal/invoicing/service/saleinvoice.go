@@ -209,7 +209,13 @@ func (s *Service) SettleReversedSale(ctx context.Context, tx *sql.Tx, reversal s
 			if err := s.withdrawNeverSent(ctx, tx, inv, reversal); err != nil {
 				return false, err
 			}
-		case inv.Status == invoicing.InvoiceStatusAnnulled:
+		case inv.Status == invoicing.InvoiceStatusAnnulled, inv.Status == invoicing.InvoiceStatusAbandoned:
+			// Annulled: the operator disowned it at the portal already.
+			// Abandoned (#578, ADR 0068): the authority never took it and
+			// never will, so it was never a legal document and there is
+			// nothing to credit — a nota de crédito against a number the
+			// authority does not hold would be refused on its own terms and
+			// would claim, wrongly, that something had been declared.
 			s.logger.Info("invoicing: reversed sale's invoice needs no credit note", "invoice_id", inv.ID, "status", inv.Status)
 		default:
 			// authorized, pending, or needs_attention with a number consumed.

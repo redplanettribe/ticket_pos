@@ -208,8 +208,12 @@ func customerDocumentView(row *repository.InvoiceRow) (CustomerDocument, bool) {
 	case invoicing.InvoiceStatusOwed, invoicing.InvoiceStatusPending, invoicing.InvoiceStatusNeedsAttention:
 		doc.Status = CustomerDocumentOnItsWay
 	default:
-		// withdrawn, annulled, and the manual-only refusals a Sale document
-		// never carries: nothing the buyer is shown.
+		// withdrawn, annulled, abandoned, and the manual-only refusals a
+		// Sale document never carries: nothing the buyer is shown. An
+		// ABANDONED document (#578, ADR 0068) belongs here for the strongest
+		// of the reasons: the authority never took it, so it was never a
+		// legal document, and nobody may hold an XML for one — nor may it
+		// count anywhere as the Sale's valid factura.
 		return CustomerDocument{}, false
 	}
 	return doc, true

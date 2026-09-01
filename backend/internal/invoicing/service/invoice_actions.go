@@ -146,7 +146,9 @@ func (s *Service) actionable(ctx context.Context, id string) (*repository.Invoic
 // from the document alone: an authorized one — a legal artifact is neither
 // asked about nor sent again — an annulled one (#477): the operator recorded
 // that the authority no longer holds it as valid, and a Check that found a
-// late AUTORIZADO would undo that record — a withdrawn one (#476): never
+// late AUTORIZADO would undo that record — an abandoned one (#578): the
+// authority never took it and never will, so there is nothing to ask about
+// and nothing that would ever be sent — a withdrawn one (#476): never
 // sent, and never will be, its sale having been reversed first — and one not
 // yet signed (#473): an owed document has no clave to ask about and no bytes
 // to send, and the Drainer is what issues it.
@@ -154,12 +156,18 @@ func (s *Service) actionable(ctx context.Context, id string) (*repository.Invoic
 // Pure and separate from actionable so that #577's asymmetry can be read as
 // one thing: this is the shared floor, resendRefusal is the one step Resend
 // takes beyond it, and nothing a refusal by number does may reach Check.
+// #578's Abandon composes on the same floor and adds three steps of its own
+// (abandon.go), which is what makes "Check status, Resend and Abandon are
+// all refused on an abandoned document" one line here rather than three
+// rules kept in step by hand.
 func actionableRefusal(inv *invoicing.Invoice) error {
 	switch inv.Status {
 	case invoicing.InvoiceStatusAuthorized:
 		return invoicing.ErrInvoiceAlreadyAuthorized()
 	case invoicing.InvoiceStatusAnnulled:
 		return invoicing.ErrInvoiceAnnulled()
+	case invoicing.InvoiceStatusAbandoned:
+		return invoicing.ErrInvoiceAbandoned()
 	case invoicing.InvoiceStatusWithdrawn:
 		return invoicing.ErrInvoiceWithdrawn()
 	}

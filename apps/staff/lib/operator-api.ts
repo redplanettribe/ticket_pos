@@ -1091,6 +1091,14 @@ export async function uploadOperatorEcuadorIssuerCertificate(
  * `withdrawn` and `annulled` are the states of a document the platform owes
  * itself — a Sale Invoice or a Credit Note (#473, ADR 0060); a manual Tax
  * Invoice is born `pending` and never sees them.
+ *
+ * `abandoned` is the third death (#578, ADR 0068) and belongs to any kind:
+ * the document WAS sent, the SRI never took it — it refuses the number it
+ * carries — and it was therefore never a legal document. Distinct from
+ * `annulled`, which says the SRI held the document and the operator disowned
+ * it by hand at the portal, and from `withdrawn`, which was never sent at
+ * all. The three differ in what a reader may conclude, not merely in why
+ * they were entered.
  */
 export type InvoiceStatus =
   | "owed"
@@ -1100,7 +1108,21 @@ export type InvoiceStatus =
   | "rejected"
   | "needs_attention"
   | "withdrawn"
-  | "annulled";
+  | "annulled"
+  | "abandoned";
+
+/** Every status, for the list's status filter. In the order a document travels. */
+export const INVOICE_STATUSES = [
+  "owed",
+  "pending",
+  "authorized",
+  "not_authorized",
+  "rejected",
+  "needs_attention",
+  "withdrawn",
+  "annulled",
+  "abandoned",
+] as const satisfies readonly InvoiceStatus[];
 
 /** Why a document exists: an operator typed it, a paid House checkout owed it, or such a Sale's reversal did. */
 export type InvoiceKind = "manual" | "sale" | "credit_note";
@@ -1279,6 +1301,18 @@ export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
   annulled_by: string | null;
   annulled_at: string | null;
   /**
+   * The abandonment's trail (#578, ADR 0068): the operator who recorded that
+   * the SRI never took this document, when, and their optional note ("not
+   * registered at the portal, confirmed by phone"). All null unless
+   * abandoned, and the note null when none was left. Deliberately not the
+   * annulment's pair: a reader who finds `annulled_at` set must be able to
+   * conclude a portal annulment happened, and for an abandoned document none
+   * did.
+   */
+  abandoned_by: string | null;
+  abandoned_at: string | null;
+  abandon_note: string | null;
+  /**
    * The Sale Invoice Reissue's chain (#483, ADR 0061): on a corrected Sale
    * Invoice, the factura it supersedes; the row's `superseded_by_invoice_id`
    * is, on a reissued factura, the live corrected one. The current Sale
@@ -1353,10 +1387,14 @@ export const OPERATOR_INVOICES_PAGE_SIZE = 50;
 /** The list's kind filter: one kind, or every kind. */
 export type InvoiceKindFilter = InvoiceKind | "all";
 
+/** The list's status filter: one status, or every status (#578). */
+export type InvoiceStatusFilter = InvoiceStatus | "all";
+
 /**
  * A page of Tax Invoices, newest first, narrowed to one kind unless `all`
- * (#477) and, when asked, to the documents carrying a Recipient Warning
- * (#482). The API does the narrowing, so the page's total is the filtered
+ * (#477), to one status unless `all` (#578 — `abandoned` is why it exists,
+ * so that every number the platform has given up on can be audited), and,
+ * when asked, to the documents carrying a Recipient Warning (#482). The API does the narrowing, so the page's total is the filtered
  * total; the warning filter is 404 SALE_INVOICING_UNAVAILABLE while the
  * feature is closed.
  */
@@ -1364,6 +1402,7 @@ export async function fetchOperatorInvoices(
   page = 1,
   kind: InvoiceKindFilter = "all",
   recipientWarningOnly = false,
+  status: InvoiceStatusFilter = "all",
 ): Promise<OperatorInvoiceListPage> {
   const params = new URLSearchParams({
     page: String(page),
@@ -1371,6 +1410,9 @@ export async function fetchOperatorInvoices(
   });
   if (kind !== "all") {
     params.set("kind", kind);
+  }
+  if (status !== "all") {
+    params.set("status", status);
   }
   if (recipientWarningOnly) {
     params.set("recipient_warning", "true");
@@ -1522,6 +1564,30 @@ export async function fetchOperatorNeedsAttentionCount(): Promise<OperatorNeedsA
 export async function annulOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
   return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/annul`, {
     method: "POST",
+  });
+}
+
+/**
+ * Records that the SRI never took the document and never will (#578, ADR
+ * 0068), and returns it as it then stands: `abandoned`, with who, when and
+ * the optional note. Nothing is sent to the SRI, and the document keeps its
+ * number, clave, bytes and every attempt — the secuencial stays consumed and
+ * is never handed out again.
+ *
+ * Requires a fresh Check status immediately beforehand, so the decision
+ * rests on the SRI's own current answer: without one it is refused with
+ * INVOICE_CHECK_NOT_FRESH, whose remedy is to press Check status and try
+ * again. Also refused with INVOICE_NOT_REFUSED_BY_NUMBER on a document the
+ * SRI refused for any other reason, INVOICE_NOT_ABANDONABLE outside
+ * `needs_attention`, `rejected` and `not_authorized`, and by the shared
+ * codes every finished document answers — INVOICE_ALREADY_AUTHORIZED,
+ * INVOICE_ABANDONED, INVOICE_ANNULLED, INVOICE_WITHDRAWN,
+ * INVOICE_NOT_ISSUED. Irreversible.
+ */
+export async function abandonOperatorInvoice(id: string, note: string | null): Promise<OperatorInvoiceDetail> {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/abandon`, {
+    method: "POST",
+    body: JSON.stringify({ note }),
   });
 }
 

@@ -425,14 +425,57 @@ func (r *Repository) AnnulInvoice(ctx context.Context, invoiceID, annulledBy str
 	return true, withdrawnSuccessorID, nil
 }
 
+// AbandonInvoice records that the Tax Authority never took the document and
+// never will (#578, parent #575, ADR 0068): the status, who, when and the
+// operator's optional note, AND NOTHING ELSE. The number, the clave de
+// acceso, the signed XML and the authority's last messages stay exactly as
+// they were — the document's issuance is not undone, it is accounted for —
+// and the secuencial is never touched, so the abandoned number stays
+// consumed and the sequence only moves forward. next_attempt_at is cleared
+// so the Drainer never claims the row again, and attention_since with it.
+//
+// GUARDED ON THE THREE STATES ABANDON IS ALLOWED FROM, and on the row still
+// being signed, so a second press, or a press racing a late AUTORIZADO that
+// healed the row, finds nothing to update; the service reads the row back to
+// say which. The three are needs_attention — where a Sale Invoice's refusal
+// parks it — and rejected and not_authorized, where a manual document's
+// refusals are recorded.
+//
+// The note is stored NULL when none was left, never an empty string, as the
+// reissue's is (migration 102): "no note" and "an empty note" are the same
+// thing, and only one of them should be representable.
+func (r *Repository) AbandonInvoice(ctx context.Context, invoiceID, abandonedBy, note string, abandonedAt time.Time) (bool, error) {
+	res, err := r.db.Pool.ExecContext(ctx, `
+		UPDATE invoicing_invoices SET
+			status = $2,
+			abandoned_by = $3,
+			abandoned_at = $4,
+			abandon_note = NULLIF($5, ''),
+			next_attempt_at = NULL,
+			attention_since = NULL,
+			updated_at = NOW()
+		WHERE id = $1 AND status IN ($6, $7, $8) AND signed_xml IS NOT NULL
+	`, invoiceID, invoicing.InvoiceStatusAbandoned, abandonedBy, abandonedAt, note,
+		invoicing.InvoiceStatusNeedsAttention, invoicing.InvoiceStatusRejected, invoicing.InvoiceStatusNotAuthorized)
+	if err != nil {
+		return false, fmt.Errorf("abandon invoice: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("abandon invoice: %w", err)
+	}
+	return n == 1, nil
+}
+
 const invoiceColumns = `
 	i.id, i.kind, i.issuer_id, i.country, i.environment, i.status, i.issued_on, i.issued_at, i.issued_by,
 	i.recipient_tax_id_type, i.recipient_tax_id, i.recipient_legal_name, i.recipient_address, i.recipient_email,
 	i.issuer_snapshot, i.currency, i.subtotal_cents, i.discount_cents, i.iva_cents, i.total_cents, i.payment_method,
 	i.signed_xml, i.authorization_xml, i.last_messages,
 	i.ticket_sale_id, ts.confirmation_ref, i.credits_invoice_id, i.credit_note_reason, i.iva_rate, i.delivered_at, i.next_attempt_at,
-	(SELECT c.id FROM invoicing_invoices c WHERE c.credits_invoice_id = i.id AND c.status NOT IN ('withdrawn', 'annulled') ORDER BY c.created_at DESC, c.id DESC LIMIT 1),
+	(SELECT c.id FROM invoicing_invoices c WHERE c.credits_invoice_id = i.id AND c.status NOT IN ('withdrawn', 'annulled', 'abandoned') ORDER BY c.created_at DESC, c.id DESC LIMIT 1),
 	i.attention_since, i.annulled_by, i.annulled_at, i.recipient_warning,
+	i.abandoned_by, i.abandoned_at, i.abandon_note,
 	i.supersedes_invoice_id,
 	(SELECT s.id FROM invoicing_invoices s WHERE s.supersedes_invoice_id = i.id AND s.status <> 'withdrawn' ORDER BY s.created_at DESC, s.id DESC LIMIT 1),
 	rr.reissued_by, rr.reissued_at, rr.reissue_note,
@@ -446,8 +489,9 @@ const invoiceColumns = `
 // it is the Sale's fact, and the operator surfaces want it on every read.
 // The Credit Note crediting a Sale Invoice is read the same way (#476): the
 // link is stored once, on the Credit Note, and walked back here — taking
-// the newest LIVE one (#484): a Credit Note that died, withdrawn or
-// annulled, credits nothing, and a factura it alone names is uncredited,
+// the newest LIVE one (#484): a Credit Note that died — withdrawn,
+// annulled, or abandoned because the authority refused its number (#578,
+// ADR 0068) — credits nothing, and a factura it alone names is uncredited,
 // current again and reissuable; the dead Credit Note stays on file beside
 // it, listed with the Sale's documents and readable by its own id.
 //
@@ -498,6 +542,13 @@ func (r *Repository) GetInvoice(ctx context.Context, id string) (*InvoiceRow, er
 type InvoiceFilter struct {
 	// Kind narrows the page to one document kind; "" is every kind.
 	Kind invoicing.DocumentKind
+	// Status narrows the page to one status (#578, ADR 0068); "" is every
+	// status. Added so that every number the platform has given up on can be
+	// audited — `abandoned` is the reason it exists — but written for the
+	// whole vocabulary rather than for that one word, since a filter that
+	// answers one status and not the eight beside it is a surface that has
+	// to be extended again by the next person who needs one.
+	Status invoicing.InvoiceStatus
 	// RecipientWarning narrows the page to the documents carrying a
 	// Recipient Warning.
 	RecipientWarning bool
@@ -510,16 +561,16 @@ func (r *Repository) ListInvoices(ctx context.Context, filter InvoiceFilter, pag
 	var total int
 	if err := r.db.Pool.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM invoicing_invoices
-		WHERE ($1 = '' OR kind = $1) AND (NOT $2 OR recipient_warning)
-	`, string(filter.Kind), filter.RecipientWarning).Scan(&total); err != nil {
+		WHERE ($1 = '' OR kind = $1) AND ($2 = '' OR status = $2) AND (NOT $3 OR recipient_warning)
+	`, string(filter.Kind), string(filter.Status), filter.RecipientWarning).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count invoices: %w", err)
 	}
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT `+invoiceColumns+invoiceFrom+`
-		WHERE ($1 = '' OR i.kind = $1) AND (NOT $2 OR i.recipient_warning)
+		WHERE ($1 = '' OR i.kind = $1) AND ($2 = '' OR i.status = $2) AND (NOT $3 OR i.recipient_warning)
 		ORDER BY COALESCE(i.issued_at, i.created_at) DESC, i.created_at DESC, i.id DESC
-		LIMIT $3 OFFSET $4
-	`, string(filter.Kind), filter.RecipientWarning, pageSize, (page-1)*pageSize)
+		LIMIT $4 OFFSET $5
+	`, string(filter.Kind), string(filter.Status), filter.RecipientWarning, pageSize, (page-1)*pageSize)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list invoices: %w", err)
 	}
@@ -702,6 +753,8 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 		deliveredAt, nextAttemptAt         sql.NullTime
 		attentionSince, annulledAt         sql.NullTime
 		annulledBy                         sql.NullString
+		abandonedBy, abandonNote           sql.NullString
+		abandonedAt                        sql.NullTime
 		supersedesID, supersededByID       sql.NullString
 		reissuedBy, reissueNote            sql.NullString
 		reissuedAt                         sql.NullTime
@@ -720,6 +773,7 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 		&ticketSaleID, &confirmationRef, &creditsInvoiceID, &creditNoteReason, &ivaRate, &deliveredAt, &nextAttemptAt,
 		&creditedByInvoiceID,
 		&attentionSince, &annulledBy, &annulledAt, &inv.RecipientWarning,
+		&abandonedBy, &abandonedAt, &abandonNote,
 		&supersedesID, &supersededByID, &reissuedBy, &reissuedAt, &reissueNote,
 		&backfilledBy, &backfilledAt,
 		&inv.CreatedAt, &inv.UpdatedAt,
@@ -763,6 +817,12 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 	if annulledAt.Valid {
 		t := annulledAt.Time
 		inv.AnnulledAt = &t
+	}
+	inv.AbandonedBy = abandonedBy.String
+	inv.AbandonNote = abandonNote.String
+	if abandonedAt.Valid {
+		t := abandonedAt.Time
+		inv.AbandonedAt = &t
 	}
 	inv.SupersedesInvoiceID = supersedesID.String
 	inv.SupersededByInvoiceID = supersededByID.String

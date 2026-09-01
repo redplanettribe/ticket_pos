@@ -450,6 +450,11 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// Mark annulled (#477): the operator's record of a manual portal act,
 	// allowed from pending or needs_attention, irreversible.
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/annul", operator(http.HandlerFunc(inv.AnnulInvoice)))
+	// Abandon (#578, ADR 0068): the operator's record that the SRI never
+	// took the document and never will, because it refuses the number it
+	// carries. Any kind, from the three states a refusal leaves, and only
+	// with a fresh Check status behind it. Terminal and irreversible.
+	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/abandon", operator(http.HandlerFunc(inv.AbandonInvoice)))
 	// The Sale Invoice Reissue (#483, ADR 0061): a Credit Note and a
 	// corrected Sale Invoice owed in one act against an authorized factura
 	// whose Recipient is wrong. Operator-only; 404 while Sale Invoicing is

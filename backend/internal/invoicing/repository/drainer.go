@@ -42,7 +42,12 @@ import (
 // settles by the Drainer's own rounds, by an operator's Check status and
 // by an operator's Mark annulled, and a claim that reads the factura's
 // state on every tick needs none of them to remember the Credit Note. A
-// signed Credit Note is past the wait and is polled like any other.
+// signed Credit Note is past the wait and is polled like any other. An
+// ABANDONED factura settles it too (#578, ADR 0068): the authority never
+// took the document, so there is nothing to credit and never will be, and
+// the owed Credit Note must become claimable for the service to withdraw
+// it. Leaving `abandoned` out would strand it, owed and unclaimable,
+// forever.
 //
 // A CREDIT NOTE WAITS FOR ITS SIBLING TOO (#484). Two Credit Notes may be
 // owed against one factura — a reissue's, and then a reversal's while the
@@ -82,7 +87,7 @@ func (r *Repository) ClaimDueInvoice(ctx context.Context, now, leaseUntil time.T
 			        EXISTS (
 			          SELECT 1 FROM invoicing_invoices f
 			          WHERE f.id = i.credits_invoice_id
-			            AND f.status IN ('authorized', 'withdrawn', 'annulled'))
+			            AND f.status IN ('authorized', 'withdrawn', 'annulled', 'abandoned'))
 			        AND NOT EXISTS (
 			          SELECT 1 FROM invoicing_invoices o
 			          WHERE o.kind = 'credit_note' AND o.id <> i.id

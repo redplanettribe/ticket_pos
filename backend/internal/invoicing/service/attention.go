@@ -145,11 +145,32 @@ func (s *Service) AnnulInvoice(ctx context.Context, id, annulledBy string) (*Inv
 // annullable says whether Mark annulled may be pressed on the document as
 // it stands: signed — there is a number at the authority to have been
 // annulled — and pending or needs_attention.
+//
+// EXCEPT WHERE ABANDON IS THE TRUE ACT (#578, ADR 0068). Mark annulled
+// records an annulment the operator performed BY HAND AT THE AUTHORITY'S
+// PORTAL. On a document the authority refuses by NUMBER — its 45,
+// "secuencial registrado" — the portal shows nothing under that number, so
+// there is nothing there to have been annulled and the press would write a
+// true-looking record of an act that never happened. That was the only
+// escape production's 001-001-000000025 and 26 offered their operator, and
+// it was a falsehood. It is refused here, naming the act that is true.
+//
+// This NARROWS an existing operator capability, deliberately: ADR 0061's
+// line that "Mark annulled is for documents the authority refused" is
+// amended to documents the authority HELD and the operator disowned.
+//
+// The refusal is gated on the authority's refusal alone and not on
+// everything Abandon needs (abandonRefusal): a document that qualifies but
+// has not been checked must be CHECKED, never annulled instead, or the
+// falsehood is one stale minute away.
 func annullable(inv *invoicing.Invoice) error {
 	switch inv.Status {
 	case invoicing.InvoiceStatusPending, invoicing.InvoiceStatusNeedsAttention:
 		if !inv.Signed() {
 			return invoicing.ErrInvoiceNotIssued()
+		}
+		if invoicing.RefusedByNumberIn(inv.Messages) {
+			return invoicing.ErrInvoiceAbandonInstead()
 		}
 		return nil
 	case invoicing.InvoiceStatusOwed:
@@ -175,8 +196,9 @@ const (
 	// its reason says which.
 	DocumentRoleCreditNote DocumentRole = "credit_note"
 	// DocumentRoleNotCurrent: a Sale Invoice that is neither current nor
-	// superseded — withdrawn before it was sent, or annulled at the portal
-	// — a Sale Invoice the Sale no longer has (#477, #480).
+	// superseded — withdrawn before it was sent, annulled at the portal, or
+	// abandoned because the authority never took it (#578, ADR 0068) — a
+	// Sale Invoice the Sale no longer has (#477, #480).
 	DocumentRoleNotCurrent DocumentRole = "not_current"
 )
 
@@ -253,7 +275,9 @@ func documentRole(item *InvoiceListItem) DocumentRole {
 		return DocumentRoleCreditNote
 	case item.SupersededByInvoiceID != nil:
 		return DocumentRoleSuperseded
-	case item.Status == string(invoicing.InvoiceStatusWithdrawn), item.Status == string(invoicing.InvoiceStatusAnnulled):
+	case item.Status == string(invoicing.InvoiceStatusWithdrawn),
+		item.Status == string(invoicing.InvoiceStatusAnnulled),
+		item.Status == string(invoicing.InvoiceStatusAbandoned):
 		return DocumentRoleNotCurrent
 	default:
 		return DocumentRoleCurrent
