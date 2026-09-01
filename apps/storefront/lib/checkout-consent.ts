@@ -61,14 +61,18 @@ export type ConsentBoxes = {
  * ordinary case rather than the reward for a returning buyer.
  *
  * THE DECLARATION IS NAMED HERE EVEN THOUGH IT CANNOT DECIDE THE ANSWER, and
- * that is a deliberate difference from the API's own reading of the same field
- * (consent.Outstanding.Any, which leaves it out to keep the tracking rule
- * legible). What differs is the consequence of being wrong. There, an omitted
- * term changes nothing about who is stopped; here, a box the API owes and this
- * section does not draw is a submit button disabled forever beside a checkbox
- * that is not on the screen — the dead end this whole capture point exists to
- * prevent. Naming it costs one clause and makes the section's presence follow
- * from the boxes rather than from an invariant held somewhere else.
+ * the API's own reading of the same five fields (consent.Outstanding.Any)
+ * leaves it out. Both are deliberate and both say the same thing about the
+ * fact: the declaration rides the Terms box and is true only where that one
+ * already is, so it can never be the term that decides. What differs is what a
+ * wrong reading costs. There, the disjunction is only the list of what can be
+ * owed, and a term that can never decide it blurs the tracking rule. Here, the
+ * same disjunction decides whether this section is RENDERED, so a box the API
+ * owes and this section does not draw is a submit button disabled forever
+ * beside a checkbox that is not on the screen — the dead end this whole capture
+ * point exists to prevent. Naming it costs one clause and makes the section's
+ * presence follow from the boxes rather than from an invariant held on the
+ * other side of the wire.
  */
 export function anyConsentBox(boxes: ConsentBoxes): boolean {
   return (

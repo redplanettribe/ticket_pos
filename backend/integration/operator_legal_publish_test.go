@@ -720,7 +720,7 @@ func TestOperatorPublishesTheAdulthoodDeclarationAsAGatingEdition(t *testing.T) 
 	// A CORRECTION IS REFUSED. Somebody is now being asked for something they
 	// were not asked for, and no reason makes that a touch-up.
 	resp, body = publishLegal(t, env, sessionID, operatorLegalTermsPath, map[string]any{
-		"kind": "correction", "reason": "The age declaration box was missing from the terms."})
+		"kind": "correction", "reason": "The adulthood declaration box was missing from the terms."})
 	refusedWith(t, resp, body, http.StatusBadRequest, "LEGAL_CORRECTION_STRUCTURAL")
 
 	// AT LEAST TOMORROW. Both the unnamed day and the day before the earliest one
@@ -869,7 +869,7 @@ func TestTheAdulthoodDeclarationCanBeWithdrawnByAnotherGatingEdition(t *testing.
 	}
 	reviewWholeDraft(t, env, sessionID, operatorLegalTermsPath)
 	resp, body := publishLegal(t, env, sessionID, operatorLegalTermsPath, map[string]any{
-		"kind": "correction", "reason": "We have stopped asking people to declare their age."})
+		"kind": "correction", "reason": "We have stopped asking people to declare their adulthood."})
 	refusedWith(t, resp, body, http.StatusBadRequest, "LEGAL_CORRECTION_STRUCTURAL")
 
 	// It goes by a gating edition, dated at least tomorrow, like everything else.

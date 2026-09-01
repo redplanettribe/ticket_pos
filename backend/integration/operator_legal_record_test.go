@@ -1077,7 +1077,7 @@ func TestTheDeclarationHasNoBearingOnTicketsOrTransactionalMail(t *testing.T) {
 
 	// AND THE SALE CONFIRMATION CARRIES NOTHING OF IT EITHER. The receipt is
 	// about tickets and money; a line reporting what somebody declared about
-	// their age would be a compliance control leaking into a buyer's inbox.
+	// being of age would be a compliance control leaking into a buyer's inbox.
 	confirmations := env.email.Confirmations()
 	if len(confirmations) != 1 {
 		t.Fatalf("sale confirmations = %d; want the one this sale earned", len(confirmations))

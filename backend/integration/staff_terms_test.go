@@ -718,3 +718,59 @@ func TestStaffSignInDeclarationIsPinnedToTheEditionShown(t *testing.T) {
 		t.Fatalf("expected a re-gate that asks: %+v", regated.TermsRequired)
 	}
 }
+
+// TestStaffCurrentOnAnArtifactCarryingEditionIsNeverReAsked is #587's last
+// acceptance box on its own, at both of the gates that can ask.
+//
+// It is the thing that would break silently. The declaration has no editions,
+// no lineage and no satisfying set of its own — it rides the Terms gate and is
+// owed exactly where an acceptance is — so a second gate computed anywhere,
+// from `customers`, from the Artifact set, from anything at all, would show up
+// first as a person holding a perfectly good acceptance being stopped again
+// over a box they already ticked. The neighbouring tests all assert the
+// declaration where it IS owed; this one asserts the far larger population
+// where it is not, and it is deliberately blunt about it: no `terms_required`
+// at all, no second interstitial, and not one row appended.
+//
+// The acceptance is seeded rather than earned through the door because what is
+// under test is the PREDICATE and not the capture — an act that already has its
+// own story above — and seeding is what lets this one name the starting state
+// in a line: Current on an edition that asks, having declared.
+func TestStaffCurrentOnAnArtifactCarryingEditionIsNeverReAsked(t *testing.T) {
+	env := setupTest(t)
+	email := "already-declared@example.com"
+
+	edition := publishTermsVersionAskingAdulthood(t, env, 2, 0)
+	seedStaffAcceptanceDeclaring(t, env, email, edition)
+
+	// THE SIGN-IN DOOR. A session, minted outright: the gate held nobody, so
+	// there is no terms step to word and neither box is ever drawn.
+	outcome := decodeStaffSignInOutcome(t, requestAndVerifyIn(t, env, email, "en"))
+	if outcome.TermsRequired != nil {
+		t.Fatalf("a Member Current on this edition was re-asked at sign-in: %+v", outcome.TermsRequired)
+	}
+	if outcome.SessionID == "" {
+		t.Fatal("a Member owing nothing must be minted a session by the verify itself")
+	}
+
+	// THE LIVE-SESSION INTERSTITIAL, which is the other gate ADR 0067 added and
+	// the one that runs on every navigation. It must be as quiet as the door.
+	gate := readStaffTermsGate(t, env, outcome.SessionID, "en")
+	if gate.Outstanding || gate.TermsRequired != nil {
+		t.Fatalf("the interstitial diverted a Member who owes nothing: %+v", gate)
+	}
+	if outstanding := sessionTermsOutstanding(t, env, outcome.SessionID); outstanding == nil || *outstanding {
+		t.Fatalf("terms_outstanding=%v on the session route; want a plain false", outstanding)
+	}
+
+	// And nothing was written by any of it. One acceptance, still carrying the
+	// one declaration it was seeded with — a re-ask that recorded a duplicate
+	// would be the same bug wearing a different hat.
+	if count := countStaffTermsAcceptances(t, env, email); count != 1 {
+		t.Fatalf("acceptances=%d; want the one already held", count)
+	}
+	declarations := staffAdulthoodDeclarations(t, env, email)
+	if len(declarations) != 1 || declarations[0] == nil || !*declarations[0] {
+		t.Fatalf("declarations=%v, want the single true that was already there", declarations)
+	}
+}

@@ -379,7 +379,8 @@ export function LoginForm({
             string stands in for it. The link below belongs to both boxes: the
             declaration is made in the contract's own terms.
           */}
-          {pendingTerms.adulthoodDeclarationLabel ? (
+          {asksAdulthoodDeclaration(pendingTerms.adulthoodDeclarationLabel) &&
+          pendingTerms.adulthoodDeclarationLabel ? (
             <label
               htmlFor="adulthood-declaration"
               className="flex items-start gap-3 rounded-lg border p-3 text-sm"

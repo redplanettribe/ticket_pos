@@ -423,8 +423,20 @@ type Outstanding struct {
 // AdulthoodDeclaration is deliberately absent from the disjunction, and its
 // absence changes no answer: it is true only where TermsAcceptance already is,
 // so naming it would add a term that can never decide the result. Leaving it
-// out is how the tracking rule stays legible — a reader who adds it back is
-// reading this as four independent gates, which is exactly what it is not.
+// out is how the tracking rule stays legible here — this type is read as the
+// list of things that can be owed, and a fifth term in the disjunction invites
+// the reading that there are five independent gates, which is exactly what
+// there are not.
+//
+// THE STOREFRONT'S anyConsentBox NAMES IT AND IS ALSO RIGHT (checkout-consent.ts).
+// The two are not in disagreement about the fact — neither can be decided by the
+// declaration — only about what a wrong reading costs on each side. Here an
+// extra term buys nothing and blurs the tracking rule. There, the same
+// disjunction decides whether a section of the dialog is rendered at all, so
+// omitting a box the API turns out to owe is a submit button disabled forever
+// beside a checkbox that is not on the screen. Legibility is worth more where
+// the answer cannot change; the box being on the screen is worth more where it
+// can.
 func (o Outstanding) Any() bool {
 	return o.PolicyAcceptance || o.MarketingConsent || o.NetworkingConsent || o.TermsAcceptance
 }
