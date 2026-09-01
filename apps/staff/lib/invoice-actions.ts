@@ -23,6 +23,15 @@ import type { InvoiceKind, InvoiceStatus } from "./operator-api";
  * is finished; an owed one has not been signed, so there is nothing at the
  * SRI to check, resend or annul.
  *
+ * `resend` alone falls away on a document the SRI refuses by NUMBER (#577,
+ * ADR 0068). Resend sends the same clave and the same secuencial, which is
+ * the whole of what error 45 objects to, so the API refuses it outright with
+ * INVOICE_REFUSED_BY_NUMBER; `check` stays, because asking the authority what
+ * it holds sends nothing. The page must SAY SO where the button was — this is
+ * the one lever whose absence is not self-explanatory from the status, and an
+ * operator who has been resending for two days is owed the reason rather than
+ * a silently shorter row of buttons.
+ *
  * `reissue` is the one lever an AUTHORIZED document has (#483): a Sale
  * Invoice Reissue, offered on a Sale Invoice that is the Sale's current one
  * — authorized, not superseded by a corrected factura, and not credited by
@@ -58,18 +67,23 @@ export function invoiceLevers(
   status: InvoiceStatus,
   signed: boolean,
   chain: InvoiceChainFacts = NOT_A_SALE_INVOICE,
+  refusedByNumber = false,
 ): InvoiceLevers {
   const reissue = reissueOffered(status, chain);
   if (!signed) {
     return { check: false, resend: false, annul: false, reissue: false };
   }
+  // The refusal by number takes `resend` away wherever it was offered, and
+  // touches nothing else: Check still asks, Mark annulled is still the
+  // operator's record of a portal act (#578 narrows that one, not this).
+  const resend = !refusedByNumber;
   switch (status) {
     case "pending":
     case "needs_attention":
-      return { check: true, resend: true, annul: true, reissue };
+      return { check: true, resend, annul: true, reissue };
     case "not_authorized":
     case "rejected":
-      return { check: true, resend: true, annul: false, reissue };
+      return { check: true, resend, annul: false, reissue };
     default:
       return { check: false, resend: false, annul: false, reissue };
   }

@@ -27,6 +27,13 @@ import (
 // the certificate now in custody. The document on file is replaced only when
 // the authority took the resend, so the artifact the platform holds is always
 // the one the authority holds.
+//
+// EXCEPT WHERE THE NUMBER IS THE OBJECTION (#577, ADR 0068). Sending the same
+// secuencial is the remedy for every refusal but one: the SRI's 45,
+// "secuencial registrado", is the authority refusing that very number, and a
+// resend can only earn it again. Resend is refused there and Check status is
+// not — the asymmetry is resendRefusal against actionableRefusal, and it is
+// what stops the operator spending days on a button that cannot work.
 
 // CheckInvoice asks the authority what became of a non-authorized invoice
 // and returns it as it then stands.
@@ -75,6 +82,9 @@ func (s *Service) ResendInvoice(ctx context.Context, id string) (*InvoiceDetail,
 	if err != nil {
 		return nil, err
 	}
+	if err := resendRefusal(&row.Invoice); err != nil {
+		return nil, err
+	}
 	issuer, err := s.repo.GetEcuadorIssuer(ctx)
 	if err != nil {
 		return nil, err
@@ -111,14 +121,10 @@ func (s *Service) ResendInvoice(ctx context.Context, id string) (*InvoiceDetail,
 	return s.GetInvoice(ctx, id)
 }
 
-// actionable loads the invoice both actions work on, refusing an authorized
-// one — a legal artifact is neither asked about nor sent again — an
-// annulled one (#477): the operator recorded that the authority no longer
-// holds it as valid, and a Check that found a late AUTORIZADO would undo
-// that record — a withdrawn one (#476): never sent, and never will be, its
-// sale having been reversed first — and one not yet signed (#473): an owed
-// document has no clave to ask about and no bytes to send, and the Drainer
-// is what issues it.
+// actionable loads the invoice both actions work on and refuses what both
+// refuse (actionableRefusal), plus the Ecuador half no in-memory invoice can
+// speak for: a document with no clave recorded has nothing to ask the
+// authority about and nothing to send.
 func (s *Service) actionable(ctx context.Context, id string) (*repository.InvoiceRow, error) {
 	row, err := s.repo.GetInvoice(ctx, id)
 	if err != nil {
@@ -127,18 +133,73 @@ func (s *Service) actionable(ctx context.Context, id string) (*repository.Invoic
 	if row == nil {
 		return nil, invoicing.ErrInvoiceNotFound()
 	}
-	switch row.Invoice.Status {
-	case invoicing.InvoiceStatusAuthorized:
-		return nil, invoicing.ErrInvoiceAlreadyAuthorized()
-	case invoicing.InvoiceStatusAnnulled:
-		return nil, invoicing.ErrInvoiceAnnulled()
-	case invoicing.InvoiceStatusWithdrawn:
-		return nil, invoicing.ErrInvoiceWithdrawn()
+	if err := actionableRefusal(&row.Invoice); err != nil {
+		return nil, err
 	}
-	if !row.Invoice.Signed() || row.Ecuador == nil {
+	if row.Ecuador == nil {
 		return nil, invoicing.ErrInvoiceNotIssued()
 	}
 	return row, nil
+}
+
+// actionableRefusal is what BOTH Check status and Resend refuse, decided
+// from the document alone: an authorized one — a legal artifact is neither
+// asked about nor sent again — an annulled one (#477): the operator recorded
+// that the authority no longer holds it as valid, and a Check that found a
+// late AUTORIZADO would undo that record — a withdrawn one (#476): never
+// sent, and never will be, its sale having been reversed first — and one not
+// yet signed (#473): an owed document has no clave to ask about and no bytes
+// to send, and the Drainer is what issues it.
+//
+// Pure and separate from actionable so that #577's asymmetry can be read as
+// one thing: this is the shared floor, resendRefusal is the one step Resend
+// takes beyond it, and nothing a refusal by number does may reach Check.
+func actionableRefusal(inv *invoicing.Invoice) error {
+	switch inv.Status {
+	case invoicing.InvoiceStatusAuthorized:
+		return invoicing.ErrInvoiceAlreadyAuthorized()
+	case invoicing.InvoiceStatusAnnulled:
+		return invoicing.ErrInvoiceAnnulled()
+	case invoicing.InvoiceStatusWithdrawn:
+		return invoicing.ErrInvoiceWithdrawn()
+	}
+	if !inv.Signed() {
+		return invoicing.ErrInvoiceNotIssued()
+	}
+	return nil
+}
+
+// resendRefusal is everything Resend refuses that Check status does not
+// (#577, parent #575, ADR 0068): a document the authority refuses by NUMBER.
+//
+// A HARD REFUSAL, NOT A WARNING. Resend's whole contract is the same clave
+// and the same secuencial (S1 §5.10), and that secuencial is the entirety of
+// the SRI's objection when it answers 45: the send cannot succeed, and the
+// two production facturas at 001-001-000000025 and 26 proved it by earning
+// the identical refusal on a Resend two days after their first. What the
+// operator needs is not a slower path to the same rejection but the rule,
+// which is why the refusal explains itself (ErrInvoiceRefusedByNumber).
+//
+// CHECK STATUS IS DELIBERATELY UNTOUCHED. It asks the authority and never
+// sends, and its answer is the evidence an Abandon (#578) will rest on: the
+// operator must be able to confirm the authority still holds nothing under
+// this clave. That is why the refusal lives here and not in
+// actionableRefusal.
+//
+// It reads the authority's stored messages through invoicing.RefusedByNumberIn,
+// never a stored flag or the Outcome the adapter built, so a document refused
+// long before this guard existed — production's 25 and 26 — is refused the
+// moment it deploys, with no backfill. The state is answered first: an
+// annulled document answers annulled whatever the authority once said about
+// its number.
+func resendRefusal(inv *invoicing.Invoice) error {
+	if err := actionableRefusal(inv); err != nil {
+		return err
+	}
+	if invoicing.RefusedByNumberIn(inv.Messages) {
+		return invoicing.ErrInvoiceRefusedByNumber()
+	}
+	return nil
 }
 
 // refreshedSnapshot is the Issuer as the resend prints it: every editable

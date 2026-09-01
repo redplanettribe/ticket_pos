@@ -10295,12 +10295,15 @@ paths:
         sent. Exactly one attempts row is written. INVOICE_ALREADY_AUTHORIZED (409)
         on an authorized invoice; INVOICE_ANNULLED (409) on one marked annulled; INVOICE_WITHDRAWN
         (409) on a withdrawn Sale Invoice or Credit Note, which was never sent; INVOICE_NOT_ISSUED
-        (409) on one still owed and unsigned; INVOICE_NOT_FOUND (404) otherwise. Returns
-        the invoice as it then stands, with its two hints about who holds the document
-        (#516): `check_status_hint` is true only when the SRI really holds it — some
-        submit to recepción came back received (`RECIBIDA`, or 43/70 on a resend)
-        — and it is still undecided (`pending` or `needs_attention`); `resend_hint`
-        is true when the SRI''s last word was that it has no record of the clave (`unknown`)
+        (409) on one still owed and unsigned; INVOICE_NOT_FOUND (404) otherwise. A
+        document the SRI refuses by NUMBER keeps this action, though Resend is refused
+        on it (#577, ADR 0068): asking what the authority holds under the clave sends
+        nothing and is the one thing still worth doing there. Returns the invoice
+        as it then stands, with its two hints about who holds the document (#516):
+        `check_status_hint` is true only when the SRI really holds it — some submit
+        to recepción came back received (`RECIBIDA`, or 43/70 on a resend) — and it
+        is still undecided (`pending` or `needs_attention`); `resend_hint` is true
+        when the SRI''s last word was that it has no record of the clave (`unknown`)
         and no submit was ever received, so the document is nowhere and resending
         the same bytes is the fix. A query answer never counts as the SRI holding
         the document, so the two are never both true, and a document whose ledger
@@ -10454,11 +10457,14 @@ paths:
         `unknown` (#516). One attempts row per SRI call. INVOICE_ALREADY_AUTHORIZED
         (409) on an authorized invoice; INVOICE_ANNULLED (409) on one marked annulled;
         INVOICE_WITHDRAWN (409) on a withdrawn Sale Invoice or Credit Note; INVOICE_NOT_ISSUED
-        (409) on one still owed and unsigned; INVOICE_NOT_FOUND (404); ISSUER_NOT_FOUND
-        (404), CERTIFICATE_NOT_UPLOADED (409), CERTIFICATE_KEY_NOT_CONFIGURED (503)
-        and ISSUER_INCOMPLETE (409) before anything is sent. Returns the invoice as
-        it then stands. A Sale Invoice or Credit Note the resend gets authorized is
-        delivered by the Sale Invoice Drainer on its next round. Platform Operator
+        (409) on one still owed and unsigned; INVOICE_REFUSED_BY_NUMBER (409) on one
+        the SRI refused for the NUMBER it carries — error 45, `secuencial registrado`
+        (#577, ADR 0068) — since a resend under the same secuencial is exactly what
+        that answer objects to and can only earn it again, and nothing is sent; INVOICE_NOT_FOUND
+        (404); ISSUER_NOT_FOUND (404), CERTIFICATE_NOT_UPLOADED (409), CERTIFICATE_KEY_NOT_CONFIGURED
+        (503) and ISSUER_INCOMPLETE (409) before anything is sent. Returns the invoice
+        as it then stands. A Sale Invoice or Credit Note the resend gets authorized
+        is delivered by the Sale Invoice Drainer on its next round. Platform Operator
         only.'
       parameters:
       - description: Tax Invoice id

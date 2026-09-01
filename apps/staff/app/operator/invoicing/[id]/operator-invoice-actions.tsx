@@ -56,6 +56,15 @@ import {
  * that would fix it. A document the ledger says neither about shows neither
  * banner: the card offers its levers and says nothing it cannot know.
  *
+ * RESEND IS REFUSED WHERE THE NUMBER IS THE OBJECTION (#577, ADR 0068).
+ * On a document the SRI answered 45 "secuencial registrado", a resend would
+ * carry the same secuencial the SRI already refuses and can only earn the
+ * same answer — the API refuses it, so the button is not offered. Unlike
+ * every other missing lever here, that absence does not follow from the
+ * status, so this card says why in its own sentence rather than leaving a
+ * shorter row of buttons to be puzzled over. Check status is untouched: it
+ * asks and never sends.
+ *
  * MARK ANNULLED (#477) is the third lever, offered only on a pending or
  * needs_attention document — where the operator may have annulled it by
  * hand at the SRI portal, which the SRI offers no web service for. It is a
@@ -86,7 +95,7 @@ export function OperatorInvoiceActions({
   const [confirmingAnnulment, setConfirmingAnnulment] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const levers = invoiceLevers(invoice.status, invoice.ecuador !== null);
+  const levers = invoiceLevers(invoice.status, invoice.ecuador !== null, undefined, invoice.refused_by_number);
   if (!hasInvoiceLevers(levers)) {
     return null;
   }
@@ -177,6 +186,15 @@ export function OperatorInvoiceActions({
             </Button>
           ) : null}
         </div>
+        {invoice.refused_by_number ? (
+          // Why Resend is not among the buttons (#577, ADR 0068). The API
+          // refuses it with INVOICE_REFUSED_BY_NUMBER, so offering it would
+          // be offering a certain failure — but a lever that simply vanishes
+          // teaches nothing, and the operator who resent 001-001-000000025
+          // for two days is exactly the reader this sentence is for. Check
+          // status is still there, and still worth pressing.
+          <p className="text-xs text-muted-foreground">{t("invoicingResendRefusedByNumber")}</p>
+        ) : null}
         {levers.annul ? <p className="text-xs text-muted-foreground">{t("invoicingMarkAnnulledHint")}</p> : null}
       </CardContent>
 

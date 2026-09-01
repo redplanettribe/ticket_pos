@@ -212,3 +212,89 @@ func TestHintsAreMutuallyExclusive(t *testing.T) {
 		}
 	}
 }
+
+// What Resend refuses and Check status does not (#577, parent #575, ADR
+// 0068): the two guards read side by side, because the whole point of the
+// refusal by number is that it falls on ONE of the two levers. The operator
+// must still be able to ask the authority what it holds — that answer is
+// what an Abandon (#578) will later rest on — while the send that provably
+// cannot succeed is refused outright. The transaction, the signing and what
+// reaches the SRI are the integration harness's to prove; here only the
+// answer, by error code.
+
+func numberRefusedInvoice(messages ...invoicing.AuthorityMessage) invoicing.Invoice {
+	return invoicing.Invoice{
+		ID:        "parked",
+		Kind:      invoicing.DocumentKindSale,
+		Status:    invoicing.InvoiceStatusNeedsAttention,
+		SignedXML: []byte("<factura/>"),
+		Messages:  messages,
+	}
+}
+
+func authorityError(identifier string) invoicing.AuthorityMessage {
+	return invoicing.AuthorityMessage{Identifier: identifier, Message: "x", Type: invoicing.AuthorityMessageTypeError}
+}
+
+func TestResendRefusalAnswersTheNumberRefusalAndCheckStatusStaysAvailable(t *testing.T) {
+	cases := []struct {
+		name       string
+		inv        func() invoicing.Invoice
+		wantResend string
+		wantCheck  string
+	}{
+		{"a document refused by number", func() invoicing.Invoice {
+			return numberRefusedInvoice(authorityError(invoicing.AuthorityMessageSequenceRegistered))
+		}, "INVOICE_REFUSED_BY_NUMBER", ""},
+		{"beside another refusal", func() invoicing.Invoice {
+			return numberRefusedInvoice(authorityError("35"), authorityError(invoicing.AuthorityMessageSequenceRegistered))
+		}, "INVOICE_REFUSED_BY_NUMBER", ""},
+		{"a schema refusal is resent as it always was", func() invoicing.Invoice {
+			return numberRefusedInvoice(authorityError("35"))
+		}, "", ""},
+		{"45 as an advertencia is not the refusal", func() invoicing.Invoice {
+			return numberRefusedInvoice(invoicing.AuthorityMessage{Identifier: invoicing.AuthorityMessageSequenceRegistered, Type: invoicing.AuthorityMessageTypeWarning})
+		}, "", ""},
+		{"a document the authority said nothing about", func() invoicing.Invoice { return numberRefusedInvoice() }, "", ""},
+		{"authorized", func() invoicing.Invoice {
+			i := numberRefusedInvoice()
+			i.Status = invoicing.InvoiceStatusAuthorized
+			return i
+		}, "INVOICE_ALREADY_AUTHORIZED", "INVOICE_ALREADY_AUTHORIZED"},
+		{"annulled", func() invoicing.Invoice {
+			i := numberRefusedInvoice()
+			i.Status = invoicing.InvoiceStatusAnnulled
+			return i
+		}, "INVOICE_ANNULLED", "INVOICE_ANNULLED"},
+		{"withdrawn", func() invoicing.Invoice {
+			i := numberRefusedInvoice()
+			i.Status = invoicing.InvoiceStatusWithdrawn
+			return i
+		}, "INVOICE_WITHDRAWN", "INVOICE_WITHDRAWN"},
+		{"owed and unsigned", func() invoicing.Invoice {
+			i := numberRefusedInvoice()
+			i.Status = invoicing.InvoiceStatusOwed
+			i.SignedXML = nil
+			return i
+		}, "INVOICE_NOT_ISSUED", "INVOICE_NOT_ISSUED"},
+		// The state is answered first wherever both would refuse: what a
+		// finished document answers must not change because of what the
+		// authority once said about its number.
+		{"annulled and refused by number answers annulled", func() invoicing.Invoice {
+			i := numberRefusedInvoice(authorityError(invoicing.AuthorityMessageSequenceRegistered))
+			i.Status = invoicing.InvoiceStatusAnnulled
+			return i
+		}, "INVOICE_ANNULLED", "INVOICE_ANNULLED"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			inv := tc.inv()
+			if got := code(resendRefusal(&inv)); got != tc.wantResend {
+				t.Fatalf("resendRefusal = %q; want %q", got, tc.wantResend)
+			}
+			if got := code(actionableRefusal(&inv)); got != tc.wantCheck {
+				t.Fatalf("actionableRefusal = %q; want %q", got, tc.wantCheck)
+			}
+		})
+	}
+}

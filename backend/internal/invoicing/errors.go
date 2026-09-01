@@ -116,6 +116,19 @@ func ErrInvoiceWithdrawn() apperror.DomainError {
 	return apperror.New("INVOICE_WITHDRAWN", "The document was withdrawn: its Ticket Sale was reversed before it was sent, and nothing was ever sent to the Tax Authority.", nil)
 }
 
+// ErrInvoiceRefusedByNumber: Resend is refused on a document the authority
+// refuses by NUMBER — the SRI's 45, "secuencial registrado" (#577, parent
+// #575, ADR 0068). Resend re-signs and resubmits under the same clave and
+// secuencial, as S1 §5.10 requires and as every other refusal wants, and
+// that secuencial is the authority's whole objection: the send can only
+// earn the same answer again, as it did on production's 001-001-000000025
+// and 26 two days apart. The message teaches the rule rather than merely
+// blocking, and says what is still open — Check status asks the authority
+// what it holds and never sends, so it is untouched by this refusal.
+func ErrInvoiceRefusedByNumber() apperror.DomainError {
+	return apperror.New("INVOICE_REFUSED_BY_NUMBER", "The Tax Authority refuses this document's number. Resending it would submit the same secuencial the authority already rejects, and earn the same refusal. Check status still asks the authority what it holds.", nil)
+}
+
 // ErrIssuerFieldFrozen: the Issuer detail named in details.field may no
 // longer change — the RUC once any Tax Invoice exists (it is inside every
 // clave de acceso), establecimiento and punto de emisión once a sequence has

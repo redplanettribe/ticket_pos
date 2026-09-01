@@ -79,6 +79,28 @@ test("reissue is offered again once the reissue's Credit Note died", () => {
   assert.deepEqual(invoiceLevers("authorized", true, afterADeadReissue), { ...NONE, reissue: true });
 });
 
+// The refusal by number (#577, ADR 0068): Resend would carry the same
+// secuencial the SRI refuses, so the API refuses it and the lever goes. Check
+// status asks and never sends, so it stays — that asymmetry is the feature,
+// and the page owes the operator the sentence that explains it.
+test("a document the SRI refuses by number keeps check and loses resend", () => {
+  assert.deepEqual(invoiceLevers("needs_attention", true, undefined, true), {
+    ...NONE,
+    check: true,
+    annul: true,
+  });
+  assert.deepEqual(invoiceLevers("not_authorized", true, undefined, true), { ...NONE, check: true });
+  assert.deepEqual(invoiceLevers("rejected", true, undefined, true), { ...NONE, check: true });
+  assert.deepEqual(invoiceLevers("pending", true, undefined, true), { ...NONE, check: true, annul: true });
+});
+
+// Nothing else moves: a document the SRI has not refused by number is
+// offered exactly what it always was.
+test("resend stays for every other refusal", () => {
+  assert.deepEqual(invoiceLevers("needs_attention", true, undefined, false), invoiceLevers("needs_attention", true));
+  assert.deepEqual(invoiceLevers("rejected", true, undefined, false), invoiceLevers("rejected", true));
+});
+
 // An owed document, and one parked because it could not be signed, has no
 // number at the SRI: nothing to check, resend or annul until the Drainer
 // signs it.
@@ -140,6 +162,11 @@ test("every surface has its words in both languages", () => {
     "invoicingReissueTrailTitle",
     "invoicingReissueTrail",
     "invoicingReissueTrailNote",
+    // Why Resend is gone on a document the SRI refuses by number (#577),
+    // said where the button was.
+    "invoicingNumberRefusalTitle",
+    "invoicingNumberRefusalBody",
+    "invoicingResendRefusedByNumber",
   ];
   for (const locale of ["en", "es"]) {
     const catalog = JSON.parse(
@@ -159,6 +186,7 @@ test("every surface has its words in both languages", () => {
       "REISSUE_IN_FLIGHT",
       "INVOICE_SUPERSEDED",
       "INVOICE_ALREADY_CREDITED",
+      "INVOICE_REFUSED_BY_NUMBER",
     ]) {
       assert.ok(catalog.errors.envelope[code]?.trim(), `${locale}: errors.envelope.${code} is missing`);
     }
