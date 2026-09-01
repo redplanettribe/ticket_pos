@@ -156,11 +156,12 @@ func (h *Handler) PreviewTotals(w http.ResponseWriter, r *http.Request) {
 // ListInvoices lists Tax Invoices newest first.
 //
 // @Summary      List Tax Invoices
-// @Description  Returns a page of every Tax Invoice the platform has issued or owes, newest first: the document `kind` (`manual` from the form; `sale` for a Sale Invoice a paid House checkout owed; `credit_note` for its reversal), the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such), and — on a `sale` or `credit_note` — the Ticket Sale id and its Sale Confirmation reference. A document still `owed` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. `attention_since` is when a `needs_attention` document was parked, null otherwise. `recipient_warning` is true on an authorized Sale Invoice the SRI warned about — the Recipient's Tax ID does not exist (advertencia 59) or is incorrect (62) — until the document is superseded (ADR 0061); the status is unaffected, and it is always false while SALE_INVOICING_ENABLED is closed. `kind` narrows the page to one document kind; a value that is not `manual`, `sale` or `credit_note` is refused under VALIDATION_FAILED. `recipient_warning=true` narrows the page to the documents carrying a Recipient Warning; any other value is refused under VALIDATION_FAILED, and while SALE_INVOICING_ENABLED is closed the filter answers 404 SALE_INVOICING_UNAVAILABLE. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
+// @Description  Returns a page of every Tax Invoice the platform has issued or owes, newest first: the document `kind` (`manual` from the form; `sale` for a Sale Invoice a paid House checkout owed; `credit_note` for its reversal), the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such), and — on a `sale` or `credit_note` — the Ticket Sale id and its Sale Confirmation reference. A document still `owed` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. `attention_since` is when a `needs_attention` document was parked, null otherwise. `recipient_warning` is true on an authorized Sale Invoice the SRI warned about — the Recipient's Tax ID does not exist (advertencia 59) or is incorrect (62) — until the document is superseded (ADR 0061); the status is unaffected, and it is always false while SALE_INVOICING_ENABLED is closed. `kind` narrows the page to one document kind; a value that is not `manual`, `sale` or `credit_note` is refused under VALIDATION_FAILED. `status` narrows the page to one status — `owed`, `pending`, `authorized`, `not_authorized`, `rejected`, `needs_attention`, `withdrawn`, `annulled` or `abandoned` — so that, among other things, every number the platform has abandoned (ADR 0068) can be audited; any other value is refused under VALIDATION_FAILED rather than read as "every status". `recipient_warning=true` narrows the page to the documents carrying a Recipient Warning; any other value is refused under VALIDATION_FAILED, and while SALE_INVOICING_ENABLED is closed the filter answers 404 SALE_INVOICING_UNAVAILABLE. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
 // @Tags         operator
 // @Produce      json
 // @Security     BearerAuth
 // @Param        kind               query  string  false  "Document kind: manual, sale or credit_note (default every kind)"
+// @Param        status             query  string  false  "Document status: owed, pending, authorized, not_authorized, rejected, needs_attention, withdrawn, annulled or abandoned (default every status)"
 // @Param        recipient_warning  query  string  false  "true to list only the documents carrying a Recipient Warning"
 // @Param        page       query  int     false  "Page number (default 1)"
 // @Param        page_size  query  int     false  "Page size (default 50, max 100)"
@@ -174,13 +175,15 @@ func (h *Handler) ListInvoices(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
 	query := r.URL.Query()
 	kind, fields := kindParam(query.Get("kind"))
+	status, statusFields := statusParam(query.Get("status"))
+	fields = append(fields, statusFields...)
 	warned, warnedFields := recipientWarningParam(query.Get("recipient_warning"))
 	fields = append(fields, warnedFields...)
 	if len(fields) > 0 {
 		_ = platform.WriteValidationError(w, reqID, fields)
 		return
 	}
-	filter := service.InvoiceFilter{Kind: kind, RecipientWarning: warned}
+	filter := service.InvoiceFilter{Kind: kind, Status: status, RecipientWarning: warned}
 	list, err := h.svc.ListInvoices(r.Context(), filter, pageParam(query.Get("page")), pageSizeParam(query.Get("page_size")))
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
@@ -365,6 +368,35 @@ func recipientWarningParam(raw string) (bool, []platform.FieldError) {
 		Field:   "recipient_warning",
 		Code:    "invalid",
 		Message: "must be true when given",
+	}}
+}
+
+// statusParam parses the `status` query value (#578, ADR 0068): absent is
+// every status, and anything but one of the nine is refused by name for the
+// reason kindParam refuses a mistyped kind — a filter the API quietly
+// ignores shows the operator a list that is not the list they asked for.
+// It exists so that every number the platform has given up on can be
+// audited (`abandoned`), and admits the whole vocabulary because a filter
+// that answers one status and not the eight beside it is one the next
+// person has to extend again.
+func statusParam(raw string) (invoicing.InvoiceStatus, []platform.FieldError) {
+	status := invoicing.InvoiceStatus(strings.TrimSpace(raw))
+	if status == "" {
+		return "", nil
+	}
+	for _, s := range invoicing.InvoiceStatuses {
+		if status == s {
+			return status, nil
+		}
+	}
+	names := make([]string, 0, len(invoicing.InvoiceStatuses))
+	for _, s := range invoicing.InvoiceStatuses {
+		names = append(names, string(s))
+	}
+	return "", []platform.FieldError{{
+		Field:   "status",
+		Code:    platform.CodeInvalidEnum,
+		Message: "must be one of " + strings.Join(names, ", "),
 	}}
 }
 

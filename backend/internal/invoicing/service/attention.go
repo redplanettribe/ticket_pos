@@ -34,6 +34,20 @@ import (
 // open to another reissue. The Drainer would do the same on its next round
 // (drainer.go); doing it here is what lets the operator reissue at once.
 
+// THE QUEUE IS A UNION, NOT A STATUS EQUALITY (#581, parent #575, ADR
+// 0068). It lists documents parked `needs_attention` OR Sale Invoices that
+// are `abandoned` with no live successor on a Ticket Sale that still
+// stands, and the count — the Operator Dashboard's daily badge — widens
+// identically. Stated here in full because the next reader will otherwise
+// "simplify" it back to one status: Abandon (#578) and Issue again (#580)
+// are deliberately two presses, so a Sale can sit abandoned-and-unreplaced
+// between them with its buyer holding no valid tax document, and until the
+// widening nothing on any surface said so. It self-clears — the moment
+// Issue again owes a replacement the abandoned document has a live
+// successor and drops out — which is what makes a union safe here. The
+// membership rule and the composition of its two orderings live in one
+// place, repository.needsAttentionWhere and needsAttentionOrder.
+
 // NeedsAttentionQueue is one page of the documents parked for an operator,
 // longest waiting first, with the total: the ADR-0006 nested envelope.
 type NeedsAttentionQueue struct {
@@ -45,13 +59,18 @@ type NeedsAttentionQueue struct {
 // Confirmation reference, state, since when — and what the authority (or
 // the platform, when it could not be signed) last said about it, so the
 // queue answers "why" without a click through.
+//
+// "Since when" is attention_since on a parked document and abandoned_at on
+// an abandoned one, the two instants the queue's order composes (#581); the
+// row carries both and the surface reads whichever the document has.
 type NeedsAttentionItem struct {
 	InvoiceListItem
 	Messages []AuthorityMessageView `json:"messages"`
 }
 
 // NeedsAttentionCount is the queue's size as one number: the badge on the
-// Operator Dashboard. It counts exactly what the queue lists.
+// Operator Dashboard. It counts exactly what the queue lists — the same
+// union, from the same rule, so the badge and the page can never disagree.
 type NeedsAttentionCount struct {
 	NeedsAttentionCount int `json:"needs_attention_count"`
 }
@@ -77,8 +96,9 @@ func (s *Service) CountRecipientWarnings(ctx context.Context) (*RecipientWarning
 	return &RecipientWarningCount{RecipientWarningCount: n}, nil
 }
 
-// ListNeedsAttention returns one page of the documents parked
-// needs_attention, of every kind, longest waiting first.
+// ListNeedsAttention returns one page of the needs-attention queue — every
+// kind parked needs_attention, and every abandoned-and-unreplaced Sale
+// Invoice whose Sale still stands — longest waiting first.
 func (s *Service) ListNeedsAttention(ctx context.Context, page, pageSize int) (*NeedsAttentionQueue, error) {
 	rows, total, err := s.repo.ListNeedsAttention(ctx, page, pageSize)
 	if err != nil {
@@ -94,7 +114,8 @@ func (s *Service) ListNeedsAttention(ctx context.Context, page, pageSize int) (*
 	return &NeedsAttentionQueue{Data: items, InvoicePagination: pagination(page, pageSize, total)}, nil
 }
 
-// CountNeedsAttention returns how many documents are parked needs_attention.
+// CountNeedsAttention returns how many documents are in the queue: the
+// same union the list reports, never a status count.
 func (s *Service) CountNeedsAttention(ctx context.Context) (*NeedsAttentionCount, error) {
 	n, err := s.repo.CountNeedsAttention(ctx)
 	if err != nil {
@@ -145,11 +166,37 @@ func (s *Service) AnnulInvoice(ctx context.Context, id, annulledBy string) (*Inv
 // annullable says whether Mark annulled may be pressed on the document as
 // it stands: signed — there is a number at the authority to have been
 // annulled — and pending or needs_attention.
+//
+// EXCEPT WHERE ABANDON IS THE TRUE ACT (#578, ADR 0068). Mark annulled
+// records an annulment the operator performed BY HAND AT THE AUTHORITY'S
+// PORTAL. On a document the authority refuses by NUMBER — its 45,
+// "secuencial registrado" — the portal shows nothing under that number, so
+// there is nothing there to have been annulled and the press would write a
+// true-looking record of an act that never happened. That was the only
+// escape production's 001-001-000000025 and 26 offered their operator, and
+// it was a falsehood. It is refused here, naming the act that is true.
+//
+// This NARROWS an existing operator capability, deliberately: ADR 0061's
+// line that "Mark annulled is for documents the authority refused" is
+// amended to documents the authority HELD and the operator disowned.
+//
+// The refusal is gated on the authority's refusal alone and not on
+// everything Abandon needs (abandonRefusal): a document that qualifies but
+// has not been checked must be CHECKED, never annulled instead, or the
+// falsehood is one stale minute away.
 func annullable(inv *invoicing.Invoice) error {
 	switch inv.Status {
 	case invoicing.InvoiceStatusPending, invoicing.InvoiceStatusNeedsAttention:
 		if !inv.Signed() {
 			return invoicing.ErrInvoiceNotIssued()
+		}
+		// Handed to Abandon only where Abandon would take it (#578, ADR
+		// 0068). A code-45 document that is still `pending` is with the
+		// authority and is CHECKED, not given up on — and Abandon refuses
+		// it — so refusing the annulment here too would leave it with no
+		// act at all, which is the dead end this epic exists to close.
+		if invoicing.RefusedByNumberIn(inv.Messages) && abandonableState(inv.Status) {
+			return invoicing.ErrInvoiceAbandonInstead()
 		}
 		return nil
 	case invoicing.InvoiceStatusOwed:
@@ -165,8 +212,10 @@ type DocumentRole string
 
 const (
 	// DocumentRoleCurrent: the Sale's current Sale Invoice — sale-kind,
-	// no live successor, neither withdrawn nor annulled. A later Sale
-	// Reversal credits this one.
+	// no live successor, and not itself terminally dead. A later Sale
+	// Reversal credits this one. A factura whose successor died — withdrawn,
+	// annulled or abandoned (#579, ADR 0068) — is current again: it is
+	// superseded by nothing, because nothing stands in its place.
 	DocumentRoleCurrent DocumentRole = "current"
 	// DocumentRoleSuperseded: a Sale Invoice a reissue corrected; still
 	// authorized and on file, no longer the Sale's current one.
@@ -175,8 +224,9 @@ const (
 	// its reason says which.
 	DocumentRoleCreditNote DocumentRole = "credit_note"
 	// DocumentRoleNotCurrent: a Sale Invoice that is neither current nor
-	// superseded — withdrawn before it was sent, or annulled at the portal
-	// — a Sale Invoice the Sale no longer has (#477, #480).
+	// superseded — withdrawn before it was sent, annulled at the portal, or
+	// abandoned because the authority never took it (#578, ADR 0068) — a
+	// Sale Invoice the Sale no longer has (#477, #480).
 	DocumentRoleNotCurrent DocumentRole = "not_current"
 )
 
@@ -253,7 +303,9 @@ func documentRole(item *InvoiceListItem) DocumentRole {
 		return DocumentRoleCreditNote
 	case item.SupersededByInvoiceID != nil:
 		return DocumentRoleSuperseded
-	case item.Status == string(invoicing.InvoiceStatusWithdrawn), item.Status == string(invoicing.InvoiceStatusAnnulled):
+	case item.Status == string(invoicing.InvoiceStatusWithdrawn),
+		item.Status == string(invoicing.InvoiceStatusAnnulled),
+		item.Status == string(invoicing.InvoiceStatusAbandoned):
 		return DocumentRoleNotCurrent
 	default:
 		return DocumentRoleCurrent

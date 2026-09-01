@@ -1,5 +1,15 @@
 # A wrong Recipient is corrected by reissue: a Credit Note, then a fresh Sale Invoice, never an edit
 
+> Amended by [ADR 0068](./0068-a-number-the-authority-never-held-is-abandoned-not-annulled-and-its-sale-is-issued-again.md)
+> (#575, built as #578): the line below that "Mark annulled is for documents the authority refused" is
+> narrowed. Mark annulled is for a document the authority **held**, which a Platform Operator then
+> disowned by hand at its portal — an obligation discharged there, and a declaration as anulado. A
+> document the authority refused *by number* (SRI 45, secuencial registrado) it never held, so there is
+> nothing at the portal to annul; that document is **abandoned**, a terminal state of its own, and Mark
+> annulled is refused on it. The rest of this decision stands, and Issue again reuses its supersede
+> chain; ADR 0068 also widens the live-successor rule below to exclude every terminal-dead status, not
+> only `withdrawn`.
+
 Specified as issue #478. Builds on [ADR 0060](./0060-a-house-organizations-tickets-are-the-platforms-sale-invoiced-after-checkout-and-credited-on-reversal.md),
 which made every paid Online Sale of a House Event owe a Sale Invoice to the Sale's buyer as transacted,
 and on [ADR 0059](./0059-the-platform-is-the-sole-issuer-and-its-signing-certificate-lives-encrypted-in-the-database.md),

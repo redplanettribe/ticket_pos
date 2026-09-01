@@ -213,6 +213,24 @@ func domainHTTPStatus(code string) int {
 	// annulled (#477) or withdrawn (#476).
 	case "INVOICE_ALREADY_AUTHORIZED", "INVOICE_NOT_ISSUED", "ISSUER_FIELD_FROZEN", "INVOICE_NOT_ANNULLABLE", "INVOICE_ANNULLED", "INVOICE_WITHDRAWN":
 		return http.StatusConflict
+	// Resend on a document the Tax Authority refuses by number (#577, ADR
+	// 0068): the resource exists and the request was well formed, and what
+	// stands in the way is the authority's standing objection to the very
+	// secuencial a resend would carry. No retry with the same body changes
+	// it — that is the whole finding.
+	case "INVOICE_REFUSED_BY_NUMBER":
+		return http.StatusConflict
+	// The Abandon's refusals (#578, ADR 0068), and Mark annulled's new one.
+	// Each is a fact about the document as it stands: it is already
+	// abandoned, it is in a state no refusal put it in, the authority did
+	// not refuse its number, or the ledger carries no fresh Check for the
+	// act to rest on. INVOICE_CHECK_NOT_FRESH is the one with a next step —
+	// press Check status, then Abandon — and it is still a conflict, not a
+	// 400: the request was well formed and the document's ledger is what
+	// forbids it.
+	case "INVOICE_ABANDONED", "INVOICE_NOT_ABANDONABLE", "INVOICE_NOT_REFUSED_BY_NUMBER",
+		"INVOICE_CHECK_NOT_FRESH", "INVOICE_ABANDON_INSTEAD":
+		return http.StatusConflict
 	// The Sale Invoice Reissue's refusals (#483, ADR 0061): the document
 	// exists and the request was well formed, and what stands in the way is
 	// a fact about the document or its Sale — its kind, its state, a reversed
@@ -221,6 +239,15 @@ func domainHTTPStatus(code string) int {
 	// being retried with the same body.
 	case "INVOICE_MANUAL_NOT_REISSUABLE", "CREDIT_NOTE_NOT_REISSUABLE", "INVOICE_NOT_AUTHORIZED",
 		"INVOICE_SALE_REVERSED", "REISSUE_IN_FLIGHT", "INVOICE_SUPERSEDED", "INVOICE_ALREADY_CREDITED":
+		return http.StatusConflict
+	// Issue again's refusals (#580, ADR 0068), on the same terms: the kind
+	// of document (a manual one is typed again by hand, a Credit Note is
+	// never re-owed), a state that is not one of the two terminal deaths
+	// this act reaches, or a Sale that already has a live replacement. A
+	// reversed Sale is INVOICE_SALE_REVERSED above, shared with the reissue
+	// because it is the same fact about the same Sale.
+	case "INVOICE_MANUAL_NOT_ISSUABLE_AGAIN", "CREDIT_NOTE_NOT_ISSUABLE_AGAIN",
+		"INVOICE_NOT_TERMINALLY_DEAD", "INVOICE_ALREADY_REPLACED":
 		return http.StatusConflict
 	case "NOT_FOUND", "ORGANIZATION_NOT_FOUND", "MEMBER_NOT_FOUND", "EVENT_NOT_FOUND":
 		return http.StatusNotFound

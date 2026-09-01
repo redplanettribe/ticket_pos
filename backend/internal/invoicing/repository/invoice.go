@@ -425,16 +425,116 @@ func (r *Repository) AnnulInvoice(ctx context.Context, invoiceID, annulledBy str
 	return true, withdrawnSuccessorID, nil
 }
 
+// AbandonInvoice records that the Tax Authority never took the document and
+// never will (#578, parent #575, ADR 0068): the status, who, when and the
+// operator's optional note, AND NOTHING ELSE. The number, the clave de
+// acceso, the signed XML and the authority's last messages stay exactly as
+// they were — the document's issuance is not undone, it is accounted for —
+// and the secuencial is never touched, so the abandoned number stays
+// consumed and the sequence only moves forward. next_attempt_at is cleared
+// so the Drainer never claims the row again, and attention_since with it.
+//
+// GUARDED ON THE THREE STATES ABANDON IS ALLOWED FROM, and on the row still
+// being signed, so a second press, or a press racing a late AUTORIZADO that
+// healed the row, finds nothing to update; the service reads the row back to
+// say which. The three are needs_attention — where a Sale Invoice's refusal
+// parks it — and rejected and not_authorized, where a manual document's
+// refusals are recorded.
+//
+// The note is stored NULL when none was left, never an empty string, as the
+// reissue's is (migration 102): "no note" and "an empty note" are the same
+// thing, and only one of them should be representable.
+func (r *Repository) AbandonInvoice(ctx context.Context, invoiceID, abandonedBy, note string, abandonedAt time.Time) (bool, error) {
+	res, err := r.db.Pool.ExecContext(ctx, `
+		UPDATE invoicing_invoices SET
+			status = $2,
+			abandoned_by = $3,
+			abandoned_at = $4,
+			abandon_note = NULLIF($5, ''),
+			next_attempt_at = NULL,
+			attention_since = NULL,
+			updated_at = NOW()
+		WHERE id = $1 AND status IN ($6, $7, $8) AND signed_xml IS NOT NULL
+	`, invoiceID, invoicing.InvoiceStatusAbandoned, abandonedBy, abandonedAt, note,
+		invoicing.InvoiceStatusNeedsAttention, invoicing.InvoiceStatusRejected, invoicing.InvoiceStatusNotAuthorized)
+	if err != nil {
+		return false, fmt.Errorf("abandon invoice: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("abandon invoice: %w", err)
+	}
+	return n == 1, nil
+}
+
+// liveSuccessorID is THE expression for "the document that stands in this
+// one's place", stated once because two readers now rest on it: the list
+// row's superseded marker (#486, ADR 0061) and the needs-attention queue's
+// second half (#581), which is exactly "an abandoned document with no live
+// successor". The queue must never re-derive it — two spellings of "live"
+// would drift, and a Sale would then be both replaced and queued.
+//
+// LIVE MEANS NOT TERMINALLY DEAD (#579, ADR 0068); the invoiceFrom comment
+// below spells the three deaths and why a successor that died supersedes
+// nothing.
+// terminallyDeadSQL is the three deaths ADR 0068 rules — withdrawn,
+// abandoned, annulled — as SQL, so that every reader below spells them
+// once. invoicing.TerminallyDead is the same list in Go; the two are the
+// same rule on the two sides of the wire, and a fourth death must land in
+// both.
+const terminallyDeadSQL = `('withdrawn', 'annulled', 'abandoned')`
+
+const liveSuccessorID = `(SELECT s.id FROM invoicing_invoices s WHERE s.supersedes_invoice_id = i.id AND s.status NOT IN ` + terminallyDeadSQL + ` ORDER BY s.created_at DESC, s.id DESC LIMIT 1)`
+
+// creditedByLiveID is the Credit Note that credits this document, if a
+// live one does: a withdrawn, annulled or abandoned Credit Note credits
+// nothing (#484, and #578 for the third death).
+const creditedByLiveID = `(SELECT c.id FROM invoicing_invoices c WHERE c.credits_invoice_id = i.id AND c.status NOT IN ` + terminallyDeadSQL + ` ORDER BY c.created_at DESC, c.id DESC LIMIT 1)`
+
+// saleHasLiveFactura is "this Ticket Sale already has a Sale Invoice
+// standing for it", for a Sale id expression the caller supplies. THE
+// QUESTION IS ASKED OF THE SALE, NEVER OF ONE DOCUMENT (#580, #581, ADR
+// 0068: "abandoned documents whose Sale still stands and has no live
+// replacement"). A document only knows its own successor, and over a chain
+// of more than one hop that is not the same question: with 1 replaced by 2
+// and 2 replaced by a live 3, document 1's own successor is dead, so 1
+// reads unreplaced while its Sale is perfectly well invoiced. Asking the
+// document there would let Issue again owe a second live factura for one
+// Sale, and would leave 1 in the needs-attention queue with no press that
+// could ever clear it.
+//
+// A factura STANDS for its Sale when it is not itself terminally dead, no
+// live successor has taken its place, and no authorized Credit Note has
+// cancelled it. The last clause is what keeps #480's case reachable: a
+// factura corrected by a reissue is credited by an authorized Credit Note,
+// so when the correction is later annulled at the portal the Sale is owed
+// another document and Issue again must be offered, not refused because
+// the credited original still reads live.
+func saleHasLiveFactura(saleID string) string {
+	return `EXISTS (
+		SELECT 1 FROM invoicing_invoices f
+		WHERE f.ticket_sale_id = ` + saleID + `
+		  AND f.kind = 'sale'
+		  AND f.status NOT IN ` + terminallyDeadSQL + `
+		  AND NOT EXISTS (
+			SELECT 1 FROM invoicing_invoices s
+			WHERE s.supersedes_invoice_id = f.id AND s.status NOT IN ` + terminallyDeadSQL + `)
+		  AND NOT EXISTS (
+			SELECT 1 FROM invoicing_invoices c
+			WHERE c.credits_invoice_id = f.id AND c.status = 'authorized'))`
+}
+
 const invoiceColumns = `
 	i.id, i.kind, i.issuer_id, i.country, i.environment, i.status, i.issued_on, i.issued_at, i.issued_by,
 	i.recipient_tax_id_type, i.recipient_tax_id, i.recipient_legal_name, i.recipient_address, i.recipient_email,
 	i.issuer_snapshot, i.currency, i.subtotal_cents, i.discount_cents, i.iva_cents, i.total_cents, i.payment_method,
 	i.signed_xml, i.authorization_xml, i.last_messages,
 	i.ticket_sale_id, ts.confirmation_ref, i.credits_invoice_id, i.credit_note_reason, i.iva_rate, i.delivered_at, i.next_attempt_at,
-	(SELECT c.id FROM invoicing_invoices c WHERE c.credits_invoice_id = i.id AND c.status NOT IN ('withdrawn', 'annulled') ORDER BY c.created_at DESC, c.id DESC LIMIT 1),
+	` + creditedByLiveID + `,
 	i.attention_since, i.annulled_by, i.annulled_at, i.recipient_warning,
+	i.abandoned_by, i.abandoned_at, i.abandon_note,
 	i.supersedes_invoice_id,
-	(SELECT s.id FROM invoicing_invoices s WHERE s.supersedes_invoice_id = i.id AND s.status <> 'withdrawn' ORDER BY s.created_at DESC, s.id DESC LIMIT 1),
+	` + liveSuccessorID + `,
 	rr.reissued_by, rr.reissued_at, rr.reissue_note,
 	i.backfilled_by, i.backfilled_at,
 	i.created_at, i.updated_at,
@@ -446,15 +546,31 @@ const invoiceColumns = `
 // it is the Sale's fact, and the operator surfaces want it on every read.
 // The Credit Note crediting a Sale Invoice is read the same way (#476): the
 // link is stored once, on the Credit Note, and walked back here — taking
-// the newest LIVE one (#484): a Credit Note that died, withdrawn or
-// annulled, credits nothing, and a factura it alone names is uncredited,
+// the newest LIVE one (#484): a Credit Note that died — withdrawn,
+// annulled, or abandoned because the authority refused its number (#578,
+// ADR 0068) — credits nothing, and a factura it alone names is uncredited,
 // current again and reissuable; the dead Credit Note stays on file beside
 // it, listed with the Sale's documents and readable by its own id.
 //
 // The Sale Invoice Reissue's links are read the same way again (#483, ADR
 // 0061). supersedes_invoice_id is stored once, on the corrected factura;
 // the superseded factura's "superseded by" is walked back from it, taking
-// the live successor — one not withdrawn — of which the schema allows one.
+// the live successor, of which the schema allows one (migration 120).
+//
+// LIVE MEANS NOT TERMINALLY DEAD (#579, parent #575, ADR 0068), and the
+// three deaths are spelled here exactly as they are in the partial unique
+// index that admits one of them: withdrawn — never sent, and never will be;
+// annulled — held by the authority and disowned by hand at its portal;
+// abandoned — sent, never held, never a legal document. A successor that
+// died any of those ways supersedes nothing: the factura it corrected is
+// current again, its "superseded by" is null, and nothing about the Sale is
+// blocked by a document that no longer stands. Anything else a successor
+// can be — owed, pending, parked, refused with a remedy, authorized — is
+// live and holds the slot, so one Sale never carries two competing
+// corrected facturas. This was `<> 'withdrawn'` until #579, which is why a
+// Sale whose corrected factura died at the authority was unreachable: the
+// old factura answered INVOICE_SUPERSEDED, naming a ghost, and the dead one
+// answered INVOICE_NOT_AUTHORIZED (#480).
 // The reissue's trail (who, when, the note) is stored on the corrected
 // factura too, and the lateral join reads it beside every document the
 // reissue concerns: the corrected factura's own, the superseded factura's
@@ -470,7 +586,7 @@ const invoiceFrom = `
 		FROM invoicing_invoices r
 		WHERE r.supersedes_invoice_id IS NOT NULL
 		  AND (r.id = i.id
-		       OR (r.status <> 'withdrawn'
+		       OR (r.status NOT IN ('withdrawn', 'annulled', 'abandoned')
 		           AND (r.supersedes_invoice_id = i.id
 		                OR (i.kind = 'credit_note' AND i.credit_note_reason = 'reissue'
 		                    AND r.supersedes_invoice_id = i.credits_invoice_id))))
@@ -498,6 +614,13 @@ func (r *Repository) GetInvoice(ctx context.Context, id string) (*InvoiceRow, er
 type InvoiceFilter struct {
 	// Kind narrows the page to one document kind; "" is every kind.
 	Kind invoicing.DocumentKind
+	// Status narrows the page to one status (#578, ADR 0068); "" is every
+	// status. Added so that every number the platform has given up on can be
+	// audited — `abandoned` is the reason it exists — but written for the
+	// whole vocabulary rather than for that one word, since a filter that
+	// answers one status and not the eight beside it is a surface that has
+	// to be extended again by the next person who needs one.
+	Status invoicing.InvoiceStatus
 	// RecipientWarning narrows the page to the documents carrying a
 	// Recipient Warning.
 	RecipientWarning bool
@@ -510,16 +633,16 @@ func (r *Repository) ListInvoices(ctx context.Context, filter InvoiceFilter, pag
 	var total int
 	if err := r.db.Pool.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM invoicing_invoices
-		WHERE ($1 = '' OR kind = $1) AND (NOT $2 OR recipient_warning)
-	`, string(filter.Kind), filter.RecipientWarning).Scan(&total); err != nil {
+		WHERE ($1 = '' OR kind = $1) AND ($2 = '' OR status = $2) AND (NOT $3 OR recipient_warning)
+	`, string(filter.Kind), string(filter.Status), filter.RecipientWarning).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count invoices: %w", err)
 	}
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT `+invoiceColumns+invoiceFrom+`
-		WHERE ($1 = '' OR i.kind = $1) AND (NOT $2 OR i.recipient_warning)
+		WHERE ($1 = '' OR i.kind = $1) AND ($2 = '' OR i.status = $2) AND (NOT $3 OR i.recipient_warning)
 		ORDER BY COALESCE(i.issued_at, i.created_at) DESC, i.created_at DESC, i.id DESC
-		LIMIT $3 OFFSET $4
-	`, string(filter.Kind), filter.RecipientWarning, pageSize, (page-1)*pageSize)
+		LIMIT $4 OFFSET $5
+	`, string(filter.Kind), string(filter.Status), filter.RecipientWarning, pageSize, (page-1)*pageSize)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list invoices: %w", err)
 	}
@@ -531,10 +654,98 @@ func (r *Repository) ListInvoices(ctx context.Context, filter InvoiceFilter, pag
 	return out, total, nil
 }
 
-// ListNeedsAttention reads a page of the documents parked needs_attention,
-// of every kind, LONGEST WAITING FIRST — by the instant each was parked —
-// and how many there are in all (#477). Ties, which the same drain round
-// can produce, break on the row's own age.
+// needsAttentionWhere is THE needs-attention queue's membership rule, and
+// it is A UNION OF TWO CONDITIONS rather than a status equality (#581,
+// parent #575, ADR 0068). It is written once, here, because the list and
+// the count must be incapable of disagreeing: the badge an operator watches
+// daily and the page it opens are one claim.
+//
+//	needs_attention                          — a document parked for an
+//	                                           operator: refused with a
+//	                                           remedy, unanswered and still
+//	                                           polled, or unsignable.
+//	OR abandoned, sale-kind, unreplaced,     — a Ticket Sale that stands and
+//	   on a Sale that still stands             has no factura, and nothing
+//	                                           yet owes it one.
+//
+// WHY THE SECOND HALF IS HERE AT ALL. Abandon (#578) and Issue again (#580)
+// are deliberately two presses, so a Sale can sit abandoned-and-unreplaced
+// between them — its buyer holding no valid tax document — and until this,
+// nothing on any surface said so, because `abandoned` is not
+// `needs_attention`. The queue that already means "unfinished invoicing
+// work" widens to say what its name promises, rather than a second badge
+// beside it: two badges meaning the same thing is how an operator learns to
+// ignore one.
+//
+// IT SELF-CLEARS, which is what makes a union safe here. The moment Issue
+// again owes a replacement, the abandoned document has a live successor and
+// drops out with no second act to remember.
+//
+// EACH CLAUSE OF THE SECOND HALF IS LOAD-BEARING:
+//
+//   - sale-kind. A Credit Note and a manual Tax Invoice are never issued
+//     again — #580 refuses both by their own codes, and a manual document is
+//     typed again by hand — so a row for either could never be cleared by
+//     any press the platform offers, and a permanent row is not a queue.
+//   - the SALE has no factura standing for it, read from saleHasLiveFactura
+//     and NEVER re-derived. Asked of the Sale and not of the document, for
+//     the reason that function gives: over a chain of more than one hop a
+//     document whose own successor died reads unreplaced while its Sale is
+//     invoiced, and queueing it would post work no press could clear. It is
+//     #579's live throughout — a replacement that is itself withdrawn,
+//     annulled or abandoned stands for nothing, so a Sale whose every
+//     document has died returns to the queue, where the operator can act.
+//   - the Sale still stands. Income that no longer stands is never declared
+//     at all, so a reversed Sale is owed nothing; it is also the fact Issue
+//     again refuses on (INVOICE_SALE_REVERSED), so a queued reversed Sale
+//     would be an entry nobody could clear. `ts` is LEFT-joined, so a
+//     document with no Ticket Sale answers NULL here and is excluded, which
+//     is the same answer as the kind clause and deliberately redundant with
+//     it.
+var needsAttentionWhere = `(
+	i.status = 'needs_attention'
+	OR (
+		i.status = 'abandoned'
+		AND i.kind = 'sale'
+		AND ts.status <> 'reversed'
+		AND NOT ` + saleHasLiveFactura("i.ticket_sale_id") + `
+	)
+)`
+
+// needsAttentionOrder is the composition of the queue's TWO ORDERINGS, and
+// the reason it needed a second sort key (#581): `attention_since` is NULL
+// on an abandoned row — the abandonment clears it in the same write that
+// takes the document off the Drainer — and `abandoned_at` is the instant it
+// entered the queue by the other door.
+//
+// They compose into ONE CLOCK, "since when has this needed an operator",
+// and the two halves therefore INTERLEAVE. A document parked at noon and
+// abandoned at three sorts behind one parked at one: its wait AS A PARKED
+// DOCUMENT ended when the operator acted on it, and what it waits for now —
+// a replacement — has been outstanding only since three. Sorting all of one
+// status ahead of the other was rejected: the badge's oldest entry would
+// then not be the oldest work, which is the one thing the ordering is for.
+//
+// Ties, which one drain round can produce, break on the row's own age as
+// they always have. Should both instants somehow be NULL, Postgres sorts
+// NULLs last on ASC and the row lands at the back rather than anywhere
+// undefined.
+const needsAttentionOrder = `ORDER BY COALESCE(i.attention_since, i.abandoned_at) ASC, i.created_at ASC, i.id ASC`
+
+// needsAttentionFrom is the least the membership rule can be decided from:
+// the row and the Ticket Sale it is about. The count reads through it and
+// the list through invoiceFrom, whose first two joins are these two; every
+// other join invoiceFrom adds is a LEFT one that yields at most one row, so
+// the two can no more disagree than the one WHERE clause they share can.
+const needsAttentionFrom = `
+	FROM invoicing_invoices i
+	LEFT JOIN ticket_sales ts ON ts.id = i.ticket_sale_id`
+
+// ListNeedsAttention reads a page of the needs-attention queue — documents
+// parked needs_attention, of every kind, AND abandoned Sale Invoices with
+// no live successor whose Ticket Sale still stands (needsAttentionWhere) —
+// LONGEST WAITING FIRST by the instant each entered the queue
+// (needsAttentionOrder), and how many there are in all (#477, #581).
 func (r *Repository) ListNeedsAttention(ctx context.Context, page, pageSize int) ([]InvoiceRow, int, error) {
 	total, err := r.CountNeedsAttention(ctx)
 	if err != nil {
@@ -542,10 +753,10 @@ func (r *Repository) ListNeedsAttention(ctx context.Context, page, pageSize int)
 	}
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT `+invoiceColumns+invoiceFrom+`
-		WHERE i.status = $1
-		ORDER BY i.attention_since ASC, i.created_at ASC, i.id ASC
-		LIMIT $2 OFFSET $3
-	`, invoicing.InvoiceStatusNeedsAttention, pageSize, (page-1)*pageSize)
+		WHERE `+needsAttentionWhere+`
+		`+needsAttentionOrder+`
+		LIMIT $1 OFFSET $2
+	`, pageSize, (page-1)*pageSize)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list needs attention: %w", err)
 	}
@@ -557,13 +768,15 @@ func (r *Repository) ListNeedsAttention(ctx context.Context, page, pageSize int)
 	return out, total, nil
 }
 
-// CountNeedsAttention counts the documents parked needs_attention: the
-// Operator Dashboard's badge, and exactly what the queue lists.
+// CountNeedsAttention counts the needs-attention queue: the Operator
+// Dashboard's badge, and exactly what the queue lists — the same
+// needsAttentionWhere, over the joins that rule needs and no others.
 func (r *Repository) CountNeedsAttention(ctx context.Context) (int, error) {
 	var n int
 	if err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM invoicing_invoices WHERE status = $1
-	`, invoicing.InvoiceStatusNeedsAttention).Scan(&n); err != nil {
+		SELECT COUNT(*) `+needsAttentionFrom+`
+		WHERE `+needsAttentionWhere+`
+	`).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count needs attention: %w", err)
 	}
 	return n, nil
@@ -702,6 +915,8 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 		deliveredAt, nextAttemptAt         sql.NullTime
 		attentionSince, annulledAt         sql.NullTime
 		annulledBy                         sql.NullString
+		abandonedBy, abandonNote           sql.NullString
+		abandonedAt                        sql.NullTime
 		supersedesID, supersededByID       sql.NullString
 		reissuedBy, reissueNote            sql.NullString
 		reissuedAt                         sql.NullTime
@@ -720,6 +935,7 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 		&ticketSaleID, &confirmationRef, &creditsInvoiceID, &creditNoteReason, &ivaRate, &deliveredAt, &nextAttemptAt,
 		&creditedByInvoiceID,
 		&attentionSince, &annulledBy, &annulledAt, &inv.RecipientWarning,
+		&abandonedBy, &abandonedAt, &abandonNote,
 		&supersedesID, &supersededByID, &reissuedBy, &reissuedAt, &reissueNote,
 		&backfilledBy, &backfilledAt,
 		&inv.CreatedAt, &inv.UpdatedAt,
@@ -763,6 +979,12 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 	if annulledAt.Valid {
 		t := annulledAt.Time
 		inv.AnnulledAt = &t
+	}
+	inv.AbandonedBy = abandonedBy.String
+	inv.AbandonNote = abandonNote.String
+	if abandonedAt.Valid {
+		t := abandonedAt.Time
+		inv.AbandonedAt = &t
 	}
 	inv.SupersedesInvoiceID = supersedesID.String
 	inv.SupersededByInvoiceID = supersededByID.String

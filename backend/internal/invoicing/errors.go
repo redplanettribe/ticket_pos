@@ -116,6 +116,77 @@ func ErrInvoiceWithdrawn() apperror.DomainError {
 	return apperror.New("INVOICE_WITHDRAWN", "The document was withdrawn: its Ticket Sale was reversed before it was sent, and nothing was ever sent to the Tax Authority.", nil)
 }
 
+// ErrInvoiceRefusedByNumber: Resend is refused on a document the authority
+// refuses by NUMBER — the SRI's 45, "secuencial registrado" (#577, parent
+// #575, ADR 0068). Resend re-signs and resubmits under the same clave and
+// secuencial, as S1 §5.10 requires and as every other refusal wants, and
+// that secuencial is the authority's whole objection: the send can only
+// earn the same answer again, as it did on production's 001-001-000000025
+// and 26 two days apart. The message teaches the rule rather than merely
+// blocking, and says what is still open — Check status asks the authority
+// what it holds and never sends, so it is untouched by this refusal.
+func ErrInvoiceRefusedByNumber() apperror.DomainError {
+	return apperror.New("INVOICE_REFUSED_BY_NUMBER", "The Tax Authority refuses this document's number. Resending it would submit the same secuencial the authority already rejects, and earn the same refusal. Check status still asks the authority what it holds.", nil)
+}
+
+// The Abandon's refusals (#578, parent #575, ADR 0068), one code each, so
+// the operator's surface names what stood in the way rather than "cannot
+// abandon". Abandoning declares that a document was never a legal document
+// at all, so every fact it rests on is refused by its own name.
+
+// ErrInvoiceAbandoned: Check status, Resend and Abandon are all refused on
+// an abandoned document (#578) — the authority never took it and never
+// will, so there is nothing left to ask about, nothing that would ever be
+// sent, and nothing left to give up. A terminal state is terminal, and this
+// is what makes it so.
+func ErrInvoiceAbandoned() apperror.DomainError {
+	return apperror.New("INVOICE_ABANDONED", "The document was abandoned: the Tax Authority never took it and never will. Nothing can be checked, resent or abandoned for it.", nil)
+}
+
+// ErrInvoiceNotAbandonable: Abandon is allowed only on a document parked
+// needs_attention, rejected or not_authorized (#578) — the three states a
+// refusal leaves a document in, the last two because a manual document's
+// refusals are recorded as such rather than parked. A pending document is
+// still with the authority and is checked, not given up on; an authorized
+// one is a legal artifact and is never disowned this way; an owed one was
+// never sent.
+func ErrInvoiceNotAbandonable(status InvoiceStatus) apperror.DomainError {
+	return apperror.New("INVOICE_NOT_ABANDONABLE", "Only a document the Tax Authority has refused can be abandoned; this one is "+string(status)+".", map[string]string{"status": string(status)})
+}
+
+// ErrInvoiceNotRefusedByNumber: Abandon is offered on a document the
+// authority refuses by NUMBER and on no other (#578, ADR 0068). Whether a
+// document parked for some other reason may ever be abandoned is
+// deliberately undecided until a second case needs it, so this refusal
+// names the fact rather than the policy: the authority did not refuse this
+// document's number, and every refusal it did give has a real remedy.
+func ErrInvoiceNotRefusedByNumber() apperror.DomainError {
+	return apperror.New("INVOICE_NOT_REFUSED_BY_NUMBER", "Only a document the Tax Authority refuses for its number — error 45, secuencial registrado — can be abandoned. This document was refused for another reason, which has its own remedy.", nil)
+}
+
+// ErrInvoiceCheckNotFresh: Abandon was pressed without a fresh Check status
+// immediately beforehand (#578, ADR 0068). Abandoning rests on the
+// authority's own CURRENT answer, and the attempts ledger must carry that
+// answer, timestamped, immediately before the act — the strongest record
+// available if the authority later asks why a number was never declared.
+// The remedy is one press: Check status, then Abandon.
+func ErrInvoiceCheckNotFresh() apperror.DomainError {
+	return apperror.New("INVOICE_CHECK_NOT_FRESH", "Check status first: a document is abandoned only on the Tax Authority's current answer, so a Check must be the last thing on its ledger and recent.", nil)
+}
+
+// ErrInvoiceAbandonInstead: Mark annulled is refused on a document that
+// qualifies for Abandon (#578, ADR 0068), which narrows an existing action
+// deliberately. Mark annulled records an annulment the operator performed
+// BY HAND AT THE AUTHORITY'S PORTAL; for a number the authority never took,
+// the portal shows nothing and there is nothing there to annul, so pressing
+// it would write a true-looking record of an act that never happened. That
+// was the operator's only escape from production's 001-001-000000025 and
+// 26, and it was a falsehood. Abandon is the honest one, and the message
+// says so.
+func ErrInvoiceAbandonInstead() apperror.DomainError {
+	return apperror.New("INVOICE_ABANDON_INSTEAD", "The Tax Authority refuses this document's number and never took it, so there is nothing at its portal to have been annulled. Abandon the document instead.", nil)
+}
+
 // ErrIssuerFieldFrozen: the Issuer detail named in details.field may no
 // longer change — the RUC once any Tax Invoice exists (it is inside every
 // clave de acceso), establecimiento and punto de emisión once a sequence has
@@ -162,7 +233,11 @@ func ErrReissueInFlight() apperror.DomainError {
 }
 
 // ErrInvoiceSuperseded: the factura is no longer the Sale's current one;
-// the corrected factura is what a further reissue corrects.
+// the corrected factura is what a further reissue corrects. Only a LIVE
+// successor earns this refusal (#579, ADR 0068): one that died — withdrawn,
+// annulled or abandoned — supersedes nothing, and answering "reissue the
+// current Sale Invoice instead" while pointing at a document the authority
+// never authorized left the Sale unreachable (#480).
 func ErrInvoiceSuperseded() apperror.DomainError {
 	return apperror.New("INVOICE_SUPERSEDED", "This Sale Invoice was superseded by a reissue. Reissue the current Sale Invoice instead.", nil)
 }
@@ -173,6 +248,63 @@ func ErrInvoiceSuperseded() apperror.DomainError {
 // twice.
 func ErrInvoiceAlreadyCredited() apperror.DomainError {
 	return apperror.New("INVOICE_ALREADY_CREDITED", "This Sale Invoice is already credited by an authorized Credit Note and cannot be credited again.", nil)
+}
+
+// Issue again's refusals (#580, parent #575, ADR 0068), one code each on
+// the same terms as the reissue's: the operator's surface names the fact
+// that stood in the way, never "cannot issue again". Each is a fact about
+// the document or its Sale that no retry with the same body changes.
+//
+// The Sale that no longer stands is ErrInvoiceSaleReversed, shared with the
+// reissue deliberately: it is the same fact about the same Sale, and a
+// surface that has already learned what it means must not have to learn a
+// second word for it.
+
+// ErrInvoiceManualNotIssuableAgain: a manual Tax Invoice is not re-owed —
+// the operator types another by hand, as they always have (ADR 0068). The
+// standing rule is not quietly reversed by the new act: re-owing a manual
+// document would drag it into the owed → Drainer → delivery path it is
+// deliberately excluded from in three separate places, to mend a case whose
+// answer is to type it again.
+func ErrInvoiceManualNotIssuableAgain() apperror.DomainError {
+	return apperror.New("INVOICE_MANUAL_NOT_ISSUABLE_AGAIN", "A manual Tax Invoice is not issued again by the platform. Issue another one by hand.", nil)
+}
+
+// ErrCreditNoteNotIssuableAgain: a Credit Note is never itself re-owed. It
+// exists to cancel a factura; a fresh one would cancel a document nothing
+// has issued, and what a dead Credit Note leaves behind is dealt with where
+// the chain is — its factura becomes uncredited and current again (#484).
+func ErrCreditNoteNotIssuableAgain() apperror.DomainError {
+	return apperror.New("CREDIT_NOTE_NOT_ISSUABLE_AGAIN", "A Credit Note cannot be issued again: only a Sale Invoice can.", nil)
+}
+
+// ErrInvoiceNotTerminallyDead: Issue again is offered on a Sale Invoice
+// that is TERMINALLY DEAD and on no other (#580, ADR 0068) — `abandoned`,
+// the authority never took it, or `annulled`, the operator disowned it by
+// hand at the portal. Those are the two states in which the Sale provably
+// has no factura and nothing will ever make this document one.
+//
+// `withdrawn` is deliberately not among them, though it is the third death:
+// a document is withdrawn when its Sale was reversed or when the Credit
+// Note it followed died, and in neither case is a fresh factura owed. An
+// owed, pending, parked or refused document is still on its way somewhere,
+// and an authorized one is the Sale's factura already; the reissue (ADR
+// 0061) is what corrects that one.
+func ErrInvoiceNotTerminallyDead(status InvoiceStatus) apperror.DomainError {
+	return apperror.New("INVOICE_NOT_TERMINALLY_DEAD", "Only a Sale Invoice that is abandoned or annulled can be issued again; this one is "+string(status)+".", map[string]string{"status": string(status)})
+}
+
+// ErrInvoiceAlreadyReplaced: the dead document already has a LIVE
+// replacement — a Sale Invoice that supersedes it and has not itself died —
+// so a second Issue again would leave the Sale with two competing facturas,
+// which is the one thing ADR 0061's chain exists to prevent.
+//
+// Live is read the way every other surface reads it since #579: a
+// replacement that is itself withdrawn, annulled or abandoned supersedes
+// nothing, so a Sale whose replacement ALSO died is issued again, and the
+// chain grows another hop rather than stopping.
+func ErrInvoiceAlreadyReplaced() apperror.DomainError {
+	return apperror.New("INVOICE_ALREADY_REPLACED", "This Sale Invoice has already been issued again. Its replacement is the Sale's current Sale Invoice.", nil)
 }
 
 // ErrSaleInvoicingUnavailable: Sale Invoicing was asked for while

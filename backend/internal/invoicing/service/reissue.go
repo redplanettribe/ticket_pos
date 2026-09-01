@@ -98,10 +98,15 @@ func reissuableDocument(inv *invoicing.Invoice) error {
 // Sale's income is never re-declared; a reissue still in flight on the
 // Sale is answered before "superseded", because during the flight the
 // factura is both and the flight is what the operator can wait out; a
-// superseded factura points the operator at the current one; and a
+// superseded factura points the operator at the current one — and only a
+// LIVE successor makes it superseded, since #579 taught the successor read
+// that withdrawn, annulled and abandoned are all deaths (ADR 0068), so a
+// factura whose correction died at the authority falls through to whichever
+// refusal is actually true of it; and a
 // factura an authorized Credit Note already stands against, with no live
 // successor, is the Sale-without-a-current-factura gap (#480), never
-// credited twice.
+// credited twice — the gap #580's Issue again closes by owing a fresh
+// factura rather than a second Credit Note.
 func reissueRefusal(inv *invoicing.Invoice, facts repository.ReissueSaleFacts) error {
 	if err := reissuableDocument(inv); err != nil {
 		return err

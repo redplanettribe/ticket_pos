@@ -18,6 +18,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  FormField,
+  Textarea,
   toast,
 } from "@ticket-pos/ui";
 import { useMessages, useTranslations } from "next-intl";
@@ -28,6 +30,7 @@ import { hasInvoiceLevers, invoiceLevers } from "@/lib/invoice-actions";
 import {
   type InvoiceStatus,
   type OperatorInvoiceDetail,
+  abandonOperatorInvoice,
   annulOperatorInvoice,
   checkOperatorInvoice,
   resendOperatorInvoice,
@@ -56,15 +59,45 @@ import {
  * that would fix it. A document the ledger says neither about shows neither
  * banner: the card offers its levers and says nothing it cannot know.
  *
+ * RESEND IS REFUSED WHERE THE NUMBER IS THE OBJECTION (#577, ADR 0068).
+ * On a document the SRI answered 45 "secuencial registrado", a resend would
+ * carry the same secuencial the SRI already refuses and can only earn the
+ * same answer — the API refuses it, so the button is not offered. Unlike
+ * every other missing lever here, that absence does not follow from the
+ * status, so this card says why in its own sentence rather than leaving a
+ * shorter row of buttons to be puzzled over. Check status is untouched: it
+ * asks and never sends.
+ *
  * MARK ANNULLED (#477) is the third lever, offered only on a pending or
  * needs_attention document — where the operator may have annulled it by
  * hand at the SRI portal, which the SRI offers no web service for. It is a
  * record, not a request: nothing goes to the SRI, and it is irreversible,
- * so it is confirmed first. Which levers show is `invoiceLevers`' decision.
+ * so it is confirmed first.
+ *
+ * ABANDON TAKES ITS PLACE WHERE THE NUMBER IS REFUSED (#578, ADR 0068). On
+ * such a document there is nothing at the portal to have been annulled, so
+ * Mark annulled would record an act that never happened and the API refuses
+ * it; Abandon records the true one — the SRI never took this document and
+ * never will. The two are never offered together, and this card says why the
+ * one the operator was reaching for is gone, in its own sentence, for the
+ * same reason it does so for Resend.
+ *
+ * ABANDON RESTS ON A FRESH CHECK, which the page cannot see: the API wants
+ * a `check` as the last thing on the ledger, made within the last quarter
+ * hour, and answers INVOICE_CHECK_NOT_FRESH otherwise. That refusal has a
+ * next step rather than a dead end — press Check status, then Abandon — so
+ * the button is offered and the refusal teaches, rather than the button
+ * being hidden on a rule the operator would have to guess at.
+ *
+ * Which levers show is `invoiceLevers`' decision.
  * Reissue (#483) is that decision's fourth lever and its own card
  * (operator-invoice-reissue.tsx): it belongs to an authorized document,
  * which this card — the SRI's remedies — never renders for.
  */
+
+// The abandonment note is bounded exactly as the reissue's is, by the same
+// schema column: a sentence for a colleague, not a file.
+const NOTE_MAX_LENGTH = 500;
 
 const OUTCOME_KEYS = {
   authorized: "invoicingCheckedAuthorized",
@@ -82,11 +115,13 @@ export function OperatorInvoiceActions({
 }) {
   const t = useTranslations("operator");
   const errorCopy = useMessages().errors;
-  const [busy, setBusy] = useState<"check" | "resend" | "annul" | null>(null);
+  const [busy, setBusy] = useState<"check" | "resend" | "annul" | "abandon" | null>(null);
   const [confirmingAnnulment, setConfirmingAnnulment] = useState(false);
+  const [confirmingAbandonment, setConfirmingAbandonment] = useState(false);
+  const [abandonNote, setAbandonNote] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const levers = invoiceLevers(invoice.status, invoice.ecuador !== null);
+  const levers = invoiceLevers(invoice.status, invoice.ecuador !== null, undefined, invoice.refused_by_number);
   if (!hasInvoiceLevers(levers)) {
     return null;
   }
@@ -124,6 +159,23 @@ export function OperatorInvoiceActions({
       setError(
         (actionError instanceof ApiError ? apiErrorMessage(errorCopy, actionError) : null) ??
           t("invoicingMarkAnnulledFailed"),
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function abandon() {
+    setConfirmingAbandonment(false);
+    setBusy("abandon");
+    setError(null);
+    try {
+      onUpdated(await abandonOperatorInvoice(invoice.id, abandonNote.trim() === "" ? null : abandonNote.trim()));
+      toast.success(t("invoicingAbandonDone"));
+    } catch (actionError) {
+      setError(
+        (actionError instanceof ApiError ? apiErrorMessage(errorCopy, actionError) : null) ??
+          t("invoicingAbandonFailed"),
       );
     } finally {
       setBusy(null);
@@ -176,9 +228,67 @@ export function OperatorInvoiceActions({
               {busy === "annul" ? t("invoicingMarkingAnnulled") : t("invoicingMarkAnnulled")}
             </Button>
           ) : null}
+          {levers.abandon ? (
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={busy !== null}
+              onClick={() => setConfirmingAbandonment(true)}
+            >
+              {busy === "abandon" ? t("invoicingAbandoning") : t("invoicingAbandon")}
+            </Button>
+          ) : null}
         </div>
+        {levers.abandon ? (
+          // Why Mark annulled is gone and what stands in its place (#578,
+          // ADR 0068). The operator reaching for it on a refused-by-number
+          // document is reaching for the one act that would be a falsehood,
+          // and a lever that simply vanishes teaches nothing.
+          <p className="text-xs text-muted-foreground">{t("invoicingAnnulRefusedByNumber")}</p>
+        ) : null}
+        {levers.abandon ? <p className="text-xs text-muted-foreground">{t("invoicingAbandonHint")}</p> : null}
+        {invoice.refused_by_number ? (
+          // Why Resend is not among the buttons (#577, ADR 0068). The API
+          // refuses it with INVOICE_REFUSED_BY_NUMBER, so offering it would
+          // be offering a certain failure — but a lever that simply vanishes
+          // teaches nothing, and the operator who resent 001-001-000000025
+          // for two days is exactly the reader this sentence is for. Check
+          // status is still there, and still worth pressing.
+          <p className="text-xs text-muted-foreground">{t("invoicingResendRefusedByNumber")}</p>
+        ) : null}
         {levers.annul ? <p className="text-xs text-muted-foreground">{t("invoicingMarkAnnulledHint")}</p> : null}
       </CardContent>
+
+      <Dialog open={confirmingAbandonment} onOpenChange={setConfirmingAbandonment}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("invoicingAbandonConfirmTitle")}</DialogTitle>
+            <DialogDescription>{t("invoicingAbandonConfirm")}</DialogDescription>
+          </DialogHeader>
+          {/*
+            The note travels with the record and is the operator's own words
+            about why — "not registered at the portal, confirmed by phone".
+            Optional, and bounded by the same column the reissue note uses.
+          */}
+          <FormField id="abandon_note" label={t("invoicingAbandonNoteLabel")}>
+            <Textarea
+              value={abandonNote}
+              maxLength={NOTE_MAX_LENGTH}
+              rows={3}
+              placeholder={t("invoicingAbandonNotePlaceholder")}
+              onChange={(event) => setAbandonNote(event.target.value)}
+            />
+          </FormField>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmingAbandonment(false)}>
+              {t("invoicingAbandonCancel")}
+            </Button>
+            <Button type="button" variant="destructive" onClick={() => void abandon()}>
+              {t("invoicingAbandon")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={confirmingAnnulment} onOpenChange={setConfirmingAnnulment}>
         <DialogContent>

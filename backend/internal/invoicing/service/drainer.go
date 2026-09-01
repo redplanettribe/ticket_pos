@@ -86,6 +86,17 @@ import (
 // a round withdraws it unsigned as this round withdraws an owed Credit Note
 // whose factura died. Either way the old factura is current again.
 //
+// AN ISSUE AGAIN REPLACEMENT FOLLOWS NOTHING (#580, ADR 0068), and THE
+// DRAINER LEARNS NOTHING NEW FOR IT. It is an owed Sale Invoice that
+// happens to carry a supersedes link, claimed, signed under a freshly
+// allocated secuencial, submitted, polled and delivered by the code above,
+// with no branch of its own — which is the whole design of the act: it
+// re-owes, and the queue does its work. The single place it must be told
+// apart from a corrected factura is the wait just described, since it owes
+// no Credit Note to wait for; that is done by asking whether the document
+// it supersedes is terminally dead, in withdrawCorrectedFacturaOfADeadCreditNote
+// and nowhere else.
+//
 // ONE CREDIT NOTE PER FACTURA REACHES THE AUTHORITY (#484). A reversal
 // during a reissue owes a second Credit Note against the old factura,
 // which waits (repository.ClaimDueInvoice) while the reissue's is signed
@@ -406,7 +417,11 @@ func (s *Service) withdrawCreditNoteOfADeadFactura(ctx context.Context, row *rep
 	switch factura.Invoice.Status {
 	case invoicing.InvoiceStatusAuthorized:
 		return false, nil
-	case invoicing.InvoiceStatusWithdrawn, invoicing.InvoiceStatusAnnulled:
+	case invoicing.InvoiceStatusWithdrawn, invoicing.InvoiceStatusAnnulled, invoicing.InvoiceStatusAbandoned:
+		// Abandoned (#578, ADR 0068) is a death like the other two here: the
+		// authority never took the factura, so a Credit Note owed against it
+		// before the operator abandoned it credits nothing and is withdrawn
+		// unsigned, no number consumed.
 	default:
 		return false, fmt.Errorf("invoicing: credit note %s was claimed while its factura is %s", row.Invoice.ID, factura.Invoice.Status)
 	}
@@ -452,7 +467,31 @@ func (s *Service) withdrawRedundantCreditNote(ctx context.Context, row *reposito
 // current. An authorized Credit Note reports false: the corrected factura
 // is signed next. One still owed or undecided is a claim that should not
 // have happened and is left leased to expire.
+//
+// AN ISSUE AGAIN REPLACEMENT FOLLOWS NO CREDIT NOTE (#580, ADR 0068), and
+// this net must not close on it. Issue again reuses ADR 0061's supersede
+// link, so its replacement carries supersedes_invoice_id exactly as a
+// corrected factura does — but it owes NO Credit Note, because the document
+// it replaces is terminally dead and there is nothing to cancel. Read
+// naively, "no live Credit Note against what this supersedes" is true of it
+// from the moment it is owed, and the first round would withdraw the very
+// document the operator has just asked for.
+//
+// The two are told apart by what they supersede, which is the difference
+// itself rather than a marker invented for it: a reissue corrects an
+// AUTHORIZED factura, and an authorized document can never become
+// withdrawn, annulled or abandoned — Mark annulled and Abandon both refuse
+// there, and a reversal withdraws only what was never sent — so a
+// terminally dead predecessor means an Issue again replacement and nothing
+// else. It waits for nothing and is signed on this round.
 func (s *Service) withdrawCorrectedFacturaOfADeadCreditNote(ctx context.Context, row *repository.InvoiceRow) (bool, error) {
+	replaced, err := s.repo.GetInvoice(ctx, row.Invoice.SupersedesInvoiceID)
+	if err != nil {
+		return false, err
+	}
+	if replaced != nil && invoicing.TerminallyDead(replaced.Invoice.Status) {
+		return false, nil
+	}
 	notes, err := s.creditNotesAgainst(ctx, row.Invoice.TicketSaleID, row.Invoice.SupersedesInvoiceID, "")
 	if err != nil {
 		return false, err

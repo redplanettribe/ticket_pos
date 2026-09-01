@@ -1,12 +1,14 @@
 # SRI invoicing: every way a facturación can go, and what the platform does about it
 
-Date: 2026-08-27. Audited against `main` at `136165a` (PR #488, ADR 0061 merged).
+Date: 2026-08-27, re-audited 2026-09-01. Audited against `main` at `6ea4255` (#575's arc built: Abandon and
+Issue again, ADR 0068).
 
 This is the "what we built, and what we didn't" companion to
 `docs/research-sri-facturacion-electronica.md` (what the SRI requires) and to
 ADRs [0059](./adr/0059-the-platform-is-the-sole-issuer-and-its-signing-certificate-lives-encrypted-in-the-database.md),
-[0060](./adr/0060-a-house-organizations-tickets-are-the-platforms-sale-invoiced-after-checkout-and-credited-on-reversal.md)
-and [0061](./adr/0061-a-wrong-recipient-is-corrected-by-reissue-a-credit-note-then-a-fresh-sale-invoice-never-an-edit.md)
+[0060](./adr/0060-a-house-organizations-tickets-are-the-platforms-sale-invoiced-after-checkout-and-credited-on-reversal.md),
+[0061](./adr/0061-a-wrong-recipient-is-corrected-by-reissue-a-credit-note-then-a-fresh-sale-invoice-never-an-edit.md)
+and [0068](./adr/0068-a-number-the-authority-never-held-is-abandoned-not-annulled-and-its-sale-is-issued-again.md)
 (what we decided). Paths are relative to the repository root; `B/` is `backend/internal/`.
 
 ## Status legend
@@ -21,8 +23,8 @@ and [0061](./adr/0061-a-wrong-recipient-is-corrected-by-reissue-a-credit-note-th
 
 Vocabulary: *Sale Invoice* = the factura (codDoc `01`) a paid Online Sale of a House Event owes; *Credit Note* = nota de
 crédito (`04`); *Drainer* = the Sale Invoice Drainer (internal endpoint + scheduler); *needs_attention* = a document the
-Drainer could not settle, waiting for a Platform Operator; *Recipient Warning* = SRI advertencia 59/62 on an authorized
-document.
+Drainer could not settle, waiting for a Platform Operator — the needs-attention *queue* is wider than the status, see
+row 57; *Recipient Warning* = SRI advertencia 59/62 on an authorized document.
 
 ---
 
@@ -46,7 +48,8 @@ stateDiagram-v2
 
     needs_attention --> pending : operator Resend<br/>(same clave & secuencial, re-signed)
     needs_attention --> needs_attention : still polled / retried hourly
-    needs_attention --> annulled : operator Mark annulled
+    needs_attention --> annulled : operator Mark annulled<br/>(refused where Abandon qualifies)
+    needs_attention --> abandoned : operator Abandon<br/>(refused by number: SRI 45,<br/>after a fresh Check status)
     needs_attention --> withdrawn : Sale reversed while<br/>still unsigned
     needs_attention --> authorized : late AUTORIZADO on a poll
 
@@ -62,8 +65,22 @@ stateDiagram-v2
         corrected factura, not a state.
     end note
 
+    note right of abandoned
+        The three deaths differ in what a
+        reader may conclude about the
+        authority (ADR 0068): withdrawn was
+        never sent, abandoned was sent and
+        never held — never a legal document —
+        annulled was held and disowned at the
+        portal. Issue again never moves this
+        row: it owes the Sale a NEW one,
+        linked through the supersede chain and
+        signed later under a fresh secuencial.
+    end note
+
     withdrawn --> [*]
     annulled --> [*]
+    abandoned --> [*]
 ```
 
 Transport errors, HTTP 5xx and SOAP faults never change the status: an attempt row is written and the document is
@@ -182,7 +199,7 @@ sequenceDiagram
             Drainer->>Buyer: factura mail: "replaces the earlier one"
             Note over Buyer: Customer Area shows the chain:<br/>current · superseded (still downloadable) · credit_note
         else refused
-            Note over DB: needs_attention → operator Resend,<br/>or Mark annulled → Sale has no current factura (issue 480)
+            Note over DB: needs_attention → operator Resend,<br/>or Mark annulled / Abandon → Issue again owes the Sale<br/>a fresh factura under a new secuencial (ADR 0068)
         end
     else Credit Note refused, then Mark annulled
         Note over DB: corrected factura withdrawn unsigned,<br/>old factura stands current, operator may reissue again
@@ -223,10 +240,13 @@ flowchart LR
     WHY -->|24 h without a definite answer| POLL[Still polled hourly,<br/>Check status button]
     DEC -->|the cause was ours and is fixed| RS[Resend: same clave & secuencial,<br/>re-signed with the current certificate]
     RS --> PEND[pending → 1.1]
-    DEC -->|it can never be authorized| ANN[Mark annulled: records who / when,<br/>the portal annulment itself is manual]
+    DEC -->|it can never be authorized,<br/>and the SRI HELD it| ANN[Mark annulled: records who / when,<br/>the portal annulment itself is manual<br/>— refused where Abandon qualifies]
+    DEC -->|error 45: the SRI refuses the NUMBER<br/>and its portal holds nothing under it| ABN[Check status, then Abandon:<br/>records that it was never a legal document,<br/>the secuencial stays consumed]
     ANN --> DEADF{What was it?}
-    DEADF -->|a first Sale Invoice| GAP[Sale with no current factura — issue 480]
+    ABN --> DEADF
+    DEADF -->|a first Sale Invoice| GAP[Sale with no current factura]
     DEADF -->|a corrected factura of a reissue| GAP
+    GAP --> AGAIN[Issue again: the Sale is owed a fresh<br/>Sale Invoice, same Recipient and lines,<br/>signed under a NEW secuencial — ADR 0068]
     DEADF -->|a reissue's Credit Note| BACK[Corrected factura withdrawn,<br/>old factura stands, reissue again]
     DEADF -->|a reversal's Credit Note| UNCR[Reversed Sale whose factura is still<br/>authorized and uncredited]
 ```
@@ -276,10 +296,12 @@ flowchart LR
 | 24 | NO AUTORIZADO on signature / certificate (39/40) | **Partial** | same | Same bucket. The operator fixes the certificate and Resends. |
 | 25 | NO AUTORIZADO emisor-side (37/46/56/57/63: RUC sin autorización, no existe, establecimiento cerrado, suspendida, clausurado) | **Partial** | same | Same bucket; not fixable by resend, but nothing says so. |
 | 26 | Arithmetic 52, clave mismatch 58, extemporánea 65, fecha inválida 67 | **Partial** | same | Same bucket. |
-| 27 | Error 45, secuencial registrado | **Partial** | `backend/migrations/096_invoicing_invoices.sql:105-120` UNIQUE on (issuer, env, cod_doc, estab, pto_emi, secuencial) | Prevented structurally against ourselves; if the SRI returns it (another system on the same punto de emisión) it is the same bucket, with no resequence path. |
+| 27 | Error 45, secuencial registrado | **Built** (ADR 0068, #576–#580) | schema `backend/migrations/096_invoicing_invoices.sql:105-120` UNIQUE on (issuer, env, cod_doc, estab, pto_emi, secuencial); detection `B/invoicing/number_refusal.go:40` `RefusedByNumberIn`; Abandon `B/invoicing/service/abandon.go:97`; Issue again `B/invoicing/service/issueagain.go:82` | Prevented structurally against ourselves; when the SRI returns it anyway — production's 001-001-000000025 and 26, refused on Submit and again on a Resend, with the portal showing neither number — the remedy is two operator acts: **Abandon** the document, then **Issue again**, which owes the Sale a fresh Sale Invoice the Drainer signs under a freshly allocated secuencial. The abandoned number stays consumed; the sequence only moves forward. Detail in rows 30a and 30b. |
 | 28 | Every definite refusal is one `needs_attention` bucket | **Untracked** (by design so far; never ruled in an ADR) | `invoice.go:423` | Messages are stored verbatim on the row and in the ledger, so a per-code taxonomy could be added without re-fetching. → U4 |
-| 29 | Operator Resend from `needs_attention` | **Built** | `B/invoicing/service/invoice_actions.go:71` `ResendInvoice`, `:160` `rebuildAndSign` | Same clave and secuencial, re-signed with the current certificate and refreshed Issuer details; on `AlreadyHeld` the stored bytes are kept. |
-| 30 | Operator Mark annulled | **Built** | `B/invoicing/service/attention.go:114` `AnnulInvoice`; `backend/migrations/099_invoice_annulment.sql` | From `pending` or `needs_attention`, signed documents only; records who/when; irreversible; the portal annulment itself is a manual act. |
+| 29 | Operator Resend from `needs_attention` | **Built** | `B/invoicing/service/invoice_actions.go:80` `ResendInvoice`, `:231` `rebuildAndSign`; refusal `:203` `resendRefusal` | Same clave and secuencial, re-signed with the current certificate and refreshed Issuer details; on `AlreadyHeld` the stored bytes are kept. Refused with `INVOICE_REFUSED_BY_NUMBER` on a document the SRI refuses by number (#577): the same secuencial can only earn error 45 again. Check status stays available there, deliberately — Abandon requires a fresh one. |
+| 30 | Operator Mark annulled | **Built** | `B/invoicing/service/attention.go` `AnnulInvoice`; `backend/migrations/099_invoice_annulment.sql`; narrowing `attention.go` `annullable` | From `pending` or `needs_attention`, signed documents only; records who/when; irreversible; the portal annulment itself is a manual act. Narrowed by #578: where Abandon qualifies it answers `INVOICE_ABANDON_INSTEAD`. Mark annulled is for a document the authority **held** and the operator disowned by hand — never for one the portal has no record of. |
+| 30a | Operator Abandon: the authority refuses the number and never took the document | **Built** (ADR 0068, #578) | `B/invoicing/service/abandon.go:97` `AbandonInvoice`, freshness rule `:87` `AbandonCheckFreshness`; `B/invoicing/handler/abandon.go:44`; route `B/server/routes.go:457`; `backend/migrations/119_invoice_abandonment.sql`; staff `apps/staff/app/operator/invoicing/[id]/operator-invoice-actions.tsx:168` | Ninth status `abandoned`, terminal: sent, never held, never a legal document, so nothing is owed at the portal and nothing is ever declared for it. Offered on any kind, from `needs_attention`, `rejected` and `not_authorized`, gated on the refusal by number alone and on a **fresh Check status**: the last ledger attempt must be a query the authority answered, started within 15 minutes. Trail `abandoned_by` / `abandoned_at` / `abandon_note`; number, clave, bytes and attempts kept forever; `next_attempt_at` cleared. Codes `INVOICE_ABANDONED`, `INVOICE_NOT_ABANDONABLE`, `INVOICE_NOT_REFUSED_BY_NUMBER`, `INVOICE_CHECK_NOT_FRESH`, `INVOICE_ABANDON_INSTEAD` (`B/invoicing/errors.go:142`, `:153`, `:163`, `:173`, `:186`). |
+| 30b | Operator Issue again: a Sale whose factura is terminally dead is owed a fresh one | **Built** (ADR 0068, #579, #580) | `B/invoicing/service/issueagain.go:82` `IssueSaleInvoiceAgain`, gate `:131` `issuableAgainDocument`, copy `:200` `replacementSaleInvoiceOf`; `B/invoicing/handler/issueagain.go:44`; route `B/server/routes.go:469`; `backend/migrations/120_live_successor_terminal_dead.sql`; staff `apps/staff/app/operator/invoicing/[id]/operator-invoice-issue-again.tsx` | From `abandoned` or `annulled` only — `withdrawn` is deliberately not a way in, since neither a reversed Sale nor a dead Credit Note's follower is owed a factura. Not a signing route: an ordinary `owed` row with no number, clave or signature, drained on a later round under a fresh secuencial. No Credit Note is owed — nothing to cancel — and the replacement carries the dead document's Recipient, lines and amounts **verbatim**: it corrects nothing (that is the reissue's business, row 42). Linked through ADR 0061's supersede chain, over any number of hops. Migration 120 widened the one-live-successor index to exclude `withdrawn`, `annulled` and `abandoned`, so a dead successor no longer blocks its Sale. Refusals `INVOICE_MANUAL_NOT_ISSUABLE_AGAIN`, `CREDIT_NOTE_NOT_ISSUABLE_AGAIN`, `INVOICE_NOT_TERMINALLY_DEAD`, `INVOICE_ALREADY_REPLACED`, and `INVOICE_SALE_REVERSED` reused. The Drainer's Credit-Note wait is skipped for a replacement by asking whether the document it supersedes is terminally dead (`B/invoicing/invoice.go:90` `TerminallyDead`, read at `drainer.go:492`). |
 | 31 | Reconciliation via `consultarEstadoAutorizacionComprobante` | **Untracked** (proposed in the research doc §3.3 rule 10, never ruled) | `B/invoicing/sri/client.go:231` uses `autorizacionComprobante` only | The ladder poll plus the operator's Check status is the only reconciliation. → U5 |
 | 32 | Sequence numbering per (issuer, environment, cod_doc, estab, pto_emi) | **Built** | `B/invoicing/repository/invoice.go:130` `allocateSecuencial` | Allocated inside the signing tx; rollback leaves no hole; unsignable documents park before allocation. |
 | 33 | Ambiente pruebas vs producción | **Built** | `B/invoicing/sri/client.go:19-20` (celcer / cel); `sri/authority.go:41` `AmbienteFor` | Environment is a column on the Issuer, copied at signing time. |
@@ -297,14 +319,14 @@ flowchart LR
 | 40 | Routes that produce a Credit Note | **Built** for customer + reconciler-agreed (`customer`) and operator (`platform`) | `B/sales/service/reversal.go:967`, `B/sales/service/operator.go:529` | Staff reversal, import undo and correction pass no seam — correct, import-channel Sales never owe a document. A refused Reversal Request reverses nothing. |
 | 41 | Reversal during a reissue | **Built** | see 2.5 #47 | |
 
-### 2.5 Reissue (ADR 0061)
+### 2.5 Reissue (ADR 0061) and Issue again (ADR 0068)
 
 | # | Flow | Status | Proof | Note |
 |---|---|---|---|---|
 | 42 | Operator reissue: Credit Note (reason `reissue`) + corrected factura owed in one transaction; corrected signed only once the Credit Note is authorized | **Built** | `B/invoicing/handler/reissue.go:56`; `B/invoicing/service/reissue.go:41`; `B/invoicing/repository/reissue.go:53`; gate `B/invoicing/repository/drainer.go:91-95` | Decided under the Sale's lock; Tax ID validated exactly as at checkout; corrected factura's email is the Sale's current one. |
 | 43 | Credit Note refused, then Mark annulled | **Built** | `B/invoicing/service/attention.go:129`; `drainer.go:435` `withdrawCorrectedFacturaOfADeadCreditNote` | Corrected factura withdrawn unsigned; old factura stands current; operator may reissue again. |
 | 44 | Corrected factura refused | **Built** (bucket) | `invoice.go:423` | `needs_attention`; Resend or Mark annulled. |
-| 45 | Corrected factura annulled → Sale with no current factura | **Tracked** #480 | `B/invoicing/service/attention.go:177` `DocumentRoleNotCurrent` | Same terminal state as an annulled first factura (#477). |
+| 45 | Corrected factura annulled → Sale with no current factura | **Built** (ADR 0068, #580; #480 closed) | `B/invoicing/service/issueagain.go:82`; index `backend/migrations/120_live_successor_terminal_dead.sql` | Was the dead end #480 recorded, shared with an annulled first factura (#477). Issue again (row 30b) owes the Sale a fresh Sale Invoice, and migration 120 stopped the dead successor holding the chain's one live slot. |
 | 46 | Reissue refused on: manual Tax Invoice, Credit Note, not-authorized document, reversed Sale, reissue in flight, superseded, already credited | **Built** | `B/invoicing/service/reissue.go:358`, `:380` `reissueRefusal`; codes in `B/invoicing/errors.go:160-167` | Each its own 409 code. |
 | 47 | Sale Reversal during a reissue | **Built** | `saleinvoice.go:141-161`, `:199-222`; `drainer.go:405` `withdrawRedundantCreditNote`; `delivery.go:67` | Exactly one Credit Note reaches the SRI; the corrected factura is withdrawn; a reissue Credit Note that authorizes after the reversal is mailed with reversal wording (#484). |
 | 48 | Second reissue on the corrected factura (chain) | **Built** | `B/invoicing/service/attention.go:269` `chainOrder`; `ErrReissueInFlight` `reissue.go:387` | Unbounded chain; one reissue per Sale at a time. |
@@ -321,7 +343,7 @@ flowchart LR
 | 54 | Credit Note mail copy: reversal vs reissue; corrected factura says it replaces | **Built** | `email_content.go:1885`, `:1898`, `:1910`, applied `:1938` | |
 | 55 | Customer Area shows the chain: current · superseded (still downloadable, labelled) · credit_note; "on its way" before authorization | **Built** | `B/invoicing/service/customer_documents.go:53-113`; `apps/storefront/components/sale-documents.tsx` | Nothing the SRI said travels to the buyer. |
 | 56 | Buyer told when a document's state changes (Res. 25-14: annulment must be communicated) | **Partial** | credit/reissue mails exist; no mail on Mark annulled | An annulled factura produces no buyer mail. → U8 |
-| 57 | Operator list: kind filter, `recipient_warning` filter, superseded marker, chain on the Sale lookup; dashboard counts (`needs_attention`, Recipient Warnings) | **Built** | `B/invoicing/handler/invoice.go:176-183`; `B/invoicing/service/attention.go:69`, `:219`; `apps/staff/app/operator/invoicing/operator-invoices-client.tsx:84-91`; `operator-dashboard-client.tsx:182,277` | |
+| 57 | Operator list: kind filter, `recipient_warning` filter, superseded marker, chain on the Sale lookup; dashboard counts (`needs_attention`, Recipient Warnings) | **Built** | `B/invoicing/handler/invoice.go:176-183`; `B/invoicing/service/attention.go:69`, `:219`; `apps/staff/app/operator/invoicing/operator-invoices-client.tsx:84-91`; `operator-dashboard-client.tsx:182,277` | The invoice detail also carries `refused_by_number`, derived from the stored authority messages rather than a column (`B/invoicing/service/invoice.go` `invoiceDetailView`), so the page says the authority refuses this number instead of showing generic refusal copy. The needs-attention queue and its badge are **not** a status equality: ADR 0068 widens them to documents parked `needs_attention` **or** abandoned with the Sale still standing and no live replacement, so that abandoning a document does not hide the Sale it left uninvoiced; the entry clears itself when Issue again owes one. Built as #581 — do not "simplify" the union back to `status = 'needs_attention'`. |
 
 ### 2.7 Ops and legal edges
 
@@ -347,10 +369,10 @@ Nothing here has an issue or a ruling. Which ones become tickets is a decision, 
 |---|---|---|---|
 | U1 | Recipient Warning comments and OpenAPI text say "cleared only when superseded"; the code (per the #478 review) clears on credit — including a plain reversal's Credit Note | 13, 49 | Doc rot on a legal marker; an operator reading the API description will misread the filter. |
 | U2 | Delivery mails the email frozen on the invoice, so a factura authorized after a Sale Re-addressing (ADR 0058) goes to the stranded address; a reissue takes the Sale's current email | 16 | The SRI obliges delivery to the buyer; the buyer is now the new addressee. Asymmetric with reissue. |
-| U3 | No schema uniqueness on "one Sale Invoice per Ticket Sale" | 8 | Control-flow-only invariant; a second issuance path (#480) would have no backstop. |
+| U3 | No schema uniqueness on "one Sale Invoice per Ticket Sale" | 8 | Control-flow-only invariant, and the second issuance path it feared now exists: Issue again (row 30b) owes a Sale another Sale Invoice, guarded by the live-successor index of migration 120 and a read under the Sale's lock, not by a uniqueness constraint on the Sale. |
 | U4 | Every definite refusal is one bucket; error 50 (SRI internal error) parks instead of retrying; emisor-side codes (37/46/56/57/63) are not marked "resend won't help" | 22–28 | An SRI hiccup becomes operator work; operators cannot tell a fixable refusal from a dead one without reading the Ficha. Data is already stored to derive it. |
 | U5 | No reconciliation against `consultarEstadoAutorizacionComprobante` | 31 | Research doc §3.3 rule 10 proposed a daily check; the only cross-check today is the same `autorizacionComprobante` poll. |
-| U6 | A reversal's Credit Note annulled leaves a reversed Sale with an authorized, uncredited factura and nothing chasing it | 39 | Declared income for a sale that no longer stands, invisible after the operator acts. Sibling of #480. |
+| U6 | A reversal's Credit Note annulled leaves a reversed Sale with an authorized, uncredited factura and nothing chasing it | 39 | Declared income for a sale that no longer stands, invisible after the operator acts. Was the sibling of #480, which ADR 0068 closed; this half is still unanswered, and Issue again does not reach it — a reversed Sale is owed nothing. |
 | U7 | No RIDE for the buyer (XML only) | 51 | S6 Q21: the emisor must deliver XML **and** RIDE; a RIDE without the número de autorización is worthless, so it can only be produced after authorization — which is when the mail goes. |
 | U8 | Mark annulled sends the buyer nothing | 56 | Res. 25-14: any change to a comprobante's state must be communicated to the receptor. |
 | U9 | ~~No certificate-expiry early warning~~ — closed by ADR 0063 / #490 (#500–#505) | 59 | Built: the Drainer's tick warns the operator allowlist at 30, 7, 1 and 0 days and the staff app banners it. What remains is deployment, not code: the Drainer's Cloud Scheduler job ships paused (row 58) and must be unpaused before the production certificate's first rung, and the mail's Issuer-page link takes its origin from `STAFF_BASE_URL`, which Terraform now mounts on the API from `staff_domain` (nothing to set by hand once the staff domain is mapped). |

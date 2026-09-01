@@ -582,8 +582,8 @@ func (s *Service) GetInvoice(ctx context.Context, id string) (*InvoiceDetail, er
 	return s.detailView(row), nil
 }
 
-// InvoiceFilter is what narrows the list: a kind (#477), the Recipient
-// Warning (#482), both, or neither.
+// InvoiceFilter is what narrows the list: a kind (#477), a status (#578),
+// the Recipient Warning (#482), any of them together, or none.
 type InvoiceFilter = repository.InvoiceFilter
 
 // ListInvoices returns a page of Tax Invoices, newest first, under the
@@ -673,6 +673,13 @@ type InvoiceListItem struct {
 	// long it has been waiting for an operator (#477); null in every other
 	// state.
 	AttentionSince *time.Time `json:"attention_since"`
+	// AbandonedAt is when the operator abandoned the document, because the
+	// authority refuses its number and never took it (#578, ADR 0068); null
+	// in every other state. It is on the LIST ROW and not only the detail
+	// because it is the queue's second "waiting since" (#581): an abandoned
+	// row's attention_since is cleared, and this is the instant its wait for
+	// a replacement began — the one the queue orders it by.
+	AbandonedAt *time.Time `json:"abandoned_at"`
 	// RecipientWarning is true on an authorized Sale Invoice the SRI warned
 	// about — the Recipient's Tax ID does not exist (advertencia 59) or is
 	// incorrect (62) — until the document is superseded (#482, ADR 0061).
@@ -798,11 +805,23 @@ type InvoiceDetail struct {
 	// Both null unless the document is annulled.
 	AnnulledBy *string    `json:"annulled_by"`
 	AnnulledAt *time.Time `json:"annulled_at"`
+	// The abandonment's trail (#578, ADR 0068): the operator who declared
+	// that the Tax Authority never took this document, the instant, and
+	// their optional note ("not registered at the portal, confirmed by
+	// phone"). All null unless abandoned, and the note null on an abandoned
+	// document that carries none. Deliberately not the annulment's pair:
+	// a reader who finds annulled_at set must be able to conclude that a
+	// portal annulment happened, and for an abandoned document none did.
+	AbandonedBy *string    `json:"abandoned_by"`
+	AbandonedAt *time.Time `json:"abandoned_at"`
+	AbandonNote *string    `json:"abandon_note"`
 	// The Sale Invoice Reissue's chain and trail (#483, ADR 0061).
 	// SupersedesInvoiceID is, on a corrected Sale Invoice, the factura it
 	// corrects; the list row's SupersededByInvoiceID is, on a reissued
 	// factura, the live corrected one — the current Sale Invoice is the one
-	// with neither a successor nor a withdrawn or annulled state. ReissuedBy,
+	// with neither a live successor nor a terminal-dead state of its own,
+	// where dead is withdrawn, annulled or abandoned (#579, ADR 0068).
+	// ReissuedBy,
 	// ReissuedAt and ReissueNote are who reissued, when and the optional
 	// note, shown on the corrected factura, the superseded one and the
 	// reissue's Credit Note alike. All null where no reissue concerns the
@@ -896,6 +915,7 @@ func invoiceListItem(row *repository.InvoiceRow) InvoiceListItem {
 		TotalCents:            inv.TotalCents,
 		Currency:              inv.Currency,
 		AttentionSince:        optionalTime(inv.AttentionSince),
+		AbandonedAt:           optionalTime(inv.AbandonedAt),
 		RecipientWarning:      inv.RecipientWarning,
 		SupersededByInvoiceID: optional(inv.SupersededByInvoiceID),
 	}
@@ -950,6 +970,9 @@ func invoiceDetailView(row *repository.InvoiceRow) *InvoiceDetail {
 		CreditedByInvoiceID: optional(inv.CreditedByInvoiceID),
 		AnnulledBy:          optional(inv.AnnulledBy),
 		AnnulledAt:          optionalTime(inv.AnnulledAt),
+		AbandonedBy:         optional(inv.AbandonedBy),
+		AbandonedAt:         optionalTime(inv.AbandonedAt),
+		AbandonNote:         optional(inv.AbandonNote),
 		SupersedesInvoiceID: optional(inv.SupersedesInvoiceID),
 		ReissuedBy:          optional(inv.ReissuedBy),
 		ReissuedAt:          optionalTime(inv.ReissuedAt),

@@ -40,7 +40,60 @@ const (
 	// never authorized, which is credited instead — the operator annulled by
 	// hand at the authority's portal and then recorded as such (#477).
 	InvoiceStatusAnnulled InvoiceStatus = "annulled"
+	// InvoiceStatusAbandoned: a signed document that WAS sent, that the
+	// authority never took and never will, because it refuses the NUMBER it
+	// carries (#578, ADR 0068). It was never a legal document: nothing is
+	// owed at the authority's portal and nothing is ever declared for it.
+	//
+	// The third of the three deaths, and a distinct claim rather than a
+	// qualified annulment — a reader must be able to conclude the right
+	// thing from the one word. Withdrawn was never sent; abandoned was sent
+	// and never held; annulled was held and then disowned by hand. Terminal
+	// like both: nothing is checked, resent or abandoned again on it, its
+	// number and clave and bytes and attempts stand forever, and the
+	// secuencial stays consumed.
+	InvoiceStatusAbandoned InvoiceStatus = "abandoned"
 )
+
+// InvoiceStatuses lists every state a document may stand in, for the
+// operator list's status filter (#578) and any message that must name them.
+// In the order a document travels: owed, then with the authority, then the
+// three deaths.
+var InvoiceStatuses = []InvoiceStatus{
+	InvoiceStatusOwed,
+	InvoiceStatusPending,
+	InvoiceStatusAuthorized,
+	InvoiceStatusNotAuthorized,
+	InvoiceStatusRejected,
+	InvoiceStatusNeedsAttention,
+	InvoiceStatusWithdrawn,
+	InvoiceStatusAnnulled,
+	InvoiceStatusAbandoned,
+}
+
+// TerminallyDead reports whether a document is in one of the three deaths —
+// withdrawn, annulled, abandoned — from which nothing it can ever become.
+//
+// The three are told apart by what a reader may conclude about the
+// authority (ADR 0068), and there are places that must ask only "is this
+// one of them": the live-successor read and its partial unique index spell
+// the list out in SQL, and the Drainer asks it of the document a claimed
+// unsigned Sale Invoice supersedes, to tell an Issue again replacement —
+// which follows a dead document and no Credit Note (#580) — from a
+// reissue's corrected factura, which follows an authorized one and a Credit
+// Note it must wait for.
+//
+// AN AUTHORIZED DOCUMENT IS NEVER ANY OF THEM, which is what makes that
+// question a safe discriminator: Mark annulled is allowed only from pending
+// and needs_attention, Abandon only from the three states a refusal leaves,
+// and a reversal withdraws only what was never sent.
+func TerminallyDead(status InvoiceStatus) bool {
+	switch status {
+	case InvoiceStatusWithdrawn, InvoiceStatusAnnulled, InvoiceStatusAbandoned:
+		return true
+	}
+	return false
+}
 
 // DocumentKind says why a Tax Invoice exists: an operator typed it, a paid
 // House checkout owed it, or such a Sale's reversal owed it (#473).
@@ -227,6 +280,14 @@ type Invoice struct {
 	// portal annulment and when (#477); "" and nil unless annulled.
 	AnnulledBy string
 	AnnulledAt *time.Time
+	// AbandonedBy, AbandonedAt and AbandonNote are the abandonment's trail
+	// (#578, ADR 0068): the operator who declared that the authority never
+	// took this document, the instant, and their optional note. "" and nil
+	// unless abandoned; the note may be "" on an abandoned document, since
+	// it is the one part of the trail the operator may leave out.
+	AbandonedBy string
+	AbandonedAt *time.Time
+	AbandonNote string
 	// RecipientWarning is the authority's word, on an authorized Sale
 	// Invoice, that the Recipient's Tax ID does not exist or is incorrect
 	// (#482, ADR 0061): set from the authorization's messages, cleared only
@@ -237,8 +298,11 @@ type Invoice struct {
 	// The Sale Invoice Reissue (#483, ADR 0061). SupersedesInvoiceID is, on
 	// a Sale Invoice a reissue produced, the factura it corrects; stored
 	// here and nowhere else. SupersededByInvoiceID is the reverse link read
-	// beside the row — the live successor (one not withdrawn) of a
-	// reissued factura, "" when it is current. ReissuedBy, ReissuedAt and
+	// beside the row — the live successor of a reissued factura, "" when it
+	// is current. LIVE excludes every terminal-dead status (#579, ADR
+	// 0068): a successor withdrawn, annulled or abandoned supersedes
+	// nothing, and its factura reads as current again.
+	// ReissuedBy, ReissuedAt and
 	// ReissueNote are the reissue's trail: stored on the corrected factura,
 	// and read beside the superseded factura and the reissue Credit Note so
 	// every document concerned shows who, when and why.

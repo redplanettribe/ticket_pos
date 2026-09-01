@@ -28,6 +28,7 @@ import { recipientWarningMessages } from "@/lib/recipient-warning";
 
 import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "../invoice-status";
 import { OperatorInvoiceActions } from "./operator-invoice-actions";
+import { OperatorInvoiceIssueAgain } from "./operator-invoice-issue-again";
 import { OperatorInvoiceReissue } from "./operator-invoice-reissue";
 import { InvoiceDownloads } from "./invoice-downloads";
 
@@ -50,6 +51,14 @@ import { InvoiceDownloads } from "./invoice-downloads";
 // badged so, beside its still-authorized status — superseded is a relation,
 // not a state. Reissue itself is operator-invoice-reissue.tsx's card, shown
 // on the current authorized Sale Invoice alone.
+//
+// From #580 (ADR 0068) the same chain carries a REPLACEMENT: a Sale Invoice
+// that is terminally dead — abandoned, or annulled at the portal — may be
+// issued again, and the fresh document reuses supersedes_invoice_id to name
+// what it replaced. So the chain card, the trail card and the badge above
+// all read a replacement without change, in both directions and over any
+// number of hops. Issue again itself is operator-invoice-issue-again.tsx's
+// card, shown on a terminally dead Sale Invoice with no live replacement.
 //
 // From #576 (ADR 0068) a refused document says WHICH refusal it met: the SRI
 // refusing the number it carries — error 45, "secuencial registrado" — reads
@@ -358,8 +367,43 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
         </Card>
       ) : null}
 
+      {invoice.abandoned_by && invoice.abandoned_at ? (
+        // The abandonment trail (#578, ADR 0068): who recorded that the SRI
+        // never took this document, when, and why. It stands where the
+        // annulment trail does and says the opposite thing about the SRI, so
+        // a reader of the page is never left to infer which of the two
+        // happened; the number and the bytes it names are still on the page
+        // above, which is the point of saying they are kept.
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("invoicingAbandonmentTitle")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <p>
+              {t("invoicingAbandonmentTrail", {
+                by: invoice.abandoned_by,
+                when: formatDateTime(invoice.abandoned_at, PLATFORM_TIME_ZONE, locale) ?? invoice.abandoned_at,
+              })}
+            </p>
+            {invoice.abandon_note ? (
+              <p>
+                <span className="font-medium text-foreground">{t("invoicingAbandonmentTrailNote")}</span>{" "}
+                <span className="whitespace-pre-wrap">{invoice.abandon_note}</span>
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <OperatorInvoiceActions invoice={invoice} onUpdated={setInvoice} />
       {levers.reissue ? <OperatorInvoiceReissue invoice={invoice} /> : null}
+      {/*
+        Issue again (#580, ADR 0068): the counterpart to Reissue at the other
+        end of a document's life. A terminally dead Sale Invoice — abandoned,
+        or annulled at the portal — leaves its Ticket Sale with no factura,
+        and this is the press that owes it a fresh one.
+      */}
+      {levers.issueAgain ? <OperatorInvoiceIssueAgain invoice={invoice} /> : null}
 
       <Card>
         <CardHeader>

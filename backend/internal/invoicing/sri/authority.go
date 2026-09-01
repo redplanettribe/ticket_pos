@@ -71,11 +71,7 @@ func (a *Authority) Submit(ctx context.Context, doc invoicing.PreparedDocument) 
 		if rec.HasMessage(MessageAccessKeyRegistered) || rec.HasMessage(MessageAccessKeyInProcessing) {
 			return invoicing.Outcome{State: invoicing.OutcomeReceived, Messages: messages, AlreadyHeld: true}, nil
 		}
-		return invoicing.Outcome{
-			State:           invoicing.OutcomeRejected,
-			Messages:        messages,
-			RefusedByNumber: invoicing.RefusedByNumberIn(messages),
-		}, nil
+		return invoicing.Outcome{State: invoicing.OutcomeRejected, Messages: messages}, nil
 	}
 	return invoicing.Outcome{}, fmt.Errorf("%w: reception state %q", ErrResponse, rec.State)
 }

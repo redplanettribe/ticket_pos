@@ -109,3 +109,112 @@ func TestAnAuthorizedDocumentIsNeverRefusedByNumber(t *testing.T) {
 		t.Fatalf("detail = %s refused_by_number %v; want authorized and not refused by number", detail.Status, detail.RefusedByNumber)
 	}
 }
+
+// RESEND IS REFUSED ON A DOCUMENT REFUSED BY NUMBER (#577, parent #575,
+// ADR 0068). Resend's contract is the same clave and the same secuencial
+// (S1 §5.10), which is correct for every other refusal and is the entirety
+// of what error 45 objects to. The operator pressed it on both production
+// documents two days after their first refusal and earned another rejection;
+// the button provably cannot work, so the API refuses it and says why.
+//
+// What these prove at the HTTP seam: the refusal's own code, that Check
+// status is untouched on the very same document, that an ordinary refusal
+// resends exactly as it always did — and, the load-bearing one, that the
+// refused Resend SENDS NOTHING. That is asserted against the fake SRI's
+// reception count, because "refused" would be worth little if the document
+// had already gone out.
+
+// TestResendIsRefusedOnADocumentTheSRIRefusesByNumberAndSendsNothing.
+func TestResendIsRefusedOnADocumentTheSRIRefusesByNumberAndSendsNothing(t *testing.T) {
+	env := setupTest(t)
+	operatorSessionID, invoiceID := houseSaleOwed(t, env, 1000, 1)
+	issuerReady(t, operatorSessionID)
+	sriStub.setReception(func(accessKey string) (int, string) {
+		return http.StatusOK, returnedSOAP(accessKey, sriMessage("45", "ERROR SECUENCIAL REGISTRADO", "", "ERROR"))
+	})
+	if result := drainSaleInvoices(t); result.NeedsAttention != 1 {
+		t.Fatalf("drain = %+v; want the document parked needs_attention", result)
+	}
+	sent := sriStub.receptionCount()
+
+	resp, body := resendInvoice(t, operatorSessionID, invoiceID)
+
+	if resp.StatusCode != http.StatusConflict || body.Error == nil || body.Error.Code != "INVOICE_REFUSED_BY_NUMBER" {
+		t.Fatalf("resend: status=%d error=%+v; want 409 INVOICE_REFUSED_BY_NUMBER", resp.StatusCode, body.Error)
+	}
+	if got := sriStub.receptionCount(); got != sent {
+		t.Fatalf("recepción received %d documents; want %d — a refused resend sends nothing", got, sent)
+	}
+
+	// The refusal is a refusal, not a state change: the document is parked
+	// exactly where the SRI's answer left it, and still says why.
+	detail := getNumberRefusalDetail(t, operatorSessionID, invoiceID)
+	if detail.Status != "needs_attention" || !detail.RefusedByNumber {
+		t.Fatalf("detail = %s refused_by_number %v; want the document untouched by the refusal", detail.Status, detail.RefusedByNumber)
+	}
+}
+
+// TestCheckStatusStaysAvailableOnADocumentTheSRIRefusesByNumber: the other
+// half of the asymmetry. Check asks the authority and never sends, and its
+// answer — here "nothing known under that clave" — is the evidence an
+// operator needs before doing anything irreversible about the number.
+func TestCheckStatusStaysAvailableOnADocumentTheSRIRefusesByNumber(t *testing.T) {
+	env := setupTest(t)
+	operatorSessionID, invoiceID := houseSaleOwed(t, env, 1000, 1)
+	issuerReady(t, operatorSessionID)
+	sriStub.setReception(func(accessKey string) (int, string) {
+		return http.StatusOK, returnedSOAP(accessKey, sriMessage("45", "ERROR SECUENCIAL REGISTRADO", "", "ERROR"))
+	})
+	if result := drainSaleInvoices(t); result.NeedsAttention != 1 {
+		t.Fatalf("drain = %+v; want the document parked needs_attention", result)
+	}
+	sent := sriStub.receptionCount()
+	sriStub.setAuthorization(func(accessKey string) (int, string) {
+		return http.StatusOK, emptyAuthorizationSOAP(accessKey)
+	})
+
+	checkResp, checkBody := checkInvoice(t, operatorSessionID, invoiceID)
+	view := actionOK(t, "check", checkResp, checkBody)
+
+	if view.Status != "needs_attention" {
+		t.Fatalf("status = %q; want needs_attention — an answer that decides nothing changes nothing", view.Status)
+	}
+	if got := sriStub.receptionCount(); got != sent {
+		t.Fatalf("recepción received %d documents; want %d — Check status never sends", got, sent)
+	}
+}
+
+// TestResendIsUnchangedForARefusalThatIsNotByNumber: the guard is narrow.
+// A document the SRI refused for its content is rebuilt, re-signed and sent
+// again under the same clave and secuencial, exactly as before #577.
+func TestResendIsUnchangedForARefusalThatIsNotByNumber(t *testing.T) {
+	env := setupTest(t)
+	operatorSessionID, invoiceID := houseSaleOwed(t, env, 1000, 1)
+	issuerReady(t, operatorSessionID)
+	sriStub.setReception(func(accessKey string) (int, string) {
+		return http.StatusOK, returnedSOAP(accessKey, sriMessage("35", "DOCUMENTO INVALIDO", "El XML no cumple el esquema", "ERROR"))
+	})
+	if result := drainSaleInvoices(t); result.NeedsAttention != 1 {
+		t.Fatalf("drain = %+v; want the document parked needs_attention", result)
+	}
+	first, ok := sriStub.lastReceived()
+	if !ok {
+		t.Fatal("the drain sent nothing to recepción")
+	}
+	sent := sriStub.receptionCount()
+	sriStub.answerAsUsual()
+
+	resendResp, resendBody := resendInvoice(t, operatorSessionID, invoiceID)
+	view := actionOK(t, "resend", resendResp, resendBody)
+
+	if view.Status != "authorized" {
+		t.Fatalf("status = %q; want authorized", view.Status)
+	}
+	if got := sriStub.receptionCount(); got != sent+1 {
+		t.Fatalf("recepción received %d documents; want %d — the resend must send", got, sent+1)
+	}
+	second, _ := sriStub.lastReceived()
+	if second.accessKey != first.accessKey {
+		t.Fatalf("resend carried clave %q; want the document's own %q", second.accessKey, first.accessKey)
+	}
+}

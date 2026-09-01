@@ -32,7 +32,11 @@ type needsAttentionQueueView struct {
 		Number              *string `json:"number"`
 		SaleConfirmationRef *string `json:"sale_confirmation_ref"`
 		AttentionSince      *string `json:"attention_since"`
-		Messages            []struct {
+		// AbandonedAt is the other instant a row can be waiting since
+		// (#581): null on a parked document, and on an abandoned one the
+		// moment it entered the queue by the second door.
+		AbandonedAt *string `json:"abandoned_at"`
+		Messages    []struct {
 			Identifier string `json:"identifier"`
 			Message    string `json:"message"`
 			Type       string `json:"type"`
