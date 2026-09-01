@@ -1,5 +1,6 @@
 # Adulthood is declared on the Terms gate, never verified, and a refusal leaves no record
 
+Specified as issue #584.
 Extends [ADR 0066](./0066-the-terms-are-accepted-twice-as-attendee-on-the-storefront-as-organizer-before-a-staff-session.md),
 whose two capacities it inherits whole, and is published through the machinery of
 [ADR 0067](./0067-the-legal-text-lives-in-the-database-the-operator-publishes-it-and-revision-zero-is-the-whole-of-gating.md).
