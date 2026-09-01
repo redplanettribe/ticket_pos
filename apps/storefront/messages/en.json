@@ -606,6 +606,7 @@
       "REVERSAL_UNRESOLVED": "We're looking into what happened to this refund with the payment provider. Nothing has changed here — contact the organizer with your confirmation reference.",
       "UNSUBSCRIBE_LINK_INVALID": "This unsubscribe link isn't valid. You can turn the weekly digest off from your account instead.",
       "CONSENT_CONFIRMATION_LINK_INVALID": "This confirmation link isn't valid. You can set your preferences from your account instead.",
+      "ADULTHOOD_DECLARATION_REQUIRED": "You must be eighteen or older to use Multiticketing.",
       "INVALID_ANSWER": "That answer doesn't fit this question.",
       "ANSWER_OPTION_NOT_OFFERED": "That option isn't one this question offers any more.",
       "ASSIGNMENT_LINK_INVALID": "This link no longer works. Tickets can change hands, and a link stops working when that happens.",

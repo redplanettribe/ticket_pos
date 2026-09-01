@@ -61,6 +61,17 @@ type StaffAcceptanceRecordItem struct {
 	// no staff channel that shows nothing, so "the field does not apply" is not
 	// a state this record can be in.
 	PresentedLocale *string
+	// AdulthoodDeclaration is the 18+ box ticked in the organizer capacity
+	// beside this acceptance (#590, ADR 0069). TRUE OR NIL AND NEVER FALSE: an
+	// untick is refused before the insert, so no row records a refusal and this
+	// pointer has only two reachable values.
+	//
+	// NIL MEANS THE EDITION THIS ROW NAMES DID NOT ASK — every acceptance made
+	// before an operator published the Artifact — and the surface spells it
+	// "never asked" rather than "No". The distinction is the whole of the
+	// feature: a No here would be a permanent, unverified claim about a named
+	// person that the platform deliberately never holds.
+	AdulthoodDeclaration *bool
 }
 
 // StaffLegalRecordItem is one staff person's record: who they are, where they
@@ -165,6 +176,9 @@ func (s *Service) StaffLegalRecord(ctx context.Context, email string) (*StaffLeg
 			SessionID:       nullableText(row.SessionID),
 			OriginURL:       nullableText(row.OriginURL),
 			PresentedLocale: nullableText(row.PresentedLocale),
+			// A NULL travels as nil, exactly as the text fields above do, so
+			// "the edition did not ask" survives to the screen that says it.
+			AdulthoodDeclaration: nullableAnswer(row.AdulthoodDeclaration),
 		})
 	}
 	return record, nil
@@ -186,6 +200,17 @@ func (s *Service) StaffPeople(ctx context.Context) ([]string, error) {
 // today — the Customer record's half of the cross-link (#566).
 func (s *Service) IsStaffPerson(ctx context.Context, email string) (bool, error) {
 	return s.repo.IsStaffPerson(ctx, email)
+}
+
+// nullableAnswer carries a SQL NULL up as a nil pointer, so "the edition did
+// not ask" stays a different answer from "No" — which on the Adulthood
+// Declaration is the difference between a blank and a claim about a child.
+func nullableAnswer(value sql.NullBool) *bool {
+	if !value.Valid {
+		return nil
+	}
+	answer := value.Bool
+	return &answer
 }
 
 // nullableText carries a SQL NULL up as a nil pointer, so "not collected" and

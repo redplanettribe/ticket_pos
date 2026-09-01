@@ -50,6 +50,12 @@ import { InvoiceDownloads } from "./invoice-downloads";
 // badged so, beside its still-authorized status — superseded is a relation,
 // not a state. Reissue itself is operator-invoice-reissue.tsx's card, shown
 // on the current authorized Sale Invoice alone.
+//
+// From #576 (ADR 0068) a refused document says WHICH refusal it met: the SRI
+// refusing the number it carries — error 45, "secuencial registrado" — reads
+// nothing like a schema error or a bad Tax ID, though all three park the
+// document in the same status. `refused_by_number` is the API's derived
+// answer and this page's banner is where the operator meets it.
 
 const IVA_RATE_KEYS = {
   "15": "invoicingIvaRate15",
@@ -302,6 +308,19 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
             ) : null}
           </CardContent>
         </Card>
+      ) : null}
+
+      {invoice.refused_by_number ? (
+        // The refusal by number (#576, ADR 0068): the SRI would not take this
+        // document because of its secuencial, not because of anything in it.
+        // Said here because the status alone cannot say it — a schema error
+        // and a bad Tax ID park a document in exactly the same place — and
+        // because the generic refusal copy reads as a fixable data problem,
+        // which sent an operator resending 001-001-000000025 for two days.
+        <Alert variant="destructive">
+          <AlertTitle>{t("invoicingNumberRefusalTitle")}</AlertTitle>
+          <AlertDescription>{t("invoicingNumberRefusalBody")}</AlertDescription>
+        </Alert>
       ) : null}
 
       {invoice.recipient_warning ? <RecipientWarningCard invoice={invoice} /> : null}

@@ -183,3 +183,79 @@ func (r *Repository) CurrentTermsEdition(ctx context.Context) (TermsEdition, err
 	}
 	return edition, nil
 }
+
+// TermsEditionByID reads ONE NAMED Terms Version together with all of its text
+// — CurrentTermsEdition's query asked of an edition somebody holds an id for
+// rather than of whichever is in effect right now.
+//
+// IT EXISTS FOR THE HELD-ANSWER RULE (#537, #587). A pending staff terms token
+// pins the edition whose box was actually drawn, and the request that ticks
+// that box arrives minutes later knowing only the token. Asking "does the
+// edition this person was SHOWN carry the Adulthood Declaration Artifact?"
+// therefore cannot be answered from the current edition: a publish inside the
+// token's fifteen minutes would judge a submission against words that were
+// never on screen — refusing somebody over a box they were never drawn, or
+// silently dropping a declaration they made.
+//
+// No `effective_date` and no `cancelled_at` predicate, deliberately, and that
+// is the whole difference from the query above. This is a read about the PAST:
+// the edition was current when the box was issued, and an edition that has
+// since been superseded — or was cancelled overnight — is still the edition
+// whose text a person read. Filtering it out here would make the evidence path
+// disagree with the evidence.
+func (r *Repository) TermsEditionByID(ctx context.Context, id string) (TermsEdition, error) {
+	const query = `
+		SELECT v.id, v.label, v.effective_date, v.content_hash,
+		       a.locale, a.slug, a.ordinal, a.body
+		FROM terms_versions v
+		LEFT JOIN terms_version_artifacts a ON a.version_id = v.id
+		WHERE v.id = $1
+		ORDER BY a.locale COLLATE "C", a.ordinal
+	`
+
+	rows, err := r.db.Pool.QueryContext(ctx, query, id)
+	if err != nil {
+		return TermsEdition{}, fmt.Errorf("terms edition by id: %w", err)
+	}
+	defer rows.Close()
+
+	var edition TermsEdition
+	found := false
+	for rows.Next() {
+		var (
+			version TermsVersion
+			locale  sql.NullString
+			slug    sql.NullString
+			ordinal sql.NullInt64
+			body    sql.NullString
+		)
+		if err := rows.Scan(
+			&version.ID, &version.Label, &version.EffectiveDate, &version.ContentHash,
+			&locale, &slug, &ordinal, &body,
+		); err != nil {
+			return TermsEdition{}, fmt.Errorf("terms edition by id: %w", err)
+		}
+		edition.Version = version
+		found = true
+		if !locale.Valid {
+			continue
+		}
+		edition.Artifacts = append(edition.Artifacts, legal.Artifact{
+			Locale:  platform.Locale(locale.String),
+			Slug:    slug.String,
+			Ordinal: int(ordinal.Int64),
+			Body:    body.String,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return TermsEdition{}, fmt.Errorf("terms edition by id: %w", err)
+	}
+	if !found {
+		// An id nobody can produce without having been handed it by this
+		// platform. It reads as the plain error it is rather than as "no current
+		// version", because the two are different failures: one is an empty
+		// lineage, this is a dangling reference.
+		return TermsEdition{}, fmt.Errorf("terms edition %q not found", id)
+	}
+	return edition, nil
+}

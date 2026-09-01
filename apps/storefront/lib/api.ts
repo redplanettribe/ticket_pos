@@ -683,6 +683,18 @@ export type BeginCheckoutRequest = {
    */
   terms_acceptance?: boolean;
   /**
+   * The Adulthood Declaration (#588, ADR 0069): the 18+ affirmation, sent only
+   * when the dialog drew the box — which is where the Terms box was drawn AND
+   * the edition in effect publishes the `label-adulthood-declaration` Artifact.
+   *
+   * The API refuses the checkout with ADULTHOOD_DECLARATION_REQUIRED where it
+   * was owed and is not present and `true`, creating no Payment and writing
+   * nothing at all: the platform keeps no record of anybody who says they are
+   * not eighteen. Absent is "the box was not shown", which is why this is
+   * omitted rather than sent as `false` by a dialog that drew nothing.
+   */
+  adulthood_declaration?: boolean;
+  /**
    * What the buyer filled in on the checkout's skippable answer section (#311,
    * ADR 0044): one entry per (Ticket Type, ticket index, Ticket Question) they
    * actually replied to.
@@ -882,6 +894,18 @@ export type Terms = {
   content_hash: string;
   locale: string;
   acceptance_label: string;
+  /**
+   * The Adulthood Declaration checkbox's label, markdown — ABSENT when the
+   * edition in effect does not carry the artifact (#586, ADR 0069).
+   *
+   * Optional in the type because it is optional on the wire, and the two states
+   * must not be confused: absent means "this edition does not ask", which is
+   * what today's edition says, and a surface draws the box iff the field
+   * arrives. It is evidence exactly as `acceptance_label` is — the edition's
+   * fingerprint covers these bytes — so it is rendered as markdown, never
+   * reworded, and never replaced by anything from a message catalog.
+   */
+  adulthood_declaration_label?: string;
   body_markdown: string;
 };
 

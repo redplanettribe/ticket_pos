@@ -64,9 +64,15 @@ type selectOrganizationBody struct {
 type acceptTermsBody struct {
 	// PendingTermsToken is the single-use token a gated verify returned.
 	PendingTermsToken string `json:"pending_terms_token"`
-	// TermsAcceptance is the one required box. Absent is false and false is
+	// TermsAcceptance is the first required box. Absent is false and false is
 	// refused — the API's guarantee, not the form's.
 	TermsAcceptance bool `json:"terms_acceptance"`
+	// AdulthoodDeclaration is the second (#587, ADR 0069): the affirmation that
+	// this person is eighteen or older, required wherever the edition this token
+	// pinned carries the `label-adulthood-declaration` artifact and ignored
+	// where it does not. Absent is false, and false where owed is refused before
+	// a session is minted and before any row is written.
+	AdulthoodDeclaration bool `json:"adulthood_declaration"`
 }
 
 // RequestOTP sends a one-time passcode to the given email.
@@ -107,7 +113,7 @@ func (h *Handler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 // VerifyOTP validates a passcode and creates a session.
 //
 // @Summary      Verify OTP
-// @Description  Verifies a one-time passcode and completes the sign-in. The outcome has exactly two shapes: `session` and `session_id`, or — for an email with no Terms Acceptance of the current Terms Version — `terms_required` with a single-use `pending_terms_token`, the edition label and the checkbox label, and NO session (#538, ADR 0066). The terms step is finished at /api/v1/auth/terms/accept. An optional `locale` names the language the login page was rendered in, as the caller detected it, and is remembered as the person's Staff Locale — but only if they have none. It never overwrites a stored one, because a detected language must not overrule a chosen one. A language the platform does not serve is ignored rather than refused, and never fails the sign-in.
+// @Description  Verifies a one-time passcode and completes the sign-in. The outcome has exactly two shapes: `session` and `session_id`, or — for an email with no Terms Acceptance of the current Terms Version — `terms_required` with a single-use `pending_terms_token`, the edition label and the checkbox label, and NO session (#538, ADR 0066). Where the edition in effect carries the `label-adulthood-declaration` artifact, `adulthood_declaration_label` is present beside it and the terms step draws a second, separate, un-premarked box (#587, ADR 0069); it is absent otherwise. The terms step is finished at /api/v1/auth/terms/accept. An optional `locale` names the language the login page was rendered in, as the caller detected it, and is remembered as the person's Staff Locale — but only if they have none. It never overwrites a stored one, because a detected language must not overrule a chosen one. A language the platform does not serve is ignored rather than refused, and never fails the sign-in.
 // @Tags         auth
 // @Accept       json
 // @Produce      json
@@ -210,7 +216,7 @@ func (h *Handler) VerifyGoogle(w http.ResponseWriter, r *http.Request) {
 // indistinguishable refusal.
 //
 // @Summary      Accept the Terms and finish a staff sign-in
-// @Description  Spends the short-lived, single-use `pending_terms_token` from a verify response whose outcome was `terms_required`, records one append-only Staff Terms Acceptance — the current Terms edition, the capacity "organizer", the timestamp, and the technical proof (IP, user agent, session, origin URL) — and mints the Staff Session the sign-in withheld; the response carries `session` and `session_id` exactly as a verify does (#538, ADR 0066). `terms_acceptance` must be true: an unticked box is refused with TERMS_ACCEPTANCE_REQUIRED, and the refusal lives in the API, not only in the form. The token is spent whatever the outcome, so a refused submission is restarted by signing in again; abandoning the step records nothing and leaves no session. One acceptance per email per edition: subsequent sign-ins pass with no extra step until a later Terms Version is published.
+// @Description  Spends the short-lived, single-use `pending_terms_token` from a verify response whose outcome was `terms_required`, records one append-only Staff Terms Acceptance — the current Terms edition, the capacity "organizer", the timestamp, and the technical proof (IP, user agent, session, origin URL) — and mints the Staff Session the sign-in withheld; the response carries `session` and `session_id` exactly as a verify does (#538, ADR 0066). `terms_acceptance` must be true: an unticked box is refused with TERMS_ACCEPTANCE_REQUIRED, and the refusal lives in the API, not only in the form. `adulthood_declaration` must be true wherever the pinned edition carries the `label-adulthood-declaration` artifact — that is, wherever the terms step returned `adulthood_declaration_label` — and is ignored where it does not; absent is false, and false where owed is refused with ADULTHOOD_DECLARATION_REQUIRED before any session is minted and before any row is written, so the platform keeps no record of anybody who says they are a minor (#587, ADR 0069). A recorded declaration is stored on the same acceptance row under the pinned edition; an edition that does not ask records a null there, meaning the act never asked, and no age, birthdate or threshold is collected anywhere. The token is spent whatever the outcome, so a refused submission is restarted by signing in again; abandoning the step records nothing and leaves no session. One acceptance per email per edition: subsequent sign-ins pass with no extra step until a later Terms Version is published.
 // @Tags         auth
 // @Accept       json
 // @Produce      json
@@ -236,8 +242,9 @@ func (h *Handler) AcceptTerms(w http.ResponseWriter, r *http.Request) {
 	}
 
 	outcome, err := h.svc.AcceptTerms(r.Context(), service.TermsAcceptanceSubmission{
-		Token:           body.PendingTermsToken,
-		TermsAcceptance: body.TermsAcceptance,
+		Token:                body.PendingTermsToken,
+		TermsAcceptance:      body.TermsAcceptance,
+		AdulthoodDeclaration: body.AdulthoodDeclaration,
 		// The technical proof is derived from the REQUEST and never from the
 		// body — the one spelling every capture surface shares.
 		Evidence: consent.EvidenceFromRequest(r),

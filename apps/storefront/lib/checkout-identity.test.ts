@@ -8,6 +8,7 @@ const NOTHING_OUTSTANDING = {
   marketing_consent: false,
   networking_consent: false,
   terms_acceptance: false,
+  adulthood_declaration: false,
 };
 
 function facts(overrides: Partial<CheckoutSessionFacts> = {}): CheckoutSessionFacts {
@@ -101,6 +102,10 @@ test("the boxes a Customer still owes travel with the identity, unaltered", () =
     marketing_consent: true,
     networking_consent: true,
     terms_acceptance: true,
+    // The declaration travels with the rest and is not recomputed here (#588):
+    // whether the box is drawn is the API's finding about the edition in
+    // effect, and this module only carries it.
+    adulthood_declaration: true,
   };
   const identity = checkoutIdentity({ status: "ok", data: facts({ consent_boxes: owed }) });
   assert.deepEqual(identity?.consentBoxes, owed);

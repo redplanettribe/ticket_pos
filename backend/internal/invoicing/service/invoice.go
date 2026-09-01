@@ -817,6 +817,15 @@ type InvoiceDetail struct {
 	// checkout-born document and on every other kind.
 	BackfilledBy *string    `json:"backfilled_by"`
 	BackfilledAt *time.Time `json:"backfilled_at"`
+	// RefusedByNumber says the authority refused this document for the NUMBER
+	// it carries and not for anything in it — the SRI's 45, "secuencial
+	// registrado" (#576, ADR 0068). It tells the one refusal no ordinary
+	// remedy can mend from a schema error or a bad Tax ID, which park the
+	// document in the same status and until now read the same on every
+	// surface. DERIVED from the messages on the row, never stored: a
+	// document refused before this field existed answers exactly as one
+	// refused after it, with no backfill.
+	RefusedByNumber bool `json:"refused_by_number"`
 	// HasAuthorizationXML says whether the authority's document is on file
 	// (#456 serves it).
 	HasAuthorizationXML bool `json:"has_authorization_xml"`
@@ -931,6 +940,7 @@ func invoiceDetailView(row *repository.InvoiceRow) *InvoiceDetail {
 		PaymentMethodLabel:  sri.PaymentMethodLabel(sri.PaymentMethod(inv.PaymentMethod)),
 		Messages:            messagesView(inv.Messages),
 		Attempts:            []AttemptView{},
+		RefusedByNumber:     invoicing.RefusedByNumberIn(inv.Messages),
 		HasAuthorizationXML: len(inv.AuthorizationXML) > 0,
 		CheckStatusHint:     checkStatusHint(inv, row.Attempts),
 		ResendHint:          resendHint(inv, row.Attempts),

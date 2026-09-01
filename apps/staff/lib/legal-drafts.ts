@@ -92,6 +92,14 @@ export const ARTIFACT_SIZES: Record<string, ArtifactSize> = {
   "label-networking-consent": "line",
   policy: "document",
   "label-terms-acceptance": "line",
+  // The Adulthood Declaration's own checkbox label (ADR 0069). It is here for
+  // the same reason every other slug is — so an operator authoring it meets a
+  // one-line box and not a wall of textarea — and for no other: nothing in this
+  // module, or anywhere else in the publish path, knows that this particular
+  // label is about being eighteen. Adding it to a draft is a change to the
+  // artifact SET and therefore structural, and dropping it again is too,
+  // BECAUSE OF THE GENERAL RULE and not because of an entry in this table.
+  "label-adulthood-declaration": "line",
   terms: "document",
 };
 

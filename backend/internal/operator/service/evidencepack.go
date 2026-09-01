@@ -348,6 +348,10 @@ func staffSubject(record *identitysvc.StaffLegalRecordItem, labels map[string]st
 			SessionID:       acceptance.SessionID,
 			OriginURL:       acceptance.OriginURL,
 			PresentedLocale: acceptance.PresentedLocale,
+			// The declaration rides along unchanged, null included: a pack that
+			// dropped it would tell a different story from the record screen,
+			// and a pack that defaulted it would tell a false one.
+			AdulthoodDeclaration: acceptance.AdulthoodDeclaration,
 		})
 	}
 	return &evidence.StaffSubject{Acceptances: acceptances}

@@ -44,7 +44,7 @@ type LoginPageProps = {
  * null on every failure, which renders the ordinary sign-in card — a card with
  * no acceptance step on it at all, offered to somebody the gate is holding.
  * A language the current edition does not publish is now floored at the
- * PREVAILING one, exactly as identity/service/terms.go's acceptanceLabel does
+ * PREVAILING one, exactly as identity/service/terms.go's termsGateLabels does
  * for the same reason: falling back to the text that legally binds them is the
  * only safe answer, and the reader gets a link to the Spanish page rather than
  * a link to a not-found one. An organizer must never be past this gate because
@@ -67,6 +67,21 @@ async function pendingTermsFromCookie(locale: AppLocale): Promise<HeldTerms | nu
 
   const step = await termsStepIn(locale);
   if (step) {
+    // AND NOTHING HERE CHECKS THAT THE DECLARATION BOX CAME WITH IT (#587,
+    // ADR 0069). A step whose edition asks the Adulthood Declaration but
+    // publishes no label for it in this language would be a card missing a
+    // mandatory box, and the temptation is to re-read the prevailing text and
+    // compare. It cannot arise: the backend answers "does this edition ask?"
+    // from the prevailing document and REFUSES THE GATE OUTRIGHT when the
+    // language it is about to serve cannot word the box (termsGateLabels).
+    // That refusal is upstream of this page — it fails the Google verify the
+    // callback made, so no pending-terms token is minted, no cookie is written
+    // and no terms step is ever held in that state — and the callback and this
+    // page resolve the reader's language identically, off the same cookie and
+    // the same Accept-Language, with no session on either side. A second
+    // opinion here would cost an extra request on every non-Spanish reader's
+    // held sign-in to re-derive an answer the API has already given by
+    // refusing.
     return step;
   }
 
@@ -101,15 +116,21 @@ type HeldTerms = { step: PendingTermsStep; locale: AppLocale };
  */
 async function termsStepIn(locale: AppLocale): Promise<HeldTerms | null> {
   try {
-    const envelope = await callBackend<{ acceptance_label: string; version: string }>(
-      `/api/v1/public/terms/${locale}`,
-    );
+    const envelope = await callBackend<{
+      acceptance_label: string;
+      // Absent from the payload when this edition carries no
+      // `label-adulthood-declaration` artifact (#587, ADR 0069). Its presence
+      // is the whole of whether the second box is drawn.
+      adulthood_declaration_label?: string;
+      version: string;
+    }>(`/api/v1/public/terms/${locale}`);
     if (!envelope.data?.acceptance_label) {
       return null;
     }
     return {
       step: {
         acceptanceLabel: envelope.data.acceptance_label,
+        adulthoodDeclarationLabel: envelope.data.adulthood_declaration_label ?? null,
         version: envelope.data.version,
         tokenInCookie: true,
       },

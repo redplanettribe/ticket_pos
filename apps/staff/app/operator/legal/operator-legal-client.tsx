@@ -166,6 +166,7 @@ export function OperatorLegalClient() {
     "label-networking-consent": t("surfaceNetworkingConsent"),
     policy: t("surfacePolicy"),
     "label-terms-acceptance": t("surfaceTermsAcceptance"),
+    "label-adulthood-declaration": t("surfaceAdulthoodDeclaration"),
     terms: t("surfaceTerms"),
   };
 

@@ -146,6 +146,24 @@ type Answers struct {
 	// withdrawal all say nothing about the Terms, which is what keeps the
 	// no-withdrawal ruling structural rather than remembered.
 	TermsAcceptance *bool
+	// AdulthoodDeclaration is the second, separate box beside the Terms one
+	// (#586, ADR 0069): the person's affirmation that they are eighteen or
+	// older. Nil is load-bearing exactly as above and is what every surface
+	// passes today — the box is drawn only where the edition in effect carries
+	// the `label-adulthood-declaration` Artifact.
+	//
+	// IT IS ONLY EVER TRUE OR NIL. False never reaches a capture, because an
+	// untick is refused before any Capture and writes nothing at all
+	// (ErrAdulthoodDeclarationRequired): the platform keeps no record of anybody
+	// who says they are a minor. The field is a *bool rather than a bool anyway,
+	// because "the box was not shown" is a fact worth being able to state, and
+	// it is the fact the null in the column records.
+	//
+	// It is recorded and never derived. That is deliberately redundant with the
+	// edition's Artifact set — a refusal writes nothing, so an acceptance of an
+	// Artifact-carrying edition necessarily ticked both boxes — and it is stored
+	// anyway so that a finished fact never depends on how rows are read later.
+	AdulthoodDeclaration *bool
 }
 
 // Evidence is the technical proof of one capture act: the circumstances, as the
@@ -181,7 +199,7 @@ type Evidence struct {
 	// staff terms gate floors at the prevailing text when the edition has no
 	// artifact in the page's language, so the request's locale can be a lie
 	// about what somebody read. What is recorded here is what the renderer
-	// returned, which is why identity's acceptanceLabel hands back the locale it
+	// returned, which is why identity's termsGateLabels hands back the locale it
 	// used alongside the string.
 	//
 	// A PER-CALLER FIELD, LIKE SessionID, and for the same reason: it is known
@@ -376,9 +394,49 @@ type Outstanding struct {
 	// edition re-gates everybody without a row changing and without re-gating
 	// the Privacy Policy, or vice versa.
 	TermsAcceptance bool
+	// AdulthoodDeclaration is the 18+ box beside the Terms one (#586, ADR
+	// 0069), and it TRACKS TermsAcceptance rather than being computed
+	// independently of it: it is owed when the Terms box is owed AND the edition
+	// in effect carries the `label-adulthood-declaration` Artifact, and it is
+	// owed at no other time.
+	//
+	// THERE IS NO SECOND GATE HERE, and this field's dependence on the one above
+	// is the whole of that. A declaration has no editions, no lineage and no
+	// satisfying set of its own — there is nothing about it that can change and
+	// therefore nothing to re-ask — so an independent Standing would be a
+	// near-copy of Terms standing whose only power would be to disagree with it.
+	// Whether to ASK is a fact about the edition in effect, which is why the
+	// Artifact decides it; whether the answer is STORED is a different question
+	// with a different answer, and Answers.AdulthoodDeclaration is where that
+	// one lives.
+	//
+	// NOTHING ON `customers` FEEDS IT. The current-state block there answers
+	// which boxes a person must still be shown, and this box is never decided
+	// independently of the Terms — so there is no column for it, and a person
+	// Current on an Artifact-carrying edition is never re-asked, for exactly the
+	// reason they are not re-asked the acceptance it rode in on.
+	AdulthoodDeclaration bool
 }
 
 // Any reports whether anything is outstanding at all.
+//
+// AdulthoodDeclaration is deliberately absent from the disjunction, and its
+// absence changes no answer: it is true only where TermsAcceptance already is,
+// so naming it would add a term that can never decide the result. Leaving it
+// out is how the tracking rule stays legible here — this type is read as the
+// list of things that can be owed, and a fifth term in the disjunction invites
+// the reading that there are five independent gates, which is exactly what
+// there are not.
+//
+// THE STOREFRONT'S anyConsentBox NAMES IT AND IS ALSO RIGHT (checkout-consent.ts).
+// The two are not in disagreement about the fact — neither can be decided by the
+// declaration — only about what a wrong reading costs on each side. Here an
+// extra term buys nothing and blurs the tracking rule. There, the same
+// disjunction decides whether a section of the dialog is rendered at all, so
+// omitting a box the API turns out to owe is a submit button disabled forever
+// beside a checkbox that is not on the screen. Legibility is worth more where
+// the answer cannot change; the box being on the screen is worth more where it
+// can.
 func (o Outstanding) Any() bool {
 	return o.PolicyAcceptance || o.MarketingConsent || o.NetworkingConsent || o.TermsAcceptance
 }

@@ -56,6 +56,17 @@ type StaffAcceptanceRecordRow struct {
 	// row written before that migration, which the surface spells as "not
 	// recorded" rather than guessing.
 	PresentedLocale sql.NullString
+	// AdulthoodDeclaration is the 18+ box ticked in the organizer capacity
+	// beside this acceptance (#590, migration 119, ADR 0069) — TRUE OR INVALID
+	// AND NEVER FALSE, because an untick is refused before the insert and leaves
+	// no row at all.
+	//
+	// Invalid means THE EDITION THIS ROW NAMES CARRIED NO SUCH BOX, which is
+	// true of every acceptance made before an operator publishes the Artifact.
+	// The surface spells it "never asked"; a bool here would have spelled it
+	// "No", which on this column would be a stored assertion that a named
+	// individual is a child.
+	AdulthoodDeclaration sql.NullBool
 }
 
 // StaffAcceptanceRecords reads every Terms Acceptance one person holds, newest
@@ -79,7 +90,8 @@ type StaffAcceptanceRecordRow struct {
 func (r *Repository) StaffAcceptanceRecords(ctx context.Context, email string) ([]StaffAcceptanceRecordRow, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT id, terms_version_id, capacity, accepted_at,
-		       ip, user_agent, session_id, origin_url, presented_locale
+		       ip, user_agent, session_id, origin_url, presented_locale,
+		       adulthood_declaration
 		FROM staff_terms_acceptances
 		WHERE email = $1
 		ORDER BY accepted_at DESC, id DESC
@@ -95,6 +107,7 @@ func (r *Repository) StaffAcceptanceRecords(ctx context.Context, email string) (
 		if err := rows.Scan(
 			&row.ID, &row.TermsVersionID, &row.Capacity, &row.AcceptedAt,
 			&row.IP, &row.UserAgent, &row.SessionID, &row.OriginURL, &row.PresentedLocale,
+			&row.AdulthoodDeclaration,
 		); err != nil {
 			return nil, fmt.Errorf("staff acceptance records: %w", err)
 		}

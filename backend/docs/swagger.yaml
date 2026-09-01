@@ -21,12 +21,20 @@ components:
       type: object
     handler.acceptTermsBody:
       properties:
+        adulthood_declaration:
+          description: |-
+            AdulthoodDeclaration is the second (#587, ADR 0069): the affirmation that
+            this person is eighteen or older, required wherever the edition this token
+            pinned carries the `label-adulthood-declaration` artifact and ignored
+            where it does not. Absent is false, and false where owed is refused before
+            a session is minted and before any row is written.
+          type: boolean
         pending_terms_token:
           description: PendingTermsToken is the single-use token a gated verify returned.
           type: string
         terms_acceptance:
           description: |-
-            TermsAcceptance is the one required box. Absent is false and false is
+            TermsAcceptance is the first required box. Absent is false and false is
             refused — the API's guarantee, not the form's.
           type: boolean
       type: object
@@ -163,6 +171,16 @@ components:
       type: object
     handler.beginCustomerCheckoutBody:
       properties:
+        adulthood_declaration:
+          description: |-
+            AdulthoodDeclaration is the 18+ box beside it (#588, ADR 0069), drawn
+            wherever the Terms box is AND the edition in effect carries the
+            `label-adulthood-declaration` Artifact — so on this route, as on the
+            public one, it is absent from every body sent under an edition that does
+            not ask. Owed and not present-and-true is refused 400
+            ADULTHOOD_DECLARATION_REQUIRED with no Payment created and nothing
+            written at all.
+          type: boolean
         affiliate_codes:
           items:
             type: string
@@ -309,6 +327,24 @@ components:
       type: object
     handler.consentSubmitBody:
       properties:
+        adulthood_declaration:
+          description: |-
+            AdulthoodDeclaration is the 18+ box (#586, ADR 0069): the affirmation that
+            the person is eighteen or older, made in the same act that accepts the
+            Terms and required exactly where the API says it is owed. Absent is false,
+            and false where owed is refused with ADULTHOOD_DECLARATION_REQUIRED before
+            anything at all is written — the disabled submit button is a courtesy, and
+            a curl must not walk past it.
+
+            IT CARRIES NO EDITION AND NO AGE. Which Terms edition worded the box is
+            resolved server-side with the acceptance it rides on, and there is no
+            birthdate, no age and no threshold on this body or anywhere else: the
+            platform records that somebody declared, never that it verified.
+
+            A POINTER FOR THE REASON THE TWO ABOVE ARE: a submission mentioning it is
+            a sign-in submission whatever it says, because a declaration is something
+            affirmed on a required box and never a consent being taken away.
+          type: boolean
         follow:
           description: |-
             Follow is the Follow intent, relayed here for the same reason it is
@@ -880,13 +916,26 @@ components:
       type: object
     handler.staffTermsGateBody:
       properties:
+        adulthood_declaration:
+          description: |-
+            AdulthoodDeclaration is the second (#587, ADR 0069): the affirmation that
+            this person is eighteen or older, made in the same act that accepts the
+            Terms. Absent is false here too — the staff side's settled treatment of a
+            required box — and false where the pinned edition asks is refused with
+            ADULTHOOD_DECLARATION_REQUIRED, writing nothing and spending nothing.
+
+            IT CARRIES NO AGE AND NO EDITION. There is no birthdate, no age and no
+            threshold on this body or anywhere else in the platform: the eighteen is a
+            number in prose inside the published artifact, and what is recorded is
+            that somebody declared, never that anything was verified.
+          type: boolean
         gate_token:
           description: GateToken is the single-use token the interstitial's read handed
             out.
           type: string
         terms_acceptance:
           description: |-
-            TermsAcceptance is the one required box. Absent is false and false is
+            TermsAcceptance is the first required box. Absent is false and false is
             refused by the API, not merely by a disabled button.
           type: boolean
       type: object
@@ -2900,6 +2949,25 @@ components:
       type: object
     service.ConsentActItem:
       properties:
+        adulthood_declaration:
+          description: |-
+            AdulthoodDeclaration is the 18+ box answered in the same act (#590, ADR
+            0069), and it is TRUE OR NULL AND NEVER FALSE anywhere on this platform:
+            an untick is refused before any capture and writes nothing, so the null is
+            the only other state there is.
+
+            NULL MEANS THE ACT DID NOT ASK, which the record screen and the Evidence
+            Pack both spell "never asked". It is a weaker sentence than the null
+            beside it on the other answers — those say "the box was not on that
+            surface", this says "the edition in effect carried no such box" — but it
+            is the same rule with the same teeth: a reader must never be able to take
+            a null for a No, because a No here would be a claim that a named person
+            said they were a child, and no such claim is ever stored.
+
+            IT NAMES NO EDITION OF ITS OWN. The wording declared under is an Artifact
+            of the edition TermsEdition already names, so a second reference here
+            would be a second thing that could disagree about which words were shown.
+          type: boolean
         captured_at:
           type: string
         channel:
@@ -3021,6 +3089,20 @@ components:
     service.ConsentBoxesView:
       description: Boxes is what to show.
       properties:
+        adulthood_declaration:
+          description: |-
+            AdulthoodDeclaration is the THIRD required box (#586, ADR 0069): the 18+
+            affirmation, drawn beside the Terms box and never instead of it.
+
+            It is never true where TermsAcceptance is false, because it tracks that
+            box rather than being owed on its own account — there is no adulthood
+            gate, no adulthood standing and no second interstitial. It is not true
+            merely because the Terms box is, either: the box is drawn iff the edition
+            in effect carries the `label-adulthood-declaration` Artifact, which is
+            what makes introducing it a publish rather than a deploy. A surface that
+            gets `true` here has a label to word it with on the terms payload; today,
+            under an edition that carries no such Artifact, it is simply always false.
+          type: boolean
         marketing_consent:
           type: boolean
         networking_consent:
@@ -4272,6 +4354,17 @@ components:
             incorrect (62) — until the document is superseded (#482, ADR 0061).
             The status is unaffected. Always false while SALE_INVOICING_ENABLED is
             closed.
+          type: boolean
+        refused_by_number:
+          description: |-
+            RefusedByNumber says the authority refused this document for the NUMBER
+            it carries and not for anything in it — the SRI's 45, "secuencial
+            registrado" (#576, ADR 0068). It tells the one refusal no ordinary
+            remedy can mend from a schema error or a bad Tax ID, which park the
+            document in the same status and until now read the same on every
+            surface. DERIVED from the messages on the row, never stored: a
+            document refused before this field existed answers exactly as one
+            refused after it, with no backfill.
           type: boolean
         reissue_note:
           type: string
@@ -6821,6 +6914,18 @@ components:
       properties:
         accepted_at:
           type: string
+        adulthood_declaration:
+          description: |-
+            AdulthoodDeclaration is the 18+ box ticked beside this acceptance (#590,
+            ADR 0069). TRUE OR NULL AND NEVER FALSE: a refusal is refused before the
+            insert, so the platform holds no row saying anybody declared themselves a
+            minor, and null means the edition this row names carried no such box.
+
+            THE SCREEN SPELLS THE NULL "never asked". It is published as null rather
+            than omitted for the reason every other answer on this payload is: a key
+            that disappeared would leave the reader to decide what its absence meant,
+            and the one wrong guess is "No".
+          type: boolean
         capacity:
           description: Capacity is what the person accepted AS (§3, ADR 0066).
           type: string
@@ -6972,14 +7077,39 @@ components:
             page and may not reword or pre-tick it — the Staff app hosts no copy of the
             document.
           type: string
+        adulthood_declaration_label:
+          description: |-
+            AdulthoodDeclarationLabel is the SECOND mandatory, un-premarked checkbox's
+            label, markdown, verbatim from the `label-adulthood-declaration` artifact
+            in the same language the acceptance label above was served in (#587,
+            ADR 0069) — ABSENT FROM THE PAYLOAD when the edition being shown does not
+            carry that Artifact.
+
+            THE FIELD'S PRESENCE IS THE ANSWER TO "DOES THIS EDITION ASK?", which is
+            why it is omitempty rather than an empty string: "this edition does not
+            ask" and "this edition asks with nothing written beside the box" must not
+            look the same on the wire, and the second of those is refused outright
+            before it can be served (termsGateLabels). A surface draws the box iff the
+            field arrives, so introducing the declaration is a publish and not a
+            deploy.
+
+            It is a SEPARATE box and never a rewording of the one above. A combined
+            tick would evidence only that somebody accepted a document containing an
+            age sentence, which is the inference ADR 0069 exists to replace; and the
+            two refusals mean different things — declining the Terms is "I do not
+            agree", declining this is "I am a child", and one control cannot say both.
+          type: string
         expires_at:
           description: ExpiresAt is when that token stops working, RFC 3339.
           type: string
         label_locale:
           description: |-
-            LabelLocale is the language the label above was ACTUALLY served in, which
-            is the requested one in the ordinary case and the prevailing one when this
-            edition publishes no artifact in it (acceptanceLabel's floor).
+            LabelLocale is the language the labels above were ACTUALLY served in,
+            which is the requested one in the ordinary case and the prevailing one
+            when this edition publishes no artifact in it (termsGateLabels' floor).
+            ONE value for both boxes, because both are read from one document: a card
+            wording one box in Spanish and its neighbour in English would be a person
+            shown two texts and told they were shown one.
 
             It is on the wire so the link beside the box can open the document the
             words came from: a reader floored at the prevailing text needs the Spanish
@@ -7004,6 +7134,18 @@ components:
           description: |-
             AcceptanceLabel is the mandatory checkbox's label, markdown. The UI may
             not reword or pre-tick it.
+          type: string
+        adulthood_declaration_label:
+          description: |-
+            AdulthoodDeclarationLabel is the Adulthood Declaration's own mandatory,
+            un-premarked checkbox label, markdown — ABSENT FROM THE PAYLOAD when the
+            edition in effect does not carry the Artifact (ADR 0069).
+
+            A surface draws the second box iff this field arrives, which is why it is
+            omitempty rather than an empty string: "this edition does not ask" and
+            "this edition asks with nothing written beside the box" must not look the
+            same on the wire. The current edition carries no such Artifact, so today
+            this field is simply not there.
           type: string
         body_markdown:
           description: BodyMarkdown is the full Términos y Condiciones, markdown.
@@ -7634,12 +7776,15 @@ paths:
         has exactly two shapes: `session` and `session_id`, or — for an email with
         no Terms Acceptance of the current Terms Version — `terms_required` with a
         single-use `pending_terms_token`, the edition label and the checkbox label,
-        and NO session (#538, ADR 0066). The terms step is finished at /api/v1/auth/terms/accept.
-        An optional `locale` names the language the login page was rendered in, as
-        the caller detected it, and is remembered as the person''s Staff Locale —
-        but only if they have none. It never overwrites a stored one, because a detected
-        language must not overrule a chosen one. A language the platform does not
-        serve is ignored rather than refused, and never fails the sign-in.'
+        and NO session (#538, ADR 0066). Where the edition in effect carries the `label-adulthood-declaration`
+        artifact, `adulthood_declaration_label` is present beside it and the terms
+        step draws a second, separate, un-premarked box (#587, ADR 0069); it is absent
+        otherwise. The terms step is finished at /api/v1/auth/terms/accept. An optional
+        `locale` names the language the login page was rendered in, as the caller
+        detected it, and is remembered as the person''s Staff Locale — but only if
+        they have none. It never overwrites a stored one, because a detected language
+        must not overrule a chosen one. A language the platform does not serve is
+        ignored rather than refused, and never fails the sign-in.'
       requestBody:
         content:
           application/json:
@@ -7709,11 +7854,20 @@ paths:
         — and mints the Staff Session the sign-in withheld; the response carries `session`
         and `session_id` exactly as a verify does (#538, ADR 0066). `terms_acceptance`
         must be true: an unticked box is refused with TERMS_ACCEPTANCE_REQUIRED, and
-        the refusal lives in the API, not only in the form. The token is spent whatever
-        the outcome, so a refused submission is restarted by signing in again; abandoning
-        the step records nothing and leaves no session. One acceptance per email per
-        edition: subsequent sign-ins pass with no extra step until a later Terms Version
-        is published.'
+        the refusal lives in the API, not only in the form. `adulthood_declaration`
+        must be true wherever the pinned edition carries the `label-adulthood-declaration`
+        artifact — that is, wherever the terms step returned `adulthood_declaration_label`
+        — and is ignored where it does not; absent is false, and false where owed
+        is refused with ADULTHOOD_DECLARATION_REQUIRED before any session is minted
+        and before any row is written, so the platform keeps no record of anybody
+        who says they are a minor (#587, ADR 0069). A recorded declaration is stored
+        on the same acceptance row under the pinned edition; an edition that does
+        not ask records a null there, meaning the act never asked, and no age, birthdate
+        or threshold is collected anywhere. The token is spent whatever the outcome,
+        so a refused submission is restarted by signing in again; abandoning the step
+        records nothing and leaves no session. One acceptance per email per edition:
+        subsequent sign-ins pass with no extra step until a later Terms Version is
+        published.'
       requestBody:
         content:
           application/json:
@@ -7837,17 +7991,29 @@ paths:
         document alone is never refused over the other''s box. A recorded Terms acceptance
         stamps the Customer with the edition and is carried on the same Consent Record;
         it is contractual, has no withdrawal path, and no submission on the withdrawal
-        branch can name it. The Policy Version and the Terms Version are resolved
-        server-side and are never accepted from the request. An optional `presented_locale`
-        names the language of the legal TEXT this step rendered — the Short Notice
-        and the checkbox labels, as the public policy endpoint served them — and is
-        recorded on the Consent Record as the language the person was actually shown;
-        it is not the language of the page, which says only what was asked for, and
-        a value naming a language this platform does not serve is dropped rather than
-        refused. It is read on a sign-in submission and ignored on a withdrawal, which
-        renders no document. The token is spent whatever the outcome and whichever
-        act was attempted, so a refused submission is restarted by proving the address
-        again; abandoning the step records nothing and leaves no session at all.'
+        branch can name it. THE ADULTHOOD DECLARATION (#586, ADR 0069) rides that
+        same box: when the verify''s `boxes.adulthood_declaration` was true — which
+        happens only where the Terms box is owed AND the Terms edition in effect publishes
+        the `label-adulthood-declaration` artifact — a sign-in submission without
+        `adulthood_declaration: true` is refused with ADULTHOOD_DECLARATION_REQUIRED,
+        and the refusal is returned BEFORE ANY WRITE, so it mints no session, appends
+        no Consent Record, stamps no state and leaves no row of any kind: the platform
+        keeps no record of anybody who says they are a minor. Where the box was not
+        owed the field is ignored. A ticked declaration is recorded on the same Consent
+        Record as the acceptance it travelled with, under the same edition, and no
+        age, birthdate or threshold is collected anywhere — the platform records that
+        somebody declared, never that it verified. The Policy Version and the Terms
+        Version are resolved server-side and are never accepted from the request.
+        An optional `presented_locale` names the language of the legal TEXT this step
+        rendered — the Short Notice and the checkbox labels, as the public policy
+        endpoint served them — and is recorded on the Consent Record as the language
+        the person was actually shown; it is not the language of the page, which says
+        only what was asked for, and a value naming a language this platform does
+        not serve is dropped rather than refused. It is read on a sign-in submission
+        and ignored on a withdrawal, which renders no document. The token is spent
+        whatever the outcome and whichever act was attempted, so a refused submission
+        is restarted by proving the address again; abandoning the step records nothing
+        and leaves no session at all.'
       requestBody:
         content:
           application/json:
@@ -8665,23 +8831,34 @@ paths:
         the checkout is refused 400 TERMS_ACCEPTANCE_REQUIRED, and the answer is held
         on the Payment together with the edition it was answered about, so the Consent
         Record written at commit evidences the text the buyer was shown rather than
-        whichever edition is current when the provider answers. An answer for a box
-        the buyer was not owed is dropped rather than applied. Purchase Limits, Affiliate
-        Link attribution, `locale`, and the skippable `answers` section all behave
-        exactly as they do on the public route, including that nothing about an answer
-        can ever refuse or delay a checkout (ADR 0044). The technical proof stored
-        with a consent record (IP, user agent, origin URL) is taken from the request
-        and never from this body, and the Policy Version accepted is resolved server-side.
-        The response REPORTS THE ADDRESS THE SALE WAS ADDRESSED TO in `addressed_to`
-        (#387): the address read off the session, echoed back so the caller learns
-        it from this API rather than inferring it from a browser. That is what lets
-        the Storefront''s return leg still recognise a buyer whose Customer Session
-        did not survive the trip to the Payment Provider — a cleared cookie jar, a
-        provider webview, a revoked session, a different browser — and it grants nothing,
-        because signing in still costs a passcode or a Google round trip. Confirming
-        this checkout uses the same public confirm route, which stays public and idempotent:
-        it is the Payment Provider''s return leg and must work for a browser that
-        has lost everything, which is the same fact `addressed_to` exists to survive.'
+        whichever edition is current when the provider answers. The Adulthood Declaration
+        rides that same box (#588, ADR 0069): where the Terms edition in effect publishes
+        the `label-adulthood-declaration` Artifact, the same buyer must also send
+        adulthood_declaration present and true, or the checkout is refused 400 ADULTHOOD_DECLARATION_REQUIRED
+        with no Payment created and nothing whatever written down — the platform keeps
+        no record of anybody who says they are a minor. It is a declaration and never
+        a verification: no date of birth is collected anywhere, and eighteen is a
+        number in prose inside the Artifact. Where it is owed and ticked the answer
+        is held on the Payment beside the Terms answer and the edition it was declared
+        under, and reaches the Consent Record at commit by the same road. An edition
+        that does not carry the Artifact owes no declaration and draws no box. An
+        answer for a box the buyer was not owed is dropped rather than applied. Purchase
+        Limits, Affiliate Link attribution, `locale`, and the skippable `answers`
+        section all behave exactly as they do on the public route, including that
+        nothing about an answer can ever refuse or delay a checkout (ADR 0044). The
+        technical proof stored with a consent record (IP, user agent, origin URL)
+        is taken from the request and never from this body, and the Policy Version
+        accepted is resolved server-side. The response REPORTS THE ADDRESS THE SALE
+        WAS ADDRESSED TO in `addressed_to` (#387): the address read off the session,
+        echoed back so the caller learns it from this API rather than inferring it
+        from a browser. That is what lets the Storefront''s return leg still recognise
+        a buyer whose Customer Session did not survive the trip to the Payment Provider
+        — a cleared cookie jar, a provider webview, a revoked session, a different
+        browser — and it grants nothing, because signing in still costs a passcode
+        or a Google round trip. Confirming this checkout uses the same public confirm
+        route, which stays public and idempotent: it is the Payment Provider''s return
+        leg and must work for a browser that has lost everything, which is the same
+        fact `addressed_to` exists to survive.'
       parameters:
       - description: Organization slug
         in: path
@@ -14400,8 +14577,11 @@ paths:
       description: 'Serves the Terms Version currently in effect, rendered in the
         requested Locale: the version label, its effective date, the SHA-256 fingerprint
         of the edition, the full Términos y Condiciones Generales (`body_markdown`)
-        and the mandatory acceptance checkbox label (`acceptance_label`). All text
-        is markdown, and all of it in EVERY published language is what the fingerprint
+        and the mandatory acceptance checkbox label (`acceptance_label`). An edition
+        that asks for an Adulthood Declaration also carries that box''s own label
+        (`adulthood_declaration_label`); the field is ABSENT when the edition in effect
+        does not ask, and a client draws the second box only when it arrives. All
+        text is markdown, and all of it in EVERY published language is what the fingerprint
         covers — one edition, one hash, whichever language a person read before ticking.
         The Spanish text is the legally prevailing one (§37); the English one is a
         courtesy translation that says so in its own first line. The Locale is a path
@@ -18901,10 +19081,19 @@ paths:
         and the technical proof (IP, user agent, session, origin URL). `terms_acceptance`
         must be true; an unticked box is refused with TERMS_ACCEPTANCE_REQUIRED and
         does NOT spend the token, because the token proves nothing here — the session
-        is the credential. A token issued to another address is refused indistinguishably
-        from an unknown or expired one. Nothing is minted, re-minted or revoked and
-        no passcode is spent: the caller resumes the navigation the gate diverted
-        (#570, ADR 0067).'
+        is the credential. `adulthood_declaration` must be true wherever the pinned
+        edition carries the `label-adulthood-declaration` artifact — that is, wherever
+        the gate read returned `adulthood_declaration_label` — and is ignored where
+        it does not; absent is false, and false where owed is refused with ADULTHOOD_DECLARATION_REQUIRED,
+        which likewise spends no token, records no acceptance and leaves no row of
+        any kind: the platform keeps no record of anybody who says they are a minor
+        (#587, ADR 0069). A recorded declaration is stored on the same acceptance
+        row as `adulthood_declaration = true`, under the pinned edition; an edition
+        that does not ask records a null there, meaning the act never asked. No age,
+        birthdate or threshold is collected anywhere. A token issued to another address
+        is refused indistinguishably from an unknown or expired one. Nothing is minted,
+        re-minted or revoked and no passcode is spent: the caller resumes the navigation
+        the gate diverted (#570, ADR 0067).'
       requestBody:
         content:
           application/json:
@@ -18949,8 +19138,13 @@ paths:
         in, and a short-lived single-use `pending_terms_token` that pins both server-side.
         `locale` is the language the staff app is rendered in for this reader; a language
         the current edition does not publish is floored at the prevailing one rather
-        than served blank. Reading this revokes nothing, mints nothing and spends
-        no passcode — the session is untouched (#570, ADR 0067).'
+        than served blank. THE ADULTHOOD DECLARATION rides the same box (#587, ADR
+        0069): `adulthood_declaration_label` is present, worded by the published artifact
+        in the same language as the acceptance label, exactly when the edition in
+        effect carries the `label-adulthood-declaration` artifact — and absent otherwise,
+        which is how a surface knows not to draw a second checkbox. Reading this revokes
+        nothing, mints nothing and spends no passcode — the session is untouched (#570,
+        ADR 0067).'
       parameters:
       - description: Language the staff app is rendered in (en or es)
         in: query

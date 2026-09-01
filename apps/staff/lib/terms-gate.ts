@@ -127,6 +127,65 @@ export function termsGateReturnPath(next: string | null | undefined): string {
   return next;
 }
 
+/**
+ * Whether the edition being shown asks the Adulthood Declaration (#587,
+ * ADR 0069).
+ *
+ * THE LABEL'S PRESENCE IS THE WHOLE ANSWER, and that is the decision this
+ * function exists to state once for both staff surfaces. The API omits
+ * `adulthood_declaration_label` from the payload when the edition in effect
+ * carries no `label-adulthood-declaration` artifact, and refuses to serve the
+ * gate at all when the edition asks but cannot word the box — so "there are
+ * words" and "there is a box" are the same fact, and neither surface may decide
+ * it any other way. Drawing a mandatory contractual checkbox with nothing
+ * written beside it is the one thing §3 forbids outright.
+ *
+ * Which means introducing the declaration is a PUBLISH and not a deploy: this
+ * binary asks whenever the operator's edition asks, and never otherwise.
+ */
+export function asksAdulthoodDeclaration(
+  adulthoodDeclarationLabel: string | null | undefined,
+): boolean {
+  return typeof adulthoodDeclarationLabel === "string" && adulthoodDeclarationLabel.trim() !== "";
+}
+
+/** The answers a staff terms surface holds when its submit button is drawn. */
+export type TermsGateAnswers = {
+  /** The label the API served for the second box, absent where it does not ask. */
+  adulthoodDeclarationLabel?: string | null;
+  /** The Terms box, always owed on these two surfaces. */
+  termsAccepted: boolean;
+  /** The Adulthood Declaration box, meaningful only where it was drawn. */
+  adulthoodDeclared: boolean;
+};
+
+/**
+ * Whether every owed required box is ticked — the enabled/disabled state of
+ * both staff submit buttons, decided in one place (#587).
+ *
+ * THE API IS THE GUARANTEE AND THIS IS THE COURTESY. An unticked box is refused
+ * by the backend with TERMS_ACCEPTANCE_REQUIRED or
+ * ADULTHOOD_DECLARATION_REQUIRED whatever this returns, before anything is
+ * written; a curl walks straight past a disabled button and gets the same
+ * refusal. What this buys is that a person does not submit a form they cannot
+ * possibly have finished.
+ *
+ * A box that was never drawn is never owed, so an edition that does not ask is
+ * satisfied by the Terms box alone. That asymmetry is why the label is a
+ * parameter here: the answer state alone cannot tell "unticked" from "never
+ * shown", and treating the second as the first would disable the button on
+ * every edition published before the Artifact existed.
+ */
+export function termsGateAnswersComplete(answers: TermsGateAnswers): boolean {
+  if (!answers.termsAccepted) {
+    return false;
+  }
+  if (asksAdulthoodDeclaration(answers.adulthoodDeclarationLabel) && !answers.adulthoodDeclared) {
+    return false;
+  }
+  return true;
+}
+
 /** A path is within a prefix when it IS it, or is nested under it. */
 function isPathWithin(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);

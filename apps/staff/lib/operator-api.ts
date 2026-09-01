@@ -1296,6 +1296,16 @@ export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
    */
   backfilled_by: string | null;
   backfilled_at: string | null;
+  /**
+   * The SRI refused this document for the NUMBER it carries — error 45,
+   * "secuencial registrado" — and not for anything in it (#576, ADR 0068).
+   * It is what tells the one refusal no resend can mend from a schema error
+   * or a bad Tax ID, which park the document in the same status and would
+   * otherwise read identically. Derived by the API from the authority's
+   * stored messages, so a document refused long before this field existed
+   * answers exactly as one refused after it.
+   */
+  refused_by_number: boolean;
   has_authorization_xml: boolean;
   /**
    * The two hints about who holds the document (#455, tightened by #516),

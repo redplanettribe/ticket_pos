@@ -34,7 +34,7 @@ import type { AppLocale } from "@ticket-pos/locale";
  * served in comes back with them: an edition that publishes no translation in
  * the reader's language is floored at the prevailing Spanish text (§37), and
  * the link beside the box then opens the Spanish page rather than one that is
- * not there. This page never decides that — identity/service's acceptanceLabel
+ * not there. This page never decides that — identity/service's termsGateLabels
  * does, once, for both this surface and the sign-in door.
  *
  * And it can never degrade to a card with no acceptance control: the read
@@ -51,6 +51,15 @@ type TermsGateData = {
     expires_at: string;
     version: string;
     acceptance_label: string;
+    /**
+     * The second box's words, ABSENT from the payload when the edition in
+     * effect carries no `label-adulthood-declaration` artifact (#587,
+     * ADR 0069). Optional here for exactly that reason: its presence is the
+     * answer to "does this edition ask?", and the backend refuses to serve this
+     * gate at all when the edition asks and cannot word the box — so there is
+     * no state in which this arrives empty and a box is still owed.
+     */
+    adulthood_declaration_label?: string;
     label_locale: string;
   } | null;
 };
@@ -94,6 +103,10 @@ export default async function TermsGatePage({ searchParams }: TermsGatePageProps
   return (
     <TermsGateForm
       acceptanceLabel={required.acceptance_label}
+      // Present iff this edition asks (#587). Passed straight through and never
+      // defaulted to a catalog string: the words are evidence, hashed into the
+      // edition's fingerprint, and the box is drawn only where they are.
+      adulthoodDeclarationLabel={required.adulthood_declaration_label ?? null}
       gateToken={required.pending_terms_token}
       // The document the words came from — the reader's language in the
       // ordinary case, the prevailing one when this edition does not publish

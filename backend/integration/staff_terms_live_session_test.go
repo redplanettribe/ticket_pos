@@ -57,11 +57,25 @@ func readStaffTermsGate(t *testing.T, env *testEnv, sessionID, locale string) st
 	return view
 }
 
+// acceptStaffTermsOnSession answers the interstitial with the Terms box and
+// NOTHING ELSE on the body — which is the untick of the second box under an
+// edition that asks (#587), and is exactly what every caller predating the
+// declaration sends.
 func acceptStaffTermsOnSession(t *testing.T, env *testEnv, sessionID, token string, accepted bool) (*http.Response, envelope) {
 	t.Helper()
 	return env.post(t, staffTermsAcceptPath, map[string]any{
 		"gate_token":       token,
 		"terms_acceptance": accepted,
+	}, authHeader(sessionID))
+}
+
+// acceptStaffTermsOnSessionDeclaring answers both of the interstitial's boxes.
+func acceptStaffTermsOnSessionDeclaring(t *testing.T, env *testEnv, sessionID, token string, accepted, declared bool) (*http.Response, envelope) {
+	t.Helper()
+	return env.post(t, staffTermsAcceptPath, map[string]any{
+		"gate_token":            token,
+		"terms_acceptance":      accepted,
+		"adulthood_declaration": declared,
 	}, authHeader(sessionID))
 }
 
@@ -416,6 +430,178 @@ func TestStaffTermsGateIsNotAGateOnTheAPI(t *testing.T) {
 	resp, body := env.put(t, "/api/v1/staff/me/locale", map[string]string{"locale": "es"}, authHeader(sessionID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("a staff mutation was refused over an outstanding acceptance: status=%d error=%+v",
+			resp.StatusCode, body.Error)
+	}
+}
+
+// The Adulthood Declaration on the LIVE-SESSION gate (#587, ADR 0069).
+//
+// Everybody is re-gated the morning the Gating Edition takes effect, staff
+// included and mid-work — that is the mechanism by which the declaration is
+// collected from the whole organizer population with no backfill. What it must
+// not cost is anything: not a passcode, not a session, and not, on a misclick,
+// even the box itself.
+
+// TestStaffTermsGateAsksTheDeclarationOnALiveSession: a Member working when the
+// Artifact-carrying edition arrives meets both boxes on their next navigation,
+// and answering both records one row carrying the declaration beside the
+// acceptance — evidencing the live session, not a new one.
+func TestStaffTermsGateAsksTheDeclarationOnALiveSession(t *testing.T) {
+	env := setupTest(t)
+	email := "mid-work-declarer@example.com"
+
+	sessionID := sessionThroughTermsGate(t, env, requestAndVerify(t, env, email))
+	publishTermsVersionAskingAdulthood(t, env, 2, 0)
+
+	gate := readStaffTermsGate(t, env, sessionID, "en")
+	if !gate.Outstanding || gate.TermsRequired == nil {
+		t.Fatalf("expected the interstitial's boxes: %+v", gate)
+	}
+	if !strings.Contains(gate.TermsRequired.AdulthoodDeclarationLabel, "eighteen years of age") {
+		t.Fatalf("the interstitial's second box is not worded by the artifact: %q",
+			gate.TermsRequired.AdulthoodDeclarationLabel)
+	}
+
+	resp, body := acceptStaffTermsOnSessionDeclaring(t, env, sessionID, gate.TermsRequired.PendingTermsToken, true, true)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("accept both boxes status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	// The same session throughout: nothing minted, nothing re-minted, no
+	// passcode spent.
+	sessionStillWorks(t, env, sessionID)
+	if countStaffSessionsFor(t, env, email) != 1 {
+		t.Fatalf("the interstitial touched the sessions table: %d rows", countStaffSessionsFor(t, env, email))
+	}
+
+	var (
+		declared       *bool
+		evidenceSessID *string
+	)
+	if err := env.db.QueryRowContext(context.Background(), `
+		SELECT a.adulthood_declaration, a.session_id
+		FROM staff_terms_acceptances a
+		JOIN terms_versions tv ON tv.id = a.terms_version_id
+		WHERE a.email = $1 AND tv.label = '2'
+	`, email).Scan(&declared, &evidenceSessID); err != nil {
+		t.Fatalf("read the interstitial's acceptance: %v", err)
+	}
+	if declared == nil || !*declared {
+		t.Fatalf("adulthood_declaration=%v, want true on the interstitial's row", declared)
+	}
+	if evidenceSessID == nil || *evidenceSessID != sessionID {
+		t.Fatalf("evidence session_id=%v, want the live session %q", evidenceSessID, sessionID)
+	}
+	// The declaration made under edition 1 is a null: that act never asked.
+	declarations := staffAdulthoodDeclarations(t, env, email)
+	if len(declarations) != 2 || declarations[0] != nil {
+		t.Fatalf("declarations=%v, want the earlier acceptance to record a null", declarations)
+	}
+}
+
+// TestStaffTermsGateUntickedDeclarationCostsNothingButAClick is the rule this
+// surface exists to keep, extended to the second box: the API refuses an
+// unticked declaration and does NOT spend the gate token doing it.
+//
+// The token proves nothing here — the session is the credential — so a Member
+// re-gated mid-work who misses the second box ticks it and carries on with the
+// SAME box, without burning a passcode and without ending their session. At the
+// sign-in door the equivalent misclick costs a passcode, which is precisely the
+// cost this path refuses to impose.
+func TestStaffTermsGateUntickedDeclarationCostsNothingButAClick(t *testing.T) {
+	env := setupTest(t)
+	email := "misclick-declarer@example.com"
+
+	sessionID := sessionThroughTermsGate(t, env, requestAndVerify(t, env, email))
+	publishTermsVersionAskingAdulthood(t, env, 2, 0)
+
+	gate := readStaffTermsGate(t, env, sessionID, "en")
+	if gate.TermsRequired == nil || gate.TermsRequired.AdulthoodDeclarationLabel == "" {
+		t.Fatalf("expected an interstitial that asks: %+v", gate.TermsRequired)
+	}
+	token := gate.TermsRequired.PendingTermsToken
+
+	resp, refused := acceptStaffTermsOnSessionDeclaring(t, env, sessionID, token, true, false)
+	if resp.StatusCode != http.StatusBadRequest || refused.Error == nil ||
+		refused.Error.Code != "ADULTHOOD_DECLARATION_REQUIRED" {
+		t.Fatalf("unticked declaration: status=%d error=%+v, want 400 ADULTHOOD_DECLARATION_REQUIRED",
+			resp.StatusCode, refused.Error)
+	}
+	if countStaffTermsAcceptances(t, env, email) != 1 {
+		t.Fatal("a refused declaration must record nothing")
+	}
+	sessionStillWorks(t, env, sessionID)
+	if countStaffSessionsFor(t, env, email) != 1 {
+		t.Fatal("a refused declaration must not end or re-mint the session")
+	}
+
+	// An absent field is the same untick, and is refused the same way.
+	resp, refused = acceptStaffTermsOnSession(t, env, sessionID, token, true)
+	if resp.StatusCode != http.StatusBadRequest || refused.Error == nil ||
+		refused.Error.Code != "ADULTHOOD_DECLARATION_REQUIRED" {
+		t.Fatalf("absent declaration: status=%d error=%+v, want 400 ADULTHOOD_DECLARATION_REQUIRED",
+			resp.StatusCode, refused.Error)
+	}
+
+	// THE SAME TOKEN IS STILL GOOD. One click is the whole of the recovery.
+	resp, body := acceptStaffTermsOnSessionDeclaring(t, env, sessionID, token, true, true)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("the same token must still be good: status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	declarations := staffAdulthoodDeclarations(t, env, email)
+	if len(declarations) != 2 || declarations[1] == nil || !*declarations[1] {
+		t.Fatalf("declarations=%v, want the second acceptance to carry the declaration", declarations)
+	}
+}
+
+// TestStaffTermsGateEditionWithoutTheArtifactAsksNoDeclaration: an edition that
+// does not carry the Artifact owes no declaration on this gate either, draws no
+// second box, and records the null that says the act never asked.
+func TestStaffTermsGateEditionWithoutTheArtifactAsksNoDeclaration(t *testing.T) {
+	env := setupTest(t)
+	email := "no-second-box@example.com"
+
+	sessionID := sessionThroughTermsGate(t, env, requestAndVerify(t, env, email))
+	publishTermsVersion(t, env, 2, 0)
+
+	gate := readStaffTermsGate(t, env, sessionID, "en")
+	if gate.TermsRequired == nil {
+		t.Fatal("expected the interstitial's box")
+	}
+	if gate.TermsRequired.AdulthoodDeclarationLabel != "" {
+		t.Fatalf("an edition without the artifact must offer no second box: %q",
+			gate.TermsRequired.AdulthoodDeclarationLabel)
+	}
+
+	resp, body := acceptStaffTermsOnSession(t, env, sessionID, gate.TermsRequired.PendingTermsToken, true)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("accept status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	for i, declared := range staffAdulthoodDeclarations(t, env, email) {
+		if declared != nil {
+			t.Fatalf("acceptance %d recorded %v, want a null on an edition that never asked", i, *declared)
+		}
+	}
+}
+
+// TestStaffTermsGateDeclarationIsNotAGateOnTheAPI: an outstanding declaration
+// diverts a page navigation and nothing else. A sale in progress at the box
+// office still commits — `/api/` is not gated, and this asserts it against the
+// edition that asks rather than only against the one that does not.
+func TestStaffTermsGateDeclarationIsNotAGateOnTheAPI(t *testing.T) {
+	env := setupTest(t)
+	email := "box-office-mid-sale@example.com"
+
+	sessionID := sessionThroughTermsGate(t, env, requestAndVerify(t, env, email))
+	publishTermsVersionAskingAdulthood(t, env, 2, 0)
+
+	if outstanding := sessionTermsOutstanding(t, env, sessionID); outstanding == nil || !*outstanding {
+		t.Fatal("expected an outstanding acceptance for this test to mean anything")
+	}
+	sessionStillWorks(t, env, sessionID)
+	resp, body := env.put(t, "/api/v1/staff/me/locale", map[string]string{"locale": "es"}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a staff mutation was refused over an owed declaration: status=%d error=%+v",
 			resp.StatusCode, body.Error)
 	}
 }

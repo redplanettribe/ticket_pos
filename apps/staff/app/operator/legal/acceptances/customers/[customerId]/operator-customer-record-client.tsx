@@ -39,6 +39,7 @@ import {
   type LegalEditionRef,
   type OptionalConsentValue,
   CONSENT_ACT_PAGE_SIZE,
+  adulthoodLabelKey,
   answerLabelKey,
   presentedLocaleState,
   staffRecordHref,
@@ -596,6 +597,19 @@ function ActRow({
             {`${t(answerLabelKey(act.terms_acceptance) as never)} — ${editionLabel(act.terms_edition)}`}
           </Detail>
         ) : null}
+        {/*
+          THE ADULTHOOD DECLARATION IS SHOWN ON EVERY ACT (#590, ADR 0069),
+          unlike the Terms row above it, and the difference is deliberate. An
+          act captured under an edition that carried no 18+ artifact reads
+          "never asked" — the screen's existing words for a question nobody was
+          put — because a row that simply vanished would leave the operator to
+          decide what its absence meant, and the one wrong reading is "No". No
+          cell is blank here and no null is ever a refusal: a refusal wrote
+          nothing at all, so there is no such record to show.
+        */}
+        <Detail label={t("actAdulthoodDeclaration")}>
+          {t(adulthoodLabelKey(act.adulthood_declaration) as never)}
+        </Detail>
         <Detail label={t("actEmailProven")}>
           {act.email_proven ? t("answerYes") : t("answerNo")}
         </Detail>

@@ -28,6 +28,10 @@ type consentBoxes struct {
 	MarketingConsent  bool `json:"marketing_consent"`
 	NetworkingConsent bool `json:"networking_consent"`
 	TermsAcceptance   bool `json:"terms_acceptance"`
+	// The 18+ box (#586, ADR 0069). False under every edition that does not
+	// publish the label-adulthood-declaration artifact, which is every edition
+	// these tests do not deliberately publish one on.
+	AdulthoodDeclaration bool `json:"adulthood_declaration"`
 }
 
 // consentRequiredOutcome is the shape a verify answers with when it minted no
@@ -47,12 +51,17 @@ type consentRecordRow struct {
 	PolicyAcceptance  sql.NullBool
 	MarketingConsent  sql.NullBool
 	NetworkingConsent sql.NullBool
-	EmailProven       bool
-	ConfirmedAt       sql.NullTime
-	IP                sql.NullString
-	UserAgent         sql.NullString
-	SessionID         sql.NullString
-	OriginURL         sql.NullString
+	// The Adulthood Declaration this act carried (#586, migration 119).
+	// Tri-state like the answers above it: true where the box was drawn and
+	// ticked, invalid where it was not drawn — and never false, because an
+	// untick is refused before anything is written at all.
+	AdulthoodDeclaration sql.NullBool
+	EmailProven          bool
+	ConfirmedAt          sql.NullTime
+	IP                   sql.NullString
+	UserAgent            sql.NullString
+	SessionID            sql.NullString
+	OriginURL            sql.NullString
 	// What each optional consent's state was IMMEDIATELY BEFORE this act
 	// (#266). Invalid where the box was not shown, exactly as the answer beside
 	// it is — and also where it was shown for the first time, which the answer
@@ -106,6 +115,13 @@ func consentAnswers(token string, policy, marketing, networking bool) map[string
 		// and a browser shown the required box ticks it. A test about the Terms
 		// box itself overrides this key (customer_terms_acceptance_test.go).
 		"terms_acceptance": true,
+		// And the 18+ box beside it, ticked by default for the same reason
+		// (#586, ADR 0069): a browser shown the box ticks it, and the API
+		// ignores an answer for a box it did not owe — which is every edition
+		// these tests do not publish the artifact on. A test about the
+		// declaration itself overrides this key
+		// (customer_adulthood_declaration_test.go).
+		"adulthood_declaration": true,
 	}
 }
 
@@ -128,6 +144,7 @@ func readConsentRecords(t *testing.T, env *testEnv, email string) []consentRecor
 	rows, err := env.db.Query(`
 		SELECT r.email, r.channel, r.captured_at, r.policy_version_id,
 		       r.policy_acceptance, r.marketing_consent, r.networking_consent,
+		       r.adulthood_declaration,
 		       r.email_proven, r.confirmed_at, r.ip, r.user_agent, r.session_id, r.origin_url,
 		       r.prior_marketing_consent, r.prior_networking_consent,
 		       r.confirmation_sent_at
@@ -146,6 +163,7 @@ func readConsentRecords(t *testing.T, env *testEnv, email string) []consentRecor
 		var r consentRecordRow
 		if err := rows.Scan(&r.Email, &r.Channel, &r.CapturedAt, &r.PolicyVersionID,
 			&r.PolicyAcceptance, &r.MarketingConsent, &r.NetworkingConsent,
+			&r.AdulthoodDeclaration,
 			&r.EmailProven, &r.ConfirmedAt, &r.IP, &r.UserAgent, &r.SessionID, &r.OriginURL,
 			&r.PriorMarketingConsent, &r.PriorNetworkingConsent,
 			&r.ConfirmationSentAt); err != nil {
