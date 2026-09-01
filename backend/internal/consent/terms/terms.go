@@ -43,6 +43,18 @@ const (
 	SlugAcceptanceLabel = "label-terms-acceptance"
 	// SlugTerms is the full Términos y Condiciones, the public page's body.
 	SlugTerms = "terms"
+	// SlugAdulthoodDeclarationLabel is the Adulthood Declaration's own
+	// mandatory, un-premarked checkbox label: the words a person is shown when
+	// they declare they are eighteen or older (ADR 0069).
+	//
+	// OPTIONAL TO THIS BINARY, mandatory to the person. It is the only slug here
+	// an edition may omit, and the current edition does: requiring it would have
+	// refused that edition the instant this shipped, taking the public terms
+	// page, the sign-in gate and the staff interstitial down until an operator
+	// published. The box is drawn iff the edition in effect carries the
+	// Artifact, so introducing it is a publish and not a deploy — and removing
+	// it again is a publish too, with no rule here naming this one slug.
+	SlugAdulthoodDeclarationLabel = "label-adulthood-declaration"
 )
 
 // PrevailingLocale is the language whose words are the contract: Spanish, over
@@ -56,7 +68,9 @@ const PrevailingLocale = platform.LocaleES
 
 // Document is one Locale's rendering of a Terms Version: everything a reader
 // can be shown, and nothing else. Its fields are exactly the artifacts the
-// fingerprint covers (policy.Document's rule, for its reason).
+// fingerprint covers (policy.Document's rule, for its reason) — one of them
+// optional, because an edition may or may not ask for an Adulthood Declaration
+// and both are ordinary states of a published Terms Version.
 type Document struct {
 	// Locale is the language the text below is written in. The Spanish document
 	// is the single legally prevailing text (§37); the English one is the
@@ -66,6 +80,17 @@ type Document struct {
 	// (§3). The UI renders it beside a link to the full text and may not reword
 	// or pre-tick it.
 	AcceptanceLabel string `json:"acceptance_label"`
+	// AdulthoodDeclarationLabel is the Adulthood Declaration's own mandatory,
+	// un-premarked checkbox label, markdown — or empty when this edition does
+	// not carry the Artifact, which is the only field here that may be.
+	//
+	// EMPTY MEANS "THIS EDITION DOES NOT ASK", not "the label is missing": what
+	// to show is a fact about the edition in effect, so a surface draws the box
+	// iff this is set and draws nothing when it is not. Whether the answer is
+	// STORED is a different question with a different answer (ADR 0069) — a
+	// finished fact is written down, never re-derived from a slug set read
+	// later.
+	AdulthoodDeclarationLabel string `json:"adulthood_declaration_label,omitempty"`
 	// BodyMarkdown is the full Términos y Condiciones, markdown.
 	BodyMarkdown string `json:"body_markdown"`
 }
@@ -78,9 +103,17 @@ type Document struct {
 // mandatory checkbox with a blank label beside it is the one thing §3 forbids
 // outright. Both published Locales carry the same edition, so the choice is
 // which words a reader is shown, never which contract binds them.
+//
+// COMPLETE MEANS EVERY REQUIRED SLUG, NOT A COUNT OF SLUGS. The rule used to be
+// a count, which was the same sentence while every known slug was required; it
+// is not any more. An Adulthood Declaration label is served when the edition
+// carries it and its absence is not an incompleteness, so counting it would
+// have let a missing acceptance label pass as long as some other Artifact stood
+// in for it — the one arithmetic that turns an optional Artifact into a way of
+// publishing a contract with a hole in it.
 func DocumentFrom(locale platform.Locale, artifacts []legal.Artifact) (Document, bool) {
 	document := Document{Locale: locale}
-	found := 0
+	required := 0
 	for _, artifact := range artifacts {
 		if artifact.Locale != locale {
 			continue
@@ -88,14 +121,25 @@ func DocumentFrom(locale platform.Locale, artifacts []legal.Artifact) (Document,
 		switch artifact.Slug {
 		case SlugAcceptanceLabel:
 			document.AcceptanceLabel = artifact.Body
+			required++
 		case SlugTerms:
 			document.BodyMarkdown = artifact.Body
+			required++
+		case SlugAdulthoodDeclarationLabel:
+			// Read, and not counted: this is the whole of "optional to the
+			// binary". An edition without it is complete.
+			document.AdulthoodDeclarationLabel = artifact.Body
 		default:
+			// An artifact this binary does not render. It is inside the
+			// fingerprint, so it is not ignorable — but it is also not this
+			// function's to refuse: the service logs it, once per cache fill,
+			// where a logger exists. Until this ticket that is what swallowed
+			// an Adulthood Declaration label, which is why the deploy has to
+			// precede the publish.
 			continue
 		}
-		found++
 	}
-	if found != 2 {
+	if required != 2 {
 		return Document{}, false
 	}
 	return document, true

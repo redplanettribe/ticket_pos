@@ -40,6 +40,22 @@ func termsText(t *testing.T, locale platform.Locale, slug string) string {
 	return publishedText(t, "terms", currentTerms, locale, slug)
 }
 
+// optionalTermsText is the same read for a slug the current edition MAY not
+// carry — today, only label-adulthood-declaration, which is optional to the
+// binary (ADR 0069). It reports absence rather than failing, so the guards
+// below hold whichever edition is current: they say nothing about an edition
+// that does not ask, and bind the moment one does.
+func optionalTermsText(t *testing.T, locale platform.Locale, slug string) (string, bool) {
+	t.Helper()
+
+	for _, artifact := range storedArtifacts(t)[editionKey{"terms", currentTerms}] {
+		if artifact.Locale == locale && artifact.Slug == slug {
+			return artifact.Body, true
+		}
+	}
+	return "", false
+}
+
 // ADR 0034: Marketing Consent and the Follow Digest are one switch, and the
 // checkbox copy names the Digest explicitly, so nobody grants or declines it
 // without being told what it covers.
@@ -122,6 +138,43 @@ func TestThePublishedTextHasNoPlaceholdersLeft(t *testing.T) {
 				t.Errorf("a published %s document still carries the placeholder %s", locale, found)
 			}
 		}
+		// The Adulthood Declaration's label, once an edition carries one. It is
+		// the one place in the published text where an unfilled slot would be a
+		// person ticking a box whose words nobody finished writing — and the
+		// Policy's own `[EDAD MÍNIMA]`, still unfilled and deliberately out of
+		// ADR 0069's scope, is the standing example of how that happens.
+		if label, ok := optionalTermsText(t, locale, terms.SlugAdulthoodDeclarationLabel); ok {
+			if found := bracketed.FindString(label); found != "" {
+				t.Errorf("the published %s adulthood declaration label still carries the placeholder %s", locale, found)
+			}
+		}
+	}
+}
+
+// The Adulthood Declaration label is published in BOTH languages or in neither.
+//
+// It is optional to the binary and therefore absent from the edition in effect
+// today, so this says nothing at all until an operator publishes one — and
+// everything the moment they do. Half a publish is the failure it guards: the
+// two languages are ONE edition under ONE fingerprint, so an edition carrying
+// the Artifact in Spanish alone would draw the box for a Spanish reader and
+// silently stop asking an English one, while both are recorded as having
+// accepted the same edition. That is the same rule TestTheTermsTranslationKeeps
+// TheSameSections states over the body, at the granularity of an Artifact.
+func TestTheAdulthoodDeclarationLabelIsPublishedInBothLanguagesOrNeither(t *testing.T) {
+	t.Parallel()
+
+	spanish, inSpanish := optionalTermsText(t, platform.LocaleES, terms.SlugAdulthoodDeclarationLabel)
+	english, inEnglish := optionalTermsText(t, platform.LocaleEN, terms.SlugAdulthoodDeclarationLabel)
+
+	if inSpanish != inEnglish {
+		t.Fatalf("the current terms edition publishes an adulthood declaration label in one language only (es=%t, en=%t)", inSpanish, inEnglish)
+	}
+	if !inSpanish {
+		return
+	}
+	if spanish == english {
+		t.Error("the two adulthood declaration labels are the same bytes; one of them is not a translation")
 	}
 }
 

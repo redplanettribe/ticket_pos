@@ -39,6 +39,16 @@ type TermsView struct {
 	// AcceptanceLabel is the mandatory checkbox's label, markdown. The UI may
 	// not reword or pre-tick it.
 	AcceptanceLabel string `json:"acceptance_label"`
+	// AdulthoodDeclarationLabel is the Adulthood Declaration's own mandatory,
+	// un-premarked checkbox label, markdown — ABSENT FROM THE PAYLOAD when the
+	// edition in effect does not carry the Artifact (ADR 0069).
+	//
+	// A surface draws the second box iff this field arrives, which is why it is
+	// omitempty rather than an empty string: "this edition does not ask" and
+	// "this edition asks with nothing written beside the box" must not look the
+	// same on the wire. The current edition carries no such Artifact, so today
+	// this field is simply not there.
+	AdulthoodDeclarationLabel string `json:"adulthood_declaration_label,omitempty"`
 	// BodyMarkdown is the full Términos y Condiciones, markdown.
 	BodyMarkdown string `json:"body_markdown"`
 }
@@ -148,7 +158,11 @@ func (s *Service) termsEditionFrom(edition repository.TermsEdition) termsEdition
 			ContentHash:     version.ContentHash,
 			Locale:          document.Locale,
 			AcceptanceLabel: document.AcceptanceLabel,
-			BodyMarkdown:    document.BodyMarkdown,
+			// Empty when this edition does not ask, and carried straight through
+			// when it does: what to show is a fact about the edition in effect,
+			// derived here rather than configured (ADR 0069).
+			AdulthoodDeclarationLabel: document.AdulthoodDeclarationLabel,
+			BodyMarkdown:              document.BodyMarkdown,
 		}
 	}
 
