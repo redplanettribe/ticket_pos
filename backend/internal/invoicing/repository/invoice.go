@@ -477,7 +477,7 @@ const invoiceColumns = `
 	i.attention_since, i.annulled_by, i.annulled_at, i.recipient_warning,
 	i.abandoned_by, i.abandoned_at, i.abandon_note,
 	i.supersedes_invoice_id,
-	(SELECT s.id FROM invoicing_invoices s WHERE s.supersedes_invoice_id = i.id AND s.status <> 'withdrawn' ORDER BY s.created_at DESC, s.id DESC LIMIT 1),
+	(SELECT s.id FROM invoicing_invoices s WHERE s.supersedes_invoice_id = i.id AND s.status NOT IN ('withdrawn', 'annulled', 'abandoned') ORDER BY s.created_at DESC, s.id DESC LIMIT 1),
 	rr.reissued_by, rr.reissued_at, rr.reissue_note,
 	i.backfilled_by, i.backfilled_at,
 	i.created_at, i.updated_at,
@@ -498,7 +498,22 @@ const invoiceColumns = `
 // The Sale Invoice Reissue's links are read the same way again (#483, ADR
 // 0061). supersedes_invoice_id is stored once, on the corrected factura;
 // the superseded factura's "superseded by" is walked back from it, taking
-// the live successor — one not withdrawn — of which the schema allows one.
+// the live successor, of which the schema allows one (migration 120).
+//
+// LIVE MEANS NOT TERMINALLY DEAD (#579, parent #575, ADR 0068), and the
+// three deaths are spelled here exactly as they are in the partial unique
+// index that admits one of them: withdrawn — never sent, and never will be;
+// annulled — held by the authority and disowned by hand at its portal;
+// abandoned — sent, never held, never a legal document. A successor that
+// died any of those ways supersedes nothing: the factura it corrected is
+// current again, its "superseded by" is null, and nothing about the Sale is
+// blocked by a document that no longer stands. Anything else a successor
+// can be — owed, pending, parked, refused with a remedy, authorized — is
+// live and holds the slot, so one Sale never carries two competing
+// corrected facturas. This was `<> 'withdrawn'` until #579, which is why a
+// Sale whose corrected factura died at the authority was unreachable: the
+// old factura answered INVOICE_SUPERSEDED, naming a ghost, and the dead one
+// answered INVOICE_NOT_AUTHORIZED (#480).
 // The reissue's trail (who, when, the note) is stored on the corrected
 // factura too, and the lateral join reads it beside every document the
 // reissue concerns: the corrected factura's own, the superseded factura's
@@ -514,7 +529,7 @@ const invoiceFrom = `
 		FROM invoicing_invoices r
 		WHERE r.supersedes_invoice_id IS NOT NULL
 		  AND (r.id = i.id
-		       OR (r.status <> 'withdrawn'
+		       OR (r.status NOT IN ('withdrawn', 'annulled', 'abandoned')
 		           AND (r.supersedes_invoice_id = i.id
 		                OR (i.kind = 'credit_note' AND i.credit_note_reason = 'reissue'
 		                    AND r.supersedes_invoice_id = i.credits_invoice_id))))

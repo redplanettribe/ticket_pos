@@ -812,7 +812,9 @@ type InvoiceDetail struct {
 	// SupersedesInvoiceID is, on a corrected Sale Invoice, the factura it
 	// corrects; the list row's SupersededByInvoiceID is, on a reissued
 	// factura, the live corrected one — the current Sale Invoice is the one
-	// with neither a successor nor a withdrawn or annulled state. ReissuedBy,
+	// with neither a live successor nor a terminal-dead state of its own,
+	// where dead is withdrawn, annulled or abandoned (#579, ADR 0068).
+	// ReissuedBy,
 	// ReissuedAt and ReissueNote are who reissued, when and the optional
 	// note, shown on the corrected factura, the superseded one and the
 	// reissue's Credit Note alike. All null where no reissue concerns the

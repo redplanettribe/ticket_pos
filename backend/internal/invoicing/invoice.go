@@ -274,8 +274,11 @@ type Invoice struct {
 	// The Sale Invoice Reissue (#483, ADR 0061). SupersedesInvoiceID is, on
 	// a Sale Invoice a reissue produced, the factura it corrects; stored
 	// here and nowhere else. SupersededByInvoiceID is the reverse link read
-	// beside the row — the live successor (one not withdrawn) of a
-	// reissued factura, "" when it is current. ReissuedBy, ReissuedAt and
+	// beside the row — the live successor of a reissued factura, "" when it
+	// is current. LIVE excludes every terminal-dead status (#579, ADR
+	// 0068): a successor withdrawn, annulled or abandoned supersedes
+	// nothing, and its factura reads as current again.
+	// ReissuedBy, ReissuedAt and
 	// ReissueNote are the reissue's trail: stored on the corrected factura,
 	// and read beside the superseded factura and the reissue Credit Note so
 	// every document concerned shows who, when and why.

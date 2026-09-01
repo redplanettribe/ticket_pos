@@ -233,7 +233,11 @@ func ErrReissueInFlight() apperror.DomainError {
 }
 
 // ErrInvoiceSuperseded: the factura is no longer the Sale's current one;
-// the corrected factura is what a further reissue corrects.
+// the corrected factura is what a further reissue corrects. Only a LIVE
+// successor earns this refusal (#579, ADR 0068): one that died — withdrawn,
+// annulled or abandoned — supersedes nothing, and answering "reissue the
+// current Sale Invoice instead" while pointing at a document the authority
+// never authorized left the Sale unreachable (#480).
 func ErrInvoiceSuperseded() apperror.DomainError {
 	return apperror.New("INVOICE_SUPERSEDED", "This Sale Invoice was superseded by a reissue. Reissue the current Sale Invoice instead.", nil)
 }

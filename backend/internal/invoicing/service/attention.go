@@ -186,8 +186,10 @@ type DocumentRole string
 
 const (
 	// DocumentRoleCurrent: the Sale's current Sale Invoice — sale-kind,
-	// no live successor, neither withdrawn nor annulled. A later Sale
-	// Reversal credits this one.
+	// no live successor, and not itself terminally dead. A later Sale
+	// Reversal credits this one. A factura whose successor died — withdrawn,
+	// annulled or abandoned (#579, ADR 0068) — is current again: it is
+	// superseded by nothing, because nothing stands in its place.
 	DocumentRoleCurrent DocumentRole = "current"
 	// DocumentRoleSuperseded: a Sale Invoice a reissue corrected; still
 	// authorized and on file, no longer the Sale's current one.
