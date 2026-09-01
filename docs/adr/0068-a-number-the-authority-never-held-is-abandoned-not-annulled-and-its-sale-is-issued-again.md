@@ -128,3 +128,20 @@ a second case needs it.
 - Nothing here addresses why the authority refused a number it does not hold. If #573's pacing fix is
   not deployed first, a reissued document is submitted in the same unpaced burst and may earn error 45
   in its turn, burning another number.
+
+## As built (#576–#580)
+
+- **"Fresh" is read in three parts.** The last attempt on the document's ledger is a query, it carries
+  an answer the authority actually gave, and it was started within **fifteen minutes**
+  (`AbandonCheckFreshness`). The answer's *value* is deliberately not read: a decision moves the status
+  and the state gate catches it.
+- **"Terminally dead" is one word for three deaths, but only two doors.** The predicate
+  `invoicing.TerminallyDead` answers for `withdrawn`, `annulled` and `abandoned` — that is what the
+  live-successor index and the Drainer's "has my predecessor died?" question ask — while Issue again
+  admits only `abandoned` and `annulled`. A withdrawn document's Sale was reversed, or the Credit Note
+  it followed died, and neither is owed a factura.
+- **Nothing is stored for the refusal.** `RefusedByNumberIn` reads the authority's messages already on
+  the row, so no migration and no backfill were needed for the two production documents; migration 119
+  carries the status and the abandonment's trail, and 120 the widened live-successor index.
+- The needs-attention queue's widening is #581; the record of this arc, including the flows doc's row
+  27, is #582.
