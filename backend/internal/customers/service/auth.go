@@ -422,6 +422,16 @@ func (s *Service) sessionView(customer *repository.Customer, session *repository
 			// necessarily carried one. Forcing it on would draw a box this
 			// person has already answered, and — where the edition carries no
 			// Artifact at all — one with no words beside it.
+			//
+			// REVISITED AT THE CHECKOUT CAPTURE POINT (#588) AND LEFT AS IT IS,
+			// with one more reason to. The forced trues above exist to make a
+			// capture surface under this session ask everything; but the one
+			// capture surface that reads these boxes is the checkout dialog, and
+			// begin-checkout REFUSES a sale-scoped session outright — 403
+			// CUSTOMER_SESSION_SCOPE_INSUFFICIENT, before any body is read
+			// (BeginCustomerCheckout). So nothing forced here can reach a
+			// Consent Record by this road anyway, and forcing this one on would
+			// buy no evidence while risking a box with no label to word it.
 			AdulthoodDeclaration: outstanding.AdulthoodDeclaration,
 		}
 	}

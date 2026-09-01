@@ -75,6 +75,14 @@ type beginCustomerCheckoutBody struct {
 	// any later bump — and the API refuses the checkout without it exactly as
 	// it does the policy's (TERMS_ACCEPTANCE_REQUIRED).
 	TermsAcceptance *bool `json:"terms_acceptance"`
+	// AdulthoodDeclaration is the 18+ box beside it (#588, ADR 0069), drawn
+	// wherever the Terms box is AND the edition in effect carries the
+	// `label-adulthood-declaration` Artifact — so on this route, as on the
+	// public one, it is absent from every body sent under an edition that does
+	// not ask. Owed and not present-and-true is refused 400
+	// ADULTHOOD_DECLARATION_REQUIRED with no Payment created and nothing
+	// written at all.
+	AdulthoodDeclaration *bool `json:"adulthood_declaration"`
 
 	Answers []checkoutAnswerBody `json:"answers"`
 }
@@ -89,20 +97,21 @@ type beginCustomerCheckoutBody struct {
 // through this argument.
 func (b beginCustomerCheckoutBody) addressedTo(email string) beginCheckoutBody {
 	return beginCheckoutBody{
-		CustomerEmail:       email,
-		CustomerFirstName:   b.CustomerFirstName,
-		CustomerLastName:    b.CustomerLastName,
-		CustomerTaxIDType:   b.CustomerTaxIDType,
-		CustomerTaxIDNumber: b.CustomerTaxIDNumber,
-		CustomerPhone:       b.CustomerPhone,
-		AffiliateCodes:      b.AffiliateCodes,
-		Lines:               b.Lines,
-		Locale:              b.Locale,
-		PolicyAcceptance:    b.PolicyAcceptance,
-		MarketingConsent:    b.MarketingConsent,
-		NetworkingConsent:   b.NetworkingConsent,
-		TermsAcceptance:     b.TermsAcceptance,
-		Answers:             b.Answers,
+		CustomerEmail:        email,
+		CustomerFirstName:    b.CustomerFirstName,
+		CustomerLastName:     b.CustomerLastName,
+		CustomerTaxIDType:    b.CustomerTaxIDType,
+		CustomerTaxIDNumber:  b.CustomerTaxIDNumber,
+		CustomerPhone:        b.CustomerPhone,
+		AffiliateCodes:       b.AffiliateCodes,
+		Lines:                b.Lines,
+		Locale:               b.Locale,
+		PolicyAcceptance:     b.PolicyAcceptance,
+		MarketingConsent:     b.MarketingConsent,
+		NetworkingConsent:    b.NetworkingConsent,
+		TermsAcceptance:      b.TermsAcceptance,
+		AdulthoodDeclaration: b.AdulthoodDeclaration,
+		Answers:              b.Answers,
 	}
 }
 
@@ -112,7 +121,7 @@ func (b beginCustomerCheckoutBody) addressedTo(email string) beginCheckoutBody {
 // request.
 //
 // @Summary      Begin an online checkout as the signed-in Customer
-// @Description  The session-gated begin-checkout (ADR 0054). It does the same work as the public begin-checkout — validates ticket types, quantities, remaining capacity and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left — and differs from it in exactly one way: THE BUYER'S EMAIL IS READ FROM THE CUSTOMER SESSION AND IS NOT A REQUEST FIELD. There is no `customer_email` on this body and nothing here reads one, so a Ticket Sale begun on this route can only ever be addressed to an address the platform has proof of ownership for. A request with no Customer Session is refused 401. A request carrying a CONFIRMATION LINK session is refused 403 CUSTOMER_SESSION_SCOPE_INSUFFICIENT: that credential is minted from a token which travelled in an email and may have been forwarded, so it is not Proof of Email Ownership and cannot buy. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url; a checkout whose cart totals zero — Free Ticket Types only — is settled here and now, comes back status "approved" with confirmation_ref and no redirect_url, and is gated by the session identically, because a free Ticket is still a Ticket that needs a reachable inbox (ADR 0017). Because the buyer is proven, the details they give here are their own assertion about themselves: first and last name, the Tax ID (required, ADR 0016) and the optional phone are written back onto the Customer as well as snapshotted onto the sale. Consent given here is recorded as ANSWERED and never as a Pending Confirmation, and which boxes the buyer was owed is recomputed server-side from the Customer on the session and never taken from this body — a Customer who has already accepted the current Policy Version and answered both optional boxes sends no consent fields at all, is owed nothing, writes no Consent Record, and is not asked again; one who still owes Policy Acceptance must send it present and true or the checkout is refused 400 POLICY_ACCEPTANCE_REQUIRED with no Payment created. The Terms box behaves identically where owed (#537, ADR 0066): a Customer whose live session spans the current Terms edition — the one-time re-gate, or a later bump — must send terms_acceptance present and true or the checkout is refused 400 TERMS_ACCEPTANCE_REQUIRED, and the answer is held on the Payment together with the edition it was answered about, so the Consent Record written at commit evidences the text the buyer was shown rather than whichever edition is current when the provider answers. An answer for a box the buyer was not owed is dropped rather than applied. Purchase Limits, Affiliate Link attribution, `locale`, and the skippable `answers` section all behave exactly as they do on the public route, including that nothing about an answer can ever refuse or delay a checkout (ADR 0044). The technical proof stored with a consent record (IP, user agent, origin URL) is taken from the request and never from this body, and the Policy Version accepted is resolved server-side. The response REPORTS THE ADDRESS THE SALE WAS ADDRESSED TO in `addressed_to` (#387): the address read off the session, echoed back so the caller learns it from this API rather than inferring it from a browser. That is what lets the Storefront's return leg still recognise a buyer whose Customer Session did not survive the trip to the Payment Provider — a cleared cookie jar, a provider webview, a revoked session, a different browser — and it grants nothing, because signing in still costs a passcode or a Google round trip. Confirming this checkout uses the same public confirm route, which stays public and idempotent: it is the Payment Provider's return leg and must work for a browser that has lost everything, which is the same fact `addressed_to` exists to survive.
+// @Description  The session-gated begin-checkout (ADR 0054). It does the same work as the public begin-checkout — validates ticket types, quantities, remaining capacity and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left — and differs from it in exactly one way: THE BUYER'S EMAIL IS READ FROM THE CUSTOMER SESSION AND IS NOT A REQUEST FIELD. There is no `customer_email` on this body and nothing here reads one, so a Ticket Sale begun on this route can only ever be addressed to an address the platform has proof of ownership for. A request with no Customer Session is refused 401. A request carrying a CONFIRMATION LINK session is refused 403 CUSTOMER_SESSION_SCOPE_INSUFFICIENT: that credential is minted from a token which travelled in an email and may have been forwarded, so it is not Proof of Email Ownership and cannot buy. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url; a checkout whose cart totals zero — Free Ticket Types only — is settled here and now, comes back status "approved" with confirmation_ref and no redirect_url, and is gated by the session identically, because a free Ticket is still a Ticket that needs a reachable inbox (ADR 0017). Because the buyer is proven, the details they give here are their own assertion about themselves: first and last name, the Tax ID (required, ADR 0016) and the optional phone are written back onto the Customer as well as snapshotted onto the sale. Consent given here is recorded as ANSWERED and never as a Pending Confirmation, and which boxes the buyer was owed is recomputed server-side from the Customer on the session and never taken from this body — a Customer who has already accepted the current Policy Version and answered both optional boxes sends no consent fields at all, is owed nothing, writes no Consent Record, and is not asked again; one who still owes Policy Acceptance must send it present and true or the checkout is refused 400 POLICY_ACCEPTANCE_REQUIRED with no Payment created. The Terms box behaves identically where owed (#537, ADR 0066): a Customer whose live session spans the current Terms edition — the one-time re-gate, or a later bump — must send terms_acceptance present and true or the checkout is refused 400 TERMS_ACCEPTANCE_REQUIRED, and the answer is held on the Payment together with the edition it was answered about, so the Consent Record written at commit evidences the text the buyer was shown rather than whichever edition is current when the provider answers. The Adulthood Declaration rides that same box (#588, ADR 0069): where the Terms edition in effect publishes the `label-adulthood-declaration` Artifact, the same buyer must also send adulthood_declaration present and true, or the checkout is refused 400 ADULTHOOD_DECLARATION_REQUIRED with no Payment created and nothing whatever written down — the platform keeps no record of anybody who says they are a minor. It is a declaration and never a verification: no date of birth is collected anywhere, and eighteen is a number in prose inside the Artifact. Where it is owed and ticked the answer is held on the Payment beside the Terms answer and the edition it was declared under, and reaches the Consent Record at commit by the same road. An edition that does not carry the Artifact owes no declaration and draws no box. An answer for a box the buyer was not owed is dropped rather than applied. Purchase Limits, Affiliate Link attribution, `locale`, and the skippable `answers` section all behave exactly as they do on the public route, including that nothing about an answer can ever refuse or delay a checkout (ADR 0044). The technical proof stored with a consent record (IP, user agent, origin URL) is taken from the request and never from this body, and the Policy Version accepted is resolved server-side. The response REPORTS THE ADDRESS THE SALE WAS ADDRESSED TO in `addressed_to` (#387): the address read off the session, echoed back so the caller learns it from this API rather than inferring it from a browser. That is what lets the Storefront's return leg still recognise a buyer whose Customer Session did not survive the trip to the Payment Provider — a cleared cookie jar, a provider webview, a revoked session, a different browser — and it grants nothing, because signing in still costs a passcode or a Google round trip. Confirming this checkout uses the same public confirm route, which stays public and idempotent: it is the Payment Provider's return leg and must work for a browser that has lost everything, which is the same fact `addressed_to` exists to survive.
 // @Tags         customer
 // @Accept       json
 // @Produce      json

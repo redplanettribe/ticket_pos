@@ -63,6 +63,7 @@ type CheckoutRequestBody = {
   marketing_consent?: unknown;
   networking_consent?: unknown;
   terms_acceptance?: unknown;
+  adulthood_declaration?: unknown;
   lines?: unknown;
   locale?: unknown;
   answers?: unknown;
@@ -298,6 +299,15 @@ export async function POST(request: Request) {
         // did not, enforced by the API alone (TERMS_ACCEPTANCE_REQUIRED).
         ...(consentAnswer(body.terms_acceptance) !== undefined
           ? { terms_acceptance: consentAnswer(body.terms_acceptance) }
+          : {}),
+        // The Adulthood Declaration (#588, ADR 0069), relayed on exactly those
+        // terms in turn: present as sent when the dialog drew the box, absent
+        // when it did not. This hop enforces nothing here either — a second
+        // copy of a legal gate is a second place for it to be wrong — and the
+        // API answers a missing or unticked declaration with
+        // ADULTHOOD_DECLARATION_REQUIRED, before any Payment exists.
+        ...(consentAnswer(body.adulthood_declaration) !== undefined
+          ? { adulthood_declaration: consentAnswer(body.adulthood_declaration) }
           : {}),
         ...(affiliateCodes.length > 0 ? { affiliate_codes: affiliateCodes } : {}),
         // Dropped rather than sent null when nothing here can say which page

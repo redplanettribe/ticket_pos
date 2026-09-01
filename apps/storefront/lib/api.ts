@@ -683,6 +683,18 @@ export type BeginCheckoutRequest = {
    */
   terms_acceptance?: boolean;
   /**
+   * The Adulthood Declaration (#588, ADR 0069): the 18+ affirmation, sent only
+   * when the dialog drew the box — which is where the Terms box was drawn AND
+   * the edition in effect publishes the `label-adulthood-declaration` Artifact.
+   *
+   * The API refuses the checkout with ADULTHOOD_DECLARATION_REQUIRED where it
+   * was owed and is not present and `true`, creating no Payment and writing
+   * nothing at all: the platform keeps no record of anybody who says they are
+   * not eighteen. Absent is "the box was not shown", which is why this is
+   * omitted rather than sent as `false` by a dialog that drew nothing.
+   */
+  adulthood_declaration?: boolean;
+  /**
    * What the buyer filled in on the checkout's skippable answer section (#311,
    * ADR 0044): one entry per (Ticket Type, ticket index, Ticket Question) they
    * actually replied to.

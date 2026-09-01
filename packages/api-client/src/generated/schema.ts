@@ -187,7 +187,7 @@ export interface paths {
         put?: never;
         /**
          * Verify OTP
-         * @description Verifies a one-time passcode and completes the sign-in. The outcome has exactly two shapes: `session` and `session_id`, or — for an email with no Terms Acceptance of the current Terms Version — `terms_required` with a single-use `pending_terms_token`, the edition label and the checkbox label, and NO session (#538, ADR 0066). The terms step is finished at /api/v1/auth/terms/accept. An optional `locale` names the language the login page was rendered in, as the caller detected it, and is remembered as the person's Staff Locale — but only if they have none. It never overwrites a stored one, because a detected language must not overrule a chosen one. A language the platform does not serve is ignored rather than refused, and never fails the sign-in.
+         * @description Verifies a one-time passcode and completes the sign-in. The outcome has exactly two shapes: `session` and `session_id`, or — for an email with no Terms Acceptance of the current Terms Version — `terms_required` with a single-use `pending_terms_token`, the edition label and the checkbox label, and NO session (#538, ADR 0066). Where the edition in effect carries the `label-adulthood-declaration` artifact, `adulthood_declaration_label` is present beside it and the terms step draws a second, separate, un-premarked box (#587, ADR 0069); it is absent otherwise. The terms step is finished at /api/v1/auth/terms/accept. An optional `locale` names the language the login page was rendered in, as the caller detected it, and is remembered as the person's Staff Locale — but only if they have none. It never overwrites a stored one, because a detected language must not overrule a chosen one. A language the platform does not serve is ignored rather than refused, and never fails the sign-in.
          */
         post: {
             parameters: {
@@ -306,7 +306,7 @@ export interface paths {
         put?: never;
         /**
          * Accept the Terms and finish a staff sign-in
-         * @description Spends the short-lived, single-use `pending_terms_token` from a verify response whose outcome was `terms_required`, records one append-only Staff Terms Acceptance — the current Terms edition, the capacity "organizer", the timestamp, and the technical proof (IP, user agent, session, origin URL) — and mints the Staff Session the sign-in withheld; the response carries `session` and `session_id` exactly as a verify does (#538, ADR 0066). `terms_acceptance` must be true: an unticked box is refused with TERMS_ACCEPTANCE_REQUIRED, and the refusal lives in the API, not only in the form. The token is spent whatever the outcome, so a refused submission is restarted by signing in again; abandoning the step records nothing and leaves no session. One acceptance per email per edition: subsequent sign-ins pass with no extra step until a later Terms Version is published.
+         * @description Spends the short-lived, single-use `pending_terms_token` from a verify response whose outcome was `terms_required`, records one append-only Staff Terms Acceptance — the current Terms edition, the capacity "organizer", the timestamp, and the technical proof (IP, user agent, session, origin URL) — and mints the Staff Session the sign-in withheld; the response carries `session` and `session_id` exactly as a verify does (#538, ADR 0066). `terms_acceptance` must be true: an unticked box is refused with TERMS_ACCEPTANCE_REQUIRED, and the refusal lives in the API, not only in the form. `adulthood_declaration` must be true wherever the pinned edition carries the `label-adulthood-declaration` artifact — that is, wherever the terms step returned `adulthood_declaration_label` — and is ignored where it does not; absent is false, and false where owed is refused with ADULTHOOD_DECLARATION_REQUIRED before any session is minted and before any row is written, so the platform keeps no record of anybody who says they are a minor (#587, ADR 0069). A recorded declaration is stored on the same acceptance row under the pinned edition; an edition that does not ask records a null there, meaning the act never asked, and no age, birthdate or threshold is collected anywhere. The token is spent whatever the outcome, so a refused submission is restarted by signing in again; abandoning the step records nothing and leaves no session. One acceptance per email per edition: subsequent sign-ins pass with no extra step until a later Terms Version is published.
          */
         post: {
             parameters: {
@@ -1505,7 +1505,7 @@ export interface paths {
         put?: never;
         /**
          * Begin an online checkout as the signed-in Customer
-         * @description The session-gated begin-checkout (ADR 0054). It does the same work as the public begin-checkout — validates ticket types, quantities, remaining capacity and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left — and differs from it in exactly one way: THE BUYER'S EMAIL IS READ FROM THE CUSTOMER SESSION AND IS NOT A REQUEST FIELD. There is no `customer_email` on this body and nothing here reads one, so a Ticket Sale begun on this route can only ever be addressed to an address the platform has proof of ownership for. A request with no Customer Session is refused 401. A request carrying a CONFIRMATION LINK session is refused 403 CUSTOMER_SESSION_SCOPE_INSUFFICIENT: that credential is minted from a token which travelled in an email and may have been forwarded, so it is not Proof of Email Ownership and cannot buy. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url; a checkout whose cart totals zero — Free Ticket Types only — is settled here and now, comes back status "approved" with confirmation_ref and no redirect_url, and is gated by the session identically, because a free Ticket is still a Ticket that needs a reachable inbox (ADR 0017). Because the buyer is proven, the details they give here are their own assertion about themselves: first and last name, the Tax ID (required, ADR 0016) and the optional phone are written back onto the Customer as well as snapshotted onto the sale. Consent given here is recorded as ANSWERED and never as a Pending Confirmation, and which boxes the buyer was owed is recomputed server-side from the Customer on the session and never taken from this body — a Customer who has already accepted the current Policy Version and answered both optional boxes sends no consent fields at all, is owed nothing, writes no Consent Record, and is not asked again; one who still owes Policy Acceptance must send it present and true or the checkout is refused 400 POLICY_ACCEPTANCE_REQUIRED with no Payment created. The Terms box behaves identically where owed (#537, ADR 0066): a Customer whose live session spans the current Terms edition — the one-time re-gate, or a later bump — must send terms_acceptance present and true or the checkout is refused 400 TERMS_ACCEPTANCE_REQUIRED, and the answer is held on the Payment together with the edition it was answered about, so the Consent Record written at commit evidences the text the buyer was shown rather than whichever edition is current when the provider answers. An answer for a box the buyer was not owed is dropped rather than applied. Purchase Limits, Affiliate Link attribution, `locale`, and the skippable `answers` section all behave exactly as they do on the public route, including that nothing about an answer can ever refuse or delay a checkout (ADR 0044). The technical proof stored with a consent record (IP, user agent, origin URL) is taken from the request and never from this body, and the Policy Version accepted is resolved server-side. The response REPORTS THE ADDRESS THE SALE WAS ADDRESSED TO in `addressed_to` (#387): the address read off the session, echoed back so the caller learns it from this API rather than inferring it from a browser. That is what lets the Storefront's return leg still recognise a buyer whose Customer Session did not survive the trip to the Payment Provider — a cleared cookie jar, a provider webview, a revoked session, a different browser — and it grants nothing, because signing in still costs a passcode or a Google round trip. Confirming this checkout uses the same public confirm route, which stays public and idempotent: it is the Payment Provider's return leg and must work for a browser that has lost everything, which is the same fact `addressed_to` exists to survive.
+         * @description The session-gated begin-checkout (ADR 0054). It does the same work as the public begin-checkout — validates ticket types, quantities, remaining capacity and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left — and differs from it in exactly one way: THE BUYER'S EMAIL IS READ FROM THE CUSTOMER SESSION AND IS NOT A REQUEST FIELD. There is no `customer_email` on this body and nothing here reads one, so a Ticket Sale begun on this route can only ever be addressed to an address the platform has proof of ownership for. A request with no Customer Session is refused 401. A request carrying a CONFIRMATION LINK session is refused 403 CUSTOMER_SESSION_SCOPE_INSUFFICIENT: that credential is minted from a token which travelled in an email and may have been forwarded, so it is not Proof of Email Ownership and cannot buy. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url; a checkout whose cart totals zero — Free Ticket Types only — is settled here and now, comes back status "approved" with confirmation_ref and no redirect_url, and is gated by the session identically, because a free Ticket is still a Ticket that needs a reachable inbox (ADR 0017). Because the buyer is proven, the details they give here are their own assertion about themselves: first and last name, the Tax ID (required, ADR 0016) and the optional phone are written back onto the Customer as well as snapshotted onto the sale. Consent given here is recorded as ANSWERED and never as a Pending Confirmation, and which boxes the buyer was owed is recomputed server-side from the Customer on the session and never taken from this body — a Customer who has already accepted the current Policy Version and answered both optional boxes sends no consent fields at all, is owed nothing, writes no Consent Record, and is not asked again; one who still owes Policy Acceptance must send it present and true or the checkout is refused 400 POLICY_ACCEPTANCE_REQUIRED with no Payment created. The Terms box behaves identically where owed (#537, ADR 0066): a Customer whose live session spans the current Terms edition — the one-time re-gate, or a later bump — must send terms_acceptance present and true or the checkout is refused 400 TERMS_ACCEPTANCE_REQUIRED, and the answer is held on the Payment together with the edition it was answered about, so the Consent Record written at commit evidences the text the buyer was shown rather than whichever edition is current when the provider answers. The Adulthood Declaration rides that same box (#588, ADR 0069): where the Terms edition in effect publishes the `label-adulthood-declaration` Artifact, the same buyer must also send adulthood_declaration present and true, or the checkout is refused 400 ADULTHOOD_DECLARATION_REQUIRED with no Payment created and nothing whatever written down — the platform keeps no record of anybody who says they are a minor. It is a declaration and never a verification: no date of birth is collected anywhere, and eighteen is a number in prose inside the Artifact. Where it is owed and ticked the answer is held on the Payment beside the Terms answer and the edition it was declared under, and reaches the Consent Record at commit by the same road. An edition that does not carry the Artifact owes no declaration and draws no box. An answer for a box the buyer was not owed is dropped rather than applied. Purchase Limits, Affiliate Link attribution, `locale`, and the skippable `answers` section all behave exactly as they do on the public route, including that nothing about an answer can ever refuse or delay a checkout (ADR 0044). The technical proof stored with a consent record (IP, user agent, origin URL) is taken from the request and never from this body, and the Policy Version accepted is resolved server-side. The response REPORTS THE ADDRESS THE SALE WAS ADDRESSED TO in `addressed_to` (#387): the address read off the session, echoed back so the caller learns it from this API rather than inferring it from a browser. That is what lets the Storefront's return leg still recognise a buyer whose Customer Session did not survive the trip to the Payment Provider — a cleared cookie jar, a provider webview, a revoked session, a different browser — and it grants nothing, because signing in still costs a passcode or a Google round trip. Confirming this checkout uses the same public confirm route, which stays public and idempotent: it is the Payment Provider's return leg and must work for a browser that has lost everything, which is the same fact `addressed_to` exists to survive.
          */
         post: {
             parameters: {
@@ -13532,7 +13532,7 @@ export interface paths {
         put?: never;
         /**
          * Accept the Terms from a signed-in session
-         * @description Records one append-only Staff Terms Acceptance for the authenticated Staff Session's holder — the edition and language pinned on the `gate_token` when the interstitial rendered the box, the capacity "organizer", the timestamp, and the technical proof (IP, user agent, session, origin URL). `terms_acceptance` must be true; an unticked box is refused with TERMS_ACCEPTANCE_REQUIRED and does NOT spend the token, because the token proves nothing here — the session is the credential. A token issued to another address is refused indistinguishably from an unknown or expired one. Nothing is minted, re-minted or revoked and no passcode is spent: the caller resumes the navigation the gate diverted (#570, ADR 0067).
+         * @description Records one append-only Staff Terms Acceptance for the authenticated Staff Session's holder — the edition and language pinned on the `gate_token` when the interstitial rendered the box, the capacity "organizer", the timestamp, and the technical proof (IP, user agent, session, origin URL). `terms_acceptance` must be true; an unticked box is refused with TERMS_ACCEPTANCE_REQUIRED and does NOT spend the token, because the token proves nothing here — the session is the credential. `adulthood_declaration` must be true wherever the pinned edition carries the `label-adulthood-declaration` artifact — that is, wherever the gate read returned `adulthood_declaration_label` — and is ignored where it does not; absent is false, and false where owed is refused with ADULTHOOD_DECLARATION_REQUIRED, which likewise spends no token, records no acceptance and leaves no row of any kind: the platform keeps no record of anybody who says they are a minor (#587, ADR 0069). A recorded declaration is stored on the same acceptance row as `adulthood_declaration = true`, under the pinned edition; an edition that does not ask records a null there, meaning the act never asked. No age, birthdate or threshold is collected anywhere. A token issued to another address is refused indistinguishably from an unknown or expired one. Nothing is minted, re-minted or revoked and no passcode is spent: the caller resumes the navigation the gate diverted (#570, ADR 0067).
          */
         post: {
             parameters: {
@@ -13592,7 +13592,7 @@ export interface paths {
         };
         /**
          * What a signed-in staff member owes the Terms gate
-         * @description Reports whether the authenticated Staff Session's holder owes a Staff Terms Acceptance of an edition that still satisfies the gate, and when they do, returns the box to show: the edition label, the acceptance label as the published artifact words it, the language that label was actually served in, and a short-lived single-use `pending_terms_token` that pins both server-side. `locale` is the language the staff app is rendered in for this reader; a language the current edition does not publish is floored at the prevailing one rather than served blank. Reading this revokes nothing, mints nothing and spends no passcode — the session is untouched (#570, ADR 0067).
+         * @description Reports whether the authenticated Staff Session's holder owes a Staff Terms Acceptance of an edition that still satisfies the gate, and when they do, returns the box to show: the edition label, the acceptance label as the published artifact words it, the language that label was actually served in, and a short-lived single-use `pending_terms_token` that pins both server-side. `locale` is the language the staff app is rendered in for this reader; a language the current edition does not publish is floored at the prevailing one rather than served blank. THE ADULTHOOD DECLARATION rides the same box (#587, ADR 0069): `adulthood_declaration_label` is present, worded by the published artifact in the same language as the acceptance label, exactly when the edition in effect carries the `label-adulthood-declaration` artifact — and absent otherwise, which is how a surface knows not to draw a second checkbox. Reading this revokes nothing, mints nothing and spends no passcode — the session is untouched (#570, ADR 0067).
          */
         get: {
             parameters: {
@@ -13688,10 +13688,18 @@ export interface components {
             ticket_sale_id?: string;
         };
         "handler.acceptTermsBody": {
+            /**
+             * @description AdulthoodDeclaration is the second (#587, ADR 0069): the affirmation that
+             *     this person is eighteen or older, required wherever the edition this token
+             *     pinned carries the `label-adulthood-declaration` artifact and ignored
+             *     where it does not. Absent is false, and false where owed is refused before
+             *     a session is minted and before any row is written.
+             */
+            adulthood_declaration?: boolean;
             /** @description PendingTermsToken is the single-use token a gated verify returned. */
             pending_terms_token?: string;
             /**
-             * @description TermsAcceptance is the one required box. Absent is false and false is
+             * @description TermsAcceptance is the first required box. Absent is false and false is
              *     refused — the API's guarantee, not the form's.
              */
             terms_acceptance?: boolean;
@@ -13797,6 +13805,16 @@ export interface components {
             ticket_sale_ids?: string[];
         };
         "handler.beginCustomerCheckoutBody": {
+            /**
+             * @description AdulthoodDeclaration is the 18+ box beside it (#588, ADR 0069), drawn
+             *     wherever the Terms box is AND the edition in effect carries the
+             *     `label-adulthood-declaration` Artifact — so on this route, as on the
+             *     public one, it is absent from every body sent under an edition that does
+             *     not ask. Owed and not present-and-true is refused 400
+             *     ADULTHOOD_DECLARATION_REQUIRED with no Payment created and nothing
+             *     written at all.
+             */
+            adulthood_declaration?: boolean;
             affiliate_codes?: string[];
             answers?: components["schemas"]["handler.checkoutAnswerBody"][];
             customer_first_name?: string;
@@ -14286,10 +14304,23 @@ export interface components {
             locale?: string;
         };
         "handler.staffTermsGateBody": {
+            /**
+             * @description AdulthoodDeclaration is the second (#587, ADR 0069): the affirmation that
+             *     this person is eighteen or older, made in the same act that accepts the
+             *     Terms. Absent is false here too — the staff side's settled treatment of a
+             *     required box — and false where the pinned edition asks is refused with
+             *     ADULTHOOD_DECLARATION_REQUIRED, writing nothing and spending nothing.
+             *
+             *     IT CARRIES NO AGE AND NO EDITION. There is no birthdate, no age and no
+             *     threshold on this body or anywhere else in the platform: the eighteen is a
+             *     number in prose inside the published artifact, and what is recorded is
+             *     that somebody declared, never that anything was verified.
+             */
+            adulthood_declaration?: boolean;
             /** @description GateToken is the single-use token the interstitial's read handed out. */
             gate_token?: string;
             /**
-             * @description TermsAcceptance is the one required box. Absent is false and false is
+             * @description TermsAcceptance is the first required box. Absent is false and false is
              *     refused by the API, not merely by a disabled button.
              */
             terms_acceptance?: boolean;
@@ -18694,12 +18725,37 @@ export interface components {
              *     document.
              */
             acceptance_label?: string;
+            /**
+             * @description AdulthoodDeclarationLabel is the SECOND mandatory, un-premarked checkbox's
+             *     label, markdown, verbatim from the `label-adulthood-declaration` artifact
+             *     in the same language the acceptance label above was served in (#587,
+             *     ADR 0069) — ABSENT FROM THE PAYLOAD when the edition being shown does not
+             *     carry that Artifact.
+             *
+             *     THE FIELD'S PRESENCE IS THE ANSWER TO "DOES THIS EDITION ASK?", which is
+             *     why it is omitempty rather than an empty string: "this edition does not
+             *     ask" and "this edition asks with nothing written beside the box" must not
+             *     look the same on the wire, and the second of those is refused outright
+             *     before it can be served (termsGateLabels). A surface draws the box iff the
+             *     field arrives, so introducing the declaration is a publish and not a
+             *     deploy.
+             *
+             *     It is a SEPARATE box and never a rewording of the one above. A combined
+             *     tick would evidence only that somebody accepted a document containing an
+             *     age sentence, which is the inference ADR 0069 exists to replace; and the
+             *     two refusals mean different things — declining the Terms is "I do not
+             *     agree", declining this is "I am a child", and one control cannot say both.
+             */
+            adulthood_declaration_label?: string;
             /** @description ExpiresAt is when that token stops working, RFC 3339. */
             expires_at?: string;
             /**
-             * @description LabelLocale is the language the label above was ACTUALLY served in, which
-             *     is the requested one in the ordinary case and the prevailing one when this
-             *     edition publishes no artifact in it (acceptanceLabel's floor).
+             * @description LabelLocale is the language the labels above were ACTUALLY served in,
+             *     which is the requested one in the ordinary case and the prevailing one
+             *     when this edition publishes no artifact in it (termsGateLabels' floor).
+             *     ONE value for both boxes, because both are read from one document: a card
+             *     wording one box in Spanish and its neighbour in English would be a person
+             *     shown two texts and told they were shown one.
              *
              *     It is on the wire so the link beside the box can open the document the
              *     words came from: a reader floored at the prevailing text needs the Spanish

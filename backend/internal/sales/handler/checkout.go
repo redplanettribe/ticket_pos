@@ -207,6 +207,18 @@ type beginCheckoutBody struct {
 	// nobody, because a sign-in since #536 settles it. Same pointer discipline:
 	// absent means the box was not drawn, and an unowed answer is dropped.
 	TermsAcceptance *bool `json:"terms_acceptance"`
+	// AdulthoodDeclaration is the 18+ box beside the Terms one (#588, ADR
+	// 0069), under the very same pointer discipline: absent means the dialog
+	// drew no such box, `false` means it drew one and the buyer left it
+	// unticked, and an unowed answer is dropped rather than applied.
+	//
+	// THE FALSE IS THE ONE VALUE THIS FIELD REFUSES OVER AND NEVER STORES. It
+	// is answered with ADULTHOOD_DECLARATION_REQUIRED, before any Payment
+	// exists, and nothing whatever is written — the platform keeps no record of
+	// anybody who says they are a minor. It is a *bool anyway, because "the box
+	// was not shown" is a fact this body must be able to state and is what every
+	// buyer under an edition without the Artifact sends.
+	AdulthoodDeclaration *bool `json:"adulthood_declaration"`
 	// Answers are what the buyer filled in on the checkout's answer section
 	// (#311, ADR 0044).
 	//
@@ -392,6 +404,11 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 			MarketingConsent:  body.MarketingConsent,
 			NetworkingConsent: body.NetworkingConsent,
 			TermsAcceptance:   body.TermsAcceptance,
+			// Relayed as typed exactly like its neighbours (#588). Nothing here
+			// reads a missing box as a refusal, which for this one box would be
+			// the difference between "not asked" and "declared themselves a
+			// child" — and the service is the single place that decides either.
+			AdulthoodDeclaration: body.AdulthoodDeclaration,
 		},
 		// ConsentEvidence is deliberately left unset here, exactly as SelfAsserted
 		// is: it is a fact about the request, and BeginCheckout sets it above.
