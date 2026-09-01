@@ -727,7 +727,8 @@ _Avoid_: Banner, disclaimer, fine print, capa 1 (in code and prose)
 
 **Policy Version**:
 One published edition of the Privacy Policy and its Short Notice, preserved exactly as shown so that what a person accepted is readable forever.
-Publishing a new one makes every Customer unaccepted again: Policy Acceptance is of a version, not of the policy's idea.
+Its text lives in the database as Artifacts rather than compiled into the binary, so publishing one is an operator's act in the Legal Center and not a deploy (ADR 0067, reversing ADR 0036). It carries a lineage — `generation`, `revision`, and the `label` those two render — and it is a Gating Edition, owing every Customer a fresh Policy Acceptance, **iff `revision = 0`**; a Correction owes nobody. Policy Acceptance is of a version, not of the policy's idea.
+An edition dated for a later day can be cancelled before it takes effect: the row is retained and marked, never deleted, and a cancelled edition is excluded from ever becoming current.
 _Avoid_: Revision, policy update, version number (as the whole concept)
 
 **Policy Acceptance**:
@@ -778,29 +779,93 @@ A description and never a stored flag: it is read off the consent states, becaus
 _Avoid_: Inactive, dormant, opted out, anonymized, deleted, suppressed
 
 **Terms of Service**:
-The platform's Términos y Condiciones Generales — the contract governing use of the platform, published as a backend artifact in both Locales (the Spanish text legally prevails; the English one is a courtesy translation that says so in its own first line) and rendered on its own public Storefront page.
+The platform's Términos y Condiciones Generales — the contract governing use of the platform, published from the database in both Locales (the Spanish text legally prevails; the English one is a courtesy translation that says so in its own first line) and rendered on its own public Storefront page.
 A different document from the Privacy Policy with different machinery: accepting it is a contractual act, not a consent, and the two version independently — bumping one never re-gates the other.
 _Avoid_: T&C (in code and schema), terms and conditions (as the code name), legal terms, the contract, EULA
 
 **Terms Version**:
 One published edition of the Terms of Service, preserved exactly as served — label, effective date and content hash over BOTH languages at once, current being the latest effective edition.
-The parallel of a Policy Version for the other document, deliberately a separate table: publishing a new one makes everyone — Customers and Staff — unaccepted again, with no code and no data migration. Its database id never goes on the wire; labels and hashes only.
+The parallel of a Policy Version for the other document, deliberately a separate table, and with the same machinery: its text is Artifacts in the database rather than files in the binary, it carries the same `generation`/`revision`/`label` lineage, it gates — owing everyone, Customers and Staff, a fresh acceptance — **iff `revision = 0`**, and an edition dated for a later day can be cancelled before it takes effect, the row retained and marked and excluded from ever becoming current.
+On the public and customer-facing surfaces its database id never goes on the wire: labels and hashes are the whole vocabulary there. The Legal Center does address an edition by id, because an operator must be able to name one that is **not** current — the scheduled edition they are about to cancel, or the exact edition one act was captured against — which a label alone was never meant to do.
 _Avoid_: Terms revision, terms update, document version (unqualified)
+
+**Legal Center**:
+The operator-only surface at `/operator/legal` where the platform's own legal texts — the Privacy Policy and the Términos y Condiciones — are written, published, browsed and evidenced.
+The one place a wording change now happens: since ADR 0067 the text is rows rather than Markdown compiled into the Go binary, so correcting a sentence costs a save and a publish instead of a commit, a pull request and a manual deploy. It holds each document's Legal Draft, the preview and diff a publish is refused without, the banner for an edition still waiting for its day, the two acceptance browsers, the per-subject record and the Consent Access Log.
+In Spanish, **Centro legal**.
+_Avoid_: Legal admin, CMS, content editor, policy editor, compliance dashboard
+
+**Legal Draft**:
+The one mutable draft of a legal document, held server-side, from which its next edition is published.
+One per document and never one per operator — the document is the primary key — because two people drafting the Privacy Policy privately would publish one draft and silently lose the other; a legal document has one text at a time and the draft belongs to the platform, not to its author. Nothing in it is evidence: no draft text is hashed, served to a reader, or pointed at by an acceptance. It is discardable, which starts it again as a copy of the current edition. There is no draft history and no approval step; the last save wins, and the whole ceremony lives at publish.
+In Spanish, **borrador**.
+_Avoid_: Working copy, unpublished version, staging, revision, preview version
+
+**Artifact**:
+One addressable piece of a legal document's text: the row keyed `(edition, Locale, slug)` holding the Markdown published under that name, in that language, by that edition.
+Two sizes, and the editor names which: a one-line label — the wording of one consent checkbox — or a full document, the Privacy Policy itself. The `ordinal` beside it fixes where the Artifact falls in the content hash's preimage, so the fingerprint's order is data rather than the order of fields in a Go struct. An edition's slug set may change: adding or removing an Artifact is a structural change, which a Gating Edition may carry and a Correction is refused over.
+Never handled apart from the edition it was read with — one read fetches the text together with the edition, its label, its effective date and its content hash — so no surface can render text from one edition beside evidence naming another.
+In Spanish, **artefacto**.
+_Avoid_: Block, section, snippet, string, field, translation
+
+**Gating Edition**:
+An edition of the Privacy Policy or the Terms of Service that owes everybody a fresh acceptance — and one **iff `revision = 0`**, which is the whole of gating: there is no `is_gating` column, no `gating_from`, and nothing else to consult.
+It gates from its own `effective_date`, which is never the day it was published: a gating publish must be dated at least tomorrow, so the one operator has a night in which to change their mind, and it is cancellable — ungated, immediately, without a reason — until then. The label carries **lineage only**: reading `2` or `1.1` tells you what an edition descends from and nothing whatever about whether it gates.
+In Spanish, **edición**.
+_Avoid_: Major version, breaking change, mandatory version, re-gate (as a noun)
+
+**Correction**:
+A published edition that fixes the words without asking anyone to accept again: `revision > 0`, labelled flat within its generation — `1.1`, `1.2`, never `1.1.1`.
+Takes effect at once, requires a typed reason, and is refused outright over a structural change, over a change to the set of Locales published, and over an empty diff. It re-gates nobody, and it is non-gating permanently and by construction: there is no promotion, because promoting one would mutate the single row a thousand acceptances fingerprint. An operator who judges a Correction material after all publishes a Gating Edition over the same text — the two acts are identical in consequence, and no gate in the codebase can tell them apart.
+In Spanish, **corrección**.
+_Avoid_: Patch, hotfix, minor version, erratum, typo fix (as the concept)
+
+**Satisfying set**:
+The editions of one document that clear its gate: the gating floor — the newest Gating Edition already in effect — together with every edition at or above it, Corrections included.
+Membership, not equality against the current edition, is what "has accepted" means. That is what lets a Correction re-gate nobody for free, with no backfill and no column to maintain: two people holding two different editions are both Current, and each one's evidence still resolves to the exact bytes they were shown.
+_Avoid_: Current version (as the test), latest edition, accepted set, allowlist
 
 **Terms Acceptance**:
 A Customer's affirmative acceptance of the current Terms Version in the capacity of attendee, captured by the same acts that capture Policy Acceptance — the sign-in consent step and the checkout owed-boxes fallback — through its own mandatory, un-premarked checkbox, and recorded on the same Consent Record.
-Contractual, so it has no withdrawal path: Withdraw All and every Consent Withdrawal channel leave it untouched, and it never appears as a revocable consent. Only a new Terms Version owes it again.
+Contractual, so it has no withdrawal path: Withdraw All and every Consent Withdrawal channel leave it untouched, and it never appears as a revocable consent. Only a new Gating Edition owes it again; a Correction leaves it standing.
 _Avoid_: Terms consent, agreeing to terms, accepting the conditions, terms opt-in
 
 **Staff Terms Acceptance**:
 The append-only evidence that a person on the Staff platform accepted a Terms Version in the capacity of organizer: email, edition, capacity, timestamp and technical proof — the Staff platform's counterpart of a Consent Record, and its first consent machinery of any kind.
-Keyed on the email, once per person per edition: outstanding means no row for the current edition, so a sign-in with none proven mints no Staff Session until the box is ticked. One acceptance covers all of a person's Organizations.
+Keyed on the email, once per person per edition: Outstanding means no row naming an edition in the satisfying set, so a sign-in with none proven mints no Staff Session until the box is ticked. A person already signed in meets the same gate on their next page navigation, as a read-and-accept interstitial that leaves the session untouched and burns no passcode — the gate binds on the live session rather than at the next sign-in (ADR 0067, amending ADR 0066). One acceptance covers all of a person's Organizations.
 _Avoid_: Staff consent, staff consent record, organizer agreement, membership acceptance
 
 **Acceptance capacity**:
 The role a Terms acceptance was made in — attendee or organizer — carried by the platform it was captured on rather than stated by the person: a Customer-platform acceptance is the attendee acceptance, a Staff-platform acceptance is the organizer acceptance, and the same human using both accepts twice, deliberately.
 Everyone on the Staff platform — org_admin, event_owner, event_staff, Platform Operators — accepts as organizer for now; the vocabulary is left open for a later split.
 _Avoid_: Role (for this concept), acceptance type, user class, persona
+
+**Standing**:
+Where one person stands against one document's gate, in four values and only four: **Current**, holding an edition in the satisfying set and owing nothing; **Outstanding**, having accepted something a later Gating Edition has since superseded, and owing a re-acceptance; **Never seen**, having never accepted anything at all; and **Former** — staff only — holding an acceptance and being on the Staff platform no longer.
+Computed and never stored. Former is read as an acceptance with neither a `members` nor a `platform_operators` row, so departure stays a fact about the membership tables and nothing can go stale beside them; a Customer never becomes Former, because Customer records are never deleted. Never seen is deliberately not a kind of Outstanding — about a third of Customers have never acted on a Storefront surface themselves, and folding them in would bury the handful anyone can actually chase — and Former is kept out for the mirror reason, that a leaver owes nothing and can never be chased.
+There is no Withdrawn: withdrawal is a state of an optional consent and of neither gate.
+In Spanish, **Al día**, **Pendiente**, **Nunca vista** and **Antiguo**.
+_Avoid_: Status, state, compliance, accepted/unaccepted, lapsed, withdrawn
+
+**Staff Digest**:
+The 32 hex characters that stand for one staff person wherever a surface must name them without disclosing their address: an HMAC-SHA256 over `"staff:"` and the normalized email, under a subkey of the deployment's existing link secret derived for this purpose alone (ADR 0046), so there is no new secret to provision.
+Exists because a Customer has an id and a staff person does not — a staff person *is* an email — and because a data subject's address must never appear in a URL, a query string or a referer. It is a URL key and a screen label and nothing more: **never written to a row, a log, a file or an export**, so that rotating the key costs some bookmarks rather than orphaning documents whose whole purpose is to stay readable for years. That is why the Consent Access Log records a staff subject as a plain email, and why the Consent Evidence Pack carries the digest nowhere in its contents.
+Distinct from the Follow Digest, which is an email to a Customer and shares nothing with this but the word.
+_Avoid_: Staff id, hash, token, pseudonym, anonymized email, digest (unqualified)
+
+**Consent Evidence Pack**:
+The single file that answers a data subject or a regulator about one person: a ZIP of the acts as `record.json`, a human's reading of the same facts as a PDF, and the raw Markdown of every edition they accepted, in every language that edition publishes.
+Generated on demand and never stored. It is assembled precisely because somebody asked what is held about them, so keeping a copy would answer a privacy request by making a second, unindexed copy of the most sensitive data on the platform. Only its SHA-256, its size and the ids of the acts it covered survive it — enough, because the bytes are reproducible: two packs built over the same record on different days are byte for byte identical, which is why no time-varying fact may appear anywhere in the contents. The file is named after the first 16 characters of its own SHA-256 and the day it was made, so `sha256sum` checks the name, and no key rotation can strand it.
+Operator-only: a proven email buys a Consent Withdrawal, which only takes something away, where a pack discloses everything.
+In Spanish, **Paquete de evidencia de consentimiento**.
+_Avoid_: Data export, DSAR export, consent dump, archive, subject access file
+
+**Consent Access Log**:
+The append-only record of the platform's own reads of people's consent data, in four acts: browsing a population, opening one person's record, exporting their Consent Evidence Pack, and reading this log — which is itself a touch of people's data, and so is logged too.
+It exists because attribution here normally hangs off the domain row an act produced, and a read produces none. What it deliberately does *not* record is the harder half: not the roster, only the question a list read asked and how many rows came back; not a search term, only whether one narrowed the page, so that looking a person up never accumulates their address here; not a Consent Withdrawal, whose Consent Record already evidences it better; not a preview, which is a log line rather than a row; and not a publish, a Correction, a scheduling or a cancellation, which are provenance columns on the edition itself, where they cannot drift from it. Every row is therefore a touch of somebody's data and nothing else.
+Filterable by operator, act and date and never by subject, retained without bound, and never exportable.
+In Spanish, **Registro de accesos**.
+_Avoid_: Audit log, activity feed, admin log, event log, access history
 
 ## Following
 

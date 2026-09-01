@@ -120,10 +120,14 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 		return consent.Receipt{}, err
 	}
 
-	version, err := s.repo.CurrentPolicyVersion(ctx)
-	if errors.Is(err, repository.ErrNoCurrentPolicyVersion) {
-		return consent.Receipt{}, consent.ErrNoCurrentPolicyVersion()
-	}
+	// THE EDITION IS RESOLVED FROM THE SAME READ THE TEXT WAS SERVED FROM
+	// (#558). currentPolicyEdition carries the version row's id inside the very
+	// entry that carried the notice and the labels to the screen, so the id
+	// stamped on this record and the bytes the person saw come from one read of
+	// one edition. Reading the current version row again here — which is what
+	// this did — would, at a midnight rollover, name edition N+1 as evidence of
+	// text N: an acceptance recorded against bytes nobody was shown.
+	edition, err := s.currentPolicyEdition(ctx)
 	if err != nil {
 		return consent.Receipt{}, err
 	}
@@ -143,14 +147,13 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 	if capture.Answers.TermsAcceptance != nil {
 		termsVersionID = capture.TermsVersionID
 		if termsVersionID == "" {
-			termsVersion, err := s.repo.CurrentTermsVersion(ctx)
-			if errors.Is(err, repository.ErrNoCurrentTermsVersion) {
-				return consent.Receipt{}, consent.ErrNoCurrentTermsVersion()
-			}
+			// From the cached edition, for the reason above: one read answers
+			// both "what was shown" and "what is recorded".
+			termsEdition, err := s.currentTermsEdition(ctx)
 			if err != nil {
 				return consent.Receipt{}, err
 			}
-			termsVersionID = termsVersion.ID
+			termsVersionID = termsEdition.version.ID
 		}
 	}
 
@@ -160,7 +163,7 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 		Email:             capture.Email,
 		Channel:           capture.Channel,
 		CapturedAt:        now,
-		PolicyVersionID:   version.ID,
+		PolicyVersionID:   edition.version.ID,
 		PolicyAcceptance:  nullBool(capture.Answers.PolicyAcceptance),
 		MarketingConsent:  nullBool(capture.Answers.MarketingConsent),
 		NetworkingConsent: nullBool(capture.Answers.NetworkingConsent),
@@ -171,6 +174,13 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 		UserAgent:         nullString(capture.Evidence.UserAgent),
 		SessionID:         nullString(capture.Evidence.SessionID),
 		OriginURL:         nullString(capture.Evidence.OriginURL),
+		// The language of the text that was actually on screen, as the surface
+		// that rendered it reports it (#567). Written verbatim and never
+		// inferred: this service knows which EDITION it resolved, but an edition
+		// publishes several languages and only the renderer knows which one it
+		// served — so a channel that showed no document passes nothing and stores
+		// NULL, which is the truth about it.
+		PresentedLocale: nullString(string(capture.Evidence.PresentedLocale)),
 		// Null on every act a Customer performed themselves, which is every
 		// channel but the Operator's (#271). Empty becomes SQL NULL rather than
 		// the empty string, so "recorded by nobody" has exactly one spelling —
@@ -205,8 +215,8 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 	return consent.Receipt{
 		RecordID:           recordID,
 		CapturedAt:         now,
-		PolicyVersionID:    version.ID,
-		PolicyVersionLabel: version.Label,
+		PolicyVersionID:    edition.version.ID,
+		PolicyVersionLabel: edition.version.Label,
 		MarketingConsent:   resulting.MarketingConsent,
 		NetworkingConsent:  resulting.NetworkingConsent,
 		// What this act TOOK AWAY, decided here and nowhere else (#267). Both
@@ -248,17 +258,34 @@ func (s *Service) ConfirmationSent(ctx context.Context, recordID string, at time
 //
 // It reads STATE and never the Consent Record log, which is the rule that keeps
 // this cheap enough to sit on the sign-in path: four columns off the Customer
-// row and one small lookup of the current edition, no aggregate over history.
+// row and one small lookup of the handful of edition rows, no aggregate over
+// history.
 //
 // THERE ARE NO SPECIAL CASES IN IT, and that is deliberate. A Customer created
 // by a box-office sale, one imported from a spreadsheet, one who has been
 // signing in since before this feature existed, and one who accepted an
 // edition that has since been superseded all fail the same test for the same
-// reason: nothing on their row records an acceptance of the edition that is
-// current now. Nobody is grandfathered, because the acceptance nobody recorded
-// cannot be produced later.
+// reason: nothing on their row records an acceptance of an edition that still
+// satisfies the gate. Nobody is grandfathered, because the acceptance nobody
+// recorded cannot be produced later.
+//
+// THE TEST IS MEMBERSHIP, NOT EQUALITY (#560). It used to compare the stored
+// edition id against the single current one; it now asks whether the stored id
+// is in the SATISFYING SET — the gating floor and every edition at or above it,
+// corrections included (legal.Satisfying). The two agree exactly whenever every
+// published edition is gating, which is every environment today, so nothing
+// visible changed here. What membership buys is that publishing a CORRECTION
+// does not move the floor and so re-gates nobody, for free: no backfill, no
+// notification, no column to maintain. Two people holding two different
+// editions can both be clear, and each one's evidence still resolves to the
+// exact bytes they accepted.
+//
+// In SQL, over a person row `p`, the two predicates below are:
+//
+//	policy_version_id IS NULL OR policy_version_id <> ALL($1)
+//	terms_version_id  IS NULL OR terms_version_id  <> ALL($1)
 func (s *Service) Outstanding(ctx context.Context, customerID string) (consent.Outstanding, error) {
-	version, err := s.repo.CurrentPolicyVersion(ctx)
+	policyEditions, err := s.repo.SatisfyingPolicyEditions(ctx)
 	if errors.Is(err, repository.ErrNoCurrentPolicyVersion) {
 		return consent.Outstanding{}, consent.ErrNoCurrentPolicyVersion()
 	}
@@ -274,7 +301,7 @@ func (s *Service) Outstanding(ctx context.Context, customerID string) (consent.O
 		return consent.Outstanding{}, err
 	}
 
-	termsVersion, err := s.repo.CurrentTermsVersion(ctx)
+	termsEditions, err := s.repo.SatisfyingTermsEditions(ctx)
 	if errors.Is(err, repository.ErrNoCurrentTermsVersion) {
 		return consent.Outstanding{}, consent.ErrNoCurrentTermsVersion()
 	}
@@ -283,10 +310,10 @@ func (s *Service) Outstanding(ctx context.Context, customerID string) (consent.O
 	}
 
 	return consent.Outstanding{
-		// Acceptance is of a VERSION: an acceptance of any other edition is not
-		// an acceptance of this one, which is what makes publishing a row re-gate
-		// the whole customer base.
-		PolicyAcceptance: !state.PolicyVersionID.Valid || state.PolicyVersionID.String != version.ID,
+		// Acceptance is of a VERSION: an acceptance of an edition below the
+		// gating floor is not an acceptance of what is in force, which is what
+		// makes publishing a gating row re-gate the whole customer base.
+		PolicyAcceptance: !state.PolicyVersionID.Valid || !policyEditions.Contains(state.PolicyVersionID.String),
 		// Pending Confirmation counts as unanswered here: somebody else's tick is
 		// not the owner's answer, and the owner gets asked (ADR 0035).
 		MarketingConsent:  !state.MarketingConsent.Answered(),
@@ -294,7 +321,7 @@ func (s *Service) Outstanding(ctx context.Context, customerID string) (consent.O
 		// The same version rule over the parallel table (#536, ADR 0066): the two
 		// documents re-gate independently, and nobody is grandfathered here
 		// either — on the day the seed lands, every Customer owes edition "1".
-		TermsAcceptance: !state.TermsVersionID.Valid || state.TermsVersionID.String != termsVersion.ID,
+		TermsAcceptance: !state.TermsVersionID.Valid || !termsEditions.Contains(state.TermsVersionID.String),
 	}, nil
 }
 

@@ -3,10 +3,7 @@
 package repository
 
 import (
-	"context"
-	"database/sql"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/platform"
@@ -25,11 +22,11 @@ func New(db *platform.DB) *Repository {
 // PolicyVersion is one published edition of the Privacy Policy, as the
 // `policy_versions` row records it.
 //
-// It carries no text. The text of the edition is embedded in the binary
-// (internal/consent/policy); this row carries the label a human names it by,
-// the day it took effect, and the fingerprint that ties the two together. A
-// text column here would be a second copy of the policy that nothing could
-// keep honest.
+// It carries no text of its own: this row is the label a human names the
+// edition by, the day it took effect, and the fingerprint that ties the two to
+// the words. The words are the edition's artifact rows
+// (policy_version_artifacts, migration 109) — read WITH this row and never
+// separately, see CurrentPolicyEdition.
 type PolicyVersion struct {
 	ID            string
 	Label         string
@@ -41,41 +38,3 @@ type PolicyVersion struct {
 // service maps it to a domain error; see internal/consent/errors.go for why it
 // should be unreachable.
 var ErrNoCurrentPolicyVersion = errors.New("no current policy version")
-
-// CurrentPolicyVersion reads the edition in effect: the latest effective date
-// that has arrived, ties broken by insertion order.
-//
-// The `effective_date <= CURRENT_DATE` filter is what lets an edition be
-// SCHEDULED — merged and reviewed today, current on its own date, with no
-// deploy in between (see migration 060). Without it, adding the row would be
-// the publication, and "effective date" would be decoration.
-//
-// CURRENT_DATE is the database's day, which is UTC in every environment this
-// runs in. That is the coarsest thing about this query and it is fine: an
-// edition becoming current a few hours early or late relative to Ecuador is
-// invisible to everyone, because what changes at the boundary is which label a
-// re-acceptance is recorded under, not whether anyone is asked.
-func (r *Repository) CurrentPolicyVersion(ctx context.Context) (PolicyVersion, error) {
-	const query = `
-		SELECT id, label, effective_date, content_hash
-		FROM policy_versions
-		WHERE effective_date <= CURRENT_DATE
-		ORDER BY effective_date DESC, created_at DESC
-		LIMIT 1
-	`
-
-	var version PolicyVersion
-	err := r.db.Pool.QueryRowContext(ctx, query).Scan(
-		&version.ID,
-		&version.Label,
-		&version.EffectiveDate,
-		&version.ContentHash,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return PolicyVersion{}, ErrNoCurrentPolicyVersion
-	}
-	if err != nil {
-		return PolicyVersion{}, fmt.Errorf("current policy version: %w", err)
-	}
-	return version, nil
-}

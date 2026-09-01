@@ -3,11 +3,14 @@ import { getLocale, getTranslations } from "next-intl/server";
 import type { ComponentProps } from "react";
 
 import { LanguageSwitcher } from "@/components/language-switcher";
+import { LEGAL_PUBLICATION_REVALIDATE_SECONDS, legalDocumentPublishes } from "@/lib/api";
 import { BRAND_NAME } from "@/lib/brand";
 import { createEventCtaHref } from "@/lib/create-event-cta";
 import { localizedPath, toAppLocale } from "@/lib/locale";
-import { PRIVACY_POLICY_PATH } from "@/lib/privacy-policy";
-import { TERMS_PATH } from "@/lib/terms";
+import { PRIVACY_POLICY_PATH, PRIVACY_POLICY_PROTECTED_LOCALE } from "@/lib/privacy-policy";
+import { TERMS_PATH, TERMS_PROTECTED_LOCALE } from "@/lib/terms";
+
+import type { AppLocale } from "@ticket-pos/locale";
 
 type BaseProps = ComponentProps<typeof BaseStorefrontShell>;
 
@@ -56,6 +59,10 @@ export async function StorefrontShell(
   const locale = toAppLocale(await getLocale());
   const t = await getTranslations("shell");
   const ctaHref = createEventCtaHref();
+  const [privacyLocale, termsLocale] = await Promise.all([
+    footerLegalLocale("privacy-policy", locale, PRIVACY_POLICY_PROTECTED_LOCALE),
+    footerLegalLocale("terms", locale, TERMS_PROTECTED_LOCALE),
+  ]);
   return (
     <BaseStorefrontShell
       {...props}
@@ -68,15 +75,18 @@ export async function StorefrontShell(
       // notice has to be reachable from wherever a person happens to be when
       // they wonder about it, and a page that could opt out would opt out
       // silently. Localized here, like the mark's link home: this is the one
-      // place that knows which language is being read.
-      privacyHref={localizedPath(locale, PRIVACY_POLICY_PATH)}
+      // place that knows which language is being read — and, since #559, the
+      // one place that knows whether the notice is published in it. When it is
+      // not, the link goes to the protected locale (see footerLegalLocale): a
+      // link across, never silence and never a fallback text the endpoint
+      // itself refuses to serve.
+      privacyHref={localizedPath(privacyLocale, PRIVACY_POLICY_PATH)}
       privacyLabel={t("privacyPolicy")}
       // The Terms and Conditions link, beside it and on the same rule: on
       // every page's footer, not a prop a page may pass, localized here. The
-      // body it opens is Spanish on both locales — the single legally
-      // prevailing text (§37) — but the address still carries the reader's
-      // language so the page's own chrome does.
-      termsHref={localizedPath(locale, TERMS_PATH)}
+      // address carries the reader's language when the Terms are published in
+      // it, and the prevailing language (§37) when they are not.
+      termsHref={localizedPath(termsLocale, TERMS_PATH)}
       termsLabel={t("termsAndConditions")}
       // The "Create an event" invitation, on every page's footer and not a
       // prop a page may pass, for the same reason. This is the quiet, always-
@@ -105,4 +115,36 @@ export async function StorefrontShell(
       }
     />
   );
+}
+
+/**
+ * Which language the footer's link to a legal document should open (#559).
+ *
+ * The reader's own, unless the document is not published in it — in which case
+ * the protected locale, the one language a publish can never drop. A visitor
+ * whose language was dropped gets A LINK ACROSS rather than a link into a
+ * not-found page, and never the fallback text the public endpoint deliberately
+ * refuses to serve: reading the document in another language is a choice they
+ * make by following the link, not one made for them by a silent substitution.
+ *
+ * A read failure keeps the reader's own language, because it is not evidence of
+ * anything. This is the one caller of the three that must degrade rather than
+ * throw: the footer is on every page, and an unreadable legal endpoint must not
+ * take down an Event page that has nothing to do with it.
+ *
+ * Cached for a few minutes (LEGAL_PUBLICATION_REVALIDATE_SECONDS), which is
+ * what makes two extra reads on every render of every page affordable. The
+ * staleness can only misaddress a link for that long, and the page it opens
+ * reads the set itself.
+ */
+async function footerLegalLocale(
+  document: "privacy-policy" | "terms",
+  locale: AppLocale,
+  protectedLocale: AppLocale,
+): Promise<AppLocale> {
+  if (locale === protectedLocale) return locale;
+  const published = await legalDocumentPublishes(document, locale, {
+    revalidate: LEGAL_PUBLICATION_REVALIDATE_SECONDS,
+  });
+  return published === false ? protectedLocale : locale;
 }

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	catalogsvc "github.com/peter/ticket_pos/backend/internal/catalog/service"
+	"github.com/peter/ticket_pos/backend/internal/identity"
 	identitysvc "github.com/peter/ticket_pos/backend/internal/identity/service"
 	"github.com/peter/ticket_pos/backend/internal/invoicing"
 	salessvc "github.com/peter/ticket_pos/backend/internal/sales/service"
@@ -164,6 +165,33 @@ type Service struct {
 	// this service composes that is about a person rather than about money
 	// (#271). See consent.go.
 	consents Consents
+	// legal is the Legal Center's half (#561): the platform's own words, drafted
+	// but never yet published from here. See legal.go.
+	legal LegalDocuments
+	// acceptanceCustomers and acceptanceStaff are the two acceptance browsers'
+	// population reads (#565): consent answers for Customers, identity for the
+	// Staff platform. Two seams because they are two screens over two
+	// populations, never one configuration object. See legalbrowsers.go.
+	acceptanceCustomers LegalAcceptanceBrowsers
+	acceptanceStaff     LegalStaffBrowser
+	// legalRecords and legalStaffRecords are the per-subject record's reads
+	// (#566), split the same way and for the same reason: the two screens are
+	// two populations with two keys, and the only thing that crosses between
+	// them is an address, resolved server-side. See legalsubject.go.
+	legalRecords      LegalRecords
+	legalStaffRecords LegalStaffRecords
+	// accessLog is the platform's record of its own reads of people's data
+	// (#569): the one place a read leaves a trace, because a read produces no
+	// domain row to hang attribution off. Four acts are written to it —
+	// browsing a population, opening a record, exporting a pack, and reading
+	// the log itself — and pointedly not a withdrawal, a preview or a
+	// publication, each of which is already evidenced by a row that is better.
+	// See legalaccesslog.go.
+	accessLog LegalAccessLog
+	// staffDigester names a staff person in a URL without disclosing their
+	// address (#565, ADR 0046). An unconfigured one makes the staff browser
+	// REFUSE TO SERVE; it never falls back to an empty key.
+	staffDigester identity.StaffDigester
 	// documents is the invoicing seam (#477); nil is the "no invoicing"
 	// deployment, where every Sale has no documents.
 	documents Documents
@@ -173,9 +201,9 @@ type Service struct {
 	saleInvoicingEnabled bool
 }
 
-// New returns an operator service over the four owning modules.
-func New(organizations Organizations, events Events, money Money, consents Consents) *Service {
-	return &Service{organizations: organizations, events: events, money: money, consents: consents}
+// New returns an operator service over the five owning modules.
+func New(organizations Organizations, events Events, money Money, consents Consents, legal LegalDocuments) *Service {
+	return &Service{organizations: organizations, events: events, money: money, consents: consents, legal: legal}
 }
 
 // WithDocuments gives this service the invoicing seam the Sale lookup reads

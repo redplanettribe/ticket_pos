@@ -27,6 +27,7 @@ import (
 	digesthandler "github.com/peter/ticket_pos/backend/internal/digest/handler"
 	digestrepo "github.com/peter/ticket_pos/backend/internal/digest/repository"
 	digestsvc "github.com/peter/ticket_pos/backend/internal/digest/service"
+	"github.com/peter/ticket_pos/backend/internal/identity"
 	identityhandler "github.com/peter/ticket_pos/backend/internal/identity/handler"
 	identityrepo "github.com/peter/ticket_pos/backend/internal/identity/repository"
 	identitysvc "github.com/peter/ticket_pos/backend/internal/identity/service"
@@ -100,6 +101,10 @@ type appOptions struct {
 	emailSender   platform.EmailSender
 	clock         func() time.Time
 	objectStorage storage.ObjectStorage
+	// legalTextCacheTTL, when set, replaces the consent service's default
+	// 60-second cache of the current legal editions. Set to zero by the
+	// integration harness, which publishes editions mid-run.
+	legalTextCacheTTL *time.Duration
 }
 
 // WithEmailSender overrides the configured email sender.
@@ -113,6 +118,15 @@ func WithEmailSender(sender platform.EmailSender) Option {
 func WithClock(now func() time.Time) Option {
 	return func(o *appOptions) {
 		o.clock = now
+	}
+}
+
+// WithLegalTextCacheTTL overrides how long the consent service serves a filled
+// Privacy Policy or Terms edition before reading it again (tests). Zero
+// disables the cache.
+func WithLegalTextCacheTTL(ttl time.Duration) Option {
+	return func(o *appOptions) {
+		o.legalTextCacheTTL = &ttl
 	}
 }
 
@@ -230,7 +244,7 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	}
 
 	// Consent (#250, #251, parent #249). It depends on nothing but the database
-	// and the Privacy Policy text embedded in this binary, so it is built FIRST
+	// — which since #558 is where the legal text lives too — so it is built FIRST
 	// among the domain modules — before customers, which depends on it. The
 	// direction is the whole design: customers may depend on consent, consent may
 	// never depend on customers, and the module that decides whether a Customer
@@ -242,6 +256,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		// fixed clock has to reach it like it reaches every other service that
 		// writes a timestamp anybody asserts on.
 		consentService = consentService.WithClock(options.clock)
+	}
+	if options.legalTextCacheTTL != nil {
+		consentService = consentService.WithLegalTextCacheTTL(*options.legalTextCacheTTL)
 	}
 
 	customersRepo := customersrepo.New(db)
@@ -527,7 +544,44 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// customers for the Consent Withdrawal an Operator records on somebody's
 	// behalf (#271). It is wired last because it depends on all four and none of
 	// them on it.
-	operatorService := operatorsvc.New(identityService, catalogService, salesService, customersService)
+	// consentService is the fifth module the operator surface composes, for the
+	// Legal Center's drafts (#561).
+	operatorService := operatorsvc.New(identityService, catalogService, salesService, customersService, consentService)
+	// The two acceptance browsers (#565, ADR 0067): who owes an acceptance, in
+	// each of the two populations that can owe one. Consent answers for the
+	// Customer base — which editions clear the gate is its rule (#560) — and
+	// identity answers for the Staff platform, because `members`,
+	// `platform_operators` and `staff_terms_acceptances` are its tables and
+	// "who is staff" is its rule. Two seams, deliberately: two populations with
+	// different keys and different column counts are not one configuration
+	// object.
+	//
+	// The Staff Digester is handed THE SAME DEPLOYMENT SECRET every signed link
+	// derives from, and derives its own key from it under its own purpose label
+	// rather than signing with it — ADR 0046, the same knot the Assignment Link
+	// and the Re-addressing Link are tied with. That is what buys a per-subject
+	// staff link that discloses no address WITHOUT asking every deployment to
+	// configure a second secret it could forget, which would ship the screen
+	// dark. A deployment with no secret at all makes the staff browser refuse to
+	// serve rather than digest under a zero key; in production that cannot
+	// happen, because confirmationLinkSecret above will not let the app start.
+	operatorService = operatorService.WithLegalAcceptanceBrowsers(
+		consentService, identityService, identity.NewStaffDigester(confirmationLinkSecret))
+	// And where a row on either browser leads: one person's record (#566). Two
+	// seams again, and the same two modules, because it is the same two
+	// populations — consent owns the Customer's Consent Records and identity
+	// owns the staff acceptances. The Staff Digester tied on above serves both
+	// halves: it MINTS a digest on the browser and on the customer record's
+	// cross-link, and MATCHES one on the way in to the staff record.
+	operatorService = operatorService.WithLegalRecords(consentService, identityService)
+	// And the record of the platform's own looking (#569). ONE SEAM AND ONE
+	// MODULE: consent owns the table, because what it is about is consent
+	// evidence — its subject is a Customer and its FK is `customers` — and the
+	// operator surface owns no tables (ADR 0015). It is tied on LAST because
+	// everything it audits is tied on above it: the browsers, the records and
+	// the Evidence Pack all write to it, and a build that composed the surfaces
+	// without this line would serve reads that nothing wrote down.
+	operatorService = operatorService.WithLegalAccessLog(consentService)
 	operatorHandler := operatorhandler.New(operatorService)
 
 	// Tax invoicing (#450, ADR 0059). Served on the operator namespace but not

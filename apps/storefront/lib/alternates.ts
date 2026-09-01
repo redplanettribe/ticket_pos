@@ -13,6 +13,12 @@
  * nothing about the visitor says otherwise (lib/locale.ts DEFAULT_APP_LOCALE) —
  * x-default is a claim about that fallback, so the two must not drift apart.
  *
+ * Both of the last two are DEFAULTS and not laws, because the two legal
+ * documents break them (#559): their published language set is data, and their
+ * x-default is the protected locale rather than English — English is a language
+ * a publish may drop, and an x-default naming a dropped language is a fallback
+ * into a 404. See AlternatesOptions.
+ *
  * Nothing here reads a request. It is a pure function over a path, a locale and
  * an origin, so the shape a crawler will be handed can be asserted in a unit
  * test rather than inferred from rendered HTML.
@@ -42,13 +48,49 @@ import {
  * the answer is every Spanish reader — there is one Spanish here to serve, so
  * pinning the tag to Ecuador would decline the rest of them for no gain.
  */
-export type AlternateLanguages = Record<AppLocale | "x-default", string>;
+export type AlternateLanguages = Partial<Record<AppLocale, string>> &
+  Record<"x-default", string>;
 
 export type LocaleAlternates = {
   /** This page's own address, in the locale it is being served in. */
   canonical: string;
   /** Every locale's address, including this one's, plus x-default. */
   languages: AlternateLanguages;
+};
+
+/**
+ * The two facts a path may know better than this module does (#559).
+ *
+ * Almost every Storefront page exists in every locale, and for those nothing
+ * here is passed: the defaults are "all of them" and "x-default is English".
+ * The two legal documents are the exception, because their language set is
+ * data rather than a constant — the Legal Center can publish an edition in
+ * fewer languages than the app has — and because English is the wrong
+ * x-default for them.
+ */
+export type AlternatesOptions = {
+  /**
+   * The locales this particular path is actually published in.
+   *
+   * Defaults to every app locale. Naming a subset drops the others from the
+   * languages map entirely, which is the honest annotation: an hreflang
+   * pointing at an address that 404s teaches a crawler to distrust the whole
+   * set, and it cannot be confirmed from the other end because there is no
+   * other end.
+   */
+  locales?: readonly AppLocale[];
+  /**
+   * The locale x-default names.
+   *
+   * Defaults to DEFAULT_APP_LOCALE, which is where the middleware sends an
+   * address naming no language. The legal paths override it with their
+   * protected locale — the one language the Legal Center refuses to let a
+   * publish drop (the Policy's MandatoryLocale, the Terms' PrevailingLocale,
+   * both Spanish). x-default is a claim about where a reader lands when
+   * nothing else applies, and it must not name a language the document may
+   * stop being published in.
+   */
+  xDefault?: AppLocale;
 };
 
 /**
@@ -68,15 +110,23 @@ export function localeAlternates(
   path: string,
   locale: AppLocale,
   base?: URL,
+  options: AlternatesOptions = {},
 ): LocaleAlternates {
   const bare = withoutLocalePrefix(path);
   const url = (target: AppLocale) => absolute(localizedPath(target, bare), base);
 
+  const published = options.locales ?? LOCALES;
+  const requested = options.xDefault ?? DEFAULT_APP_LOCALE;
+  // x-default must name an address that answers. Asking for one this path is
+  // not published in is a caller bug, and the recoverable answer is the first
+  // language it IS published in rather than an hreflang into a 404.
+  const fallback = published.includes(requested) ? requested : (published[0] ?? requested);
+
   const languages = Object.fromEntries([
-    ...LOCALES.map((candidate) => [candidate, url(candidate)]),
+    ...published.map((candidate) => [candidate, url(candidate)]),
     // The fallback the middleware itself applies, stated where a crawler can
     // read it.
-    ["x-default", url(DEFAULT_APP_LOCALE)],
+    ["x-default", url(fallback)],
   ]) as AlternateLanguages;
 
   return { canonical: url(locale), languages };

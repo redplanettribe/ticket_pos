@@ -20,6 +20,10 @@ type staffTermsRequiredView struct {
 	ExpiresAt         string `json:"expires_at"`
 	Version           string `json:"version"`
 	AcceptanceLabel   string `json:"acceptance_label"`
+	// LabelLocale is the language the label was ACTUALLY served in — the
+	// requested one, or the prevailing one when this edition does not publish it
+	// (#559's floor, told rather than guessed).
+	LabelLocale string `json:"label_locale"`
 }
 
 // staffSignInOutcome is a verify (or accept) response's data.
@@ -296,12 +300,8 @@ func TestStaffTermsNewEditionRegates(t *testing.T) {
 
 	// Edition 2 arrives: same effective date is fine — ties break by insertion
 	// order, which is how an edition published today supersedes this morning's.
-	if _, err := env.db.ExecContext(context.Background(), `
-		INSERT INTO terms_versions (label, effective_date, content_hash)
-		VALUES ('2', CURRENT_DATE, $1)
-	`, strings.Repeat("ab", 32)); err != nil {
-		t.Fatalf("insert edition 2: %v", err)
-	}
+	// Text and row together, because since #558 an edition is both.
+	publishTermsVersion(t, env, 2, 0)
 
 	outcome := decodeStaffSignInOutcome(t, requestAndVerify(t, env, email))
 	if outcome.TermsRequired == nil {
@@ -336,12 +336,7 @@ func TestStaffTermsEditionBumpInsideTokenWindow(t *testing.T) {
 	}
 
 	// Edition 2 lands while the person is reading the label.
-	if _, err := env.db.ExecContext(context.Background(), `
-		INSERT INTO terms_versions (label, effective_date, content_hash)
-		VALUES ('2', CURRENT_DATE, $1)
-	`, strings.Repeat("cd", 32)); err != nil {
-		t.Fatalf("insert edition 2: %v", err)
-	}
+	publishTermsVersion(t, env, 2, 0)
 
 	resp, acceptedBody := acceptStaffTerms(t, env, outcome.TermsRequired.PendingTermsToken, true)
 	if resp.StatusCode != http.StatusOK {

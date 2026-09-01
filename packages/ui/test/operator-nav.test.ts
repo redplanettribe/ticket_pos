@@ -15,8 +15,8 @@ test("the operator sees each job of the dashboard as its own destination, in ord
     "organizations",
     "payoutRequests",
     "findSale",
-    "customerConsent",
     "taxInvoicing",
+    "legalCenter",
   ]);
 });
 
@@ -28,8 +28,8 @@ test("the entries point at the operator surface", () => {
       "/operator/organizations",
       "/operator/payout-requests",
       "/operator/sales",
-      "/operator/consent",
       "/operator/invoicing",
+      "/operator/legal",
     ],
   );
 });
@@ -58,8 +58,26 @@ test("reading the sale a lookup found lights Find a sale alone", () => {
   assert.deepEqual(activeKeys("/operator/sales/TP-J7K2QX9M"), ["findSale"]);
 });
 
-test("the consent surface lights Customer consent alone", () => {
-  assert.deepEqual(activeKeys("/operator/consent"), ["customerConsent"]);
+test("the retired consent surface lights nothing at all", () => {
+  // /operator/consent was deleted in #566: the withdrawal it offered folded
+  // into the person's own consent record inside the Legal Center, so the path
+  // names no page and must light no entry. Asserted rather than merely deleted,
+  // because a stale bookmark should land on nothing rather than on a navigation
+  // still claiming the surface is there.
+  assert.deepEqual(activeKeys("/operator/consent"), []);
+});
+
+test("the legal center lights Legal center alone, per-subject records included", () => {
+  // It was linked from the navigation on the day it was built, unlike the
+  // consent surface it replaced (#271), which sat reachable only by URL.
+  assert.deepEqual(activeKeys("/operator/legal"), ["legalCenter"]);
+  // The acceptance browsers and the per-subject records hang beneath it, so the
+  // one entry stays lit however deep into the Legal Center an operator is.
+  assert.deepEqual(activeKeys("/operator/legal/acceptances/customers"), ["legalCenter"]);
+  assert.deepEqual(
+    activeKeys("/operator/legal/acceptances/customers/8f1c0c66-0000-4000-8000-000000000000"),
+    ["legalCenter"],
+  );
 });
 
 test("the invoicing surface lights Tax invoicing alone", () => {

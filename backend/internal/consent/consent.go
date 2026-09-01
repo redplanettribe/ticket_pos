@@ -1,6 +1,10 @@
 package consent
 
-import "time"
+import (
+	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/platform"
+)
 
 // Channel names the surface a capture act happened on.
 //
@@ -167,6 +171,29 @@ type Evidence struct {
 	SessionID string
 	// OriginURL is the page the capture happened on.
 	OriginURL string
+	// PresentedLocale is the language of the LEGAL TEXT THAT WAS RENDERED at
+	// this capture moment — the Short Notice beside the boxes, the acceptance
+	// label on them — and never the language of the page it was rendered on
+	// (#567, migration 115).
+	//
+	// The distinction is the whole point of the field. A surface asks for a
+	// language and the platform serves what the edition actually publishes: the
+	// staff terms gate floors at the prevailing text when the edition has no
+	// artifact in the page's language, so the request's locale can be a lie
+	// about what somebody read. What is recorded here is what the renderer
+	// returned, which is why identity's acceptanceLabel hands back the locale it
+	// used alongside the string.
+	//
+	// A PER-CALLER FIELD, LIKE SessionID, and for the same reason: it is known
+	// to the surface that rendered the text and not to the request that carried
+	// the answer, so EvidenceFromRequest cannot fill it in and does not try.
+	//
+	// Empty on every surface that presented NO fresh document — the Customer
+	// Area toggles, unsubscribe, the digest link, an operator-recorded
+	// withdrawal, the withdrawal passcode door, and the confirmation link, which
+	// confirms an earlier act rather than showing new text. Empty is stored as
+	// SQL NULL there, which is the truthful answer: nothing was shown.
+	PresentedLocale platform.Locale
 }
 
 // Capture is one act of asking a person what they authorize, and is the input

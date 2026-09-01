@@ -5,14 +5,16 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
-// EnvelopeOperatorCustomerConsent documents both operator consent responses:
-// GET /operator/customers/{email}/consent and the withdrawal POST beside it.
+// EnvelopeOperatorCustomerConsent documents the Consent Withdrawal's response:
+// POST /operator/legal/customers/{customerID}/withdrawal.
 //
-// ONE ENVELOPE FOR BOTH, because they answer with the same payload — the
-// withdrawal reports the Customer's state AFTER the act, which is the same
-// question the lookup asks before it. The one field that differs is `withdrew`,
-// null on the lookup because a read takes nothing away, and that is a property
-// of the value rather than of the shape.
+// IT USED TO DOCUMENT TWO ROUTES. The by-address lookup beside it — GET
+// /operator/customers/{email}/consent — is deleted in #566, along with the
+// address-keyed withdrawal, and the withdrawal now hangs off the person's
+// consent record inside the Legal Center. `withdrew` is therefore never null on
+// this route today: it was null on the lookup, which took nothing away because
+// it performed nothing, and the field stays nullable because that is a property
+// of the value rather than of this shape.
 //
 // The payload type is the customers module's own view rather than a copy: what
 // an Operator is shown about a Customer's consents is that module's answer, and

@@ -25,39 +25,35 @@ import (
 // the namespace's — the operator allowlist, and no Membership at all — which is
 // what makes this structural rather than remembered.
 
-// Consents is what the operator surface needs from customers: one Customer
-// found by the address on a posted form, and the recording of a withdrawal that
-// arrived off the platform.
+// Consents is what the operator surface needs from customers: the recording of
+// a withdrawal that arrived off the platform.
 //
-// Deliberately two methods and no more. There is no way to reach a Customer's
-// profile, their purchases or anybody else's record, and there is NO WAY TO
-// GRANT: the withdrawal input carries answers, and the refusal of an
-// affirmative one lives in the consent module's single write path, so it holds
-// for this caller and every other.
+// ONE METHOD, DOWN FROM TWO (#566). The by-address lookup that used to sit
+// beside it is gone, and with it the last route on this platform that put an
+// email in a request line: the acceptance browsers' search absorbed the
+// one-step lookup (#565), and the withdrawal now hangs off the per-subject
+// record, keyed on the Customer's opaque id.
+//
+// There is still no way to reach a Customer's profile, their purchases or
+// anybody else's record, and still NO WAY TO GRANT: the withdrawal input
+// carries answers, and the refusal of an affirmative one lives in the consent
+// module's single write path, so it holds for this caller and every other.
 type Consents interface {
-	// CustomerConsentForOperator answers CUSTOMER_NOT_FOUND for an address no
-	// Customer holds, which the handler maps to 404.
-	CustomerConsentForOperator(ctx context.Context, email string) (*customerssvc.OperatorCustomerConsentView, error)
 	// RecordOperatorWithdrawal writes ONE Consent Record through the platform's
 	// single consent-write path, carrying the prior state, the operator's email
 	// and the artefact reference — and answers CONSENT_GRANT_NOT_PERMITTED to
-	// anything that tried to grant.
-	RecordOperatorWithdrawal(ctx context.Context, email string, input customerssvc.OperatorWithdrawalInput) (*customerssvc.OperatorCustomerConsentView, error)
-}
-
-// LookUpCustomerConsent finds a Customer by email address and reports their
-// consent state, across every Organization on the platform — which is not a
-// widening of anything, because a Customer was never scoped to one.
-//
-// Read-only. The withdrawal that hangs off this door is a separate operation,
-// and nothing here writes.
-func (s *Service) LookUpCustomerConsent(ctx context.Context, email string) (*customerssvc.OperatorCustomerConsentView, error) {
-	return s.consents.CustomerConsentForOperator(ctx, email)
+	// anything that tried to grant. CUSTOMER_NOT_FOUND for an id nobody holds.
+	RecordOperatorWithdrawal(ctx context.Context, customerID string, input customerssvc.OperatorWithdrawalInput) (*customerssvc.OperatorCustomerConsentView, error)
 }
 
 // RecordCustomerConsentWithdrawal records a Consent Withdrawal that arrived by
 // email or on paper, attributed to the operator who entered it and referenced to
 // the artefact it answers.
-func (s *Service) RecordCustomerConsentWithdrawal(ctx context.Context, email string, input customerssvc.OperatorWithdrawalInput) (*customerssvc.OperatorCustomerConsentView, error) {
-	return s.consents.RecordOperatorWithdrawal(ctx, email, input)
+//
+// KEYED ON THE CUSTOMER'S ID and never on their address (#566). The operator
+// arrives here from that person's record, which they reached from the browser
+// by an opaque UUID, so the whole journey — find, read, act — puts nobody's
+// email in a URL, a proxy log, a browser history or a Referer header.
+func (s *Service) RecordCustomerConsentWithdrawal(ctx context.Context, customerID string, input customerssvc.OperatorWithdrawalInput) (*customerssvc.OperatorCustomerConsentView, error) {
+	return s.consents.RecordOperatorWithdrawal(ctx, customerID, input)
 }

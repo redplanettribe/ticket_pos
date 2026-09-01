@@ -1,1 +1,0 @@
-Autorizo a **Multiticketing** a enviarme correo de mercadeo — promociones, campañas y contenido de socios — incluido el resumen semanal (Follow Digest) sobre las organizaciones y etiquetas que sigo. Es opcional y puedo revocarlo en cualquier momento.

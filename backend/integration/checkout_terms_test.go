@@ -36,10 +36,10 @@ func readPaymentTermsHold(t *testing.T, env *testEnv, clientTransactionID string
 // Customer holding a live session — every box settled at sign-in — when a
 // later Terms edition is published. Returns the session token and the new
 // edition's id.
-func signedInOwingTermsOnly(t *testing.T, env *testEnv, email, label string) (string, string) {
+func signedInOwingTermsOnly(t *testing.T, env *testEnv, email string, generation int) (string, string) {
 	t.Helper()
 	token := customerSignIn(t, env, email)
-	editionID := publishTermsVersion(t, env, label)
+	editionID := publishTermsVersion(t, env, generation, 0)
 	boxes := signedInConsentBoxes(t, env, token)
 	if !boxes.TermsAcceptance {
 		t.Fatal("terms box not owed after a later edition was published")
@@ -58,7 +58,7 @@ func TestCheckoutRefusedWithoutOwedTermsAcceptance(t *testing.T) {
 	sessionID := orgAdminSession(t, env)
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Terms Fest", "terms-fest", 1000, 10)
 
-	token, _ := signedInOwingTermsOnly(t, env, "tomas@example.com", "2-checkout-gate")
+	token, _ := signedInOwingTermsOnly(t, env, "tomas@example.com", 2)
 
 	// The box owed and not answered at all.
 	resp, body := beginCheckoutWithEvidence(t, env, "test-org", "terms-fest", token,
@@ -97,7 +97,7 @@ func TestCheckoutTermsAnswerSurvivesTheProviderRedirect(t *testing.T) {
 	sessionID := orgAdminSession(t, env)
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Terms Redirect Fest", "terms-redirect-fest", 1000, 10)
 
-	token, shownEdition := signedInOwingTermsOnly(t, env, "teresa@example.com", "2-redirect")
+	token, shownEdition := signedInOwingTermsOnly(t, env, "teresa@example.com", 2)
 
 	// The sign-in above wrote a Consent Record on the fixed clock; the checkout
 	// capture below must not tie with it (known fixture behaviour).
@@ -120,7 +120,7 @@ func TestCheckoutTermsAnswerSurvivesTheProviderRedirect(t *testing.T) {
 	}
 
 	// An edition published between the legs must not rewrite what was accepted.
-	publishTermsVersion(t, env, "3-mid-redirect")
+	publishTermsVersion(t, env, 3, 0)
 
 	confirmed := confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
 	if confirmed.Status != "approved" {

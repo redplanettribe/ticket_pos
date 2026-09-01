@@ -656,6 +656,17 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 				IP:        consentIP.String,
 				UserAgent: consentUserAgent.String,
 				OriginURL: consentOriginURL.String,
+				// The language the checkout dialog's notice and labels were
+				// rendered in (#567, migration 115). It costs nothing here: the
+				// Sale Locale held at begin-checkout (migration 059) is the
+				// locale of the Storefront page that drew the boxes, and the
+				// Storefront asks the public policy endpoint for exactly that
+				// language and is answered strictly — a language the edition
+				// does not publish is a 404 and no boxes are drawn at all, so
+				// there is no fallback here to be wrong about. It is read from
+				// the same row, on the same INSERT, as everything else this
+				// checkout held.
+				PresentedLocale: platform.Locale(locale.String),
 			},
 		}); err != nil {
 			return nil, err

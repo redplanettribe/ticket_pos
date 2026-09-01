@@ -1,4 +1,9 @@
 import type { CheckoutAnswerBody, CheckoutQuestion } from "./checkout-answers";
+// The ".ts" is written out because lib/api.test.ts runs this module directly
+// under `node --experimental-strip-types`, which resolves specifiers exactly.
+// Next resolves it identically. The two imports beside it are type-only and so
+// are erased before anything has to resolve them.
+import { LOCALES, type AppLocale } from "./locale.ts";
 import type { ReversalOffer } from "./undo-window";
 
 export type APIEnvelope<T> = {
@@ -882,4 +887,177 @@ export type Terms = {
 
 export async function getTerms(locale: string): Promise<Terms | null> {
   return fetchData<Terms>(`/api/v1/public/terms/${encodeURIComponent(locale)}`);
+}
+
+// --- The two legal documents, read without collapsing failure (#559) -------
+//
+// getPrivacyPolicy and getTerms above are fetchData reads, and fetchData turns
+// EVERY failure into null: a 404, a 500, an unreachable API and a body that is
+// not JSON are one value. That is right for the surfaces those two feed — a
+// consent step that cannot be completed is better than checkboxes with no text
+// beside them — and it is wrong for the two pages whose whole content is the
+// document, because the page renders notFound() on null. A database outage
+// would then tell a reader, a crawler and a regulator that this platform
+// publishes no privacy policy, which is false and is the one false statement
+// here that is expensive to have made.
+//
+// So the reads below are a NARROW VARIANT rather than a change to fetchData:
+// they keep 404 as "this locale is genuinely not published" and let everything
+// else throw. Nothing about fetchData's other callers changes.
+
+/**
+ * A legal document that could not be read at all — as opposed to one the
+ * platform does not publish in the language asked for.
+ *
+ * Thrown rather than returned, so a caller cannot mistake it for an answer.
+ * In a page it reaches Next's error boundary and the visitor gets a 500, which
+ * is the truth: the document exists and this request could not be served.
+ */
+export class LegalDocumentUnavailableError extends Error {
+  constructor(path: string, reason: string, cause?: unknown) {
+    super(`legal document ${path} could not be read: ${reason}`);
+    this.name = "LegalDocumentUnavailableError";
+    if (cause !== undefined) this.cause = cause;
+  }
+}
+
+/** The two documents published under the public legal endpoints. */
+export type LegalDocument = "privacy-policy" | "terms";
+
+function legalDocumentPath(document: LegalDocument, locale: string): string {
+  return `/api/v1/public/${document}/${encodeURIComponent(locale)}`;
+}
+
+/**
+ * One legal document in one language.
+ *
+ * `null` means exactly one thing: the API answered 404, so this locale is not
+ * in the current edition's published set. Every other outcome — a 5xx, a
+ * refused connection, a body that is not the envelope this API speaks —
+ * throws LegalDocumentUnavailableError.
+ *
+ * The status is read BEFORE the body, which is what makes the split possible:
+ * fetchData parses first and so cannot tell a 404 from a 502 whose body is an
+ * HTML error page from a proxy.
+ */
+async function readLegalDocument<T>(
+  document: LegalDocument,
+  locale: string,
+  cache?: ReadCache,
+): Promise<T | null> {
+  const path = legalDocumentPath(document, locale);
+  // Outside the try for serviceAuthHeaders' own reason: a missing service
+  // credential is a deployment fault, and it already throws.
+  const headers = new Headers(await serviceAuthHeaders());
+
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl()}${path}`, { ...cacheInit(cache), headers });
+  } catch (cause) {
+    throw new LegalDocumentUnavailableError(path, "the API could not be reached", cause);
+  }
+
+  // The one honest 404: the platform does not publish this document in this
+  // language. The caller renders Next's not-found page, as it always has.
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new LegalDocumentUnavailableError(path, `the API answered ${response.status}`);
+  }
+
+  let envelope: APIEnvelope<T>;
+  try {
+    envelope = (await response.json()) as APIEnvelope<T>;
+  } catch (cause) {
+    throw new LegalDocumentUnavailableError(path, "the response body was not JSON", cause);
+  }
+  if (!envelope || typeof envelope !== "object" || envelope.error || !envelope.data) {
+    // A 200 carrying an error, or carrying no document. Whatever produced it,
+    // it is not "this language is unpublished".
+    throw new LegalDocumentUnavailableError(path, "the response carried no document");
+  }
+  return envelope.data;
+}
+
+/**
+ * The Privacy Policy page's read: null only when this locale is unpublished.
+ *
+ * Uncached, for the reason getPrivacyPolicy is: this is the one page where
+ * serving a superseded edition is the actual failure mode.
+ */
+export async function requirePrivacyPolicy(locale: string): Promise<PrivacyPolicy | null> {
+  return readLegalDocument<PrivacyPolicy>("privacy-policy", locale);
+}
+
+/** The Terms page's read, on requirePrivacyPolicy's rule. */
+export async function requireTerms(locale: string): Promise<Terms | null> {
+  return readLegalDocument<Terms>("terms", locale);
+}
+
+/**
+ * How long a published-language answer may be reused.
+ *
+ * The set changes when an edition is published, and a publish lands at a
+ * midnight effective-date rollover rather than at a click — so what this
+ * staleness can cost is a footer link pointing at the reader's own language
+ * for a few minutes after that language stopped being published. A link, not
+ * text: the page it opens reads the set again and is never wrong. Against that,
+ * an uncached probe would be two extra API round trips on EVERY page render,
+ * because the footer is on every page.
+ */
+export const LEGAL_PUBLICATION_REVALIDATE_SECONDS = 300;
+
+/**
+ * Whether a document is published in one language: true, false, or `null` when
+ * the read failed and the caller must not conclude either way.
+ *
+ * Three values rather than two on purpose. "Not published" and "we could not
+ * ask" are the same shape and opposite facts, and the whole point of this
+ * ticket is that collapsing them publishes a lie — here it would drop a legal
+ * path out of the sitemap, or move a reader's footer link to another language,
+ * because a query timed out.
+ */
+export async function legalDocumentPublishes(
+  document: LegalDocument,
+  locale: string,
+  cache?: ReadCache,
+): Promise<boolean | null> {
+  try {
+    return (await readLegalDocument<unknown>(document, locale, cache)) !== null;
+  } catch (error) {
+    if (error instanceof LegalDocumentUnavailableError) {
+      return null;
+    }
+    // A missing service credential is still a deployment fault, and still
+    // surfaces.
+    throw error;
+  }
+}
+
+/**
+ * Every language a document is currently published in, or `null` when any one
+ * of the probes failed.
+ *
+ * All-or-nothing deliberately: a partial answer is indistinguishable from a
+ * genuine drop, and a caller acting on it would advertise or hide a language on
+ * the strength of one failed request. The candidates are the app's own locales
+ * because those are the only addresses this Storefront can serve — the API's
+ * published set is a subset of them by construction (platform.ParseLocale is a
+ * closed switch).
+ */
+export async function publishedLegalLocales(
+  document: LegalDocument,
+  cache?: ReadCache,
+): Promise<AppLocale[] | null> {
+  const answers = await Promise.all(
+    LOCALES.map(async (locale) => ({
+      locale,
+      published: await legalDocumentPublishes(document, locale, cache),
+    })),
+  );
+  if (answers.some((answer) => answer.published === null)) {
+    return null;
+  }
+  return answers.filter((answer) => answer.published).map((answer) => answer.locale);
 }

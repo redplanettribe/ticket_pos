@@ -6,7 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/peter/ticket_pos/backend/internal/consent/terms"
+	"github.com/peter/ticket_pos/backend/internal/consent/legal"
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // The public Términos y Condiciones read (#535, parent #533): the current Terms
@@ -75,14 +76,44 @@ func TestTermsArePublicAndComplete(t *testing.T) {
 	}
 }
 
-// The fingerprint on the wire is the fingerprint of the embedded text — the
-// whole evidentiary chain in one assertion.
-func TestTermsContentHashMatchesTheEmbeddedArtifacts(t *testing.T) {
+// The fingerprint on the wire is the fingerprint of the text on the wire — the
+// whole evidentiary chain in one assertion, recomputed from what was actually
+// served in both languages (#558; privacy_policy_test.go's policyHashOf).
+func TestTermsContentHashMatchesTheServedText(t *testing.T) {
+	env := setupTest(t)
+
+	_, _, spanish := getTerms(t, env, "es")
+	_, _, english := getTerms(t, env, "en")
+
+	var artifacts []legal.Artifact
+	for _, served := range []termsPayload{english, spanish} {
+		locale := platform.Locale(served.Locale)
+		for i, body := range []string{served.AcceptanceLabel, served.BodyMarkdown} {
+			artifacts = append(artifacts, legal.Artifact{Locale: locale, Ordinal: i + 1, Body: body})
+		}
+	}
+	if want := legal.ContentHash(artifacts); spanish.ContentHash != want {
+		t.Errorf("content_hash = %q, but the served text hashes to %q", spanish.ContentHash, want)
+	}
+}
+
+// The Terms' bytes come from rows too, and the reader cannot tell (#558).
+func TestTermsAreServedFromTheStoredArtifacts(t *testing.T) {
 	env := setupTest(t)
 
 	_, _, payload := getTerms(t, env, "es")
-	if want := terms.ContentHash(); payload.ContentHash != want {
-		t.Errorf("content_hash = %q, want the embedded artifacts' %q", payload.ContentHash, want)
+
+	var stored string
+	err := env.db.QueryRow(`
+		SELECT a.body
+		FROM terms_version_artifacts a
+		JOIN terms_versions v ON v.id = a.version_id
+		WHERE v.label = $1 AND a.locale = 'es' AND a.slug = 'terms'`, payload.Version).Scan(&stored)
+	if err != nil {
+		t.Fatalf("read the stored terms body: %v", err)
+	}
+	if stored != payload.BodyMarkdown {
+		t.Error("the served body is not the stored row")
 	}
 }
 

@@ -1,17 +1,18 @@
 package repository
 
 import (
-	"context"
-	"database/sql"
 	"errors"
-	"fmt"
 	"time"
 )
 
 // TermsVersion is one published edition of the Términos y Condiciones, as the
-// `terms_versions` row records it. Like PolicyVersion it carries no text: the
-// text is embedded in the binary (internal/consent/terms), and this row ties
-// the label, the effective date and the fingerprint together.
+// `terms_versions` row records it.
+//
+// Like PolicyVersion it carries no text of its own. The text is no longer
+// embedded in the binary (#558): it lives in this edition's artifact rows
+// (terms_version_artifacts, migration 109), read WITH this row and never
+// separately — see CurrentTermsEdition. This row ties the label, the effective
+// date and the fingerprint together.
 type TermsVersion struct {
 	ID            string
 	Label         string
@@ -23,32 +24,3 @@ type TermsVersion struct {
 // service maps it to a domain error; migration 105 seeds edition 1, so like its
 // policy counterpart it should be unreachable.
 var ErrNoCurrentTermsVersion = errors.New("no current terms version")
-
-// CurrentTermsVersion reads the Terms edition in effect: the latest effective
-// date that has arrived, ties broken by insertion order — the same rule, and
-// the same scheduling property, as CurrentPolicyVersion, over the parallel
-// table (ADR 0066).
-func (r *Repository) CurrentTermsVersion(ctx context.Context) (TermsVersion, error) {
-	const query = `
-		SELECT id, label, effective_date, content_hash
-		FROM terms_versions
-		WHERE effective_date <= CURRENT_DATE
-		ORDER BY effective_date DESC, created_at DESC
-		LIMIT 1
-	`
-
-	var version TermsVersion
-	err := r.db.Pool.QueryRowContext(ctx, query).Scan(
-		&version.ID,
-		&version.Label,
-		&version.EffectiveDate,
-		&version.ContentHash,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return TermsVersion{}, ErrNoCurrentTermsVersion
-	}
-	if err != nil {
-		return TermsVersion{}, fmt.Errorf("current terms version: %w", err)
-	}
-	return version, nil
-}

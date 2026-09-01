@@ -159,7 +159,7 @@ func TestSignedInWithoutPolicyAcceptanceIsGatedAtCheckout(t *testing.T) {
 
 	// A new edition is published under her feet. Nothing about her row changes;
 	// what changes is which edition "current" names.
-	published := publishPolicyVersion(t, env, "1-test")
+	published := publishPolicyVersion(t, env, 2, 0)
 
 	assertBoxes(t, signedInConsentBoxes(t, env, token), true, false, false,
 		"a version bump re-gates the required box ALONE and never churns standing optional answers")

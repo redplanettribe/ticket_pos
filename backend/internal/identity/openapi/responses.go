@@ -54,6 +54,38 @@ type EnvelopeAcceptTerms struct {
 	RequestID string             `json:"request_id"`
 }
 
+// StaffTermsGateData is what a signed-in staff member owes the Terms gate
+// (#570, ADR 0067): nothing, or the box to show before they see another page.
+type StaffTermsGateData struct {
+	Outstanding bool `json:"outstanding"`
+	// TermsRequired is the interstitial's box — the sign-in door's terms step
+	// verbatim, asked of somebody who is already inside — and null when nothing
+	// is owed.
+	TermsRequired *service.TermsRequiredView `json:"terms_required"`
+}
+
+// StaffTermsAcceptedData documents an acceptance recorded from a live session.
+// It carries no session, because none was minted, re-minted or revoked.
+type StaffTermsAcceptedData struct {
+	Accepted bool `json:"accepted"`
+}
+
+// EnvelopeStaffTermsGate documents GET /api/v1/staff/terms/gate success
+// responses.
+type EnvelopeStaffTermsGate struct {
+	Data      StaffTermsGateData `json:"data"`
+	Error     *platform.APIError `json:"error"`
+	RequestID string             `json:"request_id"`
+}
+
+// EnvelopeStaffTermsAccepted documents POST /api/v1/staff/terms/accept success
+// responses.
+type EnvelopeStaffTermsAccepted struct {
+	Data      StaffTermsAcceptedData `json:"data"`
+	Error     *platform.APIError     `json:"error"`
+	RequestID string                 `json:"request_id"`
+}
+
 // EnvelopeSession documents session-shaped success responses.
 type EnvelopeSession struct {
 	Data      service.SessionView `json:"data"`

@@ -179,7 +179,7 @@ func signedInOwingEveryBox(t *testing.T, env *testEnv, email string) string {
 	t.Helper()
 	token := customerSignIn(t, env, email)
 	forgetConsentAnswers(t, env, email, false)
-	publishPolicyVersion(t, env, "1-test")
+	publishPolicyVersion(t, env, 2, 0)
 	assertBoxes(t, signedInConsentBoxes(t, env, token), true, true, true,
 		"a re-gated Customer who has never answered either optional box")
 	return token
@@ -833,7 +833,7 @@ func TestCheckoutAcceptanceStampsTheEditionInEffect(t *testing.T) {
 	// re-run on a session already minted, so the CHECKOUT is where she is caught —
 	// and the edition it stamps is the one current at the moment of capture,
 	// resolved by the platform and never named by the client.
-	published := publishPolicyVersion(t, env, "1-test")
+	published := publishPolicyVersion(t, env, 2, 0)
 	second := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", token,
 		consentCheckoutBody("Ana", "Lopez", boolPtr(true), nil, nil, line))
 	confirmCheckoutOK(t, env, second.ClientTransactionID, "approved")

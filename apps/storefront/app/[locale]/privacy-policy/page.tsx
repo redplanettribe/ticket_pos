@@ -7,10 +7,14 @@ import { Markdown, PageHeader } from "@ticket-pos/ui";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { StorefrontShell } from "@/components/storefront-shell";
 import { localeAlternates } from "@/lib/alternates";
-import { getPrivacyPolicy } from "@/lib/api";
+import {
+  LEGAL_PUBLICATION_REVALIDATE_SECONDS,
+  publishedLegalLocales,
+  requirePrivacyPolicy,
+} from "@/lib/api";
 import { BRAND_NAME } from "@/lib/brand";
 import { toAppLocale } from "@/lib/locale";
-import { PRIVACY_POLICY_PATH } from "@/lib/privacy-policy";
+import { PRIVACY_POLICY_PATH, PRIVACY_POLICY_PROTECTED_LOCALE } from "@/lib/privacy-policy";
 import { storefrontBaseUrl } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
@@ -22,10 +26,23 @@ type PrivacyPolicyPageProps = {
 export async function generateMetadata({ params }: PrivacyPolicyPageProps): Promise<Metadata> {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "privacy" });
+  // The languages this notice is really published in, and the one language it
+  // can never stop being published in (#559). x-default is a claim about where
+  // a reader with no stated language lands, so on this path it names the
+  // protected locale rather than English — English is a language an edition may
+  // drop, and an x-default into a 404 is worse than none.
+  //
+  // A failed read leaves the annotation at every app locale: this page is about
+  // to 500 anyway (requirePrivacyPolicy below), and a <head> nobody will see is
+  // not worth a second failure mode.
+  const published = await publishedLegalLocales("privacy-policy", {
+    revalidate: LEGAL_PUBLICATION_REVALIDATE_SECONDS,
+  });
   const { canonical, languages } = localeAlternates(
     PRIVACY_POLICY_PATH,
     toAppLocale(locale),
     storefrontBaseUrl(),
+    { locales: published ?? undefined, xDefault: PRIVACY_POLICY_PROTECTED_LOCALE },
   );
   return {
     title: t("metaTitle", { brand: BRAND_NAME }),
@@ -54,19 +71,26 @@ export async function generateMetadata({ params }: PrivacyPolicyPageProps): Prom
  * description uses, so a heading or a table in the legal text lands as one
  * rather than as literal asterisks.
  *
- * An API that is down 404s this page rather than showing an empty one. Every
- * other public page degrades to less content; this one cannot, because a
- * Privacy Policy page with no policy on it makes a promise the platform is not
- * keeping — better a page that is honestly missing than a page that appears to
- * publish nothing at all.
+ * This page never renders with no policy on it — every other public page
+ * degrades to less content, and this one cannot, because a Privacy Policy page
+ * with no policy on it makes a promise the platform is not keeping (ADR 0036).
+ *
+ * WHICH failure it is now decides which honest answer it gets (#559). A 404
+ * from the API means this language is genuinely not in the current edition's
+ * published set, and Next's not-found page is a true statement about it. Every
+ * other failure — a 5xx, an unreachable API, a body that is not the envelope —
+ * throws out of requirePrivacyPolicy and reaches the error boundary as a 500,
+ * because "the platform publishes no privacy policy" is a false statement and
+ * the expensive one to have made to a crawler, a reader or a regulator.
  */
 export default async function PrivacyPolicyPage({ params }: PrivacyPolicyPageProps) {
   const { locale } = await params;
   // Every page declares its own locale; see the note in app/[locale]/layout.tsx.
   setRequestLocale(locale);
 
-  const policy = await getPrivacyPolicy(locale);
+  const policy = await requirePrivacyPolicy(locale);
   if (!policy) {
+    // Null means one thing only: a 404, so this language is not published.
     notFound();
   }
 

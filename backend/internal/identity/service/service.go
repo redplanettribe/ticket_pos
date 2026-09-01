@@ -93,6 +93,18 @@ type SessionView struct {
 	// operator middleware re-checks the allowlist on every request (ADR 0015).
 	// It is orthogonal to Memberships — an operator may have none.
 	IsPlatformOperator bool `json:"is_platform_operator"`
+	// TermsOutstanding says whether this session's holder owes a Terms
+	// Acceptance of an edition that still satisfies the gate, and is what the
+	// staff app's middleware diverts a navigation to the interstitial on (#570,
+	// ADR 0067).
+	//
+	// NULL MEANS "NOT ASKED", not "nothing owed". Only the session route asks
+	// (GetSessionWithTermsGate); every other response carrying this view leaves
+	// it null rather than reporting a false it never computed. It is also null
+	// when the read failed, because a navigation must not be refused over a
+	// database hiccup — see GetSessionWithTermsGate for why that failure is
+	// open here and closed at the sign-in door.
+	TermsOutstanding *bool `json:"terms_outstanding"`
 }
 
 // OTPRequestResult is returned after requesting an OTP.
@@ -248,8 +260,13 @@ func (s *Service) VerifyOTP(ctx context.Context, email, code, detectedLocale str
 // the proof and never before it, so the passcode request endpoint stays the
 // non-oracle it is. A person gated here is minted NO SESSION: the locale is
 // still remembered — that write costs them nothing and must survive an
-// abandoned terms step — but the credential is withheld, and live sessions
-// minted before the gate shipped are deliberately untouched.
+// abandoned terms step — but the credential is withheld.
+//
+// A live session minted before an edition arrived is untouched BY THIS, and is
+// stopped elsewhere: ADR 0067 moved the gate from mint-only to a check on the
+// live session, so somebody who never signs in again meets the interstitial on
+// their next navigation instead of never (#570, TermsOutstanding). Nothing here
+// revokes anything — a publish revokes no session in either population.
 //
 // The email must already be normalised and proven by the caller.
 func (s *Service) signInProvenEmail(ctx context.Context, email, detectedLocale string, now time.Time) (*SignInOutcome, error) {

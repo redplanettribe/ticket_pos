@@ -13,8 +13,8 @@ export const OPERATOR_NAV_KEYS = [
   "organizations",
   "payoutRequests",
   "findSale",
-  "customerConsent",
   "taxInvoicing",
+  "legalCenter",
 ] as const;
 
 export type OperatorNavKey = (typeof OPERATOR_NAV_KEYS)[number];
@@ -64,20 +64,27 @@ export function operatorNavItems({
     // Named for the act, not the collection: there is no sales browser here and
     // none is planned, so the entry promises a lookup rather than a list.
     { key: "findSale", href: "/operator/sales" },
-    // The Consent Withdrawal an operator records for somebody who wrote in
-    // (#271). It sits last for the same reason "Find a sale" sits above it and
-    // below the queue: it answers a request that has already arrived on paper,
-    // and nobody is waiting on this screen the way they wait on a payout.
-    //
-    // Named for the person it is about rather than for the act, because the
-    // page begins with finding them: an operator holding a posted form has an
-    // email address and nothing else.
-    { key: "customerConsent", href: "/operator/consent" },
+    // GONE IN #566: "Customer consent" at /operator/consent, the standalone
+    // withdrawal surface (#271). That page began by finding somebody from an
+    // email address, which put an address in a request line — and the act it
+    // offered now hangs off the person's own consent record inside the Legal
+    // Center, reached from the acceptance browsers. One entry fewer, and one
+    // fewer place a data subject's address could reach a log.
     // Tax invoicing (#450, ADR 0059): the platform's own facturas to the SRI,
     // issued by hand. It sits last because it is the platform's own paperwork
     // rather than anything an Organization or a Customer is waiting on. It
     // lands on the invoices list (#454), and the Issuer page hangs beneath the
     // same /operator/invoicing subtree, so either lights this one entry.
     { key: "taxInvoicing", href: "/operator/invoicing" },
+    // The Legal Center (#561, spec #556): the platform's own agreements, and the
+    // one draft of each. LAST, because it is the entry nobody is waiting on —
+    // an edition is written when somebody decides to write one, not because a
+    // queue filled up.
+    //
+    // IT IS HERE AT ALL because a surface reachable only by typing its URL is
+    // not a surface. /operator/consent sat unlinked for months (#271) and the
+    // Legal Center is not repeating it: the alternative to a nav entry is an
+    // operator editing the privacy policy in the database by hand.
+    { key: "legalCenter", href: "/operator/legal" },
   ];
 }

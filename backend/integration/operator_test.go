@@ -185,6 +185,24 @@ func operatorRoutes(orgID string) []struct {
 		// Mark annulled is asserted in operator_document_attention_test.go.
 		{http.MethodGet, "/api/v1/operator/invoicing/needs-attention"},
 		{http.MethodGet, "/api/v1/operator/invoicing/needs-attention/count"},
+		// The Legal Center (#561): the platform's own agreements. The gate is a
+		// property of the namespace, so its three calls are asserted here rather
+		// than again in operator_legal_center_test.go — which is also why the
+		// PUT and DELETE belong on this list even though only the GETs are
+		// followed through to a 200.
+		{http.MethodGet, "/api/v1/operator/legal/documents/policy"},
+		{http.MethodPut, "/api/v1/operator/legal/documents/policy/draft"},
+		{http.MethodDelete, "/api/v1/operator/legal/documents/policy/draft"},
+		// And #562's two: what the operator has looked at. Same namespace, same
+		// gate, and they are on this list for the same reason the PUT is —
+		// authority here is a property of the address, not of the verb.
+		{http.MethodPost, "/api/v1/operator/legal/documents/policy/draft/previews"},
+		{http.MethodPost, "/api/v1/operator/legal/documents/policy/draft/diff-seen"},
+		// And #569's: the record of the platform's own reads of people's data.
+		// It is on this list because reading an audit log is exactly the kind of
+		// thing whose gate must be a property of the address rather than of
+		// whoever remembered to check.
+		{http.MethodGet, "/api/v1/operator/legal/access-log"},
 	}
 }
 

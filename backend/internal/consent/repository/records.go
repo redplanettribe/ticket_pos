@@ -50,6 +50,11 @@ type Record struct {
 	UserAgent sql.NullString
 	SessionID sql.NullString
 	OriginURL sql.NullString
+	// PresentedLocale is the language of the legal text this act was captured
+	// beside (#567, migration 115), invalid on every channel that showed none.
+	// It is a transcript like the four above — the service is handed the locale
+	// the renderer actually used, and this package writes it.
+	PresentedLocale sql.NullString
 	// Who recorded this act on the Customer's behalf, and which artefact it
 	// answers (#271, migration 067). Both invalid on every act a Customer
 	// performed themselves, which is all of them but one channel: a Consent
@@ -438,9 +443,9 @@ func (r *Repository) AppendTx(ctx context.Context, tx *sql.Tx, record Record, st
 			terms_acceptance, terms_version_id,
 			email_proven, ip, user_agent, session_id, origin_url,
 			prior_marketing_consent, prior_networking_consent,
-			recorded_by, request_reference
+			recorded_by, request_reference, presented_locale
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 		RETURNING id
 	`,
 		record.CustomerID, record.Email, string(record.Channel), record.CapturedAt, record.PolicyVersionID,
@@ -449,7 +454,7 @@ func (r *Repository) AppendTx(ctx context.Context, tx *sql.Tx, record Record, st
 		record.EmailProven, record.IP, record.UserAgent, record.SessionID, record.OriginURL,
 		priorState(record.MarketingConsent, prior.MarketingConsent),
 		priorState(record.NetworkingConsent, prior.NetworkingConsent),
-		record.RecordedBy, record.RequestReference,
+		record.RecordedBy, record.RequestReference, record.PresentedLocale,
 	).Scan(&recordID)
 	if err != nil {
 		return "", CustomerConsentState{}, CustomerConsentState{}, fmt.Errorf("append consent record: %w", err)

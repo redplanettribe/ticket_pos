@@ -6,7 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/peter/ticket_pos/backend/internal/consent/policy"
+	"github.com/peter/ticket_pos/backend/internal/consent/legal"
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // The public Privacy Policy read (#250, parent #249): the current Policy Version
@@ -45,6 +46,27 @@ func getPrivacyPolicy(t *testing.T, env *testEnv, locale string) (*http.Response
 		}
 	}
 	return resp, body, payload
+}
+
+// policyHashOf recomputes a Policy Version's fingerprint from the payloads the
+// API served, in ascending locale order, with the artifact inventory in its
+// published ordinal order (#558): short notice, the three checkbox labels, the
+// body. It is the preimage rule applied by a caller who has only the wire.
+func policyHashOf(english, spanish privacyPolicyPayload) string {
+	var artifacts []legal.Artifact
+	for _, served := range []privacyPolicyPayload{english, spanish} {
+		locale := platform.Locale(served.Locale)
+		for i, body := range []string{
+			served.ShortNotice,
+			served.ConsentLabels.PolicyAcceptance,
+			served.ConsentLabels.MarketingConsent,
+			served.ConsentLabels.NetworkingConsent,
+			served.BodyMarkdown,
+		} {
+			artifacts = append(artifacts, legal.Artifact{Locale: locale, Ordinal: i + 1, Body: body})
+		}
+	}
+	return legal.ContentHash(artifacts)
 }
 
 // The feature, in English: an unauthenticated caller reads the whole current
@@ -97,17 +119,19 @@ func TestPrivacyPolicyIsPublicAndComplete(t *testing.T) {
 }
 
 // THE ACCEPTANCE CRITERION, end to end: the fingerprint the API publishes is
-// the one the seeded row holds, and both are the hash of the text in the same
-// response. A future edit to the policy that forgets the version fails here as
-// well as in the unit test — this is the copy that also proves the row reached
-// the database.
+// the one the row holds, and both are the hash of the text in the same
+// responses. Since #558 the text comes from the database, so this recomputes
+// the fingerprint from WHAT WAS ACTUALLY SERVED, in both languages — which is
+// the claim a compliance officer makes, and it is now checkable by anybody with
+// the two public URLs and no access to this repository at all.
 func TestPrivacyPolicyHashMatchesTheSeededPolicyVersion(t *testing.T) {
 	env := setupTest(t)
 
 	_, _, payload := getPrivacyPolicy(t, env, "en")
+	_, _, spanish := getPrivacyPolicy(t, env, "es")
 
-	if computed := policy.ContentHash(); payload.ContentHash != computed {
-		t.Fatalf("served content_hash = %q, recomputed from the served artifacts = %q", payload.ContentHash, computed)
+	if computed := policyHashOf(payload, spanish); payload.ContentHash != computed {
+		t.Fatalf("served content_hash = %q, recomputed from the served text = %q", payload.ContentHash, computed)
 	}
 
 	// Read the row directly: no API publishes the policy_versions table, and the
@@ -124,6 +148,49 @@ func TestPrivacyPolicyHashMatchesTheSeededPolicyVersion(t *testing.T) {
 	}
 	if seededHash != payload.ContentHash {
 		t.Fatalf("seeded content hash %q is not what the endpoint served (%q)", seededHash, payload.ContentHash)
+	}
+}
+
+// THE BYTES COME FROM ROWS (#558), and the reader cannot tell. The served body
+// is the artifact row of the current edition, character for character — the
+// text stopped being a file compiled into the binary without a single reader
+// noticing.
+func TestPrivacyPolicyIsServedFromTheStoredArtifacts(t *testing.T) {
+	env := setupTest(t)
+
+	_, _, payload := getPrivacyPolicy(t, env, "en")
+
+	var stored string
+	err := env.db.QueryRow(`
+		SELECT a.body
+		FROM policy_version_artifacts a
+		JOIN policy_versions v ON v.id = a.version_id
+		WHERE v.label = $1 AND a.locale = 'en' AND a.slug = 'policy'`, payload.Version).Scan(&stored)
+	if err != nil {
+		t.Fatalf("read the stored policy body: %v", err)
+	}
+	if stored != payload.BodyMarkdown {
+		t.Error("the served body is not the stored row")
+	}
+}
+
+// THE ROUTE RESOLVES "CURRENT" ITSELF and cannot be asked for anything else. A
+// public route that could be handed a version, a draft id or a preview token is
+// one guessable parameter away from publishing an unpublished contract early,
+// so the superseded edition stays unreachable however it is asked for.
+func TestPrivacyPolicyCannotBeAskedForASupersededEdition(t *testing.T) {
+	env := setupTest(t)
+
+	resp, body := env.get(t, "/api/v1/public/privacy-policy/en?version=0-placeholder&edition=0-placeholder", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	var payload privacyPolicyPayload
+	if err := json.Unmarshal(body.Data, &payload); err != nil {
+		t.Fatalf("decode privacy policy: %v", err)
+	}
+	if payload.Version != "1" {
+		t.Fatalf("a query parameter changed which edition was served: %q", payload.Version)
 	}
 }
 

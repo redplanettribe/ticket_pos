@@ -6,21 +6,26 @@ import (
 
 	"github.com/peter/ticket_pos/backend/internal/consent"
 	"github.com/peter/ticket_pos/backend/internal/customers"
-	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
-// The Operator's half of the Consent Withdrawal (#271, parent #265): finding a
-// Customer by the address on a form, and recording a withdrawal that arrived
-// off the platform.
+// The Operator's half of the Consent Withdrawal (#271, parent #265): recording
+// a withdrawal that arrived off the platform.
+//
+// IT USED TO BEGIN BY FINDING A CUSTOMER FROM THE ADDRESS ON A FORM, and #566
+// took that half away. The operator now reaches this act from the person's
+// per-subject record in the Legal Center, having reached THAT from the
+// acceptance browser's search — so the Customer is already resolved and arrives
+// as an opaque id. What is gone with it is the last route on this platform that
+// carried a data subject's email in a request line.
 //
 // WHY THIS LIVES IN THE CUSTOMERS MODULE rather than in the operator one. The
 // operator module owns no tables and composes what other modules answer for
-// (ADR 0015), and the two things this act needs are both here: the Customer an
-// address resolves to, and confirmWithdrawal — the mechanism #267 built for
-// telling somebody a withdrawal took something away and stamping the evidence
-// that they were told. Building a second confirmation path for the one channel
-// where the Customer is not the actor would be the surest way to end up with a
-// channel that quietly does not confirm.
+// (ADR 0015), and the two things this act needs are both here: the Customer the
+// id resolves to, and confirmWithdrawal — the mechanism #267 built for telling
+// somebody a withdrawal took something away and stamping the evidence that they
+// were told. Building a second confirmation path for the one channel where the
+// Customer is not the actor would be the surest way to end up with a channel
+// that quietly does not confirm.
 //
 // WHAT IS DIFFERENT ABOUT THIS CHANNEL, and it is exactly two things: the act
 // carries who recorded it and which artefact it answers. Everything else — the
@@ -120,44 +125,6 @@ type OperatorWithdrawalInput struct {
 	Evidence consent.Evidence
 }
 
-// CustomerConsentForOperator finds a Customer by email address and reports their
-// consent state.
-//
-// FINDING A CUSTOMER BY EMAIL IS NEW, and it is new because nothing on this
-// platform previously needed it: staff reach Customers through sales, and a
-// Customer reaches themselves through a session. An Operator holding a posted
-// form has an address and nothing else, exactly as an Operator holding a support
-// thread has a Sale Confirmation reference and nothing else — which is why this
-// takes the shape the operator sale lookup takes, and holds the same disclosure
-// posture: the ANSWER is candid, and the DOOR is the whole of the protection.
-// Whether an address belongs to somebody on this platform is disclosed only to
-// callers the operator allowlist has admitted; everybody else is refused before
-// this method is reached, and is refused identically for an address that exists
-// and one that does not.
-//
-// An address no Customer holds is customers.ErrCustomerNotFound rather than an
-// empty view. An Operator is entitled to know, and being told plainly beats
-// being shown a blank record they might then act on.
-//
-// READING WRITES NOTHING. No consent is captured, no state is touched and no
-// Consent Record appears — a lookup that recorded something would put an act in
-// the evidence log that nobody performed.
-func (s *Service) CustomerConsentForOperator(ctx context.Context, email string) (*OperatorCustomerConsentView, error) {
-	customer, err := s.repo.GetCustomerByEmail(ctx, platform.NormalizeEmail(email))
-	if err != nil {
-		return nil, err
-	}
-	if customer == nil {
-		return nil, customers.ErrCustomerNotFound()
-	}
-
-	state, err := s.consent.PrivacyState(ctx, customer.ID)
-	if err != nil {
-		return nil, err
-	}
-	return operatorConsentView(customer.ID, customer.Email, customer.FirstName, customer.LastName, state, nil), nil
-}
-
 // RecordOperatorWithdrawal records a Consent Withdrawal that arrived off the
 // platform, on the Customer's behalf and under the Operator's name.
 //
@@ -191,8 +158,15 @@ func (s *Service) CustomerConsentForOperator(ctx context.Context, email string) 
 // request named, in their Mail Locale, and never allowed to fail the withdrawal.
 // A person who wrote in learns their request was actioned; a person for whom
 // nothing moved is not told about a change that did not happen.
-func (s *Service) RecordOperatorWithdrawal(ctx context.Context, email string, input OperatorWithdrawalInput) (*OperatorCustomerConsentView, error) {
-	customer, err := s.repo.GetCustomerByEmail(ctx, platform.NormalizeEmail(email))
+func (s *Service) RecordOperatorWithdrawal(ctx context.Context, customerID string, input OperatorWithdrawalInput) (*OperatorCustomerConsentView, error) {
+	// BY ID, AND NO LONGER BY ADDRESS (#566). The Operator reaches this act
+	// from the per-subject record they are already reading, which they reached
+	// by an opaque UUID from the acceptance browser's search — so the address
+	// that used to key this route is gone from the request line, and with it
+	// the last place on the platform a data subject's email travelled in a URL.
+	// A person's address is still the thing an operator recognises them by; it
+	// simply lives in the body of what they read, not in what they typed.
+	customer, err := s.repo.GetCustomerByID(ctx, customerID)
 	if err != nil {
 		return nil, err
 	}

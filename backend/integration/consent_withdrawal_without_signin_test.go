@@ -126,7 +126,7 @@ func TestWithdrawalWithoutSigningInNeedsNoPolicyAcceptance(t *testing.T) {
 	signInAnswering(t, env, "ana@example.com", true, true, true)
 	// An hour later, so the two acts are distinguishable by their own timestamps.
 	setSignInClock(t, env, env.fixedClock.Add(time.Hour))
-	publishPolicyVersion(t, env, "1-test-edition")
+	publishPolicyVersion(t, env, 2, 0)
 	sessionsBefore := countCustomerSessions(t, env)
 
 	// The re-gated Customer proves their address and is offered no session.
