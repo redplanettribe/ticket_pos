@@ -71,6 +71,30 @@ var InvoiceStatuses = []InvoiceStatus{
 	InvoiceStatusAbandoned,
 }
 
+// TerminallyDead reports whether a document is in one of the three deaths —
+// withdrawn, annulled, abandoned — from which nothing it can ever become.
+//
+// The three are told apart by what a reader may conclude about the
+// authority (ADR 0068), and there are places that must ask only "is this
+// one of them": the live-successor read and its partial unique index spell
+// the list out in SQL, and the Drainer asks it of the document a claimed
+// unsigned Sale Invoice supersedes, to tell an Issue again replacement —
+// which follows a dead document and no Credit Note (#580) — from a
+// reissue's corrected factura, which follows an authorized one and a Credit
+// Note it must wait for.
+//
+// AN AUTHORIZED DOCUMENT IS NEVER ANY OF THEM, which is what makes that
+// question a safe discriminator: Mark annulled is allowed only from pending
+// and needs_attention, Abandon only from the three states a refusal leaves,
+// and a reversal withdraws only what was never sent.
+func TerminallyDead(status InvoiceStatus) bool {
+	switch status {
+	case InvoiceStatusWithdrawn, InvoiceStatusAnnulled, InvoiceStatusAbandoned:
+		return true
+	}
+	return false
+}
+
 // DocumentKind says why a Tax Invoice exists: an operator typed it, a paid
 // House checkout owed it, or such a Sale's reversal owed it (#473).
 type DocumentKind string

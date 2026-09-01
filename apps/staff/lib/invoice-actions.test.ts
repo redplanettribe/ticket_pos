@@ -28,7 +28,7 @@ const INVOICE_STATUSES = [
 // queue, the annulment and the trail cannot reach an operator with nothing
 // to say in either language.
 
-const NONE = { check: false, resend: false, annul: false, reissue: false, abandon: false };
+const NONE = { check: false, resend: false, annul: false, reissue: false, abandon: false, issueAgain: false };
 
 test("a pending or parked document offers check, resend and mark annulled", () => {
   assert.deepEqual(invoiceLevers("pending", true), { ...NONE, check: true, resend: true, annul: true });
@@ -94,6 +94,52 @@ test("reissue is not offered on a superseded or credited Sale Invoice", () => {
 test("reissue is offered again once the reissue's Credit Note died", () => {
   const afterADeadReissue = { kind: "sale", superseded_by_invoice_id: null, credited_by_invoice_id: null } as const;
   assert.deepEqual(invoiceLevers("authorized", true, afterADeadReissue), { ...NONE, reissue: true });
+});
+
+// Issue again (#580, ADR 0068): the one lever a terminally dead Sale
+// Invoice has, and the counterpart to reissue at the other end of a
+// document's life. Both deaths this act reaches offer it, and it is its own
+// card, so a dead document still offers nothing among the SRI's remedies.
+const DEAD_SALE_INVOICE = { kind: "sale", superseded_by_invoice_id: null, credited_by_invoice_id: null } as const;
+
+test("an abandoned or annulled Sale Invoice offers issue again and nothing else", () => {
+  for (const status of ["abandoned", "annulled"] as const) {
+    const levers = invoiceLevers(status, true, DEAD_SALE_INVOICE);
+    assert.deepEqual(levers, { ...NONE, issueAgain: true }, status);
+    assert.equal(hasInvoiceLevers(levers), false, status);
+  }
+});
+
+test("issue again is offered only on a Sale Invoice", () => {
+  assert.equal(invoiceLevers("abandoned", true, { ...DEAD_SALE_INVOICE, kind: "manual" }).issueAgain, false);
+  assert.equal(invoiceLevers("abandoned", true, { ...DEAD_SALE_INVOICE, kind: "credit_note" }).issueAgain, false);
+  assert.equal(invoiceLevers("abandoned", true).issueAgain, false);
+});
+
+// Every state but the two deaths, including `withdrawn` — the third death,
+// deliberately excluded: its Sale was reversed or the Credit Note it
+// followed died, and neither is owed a fresh factura.
+test("issue again is offered on no other state, withdrawn included", () => {
+  for (const status of INVOICE_STATUSES) {
+    if (status === "abandoned" || status === "annulled") continue;
+    assert.equal(invoiceLevers(status, status !== "owed", DEAD_SALE_INVOICE).issueAgain, false, status);
+  }
+});
+
+// A live replacement already stands, so a second press would leave the Sale
+// with two competing facturas; the API refuses it with
+// INVOICE_ALREADY_REPLACED and the lever is not drawn.
+test("issue again is not offered where a live replacement stands", () => {
+  assert.equal(
+    invoiceLevers("abandoned", true, { ...DEAD_SALE_INVOICE, superseded_by_invoice_id: "replacement" }).issueAgain,
+    false,
+  );
+});
+
+// The second hop (#579): a replacement that died in its turn leaves the link
+// null, so the document may be issued again a second time.
+test("issue again returns once the replacement has died in its turn", () => {
+  assert.deepEqual(invoiceLevers("abandoned", true, DEAD_SALE_INVOICE), { ...NONE, issueAgain: true });
 });
 
 // The refusal by number (#577, ADR 0068): Resend would carry the same
@@ -231,6 +277,20 @@ test("every surface has its words in both languages", () => {
     "invoicingStatusFilterLabel",
     "invoicingStatusFilterAll",
     "invoicingListEmptyForStatus",
+    // Issue again (#580): the card, its note, the confirmation and the
+    // sentence a terminally dead Sale Invoice's page is owed.
+    "invoicingIssueAgainCardTitle",
+    "invoicingIssueAgainCardDescription",
+    "invoicingIssueAgain",
+    "invoicingIssuingAgain",
+    "invoicingIssueAgainHint",
+    "invoicingIssueAgainNoteLabel",
+    "invoicingIssueAgainNotePlaceholder",
+    "invoicingIssueAgainConfirmTitle",
+    "invoicingIssueAgainConfirm",
+    "invoicingIssueAgainCancel",
+    "invoicingIssueAgainDone",
+    "invoicingIssueAgainFailed",
   ];
   for (const locale of ["en", "es"]) {
     const catalog = JSON.parse(
@@ -256,6 +316,10 @@ test("every surface has its words in both languages", () => {
       "INVOICE_NOT_REFUSED_BY_NUMBER",
       "INVOICE_CHECK_NOT_FRESH",
       "INVOICE_ABANDON_INSTEAD",
+      "INVOICE_MANUAL_NOT_ISSUABLE_AGAIN",
+      "CREDIT_NOTE_NOT_ISSUABLE_AGAIN",
+      "INVOICE_NOT_TERMINALLY_DEAD",
+      "INVOICE_ALREADY_REPLACED",
     ]) {
       assert.ok(catalog.errors.envelope[code]?.trim(), `${locale}: errors.envelope.${code} is missing`);
     }

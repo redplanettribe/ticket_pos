@@ -250,6 +250,63 @@ func ErrInvoiceAlreadyCredited() apperror.DomainError {
 	return apperror.New("INVOICE_ALREADY_CREDITED", "This Sale Invoice is already credited by an authorized Credit Note and cannot be credited again.", nil)
 }
 
+// Issue again's refusals (#580, parent #575, ADR 0068), one code each on
+// the same terms as the reissue's: the operator's surface names the fact
+// that stood in the way, never "cannot issue again". Each is a fact about
+// the document or its Sale that no retry with the same body changes.
+//
+// The Sale that no longer stands is ErrInvoiceSaleReversed, shared with the
+// reissue deliberately: it is the same fact about the same Sale, and a
+// surface that has already learned what it means must not have to learn a
+// second word for it.
+
+// ErrInvoiceManualNotIssuableAgain: a manual Tax Invoice is not re-owed —
+// the operator types another by hand, as they always have (ADR 0068). The
+// standing rule is not quietly reversed by the new act: re-owing a manual
+// document would drag it into the owed → Drainer → delivery path it is
+// deliberately excluded from in three separate places, to mend a case whose
+// answer is to type it again.
+func ErrInvoiceManualNotIssuableAgain() apperror.DomainError {
+	return apperror.New("INVOICE_MANUAL_NOT_ISSUABLE_AGAIN", "A manual Tax Invoice is not issued again by the platform. Issue another one by hand.", nil)
+}
+
+// ErrCreditNoteNotIssuableAgain: a Credit Note is never itself re-owed. It
+// exists to cancel a factura; a fresh one would cancel a document nothing
+// has issued, and what a dead Credit Note leaves behind is dealt with where
+// the chain is — its factura becomes uncredited and current again (#484).
+func ErrCreditNoteNotIssuableAgain() apperror.DomainError {
+	return apperror.New("CREDIT_NOTE_NOT_ISSUABLE_AGAIN", "A Credit Note cannot be issued again: only a Sale Invoice can.", nil)
+}
+
+// ErrInvoiceNotTerminallyDead: Issue again is offered on a Sale Invoice
+// that is TERMINALLY DEAD and on no other (#580, ADR 0068) — `abandoned`,
+// the authority never took it, or `annulled`, the operator disowned it by
+// hand at the portal. Those are the two states in which the Sale provably
+// has no factura and nothing will ever make this document one.
+//
+// `withdrawn` is deliberately not among them, though it is the third death:
+// a document is withdrawn when its Sale was reversed or when the Credit
+// Note it followed died, and in neither case is a fresh factura owed. An
+// owed, pending, parked or refused document is still on its way somewhere,
+// and an authorized one is the Sale's factura already; the reissue (ADR
+// 0061) is what corrects that one.
+func ErrInvoiceNotTerminallyDead(status InvoiceStatus) apperror.DomainError {
+	return apperror.New("INVOICE_NOT_TERMINALLY_DEAD", "Only a Sale Invoice that is abandoned or annulled can be issued again; this one is "+string(status)+".", map[string]string{"status": string(status)})
+}
+
+// ErrInvoiceAlreadyReplaced: the dead document already has a LIVE
+// replacement — a Sale Invoice that supersedes it and has not itself died —
+// so a second Issue again would leave the Sale with two competing facturas,
+// which is the one thing ADR 0061's chain exists to prevent.
+//
+// Live is read the way every other surface reads it since #579: a
+// replacement that is itself withdrawn, annulled or abandoned supersedes
+// nothing, so a Sale whose replacement ALSO died is issued again, and the
+// chain grows another hop rather than stopping.
+func ErrInvoiceAlreadyReplaced() apperror.DomainError {
+	return apperror.New("INVOICE_ALREADY_REPLACED", "This Sale Invoice has already been issued again. Its replacement is the Sale's current Sale Invoice.", nil)
+}
+
 // ErrSaleInvoicingUnavailable: Sale Invoicing was asked for while
 // SALE_INVOICING_ENABLED is closed (#471, ADR 0060) — a House designation or
 // a Drainer run. "Not found." and a 404, on the terms the other feature flags

@@ -642,6 +642,14 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.issueAgainBody": {
+                "properties": {
+                    "note": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.issueInvoiceBody": {
                 "properties": {
                     "additional_fields": {
@@ -5056,7 +5064,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "supersedes_invoice_id": {
-                        "description": "The Sale Invoice Reissue's chain and trail (#483, ADR 0061).\nSupersedesInvoiceID is, on a corrected Sale Invoice, the factura it\ncorrects; the list row's SupersededByInvoiceID is, on a reissued\nfactura, the live corrected one — the current Sale Invoice is the one\nwith neither a successor nor a withdrawn or annulled state. ReissuedBy,\nReissuedAt and ReissueNote are who reissued, when and the optional\nnote, shown on the corrected factura, the superseded one and the\nreissue's Credit Note alike. All null where no reissue concerns the\ndocument.",
+                        "description": "The Sale Invoice Reissue's chain and trail (#483, ADR 0061).\nSupersedesInvoiceID is, on a corrected Sale Invoice, the factura it\ncorrects; the list row's SupersededByInvoiceID is, on a reissued\nfactura, the live corrected one — the current Sale Invoice is the one\nwith neither a live successor nor a terminal-dead state of its own,\nwhere dead is withdrawn, annulled or abandoned (#579, ADR 0068).\nReissuedBy,\nReissuedAt and ReissueNote are who reissued, when and the optional\nnote, shown on the corrected factura, the superseded one and the\nreissue's Credit Note alike. All null where no reissue concerns the\ndocument.",
                         "type": "string"
                     },
                     "ticket_sale_id": {
@@ -11962,6 +11970,112 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Check a Tax Invoice's status with the SRI",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/invoices/{id}/issue-again": {
+            "post": {
+                "description": "Owes the Ticket Sale a FRESH Sale Invoice to replace one that is terminally dead — ` + "`" + `abandoned` + "`" + `, because the SRI refuses the number it carries and never took it (ADR 0068), or ` + "`" + `annulled` + "`" + `, because a Platform Operator disowned it by hand at the SRI portal — and answers 201 with the replacement's detail, ` + "`" + `owed` + "`" + ` and unsigned. The replacement carries the dead document's lines, amounts, IVA rate, currency, payment method and RECIPIENT verbatim, including its email: reinvoicing never changes what was sold or to whom, and a Recipient that needs correcting is the reissue's business (ADR 0061) once the replacement is authorized. It is NOT a special signing route: it is inserted as an ordinary owed document inside a transaction, with no number, no clave de acceso and no signature, and the Sale Invoice Drainer signs it on a later round under a FRESHLY allocated secuencial by the ordinary path. The abandoned number stays consumed and is never handed out again. No Credit Note is owed — a document the SRI never authorized has nothing to cancel — which is why this reaches a Sale a reissue answers INVOICE_ALREADY_CREDITED on. The replacement is linked to the document it replaces through ADR 0061's supersede chain, so both detail pages show the chain in both directions, and it records who pressed (the session's email), when, and the optional ` + "`" + `note` + "`" + ` (at most 500 characters) in the same trail a reissue writes. The chain survives any number of hops: a replacement that is itself abandoned or annulled is issued again in its turn. The dead document is untouched — its number, clave, signed bytes, attempts and trail stand forever — and is never delivered to the buyer, who receives the replacement alone. Refused with INVOICE_MANUAL_NOT_ISSUABLE_AGAIN (409) on a manual Tax Invoice, which is typed again by hand, CREDIT_NOTE_NOT_ISSUABLE_AGAIN (409) on a Credit Note, INVOICE_NOT_TERMINALLY_DEAD (409, ` + "`" + `details.status` + "`" + `) on a Sale Invoice that is owed, pending, authorized, rejected, not_authorized, needs_attention or withdrawn, INVOICE_SALE_REVERSED (409) when the Ticket Sale no longer stands, INVOICE_ALREADY_REPLACED (409) when a live replacement already exists — one that is itself withdrawn, annulled or abandoned does not count — and INVOICE_NOT_FOUND (404) otherwise. The decision is made under the Ticket Sale's lock, so a press racing a reversal is refused rather than double-written. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Terminally dead Sale Invoice id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.issueAgainBody",
+                                        "summary": "body",
+                                        "description": "An optional note"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "An optional note"
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeInvoiceDetail"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Issue a terminally dead Sale Invoice again",
                 "tags": [
                     "operator"
                 ]

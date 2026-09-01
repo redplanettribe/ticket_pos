@@ -3581,6 +3581,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/invoicing/invoices/{id}/issue-again": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue a terminally dead Sale Invoice again
+         * @description Owes the Ticket Sale a FRESH Sale Invoice to replace one that is terminally dead — `abandoned`, because the SRI refuses the number it carries and never took it (ADR 0068), or `annulled`, because a Platform Operator disowned it by hand at the SRI portal — and answers 201 with the replacement's detail, `owed` and unsigned. The replacement carries the dead document's lines, amounts, IVA rate, currency, payment method and RECIPIENT verbatim, including its email: reinvoicing never changes what was sold or to whom, and a Recipient that needs correcting is the reissue's business (ADR 0061) once the replacement is authorized. It is NOT a special signing route: it is inserted as an ordinary owed document inside a transaction, with no number, no clave de acceso and no signature, and the Sale Invoice Drainer signs it on a later round under a FRESHLY allocated secuencial by the ordinary path. The abandoned number stays consumed and is never handed out again. No Credit Note is owed — a document the SRI never authorized has nothing to cancel — which is why this reaches a Sale a reissue answers INVOICE_ALREADY_CREDITED on. The replacement is linked to the document it replaces through ADR 0061's supersede chain, so both detail pages show the chain in both directions, and it records who pressed (the session's email), when, and the optional `note` (at most 500 characters) in the same trail a reissue writes. The chain survives any number of hops: a replacement that is itself abandoned or annulled is issued again in its turn. The dead document is untouched — its number, clave, signed bytes, attempts and trail stand forever — and is never delivered to the buyer, who receives the replacement alone. Refused with INVOICE_MANUAL_NOT_ISSUABLE_AGAIN (409) on a manual Tax Invoice, which is typed again by hand, CREDIT_NOTE_NOT_ISSUABLE_AGAIN (409) on a Credit Note, INVOICE_NOT_TERMINALLY_DEAD (409, `details.status`) on a Sale Invoice that is owed, pending, authorized, rejected, not_authorized, needs_attention or withdrawn, INVOICE_SALE_REVERSED (409) when the Ticket Sale no longer stands, INVOICE_ALREADY_REPLACED (409) when a live replacement already exists — one that is itself withdrawn, annulled or abandoned does not count — and INVOICE_NOT_FOUND (404) otherwise. The decision is made under the Ticket Sale's lock, so a press racing a reversal is refused rather than double-written. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Terminally dead Sale Invoice id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description An optional note */
+            requestBody?: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.issueAgainBody"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeInvoiceDetail"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/invoicing/invoices/{id}/reissue": {
         parameters: {
             query?: never;
@@ -14195,6 +14287,9 @@ export interface components {
             sold_at?: string;
             ticket_type_id?: string;
         };
+        "handler.issueAgainBody": {
+            note?: string;
+        };
         "handler.issueInvoiceBody": {
             additional_fields?: components["schemas"]["handler.additionalFieldBody"][];
             lines?: components["schemas"]["handler.lineBody"][];
@@ -16769,7 +16864,9 @@ export interface components {
              *     SupersedesInvoiceID is, on a corrected Sale Invoice, the factura it
              *     corrects; the list row's SupersededByInvoiceID is, on a reissued
              *     factura, the live corrected one — the current Sale Invoice is the one
-             *     with neither a successor nor a withdrawn or annulled state. ReissuedBy,
+             *     with neither a live successor nor a terminal-dead state of its own,
+             *     where dead is withdrawn, annulled or abandoned (#579, ADR 0068).
+             *     ReissuedBy,
              *     ReissuedAt and ReissueNote are who reissued, when and the optional
              *     note, shown on the corrected factura, the superseded one and the
              *     reissue's Credit Note alike. All null where no reissue concerns the

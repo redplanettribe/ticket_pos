@@ -460,6 +460,13 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// whose Recipient is wrong. Operator-only; 404 while Sale Invoicing is
 	// closed.
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/reissue", operator(http.HandlerFunc(inv.ReissueInvoice)))
+	// Issue again (#580, ADR 0068): a fresh Sale Invoice owed to a Ticket
+	// Sale whose document is terminally dead — abandoned or annulled — with
+	// the original lines, amounts and Recipient, linked to the one it
+	// replaces through the reissue's own chain. No Credit Note and no
+	// special signing route: the Drainer signs it under a fresh secuencial
+	// on a later round. Operator-only; 404 while Sale Invoicing is closed.
+	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/issue-again", operator(http.HandlerFunc(inv.IssueInvoiceAgain)))
 	// The documents that need an operator (#477): the Operator Dashboard's
 	// queue, longest waiting first, and its count. Read-only, on the
 	// invoicing module because the documents are its own; the dashboard's

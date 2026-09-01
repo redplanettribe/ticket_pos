@@ -51,6 +51,25 @@ import type { InvoiceKind, InvoiceStatus } from "./operator-api";
  * operator who has been resending for two days is owed the reason rather than
  * a silently shorter row of buttons.
  *
+ * `issueAgain` is the one lever a TERMINALLY DEAD Sale Invoice has (#580,
+ * ADR 0068), and the counterpart to `reissue` at the other end of a
+ * document's life. Abandon and Mark annulled both leave a Ticket Sale with
+ * no factura and, until this, nothing that would ever owe it another; Issue
+ * again owes a fresh one, with the original lines, amounts and Recipient,
+ * linked to the document it replaces. It is offered on a Sale Invoice that
+ * is `abandoned` or `annulled` and has no live replacement — a replacement
+ * that itself died leaves the link null (#579), so the chain grows another
+ * hop rather than stopping. `withdrawn` is the third death and is
+ * deliberately not offered it: such a document was never sent because its
+ * Sale was reversed or the Credit Note it followed died, and neither Sale
+ * is owed a fresh factura. A manual Tax Invoice is typed again by hand and
+ * a Credit Note is never re-owed, so neither is offered it either.
+ *
+ * The API asks for one thing more that this cannot see — the Ticket Sale
+ * must still stand — and answers INVOICE_SALE_REVERSED otherwise; that is a
+ * refusal the card shows rather than a lever it withholds, since the page
+ * has no reversal to read.
+ *
  * `reissue` is the one lever an AUTHORIZED document has (#483): a Sale
  * Invoice Reissue, offered on a Sale Invoice that is the Sale's current one
  * — authorized, not superseded by a corrected factura, and not credited by
@@ -65,6 +84,7 @@ export type InvoiceLevers = {
   annul: boolean;
   reissue: boolean;
   abandon: boolean;
+  issueAgain: boolean;
 };
 
 /**
@@ -90,8 +110,11 @@ export function invoiceLevers(
   refusedByNumber = false,
 ): InvoiceLevers {
   const reissue = reissueOffered(status, chain);
+  const issueAgain = issueAgainOffered(status, chain);
   if (!signed) {
-    return { check: false, resend: false, annul: false, reissue: false, abandon: false };
+    // An abandoned or annulled document is always signed — both acts refuse
+    // an unsigned one — so nothing that reaches here is issued again.
+    return { check: false, resend: false, annul: false, reissue: false, abandon: false, issueAgain: false };
   }
   // The refusal by number takes `resend` away wherever it was offered (#577)
   // and hands `annul` to `abandon` (#578). Check still asks the SRI what it
@@ -103,15 +126,32 @@ export function invoiceLevers(
       // the same where the number is refused — the portal has nothing to
       // have been annulled — and this is the one state that offers neither
       // it nor Abandon.
-      return { check: true, resend, annul: !refusedByNumber, reissue, abandon: false };
+      return { check: true, resend, annul: !refusedByNumber, reissue, abandon: false, issueAgain };
     case "needs_attention":
-      return { check: true, resend, annul: !refusedByNumber, reissue, abandon: refusedByNumber };
+      return { check: true, resend, annul: !refusedByNumber, reissue, abandon: refusedByNumber, issueAgain };
     case "not_authorized":
     case "rejected":
-      return { check: true, resend, annul: false, reissue, abandon: refusedByNumber };
+      return { check: true, resend, annul: false, reissue, abandon: refusedByNumber, issueAgain };
     default:
-      return { check: false, resend: false, annul: false, reissue, abandon: false };
+      // Where `abandoned` and `annulled` land, and so the only branch in
+      // which `issueAgain` is ever true.
+      return { check: false, resend: false, annul: false, reissue, abandon: false, issueAgain };
   }
+}
+
+/**
+ * Whether Issue again is offered: exactly where the API would allow it,
+ * minus the one fact the page cannot see (the Ticket Sale still standing).
+ * `superseded_by_invoice_id` names a LIVE replacement only (#579): one that
+ * died — withdrawn, annulled or abandoned in its turn — leaves the link
+ * null, and the dead document may be issued again for a second time.
+ */
+function issueAgainOffered(status: InvoiceStatus, chain: InvoiceChainFacts): boolean {
+  return (
+    chain.kind === "sale" &&
+    (status === "abandoned" || status === "annulled") &&
+    chain.superseded_by_invoice_id === null
+  );
 }
 
 /**

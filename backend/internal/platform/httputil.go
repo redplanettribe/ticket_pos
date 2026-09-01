@@ -232,6 +232,15 @@ func domainHTTPStatus(code string) int {
 	case "INVOICE_MANUAL_NOT_REISSUABLE", "CREDIT_NOTE_NOT_REISSUABLE", "INVOICE_NOT_AUTHORIZED",
 		"INVOICE_SALE_REVERSED", "REISSUE_IN_FLIGHT", "INVOICE_SUPERSEDED", "INVOICE_ALREADY_CREDITED":
 		return http.StatusConflict
+	// Issue again's refusals (#580, ADR 0068), on the same terms: the kind
+	// of document (a manual one is typed again by hand, a Credit Note is
+	// never re-owed), a state that is not one of the two terminal deaths
+	// this act reaches, or a Sale that already has a live replacement. A
+	// reversed Sale is INVOICE_SALE_REVERSED above, shared with the reissue
+	// because it is the same fact about the same Sale.
+	case "INVOICE_MANUAL_NOT_ISSUABLE_AGAIN", "CREDIT_NOTE_NOT_ISSUABLE_AGAIN",
+		"INVOICE_NOT_TERMINALLY_DEAD", "INVOICE_ALREADY_REPLACED":
+		return http.StatusConflict
 	case "NOT_FOUND", "ORGANIZATION_NOT_FOUND", "MEMBER_NOT_FOUND", "EVENT_NOT_FOUND":
 		return http.StatusNotFound
 	// A House Organization designation refused for the Organization's

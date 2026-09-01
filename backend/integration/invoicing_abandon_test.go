@@ -315,3 +315,84 @@ func TestTheInvoiceListFiltersByAbandoned(t *testing.T) {
 		t.Fatalf("list with a mistyped status: status=%d error=%+v; want 400 VALIDATION_FAILED", badResp.StatusCode, badEnv.Error)
 	}
 }
+
+// TestAbandoningAReissuesCreditNoteLeavesItsCorrectedFacturaToTheDrainer is
+// the answer to a claim made against #578: that Abandon shipped with the
+// defect Mark annulled does not have, because AnnulInvoice withdraws the
+// unsigned corrected factura of a dead reissue Credit Note in its own
+// transaction (#484) and AbandonInvoice does not, leaving that successor
+// `owed` forever and its Sale stuck on REISSUE_IN_FLIGHT.
+//
+// IT DOES NOT HOLD, and this is where that is checked rather than argued.
+// The asymmetry in the two acts is real: Mark annulled withdraws the
+// successor itself, so the operator may reissue AT ONCE, and Abandon does
+// not. But "forever" is the part that is false. The Drainer's own net
+// (#484, withdrawCorrectedFacturaOfADeadCreditNote) is what catches it:
+// ClaimDueInvoice admits a corrected factura once NO Credit Note against
+// the factura it supersedes is live, an abandoned Credit Note is not live,
+// and the round that claims it withdraws it unsigned. So the successor is
+// withdrawn on the very next round, the factura is current and uncredited
+// again, and the Sale is reissuable — one round later than after a Mark
+// annulled, and never stuck.
+//
+// It is asserted here, on #580's ticket, because #580's Issue again is what
+// would have been blocked if the claim were true.
+func TestAbandoningAReissuesCreditNoteLeavesItsCorrectedFacturaToTheDrainer(t *testing.T) {
+	env := setupTest(t)
+	operatorSessionID, facturaID, _ := houseSaleAuthorized(t, env)
+	corrected := reissueOK(t, operatorSessionID, facturaID, companyRecipient())
+
+	// The reissue's Credit Note — codDoc 04 in the ninth and tenth digits of
+	// the clave — is the one the SRI refuses by number.
+	sriStub.setReception(func(accessKey string) (int, string) {
+		if len(accessKey) > 10 && accessKey[8:10] == "04" {
+			return http.StatusOK, returnedSOAP(accessKey, sriMessage("45", "ERROR SECUENCIAL REGISTRADO", "", "ERROR"))
+		}
+		return http.StatusOK, receivedSOAP(accessKey)
+	})
+	if result := drainSaleInvoices(t); result.NeedsAttention != 1 {
+		t.Fatalf("setup drain = %+v; want the Credit Note parked and the corrected factura still waiting on it", result)
+	}
+	noteID := deref(getReissuedInvoice(t, operatorSessionID, facturaID).CreditedByInvoiceID)
+	sriStub.setAuthorization(func(accessKey string) (int, string) {
+		return http.StatusOK, emptyAuthorizationSOAP(accessKey)
+	})
+	if resp, body := checkInvoice(t, operatorSessionID, noteID); resp.StatusCode != http.StatusOK {
+		t.Fatalf("check the credit note: status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	resp, body := abandonInvoice(t, operatorSessionID, noteID, map[string]any{"note": "the SRI refuses the credit note's number"})
+	if view := abandonedView(t, resp, body); view.Status != "abandoned" {
+		t.Fatalf("the credit note is %s; want abandoned", view.Status)
+	}
+
+	// Immediately after the act the corrected factura is still owed, and the
+	// Sale still reads as having a reissue in flight. This is the whole of
+	// the difference from Mark annulled, and it lasts exactly one round.
+	if got := getReissuedInvoice(t, operatorSessionID, corrected.ID); got.Status != "owed" {
+		t.Fatalf("the corrected factura is %s straight after the abandonment; want still owed", got.Status)
+	}
+	refusedResp, refusedBody := reissueInvoice(t, operatorSessionID, facturaID, companyRecipient())
+	expectRefusal(t, "reissue while the abandoned Credit Note's successor is still owed", refusedResp, refusedBody, http.StatusConflict, "REISSUE_IN_FLIGHT")
+
+	// One round. The Drainer claims the corrected factura — no live Credit
+	// Note stands against the factura it supersedes any more — and withdraws
+	// it unsigned, consuming no number and sending nothing.
+	if result := drainSaleInvoices(t); result.Withdrawn != 1 || result.Authorized != 0 {
+		t.Fatalf("drain = %+v; want the corrected factura withdrawn unsigned", result)
+	}
+	withdrawn := getReissuedInvoice(t, operatorSessionID, corrected.ID)
+	if withdrawn.Status != "withdrawn" || withdrawn.Number != nil {
+		t.Fatalf("the corrected factura = %s %v; want withdrawn with no number consumed", withdrawn.Status, withdrawn.Number)
+	}
+
+	// And the Sale is out of the hole: the factura is current, credited by
+	// nothing live and superseded by nothing, so the operator may reissue it.
+	factura := getReissuedInvoice(t, operatorSessionID, facturaID)
+	if factura.Status != "authorized" || factura.CreditedByInvoiceID != nil || factura.SupersededByInvoiceID != nil {
+		t.Fatalf("the factura = %s credited_by %v superseded_by %v; want it current again", factura.Status, factura.CreditedByInvoiceID, factura.SupersededByInvoiceID)
+	}
+	again := reissueOK(t, operatorSessionID, facturaID, companyRecipient())
+	if again.Status != "owed" {
+		t.Fatalf("the second reissue = %s; want a fresh owed corrected factura", again.Status)
+	}
+}

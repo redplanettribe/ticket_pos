@@ -1618,6 +1618,30 @@ export async function reissueOperatorInvoice(id: string, body: ReissueInvoiceBod
   });
 }
 
+/**
+ * Owes the Ticket Sale a FRESH Sale Invoice to replace a terminally dead one
+ * (#580, ADR 0068), and returns the REPLACEMENT — a new id — as it stands,
+ * owed and unsigned. Offered on an `abandoned` document, whose number the
+ * SRI refuses and never took, and on an `annulled` one, disowned by hand at
+ * the portal; both leave the Sale with no factura and, until this, nothing
+ * that would ever owe it another.
+ *
+ * The replacement carries the dead document's lines, amounts and Recipient
+ * unchanged — this corrects nothing, unlike a reissue — and no Credit Note
+ * is owed, because a document the SRI never authorized has nothing to
+ * cancel. The Sale Invoice Drainer signs it on a later round under a FRESH
+ * secuencial; the abandoned number stays consumed and is never handed out
+ * again. Refused with INVOICE_MANUAL_NOT_ISSUABLE_AGAIN,
+ * CREDIT_NOTE_NOT_ISSUABLE_AGAIN, INVOICE_NOT_TERMINALLY_DEAD,
+ * INVOICE_SALE_REVERSED or INVOICE_ALREADY_REPLACED, each by code.
+ */
+export async function issueOperatorInvoiceAgain(id: string, note: string | null): Promise<OperatorInvoiceDetail> {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/issue-again`, {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  });
+}
+
 /** One Tax Invoice in full. */
 export async function fetchOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
   return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}`);
