@@ -140,13 +140,26 @@ func (s *Service) AbandonInvoice(ctx context.Context, id, abandonedBy, note stri
 //     document parked for any other reason may be abandoned is deliberately
 //     undecided (ADR 0068).
 //  4. The fresh Check (AbandonCheckFreshness).
+//
+// abandonableState is the three states a refusal leaves a document in, and
+// so the three Abandon admits. Stated apart from abandonRefusal because
+// Mark annulled's guard must ask the same question: it hands a code-45
+// document to Abandon (ErrInvoiceAbandonInstead), and it may only do that
+// where Abandon would actually take it — otherwise the narrowing invents a
+// document with no escape at all rather than pointing at the right one.
+func abandonableState(status invoicing.InvoiceStatus) bool {
+	switch status {
+	case invoicing.InvoiceStatusNeedsAttention, invoicing.InvoiceStatusRejected, invoicing.InvoiceStatusNotAuthorized:
+		return true
+	}
+	return false
+}
+
 func abandonRefusal(inv *invoicing.Invoice, attempts []invoicing.Attempt, now time.Time) error {
 	if err := actionableRefusal(inv); err != nil {
 		return err
 	}
-	switch inv.Status {
-	case invoicing.InvoiceStatusNeedsAttention, invoicing.InvoiceStatusRejected, invoicing.InvoiceStatusNotAuthorized:
-	default:
+	if !abandonableState(inv.Status) {
 		return invoicing.ErrInvoiceNotAbandonable(inv.Status)
 	}
 	if !invoicing.RefusedByNumberIn(inv.Messages) {

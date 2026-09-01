@@ -190,7 +190,12 @@ func annullable(inv *invoicing.Invoice) error {
 		if !inv.Signed() {
 			return invoicing.ErrInvoiceNotIssued()
 		}
-		if invoicing.RefusedByNumberIn(inv.Messages) {
+		// Handed to Abandon only where Abandon would take it (#578, ADR
+		// 0068). A code-45 document that is still `pending` is with the
+		// authority and is CHECKED, not given up on — and Abandon refuses
+		// it — so refusing the annulment here too would leave it with no
+		// act at all, which is the dead end this epic exists to close.
+		if invoicing.RefusedByNumberIn(inv.Messages) && abandonableState(inv.Status) {
 			return invoicing.ErrInvoiceAbandonInstead()
 		}
 		return nil

@@ -258,6 +258,23 @@ func TestTheChainSurvivesMoreThanOneHop(t *testing.T) {
 	if got := lastSecuencial(t, env); got != 3 {
 		t.Fatalf("last_secuencial = %d; want 3 — two abandoned numbers, never reallocated, and the one that authorized", got)
 	}
+
+	// AND THE FIRST DOCUMENT IS STILL NOT A WAY IN, though its own successor
+	// died and it therefore reads unreplaced. The invariant is the Sale's,
+	// not the document's: a third factura now stands for this Sale, and
+	// owing a fourth here would leave the buyer holding two valid ones. The
+	// refusal is the same code the direct case answers — from the operator's
+	// side it is one fact, "this Sale has its factura".
+	if resp, body := issueAgain(t, operatorSessionID, firstID, map[string]any{"note": nil}); resp.StatusCode != http.StatusConflict ||
+		body.Error == nil || body.Error.Code != "INVOICE_ALREADY_REPLACED" {
+		t.Fatalf("issue again on the first document after the chain settled: status=%d error=%+v; want 409 INVOICE_ALREADY_REPLACED", resp.StatusCode, body.Error)
+	}
+	// And nothing is left waiting: the queue asks the same question, so the
+	// first document — abandoned, with a dead successor, on a Sale that is
+	// invoiced — is no longer work anybody could do (#581).
+	if got := getNeedsAttentionCount(t, operatorSessionID); got != 0 {
+		t.Fatalf("needs-attention count = %d; want 0 — every document of this Sale is dead, and the Sale has its factura", got)
+	}
 }
 
 // TestIssueAgainWorksFromAnAnnulledSaleInvoice is the absorbed #480 case: a

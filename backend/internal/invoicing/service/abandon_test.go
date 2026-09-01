@@ -168,6 +168,14 @@ func TestAbandonRefusal(t *testing.T) {
 // The fresh Check is deliberately NOT part of this: a document that
 // qualifies for Abandon but has not been checked must be checked, never
 // annulled instead — otherwise the falsehood is one stale minute away.
+//
+// QUALIFIES is the whole of the narrowing, and the pending row is what
+// proves it means something. The two guards ask one question
+// (abandonableState), so every document keeps exactly one act: a code-45
+// document the authority is still holding is not abandonable, so Mark
+// annulled stays open on it. Refusing there as well would hand the
+// operator a document with no escape at all — this epic's own dead end,
+// rebuilt one state to the left.
 func TestMarkAnnulledIsRefusedWhereAbandonQualifies(t *testing.T) {
 	cases := []struct {
 		name string
@@ -175,11 +183,11 @@ func TestMarkAnnulledIsRefusedWhereAbandonQualifies(t *testing.T) {
 		want string
 	}{
 		{"parked and refused by number", abandonable, "INVOICE_ABANDON_INSTEAD"},
-		{"pending and refused by number: the portal shows nothing either way", func() invoicing.Invoice {
+		{"pending and refused by number: Abandon will not take it, so Mark annulled must", func() invoicing.Invoice {
 			i := abandonable()
 			i.Status = invoicing.InvoiceStatusPending
 			return i
-		}, "INVOICE_ABANDON_INSTEAD"},
+		}, ""},
 		{"parked for another refusal: the portal act is still the operator's to record", func() invoicing.Invoice {
 			return numberRefusedInvoice(authorityError("35"))
 		}, ""},

@@ -160,16 +160,6 @@ type Outcome struct {
 	// outcome" and keeps the artifact on file as it was, since what the
 	// authority holds is the earlier send (#455).
 	AlreadyHeld bool
-	// RefusedByNumber is set with OutcomeRejected when the authority refused
-	// the document for the NUMBER it carries rather than for anything in it
-	// (SRI 45 "secuencial registrado", #576, ADR 0068). Nothing branches on
-	// it here: the invoice keeps the authority's messages verbatim and every
-	// reader asks RefusedByNumberIn of those, so a document refused before
-	// this code existed answers the same as one refused after it. It is on
-	// the Outcome because a refusal that no ordinary remedy can mend should
-	// be legible where the answer is first understood, not only where it is
-	// later read back.
-	RefusedByNumber bool
 	// AuthorizationNumber and AuthorizationDate are set only when State is
 	// OutcomeAuthorized: the authority's number for the legal artifact (in
 	// Ecuador the clave de acceso itself) and when it granted it.

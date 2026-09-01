@@ -151,12 +151,22 @@ func issuableAgainDocument(inv *invoicing.Invoice) error {
 // the point. Then the live replacement, which is the invariant this act
 // could otherwise break — one Sale, one factura owed at a time.
 //
-// LIVE IS #579'S LIVE. SupersededByInvoiceID names the successor only while
-// it is not itself withdrawn, annulled or abandoned, so a Sale whose
-// replacement ALSO died reads as unreplaced and is issued again — the
-// second hop, and the first behavioural exercise migration 120's widened
-// index has had. The new live successor is written into a slot a dead row
-// still occupies in the old index, and the write proves the new one.
+// THE REPLACEMENT IS REFUSED ON THE SALE'S FACTURA, NOT THE DOCUMENT'S
+// SUCCESSOR. Both are asked, and they answer different questions. The
+// document's own successor is the direct case and carries the plainer
+// story — "this document has already been replaced, open the replacement"
+// — but it agrees with the invariant only on a chain one hop long: with 1
+// replaced by 2 and 2 replaced by a live 3, document 1's successor is dead,
+// so 1 reads unreplaced while its Sale is perfectly well invoiced. The
+// Sale's fact is what actually holds the line #575 story 41 draws, that the
+// buyer ends with exactly one valid factura.
+//
+// LIVE IS #579'S LIVE throughout. A replacement that is itself withdrawn,
+// annulled or abandoned stands for nothing, so a Sale whose every document
+// has died is issued again — the second hop, and the first behavioural
+// exercise migration 120's widened index has had. The new live successor is
+// written into a slot a dead row still occupies in the old index, and the
+// write proves the new one.
 func issueAgainRefusal(inv *invoicing.Invoice, facts repository.IssueAgainSaleFacts) error {
 	if err := issuableAgainDocument(inv); err != nil {
 		return err
@@ -164,7 +174,7 @@ func issueAgainRefusal(inv *invoicing.Invoice, facts repository.IssueAgainSaleFa
 	switch {
 	case facts.SaleStatus == "reversed":
 		return invoicing.ErrInvoiceSaleReversed()
-	case inv.SupersededByInvoiceID != "":
+	case inv.SupersededByInvoiceID != "", facts.SaleHasLiveFactura:
 		return invoicing.ErrInvoiceAlreadyReplaced()
 	}
 	return nil

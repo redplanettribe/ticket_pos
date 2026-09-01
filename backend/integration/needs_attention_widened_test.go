@@ -102,8 +102,10 @@ func TestAbandonedSaleWaitsInTheQueueUntilIssuedAgain(t *testing.T) {
 // again and both dead documents are back in front of the operator — who
 // still has one press that clears them both, from either end of the chain.
 //
-// The queue is a queue of DOCUMENTS, not of Sales, so one Sale contributing
-// two rows here is the honest reading and not a miscount.
+// The queue LISTS documents but ASKS ABOUT SALES: a row is here because its
+// Sale has no factura standing for it, which is why one Sale can contribute
+// two rows while both its documents are dead, and why a single Issue again
+// takes both away.
 func TestAnAbandonedSaleReturnsToTheQueueWhenItsReplacementDies(t *testing.T) {
 	_, operatorSessionID, firstID := abandonedSaleInvoice(t)
 	second := issueAgainOK(t, operatorSessionID, firstID, nil)
@@ -146,15 +148,19 @@ func TestAnAbandonedSaleReturnsToTheQueueWhenItsReplacementDies(t *testing.T) {
 		t.Fatalf("queue = %+v; want the original %s and its dead replacement %s", queue.Data, firstID, second.ID)
 	}
 
-	// One press from the end of the chain clears both: the third document
-	// supersedes the second, and the first is no longer unreplaced either,
-	// because the chain it starts ends in something live.
+	// ONE PRESS FROM EITHER END CLEARS BOTH, because the question the queue
+	// asks is the SALE's: has a factura been owed for it? The third document
+	// answers yes for every dead document of the Sale at once, including the
+	// first, whose own successor is still dead and always will be. Asking it
+	// of each document instead would leave the first here forever — an entry
+	// no press could clear, since Issue again on it is refused for the same
+	// reason it has left the queue (INVOICE_ALREADY_REPLACED).
 	issueAgainOK(t, operatorSessionID, second.ID, nil)
-	if n := getNeedsAttentionCount(t, operatorSessionID); n != 1 {
-		t.Fatalf("count after the second Issue again = %d; want 1 — the first document is still unreplaced in its own right", n)
+	if n := getNeedsAttentionCount(t, operatorSessionID); n != 0 {
+		t.Fatalf("count after the second Issue again = %d; want 0 — the Sale is owed a factura again, so neither dead document is work", n)
 	}
-	if queue := getNeedsAttentionQueue(t, operatorSessionID); len(queue.Data) != 1 || queue.Data[0].ID != firstID {
-		t.Fatalf("queue = %+v; want the first document alone", queue.Data)
+	if queue := getNeedsAttentionQueue(t, operatorSessionID); len(queue.Data) != 0 {
+		t.Fatalf("queue = %+v; want it empty", queue.Data)
 	}
 }
 

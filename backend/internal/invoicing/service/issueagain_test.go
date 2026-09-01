@@ -98,6 +98,16 @@ func TestIssueAgainRefusalAnswersByKindThenStateThenSale(t *testing.T) {
 			i.SupersededByInvoiceID = "replacement"
 			return i
 		}, stands, "INVOICE_ALREADY_REPLACED"},
+
+		// The Sale's own factura, which is the invariant the document's
+		// successor only approximates. This row is the two-hop chain: the
+		// dead document's successor died too, so it reads unreplaced, while
+		// a third document stands for the Sale. Owing another here is what
+		// would leave the buyer with two valid facturas.
+		{"the sale already has a factura, though this document's successor died", abandonedFactura,
+			repository.IssueAgainSaleFacts{SaleStatus: "active", SaleHasLiveFactura: true}, "INVOICE_ALREADY_REPLACED"},
+		{"reversed sale outranks the sale's factura", abandonedFactura,
+			repository.IssueAgainSaleFacts{SaleStatus: "reversed", SaleHasLiveFactura: true}, "INVOICE_SALE_REVERSED"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

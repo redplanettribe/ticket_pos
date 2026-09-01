@@ -45,13 +45,25 @@ import (
 // rather than forking the chain.
 
 // IssueAgainSaleFacts is what Issue again is decided on beyond the dead
-// document's own row, read under the Sale's lock. One field, and the file
-// comment says why there is not a fourth of the reissue's.
+// document's own row, read under the Sale's lock. Two fields, and the file
+// comment says why neither of the reissue's Credit Note questions is here.
 type IssueAgainSaleFacts struct {
 	// SaleStatus is the Ticket Sale's status as it stands: committed, or
 	// reversed. Never "" — a document with no Sale is not of kind sale, and
 	// the service's guard has refused it long before this transaction.
 	SaleStatus string
+	// SaleHasLiveFactura says a Sale Invoice already stands for the Ticket
+	// Sale: one not terminally dead, unsuperseded by a live successor and
+	// uncancelled by an authorized Credit Note (saleHasLiveFactura).
+	//
+	// THIS IS THE INVARIANT, AND THE DEAD DOCUMENT'S OWN SUCCESSOR IS NOT.
+	// A Sale is owed one factura at a time, and asking the document instead
+	// answers a narrower question that agrees only on a chain one hop long:
+	// with 1 replaced by 2 and 2 replaced by a live 3, document 1's own
+	// successor is dead, so 1 reads unreplaced and Issue again on it would
+	// owe the Sale a second live factura — leaving the buyer two, which is
+	// exactly what #575 story 41 forbids.
+	SaleHasLiveFactura bool
 }
 
 // IssueSaleInvoiceAgain runs Issue again's transaction. decide is called
@@ -81,6 +93,11 @@ func (r *Repository) IssueSaleInvoiceAgain(ctx context.Context, deadID string, d
 			SELECT status FROM ticket_sales WHERE id = $1 FOR UPDATE
 		`, ticketSaleID.String).Scan(&facts.SaleStatus); err != nil {
 			return "", fmt.Errorf("issue again: lock sale: %w", err)
+		}
+		// Read after the lock, so what it reports is what stands for the
+		// Sale no other writer can be changing.
+		if err := tx.QueryRowContext(ctx, `SELECT `+saleHasLiveFactura("$1"), ticketSaleID.String).Scan(&facts.SaleHasLiveFactura); err != nil {
+			return "", fmt.Errorf("issue again: read live factura of sale: %w", err)
 		}
 	}
 

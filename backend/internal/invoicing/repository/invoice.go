@@ -477,7 +477,52 @@ func (r *Repository) AbandonInvoice(ctx context.Context, invoiceID, abandonedBy,
 // LIVE MEANS NOT TERMINALLY DEAD (#579, ADR 0068); the invoiceFrom comment
 // below spells the three deaths and why a successor that died supersedes
 // nothing.
-const liveSuccessorID = `(SELECT s.id FROM invoicing_invoices s WHERE s.supersedes_invoice_id = i.id AND s.status NOT IN ('withdrawn', 'annulled', 'abandoned') ORDER BY s.created_at DESC, s.id DESC LIMIT 1)`
+// terminallyDeadSQL is the three deaths ADR 0068 rules — withdrawn,
+// abandoned, annulled — as SQL, so that every reader below spells them
+// once. invoicing.TerminallyDead is the same list in Go; the two are the
+// same rule on the two sides of the wire, and a fourth death must land in
+// both.
+const terminallyDeadSQL = `('withdrawn', 'annulled', 'abandoned')`
+
+const liveSuccessorID = `(SELECT s.id FROM invoicing_invoices s WHERE s.supersedes_invoice_id = i.id AND s.status NOT IN ` + terminallyDeadSQL + ` ORDER BY s.created_at DESC, s.id DESC LIMIT 1)`
+
+// creditedByLiveID is the Credit Note that credits this document, if a
+// live one does: a withdrawn, annulled or abandoned Credit Note credits
+// nothing (#484, and #578 for the third death).
+const creditedByLiveID = `(SELECT c.id FROM invoicing_invoices c WHERE c.credits_invoice_id = i.id AND c.status NOT IN ` + terminallyDeadSQL + ` ORDER BY c.created_at DESC, c.id DESC LIMIT 1)`
+
+// saleHasLiveFactura is "this Ticket Sale already has a Sale Invoice
+// standing for it", for a Sale id expression the caller supplies. THE
+// QUESTION IS ASKED OF THE SALE, NEVER OF ONE DOCUMENT (#580, #581, ADR
+// 0068: "abandoned documents whose Sale still stands and has no live
+// replacement"). A document only knows its own successor, and over a chain
+// of more than one hop that is not the same question: with 1 replaced by 2
+// and 2 replaced by a live 3, document 1's own successor is dead, so 1
+// reads unreplaced while its Sale is perfectly well invoiced. Asking the
+// document there would let Issue again owe a second live factura for one
+// Sale, and would leave 1 in the needs-attention queue with no press that
+// could ever clear it.
+//
+// A factura STANDS for its Sale when it is not itself terminally dead, no
+// live successor has taken its place, and no authorized Credit Note has
+// cancelled it. The last clause is what keeps #480's case reachable: a
+// factura corrected by a reissue is credited by an authorized Credit Note,
+// so when the correction is later annulled at the portal the Sale is owed
+// another document and Issue again must be offered, not refused because
+// the credited original still reads live.
+func saleHasLiveFactura(saleID string) string {
+	return `EXISTS (
+		SELECT 1 FROM invoicing_invoices f
+		WHERE f.ticket_sale_id = ` + saleID + `
+		  AND f.kind = 'sale'
+		  AND f.status NOT IN ` + terminallyDeadSQL + `
+		  AND NOT EXISTS (
+			SELECT 1 FROM invoicing_invoices s
+			WHERE s.supersedes_invoice_id = f.id AND s.status NOT IN ` + terminallyDeadSQL + `)
+		  AND NOT EXISTS (
+			SELECT 1 FROM invoicing_invoices c
+			WHERE c.credits_invoice_id = f.id AND c.status = 'authorized'))`
+}
 
 const invoiceColumns = `
 	i.id, i.kind, i.issuer_id, i.country, i.environment, i.status, i.issued_on, i.issued_at, i.issued_by,
@@ -485,7 +530,7 @@ const invoiceColumns = `
 	i.issuer_snapshot, i.currency, i.subtotal_cents, i.discount_cents, i.iva_cents, i.total_cents, i.payment_method,
 	i.signed_xml, i.authorization_xml, i.last_messages,
 	i.ticket_sale_id, ts.confirmation_ref, i.credits_invoice_id, i.credit_note_reason, i.iva_rate, i.delivered_at, i.next_attempt_at,
-	(SELECT c.id FROM invoicing_invoices c WHERE c.credits_invoice_id = i.id AND c.status NOT IN ('withdrawn', 'annulled', 'abandoned') ORDER BY c.created_at DESC, c.id DESC LIMIT 1),
+	` + creditedByLiveID + `,
 	i.attention_since, i.annulled_by, i.annulled_at, i.recipient_warning,
 	i.abandoned_by, i.abandoned_at, i.abandon_note,
 	i.supersedes_invoice_id,
@@ -642,10 +687,14 @@ func (r *Repository) ListInvoices(ctx context.Context, filter InvoiceFilter, pag
 //     again — #580 refuses both by their own codes, and a manual document is
 //     typed again by hand — so a row for either could never be cleared by
 //     any press the platform offers, and a permanent row is not a queue.
-//   - no live successor, read from liveSuccessorID and NEVER re-derived.
-//     It is #579's live: a replacement that is itself withdrawn, annulled or
-//     abandoned stands for nothing, so its predecessor's Sale is unreplaced
-//     again and returns to the queue, where the operator can still act.
+//   - the SALE has no factura standing for it, read from saleHasLiveFactura
+//     and NEVER re-derived. Asked of the Sale and not of the document, for
+//     the reason that function gives: over a chain of more than one hop a
+//     document whose own successor died reads unreplaced while its Sale is
+//     invoiced, and queueing it would post work no press could clear. It is
+//     #579's live throughout — a replacement that is itself withdrawn,
+//     annulled or abandoned stands for nothing, so a Sale whose every
+//     document has died returns to the queue, where the operator can act.
 //   - the Sale still stands. Income that no longer stands is never declared
 //     at all, so a reversed Sale is owed nothing; it is also the fact Issue
 //     again refuses on (INVOICE_SALE_REVERSED), so a queued reversed Sale
@@ -653,14 +702,15 @@ func (r *Repository) ListInvoices(ctx context.Context, filter InvoiceFilter, pag
 //     document with no Ticket Sale answers NULL here and is excluded, which
 //     is the same answer as the kind clause and deliberately redundant with
 //     it.
-const needsAttentionWhere = `
+var needsAttentionWhere = `(
 	i.status = 'needs_attention'
 	OR (
 		i.status = 'abandoned'
 		AND i.kind = 'sale'
 		AND ts.status <> 'reversed'
-		AND ` + liveSuccessorID + ` IS NULL
-	)`
+		AND NOT ` + saleHasLiveFactura("i.ticket_sale_id") + `
+	)
+)`
 
 // needsAttentionOrder is the composition of the queue's TWO ORDERINGS, and
 // the reason it needed a second sort key (#581): `attention_since` is NULL
