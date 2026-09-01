@@ -44,7 +44,7 @@ type LoginPageProps = {
  * null on every failure, which renders the ordinary sign-in card — a card with
  * no acceptance step on it at all, offered to somebody the gate is holding.
  * A language the current edition does not publish is now floored at the
- * PREVAILING one, exactly as identity/service/terms.go's acceptanceLabel does
+ * PREVAILING one, exactly as identity/service/terms.go's termsGateLabels does
  * for the same reason: falling back to the text that legally binds them is the
  * only safe answer, and the reader gets a link to the Spanish page rather than
  * a link to a not-found one. An organizer must never be past this gate because
@@ -67,6 +67,7 @@ async function pendingTermsFromCookie(locale: AppLocale): Promise<HeldTerms | nu
 
   const step = await termsStepIn(locale);
   if (step) {
+    await refuseAHalfPublishedDeclaration(step, locale);
     return step;
   }
 
@@ -80,6 +81,45 @@ async function pendingTermsFromCookie(locale: AppLocale): Promise<HeldTerms | nu
     "the current Terms edition publishes no acceptance label in the prevailing locale; " +
       "refusing to render a sign-in card with no acceptance step on it",
   );
+}
+
+/**
+ * Refuses to render a Google terms step that is MISSING a box the edition owes
+ * (#587, ADR 0069).
+ *
+ * WHETHER AN EDITION ASKS IS A FACT ABOUT THE EDITION, not about the reader:
+ * the Spanish text is the contract (§37) and the English one is its courtesy
+ * translation, so the backend answers "does this edition ask?" from the
+ * prevailing document and owes the box to everybody or to nobody. This page
+ * cannot see that from one Locale's payload — the public terms endpoint answers
+ * strictly, and "this edition does not ask" and "this translation is missing
+ * the artifact" arrive looking identical — so where the reader's step carries
+ * no declaration label it asks the prevailing text as well.
+ *
+ * Then it THROWS rather than rendering, exactly as the missing-acceptance-label
+ * case above does and for the same reason: the API is about to refuse a
+ * submission with no declaration on it, so a card drawing only the Terms box
+ * looks like a way in and is not. It is an incomplete publish — the Legal Draft
+ * authors both languages in parallel columns precisely so it cannot happen by
+ * accident — and the backend's own gate refuses it identically on the passcode
+ * door and the interstitial.
+ *
+ * The extra read costs a request on the rare Google-held terms step, and only
+ * where the reader's own text carries no declaration. It buys the one thing
+ * worth buying: nobody is ever shown a sign-in card missing a mandatory box.
+ */
+async function refuseAHalfPublishedDeclaration(step: HeldTerms, locale: AppLocale): Promise<void> {
+  if (step.step.adulthoodDeclarationLabel) {
+    return;
+  }
+  const prevailing =
+    step.locale === TERMS_PREVAILING_LOCALE ? step : await termsStepIn(TERMS_PREVAILING_LOCALE);
+  if (prevailing?.step.adulthoodDeclarationLabel) {
+    throw new Error(
+      `the current Terms edition asks the adulthood declaration but publishes no label for it ` +
+        `in ${locale}; refusing to render a sign-in card missing a mandatory box`,
+    );
+  }
 }
 
 /**
@@ -101,15 +141,21 @@ type HeldTerms = { step: PendingTermsStep; locale: AppLocale };
  */
 async function termsStepIn(locale: AppLocale): Promise<HeldTerms | null> {
   try {
-    const envelope = await callBackend<{ acceptance_label: string; version: string }>(
-      `/api/v1/public/terms/${locale}`,
-    );
+    const envelope = await callBackend<{
+      acceptance_label: string;
+      // Absent from the payload when this edition carries no
+      // `label-adulthood-declaration` artifact (#587, ADR 0069). Its presence
+      // is the whole of whether the second box is drawn.
+      adulthood_declaration_label?: string;
+      version: string;
+    }>(`/api/v1/public/terms/${locale}`);
     if (!envelope.data?.acceptance_label) {
       return null;
     }
     return {
       step: {
         acceptanceLabel: envelope.data.acceptance_label,
+        adulthoodDeclarationLabel: envelope.data.adulthood_declaration_label ?? null,
         version: envelope.data.version,
         tokenInCookie: true,
       },

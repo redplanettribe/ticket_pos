@@ -34,6 +34,7 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => ({}))) as {
       pending_terms_token?: string;
       terms_acceptance?: boolean;
+      adulthood_declaration?: boolean;
     };
     const cookieStore = await cookies();
     const token = body.pending_terms_token || cookieStore.get(PENDING_TERMS_COOKIE)?.value || "";
@@ -43,6 +44,11 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         pending_terms_token: token,
         terms_acceptance: body.terms_acceptance === true,
+        // The Adulthood Declaration (#587, ADR 0069), relayed as given and
+        // never upgraded: an answer this route does not have is false, and
+        // false where the pinned edition asks is refused by the API before a
+        // session is minted. The API ignores it where the edition does not ask.
+        adulthood_declaration: body.adulthood_declaration === true,
       }),
     });
 

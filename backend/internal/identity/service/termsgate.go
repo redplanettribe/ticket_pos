@@ -80,7 +80,7 @@ func (s *Service) TermsOutstanding(ctx context.Context, email string) (bool, err
 //
 // pageLocale is the language the staff app is rendered in for this reader. The
 // label is served in it, floored at the prevailing text when this edition does
-// not publish it (acceptanceLabel), and the locale ACTUALLY served comes back
+// not publish it (termsGateLabels), and the locale ACTUALLY served comes back
 // on the view so the link beside the box opens the document the words came
 // from.
 func (s *Service) StaffTermsGate(ctx context.Context, email string, pageLocale platform.Locale) (*TermsRequiredView, error) {
@@ -101,6 +101,11 @@ type SessionTermsAcceptance struct {
 	Token string
 	// TermsAcceptance is the required box.
 	TermsAcceptance bool
+	// AdulthoodDeclaration is the second required box, owed iff the edition this
+	// token pinned carries the Artifact (#587, ADR 0069). Absent is false, and
+	// false where owed is refused WITHOUT SPENDING THE TOKEN, exactly as an
+	// unticked Terms box is on this path.
+	AdulthoodDeclaration bool
 	// Evidence is derived from the request by the handler, never from the body.
 	Evidence consent.Evidence
 }
@@ -118,28 +123,62 @@ type SessionTermsAcceptance struct {
 // locale beside it). The request that ticks a box renders no text and knows
 // neither.
 //
-// THE UNTICKED BOX IS JUDGED BEFORE THE TOKEN IS SPENT, which is the one place
-// this departs from the sign-in door. There, spending first is deliberate: the
-// token is a Proof of Email Ownership, and a refused submission must not be
-// retriable against the same proof. Here the token proves nothing — the session
-// is the credential — so burning it would only cost the person a page reload
-// for having clicked the wrong thing, and the recovery from the sign-in door's
-// version of that is a passcode this ticket exists to avoid spending.
+// EVERY UNTICKED BOX IS JUDGED BEFORE THE TOKEN IS SPENT, which is the one
+// place this departs from the sign-in door. There, spending first is
+// deliberate: the token is a Proof of Email Ownership, and a refused submission
+// must not be retriable against the same proof. Here the token proves nothing —
+// the session is the credential — so burning it would only cost the person a
+// page reload for having clicked the wrong thing, and the recovery from the
+// sign-in door's version of that is a passcode this ticket exists to avoid
+// spending. The Adulthood Declaration is held to the identical rule (#587): a
+// Member re-gated mid-work who misses the second box ticks it and carries on,
+// at the cost of one click.
+//
+// WHICH IS WHY THE TOKEN IS PEEKED AT AND ONLY THEN CONSUMED. Judging the
+// second box needs the edition the token pinned, and the token is where that
+// lives — so the row is read, both boxes are judged against it, and the consume
+// happens on the far side of the judging. The peek can go stale between the two
+// (another tab), and the consume answering nil is the same indistinguishable
+// refusal an unknown token gets, so nothing is trusted to the earlier read that
+// the later one does not confirm.
 func (s *Service) AcceptTermsOnSession(ctx context.Context, submission SessionTermsAcceptance) error {
-	if !submission.TermsAcceptance {
-		return identity.ErrTermsAcceptanceRequired()
-	}
-
-	pending, err := s.repo.ConsumePendingStaffTerms(ctx, submission.Token)
-	if err != nil {
-		return err
-	}
-	now := s.now()
 	// Unknown, spent, expired, or issued to somebody else: one refusal,
 	// deliberately indistinguishable. The email check is what stops a token
 	// obtained for one address from being redeemed by another's session — it
 	// would buy an acceptance in the wrong person's name, which is the only
 	// thing a stolen gate token could ever be worth.
+	held, err := s.repo.PendingStaffTerms(ctx, submission.Token)
+	if err != nil {
+		return err
+	}
+	now := s.now()
+	if held == nil || now.After(held.ExpiresAt) ||
+		!strings.EqualFold(held.Email, submission.Email) {
+		return identity.ErrPendingTermsInvalid()
+	}
+
+	if !submission.TermsAcceptance {
+		return identity.ErrTermsAcceptanceRequired()
+	}
+	asks, err := s.editionAsksAdulthoodDeclaration(ctx, held.TermsVersionID)
+	if err != nil {
+		return err
+	}
+	// Refused with nothing written and nothing spent: no acceptance row, no
+	// session touched, and the same box still there to tick. The platform keeps
+	// no record of anybody who says they are a minor, and on this path it does
+	// not even cost them the page.
+	if asks && !submission.AdulthoodDeclaration {
+		return consent.ErrAdulthoodDeclarationRequired()
+	}
+
+	// Now spend it. Everything recorded below comes from the row this returns
+	// rather than from the peek above, so a token consumed by another tab in
+	// between records nothing here.
+	pending, err := s.repo.ConsumePendingStaffTerms(ctx, submission.Token)
+	if err != nil {
+		return err
+	}
 	if pending == nil || now.After(pending.ExpiresAt) ||
 		!strings.EqualFold(pending.Email, submission.Email) {
 		return identity.ErrPendingTermsInvalid()
@@ -155,6 +194,8 @@ func (s *Service) AcceptTermsOnSession(ctx context.Context, submission SessionTe
 		SessionID:       submission.SessionID,
 		OriginURL:       submission.Evidence.OriginURL,
 		PresentedLocale: pending.LabelLocale,
+		// True or nil, never false: the untick was refused above (#587).
+		AdulthoodDeclaration: declaredAdulthood(asks),
 	})
 }
 

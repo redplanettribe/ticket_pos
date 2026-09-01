@@ -20,9 +20,20 @@ import (
 type staffTermsGateBody struct {
 	// GateToken is the single-use token the interstitial's read handed out.
 	GateToken string `json:"gate_token"`
-	// TermsAcceptance is the one required box. Absent is false and false is
+	// TermsAcceptance is the first required box. Absent is false and false is
 	// refused by the API, not merely by a disabled button.
 	TermsAcceptance bool `json:"terms_acceptance"`
+	// AdulthoodDeclaration is the second (#587, ADR 0069): the affirmation that
+	// this person is eighteen or older, made in the same act that accepts the
+	// Terms. Absent is false here too — the staff side's settled treatment of a
+	// required box — and false where the pinned edition asks is refused with
+	// ADULTHOOD_DECLARATION_REQUIRED, writing nothing and spending nothing.
+	//
+	// IT CARRIES NO AGE AND NO EDITION. There is no birthdate, no age and no
+	// threshold on this body or anywhere else in the platform: the eighteen is a
+	// number in prose inside the published artifact, and what is recorded is
+	// that somebody declared, never that anything was verified.
+	AdulthoodDeclaration bool `json:"adulthood_declaration"`
 }
 
 // staffTermsGateView is the interstitial's read: what this signed-in person
@@ -60,7 +71,7 @@ type staffTermsAcceptedView struct {
 // It costs the session nothing: no passcode, no re-mint, no revocation.
 //
 // @Summary      What a signed-in staff member owes the Terms gate
-// @Description  Reports whether the authenticated Staff Session's holder owes a Staff Terms Acceptance of an edition that still satisfies the gate, and when they do, returns the box to show: the edition label, the acceptance label as the published artifact words it, the language that label was actually served in, and a short-lived single-use `pending_terms_token` that pins both server-side. `locale` is the language the staff app is rendered in for this reader; a language the current edition does not publish is floored at the prevailing one rather than served blank. Reading this revokes nothing, mints nothing and spends no passcode — the session is untouched (#570, ADR 0067).
+// @Description  Reports whether the authenticated Staff Session's holder owes a Staff Terms Acceptance of an edition that still satisfies the gate, and when they do, returns the box to show: the edition label, the acceptance label as the published artifact words it, the language that label was actually served in, and a short-lived single-use `pending_terms_token` that pins both server-side. `locale` is the language the staff app is rendered in for this reader; a language the current edition does not publish is floored at the prevailing one rather than served blank. THE ADULTHOOD DECLARATION rides the same box (#587, ADR 0069): `adulthood_declaration_label` is present, worded by the published artifact in the same language as the acceptance label, exactly when the edition in effect carries the `label-adulthood-declaration` artifact — and absent otherwise, which is how a surface knows not to draw a second checkbox. Reading this revokes nothing, mints nothing and spends no passcode — the session is untouched (#570, ADR 0067).
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth
@@ -80,7 +91,7 @@ func (h *Handler) GetStaffTermsGate(w http.ResponseWriter, r *http.Request) {
 	// this is a browser's guess about a page, not a person's stated choice, and
 	// a malformed one must never be the reason somebody cannot be shown the
 	// contract. Anything unrecognised falls to the platform default, which
-	// acceptanceLabel then floors at the prevailing text if the edition does not
+	// termsGateLabels then floors at the prevailing text if the edition does not
 	// publish it.
 	pageLocale := platform.DefaultLocale
 	if parsed, ok := platform.ParseLocale(r.URL.Query().Get("locale")); ok {
@@ -103,7 +114,7 @@ func (h *Handler) GetStaffTermsGate(w http.ResponseWriter, r *http.Request) {
 // for, without touching the session (#570, ADR 0067).
 //
 // @Summary      Accept the Terms from a signed-in session
-// @Description  Records one append-only Staff Terms Acceptance for the authenticated Staff Session's holder — the edition and language pinned on the `gate_token` when the interstitial rendered the box, the capacity "organizer", the timestamp, and the technical proof (IP, user agent, session, origin URL). `terms_acceptance` must be true; an unticked box is refused with TERMS_ACCEPTANCE_REQUIRED and does NOT spend the token, because the token proves nothing here — the session is the credential. A token issued to another address is refused indistinguishably from an unknown or expired one. Nothing is minted, re-minted or revoked and no passcode is spent: the caller resumes the navigation the gate diverted (#570, ADR 0067).
+// @Description  Records one append-only Staff Terms Acceptance for the authenticated Staff Session's holder — the edition and language pinned on the `gate_token` when the interstitial rendered the box, the capacity "organizer", the timestamp, and the technical proof (IP, user agent, session, origin URL). `terms_acceptance` must be true; an unticked box is refused with TERMS_ACCEPTANCE_REQUIRED and does NOT spend the token, because the token proves nothing here — the session is the credential. `adulthood_declaration` must be true wherever the pinned edition carries the `label-adulthood-declaration` artifact — that is, wherever the gate read returned `adulthood_declaration_label` — and is ignored where it does not; absent is false, and false where owed is refused with ADULTHOOD_DECLARATION_REQUIRED, which likewise spends no token, records no acceptance and leaves no row of any kind: the platform keeps no record of anybody who says they are a minor (#587, ADR 0069). A recorded declaration is stored on the same acceptance row as `adulthood_declaration = true`, under the pinned edition; an edition that does not ask records a null there, meaning the act never asked. No age, birthdate or threshold is collected anywhere. A token issued to another address is refused indistinguishably from an unknown or expired one. Nothing is minted, re-minted or revoked and no passcode is spent: the caller resumes the navigation the gate diverted (#570, ADR 0067).
 // @Tags         staff
 // @Accept       json
 // @Produce      json
@@ -136,9 +147,10 @@ func (h *Handler) AcceptStaffTermsOnSession(w http.ResponseWriter, r *http.Reque
 	if err := h.svc.AcceptTermsOnSession(r.Context(), service.SessionTermsAcceptance{
 		SessionID: session.SessionID,
 		// The person is the SESSION'S, never the body's.
-		Email:           session.Email,
-		Token:           body.GateToken,
-		TermsAcceptance: body.TermsAcceptance,
+		Email:                session.Email,
+		Token:                body.GateToken,
+		TermsAcceptance:      body.TermsAcceptance,
+		AdulthoodDeclaration: body.AdulthoodDeclaration,
 		// The technical proof is derived from the REQUEST — the one spelling
 		// every capture surface in every module shares.
 		Evidence: consent.EvidenceFromRequest(r),

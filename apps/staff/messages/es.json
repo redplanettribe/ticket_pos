@@ -2029,6 +2029,7 @@
       "OTP_EXPIRED": "Ese código caducó. Solicite uno nuevo.",
       "OTP_ATTEMPTS_EXCEEDED": "Demasiados intentos incorrectos. Solicite un código nuevo.",
       "GOOGLE_SIGN_IN_FAILED": "No pudimos completar su inicio de sesión con Google. Vuelva a intentarlo o use un código.",
+      "ADULTHOOD_DECLARATION_REQUIRED": "Debe ser mayor de edad para usar Multiticketing.",
       "IMPORT_FILE_INVALID": "No pudimos leer ese archivo. Use la plantilla y suba un .csv o un .xlsx.",
       "IMPORT_FILE_TOO_LARGE": "Ese archivo es demasiado grande para importarlo. Divídalo en archivos más pequeños e impórtelos uno a uno.",
       "IMPORT_BATCH_FAILED": "No se pudo registrar la importación. Revise la vista previa y vuelva a intentarlo.",

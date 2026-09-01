@@ -2029,6 +2029,7 @@
       "OTP_EXPIRED": "That passcode has expired. Request a new one.",
       "OTP_ATTEMPTS_EXCEEDED": "Too many incorrect attempts. Request a new passcode.",
       "GOOGLE_SIGN_IN_FAILED": "We couldn't finish signing you in with Google. Try again, or use a passcode.",
+      "ADULTHOOD_DECLARATION_REQUIRED": "You must be eighteen or older to use Multiticketing.",
       "IMPORT_FILE_INVALID": "We couldn't read that file. Use the template and upload a .csv or .xlsx.",
       "IMPORT_FILE_TOO_LARGE": "That file is too large to import. Split it into smaller files and import them one at a time.",
       "IMPORT_BATCH_FAILED": "The import couldn't be recorded. Review the preview and try again.",

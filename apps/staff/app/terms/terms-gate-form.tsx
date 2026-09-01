@@ -7,6 +7,7 @@ import { FormEvent, useState } from "react";
 
 import { LanguageSwitcher } from "@/app/language-switcher";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { asksAdulthoodDeclaration, termsGateAnswersComplete } from "@/lib/terms-gate";
 
 type TermsGateFormProps = {
   /**
@@ -15,6 +16,18 @@ type TermsGateFormProps = {
    * or pre-ticked.
    */
   acceptanceLabel: string;
+  /**
+   * The Adulthood Declaration's own checkbox words, or null when the edition in
+   * effect does not carry the artifact and therefore asks nothing (#587,
+   * ADR 0069).
+   *
+   * A SECOND BOX AND NEVER A REWORDING OF THE FIRST. A combined tick would
+   * evidence only that somebody accepted a document containing an age sentence,
+   * which is the inference this feature exists to replace; and the two refusals
+   * mean different things — declining the Terms is "I do not agree", declining
+   * this is "I am a child", and one control cannot say both.
+   */
+  adulthoodDeclarationLabel: string | null;
   /**
    * The single-use token that pins, server-side, the edition and the language
    * this render showed. It is what makes the acceptance evidence the text that
@@ -48,6 +61,7 @@ type Envelope = {
  */
 export function TermsGateForm({
   acceptanceLabel,
+  adulthoodDeclarationLabel,
   gateToken,
   termsUrl,
   returnPath,
@@ -59,8 +73,14 @@ export function TermsGateForm({
   const router = useRouter();
 
   const [checked, setChecked] = useState(false);
+  // Its own state and its own answer, un-premarked like its neighbour (#587).
+  // False until a person clicks it — never folded into `checked`, because the
+  // two boxes say two different things.
+  const [declared, setDeclared] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const asksDeclaration = asksAdulthoodDeclaration(adulthoodDeclarationLabel);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -71,7 +91,16 @@ export function TermsGateForm({
       const response = await fetch("/api/auth/terms-gate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gate_token: gateToken, terms_acceptance: checked }),
+        body: JSON.stringify({
+          gate_token: gateToken,
+          terms_acceptance: checked,
+          // Sent only where the box was drawn (#587). Where it was drawn and
+          // left unticked this sends `false` and the API refuses it with
+          // ADULTHOOD_DECLARATION_REQUIRED — writing nothing, and, on this
+          // surface, spending nothing: the same token is still good, so the
+          // recovery from a misclick is one click.
+          ...(asksDeclaration ? { adulthood_declaration: declared } : {}),
+        }),
       });
       const envelope = (await response.json()) as Envelope;
 
@@ -132,6 +161,34 @@ export function TermsGateForm({
           />
           <Markdown className="text-sm [&>p]:mt-0">{acceptanceLabel}</Markdown>
         </label>
+        {/*
+          The Adulthood Declaration (#587, ADR 0069): a second, separate,
+          un-premarked box, drawn iff this edition publishes the artifact that
+          words it. Its label is evidence too — hashed into the edition's
+          fingerprint — so nothing here rewords it and no catalog string stands
+          in for it.
+
+          It sits above the link line rather than below, so the two boxes read
+          as the pair of required affirmations they are and the link belongs to
+          both: the declaration is made in the contract's own terms, and the
+          full document is where they are.
+        */}
+        {asksDeclaration && adulthoodDeclarationLabel ? (
+          <label
+            htmlFor="adulthood-declaration"
+            className="flex items-start gap-3 rounded-lg border p-3 text-sm"
+          >
+            <input
+              id="adulthood-declaration"
+              name="adulthood-declaration"
+              type="checkbox"
+              className="mt-1 h-4 w-4 shrink-0"
+              checked={declared}
+              onChange={(event) => setDeclared(event.target.checked)}
+            />
+            <Markdown className="text-sm [&>p]:mt-0">{adulthoodDeclarationLabel}</Markdown>
+          </label>
+        ) : null}
         <a
           href={termsUrl}
           target="_blank"
@@ -140,10 +197,24 @@ export function TermsGateForm({
         >
           {t("linkLabel")}
         </a>
-        {/* Disabled unticked as a courtesy; the API refuses an unticked
-            submission regardless, and refusing costs the person nothing but the
-            click — the token is not spent on a refusal here. */}
-        <Button type="submit" className="w-full" disabled={loading || !checked} aria-busy={loading}>
+        {/* Disabled until EVERY owed box is ticked, as a courtesy; the API
+            refuses an incomplete submission regardless, and refusing costs the
+            person nothing but the click — neither refusal spends the token
+            here. Which boxes are owed is decided in lib/terms-gate, where a
+            test can state a case in one line. */}
+        <Button
+          type="submit"
+          className="w-full"
+          disabled={
+            loading ||
+            !termsGateAnswersComplete({
+              adulthoodDeclarationLabel,
+              termsAccepted: checked,
+              adulthoodDeclared: declared,
+            })
+          }
+          aria-busy={loading}
+        >
           {loading ? t("accepting") : t("accept")}
         </Button>
       </form>

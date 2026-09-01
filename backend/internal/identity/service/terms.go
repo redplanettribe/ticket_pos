@@ -51,9 +51,18 @@ const capacityOrganizer = "organizer"
 // and pinned to it is cleared by accepting it, whichever read went first.
 //
 // consentrepo.Repository satisfies it as-is.
+//
+// TermsEditionByID is the THIRD read, and it answers about the past (#587). The
+// two above are questions about now — what to show, and what clears — while a
+// submission arriving fifteen minutes later carries only a token, and the one
+// thing that must be asked of the edition IT pinned is whether that edition
+// drew the Adulthood Declaration box. Answering that from the current edition
+// would judge a person against words they were never shown, which is the exact
+// failure the pinning exists to prevent.
 type TermsVersionSource interface {
 	CurrentTermsEdition(ctx context.Context) (consentrepo.TermsEdition, error)
 	SatisfyingTermsEditions(ctx context.Context) (legal.SatisfyingSet, error)
+	TermsEditionByID(ctx context.Context, id string) (consentrepo.TermsEdition, error)
 }
 
 // SignInOutcome is what a completed Proof of Email Ownership produces on the
@@ -103,9 +112,32 @@ type TermsRequiredView struct {
 	// page and may not reword or pre-tick it — the Staff app hosts no copy of the
 	// document.
 	AcceptanceLabel string `json:"acceptance_label"`
-	// LabelLocale is the language the label above was ACTUALLY served in, which
-	// is the requested one in the ordinary case and the prevailing one when this
-	// edition publishes no artifact in it (acceptanceLabel's floor).
+	// AdulthoodDeclarationLabel is the SECOND mandatory, un-premarked checkbox's
+	// label, markdown, verbatim from the `label-adulthood-declaration` artifact
+	// in the same language the acceptance label above was served in (#587,
+	// ADR 0069) — ABSENT FROM THE PAYLOAD when the edition being shown does not
+	// carry that Artifact.
+	//
+	// THE FIELD'S PRESENCE IS THE ANSWER TO "DOES THIS EDITION ASK?", which is
+	// why it is omitempty rather than an empty string: "this edition does not
+	// ask" and "this edition asks with nothing written beside the box" must not
+	// look the same on the wire, and the second of those is refused outright
+	// before it can be served (termsGateLabels). A surface draws the box iff the
+	// field arrives, so introducing the declaration is a publish and not a
+	// deploy.
+	//
+	// It is a SEPARATE box and never a rewording of the one above. A combined
+	// tick would evidence only that somebody accepted a document containing an
+	// age sentence, which is the inference ADR 0069 exists to replace; and the
+	// two refusals mean different things — declining the Terms is "I do not
+	// agree", declining this is "I am a child", and one control cannot say both.
+	AdulthoodDeclarationLabel string `json:"adulthood_declaration_label,omitempty"`
+	// LabelLocale is the language the labels above were ACTUALLY served in,
+	// which is the requested one in the ordinary case and the prevailing one
+	// when this edition publishes no artifact in it (termsGateLabels' floor).
+	// ONE value for both boxes, because both are read from one document: a card
+	// wording one box in Spanish and its neighbour in English would be a person
+	// shown two texts and told they were shown one.
 	//
 	// It is on the wire so the link beside the box can open the document the
 	// words came from: a reader floored at the prevailing text needs the Spanish
@@ -124,6 +156,12 @@ type TermsAcceptanceSubmission struct {
 	// TermsAcceptance is the required box. False is refused by the API and not
 	// merely by a disabled button.
 	TermsAcceptance bool
+	// AdulthoodDeclaration is the second required box, judged EXACTLY WHERE IT
+	// WAS OWED — where the edition this token pinned carries the
+	// `label-adulthood-declaration` Artifact, and nowhere else (#587, ADR 0069).
+	// Absent is false there too, and false where owed is refused before the
+	// session is minted and before anything is written.
+	AdulthoodDeclaration bool
 	// Evidence is the technical proof of this act, derived by the handler from
 	// the request itself and never from the body (consent.EvidenceFromRequest —
 	// one spelling for every capture surface in every module).
@@ -188,14 +226,14 @@ func (s *Service) gateOnTerms(ctx context.Context, email string, pageLocale plat
 		ExpiresAt:      now.Add(pendingTermsDuration),
 		CreatedAt:      now,
 	}
-	label, labelLocale, err := acceptanceLabel(edition, pageLocale)
+	labels, err := termsGateLabels(edition, pageLocale)
 	if err != nil {
 		return nil, err
 	}
 	// Pinned beside the edition, and for the same reason (#567): the acceptance
 	// this token buys is written by a LATER request, which knows what was ticked
 	// but not what was shown.
-	pending.LabelLocale = string(labelLocale)
+	pending.LabelLocale = string(labels.locale)
 
 	if err := s.repo.CreatePendingStaffTerms(ctx, pending); err != nil {
 		return nil, err
@@ -205,8 +243,11 @@ func (s *Service) gateOnTerms(ctx context.Context, email string, pageLocale plat
 		PendingTermsToken: token,
 		ExpiresAt:         pending.ExpiresAt.UTC().Format(time.RFC3339),
 		Version:           version.Label,
-		AcceptanceLabel:   label,
-		LabelLocale:       string(labelLocale),
+		AcceptanceLabel:   labels.acceptance,
+		// Empty when this edition does not ask, which drops the field from the
+		// payload and is how a surface knows not to draw the box (#587).
+		AdulthoodDeclarationLabel: labels.adulthood,
+		LabelLocale:               string(labels.locale),
 	}, nil
 }
 
@@ -252,6 +293,24 @@ func (s *Service) AcceptTerms(ctx context.Context, submission TermsAcceptanceSub
 		return nil, identity.ErrTermsAcceptanceRequired()
 	}
 
+	// And the Adulthood Declaration beside it, owed iff THE PINNED EDITION asks
+	// (#587, ADR 0069). The read fails the submission rather than waving it
+	// through, for gateOnTerms' reason: a database hiccup must not be the way
+	// past a contractual box.
+	asks, err := s.editionAsksAdulthoodDeclaration(ctx, pending.TermsVersionID)
+	if err != nil {
+		return nil, err
+	}
+	// REFUSED ABOVE EVERY WRITE, which is the feature and not an ordering
+	// preference. No session has been minted and no acceptance row exists, so a
+	// person who says they are not eighteen leaves this platform holding
+	// NOTHING about that answer. The token is spent, as it is for every outcome
+	// on this path, and starting again costs a passcode — which is what refusing
+	// the Terms costs too, and is the whole of the cost.
+	if asks && !submission.AdulthoodDeclaration {
+		return nil, consent.ErrAdulthoodDeclarationRequired()
+	}
+
 	session, view, err := s.mintStaffSession(ctx, pending.Email, now)
 	if err != nil {
 		return nil, err
@@ -271,6 +330,10 @@ func (s *Service) AcceptTerms(ctx context.Context, submission TermsAcceptanceSub
 		// and the language it is made in says nothing about the language the box
 		// was worded in minutes ago.
 		PresentedLocale: pending.LabelLocale,
+		// True or nil, never false (#587): the only submission that reaches this
+		// line with the box owed is one that ticked it, and an edition that does
+		// not ask records the null that means "this act did not ask".
+		AdulthoodDeclaration: declaredAdulthood(asks),
 	}); err != nil {
 		return nil, err
 	}
@@ -278,7 +341,27 @@ func (s *Service) AcceptTerms(ctx context.Context, submission TermsAcceptanceSub
 	return &SignInOutcome{Session: view, SessionID: session.ID}, nil
 }
 
-// acceptanceLabel is the checkbox's words in one language, taken from the
+// gateLabels is everything a staff terms surface must word: the two checkbox
+// labels, and the one language they were both taken from.
+//
+// TOGETHER, because they come from one document. The floor below can substitute
+// the prevailing text for a language this edition does not publish, and a card
+// that applied that floor to one box and not the other would show a person two
+// texts while recording that it showed them one.
+type gateLabels struct {
+	// acceptance is the Terms box's words. Never empty: an edition that cannot
+	// word it is refused rather than served.
+	acceptance string
+	// adulthood is the Adulthood Declaration box's words, EMPTY when this
+	// edition does not carry the Artifact — which is the whole of "this edition
+	// does not ask" (#587, ADR 0069).
+	adulthood string
+	// locale is the language both labels were actually taken from, which is what
+	// the acceptance row records as the text presented (#567).
+	locale platform.Locale
+}
+
+// termsGateLabels is the checkbox words in one language, taken from the
 // edition that was just read, floored at the prevailing text.
 //
 // The floor is not defensive tidiness: a language this edition does not publish
@@ -301,12 +384,90 @@ func (s *Service) AcceptTerms(ctx context.Context, submission TermsAcceptanceSub
 // contract must not sell a session past itself, so this refuses rather than
 // showing an empty box — the same trade the gate makes when the read itself
 // fails.
-func acceptanceLabel(edition consentrepo.TermsEdition, locale platform.Locale) (string, platform.Locale, error) {
-	if doc, ok := terms.DocumentFrom(locale, edition.Artifacts); ok {
-		return doc.AcceptanceLabel, locale, nil
+// THE ADULTHOOD DECLARATION RIDES THE SAME DOCUMENT AND THE SAME FLOOR (#587),
+// with one asymmetry that is deliberate: whether the edition ASKS is decided
+// from the prevailing text, while what the box SAYS is served in the reader's
+// language. "Does this edition ask?" is a fact about the edition and not about
+// the reader — the Spanish text is the contract (§37) and the English one is
+// its courtesy translation — so answering it per-Locale would be a required box
+// owed to a Spanish reader and not to an English one, which is a gate that
+// varies by language.
+//
+// The corollary is the failure mode, and it fails LOUDLY: an edition published
+// carrying the Artifact in Spanish but not in English owes the box to everybody
+// and can word it for only half of them. That reader is refused the gate
+// entirely rather than shown a card missing a box the API is about to require —
+// the same trade the acceptance label's own floor makes, for the same reason.
+// It is an incomplete publish, the Legal Draft authors both languages in
+// parallel columns precisely so it cannot happen by accident, and a person
+// unable to finish a sign-in is a far better outcome than a person signed in
+// with a declaration nobody asked for.
+func termsGateLabels(edition consentrepo.TermsEdition, locale platform.Locale) (gateLabels, error) {
+	served, ok := terms.DocumentFrom(locale, edition.Artifacts)
+	servedLocale := locale
+	if !ok {
+		if served, ok = terms.DocumentFrom(terms.PrevailingLocale, edition.Artifacts); !ok {
+			return gateLabels{}, fmt.Errorf("terms edition %q publishes no acceptance label", edition.Version.Label)
+		}
+		servedLocale = terms.PrevailingLocale
 	}
-	if doc, ok := terms.DocumentFrom(terms.PrevailingLocale, edition.Artifacts); ok {
-		return doc.AcceptanceLabel, terms.PrevailingLocale, nil
+
+	// The edition-level question, asked of the operative text. When this edition
+	// publishes no prevailing document at all — which the publish path refuses
+	// and no migrated environment can produce — the document actually served
+	// answers for itself, because it is the only text there is and a box written
+	// right beside the reader must not be silently dropped.
+	asks := served.AdulthoodDeclarationLabel != ""
+	if prevailing, ok := terms.DocumentFrom(terms.PrevailingLocale, edition.Artifacts); ok {
+		asks = prevailing.AdulthoodDeclarationLabel != ""
 	}
-	return "", "", fmt.Errorf("terms edition %q publishes no acceptance label", edition.Version.Label)
+	if asks && served.AdulthoodDeclarationLabel == "" {
+		return gateLabels{}, fmt.Errorf(
+			"terms edition %q asks the adulthood declaration but publishes no label for it in %q",
+			edition.Version.Label, servedLocale)
+	}
+
+	return gateLabels{
+		acceptance: served.AcceptanceLabel,
+		adulthood:  served.AdulthoodDeclarationLabel,
+		locale:     servedLocale,
+	}, nil
+}
+
+// editionAsksAdulthoodDeclaration reports whether ONE NAMED edition — the one a
+// pending token pinned — draws the Adulthood Declaration box (#587, ADR 0069).
+//
+// It is the accept path's half of termsGateLabels' question, and it is asked
+// again rather than carried on the token because there is nowhere on the token
+// to carry it: `pending_staff_terms` pins the edition and the label locale, and
+// the edition is the thing that knows. Asking the edition twice cannot
+// disagree with itself — an edition's artifact set never changes, a later
+// publish being a new row.
+//
+// THE PREVAILING TEXT ANSWERS, exactly as above and for the same reason: this
+// is a fact about the edition, and the request that ticks a box renders no text
+// and has no language of its own to ask in.
+func (s *Service) editionAsksAdulthoodDeclaration(ctx context.Context, versionID string) (bool, error) {
+	edition, err := s.termsVersions.TermsEditionByID(ctx, versionID)
+	if err != nil {
+		return false, err
+	}
+	document, ok := terms.DocumentFrom(terms.PrevailingLocale, edition.Artifacts)
+	return ok && document.AdulthoodDeclarationLabel != "", nil
+}
+
+// declaredAdulthood turns "this edition asked" into the answer to store: TRUE
+// when it did, and NIL when it did not (#587, ADR 0069).
+//
+// NEVER FALSE, and there is no branch here that could produce one. An untick is
+// refused above every write, so no acceptance row can exist for somebody who
+// said no — the platform keeps no record of anyone who says they are a minor —
+// and the null means "this act did not ask", which is a fact worth being able
+// to state and the only other thing the column ever holds.
+func declaredAdulthood(asks bool) *bool {
+	if !asks {
+		return nil
+	}
+	declared := true
+	return &declared
 }

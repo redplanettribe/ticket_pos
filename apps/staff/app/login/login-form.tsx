@@ -18,6 +18,8 @@ import { FormEvent, useState } from "react";
 import { LanguageSwitcher } from "@/app/language-switcher";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { applyAuthFork } from "@/lib/auth-fork";
+import { asksAdulthoodDeclaration, termsGateAnswersComplete } from "@/lib/terms-gate";
+
 import type { SignInIntent } from "@/lib/login-copy";
 
 type Step = "email" | "code" | "terms";
@@ -30,6 +32,13 @@ type Step = "email" | "code" | "terms";
  */
 export type PendingTermsStep = {
   acceptanceLabel: string;
+  /**
+   * The Adulthood Declaration's own checkbox words, or null when the edition in
+   * effect carries no `label-adulthood-declaration` artifact and asks nothing
+   * (#587, ADR 0069). Its presence is the whole of whether the second box is
+   * drawn — see lib/terms-gate.
+   */
+  adulthoodDeclarationLabel: string | null;
   version: string;
   tokenInCookie: boolean;
 };
@@ -37,6 +46,8 @@ export type PendingTermsStep = {
 type TermsRequiredPayload = {
   pending_terms_token: string;
   acceptance_label: string;
+  /** Absent from the payload when this edition does not ask (#587). */
+  adulthood_declaration_label?: string;
   version: string;
 };
 
@@ -137,6 +148,11 @@ export function LoginForm({
   // Un-premarked, always: stored state decides whether to ASK, never what to
   // show as already agreed.
   const [termsChecked, setTermsChecked] = useState(false);
+  // The Adulthood Declaration (#587, ADR 0069): its own box, its own state, its
+  // own answer, un-premarked for the reason above. Never folded into the one
+  // above — a combined tick evidences only that somebody accepted a document
+  // containing an age sentence, which is the inference ADR 0069 replaces.
+  const [adulthoodDeclared, setAdulthoodDeclared] = useState(false);
 
   async function handleRequestOTP(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -204,11 +220,13 @@ export function LoginForm({
       if (termsRequired) {
         setPendingTerms({
           acceptanceLabel: termsRequired.acceptance_label,
+          adulthoodDeclarationLabel: termsRequired.adulthood_declaration_label ?? null,
           version: termsRequired.version,
           tokenInCookie: false,
         });
         setPendingTermsToken(termsRequired.pending_terms_token);
         setTermsChecked(false);
+        setAdulthoodDeclared(false);
         setStep("terms");
         return;
       }
@@ -249,6 +267,14 @@ export function LoginForm({
           // falls back to it when the form holds none.
           ...(pendingTermsToken ? { pending_terms_token: pendingTermsToken } : {}),
           terms_acceptance: termsChecked,
+          // Sent only where the box was drawn (#587). Where it was drawn and
+          // left unticked this sends `false`, and the API refuses it with
+          // ADULTHOOD_DECLARATION_REQUIRED before a session is minted and
+          // before any row is written — the disabled button is the courtesy,
+          // that refusal is the guarantee.
+          ...(asksAdulthoodDeclaration(pendingTerms?.adulthoodDeclarationLabel)
+            ? { adulthood_declaration: adulthoodDeclared }
+            : {}),
         }),
       });
       const envelope = (await response.json()) as Envelope<{ session: SessionData | null }>;
@@ -345,6 +371,32 @@ export function LoginForm({
             />
             <Markdown className="text-sm [&>p]:mt-0">{pendingTerms.acceptanceLabel}</Markdown>
           </label>
+          {/*
+            The Adulthood Declaration (#587, ADR 0069): a second, separate,
+            un-premarked box, drawn iff the edition being accepted publishes the
+            artifact that words it. Its label is evidence too — hashed into the
+            edition's fingerprint — so nothing here rewords it and no catalog
+            string stands in for it. The link below belongs to both boxes: the
+            declaration is made in the contract's own terms.
+          */}
+          {pendingTerms.adulthoodDeclarationLabel ? (
+            <label
+              htmlFor="adulthood-declaration"
+              className="flex items-start gap-3 rounded-lg border p-3 text-sm"
+            >
+              <input
+                id="adulthood-declaration"
+                name="adulthood-declaration"
+                type="checkbox"
+                className="mt-1 h-4 w-4 shrink-0"
+                checked={adulthoodDeclared}
+                onChange={(event) => setAdulthoodDeclared(event.target.checked)}
+              />
+              <Markdown className="text-sm [&>p]:mt-0">
+                {pendingTerms.adulthoodDeclarationLabel}
+              </Markdown>
+            </label>
+          ) : null}
           <a
             href={termsUrl}
             target="_blank"
@@ -353,12 +405,21 @@ export function LoginForm({
           >
             {t("termsLinkLabel")}
           </a>
-          {/* Disabled unticked as a courtesy; the API refuses an unticked
-              submission regardless. */}
+          {/* Disabled until EVERY owed box is ticked, as a courtesy; the API
+              refuses an incomplete submission regardless. Which boxes are owed
+              is decided in lib/terms-gate, once, for this door and the
+              interstitial alike. */}
           <Button
             type="submit"
             className="w-full"
-            disabled={loading || !termsChecked}
+            disabled={
+              loading ||
+              !termsGateAnswersComplete({
+                adulthoodDeclarationLabel: pendingTerms.adulthoodDeclarationLabel,
+                termsAccepted: termsChecked,
+                adulthoodDeclared,
+              })
+            }
             aria-busy={loading}
           >
             {loading ? t("termsAccepting") : t("termsAccept")}

@@ -199,7 +199,7 @@ type Evidence struct {
 	// staff terms gate floors at the prevailing text when the edition has no
 	// artifact in the page's language, so the request's locale can be a lie
 	// about what somebody read. What is recorded here is what the renderer
-	// returned, which is why identity's acceptanceLabel hands back the locale it
+	// returned, which is why identity's termsGateLabels hands back the locale it
 	// used alongside the string.
 	//
 	// A PER-CALLER FIELD, LIKE SessionID, and for the same reason: it is known

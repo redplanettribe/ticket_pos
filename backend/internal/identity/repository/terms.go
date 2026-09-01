@@ -24,7 +24,7 @@ type PendingStaffTerms struct {
 	// knows what was on screen. It is the locale the renderer actually used —
 	// which is not always the one the login page asked for, because an edition
 	// that publishes no artifact in that language is floored at the prevailing
-	// text (identity/service.acceptanceLabel).
+	// text (identity/service.termsGateLabels).
 	//
 	// Empty is stored as SQL NULL, and reaches the acceptance row as NULL.
 	LabelLocale string
@@ -48,6 +48,23 @@ type StaffTermsAcceptance struct {
 	// shown, carried here from the held sign-in that showed it (#567). Empty
 	// where nothing can say — stored as NULL, never guessed.
 	PresentedLocale string
+	// AdulthoodDeclaration is the 18+ box beside the acceptance (#587,
+	// ADR 0069): TRUE when this edition asked and the person ticked it, NIL when
+	// the edition carried no `label-adulthood-declaration` Artifact and the act
+	// therefore never asked.
+	//
+	// NEVER FALSE, on this table or any other. An untick is refused before
+	// anything is written, so no row can exist for somebody who said they were a
+	// minor — a permanent, unverified assertion that a named individual is a
+	// child, on a table that is never edited and never deleted, is exactly what
+	// ADR 0069 refuses to keep. Migration 119 adds no CHECK to say so, because
+	// the row IS the acceptance: what stops a false from being written is that
+	// nothing writes one.
+	//
+	// A pointer, and stored although it is derivable from the edition's artifact
+	// set, so that a finished fact never depends on how rows are read in the
+	// present.
+	AdulthoodDeclaration *bool
 }
 
 // HasSatisfyingTermsAcceptance reports whether this email has accepted, as an
@@ -95,13 +112,16 @@ func (r *Repository) InsertTermsAcceptance(ctx context.Context, acceptance Staff
 	_, err := r.db.Pool.ExecContext(ctx, `
 		INSERT INTO staff_terms_acceptances
 			(email, terms_version_id, capacity, accepted_at, ip, user_agent, session_id, origin_url,
-			 presented_locale)
+			 presented_locale, adulthood_declaration)
 		VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''),
-		        NULLIF($9, ''))
+		        NULLIF($9, ''), $10)
 		ON CONFLICT (email, terms_version_id, capacity) DO NOTHING
 	`, acceptance.Email, acceptance.TermsVersionID, acceptance.Capacity, acceptance.AcceptedAt,
 		acceptance.IP, acceptance.UserAgent, acceptance.SessionID, acceptance.OriginURL,
-		acceptance.PresentedLocale)
+		acceptance.PresentedLocale,
+		// No NULLIF: the nil pointer IS the null, and it means "this act did not
+		// ask" rather than "collected as blank" (migration 119).
+		acceptance.AdulthoodDeclaration)
 	return err
 }
 
@@ -112,6 +132,44 @@ func (r *Repository) CreatePendingStaffTerms(ctx context.Context, pending Pendin
 		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6)
 	`, pending.ID, pending.Email, pending.TermsVersionID, pending.LabelLocale, pending.ExpiresAt, pending.CreatedAt)
 	return err
+}
+
+// PendingStaffTerms READS a pending-terms token without spending it (#587).
+//
+// It exists for the live-session gate and for nothing else. There, an unticked
+// box must cost a person a click and no more — the token proves nothing on that
+// path, because the session is the credential — and judging the boxes needs the
+// EDITION the token pinned, which is on this row. Consuming first to learn it
+// and refusing afterwards would burn the token on a misclick, which is exactly
+// what "costs nothing but a click" rules out.
+//
+// The sign-in door does not use this and must not: there the token is a Proof
+// of Email Ownership, and spending it before the answer is judged is what stops
+// a refused submission being retried against the same proof.
+//
+// A peek is not a claim. The row is still there afterwards, so the caller must
+// still consume it to record anything, and the consume is what settles a race
+// between two tabs — this read can go stale between the two, and the consume
+// then answers nil, which is the refusal an unknown token already gets.
+func (r *Repository) PendingStaffTerms(ctx context.Context, id string) (*PendingStaffTerms, error) {
+	row := r.db.Pool.QueryRowContext(ctx, `
+		SELECT id, email, terms_version_id, label_locale, expires_at, created_at
+		FROM pending_staff_terms
+		WHERE id = $1
+	`, id)
+
+	var (
+		pending     PendingStaffTerms
+		labelLocale sql.NullString
+	)
+	if err := row.Scan(&pending.ID, &pending.Email, &pending.TermsVersionID, &labelLocale, &pending.ExpiresAt, &pending.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	pending.LabelLocale = labelLocale.String
+	return &pending, nil
 }
 
 // ConsumePendingStaffTerms spends a pending-terms token: the row is deleted by
