@@ -53,6 +53,11 @@ func AmbienteFor(env invoicing.Environment) Environment {
 // "it is there, ask autorización", which is OutcomeReceived with the
 // messages kept. That mapping is what makes a resend (#455) never produce a
 // duplicate. Transport failures, non-200 answers and SOAP faults are errors.
+//
+// A DEVUELTA carrying 45 as an error is a refusal by NUMBER (#576, ADR 0068):
+// still OutcomeRejected — the SRI did not take the document, and nothing about
+// the invoice's status changes — but marked, because it is the one refusal a
+// resend under the same secuencial can never mend.
 func (a *Authority) Submit(ctx context.Context, doc invoicing.PreparedDocument) (invoicing.Outcome, error) {
 	rec, err := a.client.ValidateComprobante(ctx, doc.Body)
 	if err != nil {
@@ -66,7 +71,11 @@ func (a *Authority) Submit(ctx context.Context, doc invoicing.PreparedDocument) 
 		if rec.HasMessage(MessageAccessKeyRegistered) || rec.HasMessage(MessageAccessKeyInProcessing) {
 			return invoicing.Outcome{State: invoicing.OutcomeReceived, Messages: messages, AlreadyHeld: true}, nil
 		}
-		return invoicing.Outcome{State: invoicing.OutcomeRejected, Messages: messages}, nil
+		return invoicing.Outcome{
+			State:           invoicing.OutcomeRejected,
+			Messages:        messages,
+			RefusedByNumber: invoicing.RefusedByNumberIn(messages),
+		}, nil
 	}
 	return invoicing.Outcome{}, fmt.Errorf("%w: reception state %q", ErrResponse, rec.State)
 }

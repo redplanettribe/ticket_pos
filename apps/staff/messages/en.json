@@ -1611,6 +1611,8 @@
     "invoicingRecipientWarningTitle": "The SRI warned about the Recipient",
     "invoicingRecipientWarningBody": "The SRI authorized this document but said the Recipient's Tax ID does not exist or is incorrect. The document is valid and stands; it may be declared to the wrong taxpayer. The warning stays until the document is superseded by a reissue.",
     "invoicingRecipientWarningNoQuote": "The SRI's message is no longer among the stored messages.",
+    "invoicingNumberRefusalTitle": "The SRI refuses this document's number",
+    "invoicingNumberRefusalBody": "The SRI answered 45 ERROR SECUENCIAL REGISTRADO: it will not take this document because of the number it carries, not because of anything in it. Nothing in the Recipient, the lines or the totals would change that answer, and resending the same document under the same number earns the same refusal.",
     "invoicingAttentionTitle": "Documents needing attention",
     "invoicingAttentionDescription": "Every document parked for an operator, longest waiting first. Open one to check its status, resend it, or mark it annulled after annulling it at the SRI portal.",
     "invoicingAttentionLoading": "Loading the documents...",

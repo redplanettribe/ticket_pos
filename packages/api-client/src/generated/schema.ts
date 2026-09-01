@@ -16629,6 +16629,17 @@ export interface components {
              *     closed.
              */
             recipient_warning?: boolean;
+            /**
+             * @description RefusedByNumber says the authority refused this document for the NUMBER
+             *     it carries and not for anything in it — the SRI's 45, "secuencial
+             *     registrado" (#576, ADR 0068). It tells the one refusal no ordinary
+             *     remedy can mend from a schema error or a bad Tax ID, which park the
+             *     document in the same status and until now read the same on every
+             *     surface. DERIVED from the messages on the row, never stored: a
+             *     document refused before this field existed answers exactly as one
+             *     refused after it, with no backfill.
+             */
+            refused_by_number?: boolean;
             reissue_note?: string;
             reissued_at?: string;
             reissued_by?: string;

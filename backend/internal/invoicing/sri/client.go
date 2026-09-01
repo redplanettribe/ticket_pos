@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/invoicing"
 )
 
 // SRI web service hosts per environment (Ficha §7.2; live WSDLs).
@@ -85,10 +87,18 @@ type Message struct {
 }
 
 // SRI message identifiers the issue flow branches on (Ficha error table).
+// The secuencial one is the core's constant under the SRI's own name: the
+// code is the authority's vocabulary, but the predicate that reads it off a
+// stored message belongs to the core (#576, ADR 0068), and one literal for
+// one code means the two can never drift.
 const (
 	MessageAccessKeyRegistered   = "43" // clave de acceso registrada: already at the SRI — poll authorization
 	MessageAccessKeyInProcessing = "70" // clave de acceso en procesamiento: do not resend — poll authorization
 	MessageTestEnvironment       = "60" // advertencia: ambiente de pruebas
+	// MessageSequenceRegistered: ERROR SECUENCIAL REGISTRADO — the SRI
+	// refuses the document's NUMBER, so resending the same secuencial can
+	// only earn the same answer.
+	MessageSequenceRegistered = invoicing.AuthorityMessageSequenceRegistered // "45"
 )
 
 // ReceptionState is the estado of validarComprobante.

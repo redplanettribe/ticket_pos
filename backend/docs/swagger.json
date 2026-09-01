@@ -5004,6 +5004,10 @@
                         "description": "RecipientWarning is true on an authorized Sale Invoice the SRI warned\nabout — the Recipient's Tax ID does not exist (advertencia 59) or is\nincorrect (62) — until the document is superseded (#482, ADR 0061).\nThe status is unaffected. Always false while SALE_INVOICING_ENABLED is\nclosed.",
                         "type": "boolean"
                     },
+                    "refused_by_number": {
+                        "description": "RefusedByNumber says the authority refused this document for the NUMBER\nit carries and not for anything in it — the SRI's 45, \"secuencial\nregistrado\" (#576, ADR 0068). It tells the one refusal no ordinary\nremedy can mend from a schema error or a bad Tax ID, which park the\ndocument in the same status and until now read the same on every\nsurface. DERIVED from the messages on the row, never stored: a\ndocument refused before this field existed answers exactly as one\nrefused after it, with no backfill.",
+                        "type": "boolean"
+                    },
                     "reissue_note": {
                         "type": "string"
                     },
