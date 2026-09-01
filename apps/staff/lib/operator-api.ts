@@ -1185,6 +1185,14 @@ export type OperatorInvoiceListItem = {
   /** When the document was parked `needs_attention` (#477); null in every other state. */
   attention_since: string | null;
   /**
+   * When the operator abandoned the document, because the SRI refuses its
+   * number and never took it (#578, ADR 0068); null in every other state.
+   * It is the needs-attention queue's second "waiting since" (#581): an
+   * abandoned row's `attention_since` is cleared, and this is the instant
+   * its wait for a replacement began — the one the queue orders it by.
+   */
+  abandoned_at: string | null;
+  /**
    * True on an authorized Sale Invoice the SRI warned about — the Recipient's
    * Tax ID does not exist (advertencia 59) or is incorrect (62) — until the
    * document is superseded (#482, ADR 0061). The status is unaffected, and
@@ -1540,7 +1548,14 @@ export type OperatorNeedsAttentionCount = {
 
 const NEEDS_ATTENTION_PATH = "/api/operator/invoicing/needs-attention";
 
-/** The documents parked `needs_attention`, of every kind, longest waiting first. */
+/**
+ * The needs-attention queue, longest waiting first: every kind parked
+ * `needs_attention`, and — since #581 — every `abandoned` Sale Invoice with
+ * no live successor whose Ticket Sale still stands. A union of two
+ * conditions, not one status: a Sale can sit abandoned-and-unreplaced
+ * between Abandon (#578) and Issue again (#580), and this is where it is
+ * seen. It self-clears when a replacement is owed.
+ */
 export async function fetchOperatorNeedsAttention(page = 1): Promise<OperatorNeedsAttentionQueue> {
   const params = new URLSearchParams({
     page: String(page),
@@ -1549,7 +1564,11 @@ export async function fetchOperatorNeedsAttention(page = 1): Promise<OperatorNee
   return fetchEventsJSON<OperatorNeedsAttentionQueue>(`${NEEDS_ATTENTION_PATH}?${params.toString()}`);
 }
 
-/** How many documents need attention: the Operator Dashboard's count, exactly what the queue lists. */
+/**
+ * How many documents need attention: the Operator Dashboard's badge, and
+ * exactly what the queue lists — the same union, so the two can never
+ * disagree (#477, #581).
+ */
 export async function fetchOperatorNeedsAttentionCount(): Promise<OperatorNeedsAttentionCount> {
   return fetchEventsJSON<OperatorNeedsAttentionCount>(`${NEEDS_ATTENTION_PATH}/count`);
 }

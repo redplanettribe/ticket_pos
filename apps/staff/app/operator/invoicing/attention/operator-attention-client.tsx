@@ -35,6 +35,17 @@ import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from 
 // the document, where Check status, Resend and Mark annulled live. The
 // empty state is the ordinary one and says so; a stuck document is never
 // silent, and neither is its absence.
+//
+// AND, SINCE #581, IT IS A UNION AND NOT ONE STATUS: an `abandoned` Sale
+// Invoice with no live successor, on a Ticket Sale that still stands, is
+// listed here too — a Sale whose buyer holds no valid factura and which
+// nothing yet owes one, the state a Sale sits in between Abandon (#578) and
+// Issue again (#580). Nothing about this surface changed for it: the same
+// page, the same envelope, the same copy, and the row opens the same detail
+// where Issue again is the press that clears it. Only "since when" reads
+// two fields — attention_since is cleared on an abandoned row, and
+// abandoned_at is the instant its wait began, which is the instant the
+// queue orders it by.
 
 function AttentionRow({ item, locale }: { item: OperatorNeedsAttentionItem; locale: AppLocale }) {
   const t = useTranslations("operator");
@@ -51,7 +62,7 @@ function AttentionRow({ item, locale }: { item: OperatorNeedsAttentionItem; loca
         <Badge variant={INVOICE_STATUS_VARIANTS[item.status]}>{t(INVOICE_STATUS_KEYS[item.status])}</Badge>
       </td>
       <td className="py-3 pr-4 whitespace-nowrap">
-        {formatDateTime(item.attention_since, PLATFORM_TIME_ZONE, locale) ?? "—"}
+        {formatDateTime(item.attention_since ?? item.abandoned_at, PLATFORM_TIME_ZONE, locale) ?? "—"}
       </td>
       <td className="py-3 pr-4">
         {item.messages.length === 0 ? (

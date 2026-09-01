@@ -673,6 +673,13 @@ type InvoiceListItem struct {
 	// long it has been waiting for an operator (#477); null in every other
 	// state.
 	AttentionSince *time.Time `json:"attention_since"`
+	// AbandonedAt is when the operator abandoned the document, because the
+	// authority refuses its number and never took it (#578, ADR 0068); null
+	// in every other state. It is on the LIST ROW and not only the detail
+	// because it is the queue's second "waiting since" (#581): an abandoned
+	// row's attention_since is cleared, and this is the instant its wait for
+	// a replacement began — the one the queue orders it by.
+	AbandonedAt *time.Time `json:"abandoned_at"`
 	// RecipientWarning is true on an authorized Sale Invoice the SRI warned
 	// about — the Recipient's Tax ID does not exist (advertencia 59) or is
 	// incorrect (62) — until the document is superseded (#482, ADR 0061).
@@ -908,6 +915,7 @@ func invoiceListItem(row *repository.InvoiceRow) InvoiceListItem {
 		TotalCents:            inv.TotalCents,
 		Currency:              inv.Currency,
 		AttentionSince:        optionalTime(inv.AttentionSince),
+		AbandonedAt:           optionalTime(inv.AbandonedAt),
 		RecipientWarning:      inv.RecipientWarning,
 		SupersededByInvoiceID: optional(inv.SupersededByInvoiceID),
 	}

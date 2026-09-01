@@ -34,6 +34,20 @@ import (
 // open to another reissue. The Drainer would do the same on its next round
 // (drainer.go); doing it here is what lets the operator reissue at once.
 
+// THE QUEUE IS A UNION, NOT A STATUS EQUALITY (#581, parent #575, ADR
+// 0068). It lists documents parked `needs_attention` OR Sale Invoices that
+// are `abandoned` with no live successor on a Ticket Sale that still
+// stands, and the count — the Operator Dashboard's daily badge — widens
+// identically. Stated here in full because the next reader will otherwise
+// "simplify" it back to one status: Abandon (#578) and Issue again (#580)
+// are deliberately two presses, so a Sale can sit abandoned-and-unreplaced
+// between them with its buyer holding no valid tax document, and until the
+// widening nothing on any surface said so. It self-clears — the moment
+// Issue again owes a replacement the abandoned document has a live
+// successor and drops out — which is what makes a union safe here. The
+// membership rule and the composition of its two orderings live in one
+// place, repository.needsAttentionWhere and needsAttentionOrder.
+
 // NeedsAttentionQueue is one page of the documents parked for an operator,
 // longest waiting first, with the total: the ADR-0006 nested envelope.
 type NeedsAttentionQueue struct {
@@ -45,13 +59,18 @@ type NeedsAttentionQueue struct {
 // Confirmation reference, state, since when — and what the authority (or
 // the platform, when it could not be signed) last said about it, so the
 // queue answers "why" without a click through.
+//
+// "Since when" is attention_since on a parked document and abandoned_at on
+// an abandoned one, the two instants the queue's order composes (#581); the
+// row carries both and the surface reads whichever the document has.
 type NeedsAttentionItem struct {
 	InvoiceListItem
 	Messages []AuthorityMessageView `json:"messages"`
 }
 
 // NeedsAttentionCount is the queue's size as one number: the badge on the
-// Operator Dashboard. It counts exactly what the queue lists.
+// Operator Dashboard. It counts exactly what the queue lists — the same
+// union, from the same rule, so the badge and the page can never disagree.
 type NeedsAttentionCount struct {
 	NeedsAttentionCount int `json:"needs_attention_count"`
 }
@@ -77,8 +96,9 @@ func (s *Service) CountRecipientWarnings(ctx context.Context) (*RecipientWarning
 	return &RecipientWarningCount{RecipientWarningCount: n}, nil
 }
 
-// ListNeedsAttention returns one page of the documents parked
-// needs_attention, of every kind, longest waiting first.
+// ListNeedsAttention returns one page of the needs-attention queue — every
+// kind parked needs_attention, and every abandoned-and-unreplaced Sale
+// Invoice whose Sale still stands — longest waiting first.
 func (s *Service) ListNeedsAttention(ctx context.Context, page, pageSize int) (*NeedsAttentionQueue, error) {
 	rows, total, err := s.repo.ListNeedsAttention(ctx, page, pageSize)
 	if err != nil {
@@ -94,7 +114,8 @@ func (s *Service) ListNeedsAttention(ctx context.Context, page, pageSize int) (*
 	return &NeedsAttentionQueue{Data: items, InvoicePagination: pagination(page, pageSize, total)}, nil
 }
 
-// CountNeedsAttention returns how many documents are parked needs_attention.
+// CountNeedsAttention returns how many documents are in the queue: the
+// same union the list reports, never a status count.
 func (s *Service) CountNeedsAttention(ctx context.Context) (*NeedsAttentionCount, error) {
 	n, err := s.repo.CountNeedsAttention(ctx)
 	if err != nil {

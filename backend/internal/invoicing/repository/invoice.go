@@ -467,6 +467,18 @@ func (r *Repository) AbandonInvoice(ctx context.Context, invoiceID, abandonedBy,
 	return n == 1, nil
 }
 
+// liveSuccessorID is THE expression for "the document that stands in this
+// one's place", stated once because two readers now rest on it: the list
+// row's superseded marker (#486, ADR 0061) and the needs-attention queue's
+// second half (#581), which is exactly "an abandoned document with no live
+// successor". The queue must never re-derive it — two spellings of "live"
+// would drift, and a Sale would then be both replaced and queued.
+//
+// LIVE MEANS NOT TERMINALLY DEAD (#579, ADR 0068); the invoiceFrom comment
+// below spells the three deaths and why a successor that died supersedes
+// nothing.
+const liveSuccessorID = `(SELECT s.id FROM invoicing_invoices s WHERE s.supersedes_invoice_id = i.id AND s.status NOT IN ('withdrawn', 'annulled', 'abandoned') ORDER BY s.created_at DESC, s.id DESC LIMIT 1)`
+
 const invoiceColumns = `
 	i.id, i.kind, i.issuer_id, i.country, i.environment, i.status, i.issued_on, i.issued_at, i.issued_by,
 	i.recipient_tax_id_type, i.recipient_tax_id, i.recipient_legal_name, i.recipient_address, i.recipient_email,
@@ -477,7 +489,7 @@ const invoiceColumns = `
 	i.attention_since, i.annulled_by, i.annulled_at, i.recipient_warning,
 	i.abandoned_by, i.abandoned_at, i.abandon_note,
 	i.supersedes_invoice_id,
-	(SELECT s.id FROM invoicing_invoices s WHERE s.supersedes_invoice_id = i.id AND s.status NOT IN ('withdrawn', 'annulled', 'abandoned') ORDER BY s.created_at DESC, s.id DESC LIMIT 1),
+	` + liveSuccessorID + `,
 	rr.reissued_by, rr.reissued_at, rr.reissue_note,
 	i.backfilled_by, i.backfilled_at,
 	i.created_at, i.updated_at,
@@ -597,10 +609,93 @@ func (r *Repository) ListInvoices(ctx context.Context, filter InvoiceFilter, pag
 	return out, total, nil
 }
 
-// ListNeedsAttention reads a page of the documents parked needs_attention,
-// of every kind, LONGEST WAITING FIRST — by the instant each was parked —
-// and how many there are in all (#477). Ties, which the same drain round
-// can produce, break on the row's own age.
+// needsAttentionWhere is THE needs-attention queue's membership rule, and
+// it is A UNION OF TWO CONDITIONS rather than a status equality (#581,
+// parent #575, ADR 0068). It is written once, here, because the list and
+// the count must be incapable of disagreeing: the badge an operator watches
+// daily and the page it opens are one claim.
+//
+//	needs_attention                          — a document parked for an
+//	                                           operator: refused with a
+//	                                           remedy, unanswered and still
+//	                                           polled, or unsignable.
+//	OR abandoned, sale-kind, unreplaced,     — a Ticket Sale that stands and
+//	   on a Sale that still stands             has no factura, and nothing
+//	                                           yet owes it one.
+//
+// WHY THE SECOND HALF IS HERE AT ALL. Abandon (#578) and Issue again (#580)
+// are deliberately two presses, so a Sale can sit abandoned-and-unreplaced
+// between them — its buyer holding no valid tax document — and until this,
+// nothing on any surface said so, because `abandoned` is not
+// `needs_attention`. The queue that already means "unfinished invoicing
+// work" widens to say what its name promises, rather than a second badge
+// beside it: two badges meaning the same thing is how an operator learns to
+// ignore one.
+//
+// IT SELF-CLEARS, which is what makes a union safe here. The moment Issue
+// again owes a replacement, the abandoned document has a live successor and
+// drops out with no second act to remember.
+//
+// EACH CLAUSE OF THE SECOND HALF IS LOAD-BEARING:
+//
+//   - sale-kind. A Credit Note and a manual Tax Invoice are never issued
+//     again — #580 refuses both by their own codes, and a manual document is
+//     typed again by hand — so a row for either could never be cleared by
+//     any press the platform offers, and a permanent row is not a queue.
+//   - no live successor, read from liveSuccessorID and NEVER re-derived.
+//     It is #579's live: a replacement that is itself withdrawn, annulled or
+//     abandoned stands for nothing, so its predecessor's Sale is unreplaced
+//     again and returns to the queue, where the operator can still act.
+//   - the Sale still stands. Income that no longer stands is never declared
+//     at all, so a reversed Sale is owed nothing; it is also the fact Issue
+//     again refuses on (INVOICE_SALE_REVERSED), so a queued reversed Sale
+//     would be an entry nobody could clear. `ts` is LEFT-joined, so a
+//     document with no Ticket Sale answers NULL here and is excluded, which
+//     is the same answer as the kind clause and deliberately redundant with
+//     it.
+const needsAttentionWhere = `
+	i.status = 'needs_attention'
+	OR (
+		i.status = 'abandoned'
+		AND i.kind = 'sale'
+		AND ts.status <> 'reversed'
+		AND ` + liveSuccessorID + ` IS NULL
+	)`
+
+// needsAttentionOrder is the composition of the queue's TWO ORDERINGS, and
+// the reason it needed a second sort key (#581): `attention_since` is NULL
+// on an abandoned row — the abandonment clears it in the same write that
+// takes the document off the Drainer — and `abandoned_at` is the instant it
+// entered the queue by the other door.
+//
+// They compose into ONE CLOCK, "since when has this needed an operator",
+// and the two halves therefore INTERLEAVE. A document parked at noon and
+// abandoned at three sorts behind one parked at one: its wait AS A PARKED
+// DOCUMENT ended when the operator acted on it, and what it waits for now —
+// a replacement — has been outstanding only since three. Sorting all of one
+// status ahead of the other was rejected: the badge's oldest entry would
+// then not be the oldest work, which is the one thing the ordering is for.
+//
+// Ties, which one drain round can produce, break on the row's own age as
+// they always have. Should both instants somehow be NULL, Postgres sorts
+// NULLs last on ASC and the row lands at the back rather than anywhere
+// undefined.
+const needsAttentionOrder = `ORDER BY COALESCE(i.attention_since, i.abandoned_at) ASC, i.created_at ASC, i.id ASC`
+
+// needsAttentionFrom is the least the membership rule can be decided from:
+// the row and the Ticket Sale it is about. The count reads through it and
+// the list through invoiceFrom, whose first two joins are these two; every
+// other join invoiceFrom adds is a LEFT one that yields at most one row, so
+// the two can no more disagree than the one WHERE clause they share can.
+const needsAttentionFrom = `
+	FROM invoicing_invoices i
+	LEFT JOIN ticket_sales ts ON ts.id = i.ticket_sale_id`
+
+// ListNeedsAttention reads a page of the needs-attention queue — documents
+// parked needs_attention, of every kind, AND abandoned Sale Invoices with
+// no live successor whose Ticket Sale still stands (needsAttentionWhere) —
+// LONGEST WAITING FIRST by the instant each entered the queue
+// (needsAttentionOrder), and how many there are in all (#477, #581).
 func (r *Repository) ListNeedsAttention(ctx context.Context, page, pageSize int) ([]InvoiceRow, int, error) {
 	total, err := r.CountNeedsAttention(ctx)
 	if err != nil {
@@ -608,10 +703,10 @@ func (r *Repository) ListNeedsAttention(ctx context.Context, page, pageSize int)
 	}
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT `+invoiceColumns+invoiceFrom+`
-		WHERE i.status = $1
-		ORDER BY i.attention_since ASC, i.created_at ASC, i.id ASC
-		LIMIT $2 OFFSET $3
-	`, invoicing.InvoiceStatusNeedsAttention, pageSize, (page-1)*pageSize)
+		WHERE `+needsAttentionWhere+`
+		`+needsAttentionOrder+`
+		LIMIT $1 OFFSET $2
+	`, pageSize, (page-1)*pageSize)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list needs attention: %w", err)
 	}
@@ -623,13 +718,15 @@ func (r *Repository) ListNeedsAttention(ctx context.Context, page, pageSize int)
 	return out, total, nil
 }
 
-// CountNeedsAttention counts the documents parked needs_attention: the
-// Operator Dashboard's badge, and exactly what the queue lists.
+// CountNeedsAttention counts the needs-attention queue: the Operator
+// Dashboard's badge, and exactly what the queue lists — the same
+// needsAttentionWhere, over the joins that rule needs and no others.
 func (r *Repository) CountNeedsAttention(ctx context.Context) (int, error) {
 	var n int
 	if err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM invoicing_invoices WHERE status = $1
-	`, invoicing.InvoiceStatusNeedsAttention).Scan(&n); err != nil {
+		SELECT COUNT(*) `+needsAttentionFrom+`
+		WHERE `+needsAttentionWhere+`
+	`).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count needs attention: %w", err)
 	}
 	return n, nil
