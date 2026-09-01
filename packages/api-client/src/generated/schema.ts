@@ -15614,6 +15614,25 @@ export interface components {
             status?: string;
         };
         "service.ConsentActItem": {
+            /**
+             * @description AdulthoodDeclaration is the 18+ box answered in the same act (#590, ADR
+             *     0069), and it is TRUE OR NULL AND NEVER FALSE anywhere on this platform:
+             *     an untick is refused before any capture and writes nothing, so the null is
+             *     the only other state there is.
+             *
+             *     NULL MEANS THE ACT DID NOT ASK, which the record screen and the Evidence
+             *     Pack both spell "never asked". It is a weaker sentence than the null
+             *     beside it on the other answers — those say "the box was not on that
+             *     surface", this says "the edition in effect carried no such box" — but it
+             *     is the same rule with the same teeth: a reader must never be able to take
+             *     a null for a No, because a No here would be a claim that a named person
+             *     said they were a child, and no such claim is ever stored.
+             *
+             *     IT NAMES NO EDITION OF ITS OWN. The wording declared under is an Artifact
+             *     of the edition TermsEdition already names, so a second reference here
+             *     would be a second thing that could disagree about which words were shown.
+             */
+            adulthood_declaration?: boolean;
             captured_at?: string;
             /**
              * @description Channel is the surface. It is also what decides whether PresentedLocale
@@ -18611,6 +18630,18 @@ export interface components {
         };
         "service.StaffAcceptanceRecordView": {
             accepted_at?: string;
+            /**
+             * @description AdulthoodDeclaration is the 18+ box ticked beside this acceptance (#590,
+             *     ADR 0069). TRUE OR NULL AND NEVER FALSE: a refusal is refused before the
+             *     insert, so the platform holds no row saying anybody declared themselves a
+             *     minor, and null means the edition this row names carried no such box.
+             *
+             *     THE SCREEN SPELLS THE NULL "never asked". It is published as null rather
+             *     than omitted for the reason every other answer on this payload is: a key
+             *     that disappeared would leave the reader to decide what its absence meant,
+             *     and the one wrong guess is "No".
+             */
+            adulthood_declaration?: boolean;
             /** @description Capacity is what the person accepted AS (§3, ADR 0066). */
             capacity?: string;
             id?: string;

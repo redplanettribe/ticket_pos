@@ -3715,6 +3715,10 @@ const docTemplate = `{
             },
             "service.ConsentActItem": {
                 "properties": {
+                    "adulthood_declaration": {
+                        "description": "AdulthoodDeclaration is the 18+ box answered in the same act (#590, ADR\n0069), and it is TRUE OR NULL AND NEVER FALSE anywhere on this platform:\nan untick is refused before any capture and writes nothing, so the null is\nthe only other state there is.\n\nNULL MEANS THE ACT DID NOT ASK, which the record screen and the Evidence\nPack both spell \"never asked\". It is a weaker sentence than the null\nbeside it on the other answers — those say \"the box was not on that\nsurface\", this says \"the edition in effect carried no such box\" — but it\nis the same rule with the same teeth: a reader must never be able to take\na null for a No, because a No here would be a claim that a named person\nsaid they were a child, and no such claim is ever stored.\n\nIT NAMES NO EDITION OF ITS OWN. The wording declared under is an Artifact\nof the edition TermsEdition already names, so a second reference here\nwould be a second thing that could disagree about which words were shown.",
+                        "type": "boolean"
+                    },
                     "captured_at": {
                         "type": "string"
                     },
@@ -7648,6 +7652,10 @@ const docTemplate = `{
                 "properties": {
                     "accepted_at": {
                         "type": "string"
+                    },
+                    "adulthood_declaration": {
+                        "description": "AdulthoodDeclaration is the 18+ box ticked beside this acceptance (#590,\nADR 0069). TRUE OR NULL AND NEVER FALSE: a refusal is refused before the\ninsert, so the platform holds no row saying anybody declared themselves a\nminor, and null means the edition this row names carried no such box.\n\nTHE SCREEN SPELLS THE NULL \"never asked\". It is published as null rather\nthan omitted for the reason every other answer on this payload is: a key\nthat disappeared would leave the reader to decide what its absence meant,\nand the one wrong guess is \"No\".",
+                        "type": "boolean"
                     },
                     "capacity": {
                         "description": "Capacity is what the person accepted AS (§3, ADR 0066).",

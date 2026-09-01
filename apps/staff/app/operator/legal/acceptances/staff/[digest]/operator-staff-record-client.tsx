@@ -24,6 +24,7 @@ import { ApiError } from "@/lib/events-api";
 import { PLATFORM_TIME_ZONE, formatDateTime } from "@/lib/format";
 import {
   type StaffLegalRecord,
+  adulthoodLabelKey,
   customerRecordHref,
   staffEvidencePackPath,
 } from "@/lib/legal-records";
@@ -208,6 +209,20 @@ export function OperatorStaffRecordClient({ digest }: { digest: string }) {
                         <div>
                           <dt className="text-muted-foreground">{t("actPresentedLocale")}</dt>
                           <dd>{acceptance.presented_locale ?? t("notRecorded")}</dd>
+                        </div>
+                        {/*
+                          THE ADULTHOOD DECLARATION, per acceptance (#590, ADR
+                          0069). Null on every acceptance made under an edition
+                          that carried no 18+ artifact, and spelled "never
+                          asked" rather than left blank: a blank cell beside
+                          this label reads as a refusal, and a refusal is the
+                          one thing that never produced a row.
+                        */}
+                        <div>
+                          <dt className="text-muted-foreground">
+                            {t("actAdulthoodDeclaration")}
+                          </dt>
+                          <dd>{t(adulthoodLabelKey(acceptance.adulthood_declaration) as never)}</dd>
                         </div>
                         <div>
                           <dt className="text-muted-foreground">{t("actIP")}</dt>

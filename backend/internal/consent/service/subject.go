@@ -92,6 +92,23 @@ type ConsentActItem struct {
 	// on every surface that did not show the box.
 	TermsAcceptance *bool            `json:"terms_acceptance"`
 	TermsEdition    *LegalEditionRef `json:"terms_edition"`
+	// AdulthoodDeclaration is the 18+ box answered in the same act (#590, ADR
+	// 0069), and it is TRUE OR NULL AND NEVER FALSE anywhere on this platform:
+	// an untick is refused before any capture and writes nothing, so the null is
+	// the only other state there is.
+	//
+	// NULL MEANS THE ACT DID NOT ASK, which the record screen and the Evidence
+	// Pack both spell "never asked". It is a weaker sentence than the null
+	// beside it on the other answers — those say "the box was not on that
+	// surface", this says "the edition in effect carried no such box" — but it
+	// is the same rule with the same teeth: a reader must never be able to take
+	// a null for a No, because a No here would be a claim that a named person
+	// said they were a child, and no such claim is ever stored.
+	//
+	// IT NAMES NO EDITION OF ITS OWN. The wording declared under is an Artifact
+	// of the edition TermsEdition already names, so a second reference here
+	// would be a second thing that could disagree about which words were shown.
+	AdulthoodDeclaration *bool `json:"adulthood_declaration"`
 	// EmailProven is whether the address was proven when the act happened —
 	// what separates a granted consent from a Pending Confirmation.
 	EmailProven bool `json:"email_proven"`
@@ -298,6 +315,7 @@ func (s *Service) CustomerConsentActs(ctx context.Context, query CustomerConsent
 			PriorMarketingConsent:  optionalString(row.PriorMarketingConsent),
 			PriorNetworkingConsent: optionalString(row.PriorNetworkingConsent),
 			TermsAcceptance:        optionalBool(row.TermsAcceptance),
+			AdulthoodDeclaration:   optionalBool(row.AdulthoodDeclaration),
 			EmailProven:            row.EmailProven,
 			IP:                     optionalString(row.IP),
 			UserAgent:              optionalString(row.UserAgent),

@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   type ConsentAct,
+  adulthoodLabelKey,
   answerLabelKey,
   customerRecordHref,
   customerRecordPath,
@@ -47,6 +48,7 @@ const act = (overrides: Partial<ConsentAct> = {}): ConsentAct =>
     prior_networking_consent: null,
     terms_acceptance: null,
     terms_edition: null,
+    adulthood_declaration: null,
     email_proven: true,
     ip: null,
     user_agent: null,
@@ -108,6 +110,21 @@ test("a null answer is a word about the screen, not a No", () => {
   assert.equal(answerLabelKey(null), "answerNotShown");
 });
 
+test("an unasked adulthood declaration reads 'never asked' and never 'No'", () => {
+  // The only two values the platform can ever produce: a tick, or nothing at
+  // all. An untick is refused before anything is written (ADR 0069), so there
+  // is no third row to render.
+  assert.equal(adulthoodLabelKey(true), "answerYes");
+  // THE LOAD-BEARING ONE. A null is an act captured under an edition that
+  // carried no 18+ box — nobody was ever put the question — and it must not
+  // borrow `answerNotShown`'s words either: "not shown on that screen" would
+  // say the box existed and this surface hid it.
+  assert.equal(adulthoodLabelKey(null), "consentNeverAsked");
+  // Unreachable, and spelled as itself rather than folded into the null: a
+  // value nothing can produce must not quietly render as "never asked".
+  assert.equal(adulthoodLabelKey(false), "answerNo");
+});
+
 test("a pending confirmation is something a withdrawal really takes away", () => {
   assert.equal(wouldTakeSomethingAway("granted"), true);
   // Somebody else's tick, standing against the address and never expiring, so
@@ -133,6 +150,9 @@ test("every copy key the record reads is in both catalogs", () => {
     "answerNo",
     "answerNotShown",
     "consentNeverAsked",
+    // The Adulthood Declaration's own label (#590). Its VALUES reuse the words
+    // above — "Yes" and "Never asked" — so the only new key is the question.
+    "actAdulthoodDeclaration",
     // The channel names, one per value migration 067's CHECK admits. A channel
     // with no key would render as `channel_whatever` on an evidence screen.
     "channel_signin",

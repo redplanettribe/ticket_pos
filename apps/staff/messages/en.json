@@ -1911,6 +1911,7 @@
       "actPolicyEdition": "Privacy policy in force",
       "actPolicyAcceptance": "Accepted the privacy policy",
       "actTermsAcceptance": "Accepted the terms",
+      "actAdulthoodDeclaration": "Declared they are 18 or older",
       "actMarketing": "Marketing consent",
       "actNetworking": "Networking consent",
       "actPreviously": "(previously {state})",

@@ -184,6 +184,15 @@ type StaffAcceptance struct {
 	// PresentedLocale is the language of the acceptance label actually served
 	// (#567), null on every row written before migration 115.
 	PresentedLocale *string `json:"presented_locale"`
+	// AdulthoodDeclaration is the 18+ box ticked beside this acceptance in the
+	// organizer capacity (#590, ADR 0069). TRUE OR NULL AND NEVER FALSE — a
+	// refusal writes no row — and the null means the edition this acceptance
+	// names carried no such box, which the PDF beside it reads "never asked".
+	//
+	// IT IS A FINISHED FACT and therefore admissible in a deterministic
+	// document: "declared on such a date under such an edition" reads the same
+	// on any day, unlike a standing, which moves at midnight.
+	AdulthoodDeclaration *bool `json:"adulthood_declaration"`
 }
 
 // Edition is one published edition and every word of it, in every language it

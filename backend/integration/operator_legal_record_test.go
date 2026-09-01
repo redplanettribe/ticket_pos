@@ -2,6 +2,7 @@ package integration
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -98,11 +99,18 @@ type consentActView struct {
 	PriorNetworkingConsent *string              `json:"prior_networking_consent"`
 	TermsAcceptance        *bool                `json:"terms_acceptance"`
 	TermsEdition           *legalEditionRefView `json:"terms_edition"`
-	EmailProven            bool                 `json:"email_proven"`
-	IP                     *string              `json:"ip"`
-	RecordedBy             *string              `json:"recorded_by"`
-	RequestReference       *string              `json:"request_reference"`
-	PresentedLocale        json.RawMessage      `json:"presented_locale"`
+	// AdulthoodDeclaration is decoded as json.RawMessage for PresentedLocale's
+	// reason, over a different distinction (#590): what must be assertable here
+	// is `true` against `null` against ABSENT, and a *bool would make the last
+	// two indistinguishable. The whole ruling is that a null is "never asked"
+	// and not a No, so a test that could not see the difference between a null
+	// and a missing key would be asserting nothing.
+	AdulthoodDeclaration json.RawMessage `json:"adulthood_declaration"`
+	EmailProven          bool            `json:"email_proven"`
+	IP                   *string         `json:"ip"`
+	RecordedBy           *string         `json:"recorded_by"`
+	RequestReference     *string         `json:"request_reference"`
+	PresentedLocale      json.RawMessage `json:"presented_locale"`
 }
 
 type consentActPageView struct {
@@ -112,12 +120,13 @@ type consentActPageView struct {
 }
 
 type staffAcceptanceRecordView struct {
-	ID              string              `json:"id"`
-	TermsEdition    legalEditionRefView `json:"terms_edition"`
-	Capacity        string              `json:"capacity"`
-	AcceptedAt      string              `json:"accepted_at"`
-	IP              *string             `json:"ip"`
-	PresentedLocale *string             `json:"presented_locale"`
+	ID                   string              `json:"id"`
+	TermsEdition         legalEditionRefView `json:"terms_edition"`
+	Capacity             string              `json:"capacity"`
+	AcceptedAt           string              `json:"accepted_at"`
+	IP                   *string             `json:"ip"`
+	PresentedLocale      *string             `json:"presented_locale"`
+	AdulthoodDeclaration json.RawMessage     `json:"adulthood_declaration"`
 }
 
 type staffLegalRecordView struct {
@@ -679,6 +688,408 @@ func TestTheRecordScreensAreOperatorsOnly(t *testing.T) {
 		if resp.StatusCode != http.StatusForbidden || body.Error == nil || body.Error.Code != "FORBIDDEN" {
 			t.Fatalf("org_admin GET %s status=%d error=%+v; want 403", path, resp.StatusCode, body.Error)
 		}
+	}
+}
+
+// THE ADULTHOOD DECLARATION ON THE PER-SUBJECT RECORD (#590, parent #584, ADR
+// 0069).
+//
+// The payoff of the whole feature: "show me that this individual affirmed they
+// were an adult" stops being an inference from a document's contents and
+// becomes a record. What this slice must prove is the answer AND its absence —
+// an act captured under an edition that carried no 18+ Artifact reads "never
+// asked", in both populations, and never reads as a No, because a No would be a
+// stored claim that a named individual is a child and no such row is ever
+// written.
+
+// seedTermsActWithoutDeclaration appends a Consent Record that ACCEPTED THE
+// TERMS and declared nothing: the shape of every act captured before an
+// operator published the Artifact.
+//
+// Direct SQL, for seedConsentAct's reason — what is under test is the read —
+// and it is a separate helper because this is the interesting null. An act that
+// showed no Terms box at all is trivially null; an act that showed one, under
+// an edition with no adulthood label, is the case a reader is most likely to
+// mistake for a refusal.
+func seedTermsActWithoutDeclaration(t *testing.T, env *testEnv, customerID, email, termsEditionID string, at time.Time) {
+	t.Helper()
+	if _, err := env.db.Exec(`
+		INSERT INTO consent_records (customer_id, email, channel, captured_at, policy_version_id,
+		                             policy_acceptance, terms_acceptance, terms_version_id,
+		                             email_proven, presented_locale)
+		SELECT $1, $2, 'signin', $3,
+		       (SELECT id FROM policy_versions
+		         WHERE effective_date <= CURRENT_DATE
+		         ORDER BY effective_date DESC, created_at DESC LIMIT 1),
+		       TRUE, TRUE, $4::uuid, TRUE, 'es'
+	`, customerID, email, at, termsEditionID); err != nil {
+		t.Fatalf("seed a terms act with no declaration: %v", err)
+	}
+}
+
+// seedStaffAcceptanceDeclaring is seedStaffAcceptance with the 18+ box ticked:
+// an acceptance made under an edition that carried the Artifact.
+func seedStaffAcceptanceDeclaring(t *testing.T, env *testEnv, email, editionID string) {
+	t.Helper()
+	if _, err := env.db.Exec(`
+		INSERT INTO staff_terms_acceptances (email, terms_version_id, capacity, accepted_at,
+		                                     adulthood_declaration)
+		VALUES ($1, $2, 'organizer', NOW(), TRUE)
+		ON CONFLICT (email, terms_version_id, capacity) DO NOTHING
+	`, email, editionID); err != nil {
+		t.Fatalf("seed a declaring staff acceptance for %q: %v", email, err)
+	}
+}
+
+// TestTheCustomerRecordShowsTheDeclarationPerActAndSpellsANullNeverAsked is the
+// attendee half: one person, two acts, two different answers to the same
+// question — and neither of them a No.
+func TestTheCustomerRecordShowsTheDeclarationPerActAndSpellsANullNeverAsked(t *testing.T) {
+	env := setupTest(t)
+	sessionID := operatorSession(t, env, "operator@example.com")
+
+	// The world before the publish: an edition with no adulthood Artifact, and
+	// an acceptance captured under it.
+	oldEdition := currentEditionID(t, env, "terms_versions")
+	seedCustomerWithoutConsent(t, env, "ana@example.com")
+	customerID := customerIDFor(t, env, "ana@example.com")
+	seedTermsActWithoutDeclaration(t, env, customerID, "ana@example.com", oldEdition, fixedClock)
+
+	// And then the publish, and a real capture through the sign-in gate: the
+	// box is drawn because the edition in effect carries the Artifact, and the
+	// tick is recorded beside the acceptance it travelled with.
+	publishTermsVersionAskingAdulthood(t, env, 2, 0)
+	// The clock moves so the two acts cannot share a tick — the harness's is
+	// fixed, and a newest-first assertion over one tick is a coin toss.
+	setConsentClock(fixedClock.Add(time.Hour))
+	signInAnswering(t, env, "ana@example.com", true, true, false)
+
+	page := readConsentActs(t, env, sessionID, customerID, "")
+	if page.VisibleCount != 2 {
+		t.Fatalf("history = %d acts; want the seeded one and the sign-in", page.VisibleCount)
+	}
+	declared, neverAsked := page.Acts[0], page.Acts[1]
+
+	// THE DECLARATION IS PER ACT. The newest act asked and was answered.
+	if string(declared.AdulthoodDeclaration) != "true" {
+		t.Fatalf("the declaring act carries adulthood_declaration=%s; want true", declared.AdulthoodDeclaration)
+	}
+	// AND IT NAMES NO EDITION OF ITS OWN: the words declared under are an
+	// Artifact of the Terms edition the act already names.
+	if declared.TermsEdition == nil || declared.TermsEdition.ID == "" {
+		t.Fatalf("the declaring act names no Terms edition: %+v", declared)
+	}
+
+	// THE NULL, WHICH IS THE LOAD-BEARING CASE. The older act accepted the
+	// Terms under an edition that carried no 18+ box, so the platform holds no
+	// answer — and it says so as `null`, present in the payload rather than
+	// omitted from it. An absent key would leave the reader to decide what its
+	// absence meant, and the one wrong guess is "No".
+	if string(neverAsked.AdulthoodDeclaration) != "null" {
+		t.Fatalf("an act under a non-Artifact edition carries adulthood_declaration=%s; want null",
+			neverAsked.AdulthoodDeclaration)
+	}
+	if neverAsked.TermsAcceptance == nil || !*neverAsked.TermsAcceptance {
+		t.Fatalf("the seeded act did not accept the Terms: %+v", neverAsked)
+	}
+	// NOWHERE IN THE WHOLE HISTORY IS THERE A FALSE. A refusal is refused
+	// before any capture and writes nothing, so no act can ever say one.
+	for _, act := range page.Acts {
+		if string(act.AdulthoodDeclaration) == "false" {
+			t.Fatalf("act %s records a refused declaration; a refusal writes nothing", act.ID)
+		}
+	}
+}
+
+// TestTheStaffRecordShowsTheDeclarationPerAcceptance is the organizer half,
+// over the same two states: an acceptance that declared, and one made under an
+// edition that never asked.
+func TestTheStaffRecordShowsTheDeclarationPerAcceptance(t *testing.T) {
+	env := setupTest(t)
+	sessionID := operatorSession(t, env, "zz-operator@example.com")
+	orgID := seedOrganization(t, env, "declaration-org")
+
+	first := currentEditionID(t, env, "terms_versions")
+	seedMember(t, env, orgID, "ana@example.com")
+	seedStaffAcceptance(t, env, "ana@example.com", first)
+	second := publishTermsVersionAskingAdulthood(t, env, 2, 0)
+	seedStaffAcceptanceDeclaring(t, env, "ana@example.com", second)
+
+	digest := staffDigestFromBrowser(t, env, sessionID, "ana@example.com")
+	record := readStaffLegalRecord(t, env, sessionID, digest)
+	if record.VisibleCount != 2 {
+		t.Fatalf("acceptances = %d; want both", record.VisibleCount)
+	}
+	declared, neverAsked := record.Acceptances[0], record.Acceptances[1]
+	if declared.TermsEdition.ID != second || neverAsked.TermsEdition.ID != first {
+		t.Fatalf("the acceptances are not newest-first: %+v", record.Acceptances)
+	}
+	if string(declared.AdulthoodDeclaration) != "true" {
+		t.Fatalf("the declaring acceptance carries %s; want true", declared.AdulthoodDeclaration)
+	}
+	// The same null, spelled the same way, on the population that has no
+	// Consent Record at all: one rule, two evidence logs.
+	if string(neverAsked.AdulthoodDeclaration) != "null" {
+		t.Fatalf("an acceptance under a non-Artifact edition carries %s; want null",
+			neverAsked.AdulthoodDeclaration)
+	}
+	for _, acceptance := range record.Acceptances {
+		if string(acceptance.AdulthoodDeclaration) == "false" {
+			t.Fatalf("acceptance %s records a refusal; an untick is refused before the insert", acceptance.ID)
+		}
+	}
+}
+
+// TestTheAcceptanceBrowsersGainNoAdulthoodColumnFilterOrStanding, asserted
+// rather than merely omitted.
+//
+// An adulthood standing would be a near-copy of Terms standing, and those
+// browsers are deliberately not a segmentation tool: a filterable roster of who
+// has and has not declared is the closest thing to "a list of self-declared
+// minors" this platform could accidentally build, and it is the one shape the
+// feature must never take.
+func TestTheAcceptanceBrowsersGainNoAdulthoodColumnFilterOrStanding(t *testing.T) {
+	env := setupTest(t)
+	sessionID := operatorSession(t, env, "zz-operator@example.com")
+	orgID := seedOrganization(t, env, "browser-org")
+
+	edition := publishTermsVersionAskingAdulthood(t, env, 2, 0)
+	signInAnswering(t, env, "ana@example.com", true, true, false)
+	seedMember(t, env, orgID, "ana@example.com")
+	seedStaffAcceptanceDeclaring(t, env, "ana@example.com", edition)
+
+	for _, browser := range []struct{ name, path string }{
+		{"customers/policy", customerBrowserPolicyPath},
+		{"customers/terms", customerBrowserTermsPath},
+		{"staff/terms", staffBrowserTermsPath},
+	} {
+		// NO COLUMN. The rows are read as raw JSON rather than through a struct,
+		// because a struct would silently ignore exactly the field being
+		// asserted absent.
+		resp, body := env.post(t, browser.path, map[string]any{}, authHeader(sessionID))
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("POST %s status=%d error=%+v", browser.path, resp.StatusCode, body.Error)
+		}
+		plain := string(body.Data)
+		if strings.Contains(plain, "adulthood") {
+			t.Fatalf("%s carries the declaration: %s", browser.name, plain)
+		}
+
+		// NO FILTER, AND NO STANDING TO FILTER ON. A filter the API silently
+		// ignored would be as bad as one it honoured: the operator would read a
+		// segmented list that is not segmented. So the demand is that naming it
+		// changes nothing — the page is the same page — and there is no
+		// `adulthood` standing for it to name either.
+		resp, filtered := env.post(t, browser.path, map[string]any{
+			"adulthood_declaration": true,
+			"standing":              "adulthood_declared",
+		}, authHeader(sessionID))
+		switch resp.StatusCode {
+		case http.StatusOK:
+			if string(filtered.Data) != plain {
+				t.Fatalf("%s answered an adulthood filter with a different page", browser.name)
+			}
+		case http.StatusBadRequest:
+			// An unknown standing refused outright is the other honest answer.
+		default:
+			t.Fatalf("%s answered an adulthood filter with %d: %+v",
+				browser.name, resp.StatusCode, filtered.Error)
+		}
+	}
+}
+
+// TestReadingADeclarationLogsExactlyOneSubjectRead is the Consent Access Log's
+// half of the ruling: an operator reading somebody's declaration is a
+// `subject_read` OF THE RECORD THAT HOLDS IT, and one touch is one row.
+//
+// The log gains no act kind. There is no `adulthood_read`, and there must not
+// be: an act kind per field is how an audit log stops being readable, and the
+// declaration is not a resource — it is a column on an act that is already
+// logged.
+func TestReadingADeclarationLogsExactlyOneSubjectRead(t *testing.T) {
+	env := setupTest(t)
+	sessionID := operatorSession(t, env, "operator@example.com")
+
+	publishTermsVersionAskingAdulthood(t, env, 2, 0)
+	signInAnswering(t, env, "ana@example.com", true, true, false)
+	customerID := customerIDFor(t, env, "ana@example.com")
+
+	before := len(accessLogRowsOf(t, env, "subject_read"))
+	record := readCustomerLegalRecord(t, env, sessionID, customerID)
+	if record.Customer.ID != customerID {
+		t.Fatalf("read the wrong record: %+v", record.Customer)
+	}
+	// EXACTLY ONE, and not one per fact disclosed. Opening a record that
+	// happens to carry a declaration must not double-count the same touch.
+	if got := len(accessLogRowsOf(t, env, "subject_read")) - before; got != 1 {
+		t.Fatalf("opening a record carrying a declaration wrote %d subject_read rows; want exactly 1", got)
+	}
+	// AND NO NEW ACT KIND EXISTS. Asserted against the schema rather than
+	// against a list somebody maintains: the vocabulary is a CHECK, and a
+	// migration that widened it for this feature would fail here.
+	if _, err := env.db.Exec(`
+		INSERT INTO consent_access_log (act, actor_email, subject_email)
+		VALUES ('adulthood_read', 'operator@example.com', 'ana@example.com')
+	`); err == nil {
+		t.Fatal("the Consent Access Log accepted an adulthood act kind")
+	}
+}
+
+// TestNoPathCreatesEditsOrWithdrawsADeclaration. Like Terms Acceptance it has
+// no withdrawal path — and unlike Terms Acceptance it has no creation path
+// either that is not the gate itself.
+//
+// Written as "these routes do not exist" and as "these acts move nothing",
+// because a screen without a button is not a guarantee: the API is reachable
+// with curl, and the next person to add a route here should have to delete a
+// test to do it.
+func TestNoPathCreatesEditsOrWithdrawsADeclaration(t *testing.T) {
+	env := setupTest(t)
+	sessionID := operatorSession(t, env, "operator@example.com")
+
+	publishTermsVersionAskingAdulthood(t, env, 2, 0)
+	signInAnswering(t, env, "ana@example.com", true, true, true)
+	customerID := customerIDFor(t, env, "ana@example.com")
+	base := legalCustomerRecordPath(customerID)
+
+	declarationOf := func(t *testing.T) string {
+		t.Helper()
+		page := readConsentActs(t, env, sessionID, customerID, "")
+		for _, act := range page.Acts {
+			if act.Channel == "signin" {
+				return string(act.AdulthoodDeclaration)
+			}
+		}
+		t.Fatal("the sign-in act is gone from the record")
+		return ""
+	}
+	if got := declarationOf(t); got != "true" {
+		t.Fatalf("the sign-in recorded adulthood_declaration=%s; want true", got)
+	}
+
+	// NO ENDPOINT MANUFACTURES, EDITS OR WITHDRAWS ONE.
+	for _, absent := range []struct{ method, path string }{
+		{http.MethodPost, base + "/adulthood"},
+		{http.MethodPost, base + "/adulthood-declaration"},
+		{http.MethodPut, base + "/adulthood-declaration"},
+		{http.MethodPatch, base + "/adulthood-declaration"},
+		{http.MethodDelete, base + "/adulthood-declaration"},
+		{http.MethodPost, base + "/adulthood-withdrawal"},
+	} {
+		if status := routeStatus(t, env, absent.method, absent.path, sessionID); status != http.StatusNotFound && status != http.StatusMethodNotAllowed {
+			t.Fatalf("%s %s status=%d; that act must not exist", absent.method, absent.path, status)
+		}
+	}
+
+	// AND THE WITHDRAWAL THAT DOES EXIST LEAVES IT UNTOUCHED — including a
+	// Withdraw All, which takes back every optional consent at once and is the
+	// broadest act any surface can perform on somebody's record.
+	setConsentClock(fixedClock.Add(time.Hour))
+	resp, body := env.post(t, operatorConsentWithdrawalPath(customerID), map[string]any{
+		"marketing_consent":  false,
+		"networking_consent": false,
+		"request_reference":  paperFormRef,
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("withdrawal status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	if got := declarationOf(t); got != "true" {
+		t.Fatalf("a Withdraw All moved the declaration to %s", got)
+	}
+	// And the withdrawal's own act declares nothing, rather than recording a
+	// No: an operator's form showed nobody an 18+ box.
+	page := readConsentActs(t, env, sessionID, customerID, "")
+	if string(page.Acts[0].AdulthoodDeclaration) != "null" {
+		t.Fatalf("the withdrawal act carries adulthood_declaration=%s; want null",
+			page.Acts[0].AdulthoodDeclaration)
+	}
+	// A crafted answer on the withdrawal body is ignored, never honoured: there
+	// is no such field on that request and no path to one.
+	setConsentClock(fixedClock.Add(2 * time.Hour))
+	resp, body = env.post(t, operatorConsentWithdrawalPath(customerID), map[string]any{
+		"marketing_consent":     false,
+		"adulthood_declaration": false,
+		"request_reference":     paperFormRef,
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("a crafted declaration status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	if got := declarationOf(t); got != "true" {
+		t.Fatalf("a crafted body moved the declaration to %s", got)
+	}
+
+	// NO LIST OF SELF-DECLARED MINORS EXISTS IN ANY FORM, because no row ever
+	// says one — on the attendee log, the organizer log, or the checkout hold
+	// between them.
+	for _, table := range []struct{ name, column string }{
+		{"consent_records", "adulthood_declaration"},
+		{"staff_terms_acceptances", "adulthood_declaration"},
+		{"payments", "consent_adulthood_declaration"},
+	} {
+		var refusals int
+		if err := env.db.QueryRow(
+			`SELECT COUNT(*) FROM ` + table.name + ` WHERE ` + table.column + ` IS FALSE`,
+		).Scan(&refusals); err != nil {
+			t.Fatalf("count refusals on %s: %v", table.name, err)
+		}
+		if refusals != 0 {
+			t.Fatalf("%s holds %d rows declaring somebody a minor", table.name, refusals)
+		}
+	}
+}
+
+// TestTheDeclarationHasNoBearingOnTicketsOrTransactionalMail. A compliance
+// control must not cost somebody what they bought.
+//
+// It lives beside the other absences rather than in the checkout's own file
+// because it is the same kind of claim as the ones above it: the declaration is
+// evidence and nothing else, so it must not appear in — or alter — anything the
+// buyer receives. What the checkout file proves is that the box is owed,
+// answered and recorded; what this proves is that having answered it changes
+// nothing whatever about the sale it travelled with.
+func TestTheDeclarationHasNoBearingOnTicketsOrTransactionalMail(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Declared Fest", "declared-fest", 1000, 10)
+
+	token, _ := signedInOwingTheDeclaration(t, env, "dora@example.com", 2)
+	setSignInClock(t, env, env.fixedClock.Add(time.Hour))
+
+	body := consentCheckoutBody("Dora", "Vega", nil, nil, nil, cartLine(gaID, 1))
+	body["terms_acceptance"] = true
+	body["adulthood_declaration"] = true
+	begin := beginCheckoutWithEvidenceOK(t, env, "test-org", "declared-fest", token, body)
+	confirm := confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
+	if confirm.Status != "approved" {
+		t.Fatalf("confirm status = %q; a declared checkout must complete like any other", confirm.Status)
+	}
+
+	// THE SALE IS AN ORDINARY SALE, and its payload says nothing about the
+	// declaration. Read as raw JSON, because a struct would ignore exactly the
+	// field being asserted absent.
+	resp, envelope := env.get(t, "/api/v1/staff/events/"+eventID+"/sales", authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("sales list status=%d error=%+v", resp.StatusCode, envelope.Error)
+	}
+	if strings.Contains(string(envelope.Data), "adulthood") {
+		t.Fatalf("the Sales list carries the declaration: %s", envelope.Data)
+	}
+
+	// AND THE SALE CONFIRMATION CARRIES NOTHING OF IT EITHER. The receipt is
+	// about tickets and money; a line reporting what somebody declared about
+	// their age would be a compliance control leaking into a buyer's inbox.
+	confirmations := env.email.Confirmations()
+	if len(confirmations) != 1 {
+		t.Fatalf("sale confirmations = %d; want the one this sale earned", len(confirmations))
+	}
+	receipt := strings.ToLower(fmt.Sprintf("%+v", confirmations[0]))
+	for _, forbidden := range []string{"adulthood", "mayor de edad", "eighteen"} {
+		if strings.Contains(receipt, forbidden) {
+			t.Fatalf("the Sale Confirmation mentions %q: %s", forbidden, receipt)
+		}
+	}
+	if confirmations[0].Reference != confirm.ConfirmationRef {
+		t.Fatalf("the receipt names %q; want the sale's own reference", confirmations[0].Reference)
 	}
 }
 

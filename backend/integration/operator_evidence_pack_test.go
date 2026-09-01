@@ -550,6 +550,101 @@ func TestTheEvidencePackOfSomebodyWhoDoesNotExistIs404(t *testing.T) {
 	}
 }
 
+// THE ADULTHOOD DECLARATION IN THE PACK (#590, parent #584, ADR 0069).
+
+// TestOnePackCarriesTheDeclarationForBothPopulations is the payoff, exported:
+// one human being, one file, and the declaration in it for the attendee
+// capacity and the organizer one — served from the same Go types the record
+// screen serves, so the export cannot tell a different story from the screen.
+func TestOnePackCarriesTheDeclarationForBothPopulations(t *testing.T) {
+	env := setupTest(t)
+	sessionID := operatorSession(t, env, "zz-operator@example.com")
+	orgID := seedOrganization(t, env, "adulthood-pack-org")
+
+	setConsentClock(fixedClock)
+	// The world before the publish, on the staff side: an acceptance under an
+	// edition that carried no 18+ Artifact.
+	firstEdition := currentEditionID(t, env, "terms_versions")
+	seedMember(t, env, orgID, "ana@example.com")
+	seedStaffAcceptance(t, env, "ana@example.com", firstEdition)
+
+	// And then the publish, a declaring staff acceptance, and a declaring
+	// sign-in as a Customer under the same edition.
+	declaringEdition := publishTermsVersionAskingAdulthood(t, env, 2, 0)
+	seedStaffAcceptanceDeclaring(t, env, "ana@example.com", declaringEdition)
+	signInAnswering(t, env, "ana@example.com", true, true, false)
+	customerID := customerIDFor(t, env, "ana@example.com")
+
+	pack := downloadPack(t, env, sessionID, evidencePackPath(customerID))
+	record := packRecord(t, pack)
+
+	acts, _ := record["customer_acts"].([]any)
+	if len(acts) == 0 {
+		t.Fatal("record.json carries no acts")
+	}
+	signin, _ := acts[0].(map[string]any)
+	if signin["adulthood_declaration"] != true {
+		t.Fatalf("the sign-in act carries adulthood_declaration=%v; want true", signin["adulthood_declaration"])
+	}
+
+	staff, _ := record["staff"].(map[string]any)
+	acceptances, _ := staff["acceptances"].([]any)
+	if len(acceptances) != 2 {
+		t.Fatalf("staff acceptances = %d; want both", len(acceptances))
+	}
+	declared, _ := acceptances[0].(map[string]any)
+	neverAsked, _ := acceptances[1].(map[string]any)
+	if declared["adulthood_declaration"] != true {
+		t.Fatalf("the declaring acceptance carries %v", declared["adulthood_declaration"])
+	}
+	// THE NULL SURVIVES INTO THE FILE, present and null rather than dropped:
+	// an absent key would leave a regulator to decide what its absence meant.
+	value, present := neverAsked["adulthood_declaration"]
+	if !present || value != nil {
+		t.Fatalf("the older acceptance carries %v (present=%v); want null", value, present)
+	}
+
+	// AND THE PDF READS CONSISTENTLY WITH record.json, because it is rendered
+	// from record.json's own value. The bytes are compressed, so this asserts
+	// only that a reading exists; the words themselves are asserted over the
+	// inflated streams in the evidence package's own tests.
+	if len(pack.Files["evidence.pdf"]) == 0 {
+		t.Fatal("the pack carries no evidence.pdf")
+	}
+	// NO ROW ANYWHERE SAYS "no". A refusal is refused before any capture.
+	if strings.Contains(string(pack.Files["record.json"]), `"adulthood_declaration": false`) {
+		t.Fatal("record.json states a refused declaration; a refusal writes nothing")
+	}
+}
+
+// TestAPackCarryingADeclarationIsStillByteReproducible. "Declared on such a
+// date under such an edition" is a finished fact carrying no time-varying
+// value, so the ruling migration 118 rests on is untouched by this feature.
+func TestAPackCarryingADeclarationIsStillByteReproducible(t *testing.T) {
+	env := setupTest(t)
+	sessionID := operatorSession(t, env, "operator@example.com")
+
+	setConsentClock(fixedClock)
+	publishTermsVersionAskingAdulthood(t, env, 2, 0)
+	signInAnswering(t, env, "ana@example.com", true, true, false)
+	customerID := customerIDFor(t, env, "ana@example.com")
+
+	first := downloadPack(t, env, sessionID, evidencePackPath(customerID))
+	second := downloadPack(t, env, sessionID, evidencePackPath(customerID))
+	if !bytes.Equal(first.Body, second.Body) {
+		t.Fatalf("two packs over one declaring record differ: %d vs %d bytes",
+			len(first.Body), len(second.Body))
+	}
+	if first.SHA256 != second.SHA256 {
+		t.Fatalf("X-Pack-SHA256 = %q then %q", first.SHA256, second.SHA256)
+	}
+	// The declaration really is in the bytes being compared — otherwise this
+	// would be asserting determinism over a file that never carried it.
+	if !strings.Contains(string(first.Files["record.json"]), `"adulthood_declaration": true`) {
+		t.Fatal("the pack carries no declaration, so its determinism proves nothing about one")
+	}
+}
+
 // TestWithdrawalsInThePackAreTheActsThemselves: no synthesised log, and the act
 // reads as a withdrawal because it carries what the consent WAS.
 func TestWithdrawalsInThePackAreTheActsThemselves(t *testing.T) {
