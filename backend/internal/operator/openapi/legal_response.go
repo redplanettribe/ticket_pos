@@ -1,7 +1,7 @@
 package openapi
 
 import (
-	consentsvc "github.com/peter/ticket_pos/backend/internal/consent/service"
+	"github.com/peter/ticket_pos/backend/internal/consent/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
@@ -15,7 +15,7 @@ import (
 // Operator is shown about a legal document is that module's answer, and a
 // second struct here would be a second place for the wire contract to drift.
 type EnvelopeOperatorLegalWorkspace struct {
-	Data      consentsvc.OperatorLegalWorkspace `json:"data"`
-	Error     *platform.APIError                `json:"error"`
-	RequestID string                            `json:"request_id"`
+	Data      service.OperatorLegalWorkspace `json:"data"`
+	Error     *platform.APIError             `json:"error"`
+	RequestID string                         `json:"request_id"`
 }

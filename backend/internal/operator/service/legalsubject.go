@@ -7,7 +7,14 @@ import (
 	"strings"
 	"time"
 
-	consentsvc "github.com/peter/ticket_pos/backend/internal/consent/service"
+	// The consent module's service package, imported WITHOUT AN ALIAS even
+	// though this package is itself called `service`: `service.` below is the
+	// consent module, never this one. The wire views in this file are parsed
+	// by swag, and swag v2.0.0-rc5 cannot resolve a field type through an
+	// import alias -- `service.CustomerGateStanding` makes `make openapi`
+	// fail with "cannot find type definition". The openapi envelopes do the
+	// same for the same reason.
+	"github.com/peter/ticket_pos/backend/internal/consent/service"
 	"github.com/peter/ticket_pos/backend/internal/identity"
 	identitysvc "github.com/peter/ticket_pos/backend/internal/identity/service"
 )
@@ -66,9 +73,9 @@ import (
 type LegalRecords interface {
 	// CustomerLegalRecord answers LEGAL_SUBJECT_NOT_FOUND for an id nobody
 	// holds, which the handler maps to 404.
-	CustomerLegalRecord(ctx context.Context, customerID string) (*consentsvc.CustomerLegalRecordItem, error)
+	CustomerLegalRecord(ctx context.Context, customerID string) (*service.CustomerLegalRecordItem, error)
 	// CustomerConsentActs returns one keyset page of the history, newest first.
-	CustomerConsentActs(ctx context.Context, query consentsvc.CustomerConsentActsQuery) ([]consentsvc.ConsentActItem, error)
+	CustomerConsentActs(ctx context.Context, query service.CustomerConsentActsQuery) ([]service.ConsentActItem, error)
 	// TermsEditionLabels names every published Terms edition, so the STAFF
 	// record can label an acceptance without identity learning what a label is.
 	TermsEditionLabels(ctx context.Context) (map[string]string, error)
@@ -80,12 +87,12 @@ type LegalRecords interface {
 	// predicate: a superseded, scheduled or withdrawn edition an act names is
 	// still the edition somebody was shown. An id naming no row is absent from
 	// the result rather than an error.
-	PolicyEditionTexts(ctx context.Context, ids []string) ([]consentsvc.LegalEditionTextItem, error)
-	TermsEditionTexts(ctx context.Context, ids []string) ([]consentsvc.LegalEditionTextItem, error)
+	PolicyEditionTexts(ctx context.Context, ids []string) ([]service.LegalEditionTextItem, error)
+	TermsEditionTexts(ctx context.Context, ids []string) ([]service.LegalEditionTextItem, error)
 	// RecordEvidencePack writes that a pack was generated — its SHA-256, its
 	// size and the ids it covered (migration 118) — AND NOT THE PACK. It is the
 	// only write on this interface, and it writes nothing about the subject.
-	RecordEvidencePack(ctx context.Context, handover consentsvc.EvidencePackHandover) (string, error)
+	RecordEvidencePack(ctx context.Context, handover service.EvidencePackHandover) (string, error)
 }
 
 // LegalStaffRecords is the staff population's half, from identity.
@@ -143,8 +150,8 @@ type CustomerSubjectView struct {
 	LastName  string `json:"last_name"`
 	// The two gates: when each was last accepted, the exact edition accepted,
 	// and the standing that edition produces.
-	Policy consentsvc.CustomerGateStanding `json:"policy"`
-	Terms  consentsvc.CustomerGateStanding `json:"terms"`
+	Policy service.CustomerGateStanding `json:"policy"`
+	Terms  service.CustomerGateStanding `json:"terms"`
 	// The two optional consents, NULL WHERE NEVER ANSWERED. Unanswered is a
 	// different fact from denied and is published as the different fact it is:
 	// an operator must never be shown a refusal somebody did not make.
@@ -158,7 +165,7 @@ type CustomerSubjectView struct {
 // There is no `page`, no `total_pages` and no `total` — but there IS a count,
 // and it is a different number:
 type ConsentActPage struct {
-	Acts []consentsvc.ConsentActItem `json:"acts"`
+	Acts []service.ConsentActItem `json:"acts"`
 	// VisibleCount is HOW MANY ACTS ARE ON THIS PAGE, and it is here so that a
 	// TRUNCATED PAGE IS DISTINGUISHABLE FROM A COMPLETE HISTORY (#566). Read
 	// with NextCursor it answers the only question that matters about a record
@@ -204,7 +211,7 @@ type StaffAcceptanceRecordView struct {
 	// TermsEdition names the exact edition accepted, id and label together, so
 	// the act resolves to the exact bytes and reads as something a human can
 	// say out loud.
-	TermsEdition consentsvc.LegalEditionRef `json:"terms_edition"`
+	TermsEdition service.LegalEditionRef `json:"terms_edition"`
 	// Capacity is what the person accepted AS (§3, ADR 0066).
 	Capacity   string    `json:"capacity"`
 	AcceptedAt time.Time `json:"accepted_at"`
@@ -349,12 +356,12 @@ func (s *Service) CustomerConsentActs(ctx context.Context, input CustomerConsent
 		return nil, err
 	}
 
-	limit := consentsvc.ConsentRecordPageSize
+	limit := service.ConsentRecordPageSize
 	if input.Limit > 0 && input.Limit < limit {
 		limit = input.Limit
 	}
 
-	acts, err := s.legalRecords.CustomerConsentActs(ctx, consentsvc.CustomerConsentActsQuery{
+	acts, err := s.legalRecords.CustomerConsentActs(ctx, service.CustomerConsentActsQuery{
 		CustomerID: strings.TrimSpace(input.CustomerID),
 		After:      decodeConsentActCursor(input.Cursor),
 		// ONE MORE THAN THE PAGE SIZE, the browsers' trick: read 26, show 25,
@@ -367,7 +374,7 @@ func (s *Service) CustomerConsentActs(ctx context.Context, input CustomerConsent
 		return nil, err
 	}
 
-	page := &ConsentActPage{Acts: make([]consentsvc.ConsentActItem, 0, limit)}
+	page := &ConsentActPage{Acts: make([]service.ConsentActItem, 0, limit)}
 	for i, act := range acts {
 		if i == limit {
 			page.NextCursor = pointerTo(encodeConsentActCursor(acts[i-1]))
@@ -434,7 +441,7 @@ func (s *Service) StaffLegalRecord(ctx context.Context, actor, digest string) (*
 	for _, acceptance := range record.Acceptances {
 		view.Acceptances = append(view.Acceptances, StaffAcceptanceRecordView{
 			ID: acceptance.ID,
-			TermsEdition: consentsvc.LegalEditionRef{
+			TermsEdition: service.LegalEditionRef{
 				ID:    acceptance.TermsEditionID,
 				Label: labels[acceptance.TermsEditionID],
 			},
@@ -521,7 +528,7 @@ const consentActCursorSeparator = " "
 // cursor, and on an evidence log either is a defect somebody has to explain.
 // The timestamp is RFC 3339 with nanoseconds, so it survives the round trip at
 // the resolution Postgres stores.
-func encodeConsentActCursor(act consentsvc.ConsentActItem) string {
+func encodeConsentActCursor(act service.ConsentActItem) string {
 	raw := act.CapturedAt.UTC().Format(time.RFC3339Nano) + consentActCursorSeparator + act.ID
 	return base64.RawURLEncoding.EncodeToString([]byte(raw))
 }
@@ -532,7 +539,7 @@ func encodeConsentActCursor(act consentsvc.ConsentActItem) string {
 // browsers' rule and the public event feed's — because a bad cursor means a
 // stale bookmark or a truncated copy-paste, and the useful answer is the top of
 // the list rather than an error page over somebody's evidence.
-func decodeConsentActCursor(cursor string) *consentsvc.ConsentActCursor {
+func decodeConsentActCursor(cursor string) *service.ConsentActCursor {
 	trimmed := strings.TrimSpace(cursor)
 	if trimmed == "" {
 		return nil
@@ -549,7 +556,7 @@ func decodeConsentActCursor(cursor string) *consentsvc.ConsentActCursor {
 	if err != nil {
 		return nil
 	}
-	return &consentsvc.ConsentActCursor{CapturedAt: capturedAt, ID: id}
+	return &service.ConsentActCursor{CapturedAt: capturedAt, ID: id}
 }
 
 // ParseConsentActLimit reads the `limit` query parameter, which is a CAP the
@@ -560,7 +567,7 @@ func decodeConsentActCursor(cursor string) *consentsvc.ConsentActCursor {
 func ParseConsentActLimit(raw string) int {
 	limit, err := strconv.Atoi(strings.TrimSpace(raw))
 	if err != nil || limit <= 0 {
-		return consentsvc.ConsentRecordPageSize
+		return service.ConsentRecordPageSize
 	}
-	return min(limit, consentsvc.ConsentRecordPageSize)
+	return min(limit, service.ConsentRecordPageSize)
 }

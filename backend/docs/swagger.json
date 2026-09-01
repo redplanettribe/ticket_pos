@@ -359,6 +359,10 @@
                         "description": "PolicyAcceptance is the required box. Absent is false, and false is\nrefused: the API is the guarantee, the disabled submit button is a\ncourtesy.\n\nIT IS A POINTER SO THAT MENTIONING IT AT ALL MEANS SOMETHING (#270). A\nsubmission carrying this field is a sign-in submission whatever it says —\n`false` is a refusal of the policy, not a withdrawal of a consent — and it\nfollows the rules it always did. Only a submission that does not mention\nPolicy Acceptance at all can be the other act. The two readings agree\neverywhere they overlap: absent is false on the sign-in path exactly as it\nhas always been.",
                         "type": "boolean"
                     },
+                    "presented_locale": {
+                        "description": "PresentedLocale is the language of the LEGAL TEXT this step rendered — the\nShort Notice above the boxes and the labels on them — read by the\nStorefront off the policy payload it drew them from (#567, migration 115).\n\nIt is the one field in this body that describes what the PLATFORM did\nrather than what the person answered, and it is here rather than derived\nfrom the request because no header can answer it: `Accept-Language` and\nthe address's own locale say what was asked for, and this says what was\nserved. It corroborates and proves nothing — a crafted value can only\nmisdescribe the act it rides on, never widen it — so a value that is not a\nlanguage this platform serves is DROPPED and the act is recorded without\nit, rather than a sign-in being refused over an annotation.\n\nIgnored entirely on the withdrawal branch, which renders no document.",
+                        "type": "string"
+                    },
                     "terms_acceptance": {
                         "description": "TermsAcceptance is the Terms box (#536, ADR 0066), required exactly where\nit is OWED — the service judges it against the same recomputed Outstanding\nthe optional answers are read against, so a Customer re-gated by a Policy\nbump alone is not refused over a box they were never shown. Like the\nacceptance above it carries no edition: which Terms Version is being\naccepted is resolved server-side at the moment of capture.\n\nA POINTER FOR THE SAME REASON POLICY ACCEPTANCE IS ONE: a submission\nmentioning it at all is a sign-in submission, whatever it says — the Terms\nhave no withdrawal path at all (ADR 0066), so no reading of this field may\never steer a submission onto the withdrawal branch.",
                         "type": "boolean"
@@ -644,6 +648,84 @@
                     },
                     "recipient": {
                         "$ref": "#/components/schemas/handler.recipientBody"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.legalAcceptanceBrowseBody": {
+                "properties": {
+                    "cursor": {
+                        "description": "Cursor is the previous page's `next_cursor`. Unparseable is treated as\nABSENT and serves the first page.",
+                        "type": "string"
+                    },
+                    "search_email": {
+                        "description": "SearchEmail narrows to addresses containing this fragment.",
+                        "type": "string"
+                    },
+                    "standing": {
+                        "description": "Standing is `current`, `outstanding`, `never_seen` or (staff only)\n`former`. ABSENT MEANS OUTSTANDING — both screens default to it, because\n\"who owes something\" is the question the feature exists to answer.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.legalArtifactBody": {
+                "properties": {
+                    "bodies": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "slug": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.legalDraftBody": {
+                "properties": {
+                    "artifacts": {
+                        "items": {
+                            "$ref": "#/components/schemas/handler.legalArtifactBody"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "published_locales": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "handler.legalPreviewBody": {
+                "properties": {
+                    "locale": {
+                        "type": "string"
+                    },
+                    "slug": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.legalPublishBody": {
+                "properties": {
+                    "effective_date": {
+                        "description": "EffectiveDate is YYYY-MM-DD, 00:00 America/Guayaquil. Required and at\nleast tomorrow on an edition; refused on a correction, which is immediate.",
+                        "type": "string"
+                    },
+                    "kind": {
+                        "description": "Kind is \"edition\" or \"correction\". No default: which act this is decides\nwhether the whole customer base is re-gated.",
+                        "type": "string"
+                    },
+                    "reason": {
+                        "description": "Reason is the typed correction reason. Required on a correction.",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -973,6 +1055,19 @@
                 "properties": {
                     "locale": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.staffTermsGateBody": {
+                "properties": {
+                    "gate_token": {
+                        "description": "GateToken is the single-use token the interstitial's read handed out.",
+                        "type": "string"
+                    },
+                    "terms_acceptance": {
+                        "description": "TermsAcceptance is the one required box. Absent is false and false is\nrefused by the API, not merely by a disabled button.",
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -1372,6 +1467,33 @@
                     }
                 },
                 "type": "object"
+            },
+            "legal.CellRef": {
+                "properties": {
+                    "locale": {
+                        "$ref": "#/components/schemas/platform.Locale"
+                    },
+                    "slug": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "legal.Standing": {
+                "description": "Standing is `current`, `outstanding` or `never_seen`. NEVER `former`: a\nCustomer record is never deleted, so there is no departure to observe.",
+                "enum": [
+                    "current",
+                    "outstanding",
+                    "never_seen",
+                    "former"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "StandingCurrent",
+                    "StandingOutstanding",
+                    "StandingNeverSeen",
+                    "StandingFormer"
+                ]
             },
             "openapi.CustomerConsentSubmissionData": {
                 "properties": {
@@ -2131,10 +2253,80 @@
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeOperatorConsentActPage": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.ConsentActPage"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeOperatorCustomerAcceptancePage": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.CustomerAcceptancePage"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeOperatorCustomerConsent": {
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/service.OperatorCustomerConsentView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeOperatorCustomerLegalRecord": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.CustomerLegalRecordView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeOperatorLegalAccessLogPage": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.LegalAccessLogPage"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeOperatorLegalWorkspace": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.OperatorLegalWorkspace"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -2359,6 +2551,34 @@
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/service.SaleReversal"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeOperatorStaffAcceptancePage": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.StaffAcceptancePage"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeOperatorStaffLegalRecord": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.StaffLegalRecordView"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -2699,6 +2919,34 @@
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeStaffTermsAccepted": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/openapi.StaffTermsAcceptedData"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeStaffTermsGate": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/openapi.StaffTermsGateData"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeTagList": {
                 "properties": {
                     "data": {
@@ -2879,6 +3127,25 @@
                     },
                     "request_id": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.StaffTermsAcceptedData": {
+                "properties": {
+                    "accepted": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.StaffTermsGateData": {
+                "properties": {
+                    "outstanding": {
+                        "type": "boolean"
+                    },
+                    "terms_required": {
+                        "$ref": "#/components/schemas/service.TermsRequiredView"
                     }
                 },
                 "type": "object"
@@ -3423,6 +3690,106 @@
                 },
                 "type": "object"
             },
+            "service.ConsentActItem": {
+                "properties": {
+                    "captured_at": {
+                        "type": "string"
+                    },
+                    "channel": {
+                        "description": "Channel is the surface. It is also what decides whether PresentedLocale\nis a question worth asking at all — see that field.",
+                        "type": "string"
+                    },
+                    "confirmation_sent_at": {
+                        "type": "string"
+                    },
+                    "confirmed_at": {
+                        "description": "The two one-way stamps: that the act was later corroborated from the\naddress, and that its subject was later told about it.",
+                        "type": "string"
+                    },
+                    "email": {
+                        "description": "Email is the address AS ASSERTED at the moment of capture, which may\ndiffer from the Customer's address today. Reported as it was recorded: a\nrecord that substituted the current address would answer a question about\nthe past with a fact about the present.",
+                        "type": "string"
+                    },
+                    "email_proven": {
+                        "description": "EmailProven is whether the address was proven when the act happened —\nwhat separates a granted consent from a Pending Confirmation.",
+                        "type": "boolean"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "ip": {
+                        "description": "The technical proof, null where the surface collected nothing.",
+                        "type": "string"
+                    },
+                    "marketing_consent": {
+                        "type": "boolean"
+                    },
+                    "networking_consent": {
+                        "type": "boolean"
+                    },
+                    "origin_url": {
+                        "type": "string"
+                    },
+                    "policy_acceptance": {
+                        "type": "boolean"
+                    },
+                    "policy_edition": {
+                        "$ref": "#/components/schemas/service.LegalEditionRef"
+                    },
+                    "presented_locale": {
+                        "description": "PresentedLocale is the language of the legal text this act was captured\nbeside (#567) — of the ARTIFACT RENDERED and never of the page it was\nrendered on.\n\nTHREE STATES, AND A **string IS HOW THEY ARE SPELLED ON THE WIRE. The\nnesting is unusual and it is carrying a rule the ticket states outright:\n\n  - ABSENT (outer nil, `omitempty` drops the key): this channel presents\n    NO DOCUMENT AT ALL — an Customer Area toggle, an unsubscribe, an\n    operator-recorded withdrawal. Nothing was shown, so there is no\n    question to answer, and a key rendered here would be a claim that\n    text was displayed and its language forgotten.\n  - NULL (outer non-nil, inner nil): this channel DID show a document and\n    the platform does not know which language — every row written before\n    migration 115, which has no backfill because the answer is not\n    recoverable and inventing it would put a guess in an evidence log.\n    The surface says \"not recorded\".\n  - A LOCALE: what was actually rendered.\n\nAbsent and null are two different sentences and the payload says both,\nrather than collapsing them into one blank the reader has to interpret.",
+                        "type": "string"
+                    },
+                    "prior_marketing_consent": {
+                        "description": "What each optional consent WAS immediately before this act (#266). It is\nthe only way to read whether the act took something away: `denied` looks\nidentical whether somebody gave something up or refused twice.",
+                        "type": "string"
+                    },
+                    "prior_networking_consent": {
+                        "type": "string"
+                    },
+                    "recorded_by": {
+                        "description": "Who recorded this act on the Customer's behalf, and which artefact it\nanswers. Both null on every act the Customer performed themselves.",
+                        "type": "string"
+                    },
+                    "request_reference": {
+                        "type": "string"
+                    },
+                    "session_id": {
+                        "type": "string"
+                    },
+                    "terms_acceptance": {
+                        "description": "The Terms answer and the exact edition that was shown (#536). Both null\non every surface that did not show the box.",
+                        "type": "boolean"
+                    },
+                    "terms_edition": {
+                        "$ref": "#/components/schemas/service.LegalEditionRef"
+                    },
+                    "user_agent": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.ConsentActPage": {
+                "properties": {
+                    "acts": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.ConsentActItem"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "next_cursor": {
+                        "description": "NextCursor is the opaque token for the following page, or null when this\nis the last. Its presence IS the \"is there more?\" signal.",
+                        "type": "string"
+                    },
+                    "visible_count": {
+                        "description": "VisibleCount is HOW MANY ACTS ARE ON THIS PAGE, and it is here so that a\nTRUNCATED PAGE IS DISTINGUISHABLE FROM A COMPLETE HISTORY (#566). Read\nwith NextCursor it answers the only question that matters about a record\npresented as evidence: \"is this all of it?\" — 25 acts and a cursor means\nno; 25 acts and no cursor means yes.\n\nIT IS NOT A TOTAL and must never become one. A total over the whole\nhistory is the expensive half of the query, and the screen accumulates\npages as the operator walks, so the running sum of these counts is the\nnumber they actually need.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "service.ConsentBoxesView": {
                 "description": "Boxes is what to show.",
                 "properties": {
@@ -3518,6 +3885,44 @@
                 },
                 "type": "object"
             },
+            "service.CustomerAcceptancePage": {
+                "properties": {
+                    "next_cursor": {
+                        "description": "NextCursor is the opaque token for the following page, or null when this\nis the last. Its presence IS the \"is there more?\" signal; there is\nnothing else to consult.",
+                        "type": "string"
+                    },
+                    "rows": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.CustomerAcceptanceRow"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "service.CustomerAcceptanceRow": {
+                "properties": {
+                    "customer_id": {
+                        "description": "CustomerID is how the per-subject record is reached (#566). An opaque\nUUID, so a link out of this row puts no address in a URL.",
+                        "type": "string"
+                    },
+                    "email": {
+                        "description": "Email is in the BODY. It is the column an operator recognises a person\nby and it must be shown; what must never happen is its reaching a URL.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "policy_standing": {
+                        "$ref": "#/components/schemas/legal.Standing"
+                    },
+                    "terms_standing": {
+                        "$ref": "#/components/schemas/legal.Standing"
+                    }
+                },
+                "type": "object"
+            },
             "service.CustomerAreaView": {
                 "properties": {
                     "holding": {
@@ -3607,6 +4012,34 @@
                     "CustomerDocumentOnItsWay"
                 ]
             },
+            "service.CustomerGateStanding": {
+                "description": "The two gates: when each was last accepted, the exact edition accepted,\nand the standing that edition produces.",
+                "properties": {
+                    "accepted_at": {
+                        "description": "AcceptedAt is null where no acceptance was ever recorded.",
+                        "type": "string"
+                    },
+                    "edition": {
+                        "$ref": "#/components/schemas/service.LegalEditionRef"
+                    },
+                    "standing": {
+                        "$ref": "#/components/schemas/legal.Standing"
+                    }
+                },
+                "type": "object"
+            },
+            "service.CustomerLegalRecordView": {
+                "properties": {
+                    "customer": {
+                        "$ref": "#/components/schemas/service.CustomerSubjectView"
+                    },
+                    "staff_digest": {
+                        "description": "StaffDigest is the cross-link: 32 hex characters naming this same human\nbeing on the Staff platform, or null where they are not on it.\n\nRESOLVED SERVER-SIDE FROM THE ADDRESS, and the address never leaves the\nserver to make it happen. It is null, too, on a deployment with no link\nsecret — the digest cannot be minted, so there is no honest link to\noffer, and refusing the WHOLE RECORD over a missing cross-link would take\naway the evidence to protect a convenience. The staff BROWSER refuses in\nthat situation because every row it serves would be unnamed; here exactly\none optional field is.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.CustomerOTPRequestResult": {
                 "properties": {
                     "message": {
@@ -3678,6 +4111,36 @@
                     },
                     "verified_at": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.CustomerSubjectView": {
+                "properties": {
+                    "email": {
+                        "type": "string"
+                    },
+                    "first_name": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "last_name": {
+                        "type": "string"
+                    },
+                    "marketing_consent": {
+                        "description": "The two optional consents, NULL WHERE NEVER ANSWERED. Unanswered is a\ndifferent fact from denied and is published as the different fact it is:\nan operator must never be shown a refusal somebody did not make.",
+                        "type": "string"
+                    },
+                    "networking_consent": {
+                        "type": "string"
+                    },
+                    "policy": {
+                        "$ref": "#/components/schemas/service.CustomerGateStanding"
+                    },
+                    "terms": {
+                        "$ref": "#/components/schemas/service.CustomerGateStanding"
                     }
                 },
                 "type": "object"
@@ -4679,6 +5142,81 @@
                 },
                 "type": "object"
             },
+            "service.LegalAccessEntryView": {
+                "properties": {
+                    "act": {
+                        "description": "Act is `list_read`, `subject_read`, `evidence_export` or `audit_read`.",
+                        "type": "string"
+                    },
+                    "actor_email": {
+                        "type": "string"
+                    },
+                    "document": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "description": "ID is the row's own identifier, a monotonically increasing integer. It is\non the wire because the screen needs a stable React key over an\nappend-only list, and because two acts inside one clock tick are\notherwise indistinguishable to a reader.",
+                        "type": "integer"
+                    },
+                    "occurred_at": {
+                        "type": "string"
+                    },
+                    "pack_sha256": {
+                        "description": "PackSHA256 is the fingerprint of the file handed over, on an\n`evidence_export`: what resolves a ZIP in somebody's mailbox to the act\nthat produced it.",
+                        "type": "string"
+                    },
+                    "population": {
+                        "description": "The question, on the two acts that asked one.",
+                        "type": "string"
+                    },
+                    "result_count": {
+                        "type": "integer"
+                    },
+                    "searched": {
+                        "description": "Searched is WHETHER the page was narrowed by a term, and never what the\nterm was. The log has never held one and this payload could not carry one.",
+                        "type": "boolean"
+                    },
+                    "status_filter": {
+                        "type": "string"
+                    },
+                    "subject_customer_id": {
+                        "description": "The subject, on the two acts that named one.\n\nSubjectCustomerID is present where the act was reached by a Customer's\nopaque id, so the screen can link back to the record that was read\nwithout putting an address in a URL. SubjectEmail is the person as the\nrow records them — a plain address, never a Staff Digest.",
+                        "type": "string"
+                    },
+                    "subject_email": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.LegalAccessLogPage": {
+                "properties": {
+                    "entries": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.LegalAccessEntryView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "next_cursor": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.LegalEditionRef": {
+                "description": "TermsEdition names the exact edition accepted, id and label together, so\nthe act resolves to the exact bytes and reads as something a human can\nsay out loud.",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "description": "Label is \"2\" for a gating edition or \"1.1\" for a correction, and \"\" for\nan edition whose lineage row could not be read — which the surface spells\nas \"not recorded\" rather than showing an empty string.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.LineView": {
                 "properties": {
                     "base_cents": {
@@ -4880,6 +5418,274 @@
                     },
                     "last_name": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OperatorLegalArtifact": {
+                "properties": {
+                    "bodies": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "description": "Bodies maps a language token to the text written in it. A language with\nno entry is a cell nobody has written.",
+                        "type": "object"
+                    },
+                    "ordinal": {
+                        "description": "Ordinal is the artifact's position in the fingerprint preimage. It is\nderived from the order of this slice and never sent by the client — see\nSaveLegalDraftInput.",
+                        "type": "integer"
+                    },
+                    "slug": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OperatorLegalCellRef": {
+                "properties": {
+                    "locale": {
+                        "type": "string"
+                    },
+                    "slug": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OperatorLegalDraft": {
+                "properties": {
+                    "artifacts": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.OperatorLegalArtifact"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "base_is_current": {
+                        "description": "BaseIsCurrent is false when the published edition has moved on since the\ndraft was started — somebody else published while it sat. The editor\nwarns; nothing here refuses, because the draft is still the operator's\nwork and only publishing has to care.",
+                        "type": "boolean"
+                    },
+                    "base_version_id": {
+                        "description": "BaseVersionID is the edition this draft was opened from.",
+                        "type": "string"
+                    },
+                    "diff_seen_at": {
+                        "type": "string"
+                    },
+                    "diff_seen_by": {
+                        "type": "string"
+                    },
+                    "preview_gaps": {
+                        "description": "PreviewGaps is every cell that still has to be looked at: the draft's\ncells, in the languages it intends to publish, that this list does not\ncover. The editor points at them so the operator can finish rather than\nhunt.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.OperatorLegalCellRef"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "previewed": {
+                        "description": "Previewed is every cell seen rendered at its current text.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.OperatorLegalPreviewedCell"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "previewed_all": {
+                        "description": "PreviewedAll is PreviewGaps being empty, sent as its own answer so the\npublish step never has to derive the rule a second time.",
+                        "type": "boolean"
+                    },
+                    "published_locales": {
+                        "description": "PublishedLocales is the explicit set of languages this draft intends to\npublish in. Never inferred from which cells are filled.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "seen_diff": {
+                        "description": "SeenDiff is true when the diff on record is still a diff of this draft\nagainst what is published now.",
+                        "type": "boolean"
+                    },
+                    "stored": {
+                        "description": "Stored says whether this draft has ever been saved. A draft that has not\nis a copy of the published edition, handed back so the editor always has\nsomething to open and so \"discard\" and \"never started\" are the same\nscreen. It is reported rather than hidden because the editor says\n\"unsaved changes\" about one and not the other.",
+                        "type": "boolean"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    },
+                    "updated_by": {
+                        "description": "UpdatedBy and UpdatedAt are absent on a draft that was never saved.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OperatorLegalEdition": {
+                "properties": {
+                    "artifacts": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.OperatorLegalArtifact"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "content_hash": {
+                        "type": "string"
+                    },
+                    "effective_date": {
+                        "description": "EffectiveDate is the day this edition took effect, YYYY-MM-DD.",
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "locales": {
+                        "description": "Locales is the languages this edition actually publishes, read from its\nartifact rows and from no compile-time list (#558).",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "version_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OperatorLegalPreviewedCell": {
+                "properties": {
+                    "locale": {
+                        "type": "string"
+                    },
+                    "previewed_at": {
+                        "description": "PreviewedAt is RFC3339, stamped by the server's clock like every other\ntime this module records.",
+                        "type": "string"
+                    },
+                    "previewed_by": {
+                        "type": "string"
+                    },
+                    "slug": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OperatorLegalPublishPlan": {
+                "description": "Publish is what the publish step would do if it were pressed now (#563):\nthe label each act would create, the headcount a gating act would re-gate,\nand every reason either act would be refused. It rides on the workspace\nrather than on an endpoint of its own for the reason the workspace is one\npayload at all — all of it is a statement about THIS draft beside THIS\npublished edition, and a second read could straddle a publication.",
+                "properties": {
+                    "can_correct": {
+                        "description": "CanCorrect is the three above, negated and combined with CanPublish.",
+                        "type": "boolean"
+                    },
+                    "can_publish": {
+                        "description": "The three gates, reported apart so the editor can point at the one that is\nmissing: `can_publish` is exactly `complete \u0026\u0026 previewed_all \u0026\u0026 seen_diff`.",
+                        "type": "boolean"
+                    },
+                    "complete": {
+                        "type": "boolean"
+                    },
+                    "correction_label": {
+                        "description": "CorrectionLabel is the label a CORRECTION would take: the next revision\nwithin the current generation, flat — never nested. Shown on the quiet\nlink, so choosing it visibly turns `2` into `1.2`.",
+                        "type": "string"
+                    },
+                    "diff_summary": {
+                        "description": "DiffSummary is the line that would be stored on the version row.",
+                        "type": "string"
+                    },
+                    "earliest_effective_date": {
+                        "description": "EarliestEffectiveDate is the first day a GATING edition may take effect:\nthe later of tomorrow and the day after the newest edition already\npublished. The editor uses it as the date input's minimum.",
+                        "type": "string"
+                    },
+                    "empty_diff": {
+                        "description": "EmptyDiff refuses a correction and permits a gating edition, deliberately:\nre-gating over unchanged text is a real act, and correcting nothing is not.",
+                        "type": "boolean"
+                    },
+                    "gaps": {
+                        "description": "Gaps names every hole, so an operator can finish rather than hunt.",
+                        "items": {
+                            "$ref": "#/components/schemas/legal.CellRef"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "gating_label": {
+                        "description": "GatingLabel is the label a NEW EDITION would take: the next generation, at\nrevision 0. It goes ON the publish button, so the operator reads the name\nof the thing they are about to create.",
+                        "type": "string"
+                    },
+                    "headcount": {
+                        "description": "Headcount is how many people a gating publication would re-gate: those\nstanding on an edition that clears the gate today and would not clear it\nafter. It goes on the CONFIRM button (\"Publish and re-gate 1,058\"), and it\nis stored on the version row exactly as it was shown.\n\nA CORRECTION'S HEADCOUNT IS ALWAYS ZERO and is not carried separately,\nbecause \"re-gate nobody\" is not a number the platform computes — it is\nwhat legal.GatingFloor's skipping of corrections makes true for free.",
+                        "type": "integer"
+                    },
+                    "locale_set_changed": {
+                        "type": "boolean"
+                    },
+                    "protected_locale": {
+                        "description": "ProtectedLocale is the language this document may not be published\nwithout, as a CONSTANT of the document's own package and never a column\n(policy.MandatoryLocale, terms.PrevailingLocale). Sent so the editor can\ndisable the toggle rather than hard-code a language; the two nouns those\nconstants are named for never reach a screen.",
+                        "type": "string"
+                    },
+                    "protected_locale_kept": {
+                        "description": "ProtectedLocaleKept is false when the draft would drop it — refused in\nBOTH publish kinds.",
+                        "type": "boolean"
+                    },
+                    "structural": {
+                        "description": "Why a CORRECTION is not available, each reported separately because each\nis a different sentence about a different mistake.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OperatorLegalScheduledEdition": {
+                "properties": {
+                    "effective_date": {
+                        "description": "EffectiveDate is the day it takes effect, YYYY-MM-DD — the other half of\nwhat the banner has to say, because \"an edition is coming\" without a day\nis not something anybody can act on.",
+                        "type": "string"
+                    },
+                    "gating": {
+                        "description": "Gating says whether this edition will re-gate everybody when its day\ncomes. Sent so the banner can distinguish the act that asks the whole\ncustomer base again from a correction riding along with it.",
+                        "type": "boolean"
+                    },
+                    "label": {
+                        "description": "Label is the edition's name, rendered from its lineage: `3`, or `2.1` for\na correction waiting with the edition it corrects.",
+                        "type": "string"
+                    },
+                    "version_id": {
+                        "description": "VersionID is what the cancel control sends back.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OperatorLegalWorkspace": {
+                "properties": {
+                    "document": {
+                        "type": "string"
+                    },
+                    "draft": {
+                        "$ref": "#/components/schemas/service.OperatorLegalDraft"
+                    },
+                    "publish": {
+                        "$ref": "#/components/schemas/service.OperatorLegalPublishPlan"
+                    },
+                    "published": {
+                        "$ref": "#/components/schemas/service.OperatorLegalEdition"
+                    },
+                    "scheduled": {
+                        "description": "Scheduled is every edition already published and still waiting for its day\n(#564), newest first — what the editor shows as a PERSISTENT BANNER, so\nnobody forgets that something is about to take effect, and what the cancel\ncontrol acts on.\n\nIt rides on the workspace for the reason everything else here does: it is\nread from the same lineage the publish plan is computed from, in one call.\nEMPTY IS THE NORMAL STATE and it is a list rather than one edition,\nbecause the overnight delay pushes each gating publication to a later day\nthan the last — an operator who scheduled two has two nights running at\nonce, and a screen that showed one would hide the one they had forgotten.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.OperatorLegalScheduledEdition"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "supported_locales": {
+                        "description": "SupportedLocales is the menu, in preimage order — the bound on the\npublished-language set, sent so the editor does not hard-code it.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     }
                 },
                 "type": "object"
@@ -6784,6 +7590,109 @@
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "terms_outstanding": {
+                        "description": "TermsOutstanding says whether this session's holder owes a Terms\nAcceptance of an edition that still satisfies the gate, and is what the\nstaff app's middleware diverts a navigation to the interstitial on (#570,\nADR 0067).\n\nNULL MEANS \"NOT ASKED\", not \"nothing owed\". Only the session route asks\n(GetSessionWithTermsGate); every other response carrying this view leaves\nit null rather than reporting a false it never computed. It is also null\nwhen the read failed, because a navigation must not be refused over a\ndatabase hiccup — see GetSessionWithTermsGate for why that failure is\nopen here and closed at the sign-in door.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "service.StaffAcceptancePage": {
+                "properties": {
+                    "next_cursor": {
+                        "type": "string"
+                    },
+                    "rows": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.StaffAcceptanceRow"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "service.StaffAcceptanceRecordView": {
+                "properties": {
+                    "accepted_at": {
+                        "type": "string"
+                    },
+                    "capacity": {
+                        "description": "Capacity is what the person accepted AS (§3, ADR 0066).",
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "ip": {
+                        "description": "The technical proof, null where the surface collected nothing.",
+                        "type": "string"
+                    },
+                    "origin_url": {
+                        "type": "string"
+                    },
+                    "presented_locale": {
+                        "description": "PresentedLocale is the language of the acceptance label actually served\n(#567), null on rows written before migration 115.\n\nA PLAIN POINTER AND NOT THE CUSTOMER RECORD'S **string, because the staff\ngate is the one surface that ALWAYS presents a document: there is no\nstaff channel that shows nothing, so \"this field does not apply\" is not a\nstate this record can be in and there is no third case to spell.",
+                        "type": "string"
+                    },
+                    "session_id": {
+                        "type": "string"
+                    },
+                    "terms_edition": {
+                        "$ref": "#/components/schemas/service.LegalEditionRef"
+                    },
+                    "user_agent": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.StaffAcceptanceRow": {
+                "properties": {
+                    "digest": {
+                        "description": "Digest is the 32 hex characters that stand for this person in the link to\ntheir per-subject record (#566). A staff person has no id — the person\nkey of the Staff platform is an email — and a data subject's address must\nnever appear in a URL, a query string or a referer.\n\nIT IS COMPUTED HERE, ON THE WAY OUT, AND STORED NOWHERE. Not in a column,\nnot in a log line, not in a file, not in an export. Persisting it would\nturn the key rotation that `legal-staff-digest.v1` exists to make cheap\ninto a data migration over append-only consent evidence.",
+                        "type": "string"
+                    },
+                    "email": {
+                        "description": "Email is in the BODY only, as on the customer row.",
+                        "type": "string"
+                    },
+                    "standing": {
+                        "$ref": "#/components/schemas/legal.Standing"
+                    }
+                },
+                "type": "object"
+            },
+            "service.StaffLegalRecordView": {
+                "properties": {
+                    "acceptances": {
+                        "description": "Acceptances is the COMPLETE history, unpaged, newest first.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.StaffAcceptanceRecordView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "customer_id": {
+                        "description": "CustomerID is the cross-link: the same human being's Customer record, or\nnull where this address belongs to no Customer. Resolved server-side from\nthe address, which never leaves the server to do it.",
+                        "type": "string"
+                    },
+                    "digest": {
+                        "description": "Digest is the key this record was reached by, echoed so the screen can\nlabel the person by something other than their address if it chooses.",
+                        "type": "string"
+                    },
+                    "email": {
+                        "description": "Email is the person, IN THE BODY ONLY. Reaching this record put no\naddress in a URL; showing one on the screen is the point of the screen.",
+                        "type": "string"
+                    },
+                    "standing": {
+                        "description": "Standing is `current`, `outstanding`, `never_seen` or `former`.",
+                        "type": "string"
+                    },
+                    "visible_count": {
+                        "description": "VisibleCount is how many acceptances are listed. Here it is the WHOLE\ncount, because the staff history is unpaged — and it is reported anyway,\nunder the same name as the customer side's, so a reader does not have to\nlearn two words for the same idea.",
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -6868,7 +7777,7 @@
                 "type": "object"
             },
             "service.TermsRequiredView": {
-                "description": "TermsRequired is non-nil when no session was minted because the email owes\na Terms Acceptance of the current Terms Version; Session and SessionID are\nthen empty. Finished at /api/v1/auth/terms/accept.",
+                "description": "TermsRequired is the interstitial's box — the sign-in door's terms step\nverbatim, asked of somebody who is already inside — and null when nothing\nis owed.",
                 "properties": {
                     "acceptance_label": {
                         "description": "AcceptanceLabel is the mandatory, un-premarked checkbox's label, markdown,\nverbatim from the embedded artifact (§3) in the language the login page is\nrendered in. The UI renders it beside a link to the public Storefront terms\npage and may not reword or pre-tick it — the Staff app hosts no copy of the\ndocument.",
@@ -6876,6 +7785,10 @@
                     },
                     "expires_at": {
                         "description": "ExpiresAt is when that token stops working, RFC 3339.",
+                        "type": "string"
+                    },
+                    "label_locale": {
+                        "description": "LabelLocale is the language the label above was ACTUALLY served in, which\nis the requested one in the ordinary case and the prevailing one when this\nedition publishes no artifact in it (acceptanceLabel's floor).\n\nIt is on the wire so the link beside the box can open the document the\nwords came from: a reader floored at the prevailing text needs the Spanish\npage, and sending them to a translation this edition does not publish is a\nlink into a not-found page (#559's rule, told rather than guessed). The\nsame value is pinned server-side as the acceptance's presented locale\n(#567); this field is the renderer's copy of it, never the source of it.",
                         "type": "string"
                     },
                     "pending_terms_token": {
@@ -7850,7 +8763,7 @@
         },
         "/api/v1/customer/auth/consent": {
             "post": {
-                "description": "Spends the short-lived, single-use `pending_consent_token` from a verify response, or from the Consent Withdrawal passcode door, on ONE of two acts — decided by the API from the submission's contents and never by the form that sent it. POLICY ACCEPTANCE IS REQUIRED UNLESS EVERY ANSWER PRESENT IN THE SUBMISSION IS A DENIAL (ADR 0039). A submission mentioning `policy_acceptance` at all — true or false — one containing any grant, and one carrying no answer at all are all sign-in submissions, and a sign-in submission without acceptance is refused with POLICY_ACCEPTANCE_REQUIRED exactly as before; a submission whose only answers are `false` is a Consent Withdrawal and needs no acceptance, because an act that grants nothing, opens nothing and authorizes nothing has no processing for an acceptance to have informed anybody about. FINISHING A SIGN-IN writes the immutable Consent Record first — answers, channel, Policy Version, and the technical proof (IP, user agent, session, origin URL) — and mints the session on the far side of it, so nobody is ever signed in without evidence of what they authorized; `marketing_consent` and `networking_consent` default to false there, and false is an explicit No that records `denied` and, for marketing, switches the weekly Follow Digest off (ADR 0034); answers for boxes the Customer was not shown are ignored, so standing optional answers are never churned; an optional `follow` carries a Follow intent, honoured against the session this call mints exactly as on the verify routes; the response carries `session` and `session_id`. WITHDRAWING carries no `policy_acceptance` and names only the consents to take away, each as `false` — an omitted consent is not on the submission and is left exactly as it stands, so a bare token withdraws nothing and is refused. It MINTS NO CUSTOMER SESSION: the response carries `withdrawal` with the state of each optional consent afterwards and what the act actually took away, and `session`, `session_id`, `consent_required` and `follow` are all null. It can only ever move a consent to `denied` — no submission on this path can grant a consent, accept a Policy Version or open a session — so an intercepted passcode buys nothing its owner cannot undo from their own account. A withdrawal that moved a consent out of `granted` or `pending_confirmation` writes its Consent Record with the prior state and is confirmed to the Customer by email in their Mail Locale; one that moved nothing records the act and sends nothing. THE TERMS BOX (#536, ADR 0066) rides the same submission: when the verify's `boxes.terms_acceptance` was true the Customer owes acceptance of the current Términos y Condiciones edition, and a sign-in submission without `terms_acceptance: true` is refused with TERMS_ACCEPTANCE_REQUIRED; where the box was not owed the field is ignored. Each required box is judged only where owed, so a Customer re-gated by one document alone is never refused over the other's box. A recorded Terms acceptance stamps the Customer with the edition and is carried on the same Consent Record; it is contractual, has no withdrawal path, and no submission on the withdrawal branch can name it. The Policy Version and the Terms Version are resolved server-side and are never accepted from the request. The token is spent whatever the outcome and whichever act was attempted, so a refused submission is restarted by proving the address again; abandoning the step records nothing and leaves no session at all.",
+                "description": "Spends the short-lived, single-use `pending_consent_token` from a verify response, or from the Consent Withdrawal passcode door, on ONE of two acts — decided by the API from the submission's contents and never by the form that sent it. POLICY ACCEPTANCE IS REQUIRED UNLESS EVERY ANSWER PRESENT IN THE SUBMISSION IS A DENIAL (ADR 0039). A submission mentioning `policy_acceptance` at all — true or false — one containing any grant, and one carrying no answer at all are all sign-in submissions, and a sign-in submission without acceptance is refused with POLICY_ACCEPTANCE_REQUIRED exactly as before; a submission whose only answers are `false` is a Consent Withdrawal and needs no acceptance, because an act that grants nothing, opens nothing and authorizes nothing has no processing for an acceptance to have informed anybody about. FINISHING A SIGN-IN writes the immutable Consent Record first — answers, channel, Policy Version, and the technical proof (IP, user agent, session, origin URL) — and mints the session on the far side of it, so nobody is ever signed in without evidence of what they authorized; `marketing_consent` and `networking_consent` default to false there, and false is an explicit No that records `denied` and, for marketing, switches the weekly Follow Digest off (ADR 0034); answers for boxes the Customer was not shown are ignored, so standing optional answers are never churned; an optional `follow` carries a Follow intent, honoured against the session this call mints exactly as on the verify routes; the response carries `session` and `session_id`. WITHDRAWING carries no `policy_acceptance` and names only the consents to take away, each as `false` — an omitted consent is not on the submission and is left exactly as it stands, so a bare token withdraws nothing and is refused. It MINTS NO CUSTOMER SESSION: the response carries `withdrawal` with the state of each optional consent afterwards and what the act actually took away, and `session`, `session_id`, `consent_required` and `follow` are all null. It can only ever move a consent to `denied` — no submission on this path can grant a consent, accept a Policy Version or open a session — so an intercepted passcode buys nothing its owner cannot undo from their own account. A withdrawal that moved a consent out of `granted` or `pending_confirmation` writes its Consent Record with the prior state and is confirmed to the Customer by email in their Mail Locale; one that moved nothing records the act and sends nothing. THE TERMS BOX (#536, ADR 0066) rides the same submission: when the verify's `boxes.terms_acceptance` was true the Customer owes acceptance of the current Términos y Condiciones edition, and a sign-in submission without `terms_acceptance: true` is refused with TERMS_ACCEPTANCE_REQUIRED; where the box was not owed the field is ignored. Each required box is judged only where owed, so a Customer re-gated by one document alone is never refused over the other's box. A recorded Terms acceptance stamps the Customer with the edition and is carried on the same Consent Record; it is contractual, has no withdrawal path, and no submission on the withdrawal branch can name it. The Policy Version and the Terms Version are resolved server-side and are never accepted from the request. An optional `presented_locale` names the language of the legal TEXT this step rendered — the Short Notice and the checkbox labels, as the public policy endpoint served them — and is recorded on the Consent Record as the language the person was actually shown; it is not the language of the page, which says only what was asked for, and a value naming a language this platform does not serve is dropped rather than refused. It is read on a sign-in submission and ignored on a withdrawal, which renders no document. The token is spent whatever the outcome and whichever act was attempted, so a refused submission is restarted by proving the address again; abandoning the step records nothing and leaves no session at all.",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -10276,170 +11189,6 @@
                 ]
             }
         },
-        "/api/v1/operator/customers/{email}/consent": {
-            "get": {
-                "description": "Returns the Customer at an email address and their CURRENT consent state, across every Organization on the platform — Customer identity is global and separate from staff (ADR 0010), so a Customer's consents are the platform's relationship with them and no Organization may inspect them. The payload identifies the person before anybody acts on their behalf (id, email, name) and reports what a withdrawal would actually change: marketing_consent and networking_consent as granted, denied or pending_confirmation, and NULL where the Customer has never been asked — null is UNANSWERED and is a different fact from denied, published as the different fact it is so that nobody is shown a refusal they never made. pending_confirmation is a tick from somebody who never proved the address: standing against it, denied for sending, never expiring. policy_accepted_at is when they last accepted a Policy Version, null if never; it is shown and is NOT actionable, because Policy Acceptance is not withdrawable — it is absent from the withdrawal form, it gates the platform on a basis other than consent, and clearing it would re-gate the person rather than free them. withdrew is null here: a lookup takes nothing away. The address is matched on its normalised form, so case does not matter. READING WRITES NOTHING — no consent is captured and no Consent Record appears, because a lookup that recorded something would put an act in the evidence log that nobody performed. An address no Customer holds is 404 CUSTOMER_NOT_FOUND: an Operator is entitled to know, and that candour is bought by the door rather than granted by the answer — every caller the operator allowlist has not admitted is refused identically for an address that exists and one that does not. Platform Operator only.",
-                "parameters": [
-                    {
-                        "description": "Customer email address (matched case-insensitively)",
-                        "in": "path",
-                        "name": "email",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorCustomerConsent"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Unauthorized"
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Forbidden"
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Not Found"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "summary": "Look up a Customer's consent state by email address",
-                "tags": [
-                    "operator"
-                ]
-            }
-        },
-        "/api/v1/operator/customers/{email}/consent/withdrawal": {
-            "post": {
-                "description": "Records that a Customer withdrew an optional consent by a route other than the platform — counsel's printed form, or an email to the data-protection address — so that a request which arrived on paper can be honoured within the legal deadline without anybody editing the database by hand. THIS SURFACE CAN ONLY WITHDRAW, NEVER GRANT: marketing_consent and networking_consent accept false (withdraw) or absence (this form did not name this consent, and nothing is written for it), and a value of TRUE is refused with 400 CONSENT_GRANT_NOT_PERMITTED. The refusal is the API's rather than the form's — an Operator who could grant could manufacture the very consent they exist to honour the withdrawal of — and it is enforced in the platform's single consent-write path, so no caller escapes it. Because it can only withdraw, the proven-ness question that decides granted-or-pending on every other channel never arises here. At least one of the two consents must be named, and request_reference is REQUIRED: it names the inbound artefact (the dated form, the letter, the email) and is at most 500 characters. It is a POINTER TO EVIDENCE HELD ELSEWHERE rather than evidence itself — it is never parsed and nothing is ever decided from its contents. The act writes exactly ONE Consent Record on channel operator_request, carrying the state each consent was in immediately before it, the acting operator's email (taken from the Staff Session, NEVER from the body) and the reference — the pair that stops a staff action from ever being presented as somebody's own click. Marketing Consent and the Follow Digest move in lockstep in the same transaction (ADR 0034). Policy Acceptance is untouched: it is not withdrawable. The response reports the state AFTER the act and `withdrew`, which is what the act TOOK AWAY — not the same question as what it answered, since `denied` reads the same whether somebody just gave something up or was already refusing. The Customer receives the same withdrawal confirmation email as any other channel, at their own stored address and in their Mail Locale, ONLY when something actually moved; an act that changed nothing is still recorded and mails nobody. A failure to send never fails the withdrawal. Platform Operator only.",
-                "parameters": [
-                    {
-                        "description": "Customer email address (matched case-insensitively)",
-                        "in": "path",
-                        "name": "email",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "oneOf": [
-                                    {
-                                        "type": "object"
-                                    },
-                                    {
-                                        "$ref": "#/components/schemas/handler.recordConsentWithdrawalBody",
-                                        "summary": "body",
-                                        "description": "Which consents the artefact withdrew, and which artefact it was"
-                                    }
-                                ]
-                            }
-                        }
-                    },
-                    "description": "Which consents the artefact withdrew, and which artefact it was",
-                    "required": true
-                },
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorCustomerConsent"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Bad Request"
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Unauthorized"
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Forbidden"
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Not Found"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "summary": "Record a Consent Withdrawal that arrived off the platform",
-                "tags": [
-                    "operator"
-                ]
-            }
-        },
         "/api/v1/operator/events/{eventID}/ticket-questions": {
             "get": {
                 "description": "Returns every Ticket Question of the Event across its Ticket Types, in every review state and retired ones included, each with its Options and its review columns (`review_status`, `approved_by`, `refusal_reason`, `revocation_reason`) and the Ticket Type it hangs off. This is where the Operator sees what an Organization is asking and takes an approval back (ADR 0056). Not scoped to an Organization: the operator allowlist is the whole of the gate. 404 EVENT_NOT_FOUND for an unknown or malformed id; 404 TICKET_QUESTIONS_UNAVAILABLE while the feature is dark (ADR 0045). Platform Operator only.",
@@ -12002,6 +12751,1380 @@
                     }
                 ],
                 "summary": "Count the Uninvoiced House Sales",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/legal/acceptances/customers/{document}": {
+            "post": {
+                "description": "Returns ONE KEYSET PAGE of Customers ordered by email ascending, filtered by where they stand against one document's gate (#565, spec #556, ADR 0067). `document` in the path is `policy` or `terms`; anything else is 404 LEGAL_DOCUMENT_NOT_FOUND. The body carries `standing` (`current`, `outstanding` or `never_seen`; ABSENT MEANS `outstanding`, which is the screen's default and the question it exists to answer), `cursor` (the previous page's `next_cursor`; an unparseable one is treated as ABSENT and serves the first page) and `search_email` (a fragment, matched case-insensitively anywhere in the address). `former` is refused here with 400 LEGAL_STANDING_NOT_AVAILABLE — a Customer record is never deleted, so there is no departure to observe — and an unrecognised state is 400 LEGAL_STANDING_UNKNOWN rather than being silently widened. IT IS A POST THAT READS: nothing is created, recorded or changed. The parameters travel in a BODY because two of them are email addresses — the search fragment, and the CURSOR, which under keyset paging on `email ASC` is the last address of the previous page — and a data subject's address must never reach a URL, a query string, a referer or an access log. Each row is ONE PERSON with TWO STATUS COLUMNS, so somebody who owes the Terms and not the Policy is one row rather than two, plus their `customer_id` (opaque; the per-subject record is reached by it) and their name and address IN THE BODY. There is deliberately NO optional-consent column — a filterable roster with a marketing-consent column is a segmentation tool — NO per-edition filter, NO `total` and NO export of any kind. Page size is 50 and is not client-settable. The response is `{rows, next_cursor}` and NOT the ADR-0006 `{data, pagination}` envelope: ADR 0067 records the departure, because after a gating publication the outstanding set is the entire customer base, so deep offsets go quadratic exactly when the screen matters most, and the total is the expensive half of the query and the least actionable number on it. `next_cursor` null means this is the last page. Standing is MEMBERSHIP of the satisfying set and never equality with the current edition (#560), so publishing a CORRECTION moves nobody into `outstanding`. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "policy or terms",
+                        "in": "path",
+                        "name": "document",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.legalAcceptanceBrowseBody",
+                                        "summary": "body",
+                                        "description": "Filter, cursor and search fragment"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Filter, cursor and search fragment"
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorCustomerAcceptancePage"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Browse Customers by where they stand against a legal document",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/legal/acceptances/staff/{document}": {
+            "post": {
+                "description": "Returns ONE KEYSET PAGE of everybody who signs into the Staff platform, ordered by email ascending, filtered by where they stand against the Términos y Condiciones (#565, spec #556, ADR 0067). The population is `SELECT email FROM members UNION SELECT email FROM platform_operators` — one row per person, deduplicated by email, with the org-less Platform Operator arriving through the second arm. `document` in the path is `terms` and nothing else: there is exactly ONE staff gate (§3, ADR 0066), staff accept no Privacy Policy, and `policy` here is 404 LEGAL_DOCUMENT_NOT_FOUND rather than an empty list. FOUR STATES: `current`, `outstanding`, `never_seen`, and `former` — somebody who accepted and is now on neither membership table, COMPUTED AND NEVER STORED, a filter value rather than a hidden state, because a leaver owes nothing and listing them among the outstanding would fill the default filter with people nobody can chase. ABSENT `standing` means `outstanding`. Each row carries a `digest` — 32 hex chars of HMAC-SHA256 over \"staff:\" + the normalised address, under a purpose-derived subkey of the deployment's link secret (ADR 0046) — which is how the per-subject record is linked to, because a staff person has no id and their address must never reach a URL. THE DIGEST IS A URL KEY AND A SCREEN LABEL: it is written to no row, no log, no file and no export. A deployment with no link secret gets 503 STAFF_DIGEST_UNAVAILABLE — the screen REFUSES TO SERVE rather than fall back to an empty key — which is unreachable in production, where the server will not start without one. Same POST-that-reads shape, same `{rows, next_cursor}`, same absent total, same page size of 50, same unparseable-cursor-is-absent rule as the customer browser, and the same correction-re-gates-nobody guarantee (#560). No optional-consent column and no export. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "terms",
+                        "in": "path",
+                        "name": "document",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.legalAcceptanceBrowseBody",
+                                        "summary": "body",
+                                        "description": "Filter, cursor and search fragment"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Filter, cursor and search fragment"
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorStaffAcceptancePage"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Browse Staff platform people by where they stand against the Terms",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/legal/access-log": {
+            "get": {
+                "description": "Returns ONE KEYSET PAGE of the platform's own reads of people's consent data, NEWEST FIRST (#569, spec #556, ADR 0067). FOUR ACTS ARE RECORDED: `list_read` (a page of either acceptance browser), `subject_read` (one person's record opened), `evidence_export` (a Consent Evidence Pack handed over) and `audit_read` (this log being read — a touch of people's data is recorded however it is reached, and the reader of the log is not exempt from it). Each row carries the ACTOR, taken from the Staff Session and never from a body, and when it happened. A `list_read` records THE QUESTION AND NEVER THE ROSTER — population, document, filter, how many rows came back, and `searched`, which is a BOOLEAN so that looking one person up cannot deposit their address in an audit log. A `subject_read` and an `evidence_export` record the subject BY NAME, because there the subject is the act, and an export also records `pack_sha256`, the fingerprint that resolves a ZIP in somebody's mailbox to the act that produced it. A STAFF SUBJECT IS RECORDED AS A PLAIN ADDRESS AND NEVER AS THEIR STAFF DIGEST: the digest depends on a rotatable key, and a rotation must not orphan a log meant to stay meaningful for years. WHAT IS DELIBERATELY ABSENT MATTERS AS MUCH: a Consent Withdrawal writes NO row (the Consent Record it produces is the same fact with more of it), a preview writes NO row (#562 made it a log line), and publishing, correcting, scheduling and cancelling an edition write NO rows — they are provenance columns on the version row, so provenance cannot drift from the edition it describes. Every row here is therefore a touch of somebody's data and nothing else. FILTERS ARE ACTOR, ACT AND DATE. `actor` is an exact address; `act` must be one of the four or 400 LEGAL_ACCESS_ACT_UNKNOWN — an unrecognised filter is refused rather than widened, because a screen that says it is narrowed while showing everything is a lie about what happened; `from` and `to` are calendar days (YYYY-MM-DD) in UTC or 400 LEGAL_ACCESS_DATE_INVALID, and `to` INCLUDES ITS WHOLE DAY. THERE IS NO SUBJECT FILTER and there will not be one: the audit log must not become a second way to look people up. An unparseable `cursor` is treated as ABSENT and serves the first page. The response is `{entries, next_cursor}` and NOT the ADR-0006 envelope, following the acceptance browsers: no total, no offset, page size 50 and not client-settable. RETENTION IS UNBOUNDED — there is no purge, no retention window and no archival — and THERE IS NO EXPORT: the log is read where it lives. Reading it writes an `audit_read` row AFTER the page is served, so a read never appears in its own results and the recorded count is the count that was actually shown. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "One operator's acts; an exact address",
+                        "in": "query",
+                        "name": "actor",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "list_read, subject_read, evidence_export or audit_read",
+                        "in": "query",
+                        "name": "act",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Earliest calendar day, YYYY-MM-DD (UTC), inclusive",
+                        "in": "query",
+                        "name": "from",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Latest calendar day, YYYY-MM-DD (UTC), inclusive of the whole day",
+                        "in": "query",
+                        "name": "to",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "The previous page's next_cursor; unparseable is treated as absent",
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorLegalAccessLogPage"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read the consent access log",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/legal/customers/{customerID}": {
+            "get": {
+                "description": "Returns one Customer's identity, where they stand against BOTH legal gates, and the link across to their staff record where the same human being is also on the Staff platform (#566, spec #556, ADR 0067). KEYED ON THE CUSTOMER'S OPAQUE UUID: no email address appears in this request line, or in any other on this path, which is the whole reason this route replaces GET /operator/customers/{email}/consent. The payload identifies the person (id, email, name — in the BODY, where it belongs) and states what is TRUE NOW: for each of the Privacy Policy and the Términos y Condiciones, when it was last accepted, the EXACT EDITION accepted as an id and a label so it resolves to the exact bytes, and the standing that edition produces — `current`, `outstanding` or `never_seen`, computed as MEMBERSHIP of the satisfying set and never as equality with the current edition (#560), so publishing a CORRECTION moves nobody. Never `former`: a Customer record is never deleted. The two optional consents are `granted`, `denied` or `pending_confirmation`, and NULL where the Customer was never asked — null is UNANSWERED and is published as the different fact it is, so nobody is shown a refusal they never made. `staff_digest` is the cross-link, or null where this person is not on the Staff platform; the two records are cross-linked and NEVER MERGED, because there is no row anywhere saying these two are one person, only an address that matches. THE HISTORY IS NOT ON THIS PAYLOAD — it is its own endpoint, so page 1 and page 2 have the same shape. READING WRITES NOTHING: no consent is captured and no Consent Record appears, because a read that recorded something would put an act in the evidence log that nobody performed. An id nobody holds is 404 LEGAL_SUBJECT_NOT_FOUND rather than a blank record somebody might act on. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Customer id (UUID)",
+                        "in": "path",
+                        "name": "customerID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorCustomerLegalRecord"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read one Customer's consent record",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/legal/customers/{customerID}/evidence-pack": {
+            "get": {
+                "description": "Generates and downloads the Consent Evidence Pack for one Customer: a deterministic ZIP holding `record.json` (the record — acts, editions, fingerprints, evidence, prior values and the preimage rule), `evidence.pdf` (its human reading, in ADR 0062's shape) and `texts/\u003cdocument\u003e/\u003cedition-label\u003e/\u003clocale\u003e/\u003cordinal\u003e-\u003cslug\u003e.md`, the raw stored markdown of every edition named, deduplicated BY EDITION and carried in EVERY LOCALE each was published in — because the fingerprint spans an edition's languages at once and a single-locale pack could not verify its own hash (#568, spec #556, ADR 0067). THE PACK IS NEVER STORED: only its SHA-256, its size and the ids of the acts it covered are persisted (migration 118), which is enough to prove a handover because the bytes are reproducible. THE ZIP IS DETERMINISTIC — fixed entry ordering, one fixed entry timestamp, fixed PDF metadata — so two packs generated over identical acts on different days are BYTE-IDENTICAL. That is why an edition states `published_as`, fixed when it was published, and never whether it currently satisfies a gate, which changes at midnight as the database's own day moves. IT SPANS BOTH POPULATIONS FOR ONE ADDRESS: a person who is also on the Staff platform gets ONE file, with their Terms acceptances in it, and the identical file is served by the staff route. IT IS GENERATED EVEN WHEN EMPTY, so \"we hold nothing about this person\" is a provable answer rather than an error. WITHDRAWALS APPEAR AS THE ACTS THEMSELVES, never as a synthesised log, and `null` keeps meaning \"not shown\". THE HMAC STAFF DIGEST APPEARS NOWHERE IN THE CONTENTS (#548); the filename is keyed on the pack's own SHA-256 — `consent-evidence-\u003csha256[:16]\u003e-\u003cYYYY-MM-DD\u003e.zip` — which is not the email, depends on no rotatable key, and is the one value the platform persists about the handover. The document states plainly that `email_proven` is what makes a consent valid, and states its two limitations: \"no staff acceptances\" means \"no rows for this address\" and never \"not staff\", and the email on each act is the one ASSERTED AT CAPTURE rather than a canonical identity. Generated on demand and synchronously. An id nobody holds is 404 LEGAL_SUBJECT_NOT_FOUND. Platform Operator only; there is no self-service download.",
+                "parameters": [
+                    {
+                        "description": "Customer id (UUID)",
+                        "in": "path",
+                        "name": "customerID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "type": "file"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Generate a Customer's Consent Evidence Pack",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/legal/customers/{customerID}/records": {
+            "get": {
+                "description": "Returns one KEYSET PAGE of one Customer's consent acts, NEWEST FIRST, so the record is the evidence rather than a summary of it (#566, spec #556, ADR 0067). Paged on `(captured_at DESC, id)` at page size 25, served by the existing `(customer_id, captured_at DESC)` index; `limit` may LOWER the page size and can never raise it, and an unreadable one is simply the page size — an evidence log downloaded in one request would be an export by another name, and the export is a deliberate, named act (#568) rather than a query parameter. An unparseable `cursor` is treated as ABSENT and serves the first page, the acceptance browsers' rule: a bad cursor is a stale bookmark, not a mistake worth an error page over somebody's evidence. `visible_count` is HOW MANY ACTS ARE ON THIS PAGE — read with `next_cursor` it answers the one question that matters about a record presented as evidence, \"is this all of it?\" — and it is deliberately NOT a total: a total over the whole history is the expensive half of the query and ADR 0067 records why this feature does without one. EACH ACT NAMES THE EXACT EDITION it was captured against, as an id and a label, so it resolves to the exact bytes. Every nullable field means something specific and travels as NULL rather than as a blank: a null ANSWER is a box that was NOT SHOWN on that surface and is not a No; a null IP, user agent, session or origin is something the surface did not collect, which is not a blank it collected; `prior_marketing_consent` and `prior_networking_consent` are what each consent was immediately before the act, and are the only way to read whether it took anything away, since `denied` looks identical whether somebody gave something up or refused twice. `presented_locale` (#567) is THREE-STATE: the key is ABSENT ENTIRELY on the channels that present no document — the Customer Area toggles, unsubscribe, the digest, an operator-recorded withdrawal, a passcode withdrawal, and `email_confirmation`, which confirms an earlier act rather than showing new text — because a field rendered there would claim text was displayed and its language forgotten; it is NULL on a channel that did show a document and has no locale recorded, which is every row written before migration 115 and which the screen spells \"not recorded\"; and otherwise it is the language of the ARTIFACT RENDERED, never of the page it was rendered on. NO CONSENT IS CAPTURED AND NO CONSENT RECORD APPEARS: a read that recorded one would put an act in the evidence log that nobody performed. THE READ ITSELF IS LOGGED, by name, as a `subject_read` in the consent access log (#569) — the subject IS the act here, and this route serves twenty-five of somebody's consent acts to whoever calls it, record open or not. Paging therefore writes a row per page, which is a duplicate in the log and honest; an unlogged read of somebody's data is neither. A FAILURE TO LOG FAILS THE READ. An id nobody holds is 404 LEGAL_SUBJECT_NOT_FOUND — the same refusal the record read gives, so a stale link is answered identically whichever endpoint the screen fires first — and a Customer with no acts is an EMPTY PAGE rather than a 404, because somebody created before the evidence log existed has a record and no history. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Customer id (UUID)",
+                        "in": "path",
+                        "name": "customerID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "The previous page's next_cursor; unparseable is treated as absent",
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "At most 25, which is also the default; a larger value is capped",
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorConsentActPage"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read one page of a Customer's consent history",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/legal/customers/{customerID}/withdrawal": {
+            "post": {
+                "description": "Records that a Customer withdrew an optional consent by a route other than the platform — counsel's printed form, or an email to the data-protection address — so that a request which arrived on paper can be honoured within the legal deadline without anybody editing the database by hand. KEYED ON THE CUSTOMER'S OPAQUE ID and never on their address (#566): the operator reaches this act from that person's consent record, which they reached from the acceptance browser's search, so no email appears in a request line anywhere on this path. THIS SURFACE CAN ONLY WITHDRAW, NEVER GRANT: marketing_consent and networking_consent accept false (withdraw) or absence (this form did not name this consent, and nothing is written for it), and a value of TRUE is refused with 400 CONSENT_GRANT_NOT_PERMITTED. The refusal is the API's rather than the form's — an Operator who could grant could manufacture the very consent they exist to honour the withdrawal of — and it is enforced in the platform's single consent-write path, so no caller escapes it. Because it can only withdraw, the proven-ness question that decides granted-or-pending on every other channel never arises here. THERE IS NO WITHDRAW-TERMS AND NO WITHDRAW-POLICY-ACCEPTANCE, on this route or any other: a contract's basis is performance rather than consent, and clearing a Policy Acceptance would re-gate the person rather than free them. At least one of the two consents must be named, and request_reference is REQUIRED: it names the inbound artefact (the dated form, the letter, the email) and is at most 500 characters. It is a POINTER TO EVIDENCE HELD ELSEWHERE rather than evidence itself — it is never parsed and nothing is ever decided from its contents. The act writes exactly ONE Consent Record on channel operator_request, carrying the state each consent was in immediately before it, the acting operator's email (taken from the Staff Session, NEVER from the body) and the reference — the pair that stops a staff action from ever being presented as somebody's own click. Marketing Consent and the Follow Digest move in lockstep in the same transaction (ADR 0034). Policy Acceptance is untouched: it is not withdrawable. The response reports the state AFTER the act and `withdrew`, which is what the act TOOK AWAY — not the same question as what it answered, since `denied` reads the same whether somebody just gave something up or was already refusing. The Customer receives the same withdrawal confirmation email as any other channel, at their own stored address and in their Mail Locale, ONLY when something actually moved; an act that changed nothing is still recorded and mails nobody. A failure to send never fails the withdrawal. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Customer id (UUID)",
+                        "in": "path",
+                        "name": "customerID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.recordConsentWithdrawalBody",
+                                        "summary": "body",
+                                        "description": "Which consents the artefact withdrew, and which artefact it was"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Which consents the artefact withdrew, and which artefact it was",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorCustomerConsent"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Record a Consent Withdrawal that arrived off the platform",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/legal/documents/{document}": {
+            "get": {
+                "description": "Returns everything the Legal Center's editor needs for ONE document in one read (#561, spec #556): the currently published edition — version id, label, effective date, content hash, the languages it actually publishes and every artifact as {slug, ordinal, bodies-by-language} — the ONE MUTABLE DRAFT of that document, and `supported_locales`, the menu a draft's published-language set is bounded by (the platform's app locales; `platform.ParseLocale` is a closed switch). ONE PAYLOAD AND NOT THREE ENDPOINTS: the editor diffs the draft against the published edition cell by cell, and two reads could straddle a publication and produce a diff against text that was never on screen together. A document with no saved draft answers with a draft that is a COPY of the published edition, `stored: false` — the same answer a discard produces, so \"never started\" and \"started again\" are one state. `base_is_current` is false when somebody published underneath the draft since it was opened; that is a warning here and a refusal only at publish. `document` is `policy` or `terms`; anything else is 404 LEGAL_DOCUMENT_NOT_FOUND. Read-only. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "policy or terms",
+                        "in": "path",
+                        "name": "document",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorLegalWorkspace"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read a legal document's published edition and its draft",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/legal/documents/{document}/draft": {
+            "delete": {
+                "description": "Deletes the document's draft and its languages with it, so the editor reopens on the CURRENT PUBLISHED EDITION (#561) — which is what makes an experiment something other than a commitment. Discarding a document that has no draft is a SUCCESS and not a 404: what the caller asked for is exactly what they now have, and the response is identical either way. It publishes nothing and unpublishes nothing: the edition a reader sees is untouched, because a draft was never on any page. 404 LEGAL_DOCUMENT_NOT_FOUND for anything that is not `policy` or `terms`. Answers with the whole workspace, whose draft is now a copy of the published edition with `stored: false`. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "policy or terms",
+                        "in": "path",
+                        "name": "document",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorLegalWorkspace"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Discard a legal document's draft, restoring it to the current edition",
+                "tags": [
+                    "operator"
+                ]
+            },
+            "put": {
+                "description": "Replaces the document's draft with the body, creating it if there is none (#561). ONE MUTABLE DRAFT PER DOCUMENT, held server-side so a closed tab does not lose an afternoon's drafting, and PUT rather than PATCH because the draft is replaced WHOLE: adding an artifact and removing one are both nothing more than saving a different list, so neither needs a verb of its own. The artifacts' ORDER IS THEIR ORDINAL — the fingerprint preimage's order (#541) — and the client sends no ordinals. `published_locales` is the EXPLICIT set of languages the draft intends to publish in, never inferred from which cells are filled: a half-translated language must be a draft that cannot publish, not a language quietly dropped by an empty textarea. Who saved it is taken from the Staff Session, never from the body. THIS PUBLISHES NOTHING: no version row, no artifact row, no fingerprint, no re-gating, and no cache invalidation, because nothing a reader can see has changed. A cell that is blank or absent is stored as ABSENT, so \"emptied\" and \"never written\" cannot drift apart. AN INCOMPLETE DRAFT IS SAVED HAPPILY — an artifact with no Spanish yet is somebody's afternoon, and completeness is refused at publish (#563). Refused: 400 LEGAL_DRAFT_LOCALES_REQUIRED for an empty language set, 400 LEGAL_DRAFT_LOCALE_UNSUPPORTED (with the token) for a language this platform does not serve, 400 LEGAL_DRAFT_SLUG_REQUIRED for an artifact with no slug, 400 LEGAL_DRAFT_DUPLICATE_SLUG (with the slug) for one carried twice, 404 LEGAL_DOCUMENT_NOT_FOUND for anything that is not `policy` or `terms`. Answers with the whole workspace, as the GET does. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "policy or terms",
+                        "in": "path",
+                        "name": "document",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.legalDraftBody",
+                                        "summary": "body",
+                                        "description": "The whole draft"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The whole draft",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorLegalWorkspace"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Save a legal document's one mutable draft, whole",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/legal/documents/{document}/draft/diff-seen": {
+            "post": {
+                "description": "Records that the operator has been shown what this draft CHANGES about the currently published edition (#562, spec #556) — the second of the two things #563 requires before a publish button exists, so that no publication happens without its consequence having been displayed. THE DIFF IS COMPUTED IN THE BROWSER, from the published edition and the draft that the workspace read already carried together in one payload; this call records only that it was on screen, and takes no body. It is remembered against BOTH SIDES — the draft's text and the published version it was compared with — so a diff stops counting the moment either moves: rewrite a paragraph and it lapses, and so does somebody else publishing underneath the draft, which is the situation `base_is_current` already warns about. `draft.seen_diff` on the response is the answer. Like a preview, it writes a `platform.Logger` line and no `consent_access_log` row (#545). Refused: 409 LEGAL_DRAFT_NOT_STORED when the document has no saved draft, 404 LEGAL_DOCUMENT_NOT_FOUND for anything that is not `policy` or `terms`. Answers with the whole workspace. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "policy or terms",
+                        "in": "path",
+                        "name": "document",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorLegalWorkspace"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Record that the draft's diff against the current edition was seen",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/legal/documents/{document}/draft/previews": {
+            "post": {
+                "description": "Records that the operator has seen ONE artifact of the draft rendered in ONE language, as a reader will see it (#562, spec #556). THE RENDERING HAPPENS IN THE BROWSER, through the same `Markdown` component the Storefront's privacy-policy page uses, over text the workspace read already carried: there is no server-side render call and NO PREVIEW ROUTE ON THE PUBLIC SIDE, because the public route resolves what is current itself and refuses to be told which edition to serve. What this call records is only that somebody looked. A PREVIEW IS A LOG LINE AND NEVER AN AUDIT ROW (#545, amending #544): no `consent_access_log` row is written, now or ever, so every row in that table stays a touch of somebody's data — an operator reading the platform's own unpublished words has touched nobody's. Remembered by the DIGEST OF THE TEXT that was on screen, so previewing a paragraph and then rewriting it does not leave a preview standing over words nobody has seen; previewing the same cell twice is one fact. Every artifact of the draft, in every language it intends to publish, must be previewed before #563 will offer a publish button — `draft.previewed_all` on the response is that answer, and `draft.preview_gaps` names what is left. The body is `{slug, locale}` and carries no text. Refused: 409 LEGAL_DRAFT_NOT_STORED when the document has no saved draft (a preview promises a look at the text that will be published, and unsaved text will not be), 400 LEGAL_DRAFT_CELL_NOT_FOUND when the draft has no text for that artifact in that language, 400 LEGAL_DRAFT_LOCALE_UNSUPPORTED, 400 LEGAL_DRAFT_SLUG_REQUIRED, 404 LEGAL_DOCUMENT_NOT_FOUND. Answers with the whole workspace, as the other Legal Center calls do. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "policy or terms",
+                        "in": "path",
+                        "name": "document",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.legalPreviewBody",
+                                        "summary": "body",
+                                        "description": "The cell that was previewed"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The cell that was previewed",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorLegalWorkspace"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Record that a draft artifact was previewed",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/legal/documents/{document}/publications": {
+            "post": {
+                "description": "Publishes the document's SAVED draft (#563, spec #556, ADR 0067). TWO ACTS AND NOT ONE. `kind: \"edition\"` is a GATING publication: it takes the next generation at revision 0, RE-GATES everybody standing below it, and must take effect NO EARLIER THAN TOMORROW — an irreversible re-gate gets a night in which the operator can change their mind, and \"now\" is refused. `kind: \"correction\"` takes the next revision within the published edition's generation, FLAT (`1.1`, `1.2`, never `1.1.1`), RE-GATES NOBODY, requires a typed reason, and TAKES EFFECT IMMEDIATELY so a typo fix does not wait overnight — it therefore names no effective date and is refused if it does. `correct now, publish a gating edition effective tomorrow` is an available path, so urgency never forces a choice between speed and honesty. LABELS ARE SYSTEM-GENERATED AND CANNOT BE TYPED, and the body carries no text: what is published is the draft as saved, previewed and diffed. NOTHING IS EVER MUTATED — a correction is a NEW ROW, and the old bytes stay exactly as the acceptances that fingerprint them expect. The version row records who published, when, the diff summary, the typed reason and THE HEADCOUNT AS IT STOOD ON THE BUTTON (migration 112), because provenance belongs on the immutable row the evidence already points at. THERE IS NO APPROVAL STEP on either act: production holds one Platform Operator, so a two-person rule would deadlock, and the substitute for review is the overnight delay plus proof that the consequence was displayed. PUBLISHING REVOKES NO SESSION in either population, and there is no control for it (#570). Refused: 409 LEGAL_DRAFT_NOT_STORED (no saved draft), 400 LEGAL_PUBLISH_KIND_UNKNOWN, 400 LEGAL_PUBLISH_INCOMPLETE with the gaps (an artifact missing in a published language, so no reader meets a document with a hole in it), 409 LEGAL_PUBLISH_NOT_PREVIEWED with the gaps, 409 LEGAL_PUBLISH_DIFF_NOT_SEEN (which also catches somebody publishing underneath the draft, since the seen diff names both sides), 400 LEGAL_CORRECTION_STRUCTURAL (a correction cannot add or remove an artifact — the one structural change the code can prove is not a typo), 400 LEGAL_CORRECTION_LOCALE_SET_CHANGED (that reshapes the hash preimage rather than the fingerprint), 400 LEGAL_CORRECTION_EMPTY_DIFF (a correction that corrects nothing cannot be recorded — an empty diff IS publishable as a gating edition), 400 LEGAL_CORRECTION_REASON_REQUIRED, 400 LEGAL_CORRECTION_EFFECTIVE_DATE_REFUSED, 400 LEGAL_EFFECTIVE_DATE_INVALID, 400 LEGAL_GATING_EFFECTIVE_DATE_TOO_SOON carrying `earliest_effective_date`, 400 LEGAL_PROTECTED_LOCALE_REQUIRED in BOTH kinds when the draft would stop publishing the language the document may not be published without (a CONSTANT per document and never a column, consulted only at publish), 404 LEGAL_DOCUMENT_NOT_FOUND. Answers with the whole workspace, whose draft is once again a copy of the published edition because the draft became it. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "policy or terms",
+                        "in": "path",
+                        "name": "document",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.legalPublishBody",
+                                        "summary": "body",
+                                        "description": "The publication"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The publication",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorLegalWorkspace"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Publish a legal document's draft as a new edition or as a correction",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/legal/documents/{document}/publications/{version}/cancel": {
+            "post": {
+                "description": "Withdraws an edition that has been published but has NOT TAKEN EFFECT YET (#564, spec #556, ADR 0067) — the night the overnight delay buys. A gating edition cannot take effect the day it is published, so between the click and the midnight rollover there is a night in which the operator can change their mind, and this is the call that makes it usable. IT TAKES NO BODY. Cancelling is UNGATED AND IMMEDIATE: no reason, no delay, no confirmation ceremony and no approval step, because UNDOING IS ALWAYS CHEAPER THAN DOING — the publication it reverses re-gates every Customer and everybody on the Staff platform, and the reversal, while the edition is on nobody's screen, moves not one person. THE ROW IS RETAINED AND MARKED, NEVER DELETED: the edition survives in full with its artifacts, its fingerprint and its publish provenance, so the record of what was nearly published stays readable, its label stays spent, and a later publication cannot reuse the number (`cancelled_by`/`cancelled_at`, migration 113, in migration 112's whole-or-nothing house style). A CANCELLED EDITION NEVER BECOMES CURRENT, never lifts the gating floor and never enters the satisfying set — excluded by `cancelled_at IS NULL` in the SAME QUERY that answers `effective_date \u003c= CURRENT_DATE`, so nothing fires at midnight, no job runs and no cache is invalidated. CANCELLING TWICE IS A SUCCESS, on the draft discard's terms — what the caller asked for is what they now have — and the FIRST cancellation's provenance is kept. Refused: 409 LEGAL_EDITION_ALREADY_EFFECTIVE carrying `effective_date` once the day has passed (the control is gone by then; this is the backstop for a page left open overnight, and the refusal is the UPDATE's own `effective_date \u003e CURRENT_DATE` rather than a second opinion from the app's clock), 404 LEGAL_EDITION_NOT_FOUND for an id that names no edition of THIS document, 404 LEGAL_DOCUMENT_NOT_FOUND. Answers with the whole workspace, whose `scheduled` list no longer names the edition. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "policy or terms",
+                        "in": "path",
+                        "name": "document",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "The scheduled edition's version id",
+                        "in": "path",
+                        "name": "version",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorLegalWorkspace"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Cancel a scheduled edition of a legal document",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/legal/staff/{digest}": {
+            "get": {
+                "description": "Returns one Staff platform person's complete Terms Acceptance history, found by their STAFF DIGEST (#566, spec #556, ADR 0067). A staff person has no id — the person key of the Staff platform is an email, and migrations 067, 069 and 107 each concluded so independently — and a data subject's address must never appear in a URL, so the link carries 32 hex characters of HMAC-SHA256 over \"staff:\" + the normalised address, under a purpose-derived subkey of the deployment's link secret (ADR 0046). THE DIGEST IS RESOLVED BY MATCHING AND NOT BY REVERSING: it is one-way by design, so the digest is compared in constant time against every address in the staff population — `members`, `platform_operators` and, so a leaver's record stays reachable, everybody who has ever accepted — until one answers. A digest matching nobody is 404 STAFF_SUBJECT_NOT_FOUND. A deployment with no link secret gets 503 STAFF_DIGEST_UNAVAILABLE: with no key every address produces the same digest and the match would return an arbitrary person's record, which is not a degraded answer but the wrong one. Unreachable in production, where the server will not start without the secret. THE HISTORY IS UNPAGED and `visible_count` is therefore the WHOLE count: a person holds at most one acceptance per edition per capacity, so the history is a few rows and cannot grow without bound the way a Customer's does. Every capacity is listed, not just `organizer`: a record that filtered would hide evidence of an act the person really performed — but the STANDING is computed from `organizer` acceptances alone, exactly as the sign-in gate reads them, so a later capacity can never be misread as clearance for this gate. Standing is `current`, `outstanding`, `never_seen` or `former`, computed as membership of the satisfying set (#560) so a correction moves nobody; `former` is read from the POPULATION — holds an acceptance and is on neither membership table — because a DELETE from `members` is the only place a departure is ever recorded. Each acceptance names the exact edition as an id and a label, carries the capacity, the four technical-proof fields (null where the surface collected nothing, which is not a blank it collected) and `presented_locale`, the language of the acceptance label actually served (#567), null on rows written before migration 115. `customer_id` is the cross-link to the same human being's Customer record, or null; the two records are cross-linked and NEVER MERGED. READING CAPTURES NOTHING: no consent is recorded and no Consent Record appears, because a read that recorded something would put an act in the evidence log that nobody performed. The read itself IS logged, as a `subject_read` naming this person in the Consent Access Log (#569) — a touch of somebody's data is recorded however it is reached. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Staff Digest (32 hex characters)",
+                        "in": "path",
+                        "name": "digest",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorStaffLegalRecord"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read one staff person's Terms Acceptance record",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/legal/staff/{digest}/evidence-pack": {
+            "get": {
+                "description": "Generates and downloads the Consent Evidence Pack for the person a Staff Digest names — the SAME FILE the Customer route serves where that address is also a Customer, because a pack spans both populations for one address and one access request has one answer (#568, spec #556, ADR 0067). The digest is resolved by MATCHING across the staff population and never by reversing, exactly as the staff record is: it is one-way by design. A digest matching nobody is 404 STAFF_SUBJECT_NOT_FOUND; a deployment with no link secret is 503 STAFF_DIGEST_UNAVAILABLE, because with no key the match would resolve an arbitrary digest to the first person in the list, which is the wrong person's evidence rather than a degraded answer. THE DIGEST ITSELF APPEARS NOWHERE IN THE FILE OR ITS NAME (#548): a key rotation must not orphan a document whose purpose is to stay meaningful for years, so the filename is keyed on the pack's own SHA-256. Contents, determinism, the never-stored rule and the stated limitations are exactly as described on the Customer route. Platform Operator only; there is no self-service download.",
+                "parameters": [
+                    {
+                        "description": "Staff Digest (32 hex characters)",
+                        "in": "path",
+                        "name": "digest",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "type": "file"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "503": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Generate a staff person's Consent Evidence Pack",
                 "tags": [
                     "operator"
                 ]
@@ -21044,6 +23167,118 @@
                     }
                 ],
                 "summary": "List popular custom tags",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/terms/accept": {
+            "post": {
+                "description": "Records one append-only Staff Terms Acceptance for the authenticated Staff Session's holder — the edition and language pinned on the `gate_token` when the interstitial rendered the box, the capacity \"organizer\", the timestamp, and the technical proof (IP, user agent, session, origin URL). `terms_acceptance` must be true; an unticked box is refused with TERMS_ACCEPTANCE_REQUIRED and does NOT spend the token, because the token proves nothing here — the session is the credential. A token issued to another address is refused indistinguishably from an unknown or expired one. Nothing is minted, re-minted or revoked and no passcode is spent: the caller resumes the navigation the gate diverted (#570, ADR 0067).",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.staffTermsGateBody",
+                                        "summary": "body",
+                                        "description": "Gate token and the ticked box"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Gate token and the ticked box",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeStaffTermsAccepted"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Accept the Terms from a signed-in session",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/terms/gate": {
+            "get": {
+                "description": "Reports whether the authenticated Staff Session's holder owes a Staff Terms Acceptance of an edition that still satisfies the gate, and when they do, returns the box to show: the edition label, the acceptance label as the published artifact words it, the language that label was actually served in, and a short-lived single-use `pending_terms_token` that pins both server-side. `locale` is the language the staff app is rendered in for this reader; a language the current edition does not publish is floored at the prevailing one rather than served blank. Reading this revokes nothing, mints nothing and spends no passcode — the session is untouched (#570, ADR 0067).",
+                "parameters": [
+                    {
+                        "description": "Language the staff app is rendered in (en or es)",
+                        "in": "query",
+                        "name": "locale",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeStaffTermsGate"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "What a signed-in staff member owes the Terms gate",
                 "tags": [
                     "staff"
                 ]
