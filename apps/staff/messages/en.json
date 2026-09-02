@@ -1454,7 +1454,7 @@
     "invoicingCertificateUploadFailed": "Could not upload the certificate.",
     "invoicingCertificateFileRequired": "Choose the .p12 file.",
     "invoicingListTitle": "Tax Invoices",
-    "invoicingListDescription": "Every factura the platform has issued to the SRI. Sort by number, date, recipient or total.",
+    "invoicingListDescription": "Every factura the platform has issued to the SRI.",
     "invoicingListLoading": "Loading Tax Invoices...",
     "invoicingListLoadFailedTitle": "Could not load the Tax Invoices",
     "invoicingListLoadFailed": "Could not load the Tax Invoices.",
