@@ -1402,6 +1402,19 @@ export type InvoiceKindFilter = InvoiceKind | "all";
 /** The list's status filter: one status, or every status (#578). */
 export type InvoiceStatusFilter = InvoiceStatus | "all";
 
+/**
+ * The list's environment filter: one of the authority's environments, or
+ * every environment (#598). It is the SAME vocabulary the Issuer is pointed
+ * at and the same one each row carries, so the filter and the Test badge can
+ * never mean different things by the word "test".
+ *
+ * "all" is this app's own word and is never on the wire: the URL says "every
+ * environment" by carrying no `environment` at all, which is what keeps the
+ * default view's address, and every link written before this filter existed,
+ * exactly what it was.
+ */
+export type InvoiceEnvironmentFilter = EcuadorIssuerEnvironment | "all";
+
 // A page of Tax Invoices — narrowed to one kind (#477), one status (#578) or
 // the documents carrying a Recipient Warning (#482) — is fetched by
 // lib/operator-invoice-list.ts, which owns the list's filters record and

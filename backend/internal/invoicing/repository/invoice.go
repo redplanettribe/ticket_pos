@@ -659,6 +659,16 @@ type InvoiceFilter struct {
 	// the filter keeps them out of a declared period.
 	IssuedFrom string
 	IssuedTo   string
+	// Environment narrows the page to the documents issued under one of the
+	// authority's environments (#598, spec #593); "" is every document.
+	//
+	// IT IS THE MONTH-END FILTER: a certification run against SRI pruebas
+	// produces documents that are real to the SRI and to nobody else, and a
+	// reconciliation that swept one up would declare a factura that stands
+	// for no income. The default is deliberately every document, so that
+	// every link written before this filter existed still names the view it
+	// always named.
+	Environment invoicing.Environment
 	// Sort and Dir are the ORDER the page is read in (#597, spec #593), and
 	// they are TYPED rather than raw strings all the way down from the
 	// handler: the only values that exist are the ones the vocabulary
@@ -750,6 +760,28 @@ func invoiceListWhere(filter InvoiceFilter) (string, []any) {
 	if filter.IssuedTo != "" {
 		args = append(args, filter.IssuedTo)
 		where += fmt.Sprintf(" AND i.issued_on <= $%d::date", len(args))
+	}
+	// The Environment (#598). ONE PREDICATE ON THE CORE ROW, which is where
+	// the environment was copied from the Issuer at signing time and where
+	// the list already reads it from to draw the Test badge — so the filter
+	// and the badge can never disagree about what a row is. (It is also on
+	// the Ecuador detail row, which the numbering is allocated per; reading
+	// it from there instead would answer for the SRI's numbering rather than
+	// for the document the operator is looking at, and would say nothing at
+	// all about a country with no detail table.)
+	//
+	// AN UN-ISSUED DOCUMENT HAS NO ENVIRONMENT and so matches NEITHER value:
+	// i.environment is NULL until the Drainer signs (migration 098), and an
+	// equality against NULL is never true. That is the same shape the
+	// Emission Date bounds have above, for the same reason — a document the
+	// authority has not seen was issued under no environment, and answering
+	// otherwise would put an owed Sale Invoice into a production
+	// reconciliation on the strength of a guess about where it will be
+	// signed. Absent, the filter is not added at all, so the whole list
+	// including the owed documents is what a bare address still shows.
+	if filter.Environment != "" {
+		args = append(args, string(filter.Environment))
+		where += fmt.Sprintf(" AND i.environment = $%d", len(args))
 	}
 	return where, args
 }

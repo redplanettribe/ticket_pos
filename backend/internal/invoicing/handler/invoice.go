@@ -158,7 +158,7 @@ func (h *Handler) PreviewTotals(w http.ResponseWriter, r *http.Request) {
 // default.
 //
 // @Summary      List Tax Invoices
-// @Description  Returns a page of every Tax Invoice the platform has issued or owes, in the order asked for and newest first by default: the document `kind` (`manual` from the form; `sale` for a Sale Invoice a paid House checkout owed; `credit_note` for its reversal), the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such), and — on a `sale` or `credit_note` — the Ticket Sale id and its Sale Confirmation reference. A document still `owed` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. `attention_since` is when a `needs_attention` document was parked, null otherwise. `recipient_warning` is true on an authorized Sale Invoice the SRI warned about — the Recipient's Tax ID does not exist (advertencia 59) or is incorrect (62) — until the document is superseded (ADR 0061); the status is unaffected, and it is always false while SALE_INVOICING_ENABLED is closed. `kind` narrows the page to one document kind; a value that is not `manual`, `sale` or `credit_note` is refused under VALIDATION_FAILED. `status` narrows the page to one status — `owed`, `pending`, `authorized`, `not_authorized`, `rejected`, `needs_attention`, `withdrawn`, `annulled` or `abandoned` — so that, among other things, every number the platform has abandoned (ADR 0068) can be audited; any other value is refused under VALIDATION_FAILED rather than read as "every status". `recipient_warning=true` narrows the page to the documents carrying a Recipient Warning; any other value is refused under VALIDATION_FAILED, and while SALE_INVOICING_ENABLED is closed the filter answers 404 SALE_INVOICING_UNAVAILABLE. `q` narrows the page to the documents matching one case-insensitive substring, matched against the printed number, the Recipient's legal name, the Recipient's Tax ID and the Sale Confirmation reference of the Ticket Sale the document declares — any one of the four is enough. The term is matched literally, so `%` and `_` are those characters and not wildcards; there is no accent folding and no shortcut for a bare sequential number. Blank or absent is every document. `issued_from` and `issued_to` narrow the page to an EMISSION DATE range: inclusive calendar days (`YYYY-MM-DD`) compared against the emission date alone — the day in the Issuer's country the document itself carries, the one this list's date column shows — with no timezone conversion, and either bound may be given on its own. A document with NO emission date, an owed Sale Invoice the Drainer has not signed, does not match once either bound is given, so a fiscal period never counts a document the Tax Authority has not seen; that is deliberately different from the default order, which keeps un-issued documents at the newest end. A malformed date, or an `issued_from` after the `issued_to`, is refused under VALIDATION_FAILED rather than answered with an empty list. `sort` and `dir` order the page: `date` (the emission date falling back to when the document was created, so an un-issued document sits at the newest end), `number` (the printed number's text, which within one establishment and point of emission is sequence order, so a gap in the numbering can be read off; a document with no number sorts last in BOTH directions), `total` (the document's total) and `recipient` (the Recipient's legal name as the document snapshotted it), each `asc` or `desc`. Absent is `date` `desc`, which is the order this list has always had. Every sort ends in the same tiebreakers — creation time, then id — so two documents that tie on the chosen column keep one order and paging never repeats or skips one. Any other sort key or direction is refused under VALIDATION_FAILED rather than silently read as the default. The other columns are not sortable: Kind, Status and Country are answered by their filters. Every filter combines. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
+// @Description  Returns a page of every Tax Invoice the platform has issued or owes, in the order asked for and newest first by default: the document `kind` (`manual` from the form; `sale` for a Sale Invoice a paid House checkout owed; `credit_note` for its reversal), the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such), and — on a `sale` or `credit_note` — the Ticket Sale id and its Sale Confirmation reference. A document still `owed` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. `attention_since` is when a `needs_attention` document was parked, null otherwise. `recipient_warning` is true on an authorized Sale Invoice the SRI warned about — the Recipient's Tax ID does not exist (advertencia 59) or is incorrect (62) — until the document is superseded (ADR 0061); the status is unaffected, and it is always false while SALE_INVOICING_ENABLED is closed. `kind` narrows the page to one document kind; a value that is not `manual`, `sale` or `credit_note` is refused under VALIDATION_FAILED. `status` narrows the page to one status — `owed`, `pending`, `authorized`, `not_authorized`, `rejected`, `needs_attention`, `withdrawn`, `annulled` or `abandoned` — so that, among other things, every number the platform has abandoned (ADR 0068) can be audited; any other value is refused under VALIDATION_FAILED rather than read as "every status". `recipient_warning=true` narrows the page to the documents carrying a Recipient Warning; any other value is refused under VALIDATION_FAILED, and while SALE_INVOICING_ENABLED is closed the filter answers 404 SALE_INVOICING_UNAVAILABLE. `q` narrows the page to the documents matching one case-insensitive substring, matched against the printed number, the Recipient's legal name, the Recipient's Tax ID and the Sale Confirmation reference of the Ticket Sale the document declares — any one of the four is enough. The term is matched literally, so `%` and `_` are those characters and not wildcards; there is no accent folding and no shortcut for a bare sequential number. Blank or absent is every document. `issued_from` and `issued_to` narrow the page to an EMISSION DATE range: inclusive calendar days (`YYYY-MM-DD`) compared against the emission date alone — the day in the Issuer's country the document itself carries, the one this list's date column shows — with no timezone conversion, and either bound may be given on its own. A document with NO emission date, an owed Sale Invoice the Drainer has not signed, does not match once either bound is given, so a fiscal period never counts a document the Tax Authority has not seen; that is deliberately different from the default order, which keeps un-issued documents at the newest end. A malformed date, or an `issued_from` after the `issued_to`, is refused under VALIDATION_FAILED rather than answered with an empty list. `sort` and `dir` order the page: `date` (the emission date falling back to when the document was created, so an un-issued document sits at the newest end), `number` (the printed number's text, which within one establishment and point of emission is sequence order, so a gap in the numbering can be read off; a document with no number sorts last in BOTH directions), `total` (the document's total) and `recipient` (the Recipient's legal name as the document snapshotted it), each `asc` or `desc`. Absent is `date` `desc`, which is the order this list has always had. Every sort ends in the same tiebreakers — creation time, then id — so two documents that tie on the chosen column keep one order and paging never repeats or skips one. Any other sort key or direction is refused under VALIDATION_FAILED rather than silently read as the default. The other columns are not sortable: Kind, Status and Country are answered by their filters. `environment` narrows the page to the documents issued under one of the authority's environments, `production` or `test`, so a month-end reconciliation never picks up a certification document; absent is every environment, and any other value is refused under VALIDATION_FAILED. A document with NO environment — an owed Sale Invoice the Drainer has not signed — does not match either value, for the reason it falls out of an Emission Date range: it was issued under no environment. Every filter combines. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
 // @Tags         operator
 // @Produce      json
 // @Security     BearerAuth
@@ -170,6 +170,7 @@ func (h *Handler) PreviewTotals(w http.ResponseWriter, r *http.Request) {
 // @Param        issued_to          query  string  false  "Emission Date range end (YYYY-MM-DD, the Issuer's country's calendar day, inclusive); documents with no Emission Date do not match"
 // @Param        sort               query  string  false  "Sort column (default date)"  Enums(date, number, total, recipient)
 // @Param        dir                query  string  false  "Sort direction (default desc)"  Enums(asc, desc)
+// @Param        environment        query  string  false  "Environment the document was issued under: production or test (default every environment)"  Enums(production, test)
 // @Param        page       query  int     false  "Page number (default 1)"
 // @Param        page_size  query  int     false  "Page size (default 50, max 100)"
 // @Success      200  {object}  openapi.EnvelopeInvoiceList
@@ -192,6 +193,8 @@ func (h *Handler) ListInvoices(w http.ResponseWriter, r *http.Request) {
 	fields = append(fields, sortFields...)
 	dir, dirFields := dirParam(query.Get("dir"))
 	fields = append(fields, dirFields...)
+	environment, environmentFields := environmentParam(query.Get("environment"))
+	fields = append(fields, environmentFields...)
 	if len(fields) > 0 {
 		_ = platform.WriteValidationError(w, reqID, fields)
 		return
@@ -209,6 +212,7 @@ func (h *Handler) ListInvoices(w http.ResponseWriter, r *http.Request) {
 		Search:           search,
 		IssuedFrom:       issuedFrom,
 		IssuedTo:         issuedTo,
+		Environment:      environment,
 		Sort:             sort,
 		Dir:              dir,
 	}
@@ -491,6 +495,35 @@ func kindParam(raw string) (invoicing.DocumentKind, []platform.FieldError) {
 		Field:   "kind",
 		Code:    platform.CodeInvalidEnum,
 		Message: "must be one of " + string(invoicing.DocumentKindManual) + ", " + string(invoicing.DocumentKindSale) + ", " + string(invoicing.DocumentKindCreditNote),
+	}}
+}
+
+// environmentParam parses the `environment` query value (#598, spec #593):
+// absent is every document, and anything but `production` or `test` is
+// refused by name for the reason kindParam refuses a mistyped kind.
+//
+// ABSENT MEANS ALL, and that is the whole compatibility story: the Operator
+// Dashboard's links, an operator's bookmarks and the bare list all predate
+// this filter and none of them names an environment, so none of them may
+// change what it shows.
+//
+// There is no `all` spelling on the wire. A parameter whose value is
+// "everything" is a narrowing that narrows nothing, and the URL already has
+// a way to say that — leaving it out. The staff app's select carries "all"
+// as its own option and simply omits the parameter for it.
+func environmentParam(raw string) (invoicing.Environment, []platform.FieldError) {
+	environment := invoicing.Environment(strings.TrimSpace(raw))
+	if environment == "" || environment.Valid() {
+		return environment, nil
+	}
+	names := make([]string, 0, len(invoicing.Environments))
+	for _, e := range invoicing.Environments {
+		names = append(names, string(e))
+	}
+	return "", []platform.FieldError{{
+		Field:   "environment",
+		Code:    platform.CodeInvalidEnum,
+		Message: "must be one of " + strings.Join(names, ", "),
 	}}
 }
 

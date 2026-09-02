@@ -28,6 +28,7 @@ import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { type AppLocale, formatCalendarDay, formatMoney, formatNumber } from "@/lib/format";
 import {
+  type InvoiceEnvironmentFilter,
   type InvoiceKind,
   type InvoiceKindFilter,
   type InvoiceStatusFilter,
@@ -37,6 +38,7 @@ import {
   fetchOperatorUninvoicedHouseSaleCount,
 } from "@/lib/operator-api";
 import {
+  INVOICE_ENVIRONMENT_FILTERS,
   INVOICE_KIND_FILTERS,
   INVOICE_STATUS_FILTERS,
   type OperatorInvoiceDir,
@@ -44,8 +46,10 @@ import {
   type OperatorInvoiceSort,
   fetchOperatorInvoiceList,
   hasActiveOperatorInvoiceFilters,
+  isDefaultOperatorInvoiceView,
   operatorInvoiceListQuery,
   operatorInvoiceListQueryAfterFilterChange,
+  operatorInvoiceListQueryAfterReset,
   operatorInvoiceListQueryAfterSortChange,
 } from "@/lib/operator-invoice-list";
 
@@ -63,8 +67,11 @@ import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from 
 // with no number or date until the Drainer signs it — those cells say so
 // rather than showing a blank, since "not yet" and "unknown" are different.
 // The kind filter (#477) narrows the list to one of the three, and the
-// status filter (#578) to one of the nine; the API does the narrowing, so
-// the page's total is the filtered total.
+// status filter (#578) to one of the nine; the environment filter (#598) to
+// SRI producción or pruebas, so a month-end reconciliation never counts a
+// certification document. The API does the narrowing, so the page's total is
+// the filtered total, and one Reset clears every filter, the search, the
+// range and the order at once.
 //
 // The Recipient Warning (#482, ADR 0061): an authorized Sale Invoice the SRI
 // warned about — the Recipient's Tax ID does not exist or is incorrect — is
@@ -94,6 +101,17 @@ const LIST_PATH = "/operator/invoicing";
 
 const SELECT_CLASS =
   "h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+
+// The environment filter's options, by catalog key (#598). Spelled out
+// rather than derived from the badge's key, because the select and the badge
+// say different things about the same word: the badge marks one row as a
+// certification document, while these are the two halves of a choice and
+// have to read as a pair.
+const INVOICE_ENVIRONMENT_FILTER_KEYS = {
+  all: "invoicingEnvironmentFilterAll",
+  test: "invoicingEnvironmentFilterTest",
+  production: "invoicingEnvironmentFilterProduction",
+} as const satisfies Record<InvoiceEnvironmentFilter, string>;
 
 function InvoiceRow({ item, locale }: { item: OperatorInvoiceListItem; locale: AppLocale }) {
   const t = useTranslations("operator");
@@ -197,9 +215,10 @@ function InvoiceSearchBox({
         </Button>
         {/*
           Clear is drawn only while there is a search to clear, and empties
-          the term rather than every filter — resetting the whole view is
-          #598's, and a Clear that quietly dropped the Kind an operator had
-          set would be a different button wearing this one's label.
+          the term rather than every filter — resetting the whole view is the
+          Reset beside the selects (#598), and a Clear that quietly dropped
+          the Kind an operator had set would be a different button wearing
+          this one's label.
         */}
         {q ? (
           <Button type="button" variant="ghost" size="sm" onClick={() => onApply({ q: "" })}>
@@ -226,7 +245,8 @@ function InvoiceSearchBox({
 // hand-edited address bar reaches it without passing through these.
 //
 // Clear empties BOTH bounds and nothing else: half a range is a different
-// view, not a cleared one, and resetting every filter at once is #598's.
+// view, not a cleared one, and resetting every filter at once is the Reset
+// beside the selects (#598).
 function EmissionDateRange({
   filters,
   onApply,
@@ -366,6 +386,18 @@ export function OperatorInvoicesClient({
     [filters, sort, dir, router],
   );
 
+  // Reset (#598, spec #593 story 22): back to the whole list, first page,
+  // newest first — the address the page opens at, with no query string at
+  // all. It clears the ORDER as well as every filter, because the operator
+  // is looking at one view rather than at a narrowing and an ordering, and a
+  // Reset that left the list sorted by total ascending would not have taken
+  // them back to where they started. That is why it asks
+  // isDefaultOperatorInvoiceView rather than hasActiveOperatorInvoiceFilters,
+  // which deliberately ignores the sort for the empty state's sake.
+  const resetView = useCallback(() => {
+    router.push(`${LIST_PATH}${operatorInvoiceListQueryAfterReset()}`);
+  }, [router]);
+
   const goToPage = useCallback(
     (next: number) => {
       const target = Math.max(1, next);
@@ -462,6 +494,34 @@ export function OperatorInvoicesClient({
                   ))}
                 </select>
               </label>
+              {/*
+                The Environment filter (#598), a fourth select beside the
+                other three: a month-end reconciliation is read under
+                `production` alone, so a certification run against SRI
+                pruebas — whose documents are real to the SRI and to nobody
+                else — is never counted into it. It defaults to All, so the
+                page an operator already knows is unchanged.
+
+                There is no Country select beside it on purpose: there is one
+                Issuer country, and a select with one option is a control
+                that asks a question with no answer.
+              */}
+              <label className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">{t("invoicingEnvironmentFilterLabel")}</span>
+                <select
+                  className={SELECT_CLASS}
+                  value={filters.environment}
+                  onChange={(event) =>
+                    applyFilters({ environment: event.target.value as InvoiceEnvironmentFilter })
+                  }
+                >
+                  {INVOICE_ENVIRONMENT_FILTERS.map((option) => (
+                    <option key={option} value={option}>
+                      {t(INVOICE_ENVIRONMENT_FILTER_KEYS[option])}
+                    </option>
+                  ))}
+                </select>
+              </label>
               {recipientWarningCount !== null ? (
                 <label className="flex items-center gap-2 text-sm">
                   <input
@@ -472,6 +532,17 @@ export function OperatorInvoicesClient({
                   />
                   <span>{t("invoicingRecipientWarningFilter", { count: recipientWarningCount })}</span>
                 </label>
+              ) : null}
+              {/*
+                Drawn only while there is something to reset, so the default
+                view carries no button that would do nothing — and it is the
+                whole view it resets, which is why it is asked about the
+                order and the page as well as the filters.
+              */}
+              {!isDefaultOperatorInvoiceView(page, filters, sort, dir) ? (
+                <Button type="button" variant="ghost" size="sm" onClick={resetView}>
+                  {t("invoicingResetView")}
+                </Button>
               ) : null}
               {uninvoicedCount !== null ? (
                 <Link href="/operator/invoicing/uninvoiced" className="text-sm hover:underline">
@@ -496,7 +567,10 @@ export function OperatorInvoicesClient({
               <p className="text-sm text-muted-foreground">
                 {!hasActiveOperatorInvoiceFilters(filters)
                   ? t("invoicingListEmpty")
-                  : filters.q || filters.issuedFrom || filters.issuedTo
+                  : filters.q ||
+                      filters.issuedFrom ||
+                      filters.issuedTo ||
+                      filters.environment !== "all"
                     ? t("invoicingListEmptyForFilters")
                     : filters.recipientWarningOnly
                       ? t("invoicingListEmptyForRecipientWarning")

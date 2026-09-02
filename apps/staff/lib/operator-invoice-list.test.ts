@@ -6,8 +6,10 @@ import {
   DEFAULT_OPERATOR_INVOICE_SORT,
   EMPTY_OPERATOR_INVOICE_FILTERS,
   hasActiveOperatorInvoiceFilters,
+  isDefaultOperatorInvoiceView,
   operatorInvoiceListQuery,
   operatorInvoiceListQueryAfterFilterChange,
+  operatorInvoiceListQueryAfterReset,
   operatorInvoiceListQueryAfterSortChange,
   parseOperatorInvoiceListParams,
 } from "./operator-invoice-list.ts";
@@ -49,7 +51,7 @@ test("the unnarrowed view writes no query string at all", () => {
 
 // --- what the URL can and cannot say --------------------------------------
 
-test("a kind, a status, the Recipient Warning, a search term and a date range are read off the address bar", () => {
+test("every filter is read off the address bar at once", () => {
   const view = parseOperatorInvoiceListParams({
     page: "3",
     kind: "credit_note",
@@ -58,6 +60,7 @@ test("a kind, a status, the Recipient Warning, a search term and a date range ar
     q: "001-001-000000012",
     issued_from: "2026-08-01",
     issued_to: "2026-08-31",
+    environment: "production",
   });
   assert.deepEqual(view, {
     page: 3,
@@ -69,6 +72,7 @@ test("a kind, a status, the Recipient Warning, a search term and a date range ar
       q: "001-001-000000012",
       issuedFrom: "2026-08-01",
       issuedTo: "2026-08-31",
+      environment: "production",
     },
   });
 });
@@ -137,6 +141,24 @@ test("every view the builder writes is the view the parser reads back", () => {
     { page: 2, filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, issuedFrom: "2026-07-01" } },
     { page: 1, filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, issuedTo: "2026-07-01" } },
     { page: 5, filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, status: "authorized", q: "ZEBRA", issuedFrom: "2026-08-01", issuedTo: "2026-08-31" } },
+    // The Environment (#598), alone and in the company it was built for: the
+    // month-end view is "production, authorized, this month", and it is one
+    // link like everything else here.
+    { page: 1, filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, environment: "production" } },
+    { page: 2, filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, environment: "test" } },
+    {
+      page: 1,
+      filters: {
+        ...EMPTY_OPERATOR_INVOICE_FILTERS,
+        environment: "production",
+        status: "authorized",
+        issuedFrom: "2026-08-01",
+        issuedTo: "2026-08-31",
+        q: "ZEBRA",
+      },
+      sort: "number",
+      dir: "asc",
+    },
   ] as const;
   for (const view of views) {
     const sort = "sort" in view ? view.sort : DEFAULT_OPERATOR_INVOICE_SORT;
@@ -432,7 +454,110 @@ test("changing a filter keeps the order the operator chose", () => {
 test("an order is not a narrowing", () => {
   // The empty state's question is about the filters alone: no sort can widen
   // to find a document, so a sorted-but-unfiltered empty list must still read
-  // "the platform has issued no documents". The reset #598 adds has to clear
-  // the sort all the same, since the operator sees one view.
+  // "the platform has issued no documents". The reset (#598) clears the sort
+  // all the same, since the operator sees one view — which is why it asks
+  // isDefaultOperatorInvoiceView instead, below.
   assert.equal(hasActiveOperatorInvoiceFilters(EMPTY_OPERATOR_INVOICE_FILTERS), false);
+});
+
+// --- the Environment filter (#598) ----------------------------------------
+
+test("the Environment filter defaults to All and writes nothing at that value", () => {
+  // The compatibility promise: every link written before this filter existed
+  // — a bookmark, the Operator Dashboard's deep link, the bare path — still
+  // names the view it always named, which is every environment.
+  assert.equal(parseOperatorInvoiceListParams({}).filters.environment, "all");
+  assert.equal(operatorInvoiceListQuery(1, { ...EMPTY_OPERATOR_INVOICE_FILTERS, environment: "all" }), "");
+});
+
+test("an environment this app cannot name widens to every environment", () => {
+  // Including "all" itself, which is this app's word for the unnarrowed view
+  // and a spelling the API refuses outright: a hand-edited link that says the
+  // harmless thing still shows the harmless view, and is dropped from the
+  // address on the next press rather than carried to a 400.
+  assert.equal(parseOperatorInvoiceListParams({ environment: "staging" }).filters.environment, "all");
+  assert.equal(parseOperatorInvoiceListParams({ environment: "Production" }).filters.environment, "all");
+  assert.equal(parseOperatorInvoiceListParams({ environment: "all" }).filters.environment, "all");
+  assert.equal(operatorInvoiceListQuery(1, parseOperatorInvoiceListParams({ environment: "all" }).filters), "");
+});
+
+test("choosing an environment pushes it into the URL and returns to the first page", () => {
+  // Picking Production on page seven of a status-narrowed view: the choice
+  // joins the narrowing rather than replacing it, and the page resets,
+  // because half the documents may have just left the list.
+  const query = operatorInvoiceListQueryAfterFilterChange(
+    { ...EMPTY_OPERATOR_INVOICE_FILTERS, status: "authorized", q: "ZEBRA" },
+    { environment: "production" },
+    "total",
+    "asc",
+  );
+  assert.equal(new URLSearchParams(query.slice(1)).get("environment"), "production");
+  assert.deepEqual(parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1)))), {
+    page: 1,
+    filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, status: "authorized", q: "ZEBRA", environment: "production" },
+    // The order the operator chose survives a narrowing, as every other
+    // filter change leaves it standing.
+    sort: "total",
+    dir: "asc",
+  });
+});
+
+test("an environment is a narrowing, so an empty result under one says so", () => {
+  // A platform that has only ever issued under test HAS documents; a
+  // production view of it that read "the platform has issued no documents"
+  // would send the operator looking for a bug instead of widening the filter.
+  assert.equal(
+    hasActiveOperatorInvoiceFilters({ ...EMPTY_OPERATOR_INVOICE_FILTERS, environment: "production" }),
+    true,
+  );
+  assert.equal(hasActiveOperatorInvoiceFilters({ ...EMPTY_OPERATOR_INVOICE_FILTERS, environment: "all" }), false);
+});
+
+// --- the reset (#598, spec #593 story 22) ---------------------------------
+
+test("the reset returns the whole view to the default and an empty query string", () => {
+  const query = operatorInvoiceListQueryAfterReset();
+  assert.equal(query, "", `the reset must be a bare address, got ${query}`);
+  assert.deepEqual(parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query))), {
+    page: 1,
+    filters: EMPTY_OPERATOR_INVOICE_FILTERS,
+    ...DEFAULT_ORDER,
+  });
+});
+
+test("the reset clears the order as well as every filter", () => {
+  // THE DIFFERENCE FROM hasActiveOperatorInvoiceFilters, which deliberately
+  // ignores the sort ("an order is not a narrowing", above): the operator is
+  // looking at ONE view, so a Reset that left the list sorted by total
+  // ascending would not have taken them back to where they started.
+  const narrowed = {
+    ...EMPTY_OPERATOR_INVOICE_FILTERS,
+    kind: "sale",
+    status: "authorized",
+    recipientWarningOnly: true,
+    q: "ZEBRA",
+    issuedFrom: "2026-08-01",
+    issuedTo: "2026-08-31",
+    environment: "production",
+  } as const;
+  // Every filter, the search, the range, the order and the page are set...
+  assert.notEqual(operatorInvoiceListQuery(7, narrowed, "total", "asc"), "");
+  assert.equal(isDefaultOperatorInvoiceView(7, narrowed, "total", "asc"), false);
+  // ...and one press clears all of them at once.
+  const view = parseOperatorInvoiceListParams(
+    Object.fromEntries(new URLSearchParams(operatorInvoiceListQueryAfterReset())),
+  );
+  assert.deepEqual(view, { page: 1, filters: EMPTY_OPERATOR_INVOICE_FILTERS, ...DEFAULT_ORDER });
+  assert.equal(isDefaultOperatorInvoiceView(view.page, view.filters, view.sort, view.dir), true);
+});
+
+test("a sorted but unnarrowed view is not the default view, though it is not narrowed", () => {
+  // The two questions the two functions answer, side by side on the same
+  // input: nothing is narrowing the list, and yet the Reset has work to do.
+  assert.equal(hasActiveOperatorInvoiceFilters(EMPTY_OPERATOR_INVOICE_FILTERS), false);
+  assert.equal(isDefaultOperatorInvoiceView(1, EMPTY_OPERATOR_INVOICE_FILTERS, "number", "asc"), false);
+  // Page two of the unnarrowed list is not the default view either: the
+  // Reset takes the operator back to the address the page opens at.
+  assert.equal(isDefaultOperatorInvoiceView(2, EMPTY_OPERATOR_INVOICE_FILTERS, "date", "desc"), false);
+  assert.equal(isDefaultOperatorInvoiceView(1, EMPTY_OPERATOR_INVOICE_FILTERS, "date", "desc"), true);
 });

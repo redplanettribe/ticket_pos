@@ -14,9 +14,11 @@
 // tests beside this file import it directly.
 import { fetchEventsJSON } from "./events-api.ts";
 import {
+  ECUADOR_ISSUER_ENVIRONMENTS,
   INVOICE_STATUSES,
   OPERATOR_INVOICES_PAGE_SIZE,
   OPERATOR_INVOICES_PATH,
+  type InvoiceEnvironmentFilter,
   type InvoiceKindFilter,
   type InvoiceStatusFilter,
   type OperatorInvoiceListPage,
@@ -40,6 +42,19 @@ export const INVOICE_STATUS_FILTERS = [
   ...INVOICE_STATUSES,
 ] as const satisfies readonly InvoiceStatusFilter[];
 
+/**
+ * The environment filter's options: both of the authority's environments,
+ * behind "all" (#598). Built from the Issuer's own vocabulary, so the words
+ * the operator picks the filter by are the words the Issuer is pointed at
+ * and the words each row carries — and in the same order the Issuer form
+ * offers them, which is the order a real Issuer travels: certify against
+ * test, then move to production.
+ */
+export const INVOICE_ENVIRONMENT_FILTERS = [
+  "all",
+  ...ECUADOR_ISSUER_ENVIRONMENTS,
+] as const satisfies readonly InvoiceEnvironmentFilter[];
+
 /** The first page. Named because the page-reset rule below is about this one. */
 export const FIRST_PAGE = 1;
 
@@ -56,8 +71,9 @@ export const FIRST_PAGE = 1;
  * A SORT IS NOT A FILTER, which is why it lives here rather than on the
  * filters record. It narrows nothing, so an empty page under a sort must
  * still read "the platform has issued no documents" rather than "nothing
- * matches these filters" — and the reset the next slice adds (#598) has to
- * clear it separately for the same reason.
+ * matches these filters" — and the reset (#598) clears it separately for the
+ * same reason, through isDefaultOperatorInvoiceView rather than through
+ * hasActiveOperatorInvoiceFilters.
  */
 export const OPERATOR_INVOICE_SORTS = ["date", "number", "total", "recipient"] as const;
 export type OperatorInvoiceSort = (typeof OPERATOR_INVOICE_SORTS)[number];
@@ -89,11 +105,11 @@ export function defaultDirForOperatorInvoiceSort(sort: OperatorInvoiceSort): Ope
  * field is carried in the URL, so the whole view is a link.
  *
  * "all", `false` and "" are the unfiltered values and are never written to the
- * URL, which keeps the common view's address clean. The last slice of spec
- * #593 adds `environment` here, one field per filter (#598); the sort keeps
- * its own pair of params outside this record (#597), since it narrows
- * nothing. Nothing in this module is shaped so that adding a filter costs
- * more than a line.
+ * URL, which keeps the common view's address clean. One field per filter,
+ * `environment` included (#598); the sort keeps its own pair of params
+ * outside this record (#597), since it narrows nothing. Nothing in this
+ * module is shaped so that adding a filter costs more than a line — which
+ * is what lets the reset below clear a filter it was written before.
  */
 export type OperatorInvoiceFilters = {
   kind: InvoiceKindFilter;
@@ -126,6 +142,21 @@ export type OperatorInvoiceFilters = {
    */
   issuedFrom: string;
   issuedTo: string;
+  /**
+   * The environment (#598): `production`, `test`, or "all" for both.
+   *
+   * IT DEFAULTS TO ALL and is never written to the URL at that value, so
+   * every link that predates this filter — a bookmark, the Operator
+   * Dashboard's deep link, the bare path — still names the view it always
+   * named. What it buys at month end is that a certification run against SRI
+   * pruebas, whose documents are real to the SRI and to nobody else, can be
+   * put out of sight in one press.
+   *
+   * A document with no environment at all — an owed Sale Invoice nobody has
+   * signed — is in NEITHER, which is the API's rule and the same one it
+   * applies to a document with no Emission Date.
+   */
+  environment: InvoiceEnvironmentFilter;
 };
 
 /** The whole list, unnarrowed: what a bare /operator/invoicing shows. */
@@ -136,6 +167,7 @@ export const EMPTY_OPERATOR_INVOICE_FILTERS: OperatorInvoiceFilters = {
   q: "",
   issuedFrom: "",
   issuedTo: "",
+  environment: "all",
 };
 
 /** The raw query params the list page reads, exactly as Next hands them over. */
@@ -147,6 +179,7 @@ export type OperatorInvoiceListSearchParams = {
   q?: string;
   issued_from?: string;
   issued_to?: string;
+  environment?: string;
   sort?: string;
   dir?: string;
 };
@@ -180,6 +213,7 @@ function parseOperatorInvoiceFilters(
 ): OperatorInvoiceFilters {
   const kind = searchParams.kind as InvoiceKindFilter | undefined;
   const status = searchParams.status as InvoiceStatusFilter | undefined;
+  const environment = searchParams.environment as InvoiceEnvironmentFilter | undefined;
   return {
     kind: kind && INVOICE_KIND_FILTERS.includes(kind) ? kind : "all",
     status: status && INVOICE_STATUS_FILTERS.includes(status) ? status : "all",
@@ -196,6 +230,13 @@ function parseOperatorInvoiceFilters(
     // filter quietly dropped here (#596).
     issuedFrom: (searchParams.issued_from ?? "").trim(),
     issuedTo: (searchParams.issued_to ?? "").trim(),
+    // "all" is narrowed to "all" like anything else this app cannot name
+    // (#598): `?environment=all` is a spelling the API refuses, so reading it
+    // as every environment here means a link that says the harmless thing out
+    // loud still shows the harmless view, and is dropped from the address on
+    // the next press.
+    environment:
+      environment && INVOICE_ENVIRONMENT_FILTERS.includes(environment) ? environment : "all",
   };
 }
 
@@ -246,6 +287,10 @@ function appendOperatorInvoiceFilters(
   if (filters.q !== "") params.set("q", filters.q);
   if (filters.issuedFrom !== "") params.set("issued_from", filters.issuedFrom);
   if (filters.issuedTo !== "") params.set("issued_to", filters.issuedTo);
+  // "all" is written nowhere: the API has no spelling for "every
+  // environment" other than the absent parameter, and refuses the word
+  // "all" outright (#598).
+  if (filters.environment !== "all") params.set("environment", filters.environment);
 }
 
 // appendOperatorInvoiceSort writes the sort pair, omitting it entirely at the
@@ -345,7 +390,59 @@ export function hasActiveOperatorInvoiceFilters(filters: OperatorInvoiceFilters)
     // back empty: a month the platform emitted nothing in is not a platform
     // that has issued nothing.
     filters.issuedFrom !== "" ||
-    filters.issuedTo !== ""
+    filters.issuedTo !== "" ||
+    // An environment is a narrowing too (#598): a platform that has only ever
+    // issued under test has documents, and a production view of it that read
+    // "no documents at all" would send the operator to look for a bug.
+    filters.environment !== "all"
+  );
+}
+
+/**
+ * isDefaultOperatorInvoiceView reports whether the whole view — the
+ * narrowing AND the order — is the one a bare /operator/invoicing shows.
+ *
+ * IT IS DELIBERATELY NOT hasActiveOperatorInvoiceFilters. That one answers
+ * the empty state's question, which is about narrowing alone: a sorted list
+ * that came back empty still means "the platform has issued no documents",
+ * because no order can hide a document (#597). This one answers the RESET's
+ * question, which is about the whole view the operator is looking at — and
+ * they see one view, so a Reset that left the list sorted by total ascending
+ * would not have taken them back to where they started.
+ *
+ * The two questions are close enough to look like one, which is exactly why
+ * they are two functions with two names rather than a flag.
+ */
+export function isDefaultOperatorInvoiceView(
+  page: number,
+  filters: OperatorInvoiceFilters,
+  sort: OperatorInvoiceSort,
+  dir: OperatorInvoiceDir,
+): boolean {
+  return (
+    page <= FIRST_PAGE &&
+    !hasActiveOperatorInvoiceFilters(filters) &&
+    sort === DEFAULT_OPERATOR_INVOICE_SORT &&
+    dir === DEFAULT_OPERATOR_INVOICE_DIR
+  );
+}
+
+/**
+ * operatorInvoiceListQueryAfterReset is the whole list, first page, newest
+ * first: one press that clears every filter, the search, the date range and
+ * the order at once (spec #593 story 22).
+ *
+ * It is EMPTY BY CONSTRUCTION rather than by assertion — the builder is
+ * handed the unnarrowed filters and the default order, and writes nothing
+ * for either — so a filter added to this module later is cleared by this
+ * press the day it is added, without anybody remembering to come back here.
+ */
+export function operatorInvoiceListQueryAfterReset(): string {
+  return operatorInvoiceListQuery(
+    FIRST_PAGE,
+    EMPTY_OPERATOR_INVOICE_FILTERS,
+    DEFAULT_OPERATOR_INVOICE_SORT,
+    DEFAULT_OPERATOR_INVOICE_DIR,
   );
 }
 

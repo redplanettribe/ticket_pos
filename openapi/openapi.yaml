@@ -10248,8 +10248,15 @@ paths:
         never repeats or skips one. Any other sort key or direction is refused under
         VALIDATION_FAILED rather than silently read as the default. The other columns
         are not sortable: Kind, Status and Country are answered by their filters.
-        Every filter combines. Response is the ADR-0006 nested envelope { data, pagination
-        }; page_size defaults to 50 (max 100). Platform Operator only.'
+        `environment` narrows the page to the documents issued under one of the authority''s
+        environments, `production` or `test`, so a month-end reconciliation never
+        picks up a certification document; absent is every environment, and any other
+        value is refused under VALIDATION_FAILED. A document with NO environment —
+        an owed Sale Invoice the Drainer has not signed — does not match either value,
+        for the reason it falls out of an Emission Date range: it was issued under
+        no environment. Every filter combines. Response is the ADR-0006 nested envelope
+        { data, pagination }; page_size defaults to 50 (max 100). Platform Operator
+        only.'
       parameters:
       - description: 'Document kind: manual, sale or credit_note (default every kind)'
         in: query
@@ -10304,6 +10311,15 @@ paths:
           enum:
           - asc
           - desc
+          type: string
+      - description: 'Environment the document was issued under: production or test
+          (default every environment)'
+        in: query
+        name: environment
+        schema:
+          enum:
+          - production
+          - test
           type: string
       - description: Page number (default 1)
         in: query

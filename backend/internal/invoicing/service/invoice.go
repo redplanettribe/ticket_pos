@@ -585,7 +585,7 @@ func (s *Service) GetInvoice(ctx context.Context, id string) (*InvoiceDetail, er
 // InvoiceFilter is what narrows the list: a kind (#477), a status (#578),
 // the Recipient Warning (#482), a search term over the number, the Recipient
 // and the Sale Confirmation reference (#595), an inclusive Emission Date
-// range (#596), any of them together, or none — plus the ORDER the page is
+// range (#596), an environment (#598), any of them together, or none — plus the ORDER the page is
 // read in (#597), which narrows nothing but is decided in the same request
 // and is carried as the typed vocabulary rather than as request text.
 type InvoiceFilter = repository.InvoiceFilter
