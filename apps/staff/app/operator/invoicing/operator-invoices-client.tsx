@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { toAppLocale } from "@ticket-pos/locale";
@@ -22,17 +23,24 @@ import { useLocale, useMessages, useTranslations } from "next-intl";
 
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
-import { type AppLocale, formatCalendarDay, formatMoney } from "@/lib/format";
+import { type AppLocale, formatCalendarDay, formatMoney, formatNumber } from "@/lib/format";
 import {
-  INVOICE_STATUSES,
   type InvoiceKind,
   type InvoiceKindFilter,
   type InvoiceStatusFilter,
+  type OperatorInvoiceListPage,
   type OperatorInvoiceListItem,
-  fetchOperatorInvoices,
   fetchOperatorRecipientWarningCount,
   fetchOperatorUninvoicedHouseSaleCount,
 } from "@/lib/operator-api";
+import {
+  INVOICE_KIND_FILTERS,
+  INVOICE_STATUS_FILTERS,
+  type OperatorInvoiceFilters,
+  fetchOperatorInvoiceList,
+  operatorInvoiceListQuery,
+  operatorInvoiceListQueryAfterFilterChange,
+} from "@/lib/operator-invoice-list";
 
 import { CertificateExpiryBanner } from "./certificate-expiry-warning";
 import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "./invoice-status";
@@ -60,14 +68,20 @@ import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from 
 // shown as "0" when the backlog is clear — a zero is an answer, not an
 // absence. It opens Ventas sin factura, where the backfill lives.
 
-const KIND_FILTERS = ["all", "manual", "sale", "credit_note"] as const satisfies readonly InvoiceKindFilter[];
+// The Kind filter's and the Status filter's options (#477; #578, ADR 0068 —
+// the status filter exists so that every number the platform has given up on
+// can be audited, and offers the whole vocabulary rather than `abandoned`
+// alone) live with the parser that reads them off the URL, so the select can
+// never offer a value the address bar would refuse (#594).
+//
+// Every narrowing on this page is the URL's (#594): the three filters and the
+// page arrive as props parsed from the address bar, and each change is a
+// router.push of the rebuilt query string. Nothing here is seeded from
+// useState, so a reload, a shared link and the back button all show the same
+// view.
 
-// The status filter (#578, ADR 0068). It exists so that every number the
-// platform has given up on can be audited — `abandoned` is the state that
-// asked for it — and it offers the whole vocabulary rather than that one
-// word, because a filter that finds one state and not the eight beside it is
-// one the next operator has to ask for again.
-const STATUS_FILTERS = ["all", ...INVOICE_STATUSES] as const satisfies readonly InvoiceStatusFilter[];
+// Where the list lives: every filter change and page move is pushed onto it.
+const LIST_PATH = "/operator/invoicing";
 
 const SELECT_CLASS =
   "h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
@@ -121,17 +135,17 @@ function InvoiceRow({ item, locale }: { item: OperatorInvoiceListItem; locale: A
 }
 
 export function OperatorInvoicesClient({
-  initialRecipientWarningOnly = false,
+  page,
+  filters,
 }: {
-  initialRecipientWarningOnly?: boolean;
+  page: number;
+  filters: OperatorInvoiceFilters;
 }) {
   const t = useTranslations("operator");
   const errorCopy = useMessages().errors;
   const locale = toAppLocale(useLocale());
-  const [items, setItems] = useState<OperatorInvoiceListItem[]>([]);
-  const [kind, setKind] = useState<InvoiceKindFilter>("all");
-  const [status, setStatus] = useState<InvoiceStatusFilter>("all");
-  const [recipientWarningOnly, setRecipientWarningOnly] = useState(initialRecipientWarningOnly);
+  const router = useRouter();
+  const [result, setResult] = useState<OperatorInvoiceListPage | null>(null);
   // null while unknown or while the feature is closed: the filter is not drawn.
   const [recipientWarningCount, setRecipientWarningCount] = useState<number | null>(null);
   // null while unknown or while the feature is closed: the link is not drawn.
@@ -140,6 +154,10 @@ export function OperatorInvoicesClient({
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // The canonical query of the view being shown: the fetch key below, so one
+  // string decides both what is requested and when it is re-requested.
+  const viewQuery = operatorInvoiceListQuery(page, filters);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -147,12 +165,12 @@ export function OperatorInvoicesClient({
       // The count is read beside the page: it says whether Sale Invoicing is
       // open (404 while closed, read as "no filter") and how many the filter
       // would find. A closed feature must not take the list down with it.
-      const [page, warningCount, uninvoiced] = await Promise.all([
-        fetchOperatorInvoices(1, kind, recipientWarningOnly, status),
+      const [listPage, warningCount, uninvoiced] = await Promise.all([
+        fetchOperatorInvoiceList(page, filters),
         fetchOperatorRecipientWarningCount().catch(() => null),
         fetchOperatorUninvoicedHouseSaleCount().catch(() => null),
       ]);
-      setItems(page.data ?? []);
+      setResult(listPage);
       setRecipientWarningCount(warningCount?.recipient_warning_count ?? null);
       setUninvoicedCount(uninvoiced?.uninvoiced_house_sale_count ?? null);
       setForbidden(false);
@@ -168,12 +186,40 @@ export function OperatorInvoicesClient({
     } finally {
       setLoading(false);
     }
+    // viewQuery encodes the page and every filter — the whole fetch key — so
+    // the list re-reads whenever the address bar moves, and only then.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, status, recipientWarningOnly]);
+  }, [viewQuery]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Each control rewrites the address bar rather than a piece of local state:
+  // the server re-renders this component with the new props, and the back
+  // button walks the operator's filter history (#594).
+  const applyFilters = useCallback(
+    (patch: Partial<OperatorInvoiceFilters>) => {
+      // Any narrowing returns to page one — a narrower result has fewer pages.
+      router.push(`${LIST_PATH}${operatorInvoiceListQueryAfterFilterChange(filters, patch)}`);
+    },
+    [filters, router],
+  );
+
+  const goToPage = useCallback(
+    (next: number) => {
+      const target = Math.max(1, next);
+      if (target === page) {
+        return;
+      }
+      // Paging keeps the filters: only the page moves.
+      router.push(`${LIST_PATH}${operatorInvoiceListQuery(target, filters)}`);
+    },
+    [filters, page, router],
+  );
+
+  const items = result?.data ?? [];
+  const pagination = result?.pagination;
 
   return (
     <div className="space-y-6">
@@ -229,10 +275,10 @@ export function OperatorInvoicesClient({
                 <span className="text-muted-foreground">{t("invoicingKindFilterLabel")}</span>
                 <select
                   className={SELECT_CLASS}
-                  value={kind}
-                  onChange={(event) => setKind(event.target.value as InvoiceKindFilter)}
+                  value={filters.kind}
+                  onChange={(event) => applyFilters({ kind: event.target.value as InvoiceKindFilter })}
                 >
-                  {KIND_FILTERS.map((option) => (
+                  {INVOICE_KIND_FILTERS.map((option) => (
                     <option key={option} value={option}>
                       {option === "all" ? t("invoicingKindFilterAll") : t(INVOICE_KIND_KEYS[option as InvoiceKind])}
                     </option>
@@ -243,10 +289,10 @@ export function OperatorInvoicesClient({
                 <span className="text-muted-foreground">{t("invoicingStatusFilterLabel")}</span>
                 <select
                   className={SELECT_CLASS}
-                  value={status}
-                  onChange={(event) => setStatus(event.target.value as InvoiceStatusFilter)}
+                  value={filters.status}
+                  onChange={(event) => applyFilters({ status: event.target.value as InvoiceStatusFilter })}
                 >
-                  {STATUS_FILTERS.map((option) => (
+                  {INVOICE_STATUS_FILTERS.map((option) => (
                     <option key={option} value={option}>
                       {option === "all" ? t("invoicingStatusFilterAll") : t(INVOICE_STATUS_KEYS[option])}
                     </option>
@@ -258,8 +304,8 @@ export function OperatorInvoicesClient({
                   <input
                     type="checkbox"
                     className="h-4 w-4"
-                    checked={recipientWarningOnly}
-                    onChange={(event) => setRecipientWarningOnly(event.target.checked)}
+                    checked={filters.recipientWarningOnly}
+                    onChange={(event) => applyFilters({ recipientWarningOnly: event.target.checked })}
                   />
                   <span>{t("invoicingRecipientWarningFilter", { count: recipientWarningCount })}</span>
                 </label>
@@ -274,11 +320,11 @@ export function OperatorInvoicesClient({
           <CardContent>
             {items.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                {recipientWarningOnly
+                {filters.recipientWarningOnly
                   ? t("invoicingListEmptyForRecipientWarning")
-                  : status !== "all"
+                  : filters.status !== "all"
                     ? t("invoicingListEmptyForStatus")
-                    : kind === "all"
+                    : filters.kind === "all"
                       ? t("invoicingListEmpty")
                       : t("invoicingListEmptyForKind")}
               </p>
@@ -305,6 +351,48 @@ export function OperatorInvoicesClient({
                 </table>
               </div>
             )}
+
+            {/*
+              The pagination control (#594): the list used to stop silently at
+              fifty documents. Drawn whenever the narrowed result has any
+              documents at all, because the total is the count the operator
+              came for — the page buttons are what disable themselves when
+              there is only one page. Written the way the Uninvoiced House
+              Sales list beside it is, rather than by lifting the Sales list's
+              control, which speaks the `sales` catalog; the page number moves
+              through the URL, not through state.
+            */}
+            {pagination && pagination.total > 0 ? (
+              <div className="mt-4 flex items-center justify-between border-t pt-4">
+                <p className="text-sm text-muted-foreground">
+                  {t("invoicingListPageSummary", {
+                    page: formatNumber(pagination.page, locale),
+                    pages: formatNumber(pagination.total_pages, locale),
+                    total: pagination.total,
+                  })}
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={pagination.page <= 1}
+                    onClick={() => goToPage(pagination.page - 1)}
+                  >
+                    {t("previousPage")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={pagination.page >= pagination.total_pages}
+                    onClick={() => goToPage(pagination.page + 1)}
+                  >
+                    {t("nextPage")}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       )}

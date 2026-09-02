@@ -1643,6 +1643,7 @@
     "invoicingStatusFilterAll": "Todos los estados",
     "invoicingListEmptyForKind": "No hay documentos de ese tipo.",
     "invoicingListEmptyForStatus": "No hay documentos en ese estado.",
+    "invoicingListPageSummary": "Página {page} de {pages} · {total, plural, one {# documento} other {# documentos}}",
     "invoicingMarkAnnulled": "Marcar como anulada",
     "invoicingMarkingAnnulled": "Marcando…",
     "invoicingMarkAnnulledHint": "Solo después de anular el documento a mano en el portal del SRI. La plataforma no envía nada al SRI; registra que usted lo hizo.",
