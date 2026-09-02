@@ -14,9 +14,7 @@ import {
   Button,
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
-  CardTitle,
   Input,
   Label,
   PageHeader,
@@ -79,10 +77,11 @@ import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from 
 // Sale Invoicing is open: the count endpoint is the tell, answering 404 while
 // the feature is closed, and the filter is drawn only once it has answered.
 //
-// The Uninvoiced House Sales count (#509, ADR 0064) sits beside it under the
-// same rule: read with the page, hidden while its endpoint answers 404, and
-// shown as "0" when the backlog is clear — a zero is an answer, not an
-// absence. It opens Ventas sin factura, where the backfill lives.
+// The Uninvoiced House Sales count (#509, ADR 0064) is read under the same
+// rule: with the page, hidden while its endpoint answers 404, and shown as
+// "0" when the backlog is clear — a zero is an answer, not an absence. It is
+// NOT a filter, though, so it is drawn in the page's actions rather than
+// among them: it opens Ventas sin factura, where the backfill lives.
 
 // The Kind filter's and the Status filter's options (#477; #578, ADR 0068 —
 // the status filter exists so that every number the platform has given up on
@@ -100,7 +99,7 @@ import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from 
 const LIST_PATH = "/operator/invoicing";
 
 const SELECT_CLASS =
-  "h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+  "flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
 // The environment filter's options, by catalog key (#598). Spelled out
 // rather than derived from the badge's key, because the select and the badge
@@ -117,7 +116,7 @@ function InvoiceRow({ item, locale }: { item: OperatorInvoiceListItem; locale: A
   const t = useTranslations("operator");
   return (
     <tr className="border-b last:border-b-0">
-      <td className="py-3 pr-4">
+      <td className="whitespace-nowrap py-3 pr-4">
         <Link href={`/operator/invoicing/${item.id}`} className="font-mono font-medium hover:underline">
           {item.number ?? t("invoicingNotIssuedYet")}
         </Link>
@@ -127,9 +126,9 @@ function InvoiceRow({ item, locale }: { item: OperatorInvoiceListItem; locale: A
           </Badge>
         ) : null}
       </td>
-      <td className="py-3 pr-4">{t(INVOICE_KIND_KEYS[item.kind])}</td>
+      <td className="whitespace-nowrap py-3 pr-4">{t(INVOICE_KIND_KEYS[item.kind])}</td>
       <td className="py-3 pr-4 font-mono text-xs">{item.sale_confirmation_ref ?? "—"}</td>
-      <td className="py-3 pr-4 tabular-nums">
+      <td className="whitespace-nowrap py-3 pr-4 tabular-nums">
         {item.issued_on ? formatCalendarDay(item.issued_on, locale) : <span className="text-muted-foreground">—</span>}
       </td>
       <td className="py-3 pr-4">
@@ -208,7 +207,7 @@ function InvoiceSearchBox({
           value={term}
           onChange={(event) => setTerm(event.target.value)}
           placeholder={t("invoicingSearchPlaceholder")}
-          className="h-9 sm:w-72"
+          className="h-9"
         />
         <Button type="submit" variant="outline" size="sm">
           {t("invoicingSearchAction")}
@@ -230,68 +229,180 @@ function InvoiceSearchBox({
   );
 }
 
-// EmissionDateRange is the month-end view: two inclusive calendar-day bounds
-// on the EMISSION DATE (#596), which is the day the Date column beside them
-// shows. Either may stand alone, so "everything since July 1st" is one input.
+// InvoiceFilterBar is every narrowing of the list, in one panel above it.
 //
-// APPLIED ON CHANGE, unlike the search box: a date input commits a whole date
-// at once (there is no half-typed 2026-08-1 to narrow the list under the
-// operator's hands), so there is nothing for a submit button to wait for.
-// Each change is a router.push that returns to page one, like every other
-// filter here.
+// Its SHAPE is the Sales list's (`SalesFilterBar`), copied deliberately and
+// not invented a second time: a bordered panel above the table, every label
+// above its control, the controls in one responsive grid, and the buttons
+// that undo a narrowing on a right-aligned row beneath. Two filter surfaces
+// in the same app that look different teach the operator two habits for one
+// job — the Holder List already settled this by copying that bar rather than
+// growing its own. Only the LAYOUT is borrowed; the filters are this page's.
 //
-// The two inputs bound EACH OTHER — max on the start, min on the end — so the
-// picker cannot offer an inverted range. The API refuses one anyway, since a
-// hand-edited address bar reaches it without passing through these.
+// Search takes two columns: it is the widest control and the only one
+// carrying buttons inside it. The two Emission Date bounds sit beside it,
+// because "this Recipient, in August" is one question. The four selects then
+// fall into a single row of equal-width boxes.
 //
-// Clear empties BOTH bounds and nothing else: half a range is a different
-// view, not a cleared one, and resetting every filter at once is the Reset
-// beside the selects (#598).
-function EmissionDateRange({
+// The Emission Date bounds (#596) are two inclusive calendar days on the day
+// the Date column shows. Either may stand alone, so "everything since July
+// 1st" is one input. They are APPLIED ON CHANGE, unlike the search box: a
+// date input commits a whole date at once, so there is nothing for a submit
+// button to wait for. They bound EACH OTHER — max on the start, min on the
+// end — so the picker cannot offer an inverted range; the API refuses one
+// anyway, since a hand-edited address bar reaches it without passing here.
+//
+// Clear dates empties BOTH bounds and nothing else — half a range is a
+// different view, not a cleared one — and it sits beneath the grid rather
+// than in a cell, because a button that clears two cells belongs to neither.
+// Beside it, Reset (#598) clears the whole view. Each is drawn only while it
+// has something to do, so the default view carries no button that would do
+// nothing.
+function InvoiceFilterBar({
   filters,
+  recipientWarningCount,
+  showReset,
   onApply,
+  onReset,
 }: {
   filters: OperatorInvoiceFilters;
+  recipientWarningCount: number | null;
+  showReset: boolean;
   onApply: (patch: Partial<OperatorInvoiceFilters>) => void;
+  onReset: () => void;
 }) {
   const t = useTranslations("operator");
+  const rangeSet = Boolean(filters.issuedFrom || filters.issuedTo);
+
   return (
-    <div className="flex flex-wrap items-end gap-2">
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="operator-invoice-issued-from" className="text-muted-foreground">
-          {t("invoicingIssuedFromLabel")}
-        </Label>
-        <Input
-          id="operator-invoice-issued-from"
-          type="date"
-          value={filters.issuedFrom}
-          max={filters.issuedTo || undefined}
-          onChange={(event) => onApply({ issuedFrom: event.target.value })}
-          className="h-9"
-        />
+    <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="lg:col-span-2">
+          <InvoiceSearchBox q={filters.q} onApply={onApply} />
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="operator-invoice-issued-from">{t("invoicingIssuedFromLabel")}</Label>
+          <Input
+            id="operator-invoice-issued-from"
+            type="date"
+            value={filters.issuedFrom}
+            max={filters.issuedTo || undefined}
+            onChange={(event) => onApply({ issuedFrom: event.target.value })}
+            className="h-9"
+          />
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="operator-invoice-issued-to">{t("invoicingIssuedToLabel")}</Label>
+          <Input
+            id="operator-invoice-issued-to"
+            type="date"
+            value={filters.issuedTo}
+            min={filters.issuedFrom || undefined}
+            onChange={(event) => onApply({ issuedTo: event.target.value })}
+            className="h-9"
+          />
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="operator-invoice-kind">{t("invoicingKindFilterLabel")}</Label>
+          <select
+            id="operator-invoice-kind"
+            className={SELECT_CLASS}
+            value={filters.kind}
+            onChange={(event) => onApply({ kind: event.target.value as InvoiceKindFilter })}
+          >
+            {INVOICE_KIND_FILTERS.map((option) => (
+              <option key={option} value={option}>
+                {option === "all" ? t("invoicingKindFilterAll") : t(INVOICE_KIND_KEYS[option as InvoiceKind])}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="operator-invoice-status">{t("invoicingStatusFilterLabel")}</Label>
+          <select
+            id="operator-invoice-status"
+            className={SELECT_CLASS}
+            value={filters.status}
+            onChange={(event) => onApply({ status: event.target.value as InvoiceStatusFilter })}
+          >
+            {INVOICE_STATUS_FILTERS.map((option) => (
+              <option key={option} value={option}>
+                {option === "all" ? t("invoicingStatusFilterAll") : t(INVOICE_STATUS_KEYS[option])}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/*
+          The Environment filter (#598), a fourth select beside the other
+          three: a month-end reconciliation is read under `production` alone,
+          so a certification run against SRI pruebas — whose documents are
+          real to the SRI and to nobody else — is never counted into it. It
+          defaults to All, so the page an operator already knows is unchanged.
+
+          There is no Country select beside it on purpose: there is one Issuer
+          country, and a select with one option is a control that asks a
+          question with no answer.
+        */}
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="operator-invoice-environment">{t("invoicingEnvironmentFilterLabel")}</Label>
+          <select
+            id="operator-invoice-environment"
+            className={SELECT_CLASS}
+            value={filters.environment}
+            onChange={(event) => onApply({ environment: event.target.value as InvoiceEnvironmentFilter })}
+          >
+            {INVOICE_ENVIRONMENT_FILTERS.map((option) => (
+              <option key={option} value={option}>
+                {t(INVOICE_ENVIRONMENT_FILTER_KEYS[option])}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/*
+          The Recipient Warning filter (#482) reads as a sentence carrying a
+          count, not as a named field, so it takes a checkbox beside its words
+          rather than a label above a box. It keeps the height of the controls
+          in the other cells so the row still reads as one line of filters.
+        */}
+        {recipientWarningCount !== null ? (
+          <div className="flex items-end">
+            <label className="flex h-9 items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={filters.recipientWarningOnly}
+                onChange={(event) => onApply({ recipientWarningOnly: event.target.checked })}
+              />
+              <span>{t("invoicingRecipientWarningFilter", { count: recipientWarningCount })}</span>
+            </label>
+          </div>
+        ) : null}
       </div>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="operator-invoice-issued-to" className="text-muted-foreground">
-          {t("invoicingIssuedToLabel")}
-        </Label>
-        <Input
-          id="operator-invoice-issued-to"
-          type="date"
-          value={filters.issuedTo}
-          min={filters.issuedFrom || undefined}
-          onChange={(event) => onApply({ issuedTo: event.target.value })}
-          className="h-9"
-        />
-      </div>
-      {filters.issuedFrom || filters.issuedTo ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => onApply({ issuedFrom: "", issuedTo: "" })}
-        >
-          {t("invoicingIssuedRangeClear")}
-        </Button>
+
+      {rangeSet || showReset ? (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {rangeSet ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onApply({ issuedFrom: "", issuedTo: "" })}
+            >
+              {t("invoicingIssuedRangeClear")}
+            </Button>
+          ) : null}
+          {showReset ? (
+            <Button type="button" variant="ghost" size="sm" onClick={onReset}>
+              {t("invoicingResetView")}
+            </Button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
@@ -426,6 +537,21 @@ export function OperatorInvoicesClient({
         description={t("invoicingListDescription")}
         actions={
           <>
+            {/*
+              The Uninvoiced House Sales count (#509, ADR 0064) sits with the
+              other ways OFF this page rather than among the filters, because it
+              narrows nothing — it is a backlog, and a door to where the
+              backfill lives. Hidden while its endpoint answers 404, and shown
+              as "0" once the backlog is clear: a zero is an answer, not an
+              absence.
+            */}
+            {uninvoicedCount !== null ? (
+              <Button asChild variant="outline">
+                <Link href="/operator/invoicing/uninvoiced">
+                  {t("invoicingUninvoicedCountLink", { count: uninvoicedCount })}
+                </Link>
+              </Button>
+            ) : null}
             <Button asChild variant="outline">
               <Link href="/operator/invoicing/issuer">{t("invoicingViewIssuer")}</Link>
             </Button>
@@ -457,99 +583,21 @@ export function OperatorInvoicesClient({
         <p className="text-sm text-muted-foreground">{t("invoicingListLoading")}</p>
       ) : (
         <Card>
-          <CardHeader className="flex flex-row items-start justify-between gap-4">
-            <div>
-              <CardTitle>{t("invoicingListTitle")}</CardTitle>
-              <CardDescription>{t("invoicingListDescription")}</CardDescription>
-            </div>
-            <div className="flex flex-col items-end gap-2">
-              <InvoiceSearchBox q={filters.q} onApply={applyFilters} />
-              {/* Beside the box, because "this buyer, in August" is one question. */}
-              <EmissionDateRange filters={filters} onApply={applyFilters} />
-              <label className="flex items-center gap-2 text-sm">
-                <span className="text-muted-foreground">{t("invoicingKindFilterLabel")}</span>
-                <select
-                  className={SELECT_CLASS}
-                  value={filters.kind}
-                  onChange={(event) => applyFilters({ kind: event.target.value as InvoiceKindFilter })}
-                >
-                  {INVOICE_KIND_FILTERS.map((option) => (
-                    <option key={option} value={option}>
-                      {option === "all" ? t("invoicingKindFilterAll") : t(INVOICE_KIND_KEYS[option as InvoiceKind])}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <span className="text-muted-foreground">{t("invoicingStatusFilterLabel")}</span>
-                <select
-                  className={SELECT_CLASS}
-                  value={filters.status}
-                  onChange={(event) => applyFilters({ status: event.target.value as InvoiceStatusFilter })}
-                >
-                  {INVOICE_STATUS_FILTERS.map((option) => (
-                    <option key={option} value={option}>
-                      {option === "all" ? t("invoicingStatusFilterAll") : t(INVOICE_STATUS_KEYS[option])}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {/*
-                The Environment filter (#598), a fourth select beside the
-                other three: a month-end reconciliation is read under
-                `production` alone, so a certification run against SRI
-                pruebas — whose documents are real to the SRI and to nobody
-                else — is never counted into it. It defaults to All, so the
-                page an operator already knows is unchanged.
-
-                There is no Country select beside it on purpose: there is one
-                Issuer country, and a select with one option is a control
-                that asks a question with no answer.
-              */}
-              <label className="flex items-center gap-2 text-sm">
-                <span className="text-muted-foreground">{t("invoicingEnvironmentFilterLabel")}</span>
-                <select
-                  className={SELECT_CLASS}
-                  value={filters.environment}
-                  onChange={(event) =>
-                    applyFilters({ environment: event.target.value as InvoiceEnvironmentFilter })
-                  }
-                >
-                  {INVOICE_ENVIRONMENT_FILTERS.map((option) => (
-                    <option key={option} value={option}>
-                      {t(INVOICE_ENVIRONMENT_FILTER_KEYS[option])}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {recipientWarningCount !== null ? (
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={filters.recipientWarningOnly}
-                    onChange={(event) => applyFilters({ recipientWarningOnly: event.target.checked })}
-                  />
-                  <span>{t("invoicingRecipientWarningFilter", { count: recipientWarningCount })}</span>
-                </label>
-              ) : null}
-              {/*
-                Drawn only while there is something to reset, so the default
-                view carries no button that would do nothing — and it is the
-                whole view it resets, which is why it is asked about the
-                order and the page as well as the filters.
-              */}
-              {!isDefaultOperatorInvoiceView(page, filters, sort, dir) ? (
-                <Button type="button" variant="ghost" size="sm" onClick={resetView}>
-                  {t("invoicingResetView")}
-                </Button>
-              ) : null}
-              {uninvoicedCount !== null ? (
-                <Link href="/operator/invoicing/uninvoiced" className="text-sm hover:underline">
-                  {t("invoicingUninvoicedCountLink", { count: uninvoicedCount })}
-                </Link>
-              ) : null}
-            </div>
+          {/*
+            No CardTitle here: the PageHeader above already names this page and
+            describes it, and the breadcrumb already places it. A second copy of
+            the same two lines, one row below the first, said nothing the first
+            had not. The Card is the table's frame, and the filters that narrow
+            the table sit directly above it.
+          */}
+          <CardHeader>
+            <InvoiceFilterBar
+              filters={filters}
+              recipientWarningCount={recipientWarningCount}
+              showReset={!isDefaultOperatorInvoiceView(page, filters, sort, dir)}
+              onApply={applyFilters}
+              onReset={resetView}
+            />
           </CardHeader>
           <CardContent>
             {items.length === 0 ? (
