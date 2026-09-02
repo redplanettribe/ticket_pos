@@ -583,7 +583,8 @@ func (s *Service) GetInvoice(ctx context.Context, id string) (*InvoiceDetail, er
 }
 
 // InvoiceFilter is what narrows the list: a kind (#477), a status (#578),
-// the Recipient Warning (#482), any of them together, or none.
+// the Recipient Warning (#482), a search term over the number, the Recipient
+// and the Sale Confirmation reference (#595), any of them together, or none.
 type InvoiceFilter = repository.InvoiceFilter
 
 // ListInvoices returns a page of Tax Invoices, newest first, under the

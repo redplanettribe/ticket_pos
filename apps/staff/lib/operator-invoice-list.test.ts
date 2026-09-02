@@ -35,16 +35,22 @@ test("the unnarrowed view writes no query string at all", () => {
 
 // --- what the URL can and cannot say --------------------------------------
 
-test("a kind, a status and the Recipient Warning are read off the address bar", () => {
+test("a kind, a status, the Recipient Warning and a search term are read off the address bar", () => {
   const view = parseOperatorInvoiceListParams({
     page: "3",
     kind: "credit_note",
     status: "abandoned",
     recipient_warning: "true",
+    q: "001-001-000000012",
   });
   assert.deepEqual(view, {
     page: 3,
-    filters: { kind: "credit_note", status: "abandoned", recipientWarningOnly: true },
+    filters: {
+      kind: "credit_note",
+      status: "abandoned",
+      recipientWarningOnly: true,
+      q: "001-001-000000012",
+    },
   });
 });
 
@@ -65,6 +71,17 @@ test("a page that is not a page is page one", () => {
   assert.equal(parseOperatorInvoiceListParams({ page: "two" }).page, 1);
 });
 
+test("a search term survives the address bar verbatim, and blank is no search", () => {
+  // Whatever was typed is whatever is matched: the API owns what a term means
+  // — case, wildcards, accents — so nothing here rewrites it beyond trimming.
+  assert.equal(parseOperatorInvoiceListParams({ q: "Lopez & Cía. 50%" }).filters.q, "Lopez & Cía. 50%");
+  // A term that is only whitespace is the whole list, not a search for spaces:
+  // a link can carry padding the box never typed.
+  assert.equal(parseOperatorInvoiceListParams({ q: "   " }).filters.q, "");
+  assert.equal(parseOperatorInvoiceListParams({ q: "  ZEBRA  " }).filters.q, "ZEBRA");
+  assert.equal(parseOperatorInvoiceListParams({}).filters.q, "");
+});
+
 test("only the literal true narrows to the Recipient Warning", () => {
   // The Operator Dashboard's link spells it this way, and so does the builder.
   assert.equal(parseOperatorInvoiceListParams({ recipient_warning: "true" }).filters.recipientWarningOnly, true);
@@ -77,9 +94,13 @@ test("only the literal true narrows to the Recipient Warning", () => {
 test("every view the builder writes is the view the parser reads back", () => {
   const views = [
     { page: 1, filters: EMPTY_OPERATOR_INVOICE_FILTERS },
-    { page: 1, filters: { kind: "sale", status: "all", recipientWarningOnly: false } },
-    { page: 4, filters: { kind: "all", status: "needs_attention", recipientWarningOnly: false } },
-    { page: 2, filters: { kind: "manual", status: "authorized", recipientWarningOnly: true } },
+    { page: 1, filters: { kind: "sale", status: "all", recipientWarningOnly: false, q: "" } },
+    { page: 4, filters: { kind: "all", status: "needs_attention", recipientWarningOnly: false, q: "" } },
+    { page: 2, filters: { kind: "manual", status: "authorized", recipientWarningOnly: true, q: "" } },
+    // The search is a link like any other narrowing — which is what makes a
+    // reload, a bookmark and the back button show the same search result.
+    { page: 1, filters: { kind: "all", status: "all", recipientWarningOnly: false, q: "TP-ABCDE234" } },
+    { page: 3, filters: { kind: "sale", status: "owed", recipientWarningOnly: false, q: "Lopez & Cía. 50%" } },
   ] as const;
   for (const view of views) {
     const query = operatorInvoiceListQuery(view.page, view.filters);
@@ -93,31 +114,69 @@ test("every view the builder writes is the view the parser reads back", () => {
 // --- the page reset rule --------------------------------------------------
 
 test("changing a filter returns to the first page", () => {
-  const narrowed = { kind: "sale", status: "authorized", recipientWarningOnly: false } as const;
+  const narrowed = { kind: "sale", status: "authorized", recipientWarningOnly: false, q: "" } as const;
   const query = operatorInvoiceListQueryAfterFilterChange(narrowed, { status: "abandoned" });
   assert.deepEqual(parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1)))), {
     page: 1,
-    filters: { kind: "sale", status: "abandoned", recipientWarningOnly: false },
+    filters: { kind: "sale", status: "abandoned", recipientWarningOnly: false, q: "" },
+  });
+});
+
+test("submitting a search returns to the first page and keeps the other filters", () => {
+  // Pressing Search on page seven of a kind-narrowed view: the term joins the
+  // narrowing rather than replacing it, and the page resets, because the
+  // searched result has fewer pages than the one being read.
+  const query = operatorInvoiceListQueryAfterFilterChange(
+    { kind: "sale", status: "all", recipientWarningOnly: false, q: "" },
+    { q: "ZEBRA" },
+  );
+  assert.deepEqual(parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1)))), {
+    page: 1,
+    filters: { kind: "sale", status: "all", recipientWarningOnly: false, q: "ZEBRA" },
+  });
+});
+
+test("clearing the search empties the term and leaves the filters standing", () => {
+  // Clear is the search's, not the view's: the Kind an operator set survives
+  // it. Resetting everything at once is #598's button.
+  const query = operatorInvoiceListQueryAfterFilterChange(
+    { kind: "sale", status: "owed", recipientWarningOnly: false, q: "ZEBRA" },
+    { q: "" },
+  );
+  assert.equal(query.includes("q="), false, `a cleared search writes no q: ${query}`);
+  assert.deepEqual(parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1)))).filters, {
+    kind: "sale",
+    status: "owed",
+    recipientWarningOnly: false,
+    q: "",
   });
 });
 
 test("a filter change keeps the filters it did not touch", () => {
   // Ticking the Recipient Warning box on a kind-narrowed view narrows further
-  // rather than starting over — the deep link stays narrowed too.
+  // rather than starting over — the deep link and the search stay put too.
   const query = operatorInvoiceListQueryAfterFilterChange(
-    { kind: "sale", status: "all", recipientWarningOnly: true },
+    { kind: "sale", status: "all", recipientWarningOnly: true, q: "Lopez" },
     { status: "authorized" },
   );
   assert.deepEqual(parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1)))).filters, {
     kind: "sale",
     status: "authorized",
     recipientWarningOnly: true,
+    q: "Lopez",
   });
 });
 
 test("paging is the one change that keeps its page", () => {
-  const query = operatorInvoiceListQuery(2, { kind: "sale", status: "all", recipientWarningOnly: false });
-  assert.equal(parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1)))).page, 2);
+  const query = operatorInvoiceListQuery(2, {
+    kind: "sale",
+    status: "all",
+    recipientWarningOnly: false,
+    q: "Lopez",
+  });
+  const view = parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1))));
+  assert.equal(view.page, 2);
+  assert.equal(view.filters.q, "Lopez");
 });
 
 // --- the empty state's question -------------------------------------------
@@ -130,4 +189,8 @@ test("a narrowed view is told apart from the whole list", () => {
     hasActiveOperatorInvoiceFilters({ ...EMPTY_OPERATOR_INVOICE_FILTERS, recipientWarningOnly: true }),
     true,
   );
+  // A search that found nothing must say "nothing matches these filters" and
+  // not "the platform has issued no documents" (#595): the two answers lead
+  // to different next moves.
+  assert.equal(hasActiveOperatorInvoiceFilters({ ...EMPTY_OPERATOR_INVOICE_FILTERS, q: "ZEBRA" }), true);
 });

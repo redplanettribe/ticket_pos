@@ -10219,9 +10219,15 @@ paths:
         than read as "every status". `recipient_warning=true` narrows the page to
         the documents carrying a Recipient Warning; any other value is refused under
         VALIDATION_FAILED, and while SALE_INVOICING_ENABLED is closed the filter answers
-        404 SALE_INVOICING_UNAVAILABLE. Response is the ADR-0006 nested envelope {
-        data, pagination }; page_size defaults to 50 (max 100). Platform Operator
-        only.'
+        404 SALE_INVOICING_UNAVAILABLE. `q` narrows the page to the documents matching
+        one case-insensitive substring, matched against the printed number, the Recipient''s
+        legal name, the Recipient''s Tax ID and the Sale Confirmation reference of
+        the Ticket Sale the document declares — any one of the four is enough. The
+        term is matched literally, so `%` and `_` are those characters and not wildcards;
+        there is no accent folding and no shortcut for a bare sequential number. Blank
+        or absent is every document. Every filter combines. Response is the ADR-0006
+        nested envelope { data, pagination }; page_size defaults to 50 (max 100).
+        Platform Operator only.'
       parameters:
       - description: 'Document kind: manual, sale or credit_note (default every kind)'
         in: query
@@ -10238,6 +10244,13 @@ paths:
       - description: true to list only the documents carrying a Recipient Warning
         in: query
         name: recipient_warning
+        schema:
+          type: string
+      - description: Case-insensitive substring matched against the printed number,
+          the Recipient legal name, the Recipient Tax ID and the Sale Confirmation
+          reference (default every document)
+        in: query
+        name: q
         schema:
           type: string
       - description: Page number (default 1)

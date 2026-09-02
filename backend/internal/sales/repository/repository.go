@@ -1408,13 +1408,14 @@ type ListSalesQuery struct {
 }
 
 // likeEscape escapes the LIKE/ILIKE metacharacters (\, %, _) in a search term so
-// it is matched as a literal substring rather than a pattern. The backslash is
-// Postgres's default ILIKE escape character.
+// it is matched as a literal substring rather than a pattern.
+//
+// It moved to platform.LikeEscape with #595, which gave the Tax Invoices list
+// the same search: the two lists must not be able to disagree about what a
+// typed `%` means, and the invoicing module cannot import this one. The name
+// stays here because this file spells the ILIKE clause five lines below it.
 func likeEscape(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, "%", `\%`)
-	s = strings.ReplaceAll(s, "_", `\_`)
-	return s
+	return platform.LikeEscape(s)
 }
 
 // salesSortColumns maps an allowlisted sort key to the ordered list of primary

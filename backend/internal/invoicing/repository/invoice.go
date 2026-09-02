@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/invoicing"
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // The Tax Invoice's storage (#454): the core row, its lines and additional
@@ -624,25 +625,106 @@ type InvoiceFilter struct {
 	// RecipientWarning narrows the page to the documents carrying a
 	// Recipient Warning.
 	RecipientWarning bool
+	// Search is one case-insensitive substring matched over FOUR fields at
+	// once (#595, spec #593): the printed number, the Recipient's legal name,
+	// the Recipient's Tax ID and the Sale Confirmation reference of the
+	// Ticket Sale the document declares. "" is no search at all.
+	//
+	// FOUR FIELDS AND ONE BOX because the operator does not know which of
+	// them they are holding: a buyer writes in with a name, an accountant
+	// quotes a number off the SRI portal, a Tax ID arrives on a spreadsheet
+	// and a Sale Confirmation reference comes out of a receipt. Asking which
+	// kind of thing has been pasted before it can be looked up is a question
+	// with no wrong answer worth collecting.
+	//
+	// THE NAME AND TAX ID ARE THE DOCUMENT'S OWN Recipient snapshot, never
+	// the Ticket Sale's customer columns: the declaration is what was
+	// declared, and a Sale re-addressed afterwards (#419) must still be found
+	// by the name the SRI holds.
+	Search string
+}
+
+// invoiceListFrom is the least the list's filters can be decided from: the
+// row, its Ecuador numbering (the printed number lives there and nowhere
+// else) and the Ticket Sale a Sale-side document declares (the Sale
+// Confirmation reference). Written once because the COUNT and the SELECT
+// below must be incapable of disagreeing — the count is the number the
+// pagination control shows for the very rows it pages through. Both joins
+// are LEFT and both yield at most one row (invoice_id is the Ecuador table's
+// primary key; ticket_sale_id names one Sale), so counting through them
+// cannot fan a document out. invoiceFrom's first three lines are these; it
+// adds only a further LEFT LATERAL that yields at most one row too.
+const invoiceListFrom = `
+	FROM invoicing_invoices i
+	LEFT JOIN invoicing_invoices_ec e ON e.invoice_id = i.id
+	LEFT JOIN ticket_sales ts ON ts.id = i.ticket_sale_id`
+
+// invoiceListSearch is the search clause: ONE TERM, FOUR FIELDS, ORed.
+//
+// The number is RECOMPOSED here rather than stored: estab-ptoEmi-secuencial
+// zero-padded to nine, exactly what service.FormatNumber prints and exactly
+// what the operator pastes back off the SRI portal. An unsigned document has
+// no Ecuador row at all, so its number is NULL and simply never matches —
+// which is right: a document with no number cannot be found by one.
+//
+// ONE PLACEHOLDER, REFERENCED FOUR TIMES with an explicit argument index, so
+// the term is bound once and the caller hands this a single position — as
+// catalog's holderRosterSearch does, and for the same reason: four `$%d`
+// would need the same number written four times and would be renumbered
+// wrong the day a filter moves.
+//
+// The term is platform.LikeEscape'd by the caller, so a `%` or a `_` an
+// operator pastes out of a company name matches those characters and nothing
+// else. A pg_trgm index (ADR 0006) is the documented upgrade path; spec #593
+// deliberately ships no index, the table being small enough to scan.
+const invoiceListSearch = `(
+		(e.estab || '-' || e.pto_emi || '-' || LPAD(e.secuencial::text, 9, '0')) ILIKE $%[1]d
+		OR i.recipient_legal_name ILIKE $%[1]d
+		OR i.recipient_tax_id ILIKE $%[1]d
+		OR ts.confirmation_ref ILIKE $%[1]d
+	)`
+
+// invoiceListWhere builds the list's WHERE clause and the arguments it binds,
+// in the order it binds them. The caller appends its own arguments (the page
+// bounds) after these, so the clause never assumes what follows it.
+func invoiceListWhere(filter InvoiceFilter) (string, []any) {
+	args := []any{string(filter.Kind), string(filter.Status), filter.RecipientWarning}
+	where := `($1 = '' OR i.kind = $1) AND ($2 = '' OR i.status = $2) AND (NOT $3 OR i.recipient_warning)`
+	if filter.Search != "" {
+		args = append(args, "%"+platform.LikeEscape(filter.Search)+"%")
+		where += " AND " + fmt.Sprintf(invoiceListSearch, len(args))
+	}
+	return where, args
 }
 
 // ListInvoices reads a page of Tax Invoices newest first — by emission
 // instant once signed, by owing instant before — without their lines,
 // fields or attempts, and the total count under the same filter.
+//
+// The count and the page are TWO QUERIES OVER ONE WHERE CLAUSE
+// (invoiceListWhere) and one FROM (invoiceListFrom, which the page's wider
+// invoiceFrom extends), so the number the pagination control shows can never
+// be the count of a different narrowing from the rows beneath it.
 func (r *Repository) ListInvoices(ctx context.Context, filter InvoiceFilter, page, pageSize int) ([]InvoiceRow, int, error) {
+	where, args := invoiceListWhere(filter)
 	var total int
 	if err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM invoicing_invoices
-		WHERE ($1 = '' OR kind = $1) AND ($2 = '' OR status = $2) AND (NOT $3 OR recipient_warning)
-	`, string(filter.Kind), string(filter.Status), filter.RecipientWarning).Scan(&total); err != nil {
+		SELECT COUNT(*) `+invoiceListFrom+`
+		WHERE `+where, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count invoices: %w", err)
 	}
+	// The page bounds bind after the filter's own arguments, whose number
+	// depends on whether a search was given — so their positions are computed
+	// rather than written, and the SQL around them is never format-scanned
+	// (the column list carries `%` in no place, and must not have to promise
+	// it never will).
+	pageArgs := append(append([]any{}, args...), pageSize, (page-1)*pageSize)
+	limitSQL := fmt.Sprintf("LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT `+invoiceColumns+invoiceFrom+`
-		WHERE ($1 = '' OR i.kind = $1) AND ($2 = '' OR i.status = $2) AND (NOT $3 OR i.recipient_warning)
+		WHERE `+where+`
 		ORDER BY COALESCE(i.issued_at, i.created_at) DESC, i.created_at DESC, i.id DESC
-		LIMIT $4 OFFSET $5
-	`, string(filter.Kind), string(filter.Status), filter.RecipientWarning, pageSize, (page-1)*pageSize)
+		`+limitSQL, pageArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list invoices: %w", err)
 	}

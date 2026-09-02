@@ -47,10 +47,10 @@ export const FIRST_PAGE = 1;
  * OperatorInvoiceFilters mirrors the list endpoint's filter query params. Every
  * field is carried in the URL, so the whole view is a link.
  *
- * "all" and `false` are the unfiltered values and are never written to the URL,
- * which keeps the common view's address clean. The following slices of spec
- * #593 add `q`, `issuedFrom`, `issuedTo` and `environment` here, one field per
- * filter, alongside the sort in its own pair of params (#595-#598); nothing in
+ * "all", `false` and "" are the unfiltered values and are never written to the
+ * URL, which keeps the common view's address clean. The following slices of
+ * spec #593 add `issuedFrom`, `issuedTo` and `environment` here, one field per
+ * filter, alongside the sort in its own pair of params (#596-#598); nothing in
  * this module is shaped so that adding one costs more than a line.
  */
 export type OperatorInvoiceFilters = {
@@ -58,6 +58,17 @@ export type OperatorInvoiceFilters = {
   status: InvoiceStatusFilter;
   /** Only the documents the SRI warned about the Recipient of (#482, ADR 0061). */
   recipientWarningOnly: boolean;
+  /**
+   * The search term (#595): one case-insensitive substring the API matches
+   * against the printed number, the Recipient's legal name, the Recipient's
+   * Tax ID and the Sale Confirmation reference. "" is no search.
+   *
+   * It is one string and not four because the operator does not know which of
+   * the four they are holding — a buyer reads out a name, an accountant a
+   * number, a receipt a reference. The API owns what matching means; this
+   * side only carries the term.
+   */
+  q: string;
 };
 
 /** The whole list, unnarrowed: what a bare /operator/invoicing shows. */
@@ -65,6 +76,7 @@ export const EMPTY_OPERATOR_INVOICE_FILTERS: OperatorInvoiceFilters = {
   kind: "all",
   status: "all",
   recipientWarningOnly: false,
+  q: "",
 };
 
 /** The raw query params the list page reads, exactly as Next hands them over. */
@@ -73,6 +85,7 @@ export type OperatorInvoiceListSearchParams = {
   kind?: string;
   status?: string;
   recipient_warning?: string;
+  q?: string;
 };
 
 /** The list's whole URL state: which page of which narrowing. */
@@ -104,6 +117,10 @@ function parseOperatorInvoiceFilters(
     // Only the literal "true" narrows: the Operator Dashboard's deep link
     // spells it that way (#482) and it is the value this builder writes.
     recipientWarningOnly: searchParams.recipient_warning === "true",
+    // Trimmed here as well as in the box, because a link can carry whitespace
+    // the box never typed; a term that trims to nothing is no search, so
+    // `?q=%20` shows the whole list rather than an empty one (#595).
+    q: (searchParams.q ?? "").trim(),
   };
 }
 
@@ -131,6 +148,7 @@ function appendOperatorInvoiceFilters(
   if (filters.kind !== "all") params.set("kind", filters.kind);
   if (filters.status !== "all") params.set("status", filters.status);
   if (filters.recipientWarningOnly) params.set("recipient_warning", "true");
+  if (filters.q !== "") params.set("q", filters.q);
 }
 
 /**
@@ -167,7 +185,14 @@ export function operatorInvoiceListQueryAfterFilterChange(
  * all" in the empty state.
  */
 export function hasActiveOperatorInvoiceFilters(filters: OperatorInvoiceFilters): boolean {
-  return filters.kind !== "all" || filters.status !== "all" || filters.recipientWarningOnly;
+  return (
+    filters.kind !== "all" ||
+    filters.status !== "all" ||
+    filters.recipientWarningOnly ||
+    // A search is a narrowing like any other (#595): a term that found nothing
+    // must say so, not report that the platform has issued no documents.
+    filters.q !== ""
+  );
 }
 
 /**

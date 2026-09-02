@@ -17,6 +17,8 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Input,
+  Label,
   PageHeader,
 } from "@ticket-pos/ui";
 import { useLocale, useMessages, useTranslations } from "next-intl";
@@ -38,6 +40,7 @@ import {
   INVOICE_STATUS_FILTERS,
   type OperatorInvoiceFilters,
   fetchOperatorInvoiceList,
+  hasActiveOperatorInvoiceFilters,
   operatorInvoiceListQuery,
   operatorInvoiceListQueryAfterFilterChange,
 } from "@/lib/operator-invoice-list";
@@ -131,6 +134,74 @@ function InvoiceRow({ item, locale }: { item: OperatorInvoiceListItem; locale: A
       </td>
       <td className="py-3 pr-4 uppercase text-muted-foreground">{item.country}</td>
     </tr>
+  );
+}
+
+// InvoiceSearchBox is the one box that finds a document by any of the four
+// things an operator might be holding (#595): the printed number, the
+// Recipient's legal name, the Recipient's Tax ID, or the Sale Confirmation
+// reference of the Ticket Sale the document declares. What "match" means is
+// the API's; this only carries the term.
+//
+// IT COMMITS ON SUBMIT, never on a keystroke — the Sales list's rule, and for
+// its reason: every commit is a router.push, so typing would push a history
+// entry per character and a half-typed term would narrow the list under the
+// operator's hands.
+//
+// The local state is the BOX's, not the view's: the URL stays the source of
+// truth, and the effect below re-seeds the box whenever the address bar moves
+// under it (the back button, a shared link, or Clear).
+function InvoiceSearchBox({
+  q,
+  onApply,
+}: {
+  q: string;
+  onApply: (patch: Partial<OperatorInvoiceFilters>) => void;
+}) {
+  const t = useTranslations("operator");
+  const [term, setTerm] = useState(q);
+
+  useEffect(() => {
+    setTerm(q);
+  }, [q]);
+
+  return (
+    <form
+      className="flex flex-col gap-1"
+      onSubmit={(event) => {
+        event.preventDefault();
+        // Trimmed, so a term that is only whitespace clears the search rather
+        // than narrowing the list to nothing. onApply returns to page one.
+        onApply({ q: term.trim() });
+      }}
+    >
+      <Label htmlFor="operator-invoice-search" className="text-muted-foreground">
+        {t("invoicingSearchLabel")}
+      </Label>
+      <div className="flex gap-2">
+        <Input
+          id="operator-invoice-search"
+          value={term}
+          onChange={(event) => setTerm(event.target.value)}
+          placeholder={t("invoicingSearchPlaceholder")}
+          className="h-9 sm:w-72"
+        />
+        <Button type="submit" variant="outline" size="sm">
+          {t("invoicingSearchAction")}
+        </Button>
+        {/*
+          Clear is drawn only while there is a search to clear, and empties
+          the term rather than every filter — resetting the whole view is
+          #598's, and a Clear that quietly dropped the Kind an operator had
+          set would be a different button wearing this one's label.
+        */}
+        {q ? (
+          <Button type="button" variant="ghost" size="sm" onClick={() => onApply({ q: "" })}>
+            {t("invoicingSearchClear")}
+          </Button>
+        ) : null}
+      </div>
+    </form>
   );
 }
 
@@ -271,6 +342,7 @@ export function OperatorInvoicesClient({
               <CardDescription>{t("invoicingListDescription")}</CardDescription>
             </div>
             <div className="flex flex-col items-end gap-2">
+              <InvoiceSearchBox q={filters.q} onApply={applyFilters} />
               <label className="flex items-center gap-2 text-sm">
                 <span className="text-muted-foreground">{t("invoicingKindFilterLabel")}</span>
                 <select
@@ -319,14 +391,24 @@ export function OperatorInvoicesClient({
           </CardHeader>
           <CardContent>
             {items.length === 0 ? (
+              // "No documents at all" and "nothing matches these filters" are
+              // different answers and lead to different next moves — widen the
+              // filters, or stop looking (#595). The unnarrowed case is asked
+              // first, so the empty page only ever claims the platform has
+              // issued nothing when nothing is narrowing the view. A search
+              // spans four fields and combines with the rest, so once a term
+              // is set the honest message is the general one rather than a
+              // sentence about the Kind.
               <p className="text-sm text-muted-foreground">
-                {filters.recipientWarningOnly
-                  ? t("invoicingListEmptyForRecipientWarning")
-                  : filters.status !== "all"
-                    ? t("invoicingListEmptyForStatus")
-                    : filters.kind === "all"
-                      ? t("invoicingListEmpty")
-                      : t("invoicingListEmptyForKind")}
+                {!hasActiveOperatorInvoiceFilters(filters)
+                  ? t("invoicingListEmpty")
+                  : filters.q
+                    ? t("invoicingListEmptyForFilters")
+                    : filters.recipientWarningOnly
+                      ? t("invoicingListEmptyForRecipientWarning")
+                      : filters.status !== "all"
+                        ? t("invoicingListEmptyForStatus")
+                        : t("invoicingListEmptyForKind")}
               </p>
             ) : (
               <div className="overflow-x-auto">
