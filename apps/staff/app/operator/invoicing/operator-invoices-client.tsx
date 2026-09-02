@@ -23,6 +23,7 @@ import {
 } from "@ticket-pos/ui";
 import { useLocale, useMessages, useTranslations } from "next-intl";
 
+import { SortableHeader } from "@/components/sortable-header";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { type AppLocale, formatCalendarDay, formatMoney, formatNumber } from "@/lib/format";
@@ -38,20 +39,25 @@ import {
 import {
   INVOICE_KIND_FILTERS,
   INVOICE_STATUS_FILTERS,
+  type OperatorInvoiceDir,
   type OperatorInvoiceFilters,
+  type OperatorInvoiceSort,
   fetchOperatorInvoiceList,
   hasActiveOperatorInvoiceFilters,
   operatorInvoiceListQuery,
   operatorInvoiceListQueryAfterFilterChange,
+  operatorInvoiceListQueryAfterSortChange,
 } from "@/lib/operator-invoice-list";
 
 import { CertificateExpiryBanner } from "./certificate-expiry-warning";
 import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "./invoice-status";
 
-// The invoices list (#454): every factura the platform issued, newest first —
-// number, date, Recipient, total, status, country, and a Test badge for the
-// SRI pruebas environment so a certification run is never mistaken for a real
-// factura. From #473 it is also every document the platform OWES: a Sale
+// The invoices list (#454): every factura the platform issued — number, date,
+// Recipient, total, status, country, and a Test badge for the SRI pruebas
+// environment so a certification run is never mistaken for a real factura.
+// Newest first until the operator says otherwise: the Number, Date, Recipient
+// and Total headers reorder the list (#597), and the order the page opens in
+// is the one it has always had. From #473 it is also every document the platform OWES: a Sale
 // Invoice or Credit Note appears the moment its sale commits, with its kind
 // and its Sale Confirmation reference beside the manual Tax Invoices, and
 // with no number or date until the Drainer signs it — those cells say so
@@ -77,11 +83,11 @@ import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from 
 // alone) live with the parser that reads them off the URL, so the select can
 // never offer a value the address bar would refuse (#594).
 //
-// Every narrowing on this page is the URL's (#594): the three filters and the
-// page arrive as props parsed from the address bar, and each change is a
-// router.push of the rebuilt query string. Nothing here is seeded from
-// useState, so a reload, a shared link and the back button all show the same
-// view.
+// Every narrowing on this page is the URL's (#594), and so is the order
+// (#597): the filters, the page and the sort arrive as props parsed from the
+// address bar, and each change is a router.push of the rebuilt query string.
+// Nothing here is seeded from useState, so a reload, a shared link and the
+// back button all show the same view.
 
 // Where the list lives: every filter change and page move is pushed onto it.
 const LIST_PATH = "/operator/invoicing";
@@ -274,9 +280,13 @@ function EmissionDateRange({
 export function OperatorInvoicesClient({
   page,
   filters,
+  sort,
+  dir,
 }: {
   page: number;
   filters: OperatorInvoiceFilters;
+  sort: OperatorInvoiceSort;
+  dir: OperatorInvoiceDir;
 }) {
   const t = useTranslations("operator");
   const errorCopy = useMessages().errors;
@@ -293,7 +303,7 @@ export function OperatorInvoicesClient({
 
   // The canonical query of the view being shown: the fetch key below, so one
   // string decides both what is requested and when it is re-requested.
-  const viewQuery = operatorInvoiceListQuery(page, filters);
+  const viewQuery = operatorInvoiceListQuery(page, filters, sort, dir);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -303,7 +313,7 @@ export function OperatorInvoicesClient({
       // open (404 while closed, read as "no filter") and how many the filter
       // would find. A closed feature must not take the list down with it.
       const [listPage, warningCount, uninvoiced] = await Promise.all([
-        fetchOperatorInvoiceList(page, filters),
+        fetchOperatorInvoiceList(page, filters, sort, dir),
         fetchOperatorRecipientWarningCount().catch(() => null),
         fetchOperatorUninvoicedHouseSaleCount().catch(() => null),
       ]);
@@ -338,9 +348,22 @@ export function OperatorInvoicesClient({
   const applyFilters = useCallback(
     (patch: Partial<OperatorInvoiceFilters>) => {
       // Any narrowing returns to page one — a narrower result has fewer pages.
-      router.push(`${LIST_PATH}${operatorInvoiceListQueryAfterFilterChange(filters, patch)}`);
+      // The order survives a narrowing: the operator chose it about the list,
+      // not about the documents that happen to be in it.
+      router.push(`${LIST_PATH}${operatorInvoiceListQueryAfterFilterChange(filters, patch, sort, dir)}`);
     },
-    [filters, router],
+    [filters, sort, dir, router],
+  );
+
+  // Pressing a column header reorders the list through the address bar like
+  // everything else here: the active column flips, another column takes over,
+  // and either way the list returns to page one, since page seven of a
+  // reordered list holds different documents.
+  const toggleSort = useCallback(
+    (pressed: OperatorInvoiceSort) => {
+      router.push(`${LIST_PATH}${operatorInvoiceListQueryAfterSortChange(filters, sort, dir, pressed)}`);
+    },
+    [filters, sort, dir, router],
   );
 
   const goToPage = useCallback(
@@ -350,9 +373,9 @@ export function OperatorInvoicesClient({
         return;
       }
       // Paging keeps the filters: only the page moves.
-      router.push(`${LIST_PATH}${operatorInvoiceListQuery(target, filters)}`);
+      router.push(`${LIST_PATH}${operatorInvoiceListQuery(target, filters, sort, dir)}`);
     },
-    [filters, page, router],
+    [filters, sort, dir, page, router],
   );
 
   const items = result?.data ?? [];
@@ -485,13 +508,47 @@ export function OperatorInvoicesClient({
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-sm">
                   <thead>
+                    {/*
+                      Four of the eight headers reorder the list (#597), and
+                      the other four stay plain on purpose: Kind, Status and
+                      Country are answered by their filters — an operator
+                      wants to see one of them alone rather than read a run of
+                      them — and the Sale column is a reference nobody reads in
+                      order. The header is the Sales list's, so a column that
+                      sorts looks and behaves the same on both screens.
+                    */}
                     <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-                      <th className="py-2 pr-4 font-medium">{t("invoicingColNumber")}</th>
+                      <SortableHeader
+                        label={t("invoicingColNumber")}
+                        field="number"
+                        sort={sort}
+                        dir={dir}
+                        onSort={toggleSort}
+                      />
                       <th className="py-2 pr-4 font-medium">{t("invoicingColKind")}</th>
                       <th className="py-2 pr-4 font-medium">{t("invoicingColSale")}</th>
-                      <th className="py-2 pr-4 font-medium">{t("invoicingColDate")}</th>
-                      <th className="py-2 pr-4 font-medium">{t("invoicingColRecipient")}</th>
-                      <th className="py-2 pr-4 text-right font-medium">{t("invoicingColTotal")}</th>
+                      <SortableHeader
+                        label={t("invoicingColDate")}
+                        field="date"
+                        sort={sort}
+                        dir={dir}
+                        onSort={toggleSort}
+                      />
+                      <SortableHeader
+                        label={t("invoicingColRecipient")}
+                        field="recipient"
+                        sort={sort}
+                        dir={dir}
+                        onSort={toggleSort}
+                      />
+                      <SortableHeader
+                        label={t("invoicingColTotal")}
+                        field="total"
+                        sort={sort}
+                        dir={dir}
+                        onSort={toggleSort}
+                        numeric
+                      />
                       <th className="py-2 pr-4 font-medium">{t("invoicingColStatus")}</th>
                       <th className="py-2 pr-4 font-medium">{t("invoicingColCountry")}</th>
                     </tr>

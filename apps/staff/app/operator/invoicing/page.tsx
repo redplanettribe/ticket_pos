@@ -14,7 +14,9 @@ type PageProps = {
 };
 
 // The list's whole narrowing is read off the URL here and handed to the client
-// as its state (#594): the Kind, the Status, the Recipient Warning and the page.
+// as its state (#594): the Kind, the Status, the Recipient Warning, the page —
+// and, beside them rather than among them, the order the page is read in
+// (#597), which narrows nothing.
 // The address bar is the source of truth, so a narrowed view is a link a
 // colleague can open, survives a reload, and walks the back button — and the
 // Operator Dashboard's `?recipient_warning=true` link (#482) is no longer a
@@ -26,12 +28,12 @@ export default async function OperatorInvoicingPage({ searchParams }: PageProps)
   if (!session?.is_platform_operator) {
     notFound();
   }
-  const { page, filters } = parseOperatorInvoiceListParams(await searchParams);
+  const { page, filters, sort, dir } = parseOperatorInvoiceListParams(await searchParams);
 
   return (
     <StaffPageShell activePath="/operator/invoicing">
       <div className="mx-auto max-w-5xl">
-        <OperatorInvoicesClient page={page} filters={filters} />
+        <OperatorInvoicesClient page={page} filters={filters} sort={sort} dir={dir} />
       </div>
     </StaffPageShell>
   );

@@ -1454,7 +1454,7 @@
     "invoicingCertificateUploadFailed": "No se pudo subir el certificado.",
     "invoicingCertificateFileRequired": "Elija el archivo .p12.",
     "invoicingListTitle": "Facturas",
-    "invoicingListDescription": "Todas las facturas que la plataforma ha emitido al SRI, la más reciente primero.",
+    "invoicingListDescription": "Todas las facturas que la plataforma ha emitido al SRI. Ordénela por número, fecha, receptor o total.",
     "invoicingListLoading": "Cargando facturas...",
     "invoicingListLoadFailedTitle": "No se pudieron cargar las facturas",
     "invoicingListLoadFailed": "No se pudieron cargar las facturas.",

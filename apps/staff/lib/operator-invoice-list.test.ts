@@ -2,12 +2,25 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  DEFAULT_OPERATOR_INVOICE_DIR,
+  DEFAULT_OPERATOR_INVOICE_SORT,
   EMPTY_OPERATOR_INVOICE_FILTERS,
   hasActiveOperatorInvoiceFilters,
   operatorInvoiceListQuery,
   operatorInvoiceListQueryAfterFilterChange,
+  operatorInvoiceListQueryAfterSortChange,
   parseOperatorInvoiceListParams,
 } from "./operator-invoice-list.ts";
+
+/**
+ * The order a bare address shows, spelled once: newest Emission Date first,
+ * the order this list has always had (#597). Every view below that says
+ * nothing about ordering is asserted to be in this one.
+ */
+const DEFAULT_ORDER = {
+  sort: DEFAULT_OPERATOR_INVOICE_SORT,
+  dir: DEFAULT_OPERATOR_INVOICE_DIR,
+} as const;
 
 /**
  * The Tax Invoices list keeps its narrowing in the URL (#594, spec #593), so
@@ -26,6 +39,7 @@ test("a bare address shows the whole list, first page", () => {
   assert.deepEqual(parseOperatorInvoiceListParams({}), {
     page: 1,
     filters: EMPTY_OPERATOR_INVOICE_FILTERS,
+    ...DEFAULT_ORDER,
   });
 });
 
@@ -47,6 +61,7 @@ test("a kind, a status, the Recipient Warning, a search term and a date range ar
   });
   assert.deepEqual(view, {
     page: 3,
+    ...DEFAULT_ORDER,
     filters: {
       kind: "credit_note",
       status: "abandoned",
@@ -98,6 +113,16 @@ test("only the literal true narrows to the Recipient Warning", () => {
 test("every view the builder writes is the view the parser reads back", () => {
   const views = [
     { page: 1, filters: EMPTY_OPERATOR_INVOICE_FILTERS },
+    // An order is part of the view too (#597), and combines with a narrowing
+    // rather than replacing it: "authorized, this month, largest first" is
+    // one link.
+    { page: 1, filters: EMPTY_OPERATOR_INVOICE_FILTERS, sort: "total", dir: "desc" },
+    { page: 1, filters: EMPTY_OPERATOR_INVOICE_FILTERS, sort: "number", dir: "asc" },
+    { page: 6, filters: EMPTY_OPERATOR_INVOICE_FILTERS, sort: "recipient", dir: "desc" },
+    // The default column read the other way round is still a choice, and must
+    // survive the address bar as one.
+    { page: 1, filters: EMPTY_OPERATOR_INVOICE_FILTERS, sort: "date", dir: "asc" },
+    { page: 2, filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, status: "authorized", issuedFrom: "2026-08-01" }, sort: "total", dir: "asc" },
     { page: 1, filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, kind: "sale" } },
     { page: 4, filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, status: "needs_attention" } },
     { page: 2, filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, kind: "manual", status: "authorized", recipientWarningOnly: true } },
@@ -114,11 +139,13 @@ test("every view the builder writes is the view the parser reads back", () => {
     { page: 5, filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, status: "authorized", q: "ZEBRA", issuedFrom: "2026-08-01", issuedTo: "2026-08-31" } },
   ] as const;
   for (const view of views) {
-    const query = operatorInvoiceListQuery(view.page, view.filters);
+    const sort = "sort" in view ? view.sort : DEFAULT_OPERATOR_INVOICE_SORT;
+    const dir = "dir" in view ? view.dir : DEFAULT_OPERATOR_INVOICE_DIR;
+    const query = operatorInvoiceListQuery(view.page, view.filters, sort, dir);
     const parsed = parseOperatorInvoiceListParams(
       Object.fromEntries(new URLSearchParams(query.replace(/^\?/, ""))),
     );
-    assert.deepEqual(parsed, view, `round trip of ${query || "(no query)"}`);
+    assert.deepEqual(parsed, { page: view.page, filters: view.filters, sort, dir }, `round trip of ${query || "(no query)"}`);
   }
 });
 
@@ -129,6 +156,7 @@ test("changing a filter returns to the first page", () => {
   const query = operatorInvoiceListQueryAfterFilterChange(narrowed, { status: "abandoned" });
   assert.deepEqual(parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1)))), {
     page: 1,
+    ...DEFAULT_ORDER,
     filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, kind: "sale", status: "abandoned" },
   });
 });
@@ -143,6 +171,7 @@ test("submitting a search returns to the first page and keeps the other filters"
   );
   assert.deepEqual(parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1)))), {
     page: 1,
+    ...DEFAULT_ORDER,
     filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, kind: "sale", q: "ZEBRA" },
   });
 });
@@ -258,6 +287,7 @@ test("setting a date returns to the first page and keeps the other filters", () 
   );
   assert.deepEqual(parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1)))), {
     page: 1,
+    ...DEFAULT_ORDER,
     filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, status: "authorized", q: "ZEBRA", issuedFrom: "2026-08-01" },
   });
 });
@@ -289,4 +319,120 @@ test("a date-bounded view is a narrowed view", () => {
     hasActiveOperatorInvoiceFilters({ ...EMPTY_OPERATOR_INVOICE_FILTERS, issuedTo: "2026-08-31" }),
     true,
   );
+});
+
+// --- the order ------------------------------------------------------------
+
+/**
+ * The order lives in the URL beside the narrowing (#597), so a colleague
+ * handed a link reads the list the way it was read to them, and a reload does
+ * not put it back. What is worth asserting here is the address bar's part of
+ * that: what a press on a header writes, that the default writes nothing, and
+ * that changing the order returns to the first page without disturbing a
+ * filter. What each key ORDERS BY is the API's, and is asserted against it.
+ */
+
+test("a bare address is the order this list has always had", () => {
+  const view = parseOperatorInvoiceListParams({});
+  assert.equal(view.sort, "date");
+  assert.equal(view.dir, "desc");
+});
+
+test("the default order writes no sort into the URL", () => {
+  // Every link written before this list could be sorted still names the view
+  // it always named, and the whole-list address stays the bare path.
+  assert.equal(operatorInvoiceListQuery(1, EMPTY_OPERATOR_INVOICE_FILTERS, "date", "desc"), "");
+  // The same column read the other way round IS a choice, and is written.
+  assert.equal(
+    operatorInvoiceListQuery(1, EMPTY_OPERATOR_INVOICE_FILTERS, "date", "asc"),
+    "?sort=date&dir=asc",
+  );
+});
+
+test("a sort or direction this app cannot name shows the default order", () => {
+  // A hand-edited or stale link is read in the order the page has always had
+  // rather than in none — and since the default is never written back, the
+  // next press drops the value the API would have refused.
+  assert.equal(parseOperatorInvoiceListParams({ sort: "colour" }).sort, "date");
+  assert.equal(parseOperatorInvoiceListParams({ sort: "recipient_legal_name" }).sort, "date");
+  assert.equal(parseOperatorInvoiceListParams({ dir: "sideways" }).dir, "desc");
+  assert.equal(parseOperatorInvoiceListParams({ dir: "ASC" }).dir, "desc");
+  // A direction with no column names nothing, and reads as the default order.
+  assert.equal(parseOperatorInvoiceListParams({ dir: "asc" }).sort, "date");
+});
+
+test("pressing the active column flips its direction", () => {
+  const query = operatorInvoiceListQueryAfterSortChange(
+    EMPTY_OPERATOR_INVOICE_FILTERS,
+    "total",
+    "desc",
+    "total",
+  );
+  const view = parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1))));
+  assert.equal(view.sort, "total");
+  assert.equal(view.dir, "asc");
+});
+
+test("pressing another column starts it in the direction that column is read in", () => {
+  // Largest total first and newest date first; A to Z for the Recipient, and
+  // upward for the number, since a run of numbers is read up to find the gap.
+  const startsAs = (pressed: "date" | "number" | "total" | "recipient") =>
+    parseOperatorInvoiceListParams(
+      Object.fromEntries(
+        new URLSearchParams(
+          operatorInvoiceListQueryAfterSortChange(
+            EMPTY_OPERATOR_INVOICE_FILTERS,
+            "date",
+            "desc",
+            pressed,
+          ).slice(1),
+        ),
+      ),
+    ).dir;
+  assert.equal(startsAs("total"), "desc");
+  assert.equal(startsAs("number"), "asc");
+  assert.equal(startsAs("recipient"), "asc");
+});
+
+test("changing the order returns to the first page and keeps every filter", () => {
+  // Page seven of a reordered list holds different documents, so the operator
+  // who reordered to bring the largest total into view gets it on the page
+  // they are looking at. The narrowing is untouched: an order narrows nothing.
+  const narrowed = {
+    ...EMPTY_OPERATOR_INVOICE_FILTERS,
+    status: "authorized",
+    q: "ZEBRA",
+    issuedFrom: "2026-08-01",
+  } as const;
+  const query = operatorInvoiceListQueryAfterSortChange(narrowed, "date", "desc", "total");
+  assert.deepEqual(parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1)))), {
+    page: 1,
+    filters: narrowed,
+    sort: "total",
+    dir: "desc",
+  });
+});
+
+test("changing a filter keeps the order the operator chose", () => {
+  // The order was chosen about the list, not about the documents that happen
+  // to be in it, so narrowing must not silently put it back to newest first.
+  const query = operatorInvoiceListQueryAfterFilterChange(
+    EMPTY_OPERATOR_INVOICE_FILTERS,
+    { kind: "sale" },
+    "recipient",
+    "asc",
+  );
+  const view = parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1))));
+  assert.equal(view.filters.kind, "sale");
+  assert.equal(view.sort, "recipient");
+  assert.equal(view.dir, "asc");
+  assert.equal(view.page, 1);
+});
+
+test("an order is not a narrowing", () => {
+  // The empty state's question is about the filters alone: no sort can widen
+  // to find a document, so a sorted-but-unfiltered empty list must still read
+  // "the platform has issued no documents". The reset #598 adds has to clear
+  // the sort all the same, since the operator sees one view.
+  assert.equal(hasActiveOperatorInvoiceFilters(EMPTY_OPERATOR_INVOICE_FILTERS), false);
 });

@@ -659,6 +659,20 @@ type InvoiceFilter struct {
 	// the filter keeps them out of a declared period.
 	IssuedFrom string
 	IssuedTo   string
+	// Sort and Dir are the ORDER the page is read in (#597, spec #593), and
+	// they are TYPED rather than raw strings all the way down from the
+	// handler: the only values that exist are the ones the vocabulary
+	// defines, so there is no request text here for an ORDER BY to be built
+	// out of. The zero value is the list's default — Emission Date,
+	// descending — which is the order this list has always had, so a caller
+	// that never heard of sorting gets exactly today's page.
+	//
+	// They sit on the filter rather than beside it because this is what the
+	// repository needs to answer one list read; the staff app keeps them
+	// apart from its filters record, since a sort narrows nothing and must
+	// not make an empty result read as "nothing matches these filters".
+	Sort invoicing.InvoiceSort
+	Dir  invoicing.SortDirection
 }
 
 // invoiceListFrom is the least the list's filters can be decided from: the
@@ -676,13 +690,22 @@ const invoiceListFrom = `
 	LEFT JOIN invoicing_invoices_ec e ON e.invoice_id = i.id
 	LEFT JOIN ticket_sales ts ON ts.id = i.ticket_sale_id`
 
+// invoicePrintedNumberSQL RECOMPOSES the printed number rather than reading
+// a stored one: estab-ptoEmi-secuencial zero-padded to nine, exactly what
+// service.FormatNumber prints and exactly what the operator pastes back off
+// the SRI portal. An unsigned document has no Ecuador row at all, so this is
+// NULL for it.
+//
+// It is ONE expression because the search (#595) and the sort (#597) must be
+// incapable of disagreeing about what the printed number is: a list that
+// found a document by a number it then refused to order by that number would
+// be showing two different numbers under one heading.
+const invoicePrintedNumberSQL = `(e.estab || '-' || e.pto_emi || '-' || LPAD(e.secuencial::text, 9, '0'))`
+
 // invoiceListSearch is the search clause: ONE TERM, FOUR FIELDS, ORed.
 //
-// The number is RECOMPOSED here rather than stored: estab-ptoEmi-secuencial
-// zero-padded to nine, exactly what service.FormatNumber prints and exactly
-// what the operator pastes back off the SRI portal. An unsigned document has
-// no Ecuador row at all, so its number is NULL and simply never matches —
-// which is right: a document with no number cannot be found by one.
+// A document with no number simply never matches the number field — which is
+// right: a document with no number cannot be found by one.
 //
 // ONE PLACEHOLDER, REFERENCED FOUR TIMES with an explicit argument index, so
 // the term is bound once and the caller hands this a single position — as
@@ -695,7 +718,7 @@ const invoiceListFrom = `
 // else. A pg_trgm index (ADR 0006) is the documented upgrade path; spec #593
 // deliberately ships no index, the table being small enough to scan.
 const invoiceListSearch = `(
-		(e.estab || '-' || e.pto_emi || '-' || LPAD(e.secuencial::text, 9, '0')) ILIKE $%[1]d
+		` + invoicePrintedNumberSQL + ` ILIKE $%[1]d
 		OR i.recipient_legal_name ILIKE $%[1]d
 		OR i.recipient_tax_id ILIKE $%[1]d
 		OR ts.confirmation_ref ILIKE $%[1]d
@@ -731,9 +754,66 @@ func invoiceListWhere(filter InvoiceFilter) (string, []any) {
 	return where, args
 }
 
-// ListInvoices reads a page of Tax Invoices newest first — by emission
-// instant once signed, by owing instant before — without their lines,
-// fields or attempts, and the total count under the same filter.
+// invoiceListSortSQL maps each sort in the vocabulary to the expression its
+// page is ordered by (#597, spec #593). THE MAP IS THE ALLOWLIST: what is
+// interpolated into the ORDER BY is one of these four constants, chosen by a
+// typed key the handler validated, and never anything a request carried.
+//
+// The date expression is the one this list has always ordered by — the
+// Emission Date falling back to when the row was created — so that a
+// document not yet signed keeps its place at the newest end instead of
+// disappearing to the bottom of the page an operator watches. That fallback
+// is deliberately the OPPOSITE of what the Emission Date FILTER does with
+// the same column (#596), which admits no document without an Emission Date
+// at all: an unsigned document is visible in every order and belongs to no
+// fiscal period.
+var invoiceListSortSQL = map[invoicing.InvoiceSort]string{
+	invoicing.InvoiceSortDate:      `COALESCE(i.issued_at, i.created_at)`,
+	invoicing.InvoiceSortNumber:    invoicePrintedNumberSQL,
+	invoicing.InvoiceSortTotal:     `i.total_cents`,
+	invoicing.InvoiceSortRecipient: `i.recipient_legal_name`,
+}
+
+// invoiceListOrderBy builds the page's ORDER BY from the validated sort and
+// direction, defaulting to the Emission Date descending — which reproduces
+// today's clause exactly, so a caller that asks for no order gets the page
+// this list has always shown.
+//
+// THE TIEBREAKERS ARE THE POINT. Every sort ends in creation time then id,
+// in the same direction as the sort itself, so two documents that tie on the
+// key an operator chose still have ONE order: without them, Postgres is free
+// to return a tied pair either way round, and paging a fifty-row window over
+// two such reads can show a document twice and another not at all. Both
+// tiebreakers are needed — two documents can be created in the same
+// microsecond, and the id is the only thing left that never ties.
+//
+// WHERE A DOCUMENT WITH NO NUMBER LANDS: last, in BOTH directions (NULLS
+// LAST). Sorting by number is reading a run of numbers looking for the hole
+// in it, and a document that has no number is not part of that run — putting
+// the unsigned ones at one end keeps the numbered run contiguous whichever
+// way it is read. Postgres' own default would have scattered them: NULLS
+// LAST ascending but NULLS FIRST descending, so a reversal would have moved
+// them through the run rather than left them alone.
+func invoiceListOrderBy(sort invoicing.InvoiceSort, dir invoicing.SortDirection) string {
+	primary, ok := invoiceListSortSQL[sort]
+	if !ok {
+		sort, primary = invoicing.InvoiceSortDate, invoiceListSortSQL[invoicing.InvoiceSortDate]
+	}
+	direction := "DESC"
+	if dir == invoicing.SortAscending {
+		direction = "ASC"
+	}
+	order := primary + " " + direction
+	if sort == invoicing.InvoiceSortNumber {
+		order += " NULLS LAST"
+	}
+	return "ORDER BY " + order + ", i.created_at " + direction + ", i.id " + direction
+}
+
+// ListInvoices reads a page of Tax Invoices in the order the filter asks for
+// — newest first by default, by emission instant once signed and by owing
+// instant before — without their lines, fields or attempts, and the total
+// count under the same filter.
 //
 // The count and the page are TWO QUERIES OVER ONE WHERE CLAUSE
 // (invoiceListWhere) and one FROM (invoiceListFrom, which the page's wider
@@ -757,7 +837,7 @@ func (r *Repository) ListInvoices(ctx context.Context, filter InvoiceFilter, pag
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT `+invoiceColumns+invoiceFrom+`
 		WHERE `+where+`
-		ORDER BY COALESCE(i.issued_at, i.created_at) DESC, i.created_at DESC, i.id DESC
+		`+invoiceListOrderBy(filter.Sort, filter.Dir)+`
 		`+limitSQL, pageArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list invoices: %w", err)
