@@ -602,6 +602,11 @@ The document the platform issues to a country's Tax Authority for a service it s
 In Spanish, **Factura**.
 _Avoid_: Invoice (alone), receipt, comprobante (the SRI's umbrella word, which also covers credit notes), bill
 
+**Emission Date**:
+The calendar day, in the Issuer's country, on which a Tax Invoice was signed — the date the document itself carries and the Tax Authority reads. A document not yet signed has no Emission Date. It is the date the Tax Invoices list shows for a document and the one a Platform Operator narrows the list by; the day a document was created or last changed is bookkeeping, not this.
+In Spanish, **Fecha de emisión**.
+_Avoid_: Issue date, created date, invoice date, authorization date (the authority's answer, later and separate), date (alone)
+
 **Issuer**:
 The platform's own registration with one country's Tax Authority: its identity there, its signing certificate, and which of the authority's environments it points at. At most one per country, held by Platform Operators.
 In Spanish, **Emisor**.

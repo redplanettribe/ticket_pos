@@ -53,6 +53,13 @@ func (e Environment) Valid() bool {
 	return e == EnvironmentTest || e == EnvironmentProduction
 }
 
+// Environments lists both environments, for the Tax Invoices list's filter
+// allowlist and any message that must name them (#598, spec #593) — as
+// InvoiceStatuses and InvoiceSorts do for the filters beside it. Written
+// once so that a message naming the choices and the check that accepts them
+// can never disagree.
+var Environments = []Environment{EnvironmentProduction, EnvironmentTest}
+
 // Issuer is the cross-country core of the platform's registration with one
 // Tax Authority. Its country-specific details live on the adapter's detail
 // row (EcuadorIssuerDetails for CountryEcuador); its signing certificate is

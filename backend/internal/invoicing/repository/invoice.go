@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/invoicing"
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // The Tax Invoice's storage (#454): the core row, its lines and additional
@@ -624,25 +625,252 @@ type InvoiceFilter struct {
 	// RecipientWarning narrows the page to the documents carrying a
 	// Recipient Warning.
 	RecipientWarning bool
+	// Search is one case-insensitive substring matched over FOUR fields at
+	// once (#595, spec #593): the printed number, the Recipient's legal name,
+	// the Recipient's Tax ID and the Sale Confirmation reference of the
+	// Ticket Sale the document declares. "" is no search at all.
+	//
+	// FOUR FIELDS AND ONE BOX because the operator does not know which of
+	// them they are holding: a buyer writes in with a name, an accountant
+	// quotes a number off the SRI portal, a Tax ID arrives on a spreadsheet
+	// and a Sale Confirmation reference comes out of a receipt. Asking which
+	// kind of thing has been pasted before it can be looked up is a question
+	// with no wrong answer worth collecting.
+	//
+	// THE NAME AND TAX ID ARE THE DOCUMENT'S OWN Recipient snapshot, never
+	// the Ticket Sale's customer columns: the declaration is what was
+	// declared, and a Sale re-addressed afterwards (#419) must still be found
+	// by the name the SRI holds.
+	Search string
+	// IssuedFrom and IssuedTo are inclusive calendar-day bounds on the
+	// EMISSION DATE (#596, spec #593), each "YYYY-MM-DD" or "" for an open
+	// bound, so "everything emitted in August" and "everything since July
+	// 1st" are both expressible.
+	//
+	// THE FILTER IS FISCAL, NOT OPERATIONAL. It compares against issued_on
+	// alone — the calendar day in the Issuer's country the document itself
+	// carries and the Tax Authority reads, which is the value the list's
+	// Date column shows. There is deliberately NO COALESCE onto created_at
+	// here, so a document with no Emission Date (an owed Sale Invoice the
+	// Drainer has not signed) matches NEITHER bound: a fiscal month must
+	// never count a document the authority has not seen. That is the exact
+	// opposite of what the ORDER BY below does with the same column, and
+	// both are right — the sort keeps un-issued rows visible at the top,
+	// the filter keeps them out of a declared period.
+	IssuedFrom string
+	IssuedTo   string
+	// Environment narrows the page to the documents issued under one of the
+	// authority's environments (#598, spec #593); "" is every document.
+	//
+	// IT IS THE MONTH-END FILTER: a certification run against SRI pruebas
+	// produces documents that are real to the SRI and to nobody else, and a
+	// reconciliation that swept one up would declare a factura that stands
+	// for no income. The default is deliberately every document, so that
+	// every link written before this filter existed still names the view it
+	// always named.
+	Environment invoicing.Environment
+	// Sort and Dir are the ORDER the page is read in (#597, spec #593), and
+	// they are TYPED rather than raw strings all the way down from the
+	// handler: the only values that exist are the ones the vocabulary
+	// defines, so there is no request text here for an ORDER BY to be built
+	// out of. The zero value is the list's default — Emission Date,
+	// descending — which is the order this list has always had, so a caller
+	// that never heard of sorting gets exactly today's page.
+	//
+	// They sit on the filter rather than beside it because this is what the
+	// repository needs to answer one list read; the staff app keeps them
+	// apart from its filters record, since a sort narrows nothing and must
+	// not make an empty result read as "nothing matches these filters".
+	Sort invoicing.InvoiceSort
+	Dir  invoicing.SortDirection
 }
 
-// ListInvoices reads a page of Tax Invoices newest first — by emission
-// instant once signed, by owing instant before — without their lines,
-// fields or attempts, and the total count under the same filter.
+// invoiceListFrom is the least the list's filters can be decided from: the
+// row, its Ecuador numbering (the printed number lives there and nowhere
+// else) and the Ticket Sale a Sale-side document declares (the Sale
+// Confirmation reference). Written once because the COUNT and the SELECT
+// below must be incapable of disagreeing — the count is the number the
+// pagination control shows for the very rows it pages through. Both joins
+// are LEFT and both yield at most one row (invoice_id is the Ecuador table's
+// primary key; ticket_sale_id names one Sale), so counting through them
+// cannot fan a document out. invoiceFrom's first three lines are these; it
+// adds only a further LEFT LATERAL that yields at most one row too.
+const invoiceListFrom = `
+	FROM invoicing_invoices i
+	LEFT JOIN invoicing_invoices_ec e ON e.invoice_id = i.id
+	LEFT JOIN ticket_sales ts ON ts.id = i.ticket_sale_id`
+
+// invoicePrintedNumberSQL RECOMPOSES the printed number rather than reading
+// a stored one: estab-ptoEmi-secuencial zero-padded to nine, exactly what
+// service.FormatNumber prints and exactly what the operator pastes back off
+// the SRI portal. An unsigned document has no Ecuador row at all, so this is
+// NULL for it.
+//
+// It is ONE expression because the search (#595) and the sort (#597) must be
+// incapable of disagreeing about what the printed number is: a list that
+// found a document by a number it then refused to order by that number would
+// be showing two different numbers under one heading.
+const invoicePrintedNumberSQL = `(e.estab || '-' || e.pto_emi || '-' || LPAD(e.secuencial::text, 9, '0'))`
+
+// invoiceListSearch is the search clause: ONE TERM, FOUR FIELDS, ORed.
+//
+// A document with no number simply never matches the number field — which is
+// right: a document with no number cannot be found by one.
+//
+// ONE PLACEHOLDER, REFERENCED FOUR TIMES with an explicit argument index, so
+// the term is bound once and the caller hands this a single position — as
+// catalog's holderRosterSearch does, and for the same reason: four `$%d`
+// would need the same number written four times and would be renumbered
+// wrong the day a filter moves.
+//
+// The term is platform.LikeEscape'd by the caller, so a `%` or a `_` an
+// operator pastes out of a company name matches those characters and nothing
+// else. A pg_trgm index (ADR 0006) is the documented upgrade path; spec #593
+// deliberately ships no index, the table being small enough to scan.
+const invoiceListSearch = `(
+		` + invoicePrintedNumberSQL + ` ILIKE $%[1]d
+		OR i.recipient_legal_name ILIKE $%[1]d
+		OR i.recipient_tax_id ILIKE $%[1]d
+		OR ts.confirmation_ref ILIKE $%[1]d
+	)`
+
+// invoiceListWhere builds the list's WHERE clause and the arguments it binds,
+// in the order it binds them. The caller appends its own arguments (the page
+// bounds) after these, so the clause never assumes what follows it.
+func invoiceListWhere(filter InvoiceFilter) (string, []any) {
+	args := []any{string(filter.Kind), string(filter.Status), filter.RecipientWarning}
+	where := `($1 = '' OR i.kind = $1) AND ($2 = '' OR i.status = $2) AND (NOT $3 OR i.recipient_warning)`
+	if filter.Search != "" {
+		args = append(args, "%"+platform.LikeEscape(filter.Search)+"%")
+		where += " AND " + fmt.Sprintf(invoiceListSearch, len(args))
+	}
+	// The Emission Date bounds (#596). Each is bound as text and cast to a
+	// date in the SQL, so the comparison is day against day: issued_on is
+	// already a DATE — the Issuer's country's calendar day, stored as one —
+	// and no timezone is crossed on either side of the operator's typing.
+	//
+	// Each is added only when given, so an absent bound is an open one
+	// rather than a predicate that has to mean "everything"; and NULL
+	// issued_on fails both comparisons on its own, which is how an un-issued
+	// document falls out of a date-bounded view without a clause saying so.
+	if filter.IssuedFrom != "" {
+		args = append(args, filter.IssuedFrom)
+		where += fmt.Sprintf(" AND i.issued_on >= $%d::date", len(args))
+	}
+	if filter.IssuedTo != "" {
+		args = append(args, filter.IssuedTo)
+		where += fmt.Sprintf(" AND i.issued_on <= $%d::date", len(args))
+	}
+	// The Environment (#598). ONE PREDICATE ON THE CORE ROW, which is where
+	// the environment was copied from the Issuer at signing time and where
+	// the list already reads it from to draw the Test badge — so the filter
+	// and the badge can never disagree about what a row is. (It is also on
+	// the Ecuador detail row, which the numbering is allocated per; reading
+	// it from there instead would answer for the SRI's numbering rather than
+	// for the document the operator is looking at, and would say nothing at
+	// all about a country with no detail table.)
+	//
+	// AN UN-ISSUED DOCUMENT HAS NO ENVIRONMENT and so matches NEITHER value:
+	// i.environment is NULL until the Drainer signs (migration 098), and an
+	// equality against NULL is never true. That is the same shape the
+	// Emission Date bounds have above, for the same reason — a document the
+	// authority has not seen was issued under no environment, and answering
+	// otherwise would put an owed Sale Invoice into a production
+	// reconciliation on the strength of a guess about where it will be
+	// signed. Absent, the filter is not added at all, so the whole list
+	// including the owed documents is what a bare address still shows.
+	if filter.Environment != "" {
+		args = append(args, string(filter.Environment))
+		where += fmt.Sprintf(" AND i.environment = $%d", len(args))
+	}
+	return where, args
+}
+
+// invoiceListSortSQL maps each sort in the vocabulary to the expression its
+// page is ordered by (#597, spec #593). THE MAP IS THE ALLOWLIST: what is
+// interpolated into the ORDER BY is one of these four constants, chosen by a
+// typed key the handler validated, and never anything a request carried.
+//
+// The date expression is the one this list has always ordered by — the
+// Emission Date falling back to when the row was created — so that a
+// document not yet signed keeps its place at the newest end instead of
+// disappearing to the bottom of the page an operator watches. That fallback
+// is deliberately the OPPOSITE of what the Emission Date FILTER does with
+// the same column (#596), which admits no document without an Emission Date
+// at all: an unsigned document is visible in every order and belongs to no
+// fiscal period.
+var invoiceListSortSQL = map[invoicing.InvoiceSort]string{
+	invoicing.InvoiceSortDate:      `COALESCE(i.issued_at, i.created_at)`,
+	invoicing.InvoiceSortNumber:    invoicePrintedNumberSQL,
+	invoicing.InvoiceSortTotal:     `i.total_cents`,
+	invoicing.InvoiceSortRecipient: `i.recipient_legal_name`,
+}
+
+// invoiceListOrderBy builds the page's ORDER BY from the validated sort and
+// direction, defaulting to the Emission Date descending — which reproduces
+// today's clause exactly, so a caller that asks for no order gets the page
+// this list has always shown.
+//
+// THE TIEBREAKERS ARE THE POINT. Every sort ends in creation time then id,
+// in the same direction as the sort itself, so two documents that tie on the
+// key an operator chose still have ONE order: without them, Postgres is free
+// to return a tied pair either way round, and paging a fifty-row window over
+// two such reads can show a document twice and another not at all. Both
+// tiebreakers are needed — two documents can be created in the same
+// microsecond, and the id is the only thing left that never ties.
+//
+// WHERE A DOCUMENT WITH NO NUMBER LANDS: last, in BOTH directions (NULLS
+// LAST). Sorting by number is reading a run of numbers looking for the hole
+// in it, and a document that has no number is not part of that run — putting
+// the unsigned ones at one end keeps the numbered run contiguous whichever
+// way it is read. Postgres' own default would have scattered them: NULLS
+// LAST ascending but NULLS FIRST descending, so a reversal would have moved
+// them through the run rather than left them alone.
+func invoiceListOrderBy(sort invoicing.InvoiceSort, dir invoicing.SortDirection) string {
+	primary, ok := invoiceListSortSQL[sort]
+	if !ok {
+		sort, primary = invoicing.InvoiceSortDate, invoiceListSortSQL[invoicing.InvoiceSortDate]
+	}
+	direction := "DESC"
+	if dir == invoicing.SortAscending {
+		direction = "ASC"
+	}
+	order := primary + " " + direction
+	if sort == invoicing.InvoiceSortNumber {
+		order += " NULLS LAST"
+	}
+	return "ORDER BY " + order + ", i.created_at " + direction + ", i.id " + direction
+}
+
+// ListInvoices reads a page of Tax Invoices in the order the filter asks for
+// — newest first by default, by emission instant once signed and by owing
+// instant before — without their lines, fields or attempts, and the total
+// count under the same filter.
+//
+// The count and the page are TWO QUERIES OVER ONE WHERE CLAUSE
+// (invoiceListWhere) and one FROM (invoiceListFrom, which the page's wider
+// invoiceFrom extends), so the number the pagination control shows can never
+// be the count of a different narrowing from the rows beneath it.
 func (r *Repository) ListInvoices(ctx context.Context, filter InvoiceFilter, page, pageSize int) ([]InvoiceRow, int, error) {
+	where, args := invoiceListWhere(filter)
 	var total int
 	if err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM invoicing_invoices
-		WHERE ($1 = '' OR kind = $1) AND ($2 = '' OR status = $2) AND (NOT $3 OR recipient_warning)
-	`, string(filter.Kind), string(filter.Status), filter.RecipientWarning).Scan(&total); err != nil {
+		SELECT COUNT(*) `+invoiceListFrom+`
+		WHERE `+where, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count invoices: %w", err)
 	}
+	// The page bounds bind after the filter's own arguments, whose number
+	// depends on whether a search was given — so their positions are computed
+	// rather than written, and the SQL around them is never format-scanned
+	// (the column list carries `%` in no place, and must not have to promise
+	// it never will).
+	pageArgs := append(append([]any{}, args...), pageSize, (page-1)*pageSize)
+	limitSQL := fmt.Sprintf("LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT `+invoiceColumns+invoiceFrom+`
-		WHERE ($1 = '' OR i.kind = $1) AND ($2 = '' OR i.status = $2) AND (NOT $3 OR i.recipient_warning)
-		ORDER BY COALESCE(i.issued_at, i.created_at) DESC, i.created_at DESC, i.id DESC
-		LIMIT $4 OFFSET $5
-	`, string(filter.Kind), string(filter.Status), filter.RecipientWarning, pageSize, (page-1)*pageSize)
+		WHERE `+where+`
+		`+invoiceListOrderBy(filter.Sort, filter.Dir)+`
+		`+limitSQL, pageArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list invoices: %w", err)
 	}

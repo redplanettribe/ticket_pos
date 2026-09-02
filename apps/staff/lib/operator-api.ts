@@ -8,7 +8,10 @@
 
 import type { AppLocale } from "@ticket-pos/locale";
 
-import { ApiError, fetchEventsJSON } from "./events-api";
+// Relative WITH the ".ts" extension (the same reason sales-api.ts gives): this
+// module is now reachable from a `node --test` unit test — operator-invoice-list.ts
+// imports its status vocabulary (#594) — and node's resolver needs the extension.
+import { ApiError, fetchEventsJSON } from "./events-api.ts";
 import type { QuestionReview, QuestionReviewItem } from "./question-reviews";
 import type { TicketQuestion, TicketQuestionOption } from "./ticket-questions";
 
@@ -1388,7 +1391,8 @@ export type IssueInvoiceBody = {
   additional_fields: { name: string; value: string }[];
 };
 
-const INVOICES_PATH = "/api/operator/invoicing/invoices";
+/** The documents' BFF path. Exported for lib/operator-invoice-list.ts (#594). */
+export const OPERATOR_INVOICES_PATH = "/api/operator/invoicing/invoices";
 
 export const OPERATOR_INVOICES_PAGE_SIZE = 50;
 
@@ -1399,34 +1403,22 @@ export type InvoiceKindFilter = InvoiceKind | "all";
 export type InvoiceStatusFilter = InvoiceStatus | "all";
 
 /**
- * A page of Tax Invoices, newest first, narrowed to one kind unless `all`
- * (#477), to one status unless `all` (#578 — `abandoned` is why it exists,
- * so that every number the platform has given up on can be audited), and,
- * when asked, to the documents carrying a Recipient Warning (#482). The API does the narrowing, so the page's total is the filtered
- * total; the warning filter is 404 SALE_INVOICING_UNAVAILABLE while the
- * feature is closed.
+ * The list's environment filter: one of the authority's environments, or
+ * every environment (#598). It is the SAME vocabulary the Issuer is pointed
+ * at and the same one each row carries, so the filter and the Test badge can
+ * never mean different things by the word "test".
+ *
+ * "all" is this app's own word and is never on the wire: the URL says "every
+ * environment" by carrying no `environment` at all, which is what keeps the
+ * default view's address, and every link written before this filter existed,
+ * exactly what it was.
  */
-export async function fetchOperatorInvoices(
-  page = 1,
-  kind: InvoiceKindFilter = "all",
-  recipientWarningOnly = false,
-  status: InvoiceStatusFilter = "all",
-): Promise<OperatorInvoiceListPage> {
-  const params = new URLSearchParams({
-    page: String(page),
-    page_size: String(OPERATOR_INVOICES_PAGE_SIZE),
-  });
-  if (kind !== "all") {
-    params.set("kind", kind);
-  }
-  if (status !== "all") {
-    params.set("status", status);
-  }
-  if (recipientWarningOnly) {
-    params.set("recipient_warning", "true");
-  }
-  return fetchEventsJSON<OperatorInvoiceListPage>(`${INVOICES_PATH}?${params.toString()}`);
-}
+export type InvoiceEnvironmentFilter = EcuadorIssuerEnvironment | "all";
+
+// A page of Tax Invoices — narrowed to one kind (#477), one status (#578) or
+// the documents carrying a Recipient Warning (#482) — is fetched by
+// lib/operator-invoice-list.ts, which owns the list's filters record and
+// builds the query for the address bar and the request from one place (#594).
 
 // ---- The Recipient Warnings (#482, ADR 0061) ----------------------------
 
@@ -1581,7 +1573,7 @@ export async function fetchOperatorNeedsAttentionCount(): Promise<OperatorNeedsA
  * never signed. Irreversible.
  */
 export async function annulOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
-  return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/annul`, {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/annul`, {
     method: "POST",
   });
 }
@@ -1604,7 +1596,7 @@ export async function annulOperatorInvoice(id: string): Promise<OperatorInvoiceD
  * INVOICE_NOT_ISSUED. Irreversible.
  */
 export async function abandonOperatorInvoice(id: string, note: string | null): Promise<OperatorInvoiceDetail> {
-  return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/abandon`, {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/abandon`, {
     method: "POST",
     body: JSON.stringify({ note }),
   });
@@ -1631,7 +1623,7 @@ export type ReissueInvoiceBody = {
  * VALIDATION_FAILED naming the fields.
  */
 export async function reissueOperatorInvoice(id: string, body: ReissueInvoiceBody): Promise<OperatorInvoiceDetail> {
-  return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/reissue`, {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/reissue`, {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -1655,7 +1647,7 @@ export async function reissueOperatorInvoice(id: string, body: ReissueInvoiceBod
  * INVOICE_SALE_REVERSED or INVOICE_ALREADY_REPLACED, each by code.
  */
 export async function issueOperatorInvoiceAgain(id: string, note: string | null): Promise<OperatorInvoiceDetail> {
-  return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/issue-again`, {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/issue-again`, {
     method: "POST",
     body: JSON.stringify({ note }),
   });
@@ -1663,12 +1655,12 @@ export async function issueOperatorInvoiceAgain(id: string, note: string | null)
 
 /** One Tax Invoice in full. */
 export async function fetchOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
-  return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}`);
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}`);
 }
 
 /** Issues a Tax Invoice and returns it as it stands when the SRI answered. */
 export async function issueOperatorInvoice(body: IssueInvoiceBody): Promise<OperatorInvoiceDetail> {
-  return fetchEventsJSON<OperatorInvoiceDetail>(INVOICES_PATH, {
+  return fetchEventsJSON<OperatorInvoiceDetail>(OPERATOR_INVOICES_PATH, {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -1678,7 +1670,7 @@ export async function issueOperatorInvoice(body: IssueInvoiceBody): Promise<Oper
 export async function previewOperatorInvoiceTotals(
   lines: IssueInvoiceLineBody[],
 ): Promise<OperatorInvoiceTotals> {
-  return fetchEventsJSON<OperatorInvoiceTotals>(`${INVOICES_PATH}/totals`, {
+  return fetchEventsJSON<OperatorInvoiceTotals>(`${OPERATOR_INVOICES_PATH}/totals`, {
     method: "POST",
     body: JSON.stringify({ lines }),
   });
@@ -1691,7 +1683,7 @@ export async function previewOperatorInvoiceTotals(
  * one, and INVOICE_NOT_ISSUED on one still owed and unsigned.
  */
 export async function checkOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
-  return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/check`, {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/check`, {
     method: "POST",
   });
 }
@@ -1704,7 +1696,7 @@ export async function checkOperatorInvoice(id: string): Promise<OperatorInvoiceD
  * and INVOICE_NOT_ISSUED on one still owed and unsigned.
  */
 export async function resendOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
-  return fetchEventsJSON<OperatorInvoiceDetail>(`${INVOICES_PATH}/${encodeURIComponent(id)}/resend`, {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/resend`, {
     method: "POST",
   });
 }
@@ -1713,12 +1705,12 @@ export async function resendOperatorInvoice(id: string): Promise<OperatorInvoice
 
 /** Where the browser downloads a Tax Invoice's signed XML from. */
 export function operatorInvoiceSignedXmlUrl(id: string): string {
-  return `${INVOICES_PATH}/${encodeURIComponent(id)}/xml`;
+  return `${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/xml`;
 }
 
 /** Where the browser downloads the SRI's authorization XML from; only an authorized invoice has one. */
 export function operatorInvoiceAuthorizationXmlUrl(id: string): string {
-  return `${INVOICES_PATH}/${encodeURIComponent(id)}/authorization-xml`;
+  return `${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/authorization-xml`;
 }
 
 /**
@@ -1728,7 +1720,7 @@ export function operatorInvoiceAuthorizationXmlUrl(id: string): string {
  * the buyer receives.
  */
 export function operatorInvoiceRideUrl(id: string): string {
-  return `${INVOICES_PATH}/${encodeURIComponent(id)}/ride`;
+  return `${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/ride`;
 }
 
 // ---- The Legal Center (#561, spec #556) --------------------------------

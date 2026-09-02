@@ -105,6 +105,59 @@ const (
 	DocumentKindCreditNote DocumentKind = "credit_note"
 )
 
+// InvoiceSort is a column the Tax Invoices list may be ordered by (#597,
+// spec #593). It is a CLOSED VOCABULARY, not a column name: the request
+// carries one of these four words and the repository decides what SQL each
+// means, so no query string ever reaches an ORDER BY.
+//
+// Four and no more, because the other columns of that list are answered
+// better by a filter than by an order: Kind, Status and Country each take a
+// handful of values an operator wants to SEE ALONE rather than to read in
+// order, and the Sale column is a reference nobody reads a run of.
+type InvoiceSort string
+
+const (
+	// InvoiceSortDate orders by the EMISSION DATE, falling back to when the
+	// document was created — so a document with no Emission Date yet (an
+	// owed Sale Invoice) sits at the newest end rather than dropping to the
+	// bottom of the list an operator watches. The default, descending, and
+	// the order this list has always had.
+	InvoiceSortDate InvoiceSort = "date"
+	// InvoiceSortNumber orders by the PRINTED number's text. Within one
+	// establishment and point of emission that is sequence order, which is
+	// how an accountant spots a gap in the numbering.
+	InvoiceSortNumber InvoiceSort = "number"
+	// InvoiceSortTotal orders by the document's total.
+	InvoiceSortTotal InvoiceSort = "total"
+	// InvoiceSortRecipient orders by the Recipient's legal name as the
+	// document itself snapshotted it — never the Ticket Sale's customer, for
+	// the reason the search matches the snapshot (#595): the declaration is
+	// what was declared.
+	InvoiceSortRecipient InvoiceSort = "recipient"
+)
+
+// InvoiceSorts lists every sort the list offers, for the handler's allowlist
+// and any message that must name them — as InvoiceStatuses does for the
+// status filter.
+var InvoiceSorts = []InvoiceSort{
+	InvoiceSortDate,
+	InvoiceSortNumber,
+	InvoiceSortTotal,
+	InvoiceSortRecipient,
+}
+
+// SortDirection is which way an ordered list reads.
+type SortDirection string
+
+const (
+	SortAscending  SortDirection = "asc"
+	SortDescending SortDirection = "desc"
+)
+
+// SortDirections lists both directions, for the same reason InvoiceSorts
+// exists.
+var SortDirections = []SortDirection{SortAscending, SortDescending}
+
 // SaleInvoiceIVARate is the rate every Sale Invoice is priced under: the
 // platform sells tickets at the general rate, with the IVA inside the price
 // the buyer paid (ADR 0060). The 0% RUAC rate for cultural shows is out of

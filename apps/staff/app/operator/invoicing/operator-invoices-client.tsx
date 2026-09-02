@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { toAppLocale } from "@ticket-pos/locale";
@@ -16,38 +17,61 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Input,
+  Label,
   PageHeader,
 } from "@ticket-pos/ui";
 import { useLocale, useMessages, useTranslations } from "next-intl";
 
+import { SortableHeader } from "@/components/sortable-header";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
-import { type AppLocale, formatCalendarDay, formatMoney } from "@/lib/format";
+import { type AppLocale, formatCalendarDay, formatMoney, formatNumber } from "@/lib/format";
 import {
-  INVOICE_STATUSES,
+  type InvoiceEnvironmentFilter,
   type InvoiceKind,
   type InvoiceKindFilter,
   type InvoiceStatusFilter,
+  type OperatorInvoiceListPage,
   type OperatorInvoiceListItem,
-  fetchOperatorInvoices,
   fetchOperatorRecipientWarningCount,
   fetchOperatorUninvoicedHouseSaleCount,
 } from "@/lib/operator-api";
+import {
+  INVOICE_ENVIRONMENT_FILTERS,
+  INVOICE_KIND_FILTERS,
+  INVOICE_STATUS_FILTERS,
+  type OperatorInvoiceDir,
+  type OperatorInvoiceFilters,
+  type OperatorInvoiceSort,
+  fetchOperatorInvoiceList,
+  hasActiveOperatorInvoiceFilters,
+  isDefaultOperatorInvoiceView,
+  operatorInvoiceListQuery,
+  operatorInvoiceListQueryAfterFilterChange,
+  operatorInvoiceListQueryAfterReset,
+  operatorInvoiceListQueryAfterSortChange,
+} from "@/lib/operator-invoice-list";
 
 import { CertificateExpiryBanner } from "./certificate-expiry-warning";
 import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "./invoice-status";
 
-// The invoices list (#454): every factura the platform issued, newest first —
-// number, date, Recipient, total, status, country, and a Test badge for the
-// SRI pruebas environment so a certification run is never mistaken for a real
-// factura. From #473 it is also every document the platform OWES: a Sale
+// The invoices list (#454): every factura the platform issued — number, date,
+// Recipient, total, status, country, and a Test badge for the SRI pruebas
+// environment so a certification run is never mistaken for a real factura.
+// Newest first until the operator says otherwise: the Number, Date, Recipient
+// and Total headers reorder the list (#597), and the order the page opens in
+// is the one it has always had. From #473 it is also every document the platform OWES: a Sale
 // Invoice or Credit Note appears the moment its sale commits, with its kind
 // and its Sale Confirmation reference beside the manual Tax Invoices, and
 // with no number or date until the Drainer signs it — those cells say so
 // rather than showing a blank, since "not yet" and "unknown" are different.
 // The kind filter (#477) narrows the list to one of the three, and the
-// status filter (#578) to one of the nine; the API does the narrowing, so
-// the page's total is the filtered total.
+// status filter (#578) to one of the nine; the environment filter (#598) to
+// SRI producción or pruebas, so a month-end reconciliation never counts a
+// certification document. The API does the narrowing, so the page's total is
+// the filtered total, and one Reset clears every filter, the search, the
+// range and the order at once.
 //
 // The Recipient Warning (#482, ADR 0061): an authorized Sale Invoice the SRI
 // warned about — the Recipient's Tax ID does not exist or is incorrect — is
@@ -60,17 +84,34 @@ import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from 
 // shown as "0" when the backlog is clear — a zero is an answer, not an
 // absence. It opens Ventas sin factura, where the backfill lives.
 
-const KIND_FILTERS = ["all", "manual", "sale", "credit_note"] as const satisfies readonly InvoiceKindFilter[];
+// The Kind filter's and the Status filter's options (#477; #578, ADR 0068 —
+// the status filter exists so that every number the platform has given up on
+// can be audited, and offers the whole vocabulary rather than `abandoned`
+// alone) live with the parser that reads them off the URL, so the select can
+// never offer a value the address bar would refuse (#594).
+//
+// Every narrowing on this page is the URL's (#594), and so is the order
+// (#597): the filters, the page and the sort arrive as props parsed from the
+// address bar, and each change is a router.push of the rebuilt query string.
+// Nothing here is seeded from useState, so a reload, a shared link and the
+// back button all show the same view.
 
-// The status filter (#578, ADR 0068). It exists so that every number the
-// platform has given up on can be audited — `abandoned` is the state that
-// asked for it — and it offers the whole vocabulary rather than that one
-// word, because a filter that finds one state and not the eight beside it is
-// one the next operator has to ask for again.
-const STATUS_FILTERS = ["all", ...INVOICE_STATUSES] as const satisfies readonly InvoiceStatusFilter[];
+// Where the list lives: every filter change and page move is pushed onto it.
+const LIST_PATH = "/operator/invoicing";
 
 const SELECT_CLASS =
   "h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+
+// The environment filter's options, by catalog key (#598). Spelled out
+// rather than derived from the badge's key, because the select and the badge
+// say different things about the same word: the badge marks one row as a
+// certification document, while these are the two halves of a choice and
+// have to read as a pair.
+const INVOICE_ENVIRONMENT_FILTER_KEYS = {
+  all: "invoicingEnvironmentFilterAll",
+  test: "invoicingEnvironmentFilterTest",
+  production: "invoicingEnvironmentFilterProduction",
+} as const satisfies Record<InvoiceEnvironmentFilter, string>;
 
 function InvoiceRow({ item, locale }: { item: OperatorInvoiceListItem; locale: AppLocale }) {
   const t = useTranslations("operator");
@@ -120,18 +161,158 @@ function InvoiceRow({ item, locale }: { item: OperatorInvoiceListItem; locale: A
   );
 }
 
-export function OperatorInvoicesClient({
-  initialRecipientWarningOnly = false,
+// InvoiceSearchBox is the one box that finds a document by any of the four
+// things an operator might be holding (#595): the printed number, the
+// Recipient's legal name, the Recipient's Tax ID, or the Sale Confirmation
+// reference of the Ticket Sale the document declares. What "match" means is
+// the API's; this only carries the term.
+//
+// IT COMMITS ON SUBMIT, never on a keystroke — the Sales list's rule, and for
+// its reason: every commit is a router.push, so typing would push a history
+// entry per character and a half-typed term would narrow the list under the
+// operator's hands.
+//
+// The local state is the BOX's, not the view's: the URL stays the source of
+// truth, and the effect below re-seeds the box whenever the address bar moves
+// under it (the back button, a shared link, or Clear).
+function InvoiceSearchBox({
+  q,
+  onApply,
 }: {
-  initialRecipientWarningOnly?: boolean;
+  q: string;
+  onApply: (patch: Partial<OperatorInvoiceFilters>) => void;
+}) {
+  const t = useTranslations("operator");
+  const [term, setTerm] = useState(q);
+
+  useEffect(() => {
+    setTerm(q);
+  }, [q]);
+
+  return (
+    <form
+      className="flex flex-col gap-1"
+      onSubmit={(event) => {
+        event.preventDefault();
+        // Trimmed, so a term that is only whitespace clears the search rather
+        // than narrowing the list to nothing. onApply returns to page one.
+        onApply({ q: term.trim() });
+      }}
+    >
+      <Label htmlFor="operator-invoice-search" className="text-muted-foreground">
+        {t("invoicingSearchLabel")}
+      </Label>
+      <div className="flex gap-2">
+        <Input
+          id="operator-invoice-search"
+          value={term}
+          onChange={(event) => setTerm(event.target.value)}
+          placeholder={t("invoicingSearchPlaceholder")}
+          className="h-9 sm:w-72"
+        />
+        <Button type="submit" variant="outline" size="sm">
+          {t("invoicingSearchAction")}
+        </Button>
+        {/*
+          Clear is drawn only while there is a search to clear, and empties
+          the term rather than every filter — resetting the whole view is the
+          Reset beside the selects (#598), and a Clear that quietly dropped
+          the Kind an operator had set would be a different button wearing
+          this one's label.
+        */}
+        {q ? (
+          <Button type="button" variant="ghost" size="sm" onClick={() => onApply({ q: "" })}>
+            {t("invoicingSearchClear")}
+          </Button>
+        ) : null}
+      </div>
+    </form>
+  );
+}
+
+// EmissionDateRange is the month-end view: two inclusive calendar-day bounds
+// on the EMISSION DATE (#596), which is the day the Date column beside them
+// shows. Either may stand alone, so "everything since July 1st" is one input.
+//
+// APPLIED ON CHANGE, unlike the search box: a date input commits a whole date
+// at once (there is no half-typed 2026-08-1 to narrow the list under the
+// operator's hands), so there is nothing for a submit button to wait for.
+// Each change is a router.push that returns to page one, like every other
+// filter here.
+//
+// The two inputs bound EACH OTHER — max on the start, min on the end — so the
+// picker cannot offer an inverted range. The API refuses one anyway, since a
+// hand-edited address bar reaches it without passing through these.
+//
+// Clear empties BOTH bounds and nothing else: half a range is a different
+// view, not a cleared one, and resetting every filter at once is the Reset
+// beside the selects (#598).
+function EmissionDateRange({
+  filters,
+  onApply,
+}: {
+  filters: OperatorInvoiceFilters;
+  onApply: (patch: Partial<OperatorInvoiceFilters>) => void;
+}) {
+  const t = useTranslations("operator");
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="operator-invoice-issued-from" className="text-muted-foreground">
+          {t("invoicingIssuedFromLabel")}
+        </Label>
+        <Input
+          id="operator-invoice-issued-from"
+          type="date"
+          value={filters.issuedFrom}
+          max={filters.issuedTo || undefined}
+          onChange={(event) => onApply({ issuedFrom: event.target.value })}
+          className="h-9"
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="operator-invoice-issued-to" className="text-muted-foreground">
+          {t("invoicingIssuedToLabel")}
+        </Label>
+        <Input
+          id="operator-invoice-issued-to"
+          type="date"
+          value={filters.issuedTo}
+          min={filters.issuedFrom || undefined}
+          onChange={(event) => onApply({ issuedTo: event.target.value })}
+          className="h-9"
+        />
+      </div>
+      {filters.issuedFrom || filters.issuedTo ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => onApply({ issuedFrom: "", issuedTo: "" })}
+        >
+          {t("invoicingIssuedRangeClear")}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+export function OperatorInvoicesClient({
+  page,
+  filters,
+  sort,
+  dir,
+}: {
+  page: number;
+  filters: OperatorInvoiceFilters;
+  sort: OperatorInvoiceSort;
+  dir: OperatorInvoiceDir;
 }) {
   const t = useTranslations("operator");
   const errorCopy = useMessages().errors;
   const locale = toAppLocale(useLocale());
-  const [items, setItems] = useState<OperatorInvoiceListItem[]>([]);
-  const [kind, setKind] = useState<InvoiceKindFilter>("all");
-  const [status, setStatus] = useState<InvoiceStatusFilter>("all");
-  const [recipientWarningOnly, setRecipientWarningOnly] = useState(initialRecipientWarningOnly);
+  const router = useRouter();
+  const [result, setResult] = useState<OperatorInvoiceListPage | null>(null);
   // null while unknown or while the feature is closed: the filter is not drawn.
   const [recipientWarningCount, setRecipientWarningCount] = useState<number | null>(null);
   // null while unknown or while the feature is closed: the link is not drawn.
@@ -140,6 +321,10 @@ export function OperatorInvoicesClient({
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // The canonical query of the view being shown: the fetch key below, so one
+  // string decides both what is requested and when it is re-requested.
+  const viewQuery = operatorInvoiceListQuery(page, filters, sort, dir);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -147,12 +332,12 @@ export function OperatorInvoicesClient({
       // The count is read beside the page: it says whether Sale Invoicing is
       // open (404 while closed, read as "no filter") and how many the filter
       // would find. A closed feature must not take the list down with it.
-      const [page, warningCount, uninvoiced] = await Promise.all([
-        fetchOperatorInvoices(1, kind, recipientWarningOnly, status),
+      const [listPage, warningCount, uninvoiced] = await Promise.all([
+        fetchOperatorInvoiceList(page, filters, sort, dir),
         fetchOperatorRecipientWarningCount().catch(() => null),
         fetchOperatorUninvoicedHouseSaleCount().catch(() => null),
       ]);
-      setItems(page.data ?? []);
+      setResult(listPage);
       setRecipientWarningCount(warningCount?.recipient_warning_count ?? null);
       setUninvoicedCount(uninvoiced?.uninvoiced_house_sale_count ?? null);
       setForbidden(false);
@@ -168,12 +353,65 @@ export function OperatorInvoicesClient({
     } finally {
       setLoading(false);
     }
+    // viewQuery encodes the page and every filter — the whole fetch key — so
+    // the list re-reads whenever the address bar moves, and only then.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, status, recipientWarningOnly]);
+  }, [viewQuery]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Each control rewrites the address bar rather than a piece of local state:
+  // the server re-renders this component with the new props, and the back
+  // button walks the operator's filter history (#594).
+  const applyFilters = useCallback(
+    (patch: Partial<OperatorInvoiceFilters>) => {
+      // Any narrowing returns to page one — a narrower result has fewer pages.
+      // The order survives a narrowing: the operator chose it about the list,
+      // not about the documents that happen to be in it.
+      router.push(`${LIST_PATH}${operatorInvoiceListQueryAfterFilterChange(filters, patch, sort, dir)}`);
+    },
+    [filters, sort, dir, router],
+  );
+
+  // Pressing a column header reorders the list through the address bar like
+  // everything else here: the active column flips, another column takes over,
+  // and either way the list returns to page one, since page seven of a
+  // reordered list holds different documents.
+  const toggleSort = useCallback(
+    (pressed: OperatorInvoiceSort) => {
+      router.push(`${LIST_PATH}${operatorInvoiceListQueryAfterSortChange(filters, sort, dir, pressed)}`);
+    },
+    [filters, sort, dir, router],
+  );
+
+  // Reset (#598, spec #593 story 22): back to the whole list, first page,
+  // newest first — the address the page opens at, with no query string at
+  // all. It clears the ORDER as well as every filter, because the operator
+  // is looking at one view rather than at a narrowing and an ordering, and a
+  // Reset that left the list sorted by total ascending would not have taken
+  // them back to where they started. That is why it asks
+  // isDefaultOperatorInvoiceView rather than hasActiveOperatorInvoiceFilters,
+  // which deliberately ignores the sort for the empty state's sake.
+  const resetView = useCallback(() => {
+    router.push(`${LIST_PATH}${operatorInvoiceListQueryAfterReset()}`);
+  }, [router]);
+
+  const goToPage = useCallback(
+    (next: number) => {
+      const target = Math.max(1, next);
+      if (target === page) {
+        return;
+      }
+      // Paging keeps the filters: only the page moves.
+      router.push(`${LIST_PATH}${operatorInvoiceListQuery(target, filters, sort, dir)}`);
+    },
+    [filters, sort, dir, page, router],
+  );
+
+  const items = result?.data ?? [];
+  const pagination = result?.pagination;
 
   return (
     <div className="space-y-6">
@@ -225,14 +463,17 @@ export function OperatorInvoicesClient({
               <CardDescription>{t("invoicingListDescription")}</CardDescription>
             </div>
             <div className="flex flex-col items-end gap-2">
+              <InvoiceSearchBox q={filters.q} onApply={applyFilters} />
+              {/* Beside the box, because "this buyer, in August" is one question. */}
+              <EmissionDateRange filters={filters} onApply={applyFilters} />
               <label className="flex items-center gap-2 text-sm">
                 <span className="text-muted-foreground">{t("invoicingKindFilterLabel")}</span>
                 <select
                   className={SELECT_CLASS}
-                  value={kind}
-                  onChange={(event) => setKind(event.target.value as InvoiceKindFilter)}
+                  value={filters.kind}
+                  onChange={(event) => applyFilters({ kind: event.target.value as InvoiceKindFilter })}
                 >
-                  {KIND_FILTERS.map((option) => (
+                  {INVOICE_KIND_FILTERS.map((option) => (
                     <option key={option} value={option}>
                       {option === "all" ? t("invoicingKindFilterAll") : t(INVOICE_KIND_KEYS[option as InvoiceKind])}
                     </option>
@@ -243,12 +484,40 @@ export function OperatorInvoicesClient({
                 <span className="text-muted-foreground">{t("invoicingStatusFilterLabel")}</span>
                 <select
                   className={SELECT_CLASS}
-                  value={status}
-                  onChange={(event) => setStatus(event.target.value as InvoiceStatusFilter)}
+                  value={filters.status}
+                  onChange={(event) => applyFilters({ status: event.target.value as InvoiceStatusFilter })}
                 >
-                  {STATUS_FILTERS.map((option) => (
+                  {INVOICE_STATUS_FILTERS.map((option) => (
                     <option key={option} value={option}>
                       {option === "all" ? t("invoicingStatusFilterAll") : t(INVOICE_STATUS_KEYS[option])}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {/*
+                The Environment filter (#598), a fourth select beside the
+                other three: a month-end reconciliation is read under
+                `production` alone, so a certification run against SRI
+                pruebas — whose documents are real to the SRI and to nobody
+                else — is never counted into it. It defaults to All, so the
+                page an operator already knows is unchanged.
+
+                There is no Country select beside it on purpose: there is one
+                Issuer country, and a select with one option is a control
+                that asks a question with no answer.
+              */}
+              <label className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">{t("invoicingEnvironmentFilterLabel")}</span>
+                <select
+                  className={SELECT_CLASS}
+                  value={filters.environment}
+                  onChange={(event) =>
+                    applyFilters({ environment: event.target.value as InvoiceEnvironmentFilter })
+                  }
+                >
+                  {INVOICE_ENVIRONMENT_FILTERS.map((option) => (
+                    <option key={option} value={option}>
+                      {t(INVOICE_ENVIRONMENT_FILTER_KEYS[option])}
                     </option>
                   ))}
                 </select>
@@ -258,11 +527,22 @@ export function OperatorInvoicesClient({
                   <input
                     type="checkbox"
                     className="h-4 w-4"
-                    checked={recipientWarningOnly}
-                    onChange={(event) => setRecipientWarningOnly(event.target.checked)}
+                    checked={filters.recipientWarningOnly}
+                    onChange={(event) => applyFilters({ recipientWarningOnly: event.target.checked })}
                   />
                   <span>{t("invoicingRecipientWarningFilter", { count: recipientWarningCount })}</span>
                 </label>
+              ) : null}
+              {/*
+                Drawn only while there is something to reset, so the default
+                view carries no button that would do nothing — and it is the
+                whole view it resets, which is why it is asked about the
+                order and the page as well as the filters.
+              */}
+              {!isDefaultOperatorInvoiceView(page, filters, sort, dir) ? (
+                <Button type="button" variant="ghost" size="sm" onClick={resetView}>
+                  {t("invoicingResetView")}
+                </Button>
               ) : null}
               {uninvoicedCount !== null ? (
                 <Link href="/operator/invoicing/uninvoiced" className="text-sm hover:underline">
@@ -273,26 +553,76 @@ export function OperatorInvoicesClient({
           </CardHeader>
           <CardContent>
             {items.length === 0 ? (
+              // "No documents at all" and "nothing matches these filters" are
+              // different answers and lead to different next moves — widen the
+              // filters, or stop looking (#595). The unnarrowed case is asked
+              // first, so the empty page only ever claims the platform has
+              // issued nothing when nothing is narrowing the view. A search
+              // spans four fields and combines with the rest, so once a term
+              // is set the honest message is the general one rather than a
+              // sentence about the Kind. An Emission Date range says the same
+              // thing (#596): "no documents match these filters" is the
+              // sentence that sends the operator to widen the window, where
+              // "no documents of that kind" would blame the wrong control.
               <p className="text-sm text-muted-foreground">
-                {recipientWarningOnly
-                  ? t("invoicingListEmptyForRecipientWarning")
-                  : status !== "all"
-                    ? t("invoicingListEmptyForStatus")
-                    : kind === "all"
-                      ? t("invoicingListEmpty")
-                      : t("invoicingListEmptyForKind")}
+                {!hasActiveOperatorInvoiceFilters(filters)
+                  ? t("invoicingListEmpty")
+                  : filters.q ||
+                      filters.issuedFrom ||
+                      filters.issuedTo ||
+                      filters.environment !== "all"
+                    ? t("invoicingListEmptyForFilters")
+                    : filters.recipientWarningOnly
+                      ? t("invoicingListEmptyForRecipientWarning")
+                      : filters.status !== "all"
+                        ? t("invoicingListEmptyForStatus")
+                        : t("invoicingListEmptyForKind")}
               </p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-sm">
                   <thead>
+                    {/*
+                      Four of the eight headers reorder the list (#597), and
+                      the other four stay plain on purpose: Kind, Status and
+                      Country are answered by their filters — an operator
+                      wants to see one of them alone rather than read a run of
+                      them — and the Sale column is a reference nobody reads in
+                      order. The header is the Sales list's, so a column that
+                      sorts looks and behaves the same on both screens.
+                    */}
                     <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-                      <th className="py-2 pr-4 font-medium">{t("invoicingColNumber")}</th>
+                      <SortableHeader
+                        label={t("invoicingColNumber")}
+                        field="number"
+                        sort={sort}
+                        dir={dir}
+                        onSort={toggleSort}
+                      />
                       <th className="py-2 pr-4 font-medium">{t("invoicingColKind")}</th>
                       <th className="py-2 pr-4 font-medium">{t("invoicingColSale")}</th>
-                      <th className="py-2 pr-4 font-medium">{t("invoicingColDate")}</th>
-                      <th className="py-2 pr-4 font-medium">{t("invoicingColRecipient")}</th>
-                      <th className="py-2 pr-4 text-right font-medium">{t("invoicingColTotal")}</th>
+                      <SortableHeader
+                        label={t("invoicingColDate")}
+                        field="date"
+                        sort={sort}
+                        dir={dir}
+                        onSort={toggleSort}
+                      />
+                      <SortableHeader
+                        label={t("invoicingColRecipient")}
+                        field="recipient"
+                        sort={sort}
+                        dir={dir}
+                        onSort={toggleSort}
+                      />
+                      <SortableHeader
+                        label={t("invoicingColTotal")}
+                        field="total"
+                        sort={sort}
+                        dir={dir}
+                        onSort={toggleSort}
+                        numeric
+                      />
                       <th className="py-2 pr-4 font-medium">{t("invoicingColStatus")}</th>
                       <th className="py-2 pr-4 font-medium">{t("invoicingColCountry")}</th>
                     </tr>
@@ -305,6 +635,48 @@ export function OperatorInvoicesClient({
                 </table>
               </div>
             )}
+
+            {/*
+              The pagination control (#594): the list used to stop silently at
+              fifty documents. Drawn whenever the narrowed result has any
+              documents at all, because the total is the count the operator
+              came for — the page buttons are what disable themselves when
+              there is only one page. Written the way the Uninvoiced House
+              Sales list beside it is, rather than by lifting the Sales list's
+              control, which speaks the `sales` catalog; the page number moves
+              through the URL, not through state.
+            */}
+            {pagination && pagination.total > 0 ? (
+              <div className="mt-4 flex items-center justify-between border-t pt-4">
+                <p className="text-sm text-muted-foreground">
+                  {t("invoicingListPageSummary", {
+                    page: formatNumber(pagination.page, locale),
+                    pages: formatNumber(pagination.total_pages, locale),
+                    total: pagination.total,
+                  })}
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={pagination.page <= 1}
+                    onClick={() => goToPage(pagination.page - 1)}
+                  >
+                    {t("previousPage")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={pagination.page >= pagination.total_pages}
+                    onClick={() => goToPage(pagination.page + 1)}
+                  >
+                    {t("nextPage")}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       )}
