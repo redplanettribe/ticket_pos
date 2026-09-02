@@ -198,7 +198,7 @@ function InvoiceSearchBox({
         onApply({ q: term.trim() });
       }}
     >
-      <Label htmlFor="operator-invoice-search" className="text-muted-foreground">
+      <Label htmlFor="operator-invoice-search">
         {t("invoicingSearchLabel")}
       </Label>
       <div className="flex gap-2">
@@ -541,9 +541,8 @@ export function OperatorInvoicesClient({
               The Uninvoiced House Sales count (#509, ADR 0064) sits with the
               other ways OFF this page rather than among the filters, because it
               narrows nothing — it is a backlog, and a door to where the
-              backfill lives. Hidden while its endpoint answers 404, and shown
-              as "0" once the backlog is clear: a zero is an answer, not an
-              absence.
+              backfill lives. The rule for when it is drawn at all is with the
+              other counts, at the top of this file.
             */}
             {uninvoicedCount !== null ? (
               <Button asChild variant="outline">
