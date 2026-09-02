@@ -101,18 +101,23 @@ func searchInvoices(t *testing.T, sessionID, term, extra string) saleInvoiceList
 	return invoiceSearch(t, sessionID, "q="+url.QueryEscape(term)+extra)
 }
 
-// assertFinds states the whole answer, never a membership: a search that also
-// returned the other two documents has failed even though it "found" the one
-// asked about. The pagination total is asserted with the rows because that
-// number is what the page reports the search found.
-func assertFinds(t *testing.T, list saleInvoiceListView, want []string, term string) {
+// assertFinds states the whole answer, never a membership: a narrowing that
+// also returned the other two documents has failed even though it "found" the
+// one asked about. The pagination total is asserted with the rows because that
+// number is what the page reports the narrowed view found.
+//
+// `narrowing` is only the label the failure reads by — the term typed, or the
+// range asked for (#596 narrows this list a second way through the same
+// helper, since what a narrowed list must answer does not depend on which
+// control narrowed it).
+func assertFinds(t *testing.T, list saleInvoiceListView, want []string, narrowing string) {
 	t.Helper()
 	got := make([]string, 0, len(list.Data))
 	for _, row := range list.Data {
 		got = append(got, row.ID)
 	}
 	if len(got) != len(want) || list.Pagination.Total != len(want) {
-		t.Fatalf("searching %q returned %v (total %d); want exactly %v", term, got, list.Pagination.Total, want)
+		t.Fatalf("the list narrowed by %q returned %v (total %d); want exactly %v", narrowing, got, list.Pagination.Total, want)
 	}
 	for _, id := range want {
 		found := false
@@ -122,15 +127,15 @@ func assertFinds(t *testing.T, list saleInvoiceListView, want []string, term str
 			}
 		}
 		if !found {
-			t.Fatalf("searching %q returned %v; want %v", term, got, want)
+			t.Fatalf("the list narrowed by %q returned %v; want %v", narrowing, got, want)
 		}
 	}
 }
 
-func assertFindsNothing(t *testing.T, list saleInvoiceListView, term, why string) {
+func assertFindsNothing(t *testing.T, list saleInvoiceListView, narrowing, why string) {
 	t.Helper()
 	if len(list.Data) != 0 || list.Pagination.Total != 0 {
-		t.Fatalf("searching %q returned %d rows (total %d); want none.\n%s", term, len(list.Data), list.Pagination.Total, why)
+		t.Fatalf("the list narrowed by %q returned %d rows (total %d); want none.\n%s", narrowing, len(list.Data), list.Pagination.Total, why)
 	}
 }
 

@@ -10225,7 +10225,17 @@ paths:
         the Ticket Sale the document declares — any one of the four is enough. The
         term is matched literally, so `%` and `_` are those characters and not wildcards;
         there is no accent folding and no shortcut for a bare sequential number. Blank
-        or absent is every document. Every filter combines. Response is the ADR-0006
+        or absent is every document. `issued_from` and `issued_to` narrow the page
+        to an EMISSION DATE range: inclusive calendar days (`YYYY-MM-DD`) compared
+        against the emission date alone — the day in the Issuer''s country the document
+        itself carries, the one this list''s date column shows — with no timezone
+        conversion, and either bound may be given on its own. A document with NO emission
+        date, an owed Sale Invoice the Drainer has not signed, does not match once
+        either bound is given, so a fiscal period never counts a document the Tax
+        Authority has not seen; that is deliberately different from the default order,
+        which keeps un-issued documents at the newest end. A malformed date, or an
+        `issued_from` after the `issued_to`, is refused under VALIDATION_FAILED rather
+        than answered with an empty list. Every filter combines. Response is the ADR-0006
         nested envelope { data, pagination }; page_size defaults to 50 (max 100).
         Platform Operator only.'
       parameters:
@@ -10251,6 +10261,18 @@ paths:
           reference (default every document)
         in: query
         name: q
+        schema:
+          type: string
+      - description: Emission Date range start (YYYY-MM-DD, the Issuer's country's
+          calendar day, inclusive); documents with no Emission Date do not match
+        in: query
+        name: issued_from
+        schema:
+          type: string
+      - description: Emission Date range end (YYYY-MM-DD, the Issuer's country's calendar
+          day, inclusive); documents with no Emission Date do not match
+        in: query
+        name: issued_to
         schema:
           type: string
       - description: Page number (default 1)

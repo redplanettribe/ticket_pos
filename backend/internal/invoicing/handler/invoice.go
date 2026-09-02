@@ -7,6 +7,7 @@ import (
 	"net/mail"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -156,7 +157,7 @@ func (h *Handler) PreviewTotals(w http.ResponseWriter, r *http.Request) {
 // ListInvoices lists Tax Invoices newest first.
 //
 // @Summary      List Tax Invoices
-// @Description  Returns a page of every Tax Invoice the platform has issued or owes, newest first: the document `kind` (`manual` from the form; `sale` for a Sale Invoice a paid House checkout owed; `credit_note` for its reversal), the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such), and — on a `sale` or `credit_note` — the Ticket Sale id and its Sale Confirmation reference. A document still `owed` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. `attention_since` is when a `needs_attention` document was parked, null otherwise. `recipient_warning` is true on an authorized Sale Invoice the SRI warned about — the Recipient's Tax ID does not exist (advertencia 59) or is incorrect (62) — until the document is superseded (ADR 0061); the status is unaffected, and it is always false while SALE_INVOICING_ENABLED is closed. `kind` narrows the page to one document kind; a value that is not `manual`, `sale` or `credit_note` is refused under VALIDATION_FAILED. `status` narrows the page to one status — `owed`, `pending`, `authorized`, `not_authorized`, `rejected`, `needs_attention`, `withdrawn`, `annulled` or `abandoned` — so that, among other things, every number the platform has abandoned (ADR 0068) can be audited; any other value is refused under VALIDATION_FAILED rather than read as "every status". `recipient_warning=true` narrows the page to the documents carrying a Recipient Warning; any other value is refused under VALIDATION_FAILED, and while SALE_INVOICING_ENABLED is closed the filter answers 404 SALE_INVOICING_UNAVAILABLE. `q` narrows the page to the documents matching one case-insensitive substring, matched against the printed number, the Recipient's legal name, the Recipient's Tax ID and the Sale Confirmation reference of the Ticket Sale the document declares — any one of the four is enough. The term is matched literally, so `%` and `_` are those characters and not wildcards; there is no accent folding and no shortcut for a bare sequential number. Blank or absent is every document. Every filter combines. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
+// @Description  Returns a page of every Tax Invoice the platform has issued or owes, newest first: the document `kind` (`manual` from the form; `sale` for a Sale Invoice a paid House checkout owed; `credit_note` for its reversal), the printed number (`001-001-000000012`), emission date, Recipient, total, status, country and the environment it was issued under (`test` invoices are badged as such), and — on a `sale` or `credit_note` — the Ticket Sale id and its Sale Confirmation reference. A document still `owed` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. `attention_since` is when a `needs_attention` document was parked, null otherwise. `recipient_warning` is true on an authorized Sale Invoice the SRI warned about — the Recipient's Tax ID does not exist (advertencia 59) or is incorrect (62) — until the document is superseded (ADR 0061); the status is unaffected, and it is always false while SALE_INVOICING_ENABLED is closed. `kind` narrows the page to one document kind; a value that is not `manual`, `sale` or `credit_note` is refused under VALIDATION_FAILED. `status` narrows the page to one status — `owed`, `pending`, `authorized`, `not_authorized`, `rejected`, `needs_attention`, `withdrawn`, `annulled` or `abandoned` — so that, among other things, every number the platform has abandoned (ADR 0068) can be audited; any other value is refused under VALIDATION_FAILED rather than read as "every status". `recipient_warning=true` narrows the page to the documents carrying a Recipient Warning; any other value is refused under VALIDATION_FAILED, and while SALE_INVOICING_ENABLED is closed the filter answers 404 SALE_INVOICING_UNAVAILABLE. `q` narrows the page to the documents matching one case-insensitive substring, matched against the printed number, the Recipient's legal name, the Recipient's Tax ID and the Sale Confirmation reference of the Ticket Sale the document declares — any one of the four is enough. The term is matched literally, so `%` and `_` are those characters and not wildcards; there is no accent folding and no shortcut for a bare sequential number. Blank or absent is every document. `issued_from` and `issued_to` narrow the page to an EMISSION DATE range: inclusive calendar days (`YYYY-MM-DD`) compared against the emission date alone — the day in the Issuer's country the document itself carries, the one this list's date column shows — with no timezone conversion, and either bound may be given on its own. A document with NO emission date, an owed Sale Invoice the Drainer has not signed, does not match once either bound is given, so a fiscal period never counts a document the Tax Authority has not seen; that is deliberately different from the default order, which keeps un-issued documents at the newest end. A malformed date, or an `issued_from` after the `issued_to`, is refused under VALIDATION_FAILED rather than answered with an empty list. Every filter combines. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
 // @Tags         operator
 // @Produce      json
 // @Security     BearerAuth
@@ -164,6 +165,8 @@ func (h *Handler) PreviewTotals(w http.ResponseWriter, r *http.Request) {
 // @Param        status             query  string  false  "Document status: owed, pending, authorized, not_authorized, rejected, needs_attention, withdrawn, annulled or abandoned (default every status)"
 // @Param        recipient_warning  query  string  false  "true to list only the documents carrying a Recipient Warning"
 // @Param        q                  query  string  false  "Case-insensitive substring matched against the printed number, the Recipient legal name, the Recipient Tax ID and the Sale Confirmation reference (default every document)"
+// @Param        issued_from        query  string  false  "Emission Date range start (YYYY-MM-DD, the Issuer's country's calendar day, inclusive); documents with no Emission Date do not match"
+// @Param        issued_to          query  string  false  "Emission Date range end (YYYY-MM-DD, the Issuer's country's calendar day, inclusive); documents with no Emission Date do not match"
 // @Param        page       query  int     false  "Page number (default 1)"
 // @Param        page_size  query  int     false  "Page size (default 50, max 100)"
 // @Success      200  {object}  openapi.EnvelopeInvoiceList
@@ -180,6 +183,8 @@ func (h *Handler) ListInvoices(w http.ResponseWriter, r *http.Request) {
 	fields = append(fields, statusFields...)
 	warned, warnedFields := recipientWarningParam(query.Get("recipient_warning"))
 	fields = append(fields, warnedFields...)
+	issuedFrom, issuedTo, issuedFields := issuedRangeParams(query.Get("issued_from"), query.Get("issued_to"))
+	fields = append(fields, issuedFields...)
 	if len(fields) > 0 {
 		_ = platform.WriteValidationError(w, reqID, fields)
 		return
@@ -190,7 +195,14 @@ func (h *Handler) ListInvoices(w http.ResponseWriter, r *http.Request) {
 	// prevent, not a reason to refuse an operator's own typing (#595).
 	// Trimmed to blank is no search, so an empty box is the whole list.
 	search := strings.TrimSpace(query.Get("q"))
-	filter := service.InvoiceFilter{Kind: kind, Status: status, RecipientWarning: warned, Search: search}
+	filter := service.InvoiceFilter{
+		Kind:             kind,
+		Status:           status,
+		RecipientWarning: warned,
+		Search:           search,
+		IssuedFrom:       issuedFrom,
+		IssuedTo:         issuedTo,
+	}
 	list, err := h.svc.ListInvoices(r.Context(), filter, pageParam(query.Get("page")), pageSizeParam(query.Get("page_size")))
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
@@ -405,6 +417,55 @@ func statusParam(raw string) (invoicing.InvoiceStatus, []platform.FieldError) {
 		Code:    platform.CodeInvalidEnum,
 		Message: "must be one of " + strings.Join(names, ", "),
 	}}
+}
+
+// issuedRangeParams parses the `issued_from`/`issued_to` query values into
+// the Emission Date range (#596, spec #593): two inclusive calendar days,
+// each "YYYY-MM-DD", either of which may be absent for an open bound.
+//
+// The Sales list's sold_from/sold_to is the prior art, down to the code and
+// the message (its validateDate, which is unexported in its own handler
+// package; there is no shared parser to reuse, and catalog's Holder List
+// carries its own copy of the same three lines for the same reason). What is
+// NOT copied is the interpretation: the Sales list reads its days in the
+// Event's timezone because sold_at is an instant, while issued_on is already
+// a calendar day in the Issuer's country, so nothing here converts anything.
+//
+// A MALFORMED DATE AND AN INVERTED RANGE ARE BOTH REFUSED rather than
+// answered with an empty list: "no document was emitted in that window" and
+// "that window is not a window" are different facts, and a silent empty page
+// sends an operator looking for documents that are there. The inversion is
+// blamed on `issued_from` (CodeStartAfterEnd names the start of a range),
+// and only when both bounds parsed — one field error per thing wrong with
+// the request, never a second one derived from a value already refused.
+func issuedRangeParams(rawFrom, rawTo string) (string, string, []platform.FieldError) {
+	var fields []platform.FieldError
+	from := issuedDateParam(rawFrom, "issued_from", &fields)
+	to := issuedDateParam(rawTo, "issued_to", &fields)
+	if from != "" && to != "" && from > to {
+		// Lexicographic on YYYY-MM-DD is chronological, which is the whole
+		// reason the wire format is that one.
+		fields = append(fields, platform.FieldError{
+			Field:   "issued_from",
+			Code:    platform.CodeStartAfterEnd,
+			Message: "must be on or before issued_to",
+		})
+	}
+	return from, to, fields
+}
+
+// issuedDateParam trims one bound and checks it is a calendar day. Blank is
+// an open bound and returns "".
+func issuedDateParam(raw, field string, fields *[]platform.FieldError) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
+	}
+	if _, err := time.Parse("2006-01-02", value); err != nil {
+		*fields = append(*fields, platform.FieldError{Field: field, Code: platform.CodeInvalidDate, Message: "must be a date (YYYY-MM-DD)"})
+		return ""
+	}
+	return value
 }
 
 // kindParam parses the `kind` query value: absent is every kind, and

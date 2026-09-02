@@ -35,13 +35,15 @@ test("the unnarrowed view writes no query string at all", () => {
 
 // --- what the URL can and cannot say --------------------------------------
 
-test("a kind, a status, the Recipient Warning and a search term are read off the address bar", () => {
+test("a kind, a status, the Recipient Warning, a search term and a date range are read off the address bar", () => {
   const view = parseOperatorInvoiceListParams({
     page: "3",
     kind: "credit_note",
     status: "abandoned",
     recipient_warning: "true",
     q: "001-001-000000012",
+    issued_from: "2026-08-01",
+    issued_to: "2026-08-31",
   });
   assert.deepEqual(view, {
     page: 3,
@@ -50,6 +52,8 @@ test("a kind, a status, the Recipient Warning and a search term are read off the
       status: "abandoned",
       recipientWarningOnly: true,
       q: "001-001-000000012",
+      issuedFrom: "2026-08-01",
+      issuedTo: "2026-08-31",
     },
   });
 });
@@ -94,13 +98,20 @@ test("only the literal true narrows to the Recipient Warning", () => {
 test("every view the builder writes is the view the parser reads back", () => {
   const views = [
     { page: 1, filters: EMPTY_OPERATOR_INVOICE_FILTERS },
-    { page: 1, filters: { kind: "sale", status: "all", recipientWarningOnly: false, q: "" } },
-    { page: 4, filters: { kind: "all", status: "needs_attention", recipientWarningOnly: false, q: "" } },
-    { page: 2, filters: { kind: "manual", status: "authorized", recipientWarningOnly: true, q: "" } },
+    { page: 1, filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, kind: "sale" } },
+    { page: 4, filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, status: "needs_attention" } },
+    { page: 2, filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, kind: "manual", status: "authorized", recipientWarningOnly: true } },
     // The search is a link like any other narrowing — which is what makes a
     // reload, a bookmark and the back button show the same search result.
-    { page: 1, filters: { kind: "all", status: "all", recipientWarningOnly: false, q: "TP-ABCDE234" } },
-    { page: 3, filters: { kind: "sale", status: "owed", recipientWarningOnly: false, q: "Lopez & Cía. 50%" } },
+    { page: 1, filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, q: "TP-ABCDE234" } },
+    { page: 3, filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, kind: "sale", status: "owed", q: "Lopez & Cía. 50%" } },
+    // The Emission Date range, and each of its bounds alone (#596): the
+    // month-end view an accountant is handed is a link, and so is
+    // "everything since July 1st".
+    { page: 1, filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, issuedFrom: "2026-08-01", issuedTo: "2026-08-31" } },
+    { page: 2, filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, issuedFrom: "2026-07-01" } },
+    { page: 1, filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, issuedTo: "2026-07-01" } },
+    { page: 5, filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, status: "authorized", q: "ZEBRA", issuedFrom: "2026-08-01", issuedTo: "2026-08-31" } },
   ] as const;
   for (const view of views) {
     const query = operatorInvoiceListQuery(view.page, view.filters);
@@ -114,11 +125,11 @@ test("every view the builder writes is the view the parser reads back", () => {
 // --- the page reset rule --------------------------------------------------
 
 test("changing a filter returns to the first page", () => {
-  const narrowed = { kind: "sale", status: "authorized", recipientWarningOnly: false, q: "" } as const;
+  const narrowed = { ...EMPTY_OPERATOR_INVOICE_FILTERS, kind: "sale", status: "authorized" } as const;
   const query = operatorInvoiceListQueryAfterFilterChange(narrowed, { status: "abandoned" });
   assert.deepEqual(parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1)))), {
     page: 1,
-    filters: { kind: "sale", status: "abandoned", recipientWarningOnly: false, q: "" },
+    filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, kind: "sale", status: "abandoned" },
   });
 });
 
@@ -127,12 +138,12 @@ test("submitting a search returns to the first page and keeps the other filters"
   // narrowing rather than replacing it, and the page resets, because the
   // searched result has fewer pages than the one being read.
   const query = operatorInvoiceListQueryAfterFilterChange(
-    { kind: "sale", status: "all", recipientWarningOnly: false, q: "" },
+    { ...EMPTY_OPERATOR_INVOICE_FILTERS, kind: "sale" },
     { q: "ZEBRA" },
   );
   assert.deepEqual(parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1)))), {
     page: 1,
-    filters: { kind: "sale", status: "all", recipientWarningOnly: false, q: "ZEBRA" },
+    filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, kind: "sale", q: "ZEBRA" },
   });
 });
 
@@ -140,15 +151,14 @@ test("clearing the search empties the term and leaves the filters standing", () 
   // Clear is the search's, not the view's: the Kind an operator set survives
   // it. Resetting everything at once is #598's button.
   const query = operatorInvoiceListQueryAfterFilterChange(
-    { kind: "sale", status: "owed", recipientWarningOnly: false, q: "ZEBRA" },
+    { ...EMPTY_OPERATOR_INVOICE_FILTERS, kind: "sale", status: "owed", q: "ZEBRA" },
     { q: "" },
   );
   assert.equal(query.includes("q="), false, `a cleared search writes no q: ${query}`);
   assert.deepEqual(parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1)))).filters, {
+    ...EMPTY_OPERATOR_INVOICE_FILTERS,
     kind: "sale",
     status: "owed",
-    recipientWarningOnly: false,
-    q: "",
   });
 });
 
@@ -156,10 +166,11 @@ test("a filter change keeps the filters it did not touch", () => {
   // Ticking the Recipient Warning box on a kind-narrowed view narrows further
   // rather than starting over — the deep link and the search stay put too.
   const query = operatorInvoiceListQueryAfterFilterChange(
-    { kind: "sale", status: "all", recipientWarningOnly: true, q: "Lopez" },
+    { ...EMPTY_OPERATOR_INVOICE_FILTERS, kind: "sale", recipientWarningOnly: true, q: "Lopez" },
     { status: "authorized" },
   );
   assert.deepEqual(parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1)))).filters, {
+    ...EMPTY_OPERATOR_INVOICE_FILTERS,
     kind: "sale",
     status: "authorized",
     recipientWarningOnly: true,
@@ -169,9 +180,8 @@ test("a filter change keeps the filters it did not touch", () => {
 
 test("paging is the one change that keeps its page", () => {
   const query = operatorInvoiceListQuery(2, {
+    ...EMPTY_OPERATOR_INVOICE_FILTERS,
     kind: "sale",
-    status: "all",
-    recipientWarningOnly: false,
     q: "Lopez",
   });
   const view = parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1))));
@@ -193,4 +203,90 @@ test("a narrowed view is told apart from the whole list", () => {
   // not "the platform has issued no documents" (#595): the two answers lead
   // to different next moves.
   assert.equal(hasActiveOperatorInvoiceFilters({ ...EMPTY_OPERATOR_INVOICE_FILTERS, q: "ZEBRA" }), true);
+});
+
+// --- the Emission Date range ----------------------------------------------
+
+/**
+ * The range (#596) is two inclusive calendar days on the EMISSION DATE — the
+ * day the list's Date column shows — so "everything emitted in August" is a
+ * link an operator can hand an accountant. What is worth asserting on this
+ * side is only what the address bar carries: the bounds go into the URL as
+ * written, come back as the same view, reset the page, and clear together.
+ * What a bound MEANS — that an un-issued document falls out, that an inverted
+ * range is refused — is the API's, and is asserted against the API.
+ */
+
+test("both bounds are read off the address bar, and either may stand alone", () => {
+  const both = parseOperatorInvoiceListParams({ issued_from: "2026-08-01", issued_to: "2026-08-31" }).filters;
+  assert.equal(both.issuedFrom, "2026-08-01");
+  assert.equal(both.issuedTo, "2026-08-31");
+
+  // "Everything since July 1st" is one parameter, not two: an absent bound is
+  // an open one and never invents the other end of the range.
+  assert.deepEqual(parseOperatorInvoiceListParams({ issued_from: "2026-07-01" }).filters, {
+    ...EMPTY_OPERATOR_INVOICE_FILTERS,
+    issuedFrom: "2026-07-01",
+  });
+  assert.deepEqual(parseOperatorInvoiceListParams({ issued_to: "2026-07-01" }).filters, {
+    ...EMPTY_OPERATOR_INVOICE_FILTERS,
+    issuedTo: "2026-07-01",
+  });
+  assert.deepEqual(parseOperatorInvoiceListParams({}).filters, EMPTY_OPERATOR_INVOICE_FILTERS);
+});
+
+test("a bound the address bar carries is passed on rather than second-guessed", () => {
+  // A malformed date is the API's VALIDATION_FAILED, not a filter quietly
+  // dropped here: a hand-edited link that says something impossible must be
+  // answered, never silently widened into a view it does not name.
+  assert.equal(parseOperatorInvoiceListParams({ issued_from: "August" }).filters.issuedFrom, "August");
+  // An inverted range likewise travels to the API, which refuses it.
+  const inverted = parseOperatorInvoiceListParams({ issued_from: "2026-08-31", issued_to: "2026-08-01" }).filters;
+  assert.equal(inverted.issuedFrom, "2026-08-31");
+  assert.equal(inverted.issuedTo, "2026-08-01");
+  // Padding a link picked up is not a bound.
+  assert.equal(parseOperatorInvoiceListParams({ issued_to: "  " }).filters.issuedTo, "");
+});
+
+test("setting a date returns to the first page and keeps the other filters", () => {
+  // Picking a start date on page seven of a status-narrowed view: the bound
+  // joins the narrowing, and the page resets, because the bounded result has
+  // fewer pages than the one being read.
+  const query = operatorInvoiceListQueryAfterFilterChange(
+    { ...EMPTY_OPERATOR_INVOICE_FILTERS, status: "authorized", q: "ZEBRA" },
+    { issuedFrom: "2026-08-01" },
+  );
+  assert.deepEqual(parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1)))), {
+    page: 1,
+    filters: { ...EMPTY_OPERATOR_INVOICE_FILTERS, status: "authorized", q: "ZEBRA", issuedFrom: "2026-08-01" },
+  });
+});
+
+test("clearing the dates empties both bounds and leaves the filters standing", () => {
+  // Clear is the range's, not the view's: half a range is a different view
+  // rather than a cleared one, and the Kind an operator set survives it.
+  // Resetting everything at once is #598's button.
+  const query = operatorInvoiceListQueryAfterFilterChange(
+    { ...EMPTY_OPERATOR_INVOICE_FILTERS, kind: "sale", issuedFrom: "2026-08-01", issuedTo: "2026-08-31" },
+    { issuedFrom: "", issuedTo: "" },
+  );
+  assert.equal(query.includes("issued_"), false, `cleared dates write no bound: ${query}`);
+  assert.deepEqual(parseOperatorInvoiceListParams(Object.fromEntries(new URLSearchParams(query.slice(1)))).filters, {
+    ...EMPTY_OPERATOR_INVOICE_FILTERS,
+    kind: "sale",
+  });
+});
+
+test("a date-bounded view is a narrowed view", () => {
+  // A month the platform emitted nothing in must read "nothing matches these
+  // filters" and not "the platform has issued no documents" — the first sends
+  // the operator to widen the window, the second to stop looking.
+  assert.equal(
+    hasActiveOperatorInvoiceFilters({ ...EMPTY_OPERATOR_INVOICE_FILTERS, issuedFrom: "2026-08-01" }),
+    true,
+  );
+  assert.equal(
+    hasActiveOperatorInvoiceFilters({ ...EMPTY_OPERATOR_INVOICE_FILTERS, issuedTo: "2026-08-31" }),
+    true,
+  );
 });

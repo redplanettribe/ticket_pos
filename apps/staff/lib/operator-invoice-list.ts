@@ -49,9 +49,9 @@ export const FIRST_PAGE = 1;
  *
  * "all", `false` and "" are the unfiltered values and are never written to the
  * URL, which keeps the common view's address clean. The following slices of
- * spec #593 add `issuedFrom`, `issuedTo` and `environment` here, one field per
- * filter, alongside the sort in its own pair of params (#596-#598); nothing in
- * this module is shaped so that adding one costs more than a line.
+ * spec #593 add `environment` here, one field per filter, alongside the sort
+ * in its own pair of params (#597-#598); nothing in this module is shaped so
+ * that adding one costs more than a line.
  */
 export type OperatorInvoiceFilters = {
   kind: InvoiceKindFilter;
@@ -69,6 +69,21 @@ export type OperatorInvoiceFilters = {
    * side only carries the term.
    */
   q: string;
+  /**
+   * The Emission Date range (#596): inclusive calendar-day bounds, each
+   * "YYYY-MM-DD" or "" for an open bound, so "everything emitted in August"
+   * and "everything since July 1st" are both one link.
+   *
+   * They are the EMISSION DATE's and nothing else's — the day in the
+   * Issuer's country the document carries, which is what the Date column
+   * shows — so a document not yet signed falls out of a bounded view. That
+   * rule lives in the API, which also refuses a malformed or inverted range;
+   * nothing here second-guesses either, since a date input can produce
+   * neither and a hand-edited address bar deserves the API's answer rather
+   * than a silently widened view.
+   */
+  issuedFrom: string;
+  issuedTo: string;
 };
 
 /** The whole list, unnarrowed: what a bare /operator/invoicing shows. */
@@ -77,6 +92,8 @@ export const EMPTY_OPERATOR_INVOICE_FILTERS: OperatorInvoiceFilters = {
   status: "all",
   recipientWarningOnly: false,
   q: "",
+  issuedFrom: "",
+  issuedTo: "",
 };
 
 /** The raw query params the list page reads, exactly as Next hands them over. */
@@ -86,6 +103,8 @@ export type OperatorInvoiceListSearchParams = {
   status?: string;
   recipient_warning?: string;
   q?: string;
+  issued_from?: string;
+  issued_to?: string;
 };
 
 /** The list's whole URL state: which page of which narrowing. */
@@ -121,6 +140,12 @@ function parseOperatorInvoiceFilters(
     // the box never typed; a term that trims to nothing is no search, so
     // `?q=%20` shows the whole list rather than an empty one (#595).
     q: (searchParams.q ?? "").trim(),
+    // Carried verbatim (bar the trim a link can pick up): what a calendar day
+    // means is the API's, and a bound this app rewrote would show a view the
+    // address bar does not name. A malformed one is the API's 400, not a
+    // filter quietly dropped here (#596).
+    issuedFrom: (searchParams.issued_from ?? "").trim(),
+    issuedTo: (searchParams.issued_to ?? "").trim(),
   };
 }
 
@@ -149,6 +174,8 @@ function appendOperatorInvoiceFilters(
   if (filters.status !== "all") params.set("status", filters.status);
   if (filters.recipientWarningOnly) params.set("recipient_warning", "true");
   if (filters.q !== "") params.set("q", filters.q);
+  if (filters.issuedFrom !== "") params.set("issued_from", filters.issuedFrom);
+  if (filters.issuedTo !== "") params.set("issued_to", filters.issuedTo);
 }
 
 /**
@@ -191,7 +218,12 @@ export function hasActiveOperatorInvoiceFilters(filters: OperatorInvoiceFilters)
     filters.recipientWarningOnly ||
     // A search is a narrowing like any other (#595): a term that found nothing
     // must say so, not report that the platform has issued no documents.
-    filters.q !== ""
+    filters.q !== "" ||
+    // A date range is a narrowing too (#596), and the one most likely to come
+    // back empty: a month the platform emitted nothing in is not a platform
+    // that has issued nothing.
+    filters.issuedFrom !== "" ||
+    filters.issuedTo !== ""
   );
 }
 

@@ -205,6 +205,72 @@ function InvoiceSearchBox({
   );
 }
 
+// EmissionDateRange is the month-end view: two inclusive calendar-day bounds
+// on the EMISSION DATE (#596), which is the day the Date column beside them
+// shows. Either may stand alone, so "everything since July 1st" is one input.
+//
+// APPLIED ON CHANGE, unlike the search box: a date input commits a whole date
+// at once (there is no half-typed 2026-08-1 to narrow the list under the
+// operator's hands), so there is nothing for a submit button to wait for.
+// Each change is a router.push that returns to page one, like every other
+// filter here.
+//
+// The two inputs bound EACH OTHER — max on the start, min on the end — so the
+// picker cannot offer an inverted range. The API refuses one anyway, since a
+// hand-edited address bar reaches it without passing through these.
+//
+// Clear empties BOTH bounds and nothing else: half a range is a different
+// view, not a cleared one, and resetting every filter at once is #598's.
+function EmissionDateRange({
+  filters,
+  onApply,
+}: {
+  filters: OperatorInvoiceFilters;
+  onApply: (patch: Partial<OperatorInvoiceFilters>) => void;
+}) {
+  const t = useTranslations("operator");
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="operator-invoice-issued-from" className="text-muted-foreground">
+          {t("invoicingIssuedFromLabel")}
+        </Label>
+        <Input
+          id="operator-invoice-issued-from"
+          type="date"
+          value={filters.issuedFrom}
+          max={filters.issuedTo || undefined}
+          onChange={(event) => onApply({ issuedFrom: event.target.value })}
+          className="h-9"
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="operator-invoice-issued-to" className="text-muted-foreground">
+          {t("invoicingIssuedToLabel")}
+        </Label>
+        <Input
+          id="operator-invoice-issued-to"
+          type="date"
+          value={filters.issuedTo}
+          min={filters.issuedFrom || undefined}
+          onChange={(event) => onApply({ issuedTo: event.target.value })}
+          className="h-9"
+        />
+      </div>
+      {filters.issuedFrom || filters.issuedTo ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => onApply({ issuedFrom: "", issuedTo: "" })}
+        >
+          {t("invoicingIssuedRangeClear")}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 export function OperatorInvoicesClient({
   page,
   filters,
@@ -343,6 +409,8 @@ export function OperatorInvoicesClient({
             </div>
             <div className="flex flex-col items-end gap-2">
               <InvoiceSearchBox q={filters.q} onApply={applyFilters} />
+              {/* Beside the box, because "this buyer, in August" is one question. */}
+              <EmissionDateRange filters={filters} onApply={applyFilters} />
               <label className="flex items-center gap-2 text-sm">
                 <span className="text-muted-foreground">{t("invoicingKindFilterLabel")}</span>
                 <select
@@ -398,11 +466,14 @@ export function OperatorInvoicesClient({
               // issued nothing when nothing is narrowing the view. A search
               // spans four fields and combines with the rest, so once a term
               // is set the honest message is the general one rather than a
-              // sentence about the Kind.
+              // sentence about the Kind. An Emission Date range says the same
+              // thing (#596): "no documents match these filters" is the
+              // sentence that sends the operator to widen the window, where
+              // "no documents of that kind" would blame the wrong control.
               <p className="text-sm text-muted-foreground">
                 {!hasActiveOperatorInvoiceFilters(filters)
                   ? t("invoicingListEmpty")
-                  : filters.q
+                  : filters.q || filters.issuedFrom || filters.issuedTo
                     ? t("invoicingListEmptyForFilters")
                     : filters.recipientWarningOnly
                       ? t("invoicingListEmptyForRecipientWarning")

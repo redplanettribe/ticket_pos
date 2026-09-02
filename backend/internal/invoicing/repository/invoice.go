@@ -642,6 +642,23 @@ type InvoiceFilter struct {
 	// declared, and a Sale re-addressed afterwards (#419) must still be found
 	// by the name the SRI holds.
 	Search string
+	// IssuedFrom and IssuedTo are inclusive calendar-day bounds on the
+	// EMISSION DATE (#596, spec #593), each "YYYY-MM-DD" or "" for an open
+	// bound, so "everything emitted in August" and "everything since July
+	// 1st" are both expressible.
+	//
+	// THE FILTER IS FISCAL, NOT OPERATIONAL. It compares against issued_on
+	// alone — the calendar day in the Issuer's country the document itself
+	// carries and the Tax Authority reads, which is the value the list's
+	// Date column shows. There is deliberately NO COALESCE onto created_at
+	// here, so a document with no Emission Date (an owed Sale Invoice the
+	// Drainer has not signed) matches NEITHER bound: a fiscal month must
+	// never count a document the authority has not seen. That is the exact
+	// opposite of what the ORDER BY below does with the same column, and
+	// both are right — the sort keeps un-issued rows visible at the top,
+	// the filter keeps them out of a declared period.
+	IssuedFrom string
+	IssuedTo   string
 }
 
 // invoiceListFrom is the least the list's filters can be decided from: the
@@ -693,6 +710,23 @@ func invoiceListWhere(filter InvoiceFilter) (string, []any) {
 	if filter.Search != "" {
 		args = append(args, "%"+platform.LikeEscape(filter.Search)+"%")
 		where += " AND " + fmt.Sprintf(invoiceListSearch, len(args))
+	}
+	// The Emission Date bounds (#596). Each is bound as text and cast to a
+	// date in the SQL, so the comparison is day against day: issued_on is
+	// already a DATE — the Issuer's country's calendar day, stored as one —
+	// and no timezone is crossed on either side of the operator's typing.
+	//
+	// Each is added only when given, so an absent bound is an open one
+	// rather than a predicate that has to mean "everything"; and NULL
+	// issued_on fails both comparisons on its own, which is how an un-issued
+	// document falls out of a date-bounded view without a clause saying so.
+	if filter.IssuedFrom != "" {
+		args = append(args, filter.IssuedFrom)
+		where += fmt.Sprintf(" AND i.issued_on >= $%d::date", len(args))
+	}
+	if filter.IssuedTo != "" {
+		args = append(args, filter.IssuedTo)
+		where += fmt.Sprintf(" AND i.issued_on <= $%d::date", len(args))
 	}
 	return where, args
 }
