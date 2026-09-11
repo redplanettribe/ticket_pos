@@ -53,19 +53,22 @@ test("clampQuantity never lets a sold-out Ticket Type hold a quantity", () => {
   assert.equal(clampQuantity(1, soldOut), 0);
 });
 
-test("clampQuantity still bounds a closed Ticket Type by its stock alone", () => {
-  // The Sales Cutoff is NOT applied here, on purpose: the steppers are still
-  // drawn for a closed Ticket Type, and a `+` that is clickable and does nothing
-  // is worse for a buyer than the API's refusal. restoreSelection drops the line
-  // and begin-checkout refuses the rest (ADR 0070). Withdrawing the control is
-  // what will make zero the right answer here.
+test("clampQuantity never lets a closed Ticket Type hold a quantity", () => {
+  // The card no longer draws a stepper for a closed Ticket Type (#607), so zero
+  // is now the honest answer here: there is no control left that could put a
+  // number in and no basket line the API would accept (ADR 0070). Stock is
+  // beside the point — a closed Ticket Type with five left offers none of them.
   const closed: SellableTicketType = { ...generalAdmission, closed: true };
-  assert.equal(clampQuantity(3, closed), 3);
-  assert.equal(clampQuantity(99, closed), 5);
-  // And a Ticket Type nobody has typed a date into is untouched either way:
-  // absent is not closed, which is the state every Ticket Type is in today.
+  assert.equal(clampQuantity(3, closed), 0);
+  assert.equal(clampQuantity(99, closed), 0);
+});
+
+test("a Ticket Type with no Sales Cutoff clamps exactly as it did before", () => {
+  // Absent is not closed, which is the state every Ticket Type is in today: the
+  // feature is inert until an organizer types a date (ADR 0070).
   assert.equal(clampQuantity(3, generalAdmission), 3);
   assert.equal(clampQuantity(3, { ...generalAdmission, closed: false }), 3);
+  assert.equal(clampQuantity(99, { ...generalAdmission, closed: false }), 5);
 });
 
 // --- Purchase Limit (ADR 0025) ---------------------------------------------

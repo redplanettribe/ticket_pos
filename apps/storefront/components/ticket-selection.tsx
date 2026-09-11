@@ -71,6 +71,7 @@ import {
 import { TERMS_PATH } from "@/lib/terms";
 
 import { PromotionBadge, PromotionDeadline, TicketTypePrice } from "./promotion";
+import { SalesClosedBadge, SalesClosedLine } from "./sales-cutoff";
 
 /**
  * Ticket selection and the one checkout step, inline on the event page
@@ -771,7 +772,16 @@ export function TicketSelection({
           // False for every anonymous visitor, who has no known holdings at all,
           // so the page they see is unchanged.
           const limitReached = allowanceSpent(ticketType);
-          const sellable = !ticketType.sold_out && !limitReached;
+          // Past its Sales Cutoff, on the SERVER's clock and never on this
+          // browser's (ADR 0070). The verdict arrives on the payload already
+          // made; deriving it here from sales_cutoff_at would let a machine set
+          // to yesterday draw a stepper the API is going to refuse, which is the
+          // precise failure the verdict exists to prevent.
+          //
+          // It joins the unsellable set rather than the sold-out one: the words
+          // stay different everywhere, and the treatment is the same because the
+          // buyer can do the same thing with either card — nothing.
+          const sellable = !ticketType.sold_out && !limitReached && !ticketType.closed;
           return (
             <Card key={ticketType.id} className={sellable ? undefined : "opacity-70"}>
               <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
@@ -784,6 +794,16 @@ export function TicketSelection({
                     {/* A different variant as well as different words: the two
                         unavailable states have to be told apart at a glance, not
                         only by reading. */}
+                    {/* The same badge the read-only card draws, from the same
+                        module, so this Event cannot say one thing while it is
+                        selling and another once it has ended.
+
+                        Placed between sold out and the Purchase Limit, which is
+                        the rank both apps hold these states in and the one
+                        lib/selection-url.ts already blames an adjustment by
+                        (ADR 0070). Collapsing the three into ONE badge is #608's
+                        and lands in the module this one comes from. */}
+                    <SalesClosedBadge ticketType={ticketType} />
                     {limitReached ? (
                       <Badge variant="outline">{eventCopy("limitReached")}</Badge>
                     ) : null}
@@ -793,11 +813,23 @@ export function TicketSelection({
                     <p className="text-sm text-muted-foreground">{ticketType.description}</p>
                   ) : null}
                   <PromotionDeadline ticketType={ticketType} timezone={timezone} />
+                  {/* When the door shut, on the Event's clock — in the slot the
+                      Promotion deadline uses, because it answers the same shape
+                      of question. A Ticket Type can carry both at once: a
+                      Promotion that ran until Friday on a tier that closed on
+                      Saturday is two true sentences. */}
+                  <SalesClosedLine ticketType={ticketType} timezone={timezone} />
                   {/* The remaining count stays on a Ticket Type whose allowance
                       is spent, and it is the evidence for the sentence beside
                       it: "seven remaining" under "your limit reached" is the
-                      Event visibly not being full. */}
-                  {!ticketType.sold_out ? (
+                      Event visibly not being full.
+
+                      It comes OFF a closed one, though, and for the opposite
+                      reason: that stock is real and unbuyable, so quoting it
+                      would be an offer this page cannot honour. Closed is
+                      already told apart from sold out in words, so it does not
+                      need the count to prove the Event is not full. */}
+                  {!ticketType.sold_out && !ticketType.closed ? (
                     <p className="text-sm text-muted-foreground">
                       {eventCopy("remaining", { count: ticketType.remaining })}
                     </p>

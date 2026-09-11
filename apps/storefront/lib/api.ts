@@ -355,6 +355,17 @@ export type PublicTicketType = {
   // Never folded into sold_out: capacity exhausted and time run out are
   // different facts and get different words on every surface (ADR 0070).
   closed: boolean;
+  // The Sales Cutoff exactly as the organizer set it: an RFC3339 instant, null
+  // on the Ticket Types — nearly all of them — that never stop selling.
+  //
+  // Unconverted on the wire and read in the EVENT's timezone, the way a
+  // Promotion's ends_at is, because that is the clock the organizer typed it on
+  // (ADR 0070). It travels beside `closed` rather than instead of it: this is
+  // what the card names when it says WHEN sales closed, and the verdict beside
+  // it is what decides WHETHER they did. Comparing this against the browser's
+  // clock to answer that second question is the one use it must never be put
+  // to — see lib/sales-cutoff.ts.
+  sales_cutoff_at: string | null;
   promotion: PublicPromotion | null;
   // The Purchase Limit: the most of this Ticket Type one Customer may hold at
   // once, or null when it is unrestricted (ADR 0025). A raw count of tickets,

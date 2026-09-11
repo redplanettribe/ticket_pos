@@ -224,6 +224,8 @@
     "soldOut": "Entradas agotadas",
     "limitReached": "Alcanzó su límite",
     "limitReachedNote": "Este tipo de entrada tiene un límite de {limit} por persona y usted ya alcanzó el suyo. No es que se hayan agotado: es solo su propio límite.",
+    "salesClosed": "Ventas cerradas",
+    "salesClosedAt": "Las ventas cerraron el <when>{closedAt}</when>",
     "remaining": "{count, plural, one {queda #} other {quedan #}}",
     "promotionSavings": "{percent}% de descuento",
     "promotionDeadline": "Precio promocional hasta <when>{deadline}</when>",

@@ -247,11 +247,12 @@ export function restoreSelection(
     }
     // A closed Ticket Type restores nothing whatever its stock says: the API
     // refuses that line at begin-checkout, so putting it back would hand the
-    // buyer a basket that cannot be paid for (ADR 0070). It is judged here and
-    // not inside clampQuantity because the steppers are still drawn for a closed
-    // Ticket Type, and a `+` that is clickable and does nothing is worse for a
-    // buyer than the refusal they would otherwise meet; see clampQuantity.
-    const restored = ticketType.closed ? 0 : clampQuantity(asked, ticketType);
+    // buyer a basket that cannot be paid for (ADR 0070). clampQuantity is what
+    // says so — the cut used to be made here instead, while the steppers were
+    // still drawn for a closed Ticket Type and zero would have left a `+` that
+    // was clickable and did nothing. Withdrawing the control (#607) put the rule
+    // where the rest of the clamping lives, and this line inherits it.
+    const restored = clampQuantity(asked, ticketType);
     if (restored > 0) {
       selection[ticketType.id] = restored;
     }
