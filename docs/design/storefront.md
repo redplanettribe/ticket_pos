@@ -151,12 +151,72 @@ Document multi-event checkout as deferred if requested later.
 
 Each Ticket Type is a **card** with:
 
-- Name and description
+- Name and **one** state badge beside it (below)
+- Description
 - Price (formatted per [foundation.md](./foundation.md))
-- Remaining capacity or **Sold out** badge
-- Quantity stepper (hidden or disabled when sold out)
+- Remaining capacity, on a card that can still be bought
+- Quantity stepper, on a card that can still be bought
 
-Sold-out types remain visible but clearly unavailable — do not hide them without reason.
+Unsellable types remain visible but clearly unavailable — dimmed, no stepper, no remaining
+count — and are never hidden without reason. A Customer is entitled to see what an Event
+offered and at what price.
+
+### One badge, ranked
+
+A card wears **one** state badge, never three arguing with each other. The rank is the same
+in both apps and in the restored-basket adjustments ([ADR 0070](../adr/0070-a-ticket-type-closes-on-the-storefronts-clock-alone-judged-once-at-begin-checkout.md)):
+
+| Rank | Badge | Variant | Why it wins |
+|------|-------|---------|-------------|
+| 1 | **Sold out** | `secondary` | The stronger fact, and it changes what the buyer does next |
+| 2 | **Sales closed** | `secondary` | Time ran out rather than stock — never worded as sold out |
+| 3 | **Your limit reached** | `outline` | A statement about one reader, not about the Event |
+| — | the countdown (below) | `warning` | Only on a card in none of the three |
+
+The **Promotion** badge is not ranked against these. It is a claim about price rather than
+availability, so a still-buyable card may wear both — but it comes off a card nobody can buy,
+because "37% off" over a closed ticket advertises a bargain that does not exist.
+
+### The countdown
+
+For the seven calendar days before a **Sales Cutoff**, a still-buyable card counts down beside
+its name: **Closes today**, **Closes tomorrow**, then **N days left** for two through seven.
+Nothing on the eighth day out. No hours, no minutes, no ticking clock.
+
+Counted on the **Event's** calendar, not in 24-hour blocks, so the badge says the same thing all
+day and a buyer in Madrid and one in Quito are told the same thing about the same Event. Seven is
+a presentation constant in one place — a judgement about when a deadline becomes news, not a term
+of sale an organizer sets.
+
+**Amber (`warning`), never red.** `destructive` means *failure* in both apps, and teaching buyers
+that red also means *hurry* spends the one meaning it has. The escalation is carried by the words.
+Every badge is ordinary visible text, so a screen reader is told the state and the deadline in
+words and colour is never the only signal.
+
+The countdown is derived only inside the open branch, from the reader's clock. The server owns the
+verdict; the worst a skewed browser clock can do is put the number a day out, and it can never
+produce a countdown on a card the server called closed.
+
+### A closed Ticket Type
+
+Dimmed, no stepper, no remaining count — stock that is real and unbuyable must not be quoted —
+with the **Sales closed** badge and, in the slot the Promotion deadline uses, the time it closed
+on the Event's clock: whether a Customer missed it by an hour or by a month is the difference
+between writing to ask and giving up. The read-only card on an ended Event keeps both, so the
+record matches what a Customer saw while it was selling, and never gets the countdown.
+
+### An Event whose Ticket Types have all closed
+
+Judged on the Event's own `all_closed`, never on nothing being buyable. The ticket list stays and
+keeps its prices, the sticky bar is **not drawn**, and one sentence sits where it was:
+"Ticket sales for this event have closed". An entirely *sold-out* Event is a different sentence
+and this feature does not write it. A mixed Event — some closed, the rest exhausted — reads
+**sold out**, the stronger fact.
+
+On **listing cards** such an Event shows a third state beside sold out, reading **Sales closed**.
+Its "from" price slot goes quiet, because the price is computed over the Ticket Types still open
+in time and there is none left a Customer could pay; the badge is what keeps the blank slot from
+reading as a card that failed to load.
 
 ## External Registration
 

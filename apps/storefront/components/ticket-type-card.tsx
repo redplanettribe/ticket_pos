@@ -1,10 +1,10 @@
-import { Badge, Card, CardContent } from "@ticket-pos/ui";
+import { Card, CardContent } from "@ticket-pos/ui";
 import { useTranslations } from "next-intl";
 
 import type { PublicTicketType } from "@/lib/api";
 
 import { PromotionBadge, PromotionDeadline, TicketTypePrice } from "./promotion";
-import { SalesClosedBadge, SalesClosedLine } from "./sales-cutoff";
+import { SalesClosedLine, TicketTypeStateBadge } from "./sales-cutoff";
 
 export function TicketTypeCard({
   ticketType,
@@ -34,9 +34,14 @@ export function TicketTypeCard({
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-semibold">{ticketType.name}</h3>
-            {ticketType.sold_out ? <Badge variant="secondary">{t("soldOut")}</Badge> : null}
-            <SalesClosedBadge ticketType={ticketType} />
-            <PromotionBadge ticketType={ticketType} />
+            {/* One state badge, ranked in the module both lists share. This card
+                is given no clock, so it can never count down: the Event is over,
+                and a deadline on it is noise rather than news (ADR 0070). */}
+            <TicketTypeStateBadge ticketType={ticketType} />
+            {/* A price claim only where there is still a sale to make it about.
+                "37% off" over a sold-out or closed Ticket Type advertises
+                something nobody can buy. */}
+            {sellable ? <PromotionBadge ticketType={ticketType} /> : null}
           </div>
           {ticketType.description ? (
             <p className="text-sm text-muted-foreground">{ticketType.description}</p>

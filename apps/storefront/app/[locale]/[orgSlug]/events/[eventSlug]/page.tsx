@@ -358,6 +358,25 @@ export default async function EventPage({ params, searchParams }: EventPageProps
                 buyerHoldsFirstTicket={event.buyer_holds_first_ticket}
                 priceIncludesFee={event.price_includes_fee}
                 timezone={event.timezone}
+                // Every Ticket Type past its Sales Cutoff (ADR 0070). The
+                // selection still renders — the list, the descriptions and the
+                // prices all stay, because a Customer is entitled to see what
+                // this Event offered and at what price — and what goes is the
+                // sticky Buy bar, replaced by a sentence saying why.
+                //
+                // Handed down rather than derived from the cards for the same
+                // reason each card's `closed` is: the server owns the clock.
+                allClosed={event.all_closed}
+                // The clock the countdown counts from, read HERE — on the
+                // server, once, with the page — rather than at render inside a
+                // Client Component that is also server-rendered. Reading it in
+                // both places is reading it twice, and across the Event's
+                // midnight the two answers differ by a day: SSR would stream one
+                // rung and hydration would draw another (ADR 0070).
+                //
+                // It is the same clock that decided `closed` and `all_closed`,
+                // so the countdown can never contradict the verdict beside it.
+                now={new Date()}
                 // The current Policy Version's Short Notice and checkbox
                 // labels, read here so the checkout dialog can show what is
                 // being accepted at the moment it is accepted (#253, ADR 0036).

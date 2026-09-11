@@ -3,12 +3,19 @@ import { useTranslations } from "next-intl";
 
 import { useFormatLocale } from "@/i18n/format-locale";
 import type { PublicTicketType } from "@/lib/api";
-import { formatSalesCutoff } from "@/lib/sales-cutoff";
+import { formatSalesCutoff, ticketTypeBadge } from "@/lib/sales-cutoff";
 
 /**
- * How a Sales Cutoff looks on the Storefront once it has passed: the "Sales
- * closed" badge beside the Ticket Type's name, and the line under it saying
- * when the door shut (ADR 0070).
+ * How a Sales Cutoff looks on the Storefront: the one badge beside a Ticket
+ * Type's name — counting the last week down while it is still selling, saying
+ * "Sales closed" once the door has shut — and the line under it saying when that
+ * was (ADR 0070).
+ *
+ * The badge outgrew the cutoff and now carries sold out and limit reached too,
+ * because those are the states it has to beat: one card says one thing about
+ * itself, and the only way to guarantee that is for one place to choose. Ranking
+ * them elsewhere and drawing them here would let a fourth badge reappear on one
+ * list and not the other, which is exactly what this replaced.
  *
  * Two surfaces list Ticket Types — the sellable list with its steppers and the
  * read-only list on an Event that has ended — and they must say the same thing
@@ -37,23 +44,62 @@ import { formatSalesCutoff } from "@/lib/sales-cutoff";
  */
 
 /**
- * "Sales closed" — the `secondary` variant, the same one the sold-out badge
- * wears, because this is a statement of fact about the Ticket Type rather than
- * something the buyer can act on.
+ * The ONE badge beside a Ticket Type's name: the state it is in, or — on a card
+ * in no state at all — how many days are left to buy it (ADR 0070).
  *
- * Keyed on the server's verdict and never on the instant beside it: the clock is
- * the server's, and a browser set to yesterday must not be able to draw this
- * badge over a Ticket Type that is still selling.
+ * Which one is lib/sales-cutoff.ts's to decide; this is the lookup that turns its
+ * answer into words and a colour. Both Ticket Type lists render it, so a closed
+ * Ticket Type cannot be badged one way on the sellable list and another on the
+ * read-only one, and neither list can quietly regrow a second badge.
  *
- * When a Ticket Type is both sold out and closed, both badges currently draw.
- * Ranking the states into one badge is #608's, and this module is where it will
- * go.
+ * Two colours and never three. Sold out, closed and limit reached are statements
+ * of fact and wear `secondary` and `outline` as they always have; the countdown
+ * is the only thing on the card asking a Customer to hurry, and it wears
+ * `warning` — amber. Never `destructive`: red means FAILURE in both apps, and
+ * teaching buyers that it also means hurry spends the one meaning it has. The
+ * escalation from "7 days left" to "Closes today" is carried by the words.
+ *
+ * Every arm is ordinary visible text, so a screen reader is told the state and
+ * the deadline in words and colour is never the only signal.
  */
-export function SalesClosedBadge({ ticketType }: { ticketType: PublicTicketType }) {
+export function TicketTypeStateBadge({
+  ticketType,
+  limitReached,
+  timezone,
+  now,
+}: {
+  ticketType: PublicTicketType;
+  /** Whether this reader has spent their own Purchase Limit on it (ADR 0025). */
+  limitReached?: boolean;
+  /** The Event's timezone; the cutoff is set in it and counted down on it. */
+  timezone?: string | null;
+  /**
+   * The clock to count down from, omitted on a surface that never counts down.
+   *
+   * The SERVER's instant, read once with the page and handed the whole list, so
+   * every card counts off the same moment and no card's rung can differ between
+   * what was server-rendered and what hydration draws (ADR 0070).
+   */
+  now?: Date | null;
+}) {
   const t = useTranslations("event");
-  if (!ticketType.closed) return null;
+  const badge = ticketTypeBadge(ticketType, { limitReached, timezone, now });
+  if (!badge) return null;
 
-  return <Badge variant="secondary">{t("salesClosed")}</Badge>;
+  switch (badge.kind) {
+    case "sold_out":
+      return <Badge variant="secondary">{t("soldOut")}</Badge>;
+    case "closed":
+      return <Badge variant="secondary">{t("salesClosed")}</Badge>;
+    case "limit_reached":
+      return <Badge variant="outline">{t("limitReached")}</Badge>;
+    case "closes_today":
+      return <Badge variant="warning">{t("salesCloseToday")}</Badge>;
+    case "closes_tomorrow":
+      return <Badge variant="warning">{t("salesCloseTomorrow")}</Badge>;
+    case "days_left":
+      return <Badge variant="warning">{t("salesDaysLeft", { count: badge.days })}</Badge>;
+  }
 }
 
 /**

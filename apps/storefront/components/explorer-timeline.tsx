@@ -4,8 +4,8 @@ import { useTranslations } from "next-intl";
 
 import { useFormatLocale } from "@/i18n/format-locale";
 import type { PublicEventCard } from "@/lib/api";
-import { ECUADOR_TIME_ZONE } from "@/lib/format";
-import { buildTimeline, localDateKey } from "@/lib/timeline";
+import { ECUADOR_TIME_ZONE, localDateKey } from "@/lib/format";
+import { buildTimeline } from "@/lib/timeline";
 
 import { TimelineEventCard } from "./timeline-event-card";
 

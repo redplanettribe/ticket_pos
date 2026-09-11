@@ -48,6 +48,12 @@ export function isExternallyRegistered(event: EventRegistration): boolean {
 export type EventCardPricing = EventRegistration & {
   price_from_cents: number | null;
   currency: string;
+  /**
+   * Whether every one of this Event's Ticket Types has closed (ADR 0070).
+   * Optional and read as false when absent, so a caller that predates the Sales
+   * Cutoff prices exactly as it always did.
+   */
+  all_closed?: boolean;
 };
 
 /**
@@ -74,6 +80,17 @@ export type EventCardPriceSlot = PriceFrom | { kind: "registration" };
  * somehow reached an external card cannot be quoted for a sale this platform is
  * not making.
  *
+ * An Event whose every Ticket Type has closed is the THIRD reading of that same
+ * null, and it is answered here rather than left to fall through. The "from"
+ * price is computed over the Ticket Types still open in time, so closing the
+ * last one empties it: there is no longer a price a Customer could actually pay,
+ * and quoting the one they could have paid last week would be advertising a sale
+ * that has ended. The slot goes quiet — and unlike the external case it can
+ * afford to, because the card's corner is already saying "Sales closed" in
+ * words, so nothing about it reads as a card that failed to load. Stated as its
+ * own branch and not inherited from priceFrom's null, because the two nulls mean
+ * different things and only one of them is an anomaly.
+ *
  * Returning data rather than a sentence keeps the words in the message catalog:
  * every branch here is a key the card looks up in the Locale it was routed
  * under.
@@ -83,6 +100,7 @@ export function eventCardPriceSlot(
   locale?: IntlLocale,
 ): EventCardPriceSlot | null {
   if (isExternallyRegistered(event)) return { kind: "registration" };
+  if (event.all_closed) return null;
   return priceFrom(event.price_from_cents, event.currency, locale);
 }
 
