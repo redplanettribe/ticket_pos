@@ -117,7 +117,19 @@ _Avoid_: Trailer, promo video, hero video, clip
 Where an Event is in its lifecycle: `draft` (being prepared), `published` (visible and sellable when sales exist), or `cancelled` (terminal; no longer active).
 Publishing requires a way in — Ticket Types or a Registration Link — alongside the Event's own description; which of the two it is is settled while `draft` and cannot change afterwards.
 Governs whether an Event is reachable at all; distinct from Discoverable, which governs whether a reachable Event advertises itself in listings.
-_Avoid_: State, visibility flag, active/inactive
+_Avoid_: State, visibility flag. Also active/inactive as the name of a status value — the lifecycle has three named statuses and none of them is "active"; Active Event names a view across two of them, not a fourth status.
+
+**Active Event**:
+An Event that is neither `cancelled` nor over — the work still in front of the Organization. Spans `draft` and `published` alike, so an Event being prepared for next month is Active beside a published one selling tickets.
+Over means the end instant has passed, or the start instant where the Event has no end. A pure instant comparison, the way Ongoing is: the Event's timezone governs how its date is printed and never whether it has passed. An Event with no start at all is never over, so a dateless draft stays Active until it is dated, cancelled, or deleted.
+Cancelling outranks the clock: a `cancelled` Event is never Active and never Past, however old.
+Distinct from Active Member, which is the Member selected on a Staff Session and has nothing to do with Events.
+_Avoid_: Upcoming (false of an Event mid-run and of a dateless draft), live, open, current, ongoing
+
+**Past Event**:
+An Event that is over and was not cancelled — it is finished, which is not the same as saying it happened. A draft dated last March and never published is Past, because being over is judged on the clock alone and publishing has no say in it.
+The complement of Active Event within the Events that were never cancelled; together with Cancelled they partition every Event an Organization has.
+_Avoid_: Archived, expired, completed, historical, finished
 
 **Discoverable**:
 A per-Event flag controlling whether a `published` Event appears in public listings — the Organization page and the global explorer — or is reachable by direct link only.
