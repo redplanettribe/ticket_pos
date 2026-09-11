@@ -54,6 +54,28 @@ func ErrPurchaseLimitExceeded(ticketTypeID string, limit, alreadyHeld, requested
 	})
 }
 
+// ErrTicketTypeClosed is returned when a begin-checkout asks for a Ticket Type
+// whose Sales Cutoff has passed: the shop window has shut, and the buyer's tab
+// was open when it did (ADR 0070).
+//
+// It is deliberately NOT CAPACITY_EXCEEDED, on the terms ADR 0023 lets the
+// Storefront key its copy on the code: a Customer must never be told an Event is
+// full when it is half empty. That distinction has to survive a Ticket Type that
+// is both closed and exhausted, which is why refuseClosedTicketType runs before
+// the capacity check rather than after it.
+//
+// It names the Ticket Type by the same word its two neighbours use and carries
+// nothing else. No `available` figure, because no smaller retry succeeds: a
+// closing time is terminal for every buyer until an organizer moves it, and
+// inviting a retry would be a lie. The closing INSTANT is not carried either —
+// the Storefront already has it from the Event payload that drew the card, and
+// the refusal is not the place to teach a second copy of it.
+func ErrTicketTypeClosed(ticketTypeID string) apperror.DomainError {
+	return apperror.New("TICKET_TYPE_CLOSED", "Sales for this ticket type have closed.", map[string]any{
+		"ticket_type_id": ticketTypeID,
+	})
+}
+
 // ErrPaymentNotFound is returned when no Payment carries the given client
 // transaction id.
 func ErrPaymentNotFound() apperror.DomainError {

@@ -16,6 +16,7 @@ function sellable(overrides: Partial<SellableTicketType> & { id: string }): Sell
     price_cents: 1000,
     remaining: 100,
     sold_out: false,
+    closed: false,
     max_per_customer: null,
     already_held: null,
     ...overrides,
@@ -181,6 +182,51 @@ test("restoreSelection drops a Ticket Type that has sold out, and says so", () =
   assert.deepEqual(restored.adjustments, [
     { ticketTypeId: "alpha", requested: 2, restored: 0, reason: "sold_out" },
   ]);
+});
+
+test("restoreSelection drops a Ticket Type whose sales have closed, and says so", () => {
+  // The Sales Cutoff passed during the round trip through the sign-in wall, and
+  // the Event still has forty of these left — which is precisely why the buyer
+  // must not be told it sold out (ADR 0070).
+  const ticketTypes = [sellable({ id: "alpha", closed: true, remaining: 40 })];
+  const restored = restoreSelection(ticketTypes, { alpha: 2 });
+  assert.deepEqual(restored.selection, {});
+  assert.deepEqual(restored.adjustments, [
+    { ticketTypeId: "alpha", requested: 2, restored: 0, reason: "closed" },
+  ]);
+});
+
+test("restoreSelection blames sold out rather than closed when a Ticket Type is both", () => {
+  // Both apps rank these states the same way — sold out, then closed, then the
+  // limit — and a disagreement between them is a bug rather than a matter of
+  // taste. Sold out is the stronger fact: a window can be reopened, a seat
+  // cannot be conjured.
+  const ticketTypes = [sellable({ id: "alpha", sold_out: true, closed: true, remaining: 0 })];
+  assert.deepEqual(restoreSelection(ticketTypes, { alpha: 1 }).adjustments, [
+    { ticketTypeId: "alpha", requested: 1, restored: 0, reason: "sold_out" },
+  ]);
+});
+
+test("restoreSelection blames closed rather than the Purchase Limit when a Ticket Type is both", () => {
+  // Their allowance is spent AND the window has shut. The shop's decision is the
+  // one to report: no smaller quantity and no later visit gets this buyer a
+  // ticket, so telling them about their own limit would invite a retry that
+  // cannot succeed.
+  const ticketTypes = [
+    sellable({ id: "alpha", closed: true, remaining: 40, max_per_customer: 2, already_held: 2 }),
+  ];
+  assert.deepEqual(restoreSelection(ticketTypes, { alpha: 1 }).adjustments, [
+    { ticketTypeId: "alpha", requested: 1, restored: 0, reason: "closed" },
+  ]);
+});
+
+test("restoreSelection restores a Ticket Type with no Sales Cutoff exactly as before", () => {
+  // The feature is inert on every Ticket Type nobody has typed a date into,
+  // which is all of them: an absent verdict is not a closed one.
+  const ticketTypes = [{ id: "alpha", price_cents: 1000, remaining: 10, sold_out: false }];
+  const restored = restoreSelection(ticketTypes, { alpha: 3 });
+  assert.deepEqual(restored.selection, { alpha: 3 });
+  assert.deepEqual(restored.adjustments, []);
 });
 
 test("restoreSelection reduces a quantity to what capacity allows, and says so", () => {

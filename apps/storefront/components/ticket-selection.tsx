@@ -480,6 +480,13 @@ export function TicketSelection({
     if (adjustment.reason === "sold_out") {
       return t("restored.soldOut", { ticketType });
     }
+    if (adjustment.reason === "closed") {
+      // Its Sales Cutoff passed during the round trip through the sign-in wall
+      // (ADR 0070). A sentence of its own and never the sold-out one, since the
+      // Event may have plenty of these left. A closed Ticket Type is always
+      // dropped whole, so there is no reduced form to word.
+      return t("restored.closed", { ticketType });
+    }
     if (adjustment.reason === "purchase_limit") {
       // Their own allowance, not the Event's stock. The two must not share a
       // sentence (ADR 0025).
@@ -687,12 +694,18 @@ export function TicketSelection({
   const capacityExceeded = error?.code === "CAPACITY_EXCEEDED";
   // A Purchase Limit refusal is about the Customer, not the Event (ADR 0025), so
   // it gets its own title — "you already have yours" against "not enough tickets
-  // left". The two share this 409's handling because the remedy is the same one:
+  // left". All three share this 409's handling because the remedy is the same one:
   // the cart cannot be paid for as it stands, and no field on the form is what is
   // wrong with it. Filling the form in again would be refused identically.
   //
   const purchaseLimitExceeded = error?.code === "PURCHASE_LIMIT_EXCEEDED";
-  const cartRefused = capacityExceeded || purchaseLimitExceeded;
+  // A Ticket Type whose Sales Cutoff passed while this tab was open (ADR 0070).
+  // A third title beside the other two, and pointedly not the sold-out one: the
+  // Event may have plenty of these left. It joins the same 409 handling because
+  // the remedy is the same one — the cart cannot be paid for as it stands, and
+  // nothing on the form is what is wrong with it.
+  const ticketTypeClosed = error?.code === "TICKET_TYPE_CLOSED";
+  const cartRefused = capacityExceeded || purchaseLimitExceeded || ticketTypeClosed;
 
 
   // Neither the title nor the body claims the Customer already HOLDS any of
@@ -969,6 +982,7 @@ export function TicketSelection({
             <Alert variant="destructive">
               {capacityExceeded ? <AlertTitle>{t("capacityTitle")}</AlertTitle> : null}
               {purchaseLimitExceeded ? <AlertTitle>{t("purchaseLimitTitle")}</AlertTitle> : null}
+              {ticketTypeClosed ? <AlertTitle>{t("closedTitle")}</AlertTitle> : null}
               {/* The API decided which failure this is; the catalog decides how
                   to say it, in this page's language, falling back to the API's
                   own message for a code it does not know. This app's own two

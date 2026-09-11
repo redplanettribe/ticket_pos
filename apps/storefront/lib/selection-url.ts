@@ -88,9 +88,10 @@ const MAX_ENCODED_LENGTH = 2048;
  * `requested` is what the address asked for and `restored` is what survived
  * re-judging — zero when the Ticket Type was dropped altogether. `reason` names
  * WHICH rule cut it, because the three read completely differently to a buyer: a
- * sold-out Ticket Type is a fact about the Event that everyone sees, and a spent
+ * sold-out Ticket Type is a fact about the Event that everyone sees, a closed one
+ * is a decision the Organization took about time rather than stock, and a spent
  * Purchase Limit is a fact about this Customer alone, which they must never read
- * as the Event being full (ADR 0025).
+ * as the Event being full (ADR 0025, ADR 0070).
  *
  * No words here. The copy is looked up at render from `reason`, so state never
  * holds a sentence a language switch would strand.
@@ -99,7 +100,7 @@ export type SelectionAdjustment = {
   ticketTypeId: string;
   requested: number;
   restored: number;
-  reason: "sold_out" | "capacity" | "purchase_limit";
+  reason: "sold_out" | "closed" | "capacity" | "purchase_limit";
 };
 
 /** A re-judged selection: what the steppers get, and what the buyer is owed. */
@@ -244,7 +245,13 @@ export function restoreSelection(
     if (!(asked > 0)) {
       continue;
     }
-    const restored = clampQuantity(asked, ticketType);
+    // A closed Ticket Type restores nothing whatever its stock says: the API
+    // refuses that line at begin-checkout, so putting it back would hand the
+    // buyer a basket that cannot be paid for (ADR 0070). It is judged here and
+    // not inside clampQuantity because the steppers are still drawn for a closed
+    // Ticket Type, and a `+` that is clickable and does nothing is worse for a
+    // buyer than the refusal they would otherwise meet; see clampQuantity.
+    const restored = ticketType.closed ? 0 : clampQuantity(asked, ticketType);
     if (restored > 0) {
       selection[ticketType.id] = restored;
     }
@@ -262,18 +269,40 @@ export function restoreSelection(
 }
 
 /**
- * Which rule cut a quantity down, worded as the three things a buyer can be
- * told apart.
+ * Which rule cut a quantity down, worded as the four things a buyer can be told
+ * apart.
  *
- * Sold out wins outright: it is the Event's own state and the only one the whole
- * page already says. Otherwise the Purchase Limit is blamed only when it is
+ * The order is the one both apps rank these states in — sold out, then closed,
+ * then the Purchase Limit — and a disagreement between them is a bug rather than
+ * a matter of taste (ADR 0070). Sold out wins outright: it is the Event's own
+ * state, the only one the whole page already says, and the stronger fact, since
+ * an Organization can reopen a window but cannot conjure a seat. Closed comes
+ * next, and never shares a sentence with sold out, because a Customer told an
+ * Event is full when it is half empty is exactly the confusion these separate
+ * words exist to prevent. Otherwise the Purchase Limit is blamed only when it is
  * genuinely the binding bound — offerableQuantity narrower than remaining
  * capacity is exactly that condition — so a Customer is never told they have
  * reached a limit when what actually ran out was stock.
+ *
+ * That ranking is the CARD's, and is deliberately the inverse of the order
+ * begin-checkout refuses in, where the closed code beats the sold-out one. The
+ * two answer different questions: this describes a Ticket Type to somebody still
+ * reading the page, where the stronger fact about stock is the more useful one,
+ * while a refusal explains why an act was not performed, where the
+ * Organization's own decision is the part a buyer can do something about.
+ *
+ * The verdict comes from the payload the server just sent and never from a
+ * closing instant compared here: the server owns the clock, and a browser set to
+ * yesterday must not be able to restore a basket the API will refuse. That is
+ * also why this branch needs no new field on the refusal — the reason is decided
+ * from the Event read, not from what begin-checkout would have said.
  */
 function cutBy(ticketType: SellableTicketType): SelectionAdjustment["reason"] {
   if (ticketType.sold_out) {
     return "sold_out";
+  }
+  if (ticketType.closed) {
+    return "closed";
   }
   return offerableQuantity(ticketType) < Math.max(ticketType.remaining, 0)
     ? "purchase_limit"

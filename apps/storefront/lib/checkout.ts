@@ -37,6 +37,19 @@ export type SellableTicketType = {
   // of their allowance at submit, which is the first moment they have told us
   // who they are.
   already_held?: number | null;
+  // The server's verdict on this Ticket Type's Sales Cutoff: true once the
+  // closing instant an organizer set has passed, and the Ticket Type is still
+  // listed, still described, still priced and no longer buyable (ADR 0070).
+  //
+  // Optional and read as false when absent, on max_per_customer's terms: a
+  // caller that predates the cutoff has nothing closed, and no arithmetic is
+  // done on it. Never folded into sold_out: capacity exhausted and time run out
+  // are different facts and get different words on every surface.
+  //
+  // The verdict travels rather than being derived from an instant here, because
+  // the server owns the clock: a browser set to yesterday must never be able to
+  // offer a stepper the API will refuse.
+  closed?: boolean;
 };
 
 /**
@@ -110,6 +123,14 @@ export function allowanceSpent(ticketType: SellableTicketType): boolean {
  * clampQuantity keeps a stepper's value honest: an integer between zero and
  * what the Ticket Type may offer. Anything unparseable is zero, and a sold-out
  * type can never hold a quantity at all.
+ *
+ * A CLOSED Ticket Type is deliberately not gated here yet. The steppers are
+ * still drawn for one, so returning zero from here would leave a `+` that is
+ * clickable and does nothing — worse for a buyer than the honest refusal the API
+ * already gives them. Withdrawing the control is what makes zero the right
+ * answer, and it belongs with the rest of the closed card's treatment. Until
+ * then the closed verdict is applied where it can be acted on: restoreSelection
+ * drops the line and names the reason, and begin-checkout refuses the rest.
  */
 export function clampQuantity(raw: number, ticketType: SellableTicketType): number {
   if (ticketType.sold_out) return 0;

@@ -343,6 +343,18 @@ export type PublicTicketType = {
   currency: string;
   remaining: number;
   sold_out: boolean;
+  // The server's verdict on this Ticket Type's Sales Cutoff: true once the
+  // closing instant an organizer set has passed, and the Ticket Type is still
+  // listed, still described, still priced and no longer buyable (ADR 0070).
+  //
+  // Derived from the clock on every read and never stored, so clearing a cutoff
+  // or moving it forward reopens sales on the very next load. The verdict is
+  // the server's and not this app's for the same reason sold_out is: a browser
+  // with a wrong clock must never show a stepper the API will refuse.
+  //
+  // Never folded into sold_out: capacity exhausted and time run out are
+  // different facts and get different words on every surface (ADR 0070).
+  closed: boolean;
   promotion: PublicPromotion | null;
   // The Purchase Limit: the most of this Ticket Type one Customer may hold at
   // once, or null when it is unrestricted (ADR 0025). A raw count of tickets,
