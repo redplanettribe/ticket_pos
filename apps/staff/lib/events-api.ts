@@ -25,6 +25,11 @@ export type EventListItem = {
   slug: string;
   status: string;
   starts_at: string | null;
+  /** The Event's end instant, or null when it has none — which is most of
+   * them. It rides on the list row so the Events tabs can decide whether an
+   * Event is over without fetching each Event in full, falling back to
+   * starts_at where there is no end (#611). */
+  ends_at: string | null;
   timezone: string | null;
   discoverable: boolean;
   created_at: string;

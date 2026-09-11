@@ -16,11 +16,16 @@ import (
 
 // EventListItem is a summary row for the Events list UI.
 type EventListItem struct {
-	ID           string     `json:"id"`
-	Name         string     `json:"name"`
-	Slug         string     `json:"slug"`
-	Status       string     `json:"status"`
-	StartsAt     *time.Time `json:"starts_at"`
+	ID       string     `json:"id"`
+	Name     string     `json:"name"`
+	Slug     string     `json:"slug"`
+	Status   string     `json:"status"`
+	StartsAt *time.Time `json:"starts_at"`
+	// EndsAt rides beside StartsAt so a list consumer can decide whether an
+	// Event is over without fetching each Event in full. Null on an Event with
+	// no end, which is most of them: the caller falls back to StartsAt there,
+	// the same rule the public explorer applies (#611).
+	EndsAt       *time.Time `json:"ends_at"`
 	Timezone     *string    `json:"timezone"`
 	Discoverable bool       `json:"discoverable"`
 	CreatedAt    time.Time  `json:"created_at"`
@@ -963,6 +968,10 @@ func toEventListItem(e *repository.Event) EventListItem {
 	if e.StartsAt.Valid {
 		t := e.StartsAt.Time
 		item.StartsAt = &t
+	}
+	if e.EndsAt.Valid {
+		t := e.EndsAt.Time
+		item.EndsAt = &t
 	}
 	if e.Timezone.Valid {
 		tz := e.Timezone.String

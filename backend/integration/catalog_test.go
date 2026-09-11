@@ -561,3 +561,70 @@ func TestOrganizationCurrencyDefaultUpdateAndLock(t *testing.T) {
 		t.Fatalf("expected CURRENCY_LOCKED, got %+v", body.Error)
 	}
 }
+
+// TestCatalogEventListCarriesEndsAt pins the Events list item's end instant: it
+// is carried beside the start, present when the Event has one and null when it
+// does not. The staff Events tabs decide whether an Event is over from this
+// field, falling back to the start only where there is no end to consult.
+func TestCatalogEventListCarriesEndsAt(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+
+	dated := createDraftEvent(t, env, sessionID, "Dated", "dated")
+	createDraftEvent(t, env, sessionID, "Dateless", "dateless")
+
+	startsAt := env.fixedClock.Add(24 * time.Hour).UTC().Truncate(time.Second)
+	endsAt := env.fixedClock.Add(30 * time.Hour).UTC().Truncate(time.Second)
+	resp, body := env.patch(t, "/api/v1/staff/events/"+dated, map[string]any{
+		"name":      "Dated",
+		"slug":      "dated",
+		"starts_at": startsAt.Format(time.RFC3339),
+		"ends_at":   endsAt.Format(time.RFC3339),
+		"timezone":  "America/Guayaquil",
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("patch event status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	resp, body = env.get(t, "/api/v1/staff/events", authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list events status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	var listed []struct {
+		ID       string  `json:"id"`
+		Slug     string  `json:"slug"`
+		StartsAt *string `json:"starts_at"`
+		EndsAt   *string `json:"ends_at"`
+	}
+	if err := json.Unmarshal(body.Data, &listed); err != nil {
+		t.Fatalf("decode events: %v", err)
+	}
+	if len(listed) != 2 {
+		t.Fatalf("listed events=%+v want 2", listed)
+	}
+
+	for _, item := range listed {
+		switch item.Slug {
+		case "dated":
+			if item.StartsAt == nil {
+				t.Fatalf("dated event starts_at is null")
+			}
+			if item.EndsAt == nil {
+				t.Fatalf("dated event ends_at is null, want %s", endsAt.Format(time.RFC3339))
+			}
+			got, err := time.Parse(time.RFC3339, *item.EndsAt)
+			if err != nil {
+				t.Fatalf("parse ends_at %q: %v", *item.EndsAt, err)
+			}
+			if !got.Equal(endsAt) {
+				t.Fatalf("ends_at=%s want %s", got, endsAt)
+			}
+		case "dateless":
+			if item.EndsAt != nil {
+				t.Fatalf("dateless event ends_at=%q, want null", *item.EndsAt)
+			}
+		default:
+			t.Fatalf("unexpected event slug %q", item.Slug)
+		}
+	}
+}
