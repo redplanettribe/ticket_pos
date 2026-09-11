@@ -97,6 +97,7 @@
     "tabActive": "Active",
     "tabPast": "Past",
     "tabCancelled": "Cancelled",
+    "tabCount": "{label} ({count})",
     "tabsLabel": "Event lists",
     "loading": "Loading events...",
     "accessDeniedTitle": "Access denied",

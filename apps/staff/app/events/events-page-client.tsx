@@ -25,7 +25,7 @@ import {
   statusBadgeVariant,
   type EventListItem,
 } from "@/lib/events-api";
-import { partitionEvents, type EventsTabKey } from "@/lib/events-tabs";
+import { eventsTabCounts, partitionEvents, type EventsTabKey } from "@/lib/events-tabs";
 import { formatDateTime } from "@/lib/format";
 
 import { DiscoverabilityToggle } from "./discoverability-toggle";
@@ -89,8 +89,15 @@ export function EventsPageClient({ isOrgAdmin, tab }: EventsPageClientProps) {
     void loadEvents();
   }, [loadEvents]);
 
-  // The whole payload split into its three tabs, of which this route draws one.
-  const rows = useMemo(() => partitionEvents(events, now)[tab], [events, now, tab]);
+  // The whole payload split into its three tabs, of which this route draws one
+  // and the strip above it counts all three. One partition feeds both, so the
+  // number on a tab and the rows it leads to are the same arrays read twice and
+  // cannot drift apart. Both are ready before this render returns: the counts
+  // are correct on the first paint that has any Events to count, with no second
+  // render and no loading state of their own (#614).
+  const tabs = useMemo(() => partitionEvents(events, now), [events, now]);
+  const counts = useMemo(() => eventsTabCounts(tabs), [tabs]);
+  const rows = tabs[tab];
 
   const handleDiscoverableChange = useCallback((eventId: string, discoverable: boolean) => {
     setEvents((current) =>
@@ -104,9 +111,11 @@ export function EventsPageClient({ isOrgAdmin, tab }: EventsPageClientProps) {
     // to arrive before they can ask for it. The refusals below keep their bare
     // shape — every tab is the same one payload, so a strip over a load that
     // failed or was refused offers three doors into the same wall.
+    // No counts are handed over here, and deliberately not zeros — see the
+    // `counts` prop on `EventsTabs` for why (#614).
     return (
       <div className="space-y-6">
-        <EventsTabs />
+        <EventsTabs counts={null} />
         <p className="text-sm text-muted-foreground">{t("loading")}</p>
       </div>
     );
@@ -145,8 +154,11 @@ export function EventsPageClient({ isOrgAdmin, tab }: EventsPageClientProps) {
       />
 
       {/* Always all three, even when this one is empty: the tabs are a fixed
-          partition of the Organization's Events and not a set that shrinks. */}
-      <EventsTabs />
+          partition of the Organization's Events and not a set that shrinks. An
+          empty tab reads zero rather than going bare, which is the whole point
+          — a reader should be able to tell an empty Cancelled from a full one
+          without opening it. */}
+      <EventsTabs counts={counts} />
 
       {/* The existing first-run copy, now shown when THIS tab has no rows. It
           reads oddly on an empty Past tab belonging to an Organization with

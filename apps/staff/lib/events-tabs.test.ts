@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   EVENTS_TAB_KEYS,
   eventsTab,
+  eventsTabCounts,
   eventsTabHref,
   isOver,
   partitionEvents,
@@ -179,4 +180,35 @@ test("each tab has an address of its own", () => {
     EVENTS_TAB_KEYS.map(eventsTabHref),
     ["/events", "/events/past", "/events/cancelled"],
   );
+});
+
+test("the three counts sum to the number of Events the Organization has", () => {
+  const input = [
+    event({ id: "1", status: "cancelled", starts_at: LAST_MARCH }),
+    event({ id: "2", starts_at: NEXT_MONTH, ends_at: NEXT_MONTH }),
+    event({ id: "3", starts_at: LAST_MARCH, ends_at: LAST_MARCH }),
+    event({ id: "4", status: "draft" }),
+  ];
+
+  const counts = eventsTabCounts(partitionEvents(input, NOW));
+
+  assert.deepEqual(counts, { active: 2, past: 1, cancelled: 1 });
+  assert.equal(
+    EVENTS_TAB_KEYS.reduce((total, key) => total + counts[key], 0),
+    input.length,
+  );
+});
+
+test("a tab holding no Events counts zero rather than dropping out", () => {
+  // The reason the counts exist: an Org Admin should be able to tell an empty
+  // Cancelled tab from a full one without opening it, so every key is present
+  // and every empty one says so.
+  const counts = eventsTabCounts(partitionEvents([event({ starts_at: NEXT_MONTH })], NOW));
+
+  assert.deepEqual(counts, { active: 1, past: 0, cancelled: 0 });
+  assert.deepEqual(eventsTabCounts(partitionEvents([], NOW)), {
+    active: 0,
+    past: 0,
+    cancelled: 0,
+  });
 });

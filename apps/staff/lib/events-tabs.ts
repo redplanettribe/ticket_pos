@@ -176,3 +176,26 @@ export function partitionEvents<T extends TabbableEvent>(
   tabs.cancelled.sort(byStartDescending);
   return tabs;
 }
+
+/**
+ * How many Events each tab holds (#614).
+ *
+ * Taken from the partition rather than recounted from the payload, so the
+ * numbers on the strip and the rows beneath it cannot disagree: they are the
+ * same three arrays read two ways. All three keys are always present, and an
+ * empty tab counts zero rather than dropping out — a tab that says nothing is
+ * exactly the tab a reader has to open to learn anything, which is what the
+ * counts exist to spare them.
+ *
+ * Counts and not the arrays because the strip has no use for the rows: it is
+ * handed numbers it can put in a label and nothing it could accidentally render.
+ */
+export function eventsTabCounts(
+  tabs: Record<EventsTabKey, readonly unknown[]>,
+): Record<EventsTabKey, number> {
+  return {
+    active: tabs.active.length,
+    past: tabs.past.length,
+    cancelled: tabs.cancelled.length,
+  };
+}
