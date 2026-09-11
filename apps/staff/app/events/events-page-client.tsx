@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { toAppLocale } from "@ticket-pos/locale";
 import { useLocale, useMessages, useTranslations } from "next-intl";
@@ -25,19 +25,38 @@ import {
   statusBadgeVariant,
   type EventListItem,
 } from "@/lib/events-api";
+import { partitionEvents, type EventsTabKey } from "@/lib/events-tabs";
 import { formatDateTime } from "@/lib/format";
 
 import { DiscoverabilityToggle } from "./discoverability-toggle";
+import { EventsTabs } from "./events-tabs";
 
 type EventsPageClientProps = {
   isOrgAdmin: boolean;
+  /** Which of the three tabs this route is, handed down from its route file. */
+  tab: EventsTabKey;
 };
 
-export function EventsPageClient({ isOrgAdmin }: EventsPageClientProps) {
+/**
+ * The Events list, on whichever of its three tabs is being read (#613).
+ *
+ * One component behind all three routes, handed the tab it should show: the
+ * fetch and the partition happen once here rather than three times, and the
+ * whole unfiltered payload is what the split is done over — the list endpoint
+ * gains no parameter for this (ADR 0071).
+ */
+export function EventsPageClient({ isOrgAdmin, tab }: EventsPageClientProps) {
   const t = useTranslations("events");
   const errorCopy = useMessages().errors;
   const locale = toAppLocale(useLocale());
   const [events, setEvents] = useState<EventListItem[]>([]);
+  // The clock, read ONCE and held (ADR 0071). Not `new Date()` inside the memo
+  // below: that would be re-read every time the list changes — when a Listed
+  // toggle rewrites one row, say — and an Event could cross its end instant
+  // between two renders and jump tabs under the reader's cursor. A page left
+  // open overnight shows yesterday's Event in Active until something reloads,
+  // which is deliberate and must not be "fixed" with a timer.
+  const [now] = useState(() => new Date());
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +89,9 @@ export function EventsPageClient({ isOrgAdmin }: EventsPageClientProps) {
     void loadEvents();
   }, [loadEvents]);
 
+  // The whole payload split into its three tabs, of which this route draws one.
+  const rows = useMemo(() => partitionEvents(events, now)[tab], [events, now, tab]);
+
   const handleDiscoverableChange = useCallback((eventId: string, discoverable: boolean) => {
     setEvents((current) =>
       current.map((event) => (event.id === eventId ? { ...event, discoverable } : event)),
@@ -77,7 +99,17 @@ export function EventsPageClient({ isOrgAdmin }: EventsPageClientProps) {
   }, []);
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
+    // The strip is drawn while the list is still coming: each tab is a route of
+    // its own, and a reader who wants Past should not have to wait for Active
+    // to arrive before they can ask for it. The refusals below keep their bare
+    // shape — every tab is the same one payload, so a strip over a load that
+    // failed or was refused offers three doors into the same wall.
+    return (
+      <div className="space-y-6">
+        <EventsTabs />
+        <p className="text-sm text-muted-foreground">{t("loading")}</p>
+      </div>
+    );
   }
 
   if (forbidden) {
@@ -112,7 +144,14 @@ export function EventsPageClient({ isOrgAdmin }: EventsPageClientProps) {
         }
       />
 
-      {events.length === 0 ? (
+      {/* Always all three, even when this one is empty: the tabs are a fixed
+          partition of the Organization's Events and not a set that shrinks. */}
+      <EventsTabs />
+
+      {/* The existing first-run copy, now shown when THIS tab has no rows. It
+          reads oddly on an empty Past tab belonging to an Organization with
+          twenty Events; telling the two apart is #615, deliberately not here. */}
+      {rows.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-start gap-4 py-10">
             {isOrgAdmin ? (
@@ -129,7 +168,7 @@ export function EventsPageClient({ isOrgAdmin }: EventsPageClientProps) {
         </Card>
       ) : (
         <div className="space-y-3">
-          {events.map((event) => {
+          {rows.map((event) => {
             // The Event's own timezone, whichever language the reader is in: a
             // locale decides the marks around a date and nothing about which
             // clock it is on (ADR 0041). An Event that has not picked one yet

@@ -51,6 +51,10 @@ const NON_COPY_ATTRIBUTES = [
   // not headings. The heading beside them comes from the catalog.
   "field",
   "measure",
+  // Which tab of a surface is being drawn — `tab="cancelled"` on the Events
+  // list (#613). A key from a closed union declared beside the routes, so a
+  // wrong value is a type error; the words on the strip come from the catalog.
+  "tab",
 
   // Addresses and identity. `activePath` is which nav entry the shell should
   // light up; `name`/`htmlFor` wire a label to an input.

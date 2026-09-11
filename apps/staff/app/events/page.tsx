@@ -1,15 +1,6 @@
-import { StaffPageShell, loadSession } from "../staff-page-shell";
-import { EventsPageClient } from "./events-page-client";
+import { EventsSurface } from "./events-surface";
 
-export default async function EventsPage() {
-  const session = await loadSession();
-  const isOrgAdmin = session?.active_member?.role === "org_admin";
-
-  return (
-    <StaffPageShell activePath="/events">
-      <div className="mx-auto max-w-4xl">
-        <EventsPageClient isOrgAdmin={isOrgAdmin} />
-      </div>
-    </StaffPageShell>
-  );
+/** The Events list's Active tab, and the address the Events entry points at. */
+export default function EventsPage() {
+  return <EventsSurface tab="active" />;
 }
