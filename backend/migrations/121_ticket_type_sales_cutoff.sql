@@ -1,0 +1,54 @@
+-- The Sales Cutoff (#603, parent #602, ADR 0070): the instant a Ticket Type
+-- stops being sold on the Storefront.
+--
+-- ONE COLUMN AND NOTHING ELSE. Capacity has been the only door this platform
+-- could close, and it closes on a fact about stock rather than on a decision
+-- about time. An Organization that wants online sales to stop at six on Friday
+-- — so the door list can be printed, so the caterer can be given a number, so
+-- the last hour belongs to the box office — has had to delete the Ticket Type,
+-- which takes its sales history with it, or lower its capacity to what has
+-- already sold, which tells every visitor the Event is full when it is not.
+-- This column is the third answer.
+--
+-- NULLABLE, AND THE NULL IS THE POINT. "This Ticket Type never stops selling"
+-- and "it stops at T" are different statements, and only NULL makes the first
+-- without inviting arithmetic — a sentinel far-future instant would have every
+-- reader comparing against it and one of them eventually getting it wrong. It
+-- is also why there is no DEFAULT and no backfill: every row that exists today
+-- reads NULL, behaves exactly as it did yesterday, and the feature is inert by
+-- construction until an organizer types a date. That is the whole of ADR 0070's
+-- argument against a feature flag, and it is stronger than a switch somebody
+-- can open by mistake.
+--
+-- NO CHECK. Nothing about this value is validated, here or anywhere above it:
+-- not required to be in the future, not required to precede the Event's start,
+-- not required to sit outside a Promotion's window, and editable and clearable
+-- whether or not it has passed. A cutoff in the PAST is the intended way to
+-- stop selling something this instant without deleting it, and a cutoff AFTER
+-- THE EVENT STARTS is a workshop selling at its own door. Both are ordinary
+-- rows, and a constraint forbidding either would refuse the two edits the
+-- feature exists to allow. This follows the Purchase Limit's precedent in
+-- migration 060 and ADR 0025: a catalog value is not cross-checked against a
+-- neighbouring one, because the refusal lands on an edit nobody asked about.
+--
+-- NO INDEX. Nothing looks a Ticket Type up by this value and nothing ever will:
+-- closed is DERIVED on every read, from a row already loaded by id or by event,
+-- by comparing the service's clock against this instant the way a Promotion's
+-- liveness already is. There is no state column, no scheduled job that closes
+-- anything, and no moment at which a row is rewritten to say so — which is why
+-- clearing the cutoff or moving it forward reopens sales immediately, and is
+-- the undo.
+--
+-- TIMESTAMPTZ, like every other instant on this schema. The Organization types
+-- a wall-clock time read in the Event's timezone, and the timezone is the
+-- Event's business; what is stored is the instant that time names, so a buyer
+-- in Madrid and one in Quito are told the same thing about the same Event.
+--
+-- Binds the Storefront alone. A Sale Import, a Manually Recorded Sale and a
+-- Sale Correction's replacement are never refused by it — they record acts that
+-- already happened — so nothing on the recording paths reads this column at
+-- all. A deliberate departure from capacity and the Purchase Limit, both of
+-- which do refuse import rows: a seat is physical and cannot be sold twice,
+-- whereas a window that has shut says nothing about what happened while it was
+-- open.
+ALTER TABLE ticket_types ADD COLUMN sales_cutoff_at TIMESTAMPTZ;

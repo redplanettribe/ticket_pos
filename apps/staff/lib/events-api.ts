@@ -120,6 +120,13 @@ export type TicketType = {
    * Customer may legitimately hold more than this.
    */
   max_per_customer: number | null;
+  /**
+   * The Sales Cutoff: the instant the Storefront stops selling this Ticket Type
+   * (CONTEXT.md, ADR 0070). null means it never stops, which is the case on
+   * most Ticket Types. Nothing draws it yet — this app only carries it so that
+   * the two PATCHes restating a whole Ticket Type do not clear it.
+   */
+  sales_cutoff_at: string | null;
   /** The one Promotion slot, or null when it is empty. */
   promotion: Promotion | null;
   created_at: string;

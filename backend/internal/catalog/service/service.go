@@ -41,9 +41,17 @@ type TicketTypeDetail struct {
 	// Customer may hold at once — or null when the Ticket Type is unrestricted,
 	// which is most of them. A count of tickets, not money: unlike PriceCents it
 	// is untouched by Promotion or fee arithmetic (ADR 0025).
-	MaxPerCustomer *int      `json:"max_per_customer"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	MaxPerCustomer *int `json:"max_per_customer"`
+	// SalesCutoffAt is the Sales Cutoff — the instant the Storefront stops
+	// selling this Ticket Type — or null when it never stops, which is most of
+	// them. The raw instant and never a verdict: whether the Ticket Type has
+	// closed is the reader's comparison against its own clock, through
+	// catalog.ClosedAt. Stated unconditionally rather than only while it is in
+	// force, because nothing about the value is validated and reading it back is
+	// the only catch for a typo in the year (ADR 0070).
+	SalesCutoffAt *time.Time `json:"sales_cutoff_at"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 	// Promotion is the Ticket Type's one Promotion slot, or null when it is
 	// empty. It travels with the Ticket Type so the editor can render the
 	// Promotion's state without a second request; PriceCents above stays the
@@ -134,6 +142,10 @@ type CreateTicketTypeInput struct {
 	Capacity    int
 	// MaxPerCustomer is the Purchase Limit, nil for an unrestricted Ticket Type.
 	MaxPerCustomer *int
+	// SalesCutoffAt is the Sales Cutoff, nil for a Ticket Type that never stops
+	// selling. Unvalidated by design: a past instant and an instant after the
+	// Event's start are both ordinary values (ADR 0070).
+	SalesCutoffAt *time.Time
 }
 
 // UpdateTicketTypeInput updates Ticket Type fields.
@@ -147,6 +159,11 @@ type UpdateTicketTypeInput struct {
 	// is a full restatement of the Ticket Type rather than a patch — the same
 	// rule Description already follows.
 	MaxPerCustomer *int
+	// SalesCutoffAt is the Sales Cutoff. Nil clears it — reopening sales is one
+	// edit and not a rebuild of the Ticket Type — and a cutoff that has already
+	// passed may be moved like any other, which is how a closed sale is
+	// extended (ADR 0070).
+	SalesCutoffAt *time.Time
 }
 
 // UpdateEventInput updates Event fields on the detail form.
@@ -1024,6 +1041,7 @@ func (s *Service) CreateTicketType(ctx context.Context, actor ActorContext, even
 		Capacity:       input.Capacity,
 		SortOrder:      sortOrder,
 		MaxPerCustomer: nullInt64FromPtr(input.MaxPerCustomer),
+		SalesCutoffAt:  nullTimeFromPtr(input.SalesCutoffAt),
 	}, s.now())
 	if err != nil {
 		return nil, err
@@ -1077,6 +1095,7 @@ func (s *Service) UpdateTicketType(ctx context.Context, actor ActorContext, even
 		Capacity:       input.Capacity,
 		SortOrder:      input.SortOrder,
 		MaxPerCustomer: nullInt64FromPtr(input.MaxPerCustomer),
+		SalesCutoffAt:  nullTimeFromPtr(input.SalesCutoffAt),
 	}, s.now())
 	if err != nil {
 		return nil, err
@@ -1138,6 +1157,7 @@ func toTicketTypeDetail(tt *repository.TicketType, currency string, promotion *r
 		detail.Description = &s
 	}
 	detail.MaxPerCustomer = nullIntPtr(tt.MaxPerCustomer)
+	detail.SalesCutoffAt = nullTimeOrNil(tt.SalesCutoffAt)
 	return detail
 }
 

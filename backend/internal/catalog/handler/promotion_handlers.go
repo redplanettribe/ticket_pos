@@ -168,14 +168,14 @@ func parsePromotion(body promotionBody) (service.SetPromotionInput, []platform.F
 		fields = append(fields, platform.FieldError{Field: "promotional_price_cents", Code: platform.CodeInvalidNonNegativeInt, Message: "must be zero or greater"})
 	}
 
-	startsAt, startFields := parsePromotionTime("starts_at", body.StartsAt)
+	startsAt, startFields := parseTimestampField("starts_at", body.StartsAt)
 	fields = append(fields, startFields...)
 
 	var endsAt *time.Time
 	if body.EndsAt == nil || strings.TrimSpace(*body.EndsAt) == "" {
 		fields = append(fields, platform.FieldError{Field: "ends_at", Code: platform.CodeRequired, Message: "is required"})
 	} else {
-		parsed, endFields := parsePromotionTime("ends_at", body.EndsAt)
+		parsed, endFields := parseTimestampField("ends_at", body.EndsAt)
 		fields = append(fields, endFields...)
 		endsAt = parsed
 	}
@@ -193,15 +193,4 @@ func parsePromotion(body promotionBody) (service.SetPromotionInput, []platform.F
 		StartsAt:              startsAt,
 		EndsAt:                *endsAt,
 	}, nil
-}
-
-func parsePromotionTime(field string, raw *string) (*time.Time, []platform.FieldError) {
-	if raw == nil || strings.TrimSpace(*raw) == "" {
-		return nil, nil
-	}
-	parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*raw))
-	if err != nil {
-		return nil, []platform.FieldError{{Field: field, Code: platform.CodeInvalidTimestamp, Message: "must be a valid RFC3339 timestamp"}}
-	}
-	return &parsed, nil
 }

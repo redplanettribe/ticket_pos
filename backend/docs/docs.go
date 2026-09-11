@@ -515,6 +515,11 @@ const docTemplate = `{
                     },
                     "price_cents": {
                         "type": "integer"
+                    },
+                    "sales_cutoff_at": {
+                        "description": "SalesCutoffAt is the Sales Cutoff — the instant the Storefront stops\nselling this Ticket Type. Absent or null means it never stops, which is\nthe default and the state of every Ticket Type that predates ADR 0070.\n\nAn RFC3339 instant, parsed the way every other timestamp on this API is.\nNothing about the VALUE is checked beyond that it is a timestamp: an\ninstant in the past is the intended way to stop selling something right\nnow, and an instant after the Event starts is a workshop selling at its\nown door, so validateTicketType is deliberately not extended. A refusal\nthere would land on the two edits this field exists to allow.",
+                        "format": "date-time",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -1280,6 +1285,11 @@ const docTemplate = `{
                     },
                     "price_cents": {
                         "type": "integer"
+                    },
+                    "sales_cutoff_at": {
+                        "description": "SalesCutoffAt is the Sales Cutoff, under the same full-restatement rule:\nabsent and explicit null both clear it, which is how sales are reopened in\none edit. A cutoff that has already passed may be moved like any other,\nand moving it forward reopens the Ticket Type on the next read — closing\nis a door and never a deletion, so the sales, the capacity and the history\nare all still there (ADR 0070).",
+                        "format": "date-time",
+                        "type": "string"
                     },
                     "sort_order": {
                         "type": "integer"
@@ -8228,6 +8238,10 @@ const docTemplate = `{
                     },
                     "promotion": {
                         "$ref": "#/components/schemas/service.PromotionView"
+                    },
+                    "sales_cutoff_at": {
+                        "description": "SalesCutoffAt is the Sales Cutoff — the instant the Storefront stops\nselling this Ticket Type — or null when it never stops, which is most of\nthem. The raw instant and never a verdict: whether the Ticket Type has\nclosed is the reader's comparison against its own clock, through\ncatalog.ClosedAt. Stated unconditionally rather than only while it is in\nforce, because nothing about the value is validated and reading it back is\nthe only catch for a typo in the year (ADR 0070).",
+                        "type": "string"
                     },
                     "sold_count": {
                         "type": "integer"

@@ -290,6 +290,11 @@ export function TicketTypesSection({
           price_cents: priceCents,
           capacity,
           max_per_customer: purchaseLimitWireValue(purchaseLimit),
+          // Echoed unchanged. This form does not edit the Sales Cutoff yet, and
+          // the endpoint is a full restatement, so omitting it here would clear
+          // a cutoff set through the API the next time anybody renamed a Ticket
+          // Type (ADR 0070).
+          sales_cutoff_at: editTarget.sales_cutoff_at,
           sort_order: editTarget.sort_order,
         }),
       });
@@ -438,8 +443,8 @@ export function TicketTypesSection({
       // The update endpoint is a full restatement, not a partial patch: an
       // omitted key clears the field. Every field a Ticket Type carries has to
       // be echoed back here or a reorder would quietly wipe it — the Purchase
-      // Limit especially, since it is the one field an organizer would not think
-      // to re-check after nudging a row up or down.
+      // Limit and the Sales Cutoff especially, since neither is a field an
+      // organizer would think to re-check after nudging a row up or down.
       await Promise.all([
         fetchEventsJSON<TicketType>(`/api/events/${eventId}/ticket-types/${ticketType.id}`, {
           method: "PATCH",
@@ -449,6 +454,7 @@ export function TicketTypesSection({
             price_cents: ticketType.price_cents,
             capacity: ticketType.capacity,
             max_per_customer: ticketType.max_per_customer,
+            sales_cutoff_at: ticketType.sales_cutoff_at,
             sort_order: other.sort_order,
           }),
         }),
@@ -460,6 +466,7 @@ export function TicketTypesSection({
             price_cents: other.price_cents,
             capacity: other.capacity,
             max_per_customer: other.max_per_customer,
+            sales_cutoff_at: other.sales_cutoff_at,
             sort_order: ticketType.sort_order,
           }),
         }),
