@@ -6674,6 +6674,10 @@ const docTemplate = `{
             },
             "service.PublicEventCard": {
                 "properties": {
+                    "all_closed": {
+                        "description": "AllClosed reports that every one of the Event's Ticket Types is past its\nSales Cutoff, which is a third listing state beside sold out and not the\nsame one (ADR 0070). Closed and sold out invite different behaviour from\nthe reader — \"they are gone\" ends the conversation, \"we stopped selling\"\ninvites an email asking you to reopen — so a card that muddled them would\ntell a half-empty room it was full.\n\nThe two are never both true. SoldOut is judged over the still-open Ticket\nTypes, so a mixed Event, where some closed and the rest are exhausted,\nreads sold out; an entirely closed Event has no open Ticket Type left to\njudge and reads closed. PriceFromCents is null on such an Event, because\nthere is no price left that a Customer could actually pay.",
+                        "type": "boolean"
+                    },
                     "cover_image_url": {
                         "type": "string"
                     },
@@ -6723,6 +6727,10 @@ const docTemplate = `{
             },
             "service.PublicEventDetail": {
                 "properties": {
+                    "all_closed": {
+                        "description": "AllClosed reports that every one of this Event's Ticket Types is past its\nSales Cutoff (ADR 0070). The page draws one sentence from it — \"Ticket\nsales for this event have closed\" — and withholds the sticky Buy bar,\nbecause a page of dimmed cards with no explanation reads as a loading\nfailure.\n\nStated by the Event rather than left to the page to fold over\nticket_types, for the same reason ` + "`" + `closed` + "`" + ` is stated per Ticket Type: the\nserver owns the clock, and the two apps must rank these states\nidentically. It is judged on every Ticket Type having CLOSED and never on\nnothing being buyable — an entirely sold-out Event is a different sentence\nand not this field's to make.",
+                        "type": "boolean"
+                    },
                     "buyer_holds_first_ticket": {
                         "description": "BuyerHoldsFirstTicket is whether an Online Sale of this Event hands the\nbuyer its first Ticket as their own Self-held Ticket (ADR 0048) — which\nis the platform's Ticket Assignment flag and not a property of the\nEvent, riding here for the reason ticket_questions does: the checkout\ndialog draws a \"Your ticket\" section from this payload, and it may only\ncall a Ticket the buyer's own when the sale will actually make it so.",
                         "type": "boolean"
@@ -6914,6 +6922,10 @@ const docTemplate = `{
                         "description": "AlreadyHeld is how many of this Ticket Type the Customer who asked for this\npage already holds — their active Ticket Sales plus their live Capacity\nHolds, the same count begin-checkout refuses on, and the same word its\nPURCHASE_LIMIT_EXCEEDED details use, so a client learns one name for one\nidea (ADR 0025, #168).\n\nIt is NULL for an anonymous read, and that is not the same statement as 0.\nZero says \"you hold none of these\"; null says \"we do not know who you are\",\nand the Storefront must not turn the second into the first — an anonymous\nvisitor learns of their allowance at submit, which is the first moment they\nhave told us who they are. Nobody ever reads anybody else's figure: it is\nderived from the Customer Session the request carried and from nothing in\nthe URL, so there is no address a caller can ask about but their own.\n\nIt is reported for every Ticket Type a signed-in Customer reads, including\nunrestricted ones, so that null keeps meaning \"anonymous\" and never doubles\nas \"unrestricted\" — max_per_customer already says that, and one field\nanswering two questions is how a picker ends up bounding the wrong thing.\nIt may legitimately exceed max_per_customer: lowering a Purchase Limit is\nnot retroactive, so remaining allowance is max(0, limit - already_held) and\nis never asserted non-negative.",
                         "type": "integer"
                     },
+                    "closed": {
+                        "description": "Closed is the server's verdict on that instant: this Ticket Type is past\nits Sales Cutoff and is no longer buyable, though it is still listed,\nstill described and still priced (ADR 0070).\n\nTHE SERVER OWNS THIS CLOCK. The Storefront must never recompute the\nverdict from SalesCutoffAt, because a browser with a wrong clock would\nthen show a stepper begin-checkout refuses — or hide one it would have\nhonoured. The page derives the day count only inside the open branch, so a\nskewed client can produce a number that is a day out and can never produce\na countdown on a card the server called closed.\n\nClosed is not sold out. They are separate fields for the same reason they\nget separate words and separate refusal codes: capacity exhausted is a\ndifferent fact from time run out, and only one of them invites an email\nasking you to reopen.",
+                        "type": "boolean"
+                    },
                     "currency": {
                         "type": "string"
                     },
@@ -6938,6 +6950,10 @@ const docTemplate = `{
                     },
                     "remaining": {
                         "type": "integer"
+                    },
+                    "sales_cutoff_at": {
+                        "description": "SalesCutoffAt is the Sales Cutoff as it was set — the raw instant, null on\na Ticket Type that never stops selling, which is most of them (ADR 0070).\n\nIt travels alongside Closed rather than instead of it because the page has\ntwo jobs a verdict alone cannot do: a closed card states the time it\nclosed, and an open one counts the days down to it. It is carried\nUNCONVERTED, exactly as every other instant on this API is. The Event's\ntimezone is applied when it is read, not when it is sent — the Event\nalready publishes its timezone, and converting here would leave the page\nunable to tell an offset from a moment.\n\nStated in every state, an hour before the cutoff and a year after it, so a\nclosed card can say when: whether a Customer missed it by an hour or by a\nmonth is the difference between writing to ask and giving up.",
+                        "type": "string"
                     },
                     "sold_out": {
                         "type": "boolean"

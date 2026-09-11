@@ -36,6 +36,11 @@ type publicTicketTypeView struct {
 	Remaining  int                  `json:"remaining"`
 	SoldOut    bool                 `json:"sold_out"`
 	Promotion  *publicPromotionView `json:"promotion"`
+	// The Sales Cutoff as it was set, and the server's verdict on it (#604,
+	// ADR 0070). Null and false on every Ticket Type nobody has typed a date
+	// into, which is all of them outside sales_cutoff_public_test.go.
+	SalesCutoffAt *string `json:"sales_cutoff_at"`
+	Closed        bool    `json:"closed"`
 }
 
 // publicTicketTypes reads the Storefront event page and returns its Ticket

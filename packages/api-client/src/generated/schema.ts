@@ -18139,6 +18139,21 @@ export interface components {
             starts_at?: string;
         };
         "service.PublicEventCard": {
+            /**
+             * @description AllClosed reports that every one of the Event's Ticket Types is past its
+             *     Sales Cutoff, which is a third listing state beside sold out and not the
+             *     same one (ADR 0070). Closed and sold out invite different behaviour from
+             *     the reader — "they are gone" ends the conversation, "we stopped selling"
+             *     invites an email asking you to reopen — so a card that muddled them would
+             *     tell a half-empty room it was full.
+             *
+             *     The two are never both true. SoldOut is judged over the still-open Ticket
+             *     Types, so a mixed Event, where some closed and the rest are exhausted,
+             *     reads sold out; an entirely closed Event has no open Ticket Type left to
+             *     judge and reads closed. PriceFromCents is null on such an Event, because
+             *     there is no price left that a Customer could actually pay.
+             */
+            all_closed?: boolean;
             cover_image_url?: string;
             currency?: string;
             ends_at?: string;
@@ -18170,6 +18185,21 @@ export interface components {
             venue_name?: string;
         };
         "service.PublicEventDetail": {
+            /**
+             * @description AllClosed reports that every one of this Event's Ticket Types is past its
+             *     Sales Cutoff (ADR 0070). The page draws one sentence from it — "Ticket
+             *     sales for this event have closed" — and withholds the sticky Buy bar,
+             *     because a page of dimmed cards with no explanation reads as a loading
+             *     failure.
+             *
+             *     Stated by the Event rather than left to the page to fold over
+             *     ticket_types, for the same reason `closed` is stated per Ticket Type: the
+             *     server owns the clock, and the two apps must rank these states
+             *     identically. It is judged on every Ticket Type having CLOSED and never on
+             *     nothing being buyable — an entirely sold-out Event is a different sentence
+             *     and not this field's to make.
+             */
+            all_closed?: boolean;
             /**
              * @description BuyerHoldsFirstTicket is whether an Online Sale of this Event hands the
              *     buyer its first Ticket as their own Self-held Ticket (ADR 0048) — which
@@ -18330,6 +18360,24 @@ export interface components {
              *     is never asserted non-negative.
              */
             already_held?: number;
+            /**
+             * @description Closed is the server's verdict on that instant: this Ticket Type is past
+             *     its Sales Cutoff and is no longer buyable, though it is still listed,
+             *     still described and still priced (ADR 0070).
+             *
+             *     THE SERVER OWNS THIS CLOCK. The Storefront must never recompute the
+             *     verdict from SalesCutoffAt, because a browser with a wrong clock would
+             *     then show a stepper begin-checkout refuses — or hide one it would have
+             *     honoured. The page derives the day count only inside the open branch, so a
+             *     skewed client can produce a number that is a day out and can never produce
+             *     a countdown on a card the server called closed.
+             *
+             *     Closed is not sold out. They are separate fields for the same reason they
+             *     get separate words and separate refusal codes: capacity exhausted is a
+             *     different fact from time run out, and only one of them invites an email
+             *     asking you to reopen.
+             */
+            closed?: boolean;
             currency?: string;
             description?: string;
             id?: string;
@@ -18348,6 +18396,23 @@ export interface components {
             price_cents?: number;
             promotion?: components["schemas"]["service.PublicPromotion"];
             remaining?: number;
+            /**
+             * @description SalesCutoffAt is the Sales Cutoff as it was set — the raw instant, null on
+             *     a Ticket Type that never stops selling, which is most of them (ADR 0070).
+             *
+             *     It travels alongside Closed rather than instead of it because the page has
+             *     two jobs a verdict alone cannot do: a closed card states the time it
+             *     closed, and an open one counts the days down to it. It is carried
+             *     UNCONVERTED, exactly as every other instant on this API is. The Event's
+             *     timezone is applied when it is read, not when it is sent — the Event
+             *     already publishes its timezone, and converting here would leave the page
+             *     unable to tell an offset from a moment.
+             *
+             *     Stated in every state, an hour before the cutoff and a year after it, so a
+             *     closed card can say when: whether a Customer missed it by an hour or by a
+             *     month is the difference between writing to ask and giving up.
+             */
+            sales_cutoff_at?: string;
             sold_out?: boolean;
             /**
              * @description TicketQuestions are what this Ticket Type asks the person who will hold one
