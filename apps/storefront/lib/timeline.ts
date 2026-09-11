@@ -10,7 +10,7 @@
 
 import type { PublicEventCard } from "./api.ts";
 
-import { ECUADOR_TIME_ZONE } from "./format.ts";
+import { ECUADOR_TIME_ZONE, localDateKey } from "./format.ts";
 
 export type TimelineDay = {
   /** The Day Bucket's key: the Event-local calendar date, "YYYY-MM-DD". */
@@ -30,20 +30,6 @@ export type Timeline = {
   ongoing: PublicEventCard[];
   days: TimelineDay[];
 };
-
-/**
- * The calendar date of an instant in a zone, as a "YYYY-MM-DD" key. en-CA is a
- * formatting trick — it is the locale whose short date *is* ISO 8601 — and has
- * nothing to do with the language anything renders in.
- */
-export function localDateKey(instant: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(instant);
-}
 
 export function buildTimeline(events: readonly PublicEventCard[], now: Date): Timeline {
   const ongoing: PublicEventCard[] = [];

@@ -4,7 +4,6 @@ import {
   Alert,
   AlertDescription,
   AlertTitle,
-  Badge,
   Button,
   Card,
   CardContent,
@@ -71,6 +70,7 @@ import {
 import { TERMS_PATH } from "@/lib/terms";
 
 import { PromotionBadge, PromotionDeadline, TicketTypePrice } from "./promotion";
+import { SalesClosedLine, TicketTypeStateBadge } from "./sales-cutoff";
 
 /**
  * Ticket selection and the one checkout step, inline on the event page
@@ -206,8 +206,44 @@ type TicketSelectionProps = {
    * (ADR 0014).
    */
   priceIncludesFee: boolean;
-  /** The Event's timezone, which a Promotion's deadline is read in (ADR 0021). */
+  /**
+   * The Event's timezone, which a Promotion's deadline is read in (ADR 0021) and
+   * which a Sales Cutoff is both set and counted down on (ADR 0070).
+   */
   timezone: string | null;
+  /**
+   * Whether every one of this Event's Ticket Types has closed — the server's
+   * verdict, straight off the Event payload (ADR 0070).
+   *
+   * It replaces the sticky Buy bar with a sentence. A page of dimmed cards and no
+   * explanation reads as a loading failure, and a Buy control that can never
+   * complete is an offer this page cannot honour.
+   *
+   * Taken as a field and NEVER folded over the cards below, for the same reason
+   * `closed` is: the server owns the clock, and the two apps must rank these
+   * states identically. It is also not the same question as "is anything
+   * buyable" — an Event that is merely sold out, or one where a single reader has
+   * spent their Purchase Limit, has nothing to select either, and the sentence
+   * for each of those is a different sentence this feature does not write.
+   */
+  allClosed: boolean;
+  /**
+   * The instant the countdown counts from — the SERVER's clock, read with the
+   * page and handed down (ADR 0070).
+   *
+   * Not `new Date()` at render. This is a Client Component that is still
+   * server-rendered, so a clock read in both places is read twice: across the
+   * Event's midnight the two answers differ, and React meets a hydration
+   * mismatch on text it has already streamed. Reading it once, above, means SSR
+   * and hydration draw the same rung by construction.
+   *
+   * It is also the more honest clock. `closed` is the server's verdict, and a
+   * countdown derived from the same clock that made it can never disagree with
+   * it — where a browser set to next week would have counted down to a door the
+   * server knows is already shut. The countdown does not tick, so a value fixed
+   * at request time is exactly as fresh as the rest of the page.
+   */
+  now: Date;
 };
 
 /**
@@ -319,6 +355,8 @@ export function TicketSelection({
   buyerHoldsFirstTicket,
   priceIncludesFee,
   timezone,
+  allClosed,
+  now,
   policy,
   terms,
 }: TicketSelectionProps) {
@@ -479,6 +517,13 @@ export function TicketSelection({
     const { requested, restored } = adjustment;
     if (adjustment.reason === "sold_out") {
       return t("restored.soldOut", { ticketType });
+    }
+    if (adjustment.reason === "closed") {
+      // Its Sales Cutoff passed during the round trip through the sign-in wall
+      // (ADR 0070). A sentence of its own and never the sold-out one, since the
+      // Event may have plenty of these left. A closed Ticket Type is always
+      // dropped whole, so there is no reduced form to word.
+      return t("restored.closed", { ticketType });
     }
     if (adjustment.reason === "purchase_limit") {
       // Their own allowance, not the Event's stock. The two must not share a
@@ -687,12 +732,18 @@ export function TicketSelection({
   const capacityExceeded = error?.code === "CAPACITY_EXCEEDED";
   // A Purchase Limit refusal is about the Customer, not the Event (ADR 0025), so
   // it gets its own title — "you already have yours" against "not enough tickets
-  // left". The two share this 409's handling because the remedy is the same one:
+  // left". All three share this 409's handling because the remedy is the same one:
   // the cart cannot be paid for as it stands, and no field on the form is what is
   // wrong with it. Filling the form in again would be refused identically.
   //
   const purchaseLimitExceeded = error?.code === "PURCHASE_LIMIT_EXCEEDED";
-  const cartRefused = capacityExceeded || purchaseLimitExceeded;
+  // A Ticket Type whose Sales Cutoff passed while this tab was open (ADR 0070).
+  // A third title beside the other two, and pointedly not the sold-out one: the
+  // Event may have plenty of these left. It joins the same 409 handling because
+  // the remedy is the same one — the cart cannot be paid for as it stands, and
+  // nothing on the form is what is wrong with it.
+  const ticketTypeClosed = error?.code === "TICKET_TYPE_CLOSED";
+  const cartRefused = capacityExceeded || purchaseLimitExceeded || ticketTypeClosed;
 
 
   // Neither the title nor the body claims the Customer already HOLDS any of
@@ -758,33 +809,76 @@ export function TicketSelection({
           // False for every anonymous visitor, who has no known holdings at all,
           // so the page they see is unchanged.
           const limitReached = allowanceSpent(ticketType);
-          const sellable = !ticketType.sold_out && !limitReached;
+          // Past its Sales Cutoff, on the SERVER's clock and never on this
+          // browser's (ADR 0070). The verdict arrives on the payload already
+          // made; deriving it here from sales_cutoff_at would let a machine set
+          // to yesterday draw a stepper the API is going to refuse, which is the
+          // precise failure the verdict exists to prevent.
+          //
+          // It joins the unsellable set rather than the sold-out one: the words
+          // stay different everywhere, and the treatment is the same because the
+          // buyer can do the same thing with either card — nothing.
+          const sellable = !ticketType.sold_out && !limitReached && !ticketType.closed;
           return (
             <Card key={ticketType.id} className={sellable ? undefined : "opacity-70"}>
               <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="font-semibold">{ticketType.name}</h3>
-                    {ticketType.sold_out ? (
-                      <Badge variant="secondary">{eventCopy("soldOut")}</Badge>
+                    {/* ONE badge, ranked sold out → closed → limit reached, and
+                        on a card in none of those, the countdown to its Sales
+                        Cutoff. The same component the read-only card draws, from
+                        the same module, so this Event cannot say one thing while
+                        it is selling and another once it has ended (ADR 0070).
+
+                        Every input is handed over and the choice is made there:
+                        the rank and the ladder are decisions with unit tests
+                        behind them, and a card that re-derived either would be
+                        where the two lists start to disagree. */}
+                    <TicketTypeStateBadge
+                      ticketType={ticketType}
+                      limitReached={limitReached}
+                      timezone={timezone}
+                      now={now}
+                    />
+                    {/* A price claim only while there is still a sale to make it
+                        about (ADR 0070): "37% off" on a Ticket Type nobody can
+                        buy advertises a bargain that does not exist. It is not
+                        ranked against the state badge — a live Promotion on an
+                        open Ticket Type that closes on Friday is two true things
+                        at once — so a still-selling card can wear both.
+
+                        Gated on the TICKET TYPE being buyable and not on
+                        `sellable`, which also excludes a reader who has spent
+                        their own Purchase Limit. The Promotion is a fact about
+                        the price everybody is being quoted, and one reader
+                        having taken their share does not make it stop being
+                        true — this is the same pair the read-only card uses. */}
+                    {!ticketType.sold_out && !ticketType.closed ? (
+                      <PromotionBadge ticketType={ticketType} />
                     ) : null}
-                    {/* A different variant as well as different words: the two
-                        unavailable states have to be told apart at a glance, not
-                        only by reading. */}
-                    {limitReached ? (
-                      <Badge variant="outline">{eventCopy("limitReached")}</Badge>
-                    ) : null}
-                    <PromotionBadge ticketType={ticketType} />
                   </div>
                   {ticketType.description ? (
                     <p className="text-sm text-muted-foreground">{ticketType.description}</p>
                   ) : null}
                   <PromotionDeadline ticketType={ticketType} timezone={timezone} />
+                  {/* When the door shut, on the Event's clock — in the slot the
+                      Promotion deadline uses, because it answers the same shape
+                      of question. A Ticket Type can carry both at once: a
+                      Promotion that ran until Friday on a tier that closed on
+                      Saturday is two true sentences. */}
+                  <SalesClosedLine ticketType={ticketType} timezone={timezone} />
                   {/* The remaining count stays on a Ticket Type whose allowance
                       is spent, and it is the evidence for the sentence beside
                       it: "seven remaining" under "your limit reached" is the
-                      Event visibly not being full. */}
-                  {!ticketType.sold_out ? (
+                      Event visibly not being full.
+
+                      It comes OFF a closed one, though, and for the opposite
+                      reason: that stock is real and unbuyable, so quoting it
+                      would be an offer this page cannot honour. Closed is
+                      already told apart from sold out in words, so it does not
+                      need the count to prove the Event is not full. */}
+                  {!ticketType.sold_out && !ticketType.closed ? (
                     <p className="text-sm text-muted-foreground">
                       {eventCopy("remaining", { count: ticketType.remaining })}
                     </p>
@@ -841,54 +935,75 @@ export function TicketSelection({
         })}
       </div>
 
-      {/* Sticky total bar: the running total and primary CTA stay
-          thumb-reachable while the ticket list scrolls (docs/design/storefront.md). */}
-      <div className="sticky bottom-0 -mx-4 mt-4 border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            {/* "No tickets selected" is the zero case of the same sentence, not
-                a different one: which of the three a language needs is the
-                catalog's plural rules to decide, not this component's. */}
-            <p className="text-sm text-muted-foreground">{t("selectionCount", { count })}</p>
-            <p className="text-lg font-semibold" data-testid="selection-total">
-              {formatPrice(total, currency, formatLocale)}
-            </p>
-            {priceIncludesFee ? (
-              <p className="text-xs text-muted-foreground">{eventCopy("feeIncluded")}</p>
-            ) : null}
-          </div>
-          {/* THE WALL AT BUY, and the only place it stands (ADR 0054, #385).
-
-              For a buyer with an identity this is the button it has always
-              been. For a visitor without one it is a LINK — a real one, so it
-              reads as going somewhere, opens in a new tab, and can be seen for
-              what it is before it is pressed — pointing at the ordinary sign-in
-              page and carrying the basket in its destination. Nothing above
-              this bar changed: the prices, the counts and the steppers are the
-              same for everybody, because gating discovery is the one thing the
-              Storefront may not do (ADR 0002, ADR 0037).
-
-              The disabled state is identical in both arms and is about the
-              basket rather than the buyer: an empty cart has nowhere to go,
-              signed in or out. The link's `aria-disabled` is what says so,
-              since an anchor cannot be disabled. */}
-          {identity === null ? (
-            <Button asChild size="lg" className={cn("h-11", count === 0 && "pointer-events-none opacity-50")}>
-              <Link
-                href={checkoutSignInHref(pathname, quantities)}
-                aria-disabled={count === 0}
-                tabIndex={count === 0 ? -1 : undefined}
-              >
-                {t("getTickets")}
-              </Link>
-            </Button>
-          ) : (
-            <Button type="button" size="lg" className="h-11" disabled={count === 0} onClick={openCheckout}>
-              {t("getTickets")}
-            </Button>
-          )}
+      {allClosed ? (
+        // Every Ticket Type has closed, so the sticky bar is not drawn at all and
+        // one sentence takes its place (ADR 0070). The list above is untouched —
+        // its cards, its descriptions and its prices all stay — and this is what
+        // stops a page of dimmed cards from reading as a page that failed to
+        // load.
+        //
+        // The sentence sits where the bar was but does not follow the reader down
+        // the page: a control you might want under your thumb is one thing, a
+        // piece of bad news that will not go away is another.
+        //
+        // It is deliberately not the sold-out sentence. An Event that is merely
+        // exhausted says something else, and this feature does not write it.
+        <div className="-mx-4 mt-4 border-t px-4 py-3">
+          <p className="text-sm font-medium text-foreground">{eventCopy("allSalesClosed")}</p>
+          {priceIncludesFee ? (
+            <p className="text-xs text-muted-foreground">{eventCopy("feeIncluded")}</p>
+          ) : null}
         </div>
-      </div>
+      ) : (
+        /* Sticky total bar: the running total and primary CTA stay
+           thumb-reachable while the ticket list scrolls (docs/design/storefront.md). */
+        <div className="sticky bottom-0 -mx-4 mt-4 border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              {/* "No tickets selected" is the zero case of the same sentence, not
+                  a different one: which of the three a language needs is the
+                  catalog's plural rules to decide, not this component's. */}
+              <p className="text-sm text-muted-foreground">{t("selectionCount", { count })}</p>
+              <p className="text-lg font-semibold" data-testid="selection-total">
+                {formatPrice(total, currency, formatLocale)}
+              </p>
+              {priceIncludesFee ? (
+                <p className="text-xs text-muted-foreground">{eventCopy("feeIncluded")}</p>
+              ) : null}
+            </div>
+            {/* THE WALL AT BUY, and the only place it stands (ADR 0054, #385).
+
+                For a buyer with an identity this is the button it has always
+                been. For a visitor without one it is a LINK — a real one, so it
+                reads as going somewhere, opens in a new tab, and can be seen for
+                what it is before it is pressed — pointing at the ordinary sign-in
+                page and carrying the basket in its destination. Nothing above
+                this bar changed: the prices, the counts and the steppers are the
+                same for everybody, because gating discovery is the one thing the
+                Storefront may not do (ADR 0002, ADR 0037).
+
+                The disabled state is identical in both arms and is about the
+                basket rather than the buyer: an empty cart has nowhere to go,
+                signed in or out. The link's `aria-disabled` is what says so,
+                since an anchor cannot be disabled. */}
+            {identity === null ? (
+              <Button asChild size="lg" className={cn("h-11", count === 0 && "pointer-events-none opacity-50")}>
+                <Link
+                  href={checkoutSignInHref(pathname, quantities)}
+                  aria-disabled={count === 0}
+                  tabIndex={count === 0 ? -1 : undefined}
+                >
+                  {t("getTickets")}
+                </Link>
+              </Button>
+            ) : (
+              <Button type="button" size="lg" className="h-11" disabled={count === 0} onClick={openCheckout}>
+                {t("getTickets")}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       <Dialog
         open={checkoutOpen}
@@ -969,6 +1084,7 @@ export function TicketSelection({
             <Alert variant="destructive">
               {capacityExceeded ? <AlertTitle>{t("capacityTitle")}</AlertTitle> : null}
               {purchaseLimitExceeded ? <AlertTitle>{t("purchaseLimitTitle")}</AlertTitle> : null}
+              {ticketTypeClosed ? <AlertTitle>{t("closedTitle")}</AlertTitle> : null}
               {/* The API decided which failure this is; the catalog decides how
                   to say it, in this page's language, falling back to the API's
                   own message for a code it does not know. This app's own two

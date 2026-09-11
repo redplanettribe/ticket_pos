@@ -68,6 +68,28 @@ export function priceFrom(
   return { kind: "from", price: formatPrice(cents, currency, locale) };
 }
 
+/**
+ * The calendar date an instant falls on in a zone, as a "YYYY-MM-DD" key.
+ *
+ * A key and not a label: it is compared and subtracted, never shown, so en-CA
+ * is a formatting trick — it is the locale whose short date *is* ISO 8601 — and
+ * has nothing to do with the language anything renders in. No locale is taken
+ * for that reason.
+ *
+ * The zone is the whole point. "Which day is this?" has no answer until somebody
+ * says whose calendar is being read, and the two callers answer it differently:
+ * the Timeline groups on the platform's own day, while the Sales Cutoff counts
+ * down on the Event's. Both ask here so neither has to rebuild the arithmetic.
+ */
+export function localDateKey(instant: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(instant);
+}
+
 function timeZoneOrUndefined(timezone: string | null): string | undefined {
   return timezone ?? undefined;
 }

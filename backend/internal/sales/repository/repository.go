@@ -332,6 +332,21 @@ type EventTicketType struct {
 	// well as the order it happened to receive the rows in, so a client can
 	// colour a Ticket Type by its place and keep that colour across loads.
 	SortOrder int
+	// SalesCutoffAt is the Ticket Type's Sales Cutoff — the instant it stops
+	// being sold on the Storefront — and nil is the state every Ticket Type is
+	// in until an organizer types a date (ADR 0070, migration 121).
+	//
+	// It rides this struct for the same reason MaxPerCustomer does: the refusal
+	// must be decided from the same row the price came from, and against the
+	// same clock reading that priced it, so a cart is never judged half on one
+	// side of a cutoff and half on the other.
+	//
+	// Only begin-checkout consults it. The other readers of this list — the Sale
+	// Import's template and validation, the Manually Recorded Sale, the Sales
+	// Trends legend — load the value and ignore it, because the cutoff binds the
+	// Storefront alone: a row recorded by staff describes an act that already
+	// happened, usually before the window shut.
+	SalesCutoffAt *time.Time
 }
 
 // ListEventTicketTypes returns the Event's Ticket Types with their Promotion
@@ -340,7 +355,7 @@ type EventTicketType struct {
 func (r *Repository) ListEventTicketTypes(ctx context.Context, orgID, eventID string) ([]EventTicketType, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT tt.id, tt.name, tt.price_cents, tt.capacity, tt.sold_count,
-		       tt.sort_order, tt.max_per_customer,
+		       tt.sort_order, tt.max_per_customer, tt.sales_cutoff_at,
 		       p.promotional_price_cents, p.starts_at, p.ends_at
 		FROM ticket_types tt
 		LEFT JOIN ticket_type_promotions p ON p.ticket_type_id = tt.id
@@ -357,10 +372,10 @@ func (r *Repository) ListEventTicketTypes(ctx context.Context, orgID, eventID st
 		var tt EventTicketType
 		var maxPerCustomer sql.NullInt64
 		var promotionalPriceCents sql.NullInt64
-		var startsAt, endsAt sql.NullTime
+		var startsAt, endsAt, salesCutoffAt sql.NullTime
 		if err := rows.Scan(
 			&tt.ID, &tt.Name, &tt.PriceCents, &tt.Capacity, &tt.SoldCount,
-			&tt.SortOrder, &maxPerCustomer,
+			&tt.SortOrder, &maxPerCustomer, &salesCutoffAt,
 			&promotionalPriceCents, &startsAt, &endsAt,
 		); err != nil {
 			return nil, err
@@ -368,6 +383,10 @@ func (r *Repository) ListEventTicketTypes(ctx context.Context, orgID, eventID st
 		if maxPerCustomer.Valid {
 			limit := int(maxPerCustomer.Int64)
 			tt.MaxPerCustomer = &limit
+		}
+		if salesCutoffAt.Valid {
+			cutoff := salesCutoffAt.Time
+			tt.SalesCutoffAt = &cutoff
 		}
 		// The end is NOT NULL on a Promotion row, so the join either produced a
 		// whole Promotion or none at all.

@@ -306,6 +306,21 @@ export type PublicEventCard = {
   currency: string;
   price_from_cents: number | null;
   sold_out: boolean;
+  // Whether every one of this Event's Ticket Types is past its Sales Cutoff — a
+  // THIRD listing state beside sold out, and never the same one (ADR 0070). A
+  // card that muddled them would tell a half-empty room it was full, which is a
+  // claim the Organization has to answer for.
+  //
+  // The two are never both true: sold_out is judged over the Ticket Types still
+  // open in time, so a mixed Event — some closed, the rest exhausted — reads
+  // sold out, which is the stronger fact.
+  //
+  // It is also what makes a null price_from_cents readable on such an Event.
+  // Closing every Ticket Type leaves no price a Customer could actually pay, so
+  // the amount comes back null and is on the wire indistinguishable from an
+  // external Event's permanent null; this field tells the two apart the way
+  // registration_mode already does.
+  all_closed: boolean;
   tags: PublicTag[];
   // How the Event takes sign-ups, "tickets" or "external"; see
   // lib/registration.ts, which reads it so the cards do not have to. A card
@@ -343,6 +358,29 @@ export type PublicTicketType = {
   currency: string;
   remaining: number;
   sold_out: boolean;
+  // The server's verdict on this Ticket Type's Sales Cutoff: true once the
+  // closing instant an organizer set has passed, and the Ticket Type is still
+  // listed, still described, still priced and no longer buyable (ADR 0070).
+  //
+  // Derived from the clock on every read and never stored, so clearing a cutoff
+  // or moving it forward reopens sales on the very next load. The verdict is
+  // the server's and not this app's for the same reason sold_out is: a browser
+  // with a wrong clock must never show a stepper the API will refuse.
+  //
+  // Never folded into sold_out: capacity exhausted and time run out are
+  // different facts and get different words on every surface (ADR 0070).
+  closed: boolean;
+  // The Sales Cutoff exactly as the organizer set it: an RFC3339 instant, null
+  // on the Ticket Types — nearly all of them — that never stop selling.
+  //
+  // Unconverted on the wire and read in the EVENT's timezone, the way a
+  // Promotion's ends_at is, because that is the clock the organizer typed it on
+  // (ADR 0070). It travels beside `closed` rather than instead of it: this is
+  // what the card names when it says WHEN sales closed, and the verdict beside
+  // it is what decides WHETHER they did. Comparing this against the browser's
+  // clock to answer that second question is the one use it must never be put
+  // to — see lib/sales-cutoff.ts.
+  sales_cutoff_at: string | null;
   promotion: PublicPromotion | null;
   // The Purchase Limit: the most of this Ticket Type one Customer may hold at
   // once, or null when it is unrestricted (ADR 0025). A raw count of tickets,
@@ -405,6 +443,18 @@ export type PublicEventDetail = {
   // buyer pays exactly what the organizer set and no fee is mentioned at all.
   price_includes_fee: boolean;
   ticket_types: PublicTicketType[];
+  // Whether every one of this Event's Ticket Types is past its Sales Cutoff
+  // (ADR 0070). The page draws one sentence from it — "Ticket sales for this
+  // event have closed" — and withholds the sticky Buy bar, because a page of
+  // dimmed cards with no explanation reads as a loading failure and a Buy
+  // control that can never complete is an offer the page cannot honour.
+  //
+  // Read off the Event rather than folded over ticket_types here, for the same
+  // reason `closed` is read off each Ticket Type: the server owns the clock. It
+  // is judged on every Ticket Type having CLOSED and never on nothing being
+  // buyable — an entirely sold-out Event is a different sentence, and one this
+  // feature does not write.
+  all_closed: boolean;
   // Whether an Online Sale hands the buyer its first Ticket as their own
   // (ADR 0048) — the platform's assignment flag, so the checkout dialog only
   // calls a Ticket "yours" when the sale will make it so.

@@ -68,7 +68,20 @@ type PublicEventCard struct {
 	Currency       string                    `json:"currency"`
 	PriceFromCents *int                      `json:"price_from_cents"`
 	SoldOut        bool                      `json:"sold_out"`
-	Tags           []TagView                 `json:"tags"`
+	// AllClosed reports that every one of the Event's Ticket Types is past its
+	// Sales Cutoff, which is a third listing state beside sold out and not the
+	// same one (ADR 0070). Closed and sold out invite different behaviour from
+	// the reader — "they are gone" ends the conversation, "we stopped selling"
+	// invites an email asking you to reopen — so a card that muddled them would
+	// tell a half-empty room it was full.
+	//
+	// The two are never both true. SoldOut is judged over the still-open Ticket
+	// Types, so a mixed Event, where some closed and the rest are exhausted,
+	// reads sold out; an entirely closed Event has no open Ticket Type left to
+	// judge and reads closed. PriceFromCents is null on such an Event, because
+	// there is no price left that a Customer could actually pay.
+	AllClosed bool      `json:"all_closed"`
+	Tags      []TagView `json:"tags"`
 	// RegistrationMode is how this Event takes sign-ups: 'tickets' (it sells
 	// Ticket Types here) or 'external' (it hands its audience to a Registration
 	// Link elsewhere). Never both (ADR 0028).
@@ -103,6 +116,37 @@ type PublicTicketType struct {
 	Remaining   int              `json:"remaining"`
 	SoldOut     bool             `json:"sold_out"`
 	Promotion   *PublicPromotion `json:"promotion"`
+	// SalesCutoffAt is the Sales Cutoff as it was set — the raw instant, null on
+	// a Ticket Type that never stops selling, which is most of them (ADR 0070).
+	//
+	// It travels alongside Closed rather than instead of it because the page has
+	// two jobs a verdict alone cannot do: a closed card states the time it
+	// closed, and an open one counts the days down to it. It is carried
+	// UNCONVERTED, exactly as every other instant on this API is. The Event's
+	// timezone is applied when it is read, not when it is sent — the Event
+	// already publishes its timezone, and converting here would leave the page
+	// unable to tell an offset from a moment.
+	//
+	// Stated in every state, an hour before the cutoff and a year after it, so a
+	// closed card can say when: whether a Customer missed it by an hour or by a
+	// month is the difference between writing to ask and giving up.
+	SalesCutoffAt *time.Time `json:"sales_cutoff_at"`
+	// Closed is the server's verdict on that instant: this Ticket Type is past
+	// its Sales Cutoff and is no longer buyable, though it is still listed,
+	// still described and still priced (ADR 0070).
+	//
+	// THE SERVER OWNS THIS CLOCK. The Storefront must never recompute the
+	// verdict from SalesCutoffAt, because a browser with a wrong clock would
+	// then show a stepper begin-checkout refuses — or hide one it would have
+	// honoured. The page derives the day count only inside the open branch, so a
+	// skewed client can produce a number that is a day out and can never produce
+	// a countdown on a card the server called closed.
+	//
+	// Closed is not sold out. They are separate fields for the same reason they
+	// get separate words and separate refusal codes: capacity exhausted is a
+	// different fact from time run out, and only one of them invites an email
+	// asking you to reopen.
+	Closed bool `json:"closed"`
 	// MaxPerCustomer is the Purchase Limit, or null when this Ticket Type is
 	// unrestricted. The Storefront bounds its quantity picker by it so a buyer is
 	// never invited to choose a quantity that will be refused (ADR 0025).
@@ -230,7 +274,20 @@ type PublicEventDetail struct {
 	// Customer sees (ADR 0014).
 	PriceIncludesFee bool               `json:"price_includes_fee"`
 	TicketTypes      []PublicTicketType `json:"ticket_types"`
-	Tags             []TagView          `json:"tags"`
+	// AllClosed reports that every one of this Event's Ticket Types is past its
+	// Sales Cutoff (ADR 0070). The page draws one sentence from it — "Ticket
+	// sales for this event have closed" — and withholds the sticky Buy bar,
+	// because a page of dimmed cards with no explanation reads as a loading
+	// failure.
+	//
+	// Stated by the Event rather than left to the page to fold over
+	// ticket_types, for the same reason `closed` is stated per Ticket Type: the
+	// server owns the clock, and the two apps must rank these states
+	// identically. It is judged on every Ticket Type having CLOSED and never on
+	// nothing being buyable — an entirely sold-out Event is a different sentence
+	// and not this field's to make.
+	AllClosed bool      `json:"all_closed"`
+	Tags      []TagView `json:"tags"`
 	// Discoverable mirrors the Event's Discoverable flag so the Storefront can
 	// mark a non-Discoverable Event noindex. ADR 0002 draws the line between
 	// reachable and advertised: a published Event is always reachable by direct
@@ -473,6 +530,10 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 		Currency:         row.OrgCurrency,
 		PriceIncludesFee: handling == sales.FeeHandlingPassOn,
 		TicketTypes:      make([]PublicTicketType, 0, len(types)),
+		// Read off the same shared subquery the listing cards narrow through, so
+		// a card and the page it links to can never disagree about whether an
+		// Event has closed.
+		AllClosed:        allTicketTypesClosed(row),
 		Tags:             toTagViews(tags),
 		Discoverable:     row.Discoverable,
 		RegistrationMode: string(mode),
@@ -533,6 +594,7 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 		// begin-checkout asks — so the price shown is the price charged.
 		promotion := promotionFor(promotions, tt.ID)
 		baseCents := catalog.EffectiveBasePriceCents(tt.PriceCents, promotion, now)
+		salesCutoffAt := nullTimeOrNil(tt.SalesCutoffAt)
 		detail.TicketTypes = append(detail.TicketTypes, PublicTicketType{
 			ID:          tt.ID,
 			Name:        tt.Name,
@@ -543,6 +605,13 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 			SoldOut:     remaining == 0,
 			Promotion:   s.toPublicPromotion(handling, tt.PriceCents, promotion, now),
 
+			SalesCutoffAt: salesCutoffAt,
+			// The verdict is the catalog predicate against the same `now` that
+			// priced the ticket and bounded the holds — one clock reading
+			// answers the whole page, so no two of its figures can be a moment
+			// apart, and the page cannot call a Ticket Type open at a price its
+			// Promotion had already stopped quoting.
+			Closed:         catalog.ClosedAt(salesCutoffAt, now),
 			MaxPerCustomer: nullIntPtr(tt.MaxPerCustomer),
 			AlreadyHeld:    viewerHoldingOf(viewer, ownHoldings, tt.ID),
 			// Nil for every Ticket Type that asks nothing, and for every one of
@@ -664,7 +733,21 @@ func (s *Service) toPublicEventCard(row *repository.PublicEventRow, tags []TagVi
 	if row.AllSoldOut.Valid {
 		card.SoldOut = row.AllSoldOut.Bool
 	}
+	card.AllClosed = allTicketTypesClosed(row)
 	return card
+}
+
+// allTicketTypesClosed reads the shared subquery's all_closed roll-up, which
+// both the listing card and the Event detail state (ADR 0070). One function
+// rather than two unwraps, so the card and the page it links to cannot answer
+// this differently.
+//
+// Invalid over an Event with no Ticket Types — BOOL_AND has nothing to fold —
+// and that lands on false: an Event that sells nothing has not stopped selling
+// anything, and the all-closed sentence would be a strange thing to show a
+// visitor to an Event that never listed a ticket.
+func allTicketTypesClosed(row *repository.PublicEventRow) bool {
+	return row.AllClosed.Valid && row.AllClosed.Bool
 }
 
 // tagViewsByEventIDs batch-loads Tags for a set of Events and projects them into

@@ -2,9 +2,10 @@
  * Whether a Ticket Type can be bought right now, as the staff editor reads it.
  *
  * There is no availability field in the catalog: a Ticket Type is buyable when
- * its Event is published and its capacity is not exhausted. This derives that
- * one signal so the card states it plainly instead of leaving an organizer to
- * subtract Sold from Capacity in their head. Kept pure and structurally typed
+ * its Event is published, its capacity is not exhausted and its Sales Cutoff
+ * has not passed. This derives that one signal so the card states it plainly
+ * instead of leaving an organizer to subtract Sold from Capacity in their head
+ * and compare a timestamp against the clock. Kept pure and structurally typed
  * so it is directly unit-testable, like [promotions.ts](./promotions.ts).
  */
 
@@ -18,7 +19,7 @@
  * badge still carries the whole meaning in words: colour is never the only
  * signal for state (docs/design/foundation.md).
  */
-export type Availability = "not_on_sale" | "sold_out" | "low_stock" | "on_sale";
+export type Availability = "not_on_sale" | "sold_out" | "closed" | "low_stock" | "on_sale";
 
 /** The capacity pool an Availability is read from. */
 export type CapacityPool = {
@@ -26,8 +27,48 @@ export type CapacityPool = {
   sold_count: number;
 };
 
+/**
+ * Everything an Availability is read from: the stock, and the instant the
+ * Storefront stops selling it.
+ *
+ * `sales_cutoff_at` is required and not optional, so a caller cannot forget it
+ * and get "never closes" by accident. null is the way to say a Ticket Type
+ * never stops selling, which is what most of them say.
+ */
+export type SellableTicketType = CapacityPool & {
+  sales_cutoff_at: string | null;
+};
+
 /** At or below this share of capacity remaining, the card warns instead of reassuring. */
 const LOW_STOCK_SHARE = 0.1;
+
+/**
+ * Whether a Ticket Type whose Sales Cutoff is `salesCutoffAt` has closed by the
+ * instant `at` (ADR 0070).
+ *
+ * The TypeScript twin of the Go predicate `catalog.ClosedAt`, and deliberately
+ * shaped like it: half-open with the cutoff instant itself closed, a null
+ * cutoff never closing, and the instant a parameter rather than a clock read so
+ * the function stays pure. The server is the authority — the staff app only
+ * draws what it will decide — so the two must never disagree about an instant,
+ * which is what the boundary cases in the test beside this assert.
+ *
+ * The zone never enters the comparison. Both sides are instants, and the
+ * Event's timezone matters only where the value is typed and read back in
+ * words.
+ *
+ * An unparseable value reads as open, which falls out of the comparison rather
+ * than being guarded for: every comparison against NaN is false. That is the
+ * answer this wants anyway — a shape the app cannot understand is no grounds
+ * for telling an organizer their Ticket Type has stopped selling — and the test
+ * beside this pins it so the reasoning cannot be lost.
+ */
+export function closedAt(salesCutoffAt: string | null, at: Date): boolean {
+  if (salesCutoffAt === null) {
+    return false;
+  }
+  return at.getTime() >= new Date(salesCutoffAt).getTime();
+}
 
 /** What is left of the pool, floored at zero so an over-sold row still reads as sold out. */
 export function remainingCapacity(pool: CapacityPool): number {
@@ -35,24 +76,50 @@ export function remainingCapacity(pool: CapacityPool): number {
 }
 
 /**
- * The Ticket Type's availability. The Event gates it first: nothing on a draft
- * or cancelled Event is buyable, however much capacity is left.
+ * The Ticket Type's availability at an instant.
+ *
+ * The order of the five states is the Storefront's, and the two apps rank them
+ * identically so that a disagreement between them is a bug rather than a matter
+ * of taste (ADR 0070). The Event gates first: nothing on a draft or cancelled
+ * Event is buyable, however much capacity is left and whatever its cutoff says.
+ * Sold out beats closed because it is the stronger fact and it changes what the
+ * reader does next — "they are gone" ends the conversation, "we stopped
+ * selling" invites an email asking you to reopen. Closed beats low stock
+ * because how many are left stops mattering once nobody can buy them.
+ *
+ * `at` is a parameter and not a clock read, so a card can be rendered at any
+ * instant and the decision stays testable.
  */
-export function ticketTypeAvailability(pool: CapacityPool, eventStatus: string): Availability {
+export function ticketTypeAvailability(
+  ticketType: SellableTicketType,
+  eventStatus: string,
+  at: Date,
+): Availability {
   if (eventStatus !== "published") {
     return "not_on_sale";
   }
-  const remaining = remainingCapacity(pool);
+  const remaining = remainingCapacity(ticketType);
   if (remaining === 0) {
     return "sold_out";
   }
-  if (pool.capacity > 0 && remaining / pool.capacity <= LOW_STOCK_SHARE) {
+  if (closedAt(ticketType.sales_cutoff_at, at)) {
+    return "closed";
+  }
+  if (ticketType.capacity > 0 && remaining / ticketType.capacity <= LOW_STOCK_SHARE) {
     return "low_stock";
   }
   return "on_sale";
 }
 
-/** Badge colour per state, matching the Event status badge idiom. */
+/**
+ * Badge colour per state, matching the Event status badge idiom.
+ *
+ * Closed falls to the neutral colour with sold out and not on sale, and
+ * deliberately not to the amber the Storefront's countdown wears: the staff
+ * card is a control panel, and amber on it would read as a problem to fix
+ * rather than as a decision the organizer made on purpose (ADR 0070). Which is
+ * again why the badge must also carry a word.
+ */
 export function availabilityBadgeVariant(
   availability: Availability,
 ): "success" | "warning" | "secondary" {

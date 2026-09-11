@@ -313,8 +313,13 @@ type TicketType struct {
 	// MaxPerCustomer is the Purchase Limit, invalid when the Ticket Type is
 	// unrestricted — which is most of them (ADR 0025).
 	MaxPerCustomer sql.NullInt64
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// SalesCutoffAt is the Sales Cutoff — the instant the Storefront stops
+	// selling this Ticket Type — invalid when it never stops, which is every row
+	// that predates ADR 0070. Nothing is derived from it here: whether the
+	// Ticket Type has closed is the reader's comparison against its own clock.
+	SalesCutoffAt sql.NullTime
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // CreateTicketTypeParams holds values for a new Ticket Type.
@@ -325,6 +330,9 @@ type CreateTicketTypeParams struct {
 	Capacity       int
 	SortOrder      int
 	MaxPerCustomer sql.NullInt64
+	// SalesCutoffAt is the Sales Cutoff, invalid when the Ticket Type never
+	// stops selling.
+	SalesCutoffAt sql.NullTime
 }
 
 // UpdateTicketTypeParams holds mutable Ticket Type fields.
@@ -335,12 +343,16 @@ type UpdateTicketTypeParams struct {
 	Capacity       int
 	SortOrder      int
 	MaxPerCustomer sql.NullInt64
+	// SalesCutoffAt is the Sales Cutoff. Invalid clears it, because this
+	// endpoint is a full restatement of the Ticket Type rather than a patch —
+	// the same rule Description and MaxPerCustomer already follow.
+	SalesCutoffAt sql.NullTime
 }
 
 const ticketTypeColumns = `
 	id, event_id, organization_id, name, description,
 	price_cents, capacity, sold_count, sort_order, max_per_customer,
-	created_at, updated_at
+	sales_cutoff_at, created_at, updated_at
 `
 
 func scanTicketType(row interface {
@@ -350,7 +362,7 @@ func scanTicketType(row interface {
 	if err := row.Scan(
 		&tt.ID, &tt.EventID, &tt.OrganizationID, &tt.Name, &tt.Description,
 		&tt.PriceCents, &tt.Capacity, &tt.SoldCount, &tt.SortOrder, &tt.MaxPerCustomer,
-		&tt.CreatedAt, &tt.UpdatedAt,
+		&tt.SalesCutoffAt, &tt.CreatedAt, &tt.UpdatedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -412,7 +424,7 @@ func (r *Repository) ListTicketTypesByEventID(ctx context.Context, orgID, eventI
 		if err := rows.Scan(
 			&tt.ID, &tt.EventID, &tt.OrganizationID, &tt.Name, &tt.Description,
 			&tt.PriceCents, &tt.Capacity, &tt.SoldCount, &tt.SortOrder, &tt.MaxPerCustomer,
-			&tt.CreatedAt, &tt.UpdatedAt,
+			&tt.SalesCutoffAt, &tt.CreatedAt, &tt.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -431,13 +443,14 @@ func (r *Repository) CreateTicketType(
 	row := r.db.Pool.QueryRowContext(ctx, `
 		INSERT INTO ticket_types (
 			event_id, organization_id, name, description,
-			price_cents, capacity, sort_order, max_per_customer, created_at, updated_at
+			price_cents, capacity, sort_order, max_per_customer, sales_cutoff_at,
+			created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
 		RETURNING `+ticketTypeColumns+`
 	`, eventID, orgID, params.Name, nullString(params.Description),
 		params.PriceCents, params.Capacity, params.SortOrder,
-		nullInt(params.MaxPerCustomer), now)
+		nullInt(params.MaxPerCustomer), nullTime(params.SalesCutoffAt), now)
 	return scanTicketType(row)
 }
 
@@ -467,13 +480,14 @@ func (r *Repository) UpdateTicketType(
 			capacity = $7,
 			sort_order = $8,
 			max_per_customer = $9,
-			updated_at = $10
+			sales_cutoff_at = $10,
+			updated_at = $11
 		WHERE id = $1 AND event_id = $2 AND organization_id = $3
 		RETURNING `+ticketTypeColumns+`
 	`, ticketTypeID, eventID, orgID,
 		params.Name, nullString(params.Description),
 		params.PriceCents, params.Capacity, params.SortOrder,
-		nullInt(params.MaxPerCustomer), now)
+		nullInt(params.MaxPerCustomer), nullTime(params.SalesCutoffAt), now)
 	return scanTicketType(row)
 }
 

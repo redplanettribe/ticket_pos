@@ -37,6 +37,19 @@ export type SellableTicketType = {
   // of their allowance at submit, which is the first moment they have told us
   // who they are.
   already_held?: number | null;
+  // The server's verdict on this Ticket Type's Sales Cutoff: true once the
+  // closing instant an organizer set has passed, and the Ticket Type is still
+  // listed, still described, still priced and no longer buyable (ADR 0070).
+  //
+  // Optional and read as false when absent, on max_per_customer's terms: a
+  // caller that predates the cutoff has nothing closed, and no arithmetic is
+  // done on it. Never folded into sold_out: capacity exhausted and time run out
+  // are different facts and get different words on every surface.
+  //
+  // The verdict travels rather than being derived from an instant here, because
+  // the server owns the clock: a browser set to yesterday must never be able to
+  // offer a stepper the API will refuse.
+  closed?: boolean;
 };
 
 /**
@@ -108,11 +121,26 @@ export function allowanceSpent(ticketType: SellableTicketType): boolean {
 
 /**
  * clampQuantity keeps a stepper's value honest: an integer between zero and
- * what the Ticket Type may offer. Anything unparseable is zero, and a sold-out
- * type can never hold a quantity at all.
+ * what the Ticket Type may offer. Anything unparseable is zero, and neither a
+ * sold-out nor a closed type can hold a quantity at all.
+ *
+ * The closed gate arrived with the closed card (#607) and not before it. While
+ * the steppers were still drawn for a closed Ticket Type, returning zero here
+ * would have left a `+` that was clickable and did nothing — worse for a buyer
+ * than the honest refusal the API already gives them. Withdrawing the control is
+ * what makes zero the right answer, and putting the rule here rather than at
+ * each call site is what stops the two from drifting: restoreSelection used to
+ * carry its own copy of it and now inherits this one, so a basket restored from
+ * an address cannot bring back a line begin-checkout would refuse (ADR 0070).
+ *
+ * Closed is tested apart from sold_out and never folded into it: a closed Ticket
+ * Type may have plenty of stock left, and the two states get different words on
+ * every surface. Absent reads as open, so a Ticket Type nobody has typed a date
+ * into clamps exactly as it did before this feature existed.
  */
 export function clampQuantity(raw: number, ticketType: SellableTicketType): number {
   if (ticketType.sold_out) return 0;
+  if (ticketType.closed) return 0;
   if (!Number.isFinite(raw)) return 0;
   const whole = Math.trunc(raw);
   if (whole <= 0) return 0;

@@ -29,6 +29,7 @@ function card(overrides: Partial<PublicEventCard> & { slug: string }): PublicEve
     currency: "USD",
     price_from_cents: null,
     sold_out: false,
+    all_closed: false,
     tags: [],
     registration_mode: "tickets",
     ...overrides,

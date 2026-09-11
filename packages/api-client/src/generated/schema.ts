@@ -1505,7 +1505,7 @@ export interface paths {
         put?: never;
         /**
          * Begin an online checkout as the signed-in Customer
-         * @description The session-gated begin-checkout (ADR 0054). It does the same work as the public begin-checkout — validates ticket types, quantities, remaining capacity and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left — and differs from it in exactly one way: THE BUYER'S EMAIL IS READ FROM THE CUSTOMER SESSION AND IS NOT A REQUEST FIELD. There is no `customer_email` on this body and nothing here reads one, so a Ticket Sale begun on this route can only ever be addressed to an address the platform has proof of ownership for. A request with no Customer Session is refused 401. A request carrying a CONFIRMATION LINK session is refused 403 CUSTOMER_SESSION_SCOPE_INSUFFICIENT: that credential is minted from a token which travelled in an email and may have been forwarded, so it is not Proof of Email Ownership and cannot buy. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url; a checkout whose cart totals zero — Free Ticket Types only — is settled here and now, comes back status "approved" with confirmation_ref and no redirect_url, and is gated by the session identically, because a free Ticket is still a Ticket that needs a reachable inbox (ADR 0017). Because the buyer is proven, the details they give here are their own assertion about themselves: first and last name, the Tax ID (required, ADR 0016) and the optional phone are written back onto the Customer as well as snapshotted onto the sale. Consent given here is recorded as ANSWERED and never as a Pending Confirmation, and which boxes the buyer was owed is recomputed server-side from the Customer on the session and never taken from this body — a Customer who has already accepted the current Policy Version and answered both optional boxes sends no consent fields at all, is owed nothing, writes no Consent Record, and is not asked again; one who still owes Policy Acceptance must send it present and true or the checkout is refused 400 POLICY_ACCEPTANCE_REQUIRED with no Payment created. The Terms box behaves identically where owed (#537, ADR 0066): a Customer whose live session spans the current Terms edition — the one-time re-gate, or a later bump — must send terms_acceptance present and true or the checkout is refused 400 TERMS_ACCEPTANCE_REQUIRED, and the answer is held on the Payment together with the edition it was answered about, so the Consent Record written at commit evidences the text the buyer was shown rather than whichever edition is current when the provider answers. The Adulthood Declaration rides that same box (#588, ADR 0069): where the Terms edition in effect publishes the `label-adulthood-declaration` Artifact, the same buyer must also send adulthood_declaration present and true, or the checkout is refused 400 ADULTHOOD_DECLARATION_REQUIRED with no Payment created and nothing whatever written down — the platform keeps no record of anybody who says they are a minor. It is a declaration and never a verification: no date of birth is collected anywhere, and eighteen is a number in prose inside the Artifact. Where it is owed and ticked the answer is held on the Payment beside the Terms answer and the edition it was declared under, and reaches the Consent Record at commit by the same road. An edition that does not carry the Artifact owes no declaration and draws no box. An answer for a box the buyer was not owed is dropped rather than applied. Purchase Limits, Affiliate Link attribution, `locale`, and the skippable `answers` section all behave exactly as they do on the public route, including that nothing about an answer can ever refuse or delay a checkout (ADR 0044). The technical proof stored with a consent record (IP, user agent, origin URL) is taken from the request and never from this body, and the Policy Version accepted is resolved server-side. The response REPORTS THE ADDRESS THE SALE WAS ADDRESSED TO in `addressed_to` (#387): the address read off the session, echoed back so the caller learns it from this API rather than inferring it from a browser. That is what lets the Storefront's return leg still recognise a buyer whose Customer Session did not survive the trip to the Payment Provider — a cleared cookie jar, a provider webview, a revoked session, a different browser — and it grants nothing, because signing in still costs a passcode or a Google round trip. Confirming this checkout uses the same public confirm route, which stays public and idempotent: it is the Payment Provider's return leg and must work for a browser that has lost everything, which is the same fact `addressed_to` exists to survive.
+         * @description The session-gated begin-checkout (ADR 0054). It does the same work as the public begin-checkout — validates ticket types, quantities, remaining capacity and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left — and differs from it in exactly one way: THE BUYER'S EMAIL IS READ FROM THE CUSTOMER SESSION AND IS NOT A REQUEST FIELD. There is no `customer_email` on this body and nothing here reads one, so a Ticket Sale begun on this route can only ever be addressed to an address the platform has proof of ownership for. A request with no Customer Session is refused 401. A request carrying a CONFIRMATION LINK session is refused 403 CUSTOMER_SESSION_SCOPE_INSUFFICIENT: that credential is minted from a token which travelled in an email and may have been forwarded, so it is not Proof of Email Ownership and cannot buy. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url; a checkout whose cart totals zero — Free Ticket Types only — is settled here and now, comes back status "approved" with confirmation_ref and no redirect_url, and is gated by the session identically, because a free Ticket is still a Ticket that needs a reachable inbox (ADR 0017). Because the buyer is proven, the details they give here are their own assertion about themselves: first and last name, the Tax ID (required, ADR 0016) and the optional phone are written back onto the Customer as well as snapshotted onto the sale. Consent given here is recorded as ANSWERED and never as a Pending Confirmation, and which boxes the buyer was owed is recomputed server-side from the Customer on the session and never taken from this body — a Customer who has already accepted the current Policy Version and answered both optional boxes sends no consent fields at all, is owed nothing, writes no Consent Record, and is not asked again; one who still owes Policy Acceptance must send it present and true or the checkout is refused 400 POLICY_ACCEPTANCE_REQUIRED with no Payment created. The Terms box behaves identically where owed (#537, ADR 0066): a Customer whose live session spans the current Terms edition — the one-time re-gate, or a later bump — must send terms_acceptance present and true or the checkout is refused 400 TERMS_ACCEPTANCE_REQUIRED, and the answer is held on the Payment together with the edition it was answered about, so the Consent Record written at commit evidences the text the buyer was shown rather than whichever edition is current when the provider answers. The Adulthood Declaration rides that same box (#588, ADR 0069): where the Terms edition in effect publishes the `label-adulthood-declaration` Artifact, the same buyer must also send adulthood_declaration present and true, or the checkout is refused 400 ADULTHOOD_DECLARATION_REQUIRED with no Payment created and nothing whatever written down — the platform keeps no record of anybody who says they are a minor. It is a declaration and never a verification: no date of birth is collected anywhere, and eighteen is a number in prose inside the Artifact. Where it is owed and ticked the answer is held on the Payment beside the Terms answer and the edition it was declared under, and reaches the Consent Record at commit by the same road. An edition that does not carry the Artifact owes no declaration and draws no box. An answer for a box the buyer was not owed is dropped rather than applied. A Ticket Type whose Sales Cutoff has passed is refused 409 TICKET_TYPE_CLOSED naming it in `details.ticket_type_id`, and that is deliberately NOT the sold-out code: a shut window and an exhausted stock are worded differently on the Storefront, so a Ticket Type that is both closed and exhausted answers TICKET_TYPE_CLOSED rather than CAPACITY_EXCEEDED (ADR 0070). The cutoff is judged once, here, and the Sales Cutoff binds this route alone — a Sale Import row, a Manually Recorded Sale and a Sale Correction's replacement are never refused by it — so a Payment already under way settles on the terms it started on and nothing is re-judged on the way back from the Payment Provider. Purchase Limits, Affiliate Link attribution, `locale`, and the skippable `answers` section all behave exactly as they do on the public route, including that nothing about an answer can ever refuse or delay a checkout (ADR 0044). The technical proof stored with a consent record (IP, user agent, origin URL) is taken from the request and never from this body, and the Policy Version accepted is resolved server-side. The response REPORTS THE ADDRESS THE SALE WAS ADDRESSED TO in `addressed_to` (#387): the address read off the session, echoed back so the caller learns it from this API rather than inferring it from a browser. That is what lets the Storefront's return leg still recognise a buyer whose Customer Session did not survive the trip to the Payment Provider — a cleared cookie jar, a provider webview, a revoked session, a different browser — and it grants nothing, because signing in still costs a passcode or a Google round trip. Confirming this checkout uses the same public confirm route, which stays public and idempotent: it is the Payment Provider's return leg and must work for a browser that has lost everything, which is the same fact `addressed_to` exists to survive.
          */
         post: {
             parameters: {
@@ -14269,6 +14269,20 @@ export interface components {
             max_per_customer?: number;
             name?: string;
             price_cents?: number;
+            /**
+             * Format: date-time
+             * @description SalesCutoffAt is the Sales Cutoff — the instant the Storefront stops
+             *     selling this Ticket Type. Absent or null means it never stops, which is
+             *     the default and the state of every Ticket Type that predates ADR 0070.
+             *
+             *     An RFC3339 instant, parsed the way every other timestamp on this API is.
+             *     Nothing about the VALUE is checked beyond that it is a timestamp: an
+             *     instant in the past is the intended way to stop selling something right
+             *     now, and an instant after the Event starts is a workshop selling at its
+             *     own door, so validateTicketType is deliberately not extended. A refusal
+             *     there would land on the two edits this field exists to allow.
+             */
+            sales_cutoff_at?: string;
         };
         "handler.declinePayoutRequestBody": {
             reason?: string;
@@ -14625,6 +14639,16 @@ export interface components {
             max_per_customer?: number;
             name?: string;
             price_cents?: number;
+            /**
+             * Format: date-time
+             * @description SalesCutoffAt is the Sales Cutoff, under the same full-restatement rule:
+             *     absent and explicit null both clear it, which is how sales are reopened in
+             *     one edit. A cutoff that has already passed may be moved like any other,
+             *     and moving it forward reopens the Ticket Type on the next read — closing
+             *     is a door and never a deletion, so the sales, the capacity and the history
+             *     are all still there (ADR 0070).
+             */
+            sales_cutoff_at?: string;
             sort_order?: number;
         };
         "handler.videoUploadURLBody": {
@@ -18115,6 +18139,21 @@ export interface components {
             starts_at?: string;
         };
         "service.PublicEventCard": {
+            /**
+             * @description AllClosed reports that every one of the Event's Ticket Types is past its
+             *     Sales Cutoff, which is a third listing state beside sold out and not the
+             *     same one (ADR 0070). Closed and sold out invite different behaviour from
+             *     the reader — "they are gone" ends the conversation, "we stopped selling"
+             *     invites an email asking you to reopen — so a card that muddled them would
+             *     tell a half-empty room it was full.
+             *
+             *     The two are never both true. SoldOut is judged over the still-open Ticket
+             *     Types, so a mixed Event, where some closed and the rest are exhausted,
+             *     reads sold out; an entirely closed Event has no open Ticket Type left to
+             *     judge and reads closed. PriceFromCents is null on such an Event, because
+             *     there is no price left that a Customer could actually pay.
+             */
+            all_closed?: boolean;
             cover_image_url?: string;
             currency?: string;
             ends_at?: string;
@@ -18146,6 +18185,21 @@ export interface components {
             venue_name?: string;
         };
         "service.PublicEventDetail": {
+            /**
+             * @description AllClosed reports that every one of this Event's Ticket Types is past its
+             *     Sales Cutoff (ADR 0070). The page draws one sentence from it — "Ticket
+             *     sales for this event have closed" — and withholds the sticky Buy bar,
+             *     because a page of dimmed cards with no explanation reads as a loading
+             *     failure.
+             *
+             *     Stated by the Event rather than left to the page to fold over
+             *     ticket_types, for the same reason `closed` is stated per Ticket Type: the
+             *     server owns the clock, and the two apps must rank these states
+             *     identically. It is judged on every Ticket Type having CLOSED and never on
+             *     nothing being buyable — an entirely sold-out Event is a different sentence
+             *     and not this field's to make.
+             */
+            all_closed?: boolean;
             /**
              * @description BuyerHoldsFirstTicket is whether an Online Sale of this Event hands the
              *     buyer its first Ticket as their own Self-held Ticket (ADR 0048) — which
@@ -18306,6 +18360,24 @@ export interface components {
              *     is never asserted non-negative.
              */
             already_held?: number;
+            /**
+             * @description Closed is the server's verdict on that instant: this Ticket Type is past
+             *     its Sales Cutoff and is no longer buyable, though it is still listed,
+             *     still described and still priced (ADR 0070).
+             *
+             *     THE SERVER OWNS THIS CLOCK. The Storefront must never recompute the
+             *     verdict from SalesCutoffAt, because a browser with a wrong clock would
+             *     then show a stepper begin-checkout refuses — or hide one it would have
+             *     honoured. The page derives the day count only inside the open branch, so a
+             *     skewed client can produce a number that is a day out and can never produce
+             *     a countdown on a card the server called closed.
+             *
+             *     Closed is not sold out. They are separate fields for the same reason they
+             *     get separate words and separate refusal codes: capacity exhausted is a
+             *     different fact from time run out, and only one of them invites an email
+             *     asking you to reopen.
+             */
+            closed?: boolean;
             currency?: string;
             description?: string;
             id?: string;
@@ -18324,6 +18396,23 @@ export interface components {
             price_cents?: number;
             promotion?: components["schemas"]["service.PublicPromotion"];
             remaining?: number;
+            /**
+             * @description SalesCutoffAt is the Sales Cutoff as it was set — the raw instant, null on
+             *     a Ticket Type that never stops selling, which is most of them (ADR 0070).
+             *
+             *     It travels alongside Closed rather than instead of it because the page has
+             *     two jobs a verdict alone cannot do: a closed card states the time it
+             *     closed, and an open one counts the days down to it. It is carried
+             *     UNCONVERTED, exactly as every other instant on this API is. The Event's
+             *     timezone is applied when it is read, not when it is sent — the Event
+             *     already publishes its timezone, and converting here would leave the page
+             *     unable to tell an offset from a moment.
+             *
+             *     Stated in every state, an hour before the cutoff and a year after it, so a
+             *     closed card can say when: whether a Customer missed it by an hour or by a
+             *     month is the difference between writing to ask and giving up.
+             */
+            sales_cutoff_at?: string;
             sold_out?: boolean;
             /**
              * @description TicketQuestions are what this Ticket Type asks the person who will hold one
@@ -19349,6 +19438,16 @@ export interface components {
             name?: string;
             price_cents?: number;
             promotion?: components["schemas"]["service.PromotionView"];
+            /**
+             * @description SalesCutoffAt is the Sales Cutoff — the instant the Storefront stops
+             *     selling this Ticket Type — or null when it never stops, which is most of
+             *     them. The raw instant and never a verdict: whether the Ticket Type has
+             *     closed is the reader's comparison against its own clock, through
+             *     catalog.ClosedAt. Stated unconditionally rather than only while it is in
+             *     force, because nothing about the value is validated and reading it back is
+             *     the only catch for a typo in the year (ADR 0070).
+             */
+            sales_cutoff_at?: string;
             sold_count?: number;
             sort_order?: number;
             updated_at?: string;

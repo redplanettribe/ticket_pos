@@ -53,11 +53,15 @@ func publishEvent(t *testing.T, env *testEnv, sessionID, name, slug string, star
 }
 
 type publicEventCard struct {
-	Slug           string    `json:"slug"`
-	Name           string    `json:"name"`
-	PriceFromCents *int      `json:"price_from_cents"`
-	SoldOut        bool      `json:"sold_out"`
-	Tags           []tagView `json:"tags"`
+	Slug           string `json:"slug"`
+	Name           string `json:"name"`
+	PriceFromCents *int   `json:"price_from_cents"`
+	SoldOut        bool   `json:"sold_out"`
+	// AllClosed is the Event's Sales Cutoff verdict: every Ticket Type past its
+	// cutoff (#604, ADR 0070). Distinct from SoldOut on purpose — a mixed Event
+	// reads sold out, and an entirely closed one reads closed.
+	AllClosed bool      `json:"all_closed"`
+	Tags      []tagView `json:"tags"`
 	// How the Event takes sign-ups, which the card carries so the Storefront can
 	// tell an Event that registers elsewhere from one with a missing price
 	// (issue #211).

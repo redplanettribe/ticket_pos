@@ -181,3 +181,61 @@ test("a ticketed Event with no price says nothing at all", () => {
     null,
   );
 });
+
+test("an Event whose every Ticket Type has closed quotes no price at all", () => {
+  // The "from" price is computed over the Ticket Types still open in time, so
+  // closing the last one empties it (ADR 0070): there is no price left that a
+  // Customer could actually pay, and last week's would advertise a sale that has
+  // ended. The card's corner says "Sales closed" in words, which is what stops
+  // the quiet slot from reading as a card that failed to load.
+  assert.equal(
+    eventCardPriceSlot({
+      registration_mode: "tickets",
+      registration_url: null,
+      price_from_cents: null,
+      currency: "USD",
+      all_closed: true,
+    }),
+    null,
+  );
+});
+
+test("an all-closed Event is still never quoted a price that reached its payload", () => {
+  // The closed branch is asked before the amount, exactly as the external one
+  // is, so a figure arriving on a card whose sales have ended cannot be quoted.
+  assert.equal(
+    eventCardPriceSlot({
+      registration_mode: "tickets",
+      registration_url: null,
+      price_from_cents: 2500,
+      currency: "USD",
+      all_closed: true,
+    }),
+    null,
+  );
+});
+
+test("an Event with Ticket Types still open prices exactly as it always has", () => {
+  // all_closed false, and absent, are the same statement: nothing about a card
+  // that has not closed changes.
+  const expected = { kind: "from", price: "$25" };
+  assert.deepEqual(
+    eventCardPriceSlot({
+      registration_mode: "tickets",
+      registration_url: null,
+      price_from_cents: 2500,
+      currency: "USD",
+      all_closed: false,
+    }),
+    expected,
+  );
+  assert.deepEqual(
+    eventCardPriceSlot({
+      registration_mode: "tickets",
+      registration_url: null,
+      price_from_cents: 2500,
+      currency: "USD",
+    }),
+    expected,
+  );
+});

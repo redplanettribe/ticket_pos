@@ -177,6 +177,18 @@ The price a Promotion charges while it is live — an absolute amount, not a per
 Takes the List Price's place in all fee arithmetic, so the Platform Fee is a share of what the Customer actually paid; any "X% off" shown is derived for display.
 _Avoid_: Discounted price, sale price, special price, offer price
 
+**Sales Cutoff**:
+The instant a Ticket Type stops being sold on the Storefront — an optional closing time the Organization sets on each Ticket Type, read in the Event's timezone, unset on most of them.
+A closing time only, never an opening one: a Ticket Type is on sale from the moment its Event is published until its Sales Cutoff, and the Ticket Type that is not yet on sale is a thing this platform does not have.
+Binds the Storefront alone. A Sale Import, a Manually Recorded Sale and a Sale Correction's replacement are never refused by it — they record acts that already happened — and neither is a door sale, since closing online sales early is usually how the door is given its turn.
+Judged once, at begin-checkout, exactly as the Promotion's price is (ADR 0070): a Payment already under way settles on the terms it started on, so a purchase never changes its mind between the basket and the provider.
+_Avoid_: Sales deadline, expiry date, valid until, end date, sale end, availability window, cutoff date
+
+**Closed**:
+Where a Ticket Type stands once its Sales Cutoff has passed: still listed, still described, still priced, and no longer buyable.
+Derived from the clock and never stored, the way a Promotion's liveness is. Distinct from sold out, which is capacity exhausted rather than time run out, and from an Event's `cancelled`, which is the Event's own lifecycle.
+_Avoid_: Expired, ended, unavailable, off sale, inactive
+
 **Purchase Limit**:
 The most of one Ticket Type a single Customer may hold at once — unset on most Ticket Types, and the reason a Free Ticket Type is not handed out a hundred at a time.
 Counted the way capacity is: a Customer's active Ticket Sales plus their live Capacity Holds, so a Sale Reversal returns it and an abandoned Payment releases it. Keyed on the Customer, which makes it a deterrent against taking too many rather than a defence against someone minting identities.

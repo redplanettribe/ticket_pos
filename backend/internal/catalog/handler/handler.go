@@ -520,6 +520,17 @@ type createTicketTypeBody struct {
 	// is unrestricted, which is the default and the state of every Ticket Type
 	// that predates ADR 0025.
 	MaxPerCustomer *int `json:"max_per_customer"`
+	// SalesCutoffAt is the Sales Cutoff — the instant the Storefront stops
+	// selling this Ticket Type. Absent or null means it never stops, which is
+	// the default and the state of every Ticket Type that predates ADR 0070.
+	//
+	// An RFC3339 instant, parsed the way every other timestamp on this API is.
+	// Nothing about the VALUE is checked beyond that it is a timestamp: an
+	// instant in the past is the intended way to stop selling something right
+	// now, and an instant after the Event starts is a workshop selling at its
+	// own door, so validateTicketType is deliberately not extended. A refusal
+	// there would land on the two edits this field exists to allow.
+	SalesCutoffAt *string `json:"sales_cutoff_at" format:"date-time"`
 }
 
 type updateTicketTypeBody struct {
@@ -533,6 +544,13 @@ type updateTicketTypeBody struct {
 	// zero value when omitted — so absent and explicit null both clear the
 	// Purchase Limit, exactly as they clear Description.
 	MaxPerCustomer *int `json:"max_per_customer"`
+	// SalesCutoffAt is the Sales Cutoff, under the same full-restatement rule:
+	// absent and explicit null both clear it, which is how sales are reopened in
+	// one edit. A cutoff that has already passed may be moved like any other,
+	// and moving it forward reopens the Ticket Type on the next read — closing
+	// is a door and never a deletion, so the sales, the capacity and the history
+	// are all still there (ADR 0070).
+	SalesCutoffAt *string `json:"sales_cutoff_at" format:"date-time"`
 }
 
 // ListTicketTypes returns Ticket Types for an Event.
@@ -599,7 +617,10 @@ func (h *Handler) CreateTicketType(w http.ResponseWriter, r *http.Request) {
 		_ = platform.WriteInvalidJSON(w, reqID)
 		return
 	}
-	if fields := validateTicketType(body.Name, body.PriceCents, body.Capacity, body.MaxPerCustomer); len(fields) > 0 {
+	fields := validateTicketType(body.Name, body.PriceCents, body.Capacity, body.MaxPerCustomer)
+	salesCutoffAt, cutoffFields := parseTimestampField("sales_cutoff_at", body.SalesCutoffAt)
+	fields = append(fields, cutoffFields...)
+	if len(fields) > 0 {
 		_ = platform.WriteValidationError(w, reqID, fields)
 		return
 	}
@@ -612,6 +633,7 @@ func (h *Handler) CreateTicketType(w http.ResponseWriter, r *http.Request) {
 		PriceCents:     body.PriceCents,
 		Capacity:       body.Capacity,
 		MaxPerCustomer: body.MaxPerCustomer,
+		SalesCutoffAt:  salesCutoffAt,
 	})
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
@@ -659,7 +681,10 @@ func (h *Handler) UpdateTicketType(w http.ResponseWriter, r *http.Request) {
 		_ = platform.WriteInvalidJSON(w, reqID)
 		return
 	}
-	if fields := validateTicketType(body.Name, body.PriceCents, body.Capacity, body.MaxPerCustomer); len(fields) > 0 {
+	fields := validateTicketType(body.Name, body.PriceCents, body.Capacity, body.MaxPerCustomer)
+	salesCutoffAt, cutoffFields := parseTimestampField("sales_cutoff_at", body.SalesCutoffAt)
+	fields = append(fields, cutoffFields...)
+	if len(fields) > 0 {
 		_ = platform.WriteValidationError(w, reqID, fields)
 		return
 	}
@@ -673,6 +698,7 @@ func (h *Handler) UpdateTicketType(w http.ResponseWriter, r *http.Request) {
 		Capacity:       body.Capacity,
 		SortOrder:      body.SortOrder,
 		MaxPerCustomer: body.MaxPerCustomer,
+		SalesCutoffAt:  salesCutoffAt,
 	})
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
@@ -722,6 +748,26 @@ func (h *Handler) DeleteTicketType(w http.ResponseWriter, r *http.Request) {
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, map[string]string{
 		"message": "Ticket type deleted.",
 	})
+}
+
+// parseTimestampField reads an optional RFC3339 instant off a request body.
+// Absent, null and empty all mean "no value" and are never an error — every
+// caller's field is one the Organization may clear by sending null, so the
+// distinction the API cares about is between a timestamp and a malformed
+// string, not between the three ways of saying nothing.
+//
+// It checks the FORMAT and never the value: what a caller may mean by a given
+// instant is the caller's business, and for a Sales Cutoff both a past instant
+// and one after the Event starts are ordinary (ADR 0070).
+func parseTimestampField(field string, raw *string) (*time.Time, []platform.FieldError) {
+	if raw == nil || strings.TrimSpace(*raw) == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*raw))
+	if err != nil {
+		return nil, []platform.FieldError{{Field: field, Code: platform.CodeInvalidTimestamp, Message: "must be a valid RFC3339 timestamp"}}
+	}
+	return &parsed, nil
 }
 
 func validateTicketType(name string, priceCents, capacity int, maxPerCustomer *int) []platform.FieldError {

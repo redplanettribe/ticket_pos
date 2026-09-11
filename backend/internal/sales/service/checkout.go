@@ -498,6 +498,13 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		requested[tt.ID] += line.Quantity
 	}
 
+	// The Sales Cutoff is enforced here and NOWHERE else in the platform — see
+	// refuseClosedTicketType for why, and for why it runs before both refusals
+	// below rather than after them.
+	if err := refuseClosedTicketType(byID, order, now); err != nil {
+		return nil, err
+	}
+
 	// The Purchase Limit is enforced here, on the aggregated request, and NOWHERE
 	// else — see refusePurchaseLimitBreach for why the commit path deliberately
 	// does not re-check it.
@@ -660,6 +667,55 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		// was recorded cannot disagree.
 		AddressedTo: customer.Email,
 	}, nil
+}
+
+// refuseClosedTicketType refuses a checkout naming a Ticket Type whose Sales
+// Cutoff has passed: the shop window shut while the buyer's tab was open
+// (ADR 0070).
+//
+// IT BINDS THE STOREFRONT ALONE, and this is the only place in the platform
+// that reads a cutoff to refuse anything. A Sale Import row, a Manually Recorded
+// Sale and a Sale Correction's replacement all record acts that already
+// happened, usually while the window was still open, and a correction must stay
+// possible for as long as the sale exists. A closing time is a decision about a
+// shop window, and a window that has shut says nothing about what happened while
+// it was open — which is why this departs from capacity and the Purchase Limit,
+// both of which do refuse import rows.
+//
+// IT IS JUDGED ONCE, here, against the instant the caller already read to price
+// the cart — so a cutoff falling mid-request cannot refuse one line of a basket
+// and price another as if it were still open. Nothing re-judges it on the way
+// back from the Payment Provider: a Payment already under way settles on the
+// terms it started on, exactly as the price it quoted does. The accepted cost,
+// recorded in ADR 0070, is that a Payment settling after the hold window has
+// lapsed can record a sale past its Ticket Type's cutoff, and the Sales list
+// will not explain it.
+//
+// IT RUNS BEFORE THE PURCHASE LIMIT AND CAPACITY, and that order carries the
+// whole point of giving it a code of its own. A Ticket Type that is closed AND
+// exhausted answers TICKET_TYPE_CLOSED, because a buyer told an Event is full
+// when it is half empty has been misinformed about the Organization, and that is
+// the confusion ADR 0023 let the Storefront key its copy on the code to prevent.
+// It beats the Purchase Limit for the reason the Purchase Limit beats capacity:
+// it is the more terminal fact, and CAPACITY_EXCEEDED's `available` figure would
+// invite a smaller retry that a shut window refuses just the same.
+//
+// That is deliberately the INVERSE of the order the two apps rank these states
+// in on a card, where sold out wins. The two are not in conflict because they
+// answer different questions: a badge describes a Ticket Type to somebody still
+// reading the page, where the stronger fact about stock is the more useful one,
+// while a refusal explains why an act was not performed, where the
+// Organization's own decision is the part a buyer can do something about.
+//
+// The order of `order` is the catalog's, so a cart with two closed Ticket Types
+// is refused over the same one on every attempt.
+func refuseClosedTicketType(byID map[string]repository.EventTicketType, order []string, at time.Time) error {
+	for _, id := range order {
+		if catalog.ClosedAt(byID[id].SalesCutoffAt, at) {
+			return sales.ErrTicketTypeClosed(id)
+		}
+	}
+	return nil
 }
 
 // refusePurchaseLimitBreach refuses a checkout that would take the buyer past a

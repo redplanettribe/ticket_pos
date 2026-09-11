@@ -31,9 +31,14 @@ type PublicEventRow struct {
 	// deliberately do not publish it. See ADR 0029 and the summary it builds.
 	OrgSupportWhatsApp sql.NullString
 	OrgCurrency        string
-	MinPriceCents sql.NullInt64
-	AllSoldOut    sql.NullBool
-	TicketCount   int
+	MinPriceCents      sql.NullInt64
+	AllSoldOut         sql.NullBool
+	// AllClosed is true when every one of the Event's Ticket Types is past its
+	// Sales Cutoff (ADR 0070). Invalid on an Event with no Ticket Types at all,
+	// which reads as not closed: an Event that sells nothing has not stopped
+	// selling anything.
+	AllClosed   sql.NullBool
+	TicketCount int
 }
 
 // PublicEventFilter constrains the global Storefront explorer query.
@@ -56,7 +61,7 @@ const publicEventColumns = `
 	e.description, e.cover_image_key, e.cover_video_key, e.discoverable, e.fee_handling,
 	e.registration_mode, e.registration_url, e.created_at,
 	o.name, o.slug, o.logo_image_key, o.support_whatsapp, o.currency,
-	tt.min_price, tt.all_sold_out, tt.ticket_count
+	tt.min_price, tt.all_sold_out, tt.all_closed, tt.ticket_count
 `
 
 // publicEventFrom is the shared FROM clause of the public Event queries. Its
@@ -76,7 +81,30 @@ const publicEventColumns = `
 // catalog.EffectiveBasePriceCents applies everywhere else. At most one
 // Promotion exists per Ticket Type (a UNIQUE slot), so the join cannot fan the
 // aggregate out.
+//
+// THE DERIVED FIGURES NARROW TO THE TICKET TYPES STILL OPEN IN TIME (ADR 0070).
+// A Ticket Type past its Sales Cutoff is one nobody can buy, so it contributes
+// neither a "from" price — the cheapest price a Customer could actually pay
+// right now, which is the rule ADR 0021 wrote for Promotions applied to a wider
+// question — nor a vote in the sold-out roll-up. That narrowing lands HERE, in
+// the one subquery all three public readers share, rather than in three Go call
+// sites that could drift apart.
+//
+// Judging all_sold_out over the still-open Ticket Types alone is what makes a
+// mixed Event — some closed, the rest exhausted — read SOLD OUT: the FILTER
+// leaves only the open ones, and they are all spoken for. An Event whose every
+// Ticket Type has closed has nothing left to judge, so all_sold_out comes back
+// NULL and lands on false, which is right — such an Event reads closed, and
+// telling a half-empty room it is full is a claim the Organization has to
+// answer for. all_closed is the separate BOOL_AND that says so.
+//
+// The closed test is the SQL statement of catalog.ClosedAt, and the only place
+// that predicate is expressed twice: half-open at the closing end, so the
+// cutoff instant itself is closed, and a NULL cutoff never closes. It is
+// evaluated against nowExpr — the same injected clock the Promotion window
+// reads, never SQL now().
 func publicEventFrom(cutoffExpr, nowExpr string) string {
+	closed := `(tt.sales_cutoff_at IS NOT NULL AND tt.sales_cutoff_at <= ` + nowExpr + `)`
 	return `
 	FROM events e
 	JOIN organizations o ON o.id = e.organization_id
@@ -87,8 +115,10 @@ func publicEventFrom(cutoffExpr, nowExpr string) string {
 				 AND ` + nowExpr + ` < p.ends_at
 				THEN p.promotional_price_cents
 				ELSE tt.price_cents
-			END) AS min_price,
-			BOOL_AND(tt.sold_count + COALESCE(h.held, 0) >= tt.capacity) AS all_sold_out,
+			END) FILTER (WHERE NOT ` + closed + `) AS min_price,
+			BOOL_AND(tt.sold_count + COALESCE(h.held, 0) >= tt.capacity)
+				FILTER (WHERE NOT ` + closed + `) AS all_sold_out,
+			BOOL_AND(` + closed + `) AS all_closed,
 			COUNT(*) AS ticket_count
 		FROM ticket_types tt
 		LEFT JOIN ticket_type_promotions p ON p.ticket_type_id = tt.id
@@ -109,7 +139,7 @@ func scanPublicEventRow(rows interface {
 		&row.Description, &row.CoverImageKey, &row.CoverVideoKey, &row.Discoverable, &row.FeeHandling,
 		&row.RegistrationMode, &row.RegistrationURL, &row.CreatedAt,
 		&row.OrgName, &row.OrgSlug, &row.OrgLogoKey, &row.OrgSupportWhatsApp, &row.OrgCurrency,
-		&row.MinPriceCents, &row.AllSoldOut, &row.TicketCount,
+		&row.MinPriceCents, &row.AllSoldOut, &row.AllClosed, &row.TicketCount,
 	); err != nil {
 		return nil, err
 	}
