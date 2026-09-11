@@ -16547,6 +16547,13 @@ export interface components {
         "service.EventListItem": {
             created_at?: string;
             discoverable?: boolean;
+            /**
+             * @description EndsAt rides beside StartsAt so a list consumer can decide whether an
+             *     Event is over without fetching each Event in full. Null on an Event with
+             *     no end, which is most of them: the caller falls back to StartsAt there,
+             *     the same rule the public explorer applies (#611).
+             */
+            ends_at?: string;
             id?: string;
             name?: string;
             slug?: string;

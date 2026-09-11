@@ -4624,6 +4624,10 @@ const docTemplate = `{
                     "discoverable": {
                         "type": "boolean"
                     },
+                    "ends_at": {
+                        "description": "EndsAt rides beside StartsAt so a list consumer can decide whether an\nEvent is over without fetching each Event in full. Null on an Event with\nno end, which is most of them: the caller falls back to StartsAt there,\nthe same rule the public explorer applies (#611).",
+                        "type": "string"
+                    },
                     "id": {
                         "type": "string"
                     },
