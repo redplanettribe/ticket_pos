@@ -123,8 +123,7 @@ export type TicketType = {
   /**
    * The Sales Cutoff: the instant the Storefront stops selling this Ticket Type
    * (CONTEXT.md, ADR 0070). null means it never stops, which is the case on
-   * most Ticket Types. Nothing draws it yet — this app only carries it so that
-   * the two PATCHes restating a whole Ticket Type do not clear it.
+   * most Ticket Types.
    */
   sales_cutoff_at: string | null;
   /** The one Promotion slot, or null when it is empty. */
@@ -132,6 +131,52 @@ export type TicketType = {
   created_at: string;
   updated_at: string;
 };
+
+/**
+ * The body the Ticket Type update endpoint takes: every field a Ticket Type
+ * carries that an organizer can change, and nothing else.
+ *
+ * The endpoint is a FULL RESTATEMENT and not a partial patch — an omitted key
+ * clears the field. So every caller has to name every field, and there are
+ * three of them: the edit dialog, and the two halves of a reorder. Writing that
+ * list out three times is how the Purchase Limit and then the Sales Cutoff each
+ * came within one careless edit of being wiped by somebody nudging a row up or
+ * down, neither being a field an organizer would think to re-check afterwards.
+ * So the list is written once, here, and the three call sites say only what they
+ * are changing.
+ */
+export type TicketTypeRestatement = {
+  name: string;
+  description: string | null;
+  price_cents: number;
+  capacity: number;
+  max_per_customer: number | null;
+  sales_cutoff_at: string | null;
+  sort_order: number;
+};
+
+/**
+ * A Ticket Type restated as it stands, with `changes` applied over it.
+ *
+ * `changes` is the whole of what a call site means to do. Everything it does
+ * not mention is echoed back unchanged, which is the only way an omission here
+ * can be a deliberate one.
+ */
+export function ticketTypeRestatement(
+  ticketType: TicketType,
+  changes: Partial<TicketTypeRestatement>,
+): TicketTypeRestatement {
+  return {
+    name: ticketType.name,
+    description: ticketType.description,
+    price_cents: ticketType.price_cents,
+    capacity: ticketType.capacity,
+    max_per_customer: ticketType.max_per_customer,
+    sales_cutoff_at: ticketType.sales_cutoff_at,
+    sort_order: ticketType.sort_order,
+    ...changes,
+  };
+}
 
 export type Tag = {
   name: string;

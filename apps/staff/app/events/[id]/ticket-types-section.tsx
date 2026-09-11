@@ -31,6 +31,7 @@ import {
   fetchEventsJSON,
   isoToDateTimeLocal,
   parsePriceToCents,
+  ticketTypeRestatement,
   type TicketType,
 } from "@/lib/events-api";
 import { buyerUnitPriceCents, netProceedsUnitCents, type FeeHandling, type FeeRates } from "@/lib/fees";
@@ -78,6 +79,14 @@ type TicketTypeFormState = {
    */
   maxPerCustomer: string;
   capacity: string;
+  /**
+   * The Sales Cutoff as typed into a `datetime-local` field — wall-clock in the
+   * Event's timezone, "" for a Ticket Type that never stops selling. Read and
+   * written through `isoToDateTimeLocal`/`dateTimeLocalToISO` like a Promotion's
+   * window, so the instant that leaves this form is the one the organizer typed
+   * on the Event's clock and not on their laptop's (ADR 0070).
+   */
+  salesCutoffLocal: string;
 };
 
 // The Add and the Edit dialog share this one form state, so every field must
@@ -89,6 +98,7 @@ const emptyForm: TicketTypeFormState = {
   price: "",
   maxPerCustomer: "",
   capacity: "",
+  salesCutoffLocal: "",
 };
 
 /** The whole Promotion, as typed: a Promotional Price and the window it holds for. */
@@ -192,6 +202,7 @@ export function TicketTypesSection({
       price: (ticketType.price_cents / 100).toFixed(2),
       maxPerCustomer: purchaseLimitFormValue(ticketType.max_per_customer),
       capacity: String(ticketType.capacity),
+      salesCutoffLocal: isoToDateTimeLocal(ticketType.sales_cutoff_at, timezone),
     });
   }
 
@@ -240,6 +251,9 @@ export function TicketTypesSection({
           price_cents: priceCents,
           capacity,
           max_per_customer: purchaseLimitWireValue(purchaseLimit),
+          // Sent as typed and unchecked — see the field itself, which says why.
+          // An empty field is null: a Ticket Type that never stops selling.
+          sales_cutoff_at: dateTimeLocalToISO(form.salesCutoffLocal, timezone),
         }),
       });
       setAddOpen(false);
@@ -284,19 +298,21 @@ export function TicketTypesSection({
     try {
       await fetchEventsJSON<TicketType>(`/api/events/${eventId}/ticket-types/${editTarget.id}`, {
         method: "PATCH",
-        body: JSON.stringify({
-          name: form.name,
-          description: form.description || null,
-          price_cents: priceCents,
-          capacity,
-          max_per_customer: purchaseLimitWireValue(purchaseLimit),
-          // Echoed unchanged. This form does not edit the Sales Cutoff yet, and
-          // the endpoint is a full restatement, so omitting it here would clear
-          // a cutoff set through the API the next time anybody renamed a Ticket
-          // Type (ADR 0070).
-          sales_cutoff_at: editTarget.sales_cutoff_at,
-          sort_order: editTarget.sort_order,
-        }),
+        // Everything this dialog edits, over the Ticket Type as it stands. The
+        // sort order is not the dialog's and is echoed for it.
+        body: JSON.stringify(
+          ticketTypeRestatement(editTarget, {
+            name: form.name,
+            description: form.description || null,
+            price_cents: priceCents,
+            capacity,
+            max_per_customer: purchaseLimitWireValue(purchaseLimit),
+            // Clearing the field sends null and reopens sales on the next read:
+            // closing is derived from the clock and never stored, so this is
+            // the undo (ADR 0070).
+            sales_cutoff_at: dateTimeLocalToISO(form.salesCutoffLocal, timezone),
+          }),
+        ),
       });
       setEditTarget(null);
       setForm(emptyForm);
@@ -440,35 +456,17 @@ export function TicketTypesSection({
 
     const other = ticketTypes[swapIndex];
     try {
-      // The update endpoint is a full restatement, not a partial patch: an
-      // omitted key clears the field. Every field a Ticket Type carries has to
-      // be echoed back here or a reorder would quietly wipe it — the Purchase
-      // Limit and the Sales Cutoff especially, since neither is a field an
-      // organizer would think to re-check after nudging a row up or down.
+      // A reorder changes the sort order of two rows and nothing else about
+      // either. The restatement builder says the rest, so a field this app
+      // learns tomorrow cannot be wiped by somebody nudging a row up or down.
       await Promise.all([
         fetchEventsJSON<TicketType>(`/api/events/${eventId}/ticket-types/${ticketType.id}`, {
           method: "PATCH",
-          body: JSON.stringify({
-            name: ticketType.name,
-            description: ticketType.description,
-            price_cents: ticketType.price_cents,
-            capacity: ticketType.capacity,
-            max_per_customer: ticketType.max_per_customer,
-            sales_cutoff_at: ticketType.sales_cutoff_at,
-            sort_order: other.sort_order,
-          }),
+          body: JSON.stringify(ticketTypeRestatement(ticketType, { sort_order: other.sort_order })),
         }),
         fetchEventsJSON<TicketType>(`/api/events/${eventId}/ticket-types/${other.id}`, {
           method: "PATCH",
-          body: JSON.stringify({
-            name: other.name,
-            description: other.description,
-            price_cents: other.price_cents,
-            capacity: other.capacity,
-            max_per_customer: other.max_per_customer,
-            sales_cutoff_at: other.sales_cutoff_at,
-            sort_order: ticketType.sort_order,
-          }),
+          body: JSON.stringify(ticketTypeRestatement(other, { sort_order: ticketType.sort_order })),
         }),
       ]);
       await loadTicketTypes();
@@ -584,6 +582,27 @@ export function TicketTypesSection({
             value={form.maxPerCustomer}
             onChange={(changeEvent) =>
               setForm((current) => ({ ...current, maxPerCustomer: changeEvent.target.value }))
+            }
+          />
+        </FormField>
+        {/* The Sales Cutoff sits under the Purchase Limit because it is the
+            other way a Ticket Type stops being buyable, and the one that is
+            about time rather than about stock. Nothing about the value is
+            checked, here or on the server: a cutoff in the past is the intended
+            way to stop selling something right now, and one after the Event
+            starts is a workshop selling at its own door (ADR 0070). Typed in
+            the Event's timezone, which the label says out loud. */}
+        <FormField
+          id={`${idPrefix}-sales-cutoff`}
+          label={t("salesCutoffLabel", { timezone })}
+          description={t("salesCutoffHint")}
+        >
+          <Input
+            id={`${idPrefix}-sales-cutoff`}
+            type="datetime-local"
+            value={form.salesCutoffLocal}
+            onChange={(changeEvent) =>
+              setForm((current) => ({ ...current, salesCutoffLocal: changeEvent.target.value }))
             }
           />
         </FormField>
