@@ -66,16 +66,23 @@ func orgPageTicketsSold(t *testing.T, env *testEnv, orgSlug, list, eventSlug str
 	return listingTicketsSold(t, env, "/api/v1/public/organizations/"+orgSlug+"/events", list, eventSlug)
 }
 
-// assertCardTicketsSoldNull asserts an upcoming, Discoverable Event's figure
-// is withheld on the explorer card, on the Organization page card and on its
-// own page alike: the key present, its value null.
-func assertCardTicketsSoldNull(t *testing.T, env *testEnv, eventSlug, why string) {
+// ticketsSoldOnEverySurface reads an upcoming, Discoverable Event's figure off
+// the explorer card, the Organization page card and its own page, keyed by
+// surface — the three places one Event is named, which must never disagree.
+func ticketsSoldOnEverySurface(t *testing.T, env *testEnv, eventSlug string) map[string]json.RawMessage {
 	t.Helper()
-	for surface, raw := range map[string]json.RawMessage{
+	return map[string]json.RawMessage{
 		"explorer card":          explorerTicketsSold(t, env, eventSlug),
 		"organization page card": orgPageTicketsSold(t, env, testOrgSlug, "upcoming", eventSlug),
 		"event page":             publicTicketsSold(t, env, testOrgSlug, eventSlug),
-	} {
+	}
+}
+
+// assertCardTicketsSoldNull asserts an upcoming, Discoverable Event's figure
+// is withheld on every surface alike: the key present, its value null.
+func assertCardTicketsSoldNull(t *testing.T, env *testEnv, eventSlug, why string) {
+	t.Helper()
+	for surface, raw := range ticketsSoldOnEverySurface(t, env, eventSlug) {
 		if string(raw) != "null" {
 			t.Fatalf("%s: %s tickets_sold = %s, want null", why, surface, raw)
 		}
@@ -83,31 +90,11 @@ func assertCardTicketsSoldNull(t *testing.T, env *testEnv, eventSlug, why string
 }
 
 // assertCardTicketsSold asserts an upcoming, Discoverable Event states exactly
-// want on the explorer card, on the Organization page card and on its own
-// page — one figure on every surface that names the Event.
+// want on every surface — one figure everywhere the Event is named.
 func assertCardTicketsSold(t *testing.T, env *testEnv, eventSlug string, want int, why string) {
 	t.Helper()
-	for surface, raw := range map[string]json.RawMessage{
-		"explorer card":          explorerTicketsSold(t, env, eventSlug),
-		"organization page card": orgPageTicketsSold(t, env, testOrgSlug, "upcoming", eventSlug),
-		"event page":             publicTicketsSold(t, env, testOrgSlug, eventSlug),
-	} {
+	for surface, raw := range ticketsSoldOnEverySurface(t, env, eventSlug) {
 		assertRawTicketsSold(t, raw, want, why+": "+surface)
-	}
-}
-
-// assertRawTicketsSold asserts one raw figure is the integer want.
-func assertRawTicketsSold(t *testing.T, raw json.RawMessage, want int, why string) {
-	t.Helper()
-	var got *int
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("%s: tickets_sold = %s is not an integer: %v", why, raw, err)
-	}
-	if got == nil {
-		t.Fatalf("%s: tickets_sold = null, want %d", why, want)
-	}
-	if *got != want {
-		t.Fatalf("%s: tickets_sold = %d, want %d", why, *got, want)
 	}
 }
 

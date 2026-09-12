@@ -144,6 +144,8 @@ func publicEventFrom(cutoffExpr, nowExpr string) string {
 				FILTER (WHERE NOT ` + closed + `) AS all_sold_out,
 			BOOL_AND(` + closed + `) AS all_closed,
 			COUNT(*) AS ticket_count,
+			-- Unfiltered on purpose, and from sold_count rather than the sale
+			-- lines the staff strip sums: see the doc comment above (ADR 0072).
 			COALESCE(SUM(tt.sold_count), 0) AS tickets_sold
 		FROM ticket_types tt
 		LEFT JOIN ticket_type_promotions p ON p.ticket_type_id = tt.id

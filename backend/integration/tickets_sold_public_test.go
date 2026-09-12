@@ -54,7 +54,14 @@ func assertTicketsSoldNull(t *testing.T, env *testEnv, orgSlug, eventSlug, why s
 // assertTicketsSold asserts the figure is stated as exactly want.
 func assertTicketsSold(t *testing.T, env *testEnv, orgSlug, eventSlug string, want int, why string) {
 	t.Helper()
-	raw := publicTicketsSold(t, env, orgSlug, eventSlug)
+	assertRawTicketsSold(t, publicTicketsSold(t, env, orgSlug, eventSlug), want, why)
+}
+
+// assertRawTicketsSold asserts one raw figure, from whichever public read, is
+// the integer want. Shared with the listing suite so the card and the page are
+// held to one reading of the same key.
+func assertRawTicketsSold(t *testing.T, raw json.RawMessage, want int, why string) {
+	t.Helper()
 	var got *int
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("%s: tickets_sold = %s is not an integer: %v", why, raw, err)
