@@ -106,12 +106,25 @@ export function offerableQuantity(ticketType: SellableTicketType): number {
  * being full. Sold out is therefore excluded here and keeps its own wording,
  * because it is a fact about the Event and everyone reading the page sees it.
  *
+ * Closed is excluded on exactly those grounds, and tested apart from sold_out
+ * rather than folded into it, as clampQuantity tests them (ADR 0070, #621).
+ * Sales having ended is a fact about the Event too, it already carries its own
+ * badge, and the badge ranking puts it above limit-reached precisely so the
+ * card stops inviting a purchase nobody can make. Saying in the next breath
+ * that nothing is sold out and this is only the reader's own limit contradicts
+ * that badge and offers a way round a wall that has no way round it. The
+ * allowance is still spent, arithmetically; it has simply stopped being the
+ * reason this Customer cannot buy, so it stops being what the card says.
+ * Absent reads as open, so a Ticket Type nobody has typed a date into words
+ * a spent allowance exactly as it did before the Sales Cutoff existed.
+ *
  * False whenever already_held is absent, which is every anonymous read: an
  * unknown holding cannot have exhausted anything, and treating it as zero
  * spent would tell a visitor something about themselves we do not know.
  */
 export function allowanceSpent(ticketType: SellableTicketType): boolean {
   if (ticketType.sold_out) return false;
+  if (ticketType.closed) return false;
   const limit = ticketType.max_per_customer;
   const alreadyHeld = ticketType.already_held;
   if (limit === null || limit === undefined) return false;

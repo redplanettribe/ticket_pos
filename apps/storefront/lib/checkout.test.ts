@@ -199,6 +199,24 @@ test("allowanceSpent is true only when a known Customer has used a real limit up
       ticketType: { ...soldOut, max_per_customer: 2, already_held: 2 },
       want: false,
     },
+    {
+      // Closed is excluded on sold out's grounds and tested apart from it: the
+      // card already says sales have ended, and telling the reader in the next
+      // breath that nothing is sold out and this is only their own limit
+      // contradicts the badge that outranks it (#621, ADR 0070). Stock is
+      // beside the point, so this case keeps generalAdmission's five remaining.
+      name: "closed with the allowance also spent",
+      ticketType: { ...generalAdmission, closed: true, max_per_customer: 2, already_held: 2 },
+      want: false,
+    },
+    {
+      // Absent and false both read as open, exactly as they do in
+      // clampQuantity, so a spent allowance on a Ticket Type nobody has typed a
+      // date into still gets its own wording.
+      name: "an explicitly open Ticket Type with the allowance spent",
+      ticketType: { ...generalAdmission, closed: false, max_per_customer: 2, already_held: 2 },
+      want: true,
+    },
   ];
 
   for (const { name, ticketType, want } of cases) {
