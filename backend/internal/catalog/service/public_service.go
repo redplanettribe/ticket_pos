@@ -97,6 +97,19 @@ type PublicEventCard struct {
 	// the button that goes to it; a listing that linked straight out would hand
 	// a Customer to a stranger from a surface that never told them where.
 	RegistrationMode string `json:"registration_mode"`
+	// TicketsSold is the Event's Tickets Sold figure — Ticket Sale Line
+	// quantities on active Ticket Sales across every Sales Channel, Capacity
+	// Holds excluded — floored at 5: an integer at or above the floor, null
+	// beneath it, and null on an Event with External Registration, which sells
+	// no tickets here (ADR 0072). Null and 0 are different statements — null
+	// says the figure is withheld, and 0 is never sent — so a client must not
+	// turn one into the other. It is the same figure, from the same aggregate
+	// and the same floor, that the Event page states as tickets_sold: the
+	// explorer, the Organization page and the page itself never disagree about
+	// how many are going. Not narrowed by the Sales Cutoff — a closed Ticket
+	// Type's tickets are still going, even as price_from_cents stops quoting
+	// it. The Storefront renders it as "N going" after the price slot.
+	TicketsSold *int `json:"tickets_sold"`
 }
 
 // PublicTicketType is a Ticket Type as shown on a Storefront event page.
@@ -713,6 +726,10 @@ func (s *Service) toPublicEventCard(row *repository.PublicEventRow, tags []TagVi
 		Currency:         row.OrgCurrency,
 		Tags:             tags,
 		RegistrationMode: string(mode),
+		// Set above the External Registration return below on purpose: the one
+		// function that decides the figure for the Event page decides it here
+		// too, external mode included, so the card cannot drift from the page.
+		TicketsSold: publishedTicketsSold(row, mode),
 	}
 	if row.StartsAt.Valid {
 		t := row.StartsAt.Time

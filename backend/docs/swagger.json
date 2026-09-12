@@ -6713,6 +6713,10 @@
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "tickets_sold": {
+                        "description": "TicketsSold is the Event's Tickets Sold figure — Ticket Sale Line\nquantities on active Ticket Sales across every Sales Channel, Capacity\nHolds excluded — floored at 5: an integer at or above the floor, null\nbeneath it, and null on an Event with External Registration, which sells\nno tickets here (ADR 0072). Null and 0 are different statements — null\nsays the figure is withheld, and 0 is never sent — so a client must not\nturn one into the other. It is the same figure, from the same aggregate\nand the same floor, that the Event page states as tickets_sold: the\nexplorer, the Organization page and the page itself never disagree about\nhow many are going. Not narrowed by the Sales Cutoff — a closed Ticket\nType's tickets are still going, even as price_from_cents stops quoting\nit. The Storefront renders it as \"N going\" after the price slot.",
+                        "type": "integer"
+                    },
                     "timezone": {
                         "type": "string"
                     },

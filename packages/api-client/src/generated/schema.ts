@@ -18188,6 +18188,21 @@ export interface components {
             sold_out?: boolean;
             starts_at?: string;
             tags?: components["schemas"]["service.TagView"][];
+            /**
+             * @description TicketsSold is the Event's Tickets Sold figure — Ticket Sale Line
+             *     quantities on active Ticket Sales across every Sales Channel, Capacity
+             *     Holds excluded — floored at 5: an integer at or above the floor, null
+             *     beneath it, and null on an Event with External Registration, which sells
+             *     no tickets here (ADR 0072). Null and 0 are different statements — null
+             *     says the figure is withheld, and 0 is never sent — so a client must not
+             *     turn one into the other. It is the same figure, from the same aggregate
+             *     and the same floor, that the Event page states as tickets_sold: the
+             *     explorer, the Organization page and the page itself never disagree about
+             *     how many are going. Not narrowed by the Sales Cutoff — a closed Ticket
+             *     Type's tickets are still going, even as price_from_cents stops quoting
+             *     it. The Storefront renders it as "N going" after the price slot.
+             */
+            tickets_sold?: number;
             timezone?: string;
             venue_name?: string;
         };

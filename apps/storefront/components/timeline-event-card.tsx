@@ -7,6 +7,7 @@ import { useFormatLocale } from "@/i18n/format-locale";
 import { Link } from "@/i18n/navigation";
 import type { PublicEventCard } from "@/lib/api";
 import { formatEventDateShort, formatEventTime } from "@/lib/format";
+import { goingLine } from "@/lib/going";
 import { eventCardPriceSlot } from "@/lib/registration";
 import { toTagTranslator } from "@/lib/tag-name";
 
@@ -39,6 +40,9 @@ export function TimelineEventCard({ event, showStartDate = false }: TimelineEven
   // The same slot the grid card has, decided the same way: a price, or the fact
   // that this Event registers its audience elsewhere (issue #211).
   const priceSlot = eventCardPriceSlot(event, locale);
+  // Tickets Sold worded "going" (ADR 0072), decided by the same helper the grid
+  // card and the Event page call: no floor here, nothing drawn for null.
+  const going = goingLine(event);
 
   return (
     <Link
@@ -68,6 +72,9 @@ export function TimelineEventCard({ event, showStartDate = false }: TimelineEven
                   ? t("priceFree")
                   : t("priceFrom", { price: priceSlot.price })}
             </p>
+          ) : null}
+          {going ? (
+            <p className="text-sm text-muted-foreground">{t("going", { count: going.count })}</p>
           ) : null}
           <TagBadges tags={event.tags} t={tTags} className="pt-2" />
         </div>
