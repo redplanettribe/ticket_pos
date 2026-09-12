@@ -1,5 +1,7 @@
 # The Storefront publishes Tickets Sold, floored, and calls them tickets
 
+> **Status: partially superseded by [ADR 0072](./0072-the-storefront-calls-tickets-sold-going-and-states-it-on-every-card.md).** The wording ("tickets sold") and the Event-page-only scope are overturned there; the figure, the floor of 5 with null beneath, the silence on External Events and the absence of any Organization control stand. Nothing in this ADR was built before 0072 replaced it.
+
 ## Context
 
 A Customer weighing an unfamiliar Event wants to know whether anybody else is going. The platform
