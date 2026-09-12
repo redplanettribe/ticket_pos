@@ -25,7 +25,12 @@ import {
   statusBadgeVariant,
   type EventListItem,
 } from "@/lib/events-api";
-import { eventsTabCounts, partitionEvents, type EventsTabKey } from "@/lib/events-tabs";
+import {
+  eventsEmptyState,
+  eventsTabCounts,
+  partitionEvents,
+  type EventsTabKey,
+} from "@/lib/events-tabs";
 import { formatDateTime } from "@/lib/format";
 
 import { DiscoverabilityToggle } from "./discoverability-toggle";
@@ -98,6 +103,10 @@ export function EventsPageClient({ isOrgAdmin, tab }: EventsPageClientProps) {
   const tabs = useMemo(() => partitionEvents(events, now), [events, now]);
   const counts = useMemo(() => eventsTabCounts(tabs), [tabs]);
   const rows = tabs[tab];
+  // What this tab says when it is empty, decided over the whole payload and not
+  // over this tab's slice: `firstRun` is the one moment an invitation to create
+  // an Event is a true sentence (#615).
+  const emptyState = eventsEmptyState(tab, events.length > 0);
 
   const handleDiscoverableChange = useCallback((eventId: string, discoverable: boolean) => {
     setEvents((current) =>
@@ -160,13 +169,26 @@ export function EventsPageClient({ isOrgAdmin, tab }: EventsPageClientProps) {
           without opening it. */}
       <EventsTabs counts={counts} />
 
-      {/* The existing first-run copy, now shown when THIS tab has no rows. It
-          reads oddly on an empty Past tab belonging to an Organization with
-          twenty Events; telling the two apart is #615, deliberately not here. */}
+      {/* An empty tab says something true (#615). The first-run invitation —
+          "create your first Event" — is only ever shown to an Organization
+          that has no Events at all, and only on the tab it lands on; it keeps
+          its role split and its button, because varying a prompt is the whole
+          reason that split exists. Every other empty tab states plainly that it
+          is empty and asks for nothing: an Org Admin whose Events are all
+          cancelled does not need to be told to start building a catalog.
+
+          Either way this is a card with a sentence in it, drawn only after the
+          load has succeeded — the loading state above is a bare line of text
+          and a failure is a destructive Alert, so none of the three can be
+          taken for either. The Create event button stays in the page header on
+          all three tabs regardless: it is a page action, and hiding it on Past
+          would be a puzzle. */}
       {rows.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-start gap-4 py-10">
-            {isOrgAdmin ? (
+            {emptyState !== "firstRun" ? (
+              <p className="text-muted-foreground">{t(emptyState)}</p>
+            ) : isOrgAdmin ? (
               <>
                 <p className="text-muted-foreground">{t("emptyOrgAdmin")}</p>
                 <Button asChild>

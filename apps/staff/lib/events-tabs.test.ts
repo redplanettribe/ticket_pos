@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   EVENTS_TAB_KEYS,
+  eventsEmptyState,
   eventsTab,
   eventsTabCounts,
   eventsTabHref,
@@ -211,4 +212,35 @@ test("a tab holding no Events counts zero rather than dropping out", () => {
     past: 0,
     cancelled: 0,
   });
+});
+
+test("only an Organization with no Events at all is invited to create its first", () => {
+  // `firstRun` is what the page resolves into the existing invitation. An
+  // Organization with five Events and none of them active is not on its first
+  // run — it has created five — so Active gets a plain statement instead.
+  assert.equal(eventsEmptyState("active", false), "firstRun");
+  assert.equal(eventsEmptyState("active", true), "emptyTabActive");
+});
+
+test("Past and Cancelled never invite, not even on the first run", () => {
+  // An Organization with no Events has three empty tabs, and only the one it
+  // lands on is the place to ask it to start.
+  assert.equal(eventsEmptyState("past", false), "emptyTabPast");
+  assert.equal(eventsEmptyState("cancelled", false), "emptyTabCancelled");
+  assert.equal(eventsEmptyState("past", true), "emptyTabPast");
+  assert.equal(eventsEmptyState("cancelled", true), "emptyTabCancelled");
+});
+
+test("each tab states its own emptiness, and no two say the same thing", () => {
+  // Whichever tab an Org Admin opens there is a sentence waiting, and it is
+  // that tab's sentence: "No past events" on Cancelled would be a tidy way of
+  // telling the reader something untrue.
+  const states = EVENTS_TAB_KEYS.map((tab) => eventsEmptyState(tab, true));
+
+  assert.equal(new Set(states).size, EVENTS_TAB_KEYS.length);
+  assert.equal(
+    states.includes("firstRun"),
+    false,
+    "an Organization that has Events is never invited to create its first",
+  );
 });

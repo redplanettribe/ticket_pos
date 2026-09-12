@@ -178,6 +178,62 @@ export function partitionEvents<T extends TabbableEvent>(
 }
 
 /**
+ * What an empty tab has to say for itself (#615).
+ *
+ * A closed union of tokens rather than a key and a null sentinel, the shape
+ * `lib/login-copy.ts` sets: a fourth state, if one is ever wanted, arrives as a
+ * fourth token and every caller stops compiling until it has been answered for.
+ *
+ * `firstRun` is the one the page resolves into copy of its own, because it is
+ * the one that varies by role; the other three name the message the catalog
+ * holds for that tab.
+ */
+export type EventsEmptyState =
+  | "firstRun"
+  | "emptyTabActive"
+  | "emptyTabPast"
+  | "emptyTabCancelled";
+
+/**
+ * The plain statement each tab makes when it holds nothing.
+ *
+ * A total `Record` and not a condition, so that a fourth tab could not be added
+ * without the compiler asking what an empty one of those says.
+ */
+const EMPTY_TAB_STATEMENTS: Record<EventsTabKey, EventsEmptyState> = {
+  active: "emptyTabActive",
+  past: "emptyTabPast",
+  cancelled: "emptyTabCancelled",
+};
+
+/**
+ * Which empty state an empty tab reads (#615).
+ *
+ * Two kinds and not one, because "No events yet. Create your first Event" is a
+ * true sentence exactly once: on the first run. An Organization with five
+ * finished Events and nothing active has created five, and telling it to create
+ * its first is a lie — so the invitation is reserved for the Organization that
+ * genuinely has no Events at all, and every other empty tab states plainly that
+ * it is empty and asks for nothing.
+ *
+ * `firstRun` is therefore only ever returned for Active: an Organization with no
+ * Events has three empty tabs, and only the one it lands on is the place to
+ * invite it to start. Its copy is the only copy here that varies by role, which
+ * is what the role split is for — varying a prompt. None of the three plain
+ * statements prompt anything, so the split must not multiply into them.
+ *
+ * Tokens and never sentences, the same rule the rest of `lib/` follows: the
+ * words live in the message catalogs and are resolved by whoever knows the
+ * reader's language.
+ */
+export function eventsEmptyState(tab: EventsTabKey, hasAnyEvents: boolean): EventsEmptyState {
+  if (tab === "active" && !hasAnyEvents) {
+    return "firstRun";
+  }
+  return EMPTY_TAB_STATEMENTS[tab];
+}
+
+/**
  * How many Events each tab holds (#614).
  *
  * Taken from the partition rather than recounted from the payload, so the
