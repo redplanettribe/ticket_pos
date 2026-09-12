@@ -8097,7 +8097,7 @@ export interface paths {
         };
         /**
          * Get public event
-         * @description Returns a published event with its ticket types for the Storefront event page. A Customer Session presented in Authorization is optional and changes nothing but one field: each ticket type then carries already_held, how many of it that Customer already holds — their active Ticket Sales plus their live Capacity Holds, the same count begin-checkout refuses on, so the picker can bound itself at max(0, max_per_customer - already_held) and a ticket type whose allowance is spent can say so instead of claiming to be sold out (ADR 0025). An absent, expired or invalid token reads the event as an anonymous visitor rather than failing, and already_held is then null — null means "we do not know who is asking", which is not the same statement as 0. already_held may exceed max_per_customer, because lowering a Purchase Limit is never retroactive. No unauthenticated lookup of anybody's holdings exists: the count comes from the session and from nothing in the URL.
+         * @description Returns a published event with its ticket types for the Storefront event page. A Customer Session presented in Authorization is optional and changes nothing but one field: each ticket type then carries already_held, how many of it that Customer already holds — their active Ticket Sales plus their live Capacity Holds, the same count begin-checkout refuses on, so the picker can bound itself at max(0, max_per_customer - already_held) and a ticket type whose allowance is spent can say so instead of claiming to be sold out (ADR 0025). An absent, expired or invalid token reads the event as an anonymous visitor rather than failing, and already_held is then null — null means "we do not know who is asking", which is not the same statement as 0. already_held may exceed max_per_customer, because lowering a Purchase Limit is never retroactive. No unauthenticated lookup of anybody's holdings exists: the count comes from the session and from nothing in the URL. The Event also states its Tickets Sold as tickets_sold: an integer at or above the floor of 5, null beneath it and null on an Event with External Registration; 0 is never sent (ADR 0072).
          */
         get: {
             parameters: {
@@ -18274,6 +18274,19 @@ export interface components {
             starts_at?: string;
             tags?: components["schemas"]["service.TagView"][];
             ticket_types?: components["schemas"]["service.PublicTicketType"][];
+            /**
+             * @description TicketsSold is the Event's Tickets Sold figure — Ticket Sale Line
+             *     quantities on active Ticket Sales across every Sales Channel, Capacity
+             *     Holds excluded — floored at 5: an integer at or above the floor, null
+             *     beneath it, and null on an Event with External Registration, which sells
+             *     no tickets here (ADR 0072). Null and 0 are different statements — null
+             *     says the figure is withheld, and 0 is never sent — on the already_held
+             *     precedent, so a client must not turn one into the other. The Storefront
+             *     renders it as "N going"; the field keeps the canonical name. Stated
+             *     whether or not the Event is Discoverable, over, or closed by Sales
+             *     Cutoff.
+             */
+            tickets_sold?: number;
             timezone?: string;
             venue_address?: string;
             venue_name?: string;

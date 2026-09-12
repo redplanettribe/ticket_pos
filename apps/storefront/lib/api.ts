@@ -321,6 +321,12 @@ export type PublicEventCard = {
   // external Event's permanent null; this field tells the two apart the way
   // registration_mode already does.
   all_closed: boolean;
+  // The platform's Tickets Sold figure, as the Storefront publishes it (ADR
+  // 0072): line quantities of active Ticket Sales on every Sales Channel,
+  // floored at 5 in the backend and null beneath the floor or on an Event with
+  // External Registration. Null is "not stated", never zero, and must never be
+  // rendered as 0; lib/going.ts reads it so the cards do not have to.
+  tickets_sold: number | null;
   tags: PublicTag[];
   // How the Event takes sign-ups, "tickets" or "external"; see
   // lib/registration.ts, which reads it so the cards do not have to. A card
@@ -475,6 +481,12 @@ export type PublicEventDetail = {
   // page needs the URL itself and not merely the fact of it: the Register panel
   // names the destination's hostname beneath the call to action.
   registration_url: string | null;
+  // The platform's Tickets Sold figure, as the Storefront publishes it (ADR
+  // 0072): line quantities of active Ticket Sales on every Sales Channel,
+  // floored at 5 in the backend and null beneath the floor or on an Event with
+  // External Registration. Null is "not stated", never zero, and must never be
+  // rendered as 0; lib/going.ts reads it so the page does not have to.
+  tickets_sold: number | null;
 };
 
 export type PublicEventPage = {

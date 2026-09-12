@@ -288,6 +288,17 @@ type PublicEventDetail struct {
 	// and not this field's to make.
 	AllClosed bool      `json:"all_closed"`
 	Tags      []TagView `json:"tags"`
+	// TicketsSold is the Event's Tickets Sold figure — Ticket Sale Line
+	// quantities on active Ticket Sales across every Sales Channel, Capacity
+	// Holds excluded — floored at 5: an integer at or above the floor, null
+	// beneath it, and null on an Event with External Registration, which sells
+	// no tickets here (ADR 0072). Null and 0 are different statements — null
+	// says the figure is withheld, and 0 is never sent — on the already_held
+	// precedent, so a client must not turn one into the other. The Storefront
+	// renders it as "N going"; the field keeps the canonical name. Stated
+	// whether or not the Event is Discoverable, over, or closed by Sales
+	// Cutoff.
+	TicketsSold *int `json:"tickets_sold"`
 	// Discoverable mirrors the Event's Discoverable flag so the Storefront can
 	// mark a non-Discoverable Event noindex. ADR 0002 draws the line between
 	// reachable and advertised: a published Event is always reachable by direct
@@ -535,6 +546,7 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 		// Event has closed.
 		AllClosed:        allTicketTypesClosed(row),
 		Tags:             toTagViews(tags),
+		TicketsSold:      publishedTicketsSold(row, mode),
 		Discoverable:     row.Discoverable,
 		RegistrationMode: string(mode),
 		// Only a ticketed Event sells online; an external one never makes a
@@ -748,6 +760,39 @@ func (s *Service) toPublicEventCard(row *repository.PublicEventRow, tags []TagVi
 // visitor to an Event that never listed a ticket.
 func allTicketTypesClosed(row *repository.PublicEventRow) bool {
 	return row.AllClosed.Valid && row.AllClosed.Bool
+}
+
+// TicketsSoldFloor is the fewest Tickets Sold the Storefront will state (ADR
+// 0072). Beneath it the public reads say nothing — null, never the number —
+// because "1 going" reads as a person, and that person can read it, and a
+// page that has just opened must not announce a failure. One platform-wide
+// constant, deliberately not per Organization or per Event: a toggle would
+// give absence a third meaning, and a Customer comparing two cards must be
+// able to trust that both were held to the same rule. Re-tuning it is a
+// one-line change and needs no spec.
+const TicketsSoldFloor = 5
+
+// publishedTicketsSold turns the shared subquery's Tickets Sold sum into the
+// figure the public reads state, or nil where there is nothing to publish
+// (ADR 0072). One function for the listing card and the Event detail, on the
+// allTicketTypesClosed pattern, so the two surfaces can never disagree about
+// whether an Event has enough going to say so.
+//
+// Nil, and never 0, in two cases. An Event with External Registration sells
+// nothing here — it produces no Ticket Sale, and its click count counts
+// clicks, never people — so it has no Tickets Sold to say anything about. And
+// a sum beneath TicketsSoldFloor is withheld rather than stated, which is why
+// the floor is applied here on the server and not left to the Storefront: a
+// client reading the API directly must learn no more than the page shows.
+func publishedTicketsSold(row *repository.PublicEventRow, mode catalog.RegistrationMode) *int {
+	if mode == catalog.RegistrationModeExternal {
+		return nil
+	}
+	if row.TicketsSold < TicketsSoldFloor {
+		return nil
+	}
+	n := row.TicketsSold
+	return &n
 }
 
 // tagViewsByEventIDs batch-loads Tags for a set of Events and projects them into

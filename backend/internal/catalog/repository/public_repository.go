@@ -39,6 +39,12 @@ type PublicEventRow struct {
 	// selling anything.
 	AllClosed   sql.NullBool
 	TicketCount int
+	// TicketsSold is the Event's Tickets Sold figure (ADR 0072): the Ticket Sale
+	// Line quantities of its active Ticket Sales on every Sales Channel, summed
+	// from the maintained per-Ticket-Type sold_count. Zero over an Event with no
+	// Ticket Types. Raw and unfloored here; the service decides whether it is
+	// enough to publish.
+	TicketsSold int
 }
 
 // PublicEventFilter constrains the global Storefront explorer query.
@@ -61,7 +67,7 @@ const publicEventColumns = `
 	e.description, e.cover_image_key, e.cover_video_key, e.discoverable, e.fee_handling,
 	e.registration_mode, e.registration_url, e.created_at,
 	o.name, o.slug, o.logo_image_key, o.support_whatsapp, o.currency,
-	tt.min_price, tt.all_sold_out, tt.all_closed, tt.ticket_count
+	tt.min_price, tt.all_sold_out, tt.all_closed, tt.ticket_count, tt.tickets_sold
 `
 
 // publicEventFrom is the shared FROM clause of the public Event queries. Its
@@ -103,6 +109,24 @@ const publicEventColumns = `
 // cutoff instant itself is closed, and a NULL cutoff never closes. It is
 // evaluated against nowExpr — the same injected clock the Promotion window
 // reads, never SQL now().
+//
+// TICKETS_SOLD IS SUMMED FROM sold_count, AND THAT DIFFERS FROM THE STAFF
+// STRIP ON PURPOSE (ADR 0072). The staff Sales summary sums the same figure off
+// the Ticket Sale Lines, because the strip sits above the Sales list and an
+// Org Admin reconciles the two by eye; a figure that could disagree with the
+// rows beneath it would be worse than none. The public reads have no such
+// list. They take the cheaper equivalent — the per-Ticket-Type sold_count the
+// sale commit, the Sale Reversal and the Sale Import undo all maintain in the
+// same transaction as the lines — as one more aggregate in a lateral all three
+// readers already run, so the explorer gains no join and reads no sale lines.
+// Both sources are kept correct by the same transactional maintenance, and
+// nothing here is a bug waiting to be "fixed" into the slower query.
+//
+// Unlike min_price and all_sold_out it is NOT narrowed by the closed
+// predicate: a Ticket Type past its Sales Cutoff can no longer be bought, but
+// the tickets it sold are still going. Live Capacity Holds are likewise not in
+// it — a pending Payment is not a sale — so the figure can sit beneath
+// capacity on an Event all_sold_out already calls full.
 func publicEventFrom(cutoffExpr, nowExpr string) string {
 	closed := `(tt.sales_cutoff_at IS NOT NULL AND tt.sales_cutoff_at <= ` + nowExpr + `)`
 	return `
@@ -119,7 +143,8 @@ func publicEventFrom(cutoffExpr, nowExpr string) string {
 			BOOL_AND(tt.sold_count + COALESCE(h.held, 0) >= tt.capacity)
 				FILTER (WHERE NOT ` + closed + `) AS all_sold_out,
 			BOOL_AND(` + closed + `) AS all_closed,
-			COUNT(*) AS ticket_count
+			COUNT(*) AS ticket_count,
+			COALESCE(SUM(tt.sold_count), 0) AS tickets_sold
 		FROM ticket_types tt
 		LEFT JOIN ticket_type_promotions p ON p.ticket_type_id = tt.id
 		LEFT JOIN (` + sales.LiveHoldsSQL(sales.HoldsFilter{CutoffExpr: cutoffExpr}) + `) h ON h.ticket_type_id = tt.id
@@ -139,7 +164,7 @@ func scanPublicEventRow(rows interface {
 		&row.Description, &row.CoverImageKey, &row.CoverVideoKey, &row.Discoverable, &row.FeeHandling,
 		&row.RegistrationMode, &row.RegistrationURL, &row.CreatedAt,
 		&row.OrgName, &row.OrgSlug, &row.OrgLogoKey, &row.OrgSupportWhatsApp, &row.OrgCurrency,
-		&row.MinPriceCents, &row.AllSoldOut, &row.AllClosed, &row.TicketCount,
+		&row.MinPriceCents, &row.AllSoldOut, &row.AllClosed, &row.TicketCount, &row.TicketsSold,
 	); err != nil {
 		return nil, err
 	}
