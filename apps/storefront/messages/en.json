@@ -216,6 +216,7 @@
     "notFoundTitle": "Event not found",
     "ended": "This event has ended",
     "presentedBy": "Presented by <organizer>{organization}</organizer>",
+    "going": "{count} going",
     "priceFree": "Free",
     "priceFrom": "From {price}",
     "priceDownFrom": ", down from {price}",

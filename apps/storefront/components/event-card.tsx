@@ -7,6 +7,7 @@ import { useFormatLocale } from "@/i18n/format-locale";
 import { Link } from "@/i18n/navigation";
 import type { PublicEventCard } from "@/lib/api";
 import { formatEventDateShort } from "@/lib/format";
+import { goingLine } from "@/lib/going";
 import { eventCardPriceSlot } from "@/lib/registration";
 import { toTagTranslator } from "@/lib/tag-name";
 
@@ -28,6 +29,13 @@ export function EventCard({ event, showOrganization = true }: EventCardProps) {
   // What goes where "From $25" goes: a price, or — for an Event that registers
   // its audience elsewhere — the fact of that, never a blank (issue #211).
   const priceSlot = eventCardPriceSlot(event, locale);
+  // The platform's Tickets Sold, worded "going" for a Customer (ADR 0072). The
+  // Storefront applies no floor of its own and draws nothing for null — no
+  // zero, no dash, no empty slot — because null means "not stated", which is
+  // beneath the backend's floor or an External Registration Event. Both card
+  // shapes and the Event page decide this through lib/going.ts, so the same
+  // Event cannot state a number on one surface and nothing on another.
+  const going = goingLine(event);
 
   return (
     <Link
@@ -61,6 +69,9 @@ export function EventCard({ event, showOrganization = true }: EventCardProps) {
                   ? t("priceFree")
                   : t("priceFrom", { price: priceSlot.price })}
             </p>
+          ) : null}
+          {going ? (
+            <p className="text-sm text-muted-foreground">{t("going", { count: going.count })}</p>
           ) : null}
           <TagBadges tags={event.tags} t={tTags} className="pt-2" />
         </CardContent>

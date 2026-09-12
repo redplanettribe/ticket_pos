@@ -30,6 +30,7 @@ function card(overrides: Partial<PublicEventCard> & { slug: string }): PublicEve
     price_from_cents: null,
     sold_out: false,
     all_closed: false,
+    tickets_sold: null,
     tags: [],
     registration_mode: "tickets",
     ...overrides,

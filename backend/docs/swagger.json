@@ -6713,6 +6713,10 @@
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "tickets_sold": {
+                        "description": "TicketsSold is the Event's Tickets Sold figure — Ticket Sale Line\nquantities on active Ticket Sales across every Sales Channel, Capacity\nHolds excluded — floored at 5: an integer at or above the floor, null\nbeneath it, and null on an Event with External Registration, which sells\nno tickets here (ADR 0072). Null and 0 are different statements — null\nsays the figure is withheld, and 0 is never sent — so a client must not\nturn one into the other. It is the same figure, from the same aggregate\nand the same floor, that the Event page states as tickets_sold: the\nexplorer, the Organization page and the page itself never disagree about\nhow many are going. Not narrowed by the Sales Cutoff — a closed Ticket\nType's tickets are still going, even as price_from_cents stops quoting\nit. The Storefront renders it as \"N going\" after the price slot.",
+                        "type": "integer"
+                    },
                     "timezone": {
                         "type": "string"
                     },
@@ -6792,6 +6796,10 @@
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "tickets_sold": {
+                        "description": "TicketsSold is the Event's Tickets Sold figure — Ticket Sale Line\nquantities on active Ticket Sales across every Sales Channel, Capacity\nHolds excluded — floored at 5: an integer at or above the floor, null\nbeneath it, and null on an Event with External Registration, which sells\nno tickets here (ADR 0072). Null and 0 are different statements — null\nsays the figure is withheld, and 0 is never sent — on the already_held\nprecedent, so a client must not turn one into the other. The Storefront\nrenders it as \"N going\"; the field keeps the canonical name. Stated\nwhether or not the Event is Discoverable, over, or closed by Sales\nCutoff.",
+                        "type": "integer"
                     },
                     "timezone": {
                         "type": "string"
@@ -16833,7 +16841,7 @@
         },
         "/api/v1/public/organizations/{slug}/events/{eventSlug}": {
             "get": {
-                "description": "Returns a published event with its ticket types for the Storefront event page. A Customer Session presented in Authorization is optional and changes nothing but one field: each ticket type then carries already_held, how many of it that Customer already holds — their active Ticket Sales plus their live Capacity Holds, the same count begin-checkout refuses on, so the picker can bound itself at max(0, max_per_customer - already_held) and a ticket type whose allowance is spent can say so instead of claiming to be sold out (ADR 0025). An absent, expired or invalid token reads the event as an anonymous visitor rather than failing, and already_held is then null — null means \"we do not know who is asking\", which is not the same statement as 0. already_held may exceed max_per_customer, because lowering a Purchase Limit is never retroactive. No unauthenticated lookup of anybody's holdings exists: the count comes from the session and from nothing in the URL.",
+                "description": "Returns a published event with its ticket types for the Storefront event page. A Customer Session presented in Authorization is optional and changes nothing but one field: each ticket type then carries already_held, how many of it that Customer already holds — their active Ticket Sales plus their live Capacity Holds, the same count begin-checkout refuses on, so the picker can bound itself at max(0, max_per_customer - already_held) and a ticket type whose allowance is spent can say so instead of claiming to be sold out (ADR 0025). An absent, expired or invalid token reads the event as an anonymous visitor rather than failing, and already_held is then null — null means \"we do not know who is asking\", which is not the same statement as 0. already_held may exceed max_per_customer, because lowering a Purchase Limit is never retroactive. No unauthenticated lookup of anybody's holdings exists: the count comes from the session and from nothing in the URL. The Event also states its Tickets Sold as tickets_sold: an integer at or above the floor of 5, null beneath it and null on an Event with External Registration; 0 is never sent (ADR 0072).",
                 "parameters": [
                     {
                         "description": "Organization slug",

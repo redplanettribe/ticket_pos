@@ -21,6 +21,7 @@ import { checkoutIdentity } from "@/lib/checkout-identity";
 import { opensCheckout } from "@/lib/checkout-signin";
 import { customerSessionToken, getCustomerSession, getFollows } from "@/lib/customer-session";
 import { formatEventDateTime } from "@/lib/format";
+import { goingLine } from "@/lib/going";
 import { localizedPath, toAppLocale } from "@/lib/locale";
 import { markdownSummary } from "@/lib/markdown-summary";
 import { isExternallyRegistered } from "@/lib/registration";
@@ -211,6 +212,11 @@ export default async function EventPage({ params, searchParams }: EventPageProps
   // plain badges they were before, with no control and no invitation.
   const follows = await getFollows();
 
+  // The platform's Tickets Sold figure, worded "going" for a Customer (ADR
+  // 0072). Decided in lib/going.ts, the same helper the listing cards call, so
+  // this page can never contradict the card that was clicked to reach it.
+  const going = goingLine(event);
+
   // The Organization's Support WhatsApp number, resolved to a tappable link.
   // Absent when they published none — the API omits the key — in which case
   // nothing renders at all: no link, no placeholder, no empty state.
@@ -280,6 +286,13 @@ export default async function EventPage({ params, searchParams }: EventPageProps
               {event.venue_name}
               {event.venue_address ? ` · ${event.venue_address}` : ""}
             </p>
+          ) : null}
+          {/* Tickets Sold, worded "going" (ADR 0072), in the venue line's quiet
+              style. Absence means the backend withheld the figure — beneath
+              the floor, or External Registration — and then nothing renders:
+              no zero, no placeholder, no hidden element. */}
+          {going ? (
+            <p className="text-muted-foreground">{t("going", { count: going.count })}</p>
           ) : null}
           <p className="text-sm text-muted-foreground">
             {/* The link is a tag inside the sentence rather than a fragment
