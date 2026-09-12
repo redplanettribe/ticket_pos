@@ -39,6 +39,13 @@ type ticketTypeWithCutoff struct {
 	Capacity      int     `json:"capacity"`
 	SoldCount     int     `json:"sold_count"`
 	SalesCutoffAt *string `json:"sales_cutoff_at"`
+	// Promotion rides along because a Sales Cutoff and a Promotion share one
+	// Ticket Type (user story 42) and the update endpoint is a full
+	// restatement: setting a cutoff must not take a discount off the row.
+	Promotion *struct {
+		PromotionalPriceCents int    `json:"promotional_price_cents"`
+		EndsAt                string `json:"ends_at"`
+	} `json:"promotion"`
 }
 
 func decodeTicketTypeWithCutoff(t *testing.T, data json.RawMessage) ticketTypeWithCutoff {
@@ -230,6 +237,13 @@ func TestTicketTypeSalesCutoffAfterTheEventStartIsAccepted(t *testing.T) {
 // Ticket Type that has never needed a cutoff is untouched by this feature, and
 // a deploy is not a change to anybody's catalog. Omitting the field entirely
 // and sending it as an explicit null are the same statement.
+//
+// A test that only asserts nulls would pass with the whole feature deleted —
+// an unread field reads null exactly as an unset one does. So a SIBLING Ticket
+// Type on the same Event carries a cutoff throughout, and is asserted to keep
+// it on every read the quiet one is asked for. That sibling is the anchor: rip
+// the column out and it reads null too, and this test goes red rather than
+// staying quietly green.
 func TestTicketTypeWithoutASalesCutoffReadsNull(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
@@ -239,14 +253,102 @@ func TestTicketTypeWithoutASalesCutoffReadsNull(t *testing.T) {
 	// request written before this ticket existed.
 	ticketTypeID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 5000, 50)
 
+	// The anchor: a neighbour on the same Event, created with a cutoff, read
+	// off the same list on the same code path.
+	anchorAt := env.fixedClock.Add(72 * time.Hour).UTC().Format(time.RFC3339)
+	resp, body := env.post(t, "/api/v1/staff/events/"+eventID+"/ticket-types", map[string]any{
+		"name":            "Early Bird",
+		"price_cents":     3000,
+		"capacity":        40,
+		"sales_cutoff_at": anchorAt,
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create the anchoring Ticket Type status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	anchorID := decodeTicketTypeWithCutoff(t, body.Data).ID
+
 	if listed := listTicketTypeWithCutoff(t, env, sessionID, eventID, ticketTypeID); listed.SalesCutoffAt != nil {
 		t.Fatalf("expected null sales_cutoff_at on a Ticket Type created without one, got %s", *listed.SalesCutoffAt)
 	}
+	anchored := listTicketTypeWithCutoff(t, env, sessionID, eventID, anchorID)
+	if anchored.SalesCutoffAt == nil || !sameInstant(t, *anchored.SalesCutoffAt, anchorAt) {
+		t.Fatalf("the anchoring Ticket Type reads sales_cutoff_at=%v, want %s — a feature that stores nothing would read null here too",
+			anchored.SalesCutoffAt, anchorAt)
+	}
 
-	// An explicit null says the same thing, and leaves it saying it.
+	// An explicit null says the same thing, and leaves it saying it — and says
+	// it about this Ticket Type alone. Clearing one cutoff is not a clearing of
+	// the Event's.
 	explicit := restateTicketType(t, env, sessionID, eventID, ticketTypeID, nil)
 	if explicit.SalesCutoffAt != nil {
 		t.Fatalf("expected null sales_cutoff_at after an explicit null, got %s", *explicit.SalesCutoffAt)
+	}
+	stillAnchored := listTicketTypeWithCutoff(t, env, sessionID, eventID, anchorID)
+	if stillAnchored.SalesCutoffAt == nil || !sameInstant(t, *stillAnchored.SalesCutoffAt, anchorAt) {
+		t.Fatalf("the neighbour's cutoff = %v after clearing GA's, want the %s it was set to",
+			stillAnchored.SalesCutoffAt, anchorAt)
+	}
+}
+
+// TestSettingASalesCutoffLeavesThePromotionAlone is user story 42 at the write
+// seam: a discount and a deadline are not mutually exclusive, and the staff
+// update is a FULL RESTATEMENT — every scalar re-sent on every edit. That shape
+// is exactly how a Promotion could be lost by accident, since the body that
+// sets a cutoff says nothing about one.
+//
+// Both directions are walked: a cutoff set onto a promoted Ticket Type, and a
+// Promotion set onto one that already has a cutoff. Each read is taken off the
+// list endpoint, which is what the Ticket Types section renders from.
+func TestSettingASalesCutoffLeavesThePromotionAlone(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Both Fest", "both-cutoff-fest")
+	ticketTypeID := createTicketTypePriced(t, env, sessionID, eventID, promoListPriceCents)
+
+	endsAt := env.fixedClock.Add(48 * time.Hour)
+	setPromotion(t, env, sessionID, eventID, ticketTypeID, promoPriceCents, nil, endsAt)
+
+	// The cutoff is set through the same full restatement an Org Admin's form
+	// sends, which mentions no Promotion at all.
+	cutoffAt := env.fixedClock.Add(24 * time.Hour).UTC().Format(time.RFC3339)
+	resp, body := env.patch(t, ticketTypePath(eventID, ticketTypeID), map[string]any{
+		"name":            "GA",
+		"price_cents":     promoListPriceCents,
+		"capacity":        50,
+		"sort_order":      0,
+		"sales_cutoff_at": cutoffAt,
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("set a cutoff on a promoted Ticket Type status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	both := listTicketTypeWithCutoff(t, env, sessionID, eventID, ticketTypeID)
+	if both.SalesCutoffAt == nil || !sameInstant(t, *both.SalesCutoffAt, cutoffAt) {
+		t.Fatalf("sales_cutoff_at=%v want %s", both.SalesCutoffAt, cutoffAt)
+	}
+	if both.Promotion == nil {
+		t.Fatal("the Promotion was lost when a Sales Cutoff was set; story 42 wants both on one Ticket Type")
+	}
+	if both.Promotion.PromotionalPriceCents != promoPriceCents {
+		t.Fatalf("promotional_price_cents = %d after setting a cutoff, want the %d it was set to",
+			both.Promotion.PromotionalPriceCents, promoPriceCents)
+	}
+	if !sameInstant(t, both.Promotion.EndsAt, endsAt.UTC().Format(time.RFC3339)) {
+		t.Fatalf("promotion ends_at = %q after setting a cutoff, want %q",
+			both.Promotion.EndsAt, endsAt.UTC().Format(time.RFC3339))
+	}
+
+	// And the other way round: taking the Promotion off does not take the
+	// cutoff with it. The two slots are independent in both directions, which
+	// is what "coexist" has to mean for an Org Admin editing one of them.
+	removePromotion(t, env, sessionID, eventID, ticketTypeID)
+	after := listTicketTypeWithCutoff(t, env, sessionID, eventID, ticketTypeID)
+	if after.Promotion != nil {
+		t.Fatalf("promotion still present after removal: %+v", after.Promotion)
+	}
+	if after.SalesCutoffAt == nil || !sameInstant(t, *after.SalesCutoffAt, cutoffAt) {
+		t.Fatalf("sales_cutoff_at = %v after removing the Promotion, want the %s it kept",
+			after.SalesCutoffAt, cutoffAt)
 	}
 }
 
