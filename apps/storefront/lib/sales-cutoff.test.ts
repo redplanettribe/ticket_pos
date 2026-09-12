@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import type { PublicPromotion } from "./api.ts";
+import { formatPromotionDeadline, promotionSavingsPercent } from "./promotion.ts";
 import {
   formatSalesCutoff,
   ticketTypeBadge,
@@ -170,21 +172,40 @@ test("one Ticket Type wears one badge, ranked sold out then closed then limit", 
   // the stronger fact and changes what the buyer does next; limit reached goes
   // last because it is a statement about one reader rather than about the Event
   // (ADR 0070). Both apps rank them identically, and a disagreement is a bug.
-  const table: Array<[boolean, boolean, boolean, TicketTypeBadge]> = [
-    [false, false, false, null],
-    [false, false, true, { kind: "limit_reached" }],
-    [false, true, false, { kind: "closed" }],
-    [false, true, true, { kind: "closed" }],
-    [true, false, false, { kind: "sold_out" }],
-    [true, false, true, { kind: "sold_out" }],
-    [true, true, false, { kind: "sold_out" }],
-    [true, true, true, { kind: "sold_out" }],
+  //
+  // Every combination is ranked twice: once on a Ticket Type that never stops
+  // selling, and once on one whose countdown is already running two days out.
+  // The second half is where the rank has something to lose — the countdown is
+  // what an open card says when it has nothing else to say, so each of the
+  // three states must take the badge off it, and a card in none of them must
+  // still get its rung.
+  const soon = guayaquil("2026-07-12", 18).toISOString();
+  const now = guayaquil("2026-07-10", 9);
+  const table: Array<[boolean, boolean, boolean, string | null, TicketTypeBadge]> = [
+    [false, false, false, null, null],
+    [false, false, true, null, { kind: "limit_reached" }],
+    [false, true, false, null, { kind: "closed" }],
+    [false, true, true, null, { kind: "closed" }],
+    [true, false, false, null, { kind: "sold_out" }],
+    [true, false, true, null, { kind: "sold_out" }],
+    [true, true, false, null, { kind: "sold_out" }],
+    [true, true, true, null, { kind: "sold_out" }],
+    [false, false, false, soon, { kind: "days_left", days: 2 }],
+    [false, false, true, soon, { kind: "limit_reached" }],
+    [false, true, false, soon, { kind: "closed" }],
+    [false, true, true, soon, { kind: "closed" }],
+    [true, false, false, soon, { kind: "sold_out" }],
+    [true, false, true, soon, { kind: "sold_out" }],
+    [true, true, false, soon, { kind: "sold_out" }],
+    [true, true, true, soon, { kind: "sold_out" }],
   ];
-  for (const [sold_out, closed, limitReached, expected] of table) {
+  for (const [sold_out, closed, limitReached, sales_cutoff_at, expected] of table) {
     assert.deepEqual(
-      ticketTypeBadge({ sold_out, closed, sales_cutoff_at: null }, { limitReached }),
+      ticketTypeBadge({ sold_out, closed, sales_cutoff_at }, { limitReached, timezone: ZONE, now }),
       expected,
-      `sold_out=${sold_out} closed=${closed} limitReached=${limitReached}`,
+      `sold_out=${sold_out} closed=${closed} limitReached=${limitReached} cutoff=${
+        sales_cutoff_at ? "two days out" : "none"
+      }`,
     );
   }
 });
@@ -214,5 +235,73 @@ test("the countdown never shares a card with a state badge", () => {
       },
     ),
     { kind: "limit_reached" },
+  );
+});
+
+// --- A Promotion and a Sales Cutoff on one Ticket Type ---------------------
+//
+// Story 42: a discount and a deadline are not mutually exclusive. The two are
+// not ranked against each other because they answer different questions — the
+// Promotion is a claim about price and the Sales Cutoff one about availability
+// — so a Ticket Type that is still selling wears both, and states both
+// sentences (ADR 0070, components/ticket-selection.tsx). The rule lives at the
+// seam between this module and lib/promotion.ts, which is why it is asserted
+// across the pair rather than inside either one.
+
+/** A Promotion running until 6 PM on the Guayaquil calendar date given. */
+function promotionEnding(date: string): PublicPromotion {
+  return {
+    promotional_price_cents: 4990,
+    list_price_cents: 7990,
+    ends_at: guayaquil(date, 18).toISOString(),
+  };
+}
+
+test("a discounted Ticket Type still counts down to its own Sales Cutoff", () => {
+  // The compound state, and the one the card is drawn from: 37% off, and two
+  // days left to take it. This module is deliberately blind to the Promotion —
+  // it is not in the badge union and cannot displace a rung — so the two facts
+  // are computed apart and are both true at once.
+  const ticketType = open({ sales_cutoff_at: guayaquil("2026-07-12", 18).toISOString() });
+  const promotion = promotionEnding("2026-07-11");
+
+  assert.equal(promotionSavingsPercent(promotion), 37);
+  assert.deepEqual(ticketTypeBadge(ticketType, { timezone: ZONE, now: guayaquil("2026-07-10", 9) }), {
+    kind: "days_left",
+    days: 2,
+  });
+});
+
+test("a Promotion's deadline and a closing time are two sentences, on one clock", () => {
+  // A Promotion that ran until Saturday on a tier that closes on Sunday. Both
+  // lines sit in the same slot on the card and both are read on the EVENT's
+  // calendar, so a Ticket Type carrying both says two different instants rather
+  // than one of them quietly winning the slot.
+  const promotionLine = formatPromotionDeadline(promotionEnding("2026-07-11"), ZONE);
+  const cutoffLine = formatSalesCutoff(guayaquil("2026-07-12", 18).toISOString(), ZONE);
+
+  assert.match(promotionLine ?? "", /^Sat Jul 11.* 6:00 PM$/);
+  assert.match(cutoffLine ?? "", /^Sun Jul 12.* 6:00 PM$/);
+  assert.notEqual(promotionLine, cutoffLine);
+});
+
+test("a live Promotion never argues with the badge on a Ticket Type nobody can buy", () => {
+  // The state badge is the server's verdict about availability and a Promotion
+  // cannot soften it: a closed Ticket Type reads closed and a sold-out one
+  // reads sold out however good the price was. Whether the card goes on drawing
+  // the "37% off" badge beside it is the card's call, gated there on the same
+  // pair — a price claim about a ticket nobody can buy advertises a bargain
+  // that does not exist.
+  const withinPromotion = { timezone: ZONE, now: guayaquil("2026-07-10", 9) };
+  const cutoff = guayaquil("2026-07-12", 18).toISOString();
+
+  assert.equal(promotionSavingsPercent(promotionEnding("2026-07-11")), 37);
+  assert.deepEqual(
+    ticketTypeBadge({ sold_out: false, closed: true, sales_cutoff_at: cutoff }, withinPromotion),
+    { kind: "closed" },
+  );
+  assert.deepEqual(
+    ticketTypeBadge({ sold_out: true, closed: false, sales_cutoff_at: cutoff }, withinPromotion),
+    { kind: "sold_out" },
   );
 });

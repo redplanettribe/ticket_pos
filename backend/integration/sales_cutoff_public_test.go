@@ -231,13 +231,34 @@ func TestSalesCutoffIsCarriedUnconverted(t *testing.T) {
 // that exists, so a Ticket Type nobody has typed a date into must produce
 // exactly today's payload — a null instant, an open verdict, and aggregates
 // that say what they said before.
+//
+// Asserting only that nothing happened would pass with the whole feature
+// deleted: a payload that never learned about cutoffs says null and false too.
+// So the Event carries an ANCHOR — a cheaper sibling Ticket Type that really
+// has closed — and every assertion about the quiet one is made while the
+// sibling proves the machinery is running. Two of them fail on deletion: the
+// sibling's own closed verdict, and the "from" price, which would drop to the
+// cheap closed sibling's the moment closing stopped narrowing it.
 func TestPublicTicketTypeWithoutACutoffIsUnchanged(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
 	eventID, _ := publishCheckoutEvent(t, env, sessionID, "No Cutoff Fest", "no-cutoff-fest", 1000, 20)
+	// The anchor is CHEAPER than GA, so a card that stopped excluding closed
+	// Ticket Types would quote it and this test would notice.
+	anchorID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "Early Bird", 500, 10)
+	setSalesCutoff(t, env, sessionID, eventID, anchorID, beforeTheCutoff(env))
 	makeDiscoverable(t, env, sessionID, eventID)
 
-	ga := publicTicketTypes(t, env, "test-org", "no-cutoff-fest")["GA"]
+	types := publicTicketTypes(t, env, "test-org", "no-cutoff-fest")
+	anchor := types["Early Bird"]
+	if !anchor.Closed || anchor.SalesCutoffAt == nil {
+		t.Fatalf("the anchoring Ticket Type reads %+v; want closed with its cutoff stated — a feature that reads nothing would read open here too", anchor)
+	}
+	if anchor.PriceCents >= types["GA"].PriceCents {
+		t.Fatalf("fixture is not ordered: the closed anchor at %d is not cheaper than GA at %d", anchor.PriceCents, types["GA"].PriceCents)
+	}
+
+	ga := types["GA"]
 	if ga.SalesCutoffAt != nil {
 		t.Fatalf("Ticket Type created without a cutoff carries sales_cutoff_at=%q", *ga.SalesCutoffAt)
 	}
@@ -264,8 +285,11 @@ func TestPublicTicketTypeWithoutACutoffIsUnchanged(t *testing.T) {
 	if card.SoldOut {
 		t.Fatalf("explorer card sold_out = true on an Event with capacity to spare: %+v", card)
 	}
+	// The second anchor: the cheaper sibling has closed, so the card must quote
+	// the untouched Ticket Type's price. A feature that stopped narrowing the
+	// "from" price would quote the cheap closed one instead.
 	if got := cardPriceFrom(t, card); got != ga.PriceCents {
-		t.Fatalf("card price_from_cents = %d; want the %d the only Ticket Type quotes", got, ga.PriceCents)
+		t.Fatalf("card price_from_cents = %d; want the %d the only still-open Ticket Type quotes", got, ga.PriceCents)
 	}
 	if publicEventAllClosed(t, env, "test-org", "no-cutoff-fest") {
 		t.Fatal("event page all_closed = true on an Event nobody has closed")
@@ -460,5 +484,81 @@ func TestMixedClosedAndExhaustedEventReadsSoldOut(t *testing.T) {
 	// whether any is left is the sold_out flag's separate sentence.
 	if got := cardPriceFrom(t, card); got != types["Balcony"].PriceCents {
 		t.Fatalf("mixed Event price_from_cents = %d; want the still-open Balcony's %d", got, types["Balcony"].PriceCents)
+	}
+}
+
+// TestAClosedTicketTypeKeepsItsPromotion is user story 42 on the Storefront's
+// payload: a discount and a deadline coexist on one Ticket Type, and neither
+// one erases the other.
+//
+// The two are deliberately overlapped — the cutoff falls INSIDE the Promotion
+// window, which is the arrangement ADR 0070 refuses to validate against and
+// therefore the one an organizer will actually create. Three things are pinned:
+//
+//   - While open, both travel: the promotional price is quoted and the cutoff
+//     is stated, so the card can draw a discount and a deadline at once.
+//   - Once closed, the Promotion is STILL carried. The server states facts and
+//     the card decides what to draw; the Storefront's rule that a Promotion
+//     badge only shows on a buyable card is presentation, and the payload it
+//     narrows has to exist for it to narrow.
+//   - The "from" price stops quoting the discount the moment the Ticket Type
+//     closes. A card advertising a promotional price on a Ticket Type nobody
+//     can buy is the exact misquote story 30 exists to prevent, and a live
+//     Promotion must not rescue it.
+func TestAClosedTicketTypeKeepsItsPromotion(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Promo And Cutoff", "promo-and-cutoff", promoListPriceCents, 20)
+	createTicketTypeWithCapacity(t, env, sessionID, eventID, "Balcony", 4000, 10)
+	setFeeHandling(t, env, sessionID, eventID, "Promo And Cutoff", "promo-and-cutoff", "pass_on")
+	makeDiscoverable(t, env, sessionID, eventID)
+
+	promotionEndsAt := env.fixedClock.Add(48 * time.Hour)
+	cutoffAt := env.fixedClock.Add(24 * time.Hour)
+	setPromotion(t, env, sessionID, eventID, gaID, promoPriceCents, nil, promotionEndsAt)
+	setSalesCutoff(t, env, sessionID, eventID, gaID, &cutoffAt)
+
+	open := publicTicketTypes(t, env, "test-org", "promo-and-cutoff")
+	ga, balcony := open["GA"], open["Balcony"]
+	if ga.Closed {
+		t.Fatalf("GA reads closed a day before its cutoff: %+v", ga)
+	}
+	if ga.Promotion == nil {
+		t.Fatalf("a Ticket Type given both a Promotion and a cutoff carries no promotion: %+v", ga)
+	}
+	if ga.Promotion.PromotionalPriceCents != promoAllInCents || ga.PriceCents != promoAllInCents {
+		t.Fatalf("open promoted price = %d (promotion %+v); want the promotional all-in %d",
+			ga.PriceCents, *ga.Promotion, promoAllInCents)
+	}
+	if ga.SalesCutoffAt == nil || !sameInstant(t, *ga.SalesCutoffAt, cutoffAt.UTC().Format(time.RFC3339)) {
+		t.Fatalf("sales_cutoff_at = %v on a promoted Ticket Type; want %q", ga.SalesCutoffAt, cutoffAt.UTC().Format(time.RFC3339))
+	}
+	if got := cardPriceFrom(t, explorerCard(t, env, "promo-and-cutoff")); got != promoAllInCents {
+		t.Fatalf("card price_from_cents = %d while the promoted Ticket Type is open; want the promotional all-in %d", got, promoAllInCents)
+	}
+
+	// The deadline arrives with a month of the discount still to run.
+	holdClocksAt(cutoffAt)
+	closed := publicTicketTypes(t, env, "test-org", "promo-and-cutoff")["GA"]
+	if !closed.Closed {
+		t.Fatalf("a promoted Ticket Type reads open at its own cutoff instant: %+v", closed)
+	}
+	if closed.Promotion == nil {
+		t.Fatalf("the Promotion vanished when the Ticket Type closed: %+v", closed)
+	}
+	if closed.Promotion.PromotionalPriceCents != promoAllInCents || closed.PriceCents != promoAllInCents {
+		t.Fatalf("closed promoted price = %d (promotion %+v); want the %d it was still discounted to",
+			closed.PriceCents, *closed.Promotion, promoAllInCents)
+	}
+	if !sameInstant(t, closed.Promotion.EndsAt, promotionEndsAt.UTC().Format(time.RFC3339)) {
+		t.Fatalf("closed promotion ends_at = %q; want the %q it runs to", closed.Promotion.EndsAt, promotionEndsAt.UTC().Format(time.RFC3339))
+	}
+
+	// And the card stops advertising the discount, because nobody can pay it.
+	if got := cardPriceFrom(t, explorerCard(t, env, "promo-and-cutoff")); got != balcony.PriceCents {
+		t.Fatalf("card price_from_cents = %d with the promoted Ticket Type closed; want the still-open Balcony's %d", got, balcony.PriceCents)
+	}
+	if got := cardPriceFrom(t, orgPageCard(t, env, "test-org", "promo-and-cutoff")); got != balcony.PriceCents {
+		t.Fatalf("organization page price_from_cents = %d with the promoted Ticket Type closed; want %d", got, balcony.PriceCents)
 	}
 }

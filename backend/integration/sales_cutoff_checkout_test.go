@@ -174,25 +174,79 @@ func TestTheClosedRefusalIsNotTheSoldOutRefusal(t *testing.T) {
 		checkoutBody("third@example.com", "Carla", "Diaz", map[string]any{"ticket_type_id": gaID, "quantity": 1}))
 }
 
-// TestACheckoutBegunBeforeTheCutoffSettlesAfterIt: the cutoff is judged once,
-// at begin-checkout, and never again.
+// TestACheckoutBegunBeforeTheCutoffSettlesAfterIt is user story 36: a Payment
+// already started completes even though the cutoff passes while the buyer is on
+// the provider's page, so their money is never taken for a sale that is then
+// refused.
 //
-// The Payment is begun while the window is open and the cutoff is moved into the
-// past underneath it — which is exactly what an organizer closing sales early
-// does to somebody already on the provider's page. The return leg settles, and a
-// Ticket Sale exists. ADR 0070 accepts the cost out loud: a sale can land after
-// its Ticket Type's cutoff, and the Sales list will not explain it.
+// A REAL cutoff, and a clock that really crosses it. The Ticket Type is given a
+// closing instant ten minutes out and the checkout is begun while that instant
+// is still in the future — a Ticket Type genuinely open at begin-time, judged
+// open, on the terms it started on. The clock is then moved five minutes past
+// the cutoff and the return leg settles anyway.
+//
+// The two numbers are chosen against sales.CapacityHoldWindow, which is 20
+// minutes: fifteen minutes of advance crosses the cutoff while leaving the
+// Capacity Hold this pending Payment stands on alive, so the only thing that
+// changed between begin and confirm is that the window shut. A longer jump
+// would lapse the hold and the test would stop being about the cutoff.
+//
+// The refusal in the middle is load-bearing rather than decorative: it is the
+// proof that the clock really is past the cutoff at the moment confirm runs. A
+// fresh buyer arriving at that same instant is turned away.
 func TestACheckoutBegunBeforeTheCutoffSettlesAfterIt(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
 	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Underway", "underway", 1000, 20)
 
+	cutoff := env.fixedClock.Add(10 * time.Minute)
+	setSalesCutoff(t, env, sessionID, eventID, gaID, &cutoff)
+
+	// Ten minutes before it shuts: open, and the buyer leaves for the provider.
 	begun := beginCheckoutOK(t, env, testOrgSlug, "underway",
 		checkoutBody("underway@example.com", "Ana", "Lopez", map[string]any{"ticket_type_id": gaID, "quantity": 2}))
 
-	// The window shuts while the buyer is at the Payment Provider.
-	setSalesCutoff(t, env, sessionID, eventID, gaID, beforeTheCutoff(env))
+	// The window shuts while they are on it — no staff action at all, just the
+	// clock arriving at the instant an Org Admin typed.
+	holdClocksAt(cutoff.Add(5 * time.Minute))
 	refusedAsClosed(t, env, "underway", gaID,
+		checkoutBody("newcomer@example.com", "Bea", "Ruiz", map[string]any{"ticket_type_id": gaID, "quantity": 1}))
+
+	// The Payment already under way settles on the terms it started on.
+	confirmed := confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
+	if confirmed.ConfirmationRef == "" {
+		t.Fatal("a checkout begun before the cutoff was refused on the way back; nothing may be re-judged there")
+	}
+	if got := salesCountByEmail(t, env, eventID, "underway@example.com"); got != 1 {
+		t.Fatalf("active Ticket Sales = %d, want the one begun before the cutoff", got)
+	}
+	if got := soldCount(t, env, sessionID, eventID, gaID); got != 2 {
+		t.Fatalf("sold count = %d, want the 2 tickets the settled Payment was for", got)
+	}
+}
+
+// TestConfirmDoesNotReadTheSalesCutoffColumn is the same rule attacked from the
+// other side, and the harsher case: rather than the clock reaching a cutoff, an
+// organizer writes one INTO THE PAST underneath a Payment that is already at the
+// provider. Even a Ticket Type that was never open at any point the confirm can
+// see still settles, because confirm does not look at the column at all.
+//
+// Kept as a test of its own because it pins something story 36 does not: not
+// merely "the verdict is taken at begin-checkout", but "the return leg reads
+// nothing", which is what makes a mid-Payment edit safe. ADR 0070 accepts the
+// cost out loud: a sale can land after its Ticket Type's cutoff, and the Sales
+// list will not explain it.
+func TestConfirmDoesNotReadTheSalesCutoffColumn(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Underway Edit", "underway-edit", 1000, 20)
+
+	begun := beginCheckoutOK(t, env, testOrgSlug, "underway-edit",
+		checkoutBody("underway@example.com", "Ana", "Lopez", map[string]any{"ticket_type_id": gaID, "quantity": 2}))
+
+	// The organizer closes sales early, an hour ago, while the buyer is out.
+	setSalesCutoff(t, env, sessionID, eventID, gaID, beforeTheCutoff(env))
+	refusedAsClosed(t, env, "underway-edit", gaID,
 		checkoutBody("newcomer@example.com", "Bea", "Ruiz", map[string]any{"ticket_type_id": gaID, "quantity": 1}))
 
 	// The Payment already under way settles on the terms it started on.
@@ -297,4 +351,52 @@ func TestTheSalesCutoffBindsTheStorefrontAlone(t *testing.T) {
 	// reopened anything, because none of them touched the cutoff.
 	refusedAsClosed(t, env, "box-office", gaID,
 		checkoutBody("still@example.com", "Dora", "Paz", map[string]any{"ticket_type_id": gaID, "quantity": 1}))
+}
+
+// TestAPromotedTicketTypeIsStillRefusedPastItsCutoff is user story 42 at the
+// refusing seam: a Promotion and a Sales Cutoff coexist, and the discount buys
+// no exemption from the deadline.
+//
+// The windows deliberately overlap — the cutoff falls a day and a half inside a
+// two-day Promotion — which is the arrangement ADR 0070 refuses to validate
+// against and therefore the one an organizer will actually create. Worth
+// refusing under a live Promotion specifically because both are windows read off
+// the same clock at the same moment in begin-checkout: a cutoff check that
+// accidentally rode on the promotional branch would sell this ticket, and every
+// other test in this file has no Promotion to catch it.
+func TestAPromotedTicketTypeIsStillRefusedPastItsCutoff(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Promo Cutoff", "promo-cutoff", promoListPriceCents, 20)
+	setFeeHandling(t, env, sessionID, eventID, "Promo Cutoff", "promo-cutoff", "pass_on")
+	setPromotion(t, env, sessionID, eventID, gaID, promoPriceCents, nil, env.fixedClock.Add(48*time.Hour))
+	cutoff := env.fixedClock.Add(6 * time.Hour)
+	setSalesCutoff(t, env, sessionID, eventID, gaID, &cutoff)
+
+	// A second before it shuts, the buyer pays the discounted price: both the
+	// Promotion and the cutoff are in force and neither has cancelled the other.
+	holdClocksAt(cutoff.Add(-time.Second))
+	begun := beginCheckoutOK(t, env, testOrgSlug, "promo-cutoff",
+		checkoutBody("early@example.com", "Ana", "Lopez", map[string]any{"ticket_type_id": gaID, "quantity": 1}))
+	if begun.AmountCents != promoAllInCents {
+		t.Fatalf("charged amount = %d a second before the cutoff; want the promotional all-in %d — the cutoff must not have disturbed the price",
+			begun.AmountCents, promoAllInCents)
+	}
+
+	// At the cutoff instant the Promotion still has a day and a half to run, and
+	// the Ticket Type is refused all the same.
+	holdClocksAt(cutoff)
+	refusedAsClosed(t, env, "promo-cutoff", gaID,
+		checkoutBody("late@example.com", "Bea", "Ruiz", map[string]any{"ticket_type_id": gaID, "quantity": 1}))
+
+	// The Promotion is unharmed by the closing and by the edit that set it: an
+	// Org Admin who reopens the Ticket Type gets their discount back untouched,
+	// at the price it always quoted.
+	setSalesCutoff(t, env, sessionID, eventID, gaID, nil)
+	reopened := beginCheckoutOK(t, env, testOrgSlug, "promo-cutoff",
+		checkoutBody("again@example.com", "Carla", "Diaz", map[string]any{"ticket_type_id": gaID, "quantity": 1}))
+	if reopened.AmountCents != promoAllInCents {
+		t.Fatalf("charged amount = %d after clearing the cutoff; want the still-live promotional all-in %d",
+			reopened.AmountCents, promoAllInCents)
+	}
 }
