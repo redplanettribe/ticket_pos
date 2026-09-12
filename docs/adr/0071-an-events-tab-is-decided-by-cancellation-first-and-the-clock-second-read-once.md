@@ -77,5 +77,12 @@ now names two things in the glossary — an Active Member is the Member selected
 and has nothing to do with Events. The two are never in the same sentence, but the collision is
 real and is recorded here rather than discovered later.
 
-Two questions are left open on purpose: the Spanish tab labels, and pagination for the two
-unbounded tabs.
+The Spanish tab labels were left open here and settled in #612: **Activos**, **Pasados** and
+**Cancelados**. Activos was chosen over Próximos because it stays true of an Event mid-run and of
+a dateless draft, both of which Próximos excludes. Pasados was chosen over Finalizados and
+Realizados because Past means the Event is over, not that it took place, and a draft never
+published is Past. The Spanish carries the same Active Member collision recorded above, since the
+session switcher already reads "Organización activa"; Vigentes would have avoided it but reads
+legalistic against a draft, and the collision is judged harmless in context.
+
+One question is left open on purpose: pagination for the two unbounded tabs.
