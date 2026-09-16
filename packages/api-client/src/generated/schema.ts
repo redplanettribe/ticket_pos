@@ -3027,6 +3027,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/invoicing/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download the Tax Document Archive for an Emission Date range
+         * @description Streams one ZIP, `application/zip` with `Content-Disposition: attachment; filename="comprobantes-<RUC>-<from>-<to>.zip"`, holding every document of the Ecuador Issuer — manual Tax Invoices, Sale Invoices (Superseded ones included) and Credit Notes — whose status is `authorized` and whose environment is `production`, with an Emission Date from `from` to `to`, BOTH ENDS INCLUDED, compared as calendar days in the Issuer's country. Each document is its stored signed XML, byte for byte what the single-document XML download serves, named `<clave de acceso>.xml` at the top level of the ZIP, ordered by Emission Date then clave. Pending, needs_attention, not_authorized, rejected, withdrawn, annulled, abandoned and owed documents are never in it, nor are test-environment documents. The LAST entry is a readme — `LEEME.txt` in Spanish or `README.txt` in English, following the requesting operator's Staff Locale and English when none is stated — naming the Issuer, the period and the moment it was generated, the count of facturas and of Credit Notes actually written, and the count of production documents emitted in the range that are still `pending` or `needs_attention`. An empty range is not an error: the ZIP holds the readme alone. The archive is built on the spot and streamed, with no document cap and no range limit, and the Tax Invoices list's other filters never apply. `from` and `to` are required `YYYY-MM-DD` days: a missing or malformed bound, or `from` after `to`, is refused under VALIDATION_FAILED exactly as the list's `issued_from`/`issued_to` are. ISSUER_NOT_FOUND (404) when no Ecuador Issuer has been recorded. Every archive taken writes one log line naming the operator, the range and the counts. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query: {
+                    /** @description First Emission Date of the range (YYYY-MM-DD, inclusive) */
+                    from: string;
+                    /** @description Last Emission Date of the range (YYYY-MM-DD, inclusive) */
+                    to: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": Record<string, never>;
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/invoicing/invoices": {
         parameters: {
             query?: never;

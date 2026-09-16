@@ -7,7 +7,6 @@ import (
 	"net/mail"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -187,7 +186,7 @@ func (h *Handler) ListInvoices(w http.ResponseWriter, r *http.Request) {
 	fields = append(fields, statusFields...)
 	warned, warnedFields := recipientWarningParam(query.Get("recipient_warning"))
 	fields = append(fields, warnedFields...)
-	issuedFrom, issuedTo, issuedFields := issuedRangeParams(query.Get("issued_from"), query.Get("issued_to"))
+	issuedFrom, issuedTo, issuedFields := issuedRange.parse(query.Get("issued_from"), query.Get("issued_to"))
 	fields = append(fields, issuedFields...)
 	sort, sortFields := sortParam(query.Get("sort"))
 	fields = append(fields, sortFields...)
@@ -430,55 +429,6 @@ func statusParam(raw string) (invoicing.InvoiceStatus, []platform.FieldError) {
 		Code:    platform.CodeInvalidEnum,
 		Message: "must be one of " + strings.Join(names, ", "),
 	}}
-}
-
-// issuedRangeParams parses the `issued_from`/`issued_to` query values into
-// the Emission Date range (#596, spec #593): two inclusive calendar days,
-// each "YYYY-MM-DD", either of which may be absent for an open bound.
-//
-// The Sales list's sold_from/sold_to is the prior art, down to the code and
-// the message (its validateDate, which is unexported in its own handler
-// package; there is no shared parser to reuse, and catalog's Holder List
-// carries its own copy of the same three lines for the same reason). What is
-// NOT copied is the interpretation: the Sales list reads its days in the
-// Event's timezone because sold_at is an instant, while issued_on is already
-// a calendar day in the Issuer's country, so nothing here converts anything.
-//
-// A MALFORMED DATE AND AN INVERTED RANGE ARE BOTH REFUSED rather than
-// answered with an empty list: "no document was emitted in that window" and
-// "that window is not a window" are different facts, and a silent empty page
-// sends an operator looking for documents that are there. The inversion is
-// blamed on `issued_from` (CodeStartAfterEnd names the start of a range),
-// and only when both bounds parsed — one field error per thing wrong with
-// the request, never a second one derived from a value already refused.
-func issuedRangeParams(rawFrom, rawTo string) (string, string, []platform.FieldError) {
-	var fields []platform.FieldError
-	from := issuedDateParam(rawFrom, "issued_from", &fields)
-	to := issuedDateParam(rawTo, "issued_to", &fields)
-	if from != "" && to != "" && from > to {
-		// Lexicographic on YYYY-MM-DD is chronological, which is the whole
-		// reason the wire format is that one.
-		fields = append(fields, platform.FieldError{
-			Field:   "issued_from",
-			Code:    platform.CodeStartAfterEnd,
-			Message: "must be on or before issued_to",
-		})
-	}
-	return from, to, fields
-}
-
-// issuedDateParam trims one bound and checks it is a calendar day. Blank is
-// an open bound and returns "".
-func issuedDateParam(raw, field string, fields *[]platform.FieldError) string {
-	value := strings.TrimSpace(raw)
-	if value == "" {
-		return ""
-	}
-	if _, err := time.Parse("2006-01-02", value); err != nil {
-		*fields = append(*fields, platform.FieldError{Field: field, Code: platform.CodeInvalidDate, Message: "must be a date (YYYY-MM-DD)"})
-		return ""
-	}
-	return value
 }
 
 // kindParam parses the `kind` query value: absent is every kind, and

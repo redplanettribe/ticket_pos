@@ -1727,6 +1727,17 @@
     "invoicingDownloadAuthorizationXml": "Descargar XML de autorización",
     "invoicingDownloadAuthorizationXmlUnavailable": "El XML de autorización y el RIDE estarán disponibles cuando el SRI autorice el documento.",
     "invoicingDownloadRide": "Descargar RIDE (PDF)",
+    "taxDocumentArchive": {
+      "action": "Descargar XML",
+      "title": "Descargar el archivo de comprobantes",
+      "description": "Un ZIP con el XML firmado de cada factura y nota de crédito que la plataforma emitió en estas fechas y que el SRI autorizó en producción, con un archivo LEEME para el contador.",
+      "fromLabel": "Fecha de emisión desde",
+      "toLabel": "Fecha de emisión hasta",
+      "filtersNote": "Los filtros de tipo, estado, ambiente y búsqueda de la lista no se aplican: el archivo siempre contiene todos los comprobantes autorizados en producción emitidos en estas fechas.",
+      "rangeInverted": "La fecha de inicio debe ser igual o anterior a la fecha de fin.",
+      "download": "Descargar ZIP",
+      "cancel": "Cancelar"
+    },
     "invoicingUninvoicedCountLink": "Ventas sin factura: {count}",
     "invoicingUninvoicedBreadcrumb": "Ventas sin factura",
     "invoicingUninvoicedTitle": "Ventas sin factura",
