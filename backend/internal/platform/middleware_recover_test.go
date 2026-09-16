@@ -14,7 +14,7 @@ import (
 // client sees a failed download. RecoverMiddleware must let that abort through
 // untouched: an envelope written after the handler's bytes would turn a
 // truncated body into one that ends "cleanly".
-func TestRecoverMiddleware_RepanicsErrAbortHandlerWithoutWritingAnEnvelope(t *testing.T) {
+func TestRecoverMiddlewareRepanicsErrAbortHandlerWithoutWritingAnEnvelope(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	handler := RecoverMiddleware(logger, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -37,7 +37,7 @@ func TestRecoverMiddleware_RepanicsErrAbortHandlerWithoutWritingAnEnvelope(t *te
 	}
 }
 
-func TestRecoverMiddleware_WritesInternalErrorEnvelopeForOtherPanics(t *testing.T) {
+func TestRecoverMiddlewareWritesInternalErrorEnvelopeForOtherPanics(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	handler := RecoverMiddleware(logger, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		panic("boom")

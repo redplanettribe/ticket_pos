@@ -155,11 +155,12 @@ func (s *Service) SummarizeTaxDocumentArchive(ctx context.Context, from, to stri
 // written only when the whole archive was.
 //
 // A download the client gave up on is not a failure of the platform: when
-// the request's context is done, whether the stream stopped at the query or
+// the request's context was cancelled, whether the stream stopped at the query or
 // at a write to the dropped connection, it is logged as a cancellation.
 func (a *TaxDocumentArchive) WriteTo(ctx context.Context, w io.Writer) error {
 	if err := a.write(ctx, w); err != nil {
-		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+		// Canceled only: a deadline, were one ever set, is a failure to see.
+		if errors.Is(ctx.Err(), context.Canceled) {
 			a.svc.logger.Info("invoicing: tax document archive download cancelled by the client",
 				"operator_email", a.operator, "from", a.from, "to", a.to, "error", err)
 			return err

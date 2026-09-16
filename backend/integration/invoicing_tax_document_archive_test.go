@@ -689,6 +689,10 @@ func (w failingWriter) Write([]byte) (int, error) {
 // context is cancelled first) or at a write (the connection is gone and the
 // context with it). Neither is the platform failing, so neither is an Error
 // line; a write failing while the request still stands is.
+//
+// It drives the service directly rather than over HTTP: a client dropping
+// the connection at a chosen point mid-stream cannot be staged
+// deterministically through httptest, and the log line is the behaviour.
 func TestATaxDocumentArchiveTheClientCancelsIsNotLoggedAsAFailure(t *testing.T) {
 	env := setupTest(t)
 	newTaxDocumentArchiveFixture(t, env)
@@ -707,7 +711,7 @@ func TestATaxDocumentArchiveTheClientCancelsIsNotLoggedAsAFailure(t *testing.T) 
 				return archive.WriteTo(ctx, io.Discard)
 			},
 			wantLevel: "info",
-			wantMsg:   "tax document archive download cancelled",
+			wantMsg:   "invoicing: tax document archive download cancelled by the client",
 		},
 		{
 			name: "cancelled while writing",
@@ -717,7 +721,7 @@ func TestATaxDocumentArchiveTheClientCancelsIsNotLoggedAsAFailure(t *testing.T) 
 				return archive.WriteTo(ctx, failingWriter{onWrite: cancel})
 			},
 			wantLevel: "info",
-			wantMsg:   "tax document archive download cancelled",
+			wantMsg:   "invoicing: tax document archive download cancelled by the client",
 		},
 		{
 			name: "a write failing while the request stands",
@@ -725,7 +729,7 @@ func TestATaxDocumentArchiveTheClientCancelsIsNotLoggedAsAFailure(t *testing.T) 
 				return archive.WriteTo(context.Background(), failingWriter{})
 			},
 			wantLevel: "error",
-			wantMsg:   "tax document archive failed mid-stream",
+			wantMsg:   "invoicing: tax document archive failed mid-stream",
 		},
 	}
 	for _, tc := range cases {
@@ -744,7 +748,7 @@ func TestATaxDocumentArchiveTheClientCancelsIsNotLoggedAsAFailure(t *testing.T) 
 			if len(capture.lines) != 1 {
 				t.Fatalf("logged %d lines; want exactly one:\n%s", len(capture.lines), capture.rendered())
 			}
-			if line := capture.lines[0]; line.level != tc.wantLevel || !strings.Contains(line.msg, tc.wantMsg) {
+			if line := capture.lines[0]; line.level != tc.wantLevel || line.msg != tc.wantMsg {
 				t.Fatalf("logged %s %q; want %s %q", line.level, line.msg, tc.wantLevel, tc.wantMsg)
 			}
 		})
