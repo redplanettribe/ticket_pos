@@ -3,6 +3,7 @@ package service
 import (
 	"archive/zip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -152,8 +153,17 @@ func (s *Service) SummarizeTaxDocumentArchive(ctx context.Context, from, to stri
 // caller to abort the response with, so the client sees a failed download
 // rather than a ZIP that silently ends early. The one structured log line is
 // written only when the whole archive was.
+//
+// A download the client gave up on is not a failure of the platform: when
+// the request's context is done, whether the stream stopped at the query or
+// at a write to the dropped connection, it is logged as a cancellation.
 func (a *TaxDocumentArchive) WriteTo(ctx context.Context, w io.Writer) error {
 	if err := a.write(ctx, w); err != nil {
+		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+			a.svc.logger.Info("invoicing: tax document archive download cancelled by the client",
+				"operator_email", a.operator, "from", a.from, "to", a.to, "error", err)
+			return err
+		}
 		a.svc.logger.Error("invoicing: tax document archive failed mid-stream",
 			"operator_email", a.operator, "from", a.from, "to", a.to, "error", err)
 		return err

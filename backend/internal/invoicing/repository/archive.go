@@ -78,6 +78,13 @@ func archiveWhere(c ArchiveCriteria) (string, []any) {
 // is returned as it is.
 func (r *Repository) StreamArchiveDocuments(ctx context.Context, c ArchiveCriteria, yield func(ArchiveDocument) error) error {
 	where, args := archiveWhere(c)
+	// TRADE-OFF: the query stays open, and holds one pooled connection, for
+	// as long as the download takes, because rows are read only as fast as
+	// the client takes the ZIP. A slow client on a large range therefore
+	// pins a connection for minutes. Accepted at today's volume and with one
+	// Platform Operator; revisit (a range/document cap, or building the
+	// archive in a background job and serving the finished file, as spec
+	// #629 names) if archives grow large or pool exhaustion is ever seen.
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT i.kind, to_char(i.issued_on, 'YYYY-MM-DD'), e.access_key, i.signed_xml`+where+`
 		ORDER BY i.issued_on, e.access_key`, args...)

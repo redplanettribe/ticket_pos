@@ -1,14 +1,17 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/peter/ticket_pos/backend/internal/invoicing/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
@@ -73,6 +76,13 @@ type taxDocumentArchiveFixture struct {
 	manualDayBefore     string // authorized production, the day before
 	manualDayAfter      string // authorized production, the day after
 	pendingDayAfter     string // unsettled, but the day after
+
+	// signedWithdrawn is withdrawn WITH an Emission Date in the range. No
+	// code path withdraws a signed document (every writer is guarded on
+	// signed_xml IS NULL or on reading the row unsigned), but no constraint
+	// forbids it either, so it is seeded directly: the status, not a
+	// missing date, must be what keeps a withdrawn document out.
+	signedWithdrawn string
 }
 
 // included is the archive's documents, as ids.
@@ -134,6 +144,10 @@ func newTaxDocumentArchiveFixture(t *testing.T, env *testEnv) taxDocumentArchive
 		return view.ID
 	})
 	sriStub.answerAsUsual()
+	f.signedWithdrawn = atEmissionDay(t, taxArchiveMiddle, func() string { return issueOK(t, sid, validInvoiceBody()).ID })
+	if _, err := sriEnv.db.Exec(`UPDATE invoicing_invoices SET status = 'withdrawn' WHERE id = $1`, f.signedWithdrawn); err != nil {
+		t.Fatalf("setup: withdraw the signed manual document: %v", err)
+	}
 
 	checkout := func() (ref, invoiceID string) {
 		t.Helper()
@@ -233,14 +247,15 @@ func newTaxDocumentArchiveFixture(t *testing.T, env *testEnv) taxDocumentArchive
 		f.manualAnnulled:      {"annulled", "production", taxArchiveMiddle},
 		f.saleAbandoned:       {"abandoned", "production", taxArchiveTo},
 		f.saleWithdrawn:       {"withdrawn", "", ""},
+		f.signedWithdrawn:     {"withdrawn", "production", taxArchiveMiddle},
 		f.saleOwed:            {"owed", "", ""},
 		f.manualTestEnv:       {"authorized", "test", taxArchiveMiddle},
 		f.manualDayBefore:     {"authorized", "production", taxArchiveDayBefore},
 		f.manualDayAfter:      {"authorized", "production", taxArchiveDayAfter},
 		f.pendingDayAfter:     {"pending", "production", taxArchiveDayAfter},
 	}
-	if len(want) != 20 {
-		t.Fatalf("setup: the fixture named %d distinct documents; want 20", len(want))
+	if len(want) != 21 {
+		t.Fatalf("setup: the fixture named %d distinct documents; want 21", len(want))
 	}
 	for id, w := range want {
 		view := getDrainedInvoice(t, sid, id)
@@ -654,5 +669,84 @@ func TestAnEmptyPeriodsSummaryIsZeros(t *testing.T) {
 
 	if got := fetchTaxArchiveSummary(t, f.operatorSessionID, "2026-08-01", "2026-08-31"); got != (taxArchiveSummaryView{}) {
 		t.Fatalf("an empty period's summary = %+v; want zeros", got)
+	}
+}
+
+// failingWriter is a response writer whose client has gone: every write runs
+// onWrite (which may cancel the request's context, as net/http does when the
+// connection drops) and then fails.
+type failingWriter struct{ onWrite func() }
+
+func (w failingWriter) Write([]byte) (int, error) {
+	if w.onWrite != nil {
+		w.onWrite()
+	}
+	return 0, io.ErrClosedPipe
+}
+
+// TestATaxDocumentArchiveTheClientCancelsIsNotLoggedAsAFailure: a download
+// the operator abandons stops the stream either at the query (the request's
+// context is cancelled first) or at a write (the connection is gone and the
+// context with it). Neither is the platform failing, so neither is an Error
+// line; a write failing while the request still stands is.
+func TestATaxDocumentArchiveTheClientCancelsIsNotLoggedAsAFailure(t *testing.T) {
+	env := setupTest(t)
+	newTaxDocumentArchiveFixture(t, env)
+
+	cases := []struct {
+		name      string
+		write     func(archive *service.TaxDocumentArchive) error
+		wantLevel string
+		wantMsg   string
+	}{
+		{
+			name: "cancelled before the query",
+			write: func(archive *service.TaxDocumentArchive) error {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return archive.WriteTo(ctx, io.Discard)
+			},
+			wantLevel: "info",
+			wantMsg:   "tax document archive download cancelled",
+		},
+		{
+			name: "cancelled while writing",
+			write: func(archive *service.TaxDocumentArchive) error {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				return archive.WriteTo(ctx, failingWriter{onWrite: cancel})
+			},
+			wantLevel: "info",
+			wantMsg:   "tax document archive download cancelled",
+		},
+		{
+			name: "a write failing while the request stands",
+			write: func(archive *service.TaxDocumentArchive) error {
+				return archive.WriteTo(context.Background(), failingWriter{})
+			},
+			wantLevel: "error",
+			wantMsg:   "tax document archive failed mid-stream",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			capture := &captureLogger{}
+			sriApp.InvoicingService.WithLogger(capture)
+			t.Cleanup(func() { sriApp.InvoicingService.WithLogger(platform.NewSlogLogger(sriApp.Logger)) })
+
+			archive, err := sriApp.InvoicingService.OpenTaxDocumentArchive(context.Background(), "operator@example.com", taxArchiveFrom, taxArchiveTo)
+			if err != nil {
+				t.Fatalf("open archive: %v", err)
+			}
+			if err := tc.write(archive); err == nil {
+				t.Fatal("WriteTo succeeded; want the stream to stop with an error")
+			}
+			if len(capture.lines) != 1 {
+				t.Fatalf("logged %d lines; want exactly one:\n%s", len(capture.lines), capture.rendered())
+			}
+			if line := capture.lines[0]; line.level != tc.wantLevel || !strings.Contains(line.msg, tc.wantMsg) {
+				t.Fatalf("logged %s %q; want %s %q", line.level, line.msg, tc.wantLevel, tc.wantMsg)
+			}
+		})
 	}
 }
