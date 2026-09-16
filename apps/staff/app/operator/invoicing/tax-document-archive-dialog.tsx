@@ -18,6 +18,7 @@ import { useTranslations } from "next-intl";
 import {
   type TaxDocumentArchiveRange,
   isTaxDocumentArchiveRangeComplete,
+  isTaxDocumentArchiveRangeInverted,
   startingTaxDocumentArchiveRange,
   taxDocumentArchiveUrl,
 } from "@/lib/tax-document-archive";
@@ -56,7 +57,7 @@ export function TaxDocumentArchiveDialog({ open, onOpenChange, listRange }: TaxD
   }, [open, issuedFrom, issuedTo]);
 
   const complete = isTaxDocumentArchiveRangeComplete(range);
-  const inverted = range.from !== "" && range.to !== "" && range.from > range.to;
+  const inverted = isTaxDocumentArchiveRangeInverted(range);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

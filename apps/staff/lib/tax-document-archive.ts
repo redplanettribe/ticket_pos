@@ -89,7 +89,12 @@ export function startingTaxDocumentArchiveRange(
  * "YYYY-MM-DD" compares chronologically as text.
  */
 export function isTaxDocumentArchiveRangeComplete(range: TaxDocumentArchiveRange): boolean {
-  return range.from !== "" && range.to !== "" && range.from <= range.to;
+  return range.from !== "" && range.to !== "" && !isTaxDocumentArchiveRangeInverted(range);
+}
+
+/** Whether both ends are chosen and the start falls after the end: the one mistake the dialog names. */
+export function isTaxDocumentArchiveRangeInverted(range: TaxDocumentArchiveRange): boolean {
+  return range.from !== "" && range.to !== "" && range.from > range.to;
 }
 
 /** The download's address for a range. */

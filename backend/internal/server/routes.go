@@ -445,7 +445,7 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}", operator(http.HandlerFunc(inv.GetInvoice)))
 	// Check status and Resend (#455): on a non-authorized invoice, ask the
 	// authority again, or send the same document under the same clave.
-	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/check",operator(http.HandlerFunc(inv.CheckInvoice)))
+	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/check", operator(http.HandlerFunc(inv.CheckInvoice)))
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/resend", operator(http.HandlerFunc(inv.ResendInvoice)))
 	// Mark annulled (#477): the operator's record of a manual portal act,
 	// allowed from pending or needs_attention, irreversible.

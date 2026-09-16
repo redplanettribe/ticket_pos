@@ -10,6 +10,7 @@ import (
 
 	"github.com/peter/ticket_pos/backend/internal/invoicing"
 	"github.com/peter/ticket_pos/backend/internal/invoicing/repository"
+	"github.com/peter/ticket_pos/backend/internal/invoicing/sri"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
@@ -145,8 +146,10 @@ func (a *TaxDocumentArchive) write(ctx context.Context, w io.Writer) error {
 			written.CreditNotes++
 		case invoicing.DocumentKindSale:
 			written.Sale++
-		default:
+		case invoicing.DocumentKindManual:
 			written.Manual++
+		default:
+			return fmt.Errorf("tax document archive: document %s has unknown kind %q", doc.AccessKey, doc.Kind)
 		}
 		return nil
 	})
@@ -227,7 +230,7 @@ func (r taxDocumentArchiveReadme) filename() string {
 // same in Notepad as anywhere else. The generated-at moment is written in
 // Ecuador time with its offset, which is unambiguous in both languages.
 func (r taxDocumentArchiveReadme) text() string {
-	generated := r.GeneratedAt.In(ecuadorTime()).Format("2006-01-02 15:04:05 -07:00")
+	generated := r.GeneratedAt.In(sri.Guayaquil).Format("2006-01-02 15:04:05 -07:00")
 	var lines []string
 	if r.Locale == platform.LocaleES {
 		lines = []string{
@@ -273,13 +276,4 @@ func (r taxDocumentArchiveReadme) text() string {
 		}
 	}
 	return strings.Join(lines, "\r\n") + "\r\n"
-}
-
-// ecuadorTime is the Issuer's wall clock, which does not observe daylight
-// saving: America/Guayaquil when the zone database is present, UTC-5 when not.
-func ecuadorTime() *time.Location {
-	if loc, err := time.LoadLocation(platform.EcuadorTimeZone); err == nil {
-		return loc
-	}
-	return time.FixedZone("ECT", -5*60*60)
 }

@@ -240,9 +240,9 @@ func newTaxDocumentArchiveFixture(t *testing.T, env *testEnv) taxDocumentArchive
 	}
 	for id, w := range want {
 		view := getDrainedInvoice(t, sid, id)
-		if view.Status != w.status || derefString(view.Environment) != w.environment || derefString(view.IssuedOn) != w.issuedOn {
+		if view.Status != w.status || orEmpty(view.Environment) != w.environment || orEmpty(view.IssuedOn) != w.issuedOn {
 			t.Fatalf("setup: document %s (%s) is status=%s environment=%q issued_on=%q; want %+v",
-				id, view.Kind, view.Status, derefString(view.Environment), derefString(view.IssuedOn), w)
+				id, view.Kind, view.Status, orEmpty(view.Environment), orEmpty(view.IssuedOn), w)
 		}
 	}
 	return f
@@ -299,7 +299,10 @@ func archiveFixtureNewDocument(t *testing.T, sessionID string, known map[string]
 	return found[0]
 }
 
-func derefString(s *string) string {
+// orEmpty reads an optional API string with absence as "", which is how the
+// fixture spells "no environment" and "no Emission Date". (The package's
+// deref prints absence as "<nil>", for failure messages.)
+func orEmpty(s *string) string {
 	if s == nil {
 		return ""
 	}
@@ -329,7 +332,7 @@ func expectedArchive(t *testing.T, sessionID string, ids []string) []archivedDoc
 			t.Fatalf("document %s has no Ecuador numbering", id)
 		}
 		docs = append(docs, archivedDocument{
-			issuedOn:  derefString(view.IssuedOn),
+			issuedOn:  orEmpty(view.IssuedOn),
 			accessKey: view.EcuadorFull.AccessKey,
 			signedXML: storedSignedXML(t, sessionID, id),
 		})
