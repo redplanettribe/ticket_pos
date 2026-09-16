@@ -81,6 +81,15 @@ func (s *Service) WithEmailSender(sender platform.EmailSender) *Service {
 	return s
 }
 
+// WithLogger swaps the structured logger, so a test can read the lines the
+// service writes (the Tax Document Archive's, #630).
+func (s *Service) WithLogger(logger platform.Logger) *Service {
+	if logger != nil {
+		s.logger = logger
+	}
+	return s
+}
+
 // WithStorefrontBaseURL sets the Storefront's public origin, which the
 // delivery mail's Customer Area link is built on.
 func (s *Service) WithStorefrontBaseURL(baseURL string) *Service {

@@ -12,6 +12,11 @@ import type { AppLocale } from "@ticket-pos/locale";
 // module is now reachable from a `node --test` unit test — operator-invoice-list.ts
 // imports its status vocabulary (#594) — and node's resolver needs the extension.
 import { ApiError, fetchEventsJSON } from "./events-api.ts";
+import {
+  type TaxDocumentArchiveRange,
+  type TaxDocumentArchiveSummary,
+  taxDocumentArchiveSummaryUrl,
+} from "./tax-document-archive.ts";
 import type { QuestionReview, QuestionReviewItem } from "./question-reviews";
 import type { TicketQuestion, TicketQuestionOption } from "./ticket-questions";
 
@@ -1501,6 +1506,18 @@ export async function fetchOperatorUninvoicedHouseSales(page = 1): Promise<Opera
  */
 export async function fetchOperatorUninvoicedHouseSaleCount(): Promise<OperatorUninvoicedHouseSaleCount> {
   return fetchEventsJSON<OperatorUninvoicedHouseSaleCount>(`${UNINVOICED_SALES_PATH}/count`);
+}
+
+/**
+ * What the Tax Document Archive of a range would hold (#631): its facturas,
+ * its Credit Notes and the unsettled documents it leaves out. `signal` lets
+ * the dialog drop the answer for a range the operator has already changed.
+ */
+export async function fetchOperatorTaxDocumentArchiveSummary(
+  range: TaxDocumentArchiveRange,
+  signal?: AbortSignal,
+): Promise<TaxDocumentArchiveSummary> {
+  return fetchEventsJSON<TaxDocumentArchiveSummary>(taxDocumentArchiveSummaryUrl(range), { signal });
 }
 
 /**

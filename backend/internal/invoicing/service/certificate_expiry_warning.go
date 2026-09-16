@@ -176,18 +176,19 @@ func (s *Service) warnOfCertificateExpiry(ctx context.Context) {
 	s.logger.Info("invoicing: certificate expiry ladder", "state", expiry.State, "days_before", *expiry.DaysBefore, "fired", threshold, "recipients", len(recipients), "accepted", accepted)
 }
 
-// staffLocale is the language one warning is written in: the Staff Locale
-// stored against the address it is going to, and English underneath (ADR
-// 0041), on the Payout Request notice's terms — an unconfigured reader, a
-// failed read and an address nobody stated a language for are one outcome,
-// and none of them is worth withholding the warning over.
+// staffLocale is the language one warning — or one Tax Document Archive's
+// readme (#630) — is written in: the Staff Locale stored against the address
+// it is for, and English underneath (ADR 0041), on the Payout Request
+// notice's terms — an unconfigured reader, a failed read and an address
+// nobody stated a language for are one outcome, and none of them is worth
+// withholding the warning or the archive over.
 func (s *Service) staffLocale(ctx context.Context, email string) platform.Locale {
 	if s.staffLocales == nil {
 		return platform.DefaultLocale
 	}
 	stored, err := s.staffLocales.StaffLocale(ctx, email)
 	if err != nil {
-		s.logger.Error("invoicing: certificate expiry warning: read staff locale", "error", err)
+		s.logger.Error("invoicing: read staff locale", "error", err)
 		return platform.DefaultLocale
 	}
 	return platform.ResolveStaffLocale(stored)

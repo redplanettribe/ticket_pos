@@ -686,6 +686,11 @@ A paid Online Sale of a House Event that still stands — active, with no Revers
 In Spanish, **Venta sin factura**.
 _Avoid_: Pending invoice, missing factura, backlog sale, retroactive sale
 
+**Tax Document Archive**:
+Every document the Issuer emitted in a chosen range of Emission Dates that the Tax Authority authorized in its production environment and that still stands — manual Tax Invoices, Sale Invoices including Superseded ones, and Credit Notes — as the signed documents themselves, downloaded together by a Platform Operator for the platform's accountant to register as the platform's income. Never withdrawn, abandoned, annulled, refused or test-environment documents, which are not legal documents in the books; and never shaped by whatever the Tax Invoices list happens to be filtered to, so the archive of a period is the same whoever takes it. A document emitted in the range and not yet settled by the Tax Authority is left out and counted: the archive says how many there are, before download and inside the file, so a period is never booked short in silence — taking the archive again later includes it once authorized. Carries a note in the reader's Staff Locale naming the range, the moment it was generated, and how many facturas and Credit Notes it holds, and every archive taken is logged with who took it.
+In Spanish, **Archivo de comprobantes**.
+_Avoid_: Invoice export, XML export, XML dump, backup, "the ZIP"
+
 **Sale Invoice Backfill**:
 A Platform Operator's act of owing a Sale Invoice to one or many Uninvoiced House Sales, dated the day of the act and never the day of the sale — the Tax Authority refuses a document dated in the past. From the moment it is owed the document is an ordinary Sale Invoice: drained, delivered to the buyer, credited on reversal and reissued like one born at checkout, and the document records that an operator owed it. Never automatic: which sales to declare late, and when, is the operator's call, sale by sale; a sale the platform cannot invoice as it was transacted is refused on its own and the rest proceed.
 In Spanish, **Facturación de ventas pasadas**.

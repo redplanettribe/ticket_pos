@@ -494,6 +494,12 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/xml", operator(http.HandlerFunc(inv.DownloadSignedXML)))
 	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/authorization-xml", operator(http.HandlerFunc(inv.DownloadAuthorizationXML)))
 	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/ride", operator(http.HandlerFunc(inv.DownloadRIDE)))
+	// The Tax Document Archive (#630, spec #629): every authorized production
+	// document emitted in a range of Emission Dates, streamed as one ZIP of
+	// signed XML for the accountant.
+	mux.Handle("GET /api/v1/operator/invoicing/archive", operator(http.HandlerFunc(inv.DownloadTaxDocumentArchive)))
+	// Its summary (#631): what that archive would hold, before downloading.
+	mux.Handle("GET /api/v1/operator/invoicing/archive/summary", operator(http.HandlerFunc(inv.SummarizeTaxDocumentArchive)))
 }
 
 // registerCustomerRoutes wires the Storefront's Customer identity surface.

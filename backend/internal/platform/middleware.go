@@ -126,6 +126,14 @@ func RecoverMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
+				// A handler that has already committed a response and cannot
+				// finish it (a streamed download failing mid-way) aborts the
+				// connection on purpose. Writing an error envelope after its
+				// bytes would only corrupt them, so the abort goes on to the
+				// server, which closes the connection.
+				if rec == http.ErrAbortHandler {
+					panic(rec)
+				}
 				logger.Error("panic recovered", "request_id", RequestID(r.Context()), "panic", rec)
 				_ = WriteHandlerError(w, RequestID(r.Context()), http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred", nil)
 			}

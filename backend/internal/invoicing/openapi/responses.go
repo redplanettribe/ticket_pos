@@ -99,6 +99,15 @@ type EnvelopeSaleInvoiceBackfillResult struct {
 	RequestID string                            `json:"request_id"`
 }
 
+// EnvelopeTaxDocumentArchiveSummary documents GET
+// /operator/invoicing/archive/summary success responses: what the Tax
+// Document Archive of a range would hold, before it is downloaded (#631).
+type EnvelopeTaxDocumentArchiveSummary struct {
+	Data      service.TaxDocumentArchiveSummary `json:"data"`
+	Error     *platform.APIError                `json:"error"`
+	RequestID string                            `json:"request_id"`
+}
+
 // EnvelopeCustomerDocuments documents GET
 // /customer/ticket-sales/{ticketSaleId}/tax-documents success responses: the
 // Sale's documents in the buyer's words, an empty list when it owes none.
