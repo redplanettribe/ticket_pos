@@ -1727,6 +1727,17 @@
     "invoicingDownloadAuthorizationXml": "Download authorization XML",
     "invoicingDownloadAuthorizationXmlUnavailable": "The authorization XML and the RIDE are available once the SRI authorizes the document.",
     "invoicingDownloadRide": "Download RIDE (PDF)",
+    "taxDocumentArchive": {
+      "action": "Download XML",
+      "title": "Download the Tax Document Archive",
+      "description": "One ZIP with the signed XML of every factura and Credit Note the platform emitted in these dates that the SRI authorized in production, with a readme for the accountant.",
+      "fromLabel": "Emission date from",
+      "toLabel": "Emission date to",
+      "filtersNote": "The list's kind, status, environment and search filters don't apply: the archive always holds every authorized production document emitted in these dates.",
+      "rangeInverted": "The start date must be on or before the end date.",
+      "download": "Download ZIP",
+      "cancel": "Cancel"
+    },
     "invoicingUninvoicedCountLink": "Uninvoiced House Sales: {count}",
     "invoicingUninvoicedBreadcrumb": "Uninvoiced House Sales",
     "invoicingUninvoicedTitle": "Uninvoiced House Sales",

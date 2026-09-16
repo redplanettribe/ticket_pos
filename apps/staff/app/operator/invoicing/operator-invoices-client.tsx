@@ -53,6 +53,7 @@ import {
 
 import { CertificateExpiryBanner } from "./certificate-expiry-warning";
 import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "./invoice-status";
+import { TaxDocumentArchiveDialog } from "./tax-document-archive-dialog";
 
 // The invoices list (#454): every factura the platform issued — number, date,
 // Recipient, total, status, country, and a Test badge for the SRI pruebas
@@ -431,6 +432,9 @@ export function OperatorInvoicesClient({
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Whether the Tax Document Archive's dialog is open. Not the URL's: a
+  // dialog is a moment, not a view anyone links to.
+  const [archiveOpen, setArchiveOpen] = useState(false);
 
   // The canonical query of the view being shown: the fetch key below, so one
   // string decides both what is requested and when it is re-requested.
@@ -551,6 +555,14 @@ export function OperatorInvoicesClient({
                 </Link>
               </Button>
             ) : null}
+            {/*
+              The Tax Document Archive (#630): the period's authorized
+              production documents as signed XML, for the accountant. A
+              dialog rather than a link, because it asks for its own range.
+            */}
+            <Button type="button" variant="outline" onClick={() => setArchiveOpen(true)}>
+              {t("taxDocumentArchive.action")}
+            </Button>
             <Button asChild variant="outline">
               <Link href="/operator/invoicing/issuer">{t("invoicingViewIssuer")}</Link>
             </Button>
@@ -567,6 +579,12 @@ export function OperatorInvoicesClient({
         so a failed Issuer read never takes the list down with it.
       */}
       <CertificateExpiryBanner />
+
+      <TaxDocumentArchiveDialog
+        open={archiveOpen}
+        onOpenChange={setArchiveOpen}
+        listRange={{ issuedFrom: filters.issuedFrom, issuedTo: filters.issuedTo }}
+      />
 
       {forbidden ? (
         <Alert variant="destructive">

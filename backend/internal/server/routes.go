@@ -445,7 +445,7 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}", operator(http.HandlerFunc(inv.GetInvoice)))
 	// Check status and Resend (#455): on a non-authorized invoice, ask the
 	// authority again, or send the same document under the same clave.
-	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/check", operator(http.HandlerFunc(inv.CheckInvoice)))
+	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/check",operator(http.HandlerFunc(inv.CheckInvoice)))
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/resend", operator(http.HandlerFunc(inv.ResendInvoice)))
 	// Mark annulled (#477): the operator's record of a manual portal act,
 	// allowed from pending or needs_attention, irreversible.
@@ -494,6 +494,10 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/xml", operator(http.HandlerFunc(inv.DownloadSignedXML)))
 	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/authorization-xml", operator(http.HandlerFunc(inv.DownloadAuthorizationXML)))
 	mux.Handle("GET /api/v1/operator/invoicing/invoices/{id}/ride", operator(http.HandlerFunc(inv.DownloadRIDE)))
+	// The Tax Document Archive (#630, spec #629): every authorized production
+	// document emitted in a range of Emission Dates, streamed as one ZIP of
+	// signed XML for the accountant.
+	mux.Handle("GET /api/v1/operator/invoicing/archive", operator(http.HandlerFunc(inv.DownloadTaxDocumentArchive)))
 }
 
 // registerCustomerRoutes wires the Storefront's Customer identity surface.

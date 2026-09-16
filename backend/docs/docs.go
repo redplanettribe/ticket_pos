@@ -11383,6 +11383,92 @@ const docTemplate = `{
                 ]
             }
         },
+        "/api/v1/operator/invoicing/archive": {
+            "get": {
+                "description": "Streams one ZIP, ` + "`" + `application/zip` + "`" + ` with ` + "`" + `Content-Disposition: attachment; filename=\"comprobantes-\u003cRUC\u003e-\u003cfrom\u003e-\u003cto\u003e.zip\"` + "`" + `, holding every document of the Ecuador Issuer — manual Tax Invoices, Sale Invoices (Superseded ones included) and Credit Notes — whose status is ` + "`" + `authorized` + "`" + ` and whose environment is ` + "`" + `production` + "`" + `, with an Emission Date from ` + "`" + `from` + "`" + ` to ` + "`" + `to` + "`" + `, BOTH ENDS INCLUDED, compared as calendar days in the Issuer's country. Each document is its stored signed XML, byte for byte what the single-document XML download serves, named ` + "`" + `\u003cclave de acceso\u003e.xml` + "`" + ` at the top level of the ZIP, ordered by Emission Date then clave. Pending, needs_attention, not_authorized, rejected, withdrawn, annulled, abandoned and owed documents are never in it, nor are test-environment documents. The LAST entry is a readme — ` + "`" + `LEEME.txt` + "`" + ` in Spanish or ` + "`" + `README.txt` + "`" + ` in English, following the requesting operator's Staff Locale and English when none is stated — naming the Issuer, the period and the moment it was generated, the count of facturas and of Credit Notes actually written, and the count of production documents emitted in the range that are still ` + "`" + `pending` + "`" + ` or ` + "`" + `needs_attention` + "`" + `. An empty range is not an error: the ZIP holds the readme alone. The archive is built on the spot and streamed, with no document cap and no range limit, and the Tax Invoices list's other filters never apply. ` + "`" + `from` + "`" + ` and ` + "`" + `to` + "`" + ` are required ` + "`" + `YYYY-MM-DD` + "`" + ` days: a missing or malformed bound, or ` + "`" + `from` + "`" + ` after ` + "`" + `to` + "`" + `, is refused under VALIDATION_FAILED exactly as the list's ` + "`" + `issued_from` + "`" + `/` + "`" + `issued_to` + "`" + ` are. ISSUER_NOT_FOUND (404) when no Ecuador Issuer has been recorded. Every archive taken writes one log line naming the operator, the range and the counts. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "First Emission Date of the range (YYYY-MM-DD, inclusive)",
+                        "in": "query",
+                        "name": "from",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Last Emission Date of the range (YYYY-MM-DD, inclusive)",
+                        "in": "query",
+                        "name": "to",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "type": "file"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Download the Tax Document Archive for an Emission Date range",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
         "/api/v1/operator/invoicing/invoices": {
             "get": {
                 "description": "Returns a page of every Tax Invoice the platform has issued or owes, in the order asked for and newest first by default: the document ` + "`" + `kind` + "`" + ` (` + "`" + `manual` + "`" + ` from the form; ` + "`" + `sale` + "`" + ` for a Sale Invoice a paid House checkout owed; ` + "`" + `credit_note` + "`" + ` for its reversal), the printed number (` + "`" + `001-001-000000012` + "`" + `), emission date, Recipient, total, status, country and the environment it was issued under (` + "`" + `test` + "`" + ` invoices are badged as such), and — on a ` + "`" + `sale` + "`" + ` or ` + "`" + `credit_note` + "`" + ` — the Ticket Sale id and its Sale Confirmation reference. A document still ` + "`" + `owed` + "`" + ` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. ` + "`" + `attention_since` + "`" + ` is when a ` + "`" + `needs_attention` + "`" + ` document was parked, null otherwise. ` + "`" + `recipient_warning` + "`" + ` is true on an authorized Sale Invoice the SRI warned about — the Recipient's Tax ID does not exist (advertencia 59) or is incorrect (62) — until the document is superseded (ADR 0061); the status is unaffected, and it is always false while SALE_INVOICING_ENABLED is closed. ` + "`" + `kind` + "`" + ` narrows the page to one document kind; a value that is not ` + "`" + `manual` + "`" + `, ` + "`" + `sale` + "`" + ` or ` + "`" + `credit_note` + "`" + ` is refused under VALIDATION_FAILED. ` + "`" + `status` + "`" + ` narrows the page to one status — ` + "`" + `owed` + "`" + `, ` + "`" + `pending` + "`" + `, ` + "`" + `authorized` + "`" + `, ` + "`" + `not_authorized` + "`" + `, ` + "`" + `rejected` + "`" + `, ` + "`" + `needs_attention` + "`" + `, ` + "`" + `withdrawn` + "`" + `, ` + "`" + `annulled` + "`" + ` or ` + "`" + `abandoned` + "`" + ` — so that, among other things, every number the platform has abandoned (ADR 0068) can be audited; any other value is refused under VALIDATION_FAILED rather than read as \"every status\". ` + "`" + `recipient_warning=true` + "`" + ` narrows the page to the documents carrying a Recipient Warning; any other value is refused under VALIDATION_FAILED, and while SALE_INVOICING_ENABLED is closed the filter answers 404 SALE_INVOICING_UNAVAILABLE. ` + "`" + `q` + "`" + ` narrows the page to the documents matching one case-insensitive substring, matched against the printed number, the Recipient's legal name, the Recipient's Tax ID and the Sale Confirmation reference of the Ticket Sale the document declares — any one of the four is enough. The term is matched literally, so ` + "`" + `%` + "`" + ` and ` + "`" + `_` + "`" + ` are those characters and not wildcards; there is no accent folding and no shortcut for a bare sequential number. Blank or absent is every document. ` + "`" + `issued_from` + "`" + ` and ` + "`" + `issued_to` + "`" + ` narrow the page to an EMISSION DATE range: inclusive calendar days (` + "`" + `YYYY-MM-DD` + "`" + `) compared against the emission date alone — the day in the Issuer's country the document itself carries, the one this list's date column shows — with no timezone conversion, and either bound may be given on its own. A document with NO emission date, an owed Sale Invoice the Drainer has not signed, does not match once either bound is given, so a fiscal period never counts a document the Tax Authority has not seen; that is deliberately different from the default order, which keeps un-issued documents at the newest end. A malformed date, or an ` + "`" + `issued_from` + "`" + ` after the ` + "`" + `issued_to` + "`" + `, is refused under VALIDATION_FAILED rather than answered with an empty list. ` + "`" + `sort` + "`" + ` and ` + "`" + `dir` + "`" + ` order the page: ` + "`" + `date` + "`" + ` (the emission date falling back to when the document was created, so an un-issued document sits at the newest end), ` + "`" + `number` + "`" + ` (the printed number's text, which within one establishment and point of emission is sequence order, so a gap in the numbering can be read off; a document with no number sorts last in BOTH directions), ` + "`" + `total` + "`" + ` (the document's total) and ` + "`" + `recipient` + "`" + ` (the Recipient's legal name as the document snapshotted it), each ` + "`" + `asc` + "`" + ` or ` + "`" + `desc` + "`" + `. Absent is ` + "`" + `date` + "`" + ` ` + "`" + `desc` + "`" + `, which is the order this list has always had. Every sort ends in the same tiebreakers — creation time, then id — so two documents that tie on the chosen column keep one order and paging never repeats or skips one. Any other sort key or direction is refused under VALIDATION_FAILED rather than silently read as the default. The other columns are not sortable: Kind, Status and Country are answered by their filters. ` + "`" + `environment` + "`" + ` narrows the page to the documents issued under one of the authority's environments, ` + "`" + `production` + "`" + ` or ` + "`" + `test` + "`" + `, so a month-end reconciliation never picks up a certification document; absent is every environment, and any other value is refused under VALIDATION_FAILED. A document with NO environment — an owed Sale Invoice the Drainer has not signed — does not match either value, for the reason it falls out of an Emission Date range: it was issued under no environment. Every filter combines. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.",
