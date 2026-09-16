@@ -97,6 +97,44 @@ func (s *Service) OpenTaxDocumentArchive(ctx context.Context, operatorEmail, fro
 	}, nil
 }
 
+// TaxDocumentArchiveSummary is what the archive of a range would hold, told
+// to the operator before downloading (#631): the facturas and Credit Notes
+// it would contain, and the production documents emitted in the range still
+// unsettled with the SRI, which it would leave out. An empty range is all
+// zeros, not an error.
+type TaxDocumentArchiveSummary struct {
+	Facturas    int `json:"facturas"`
+	CreditNotes int `json:"credit_notes"`
+	Unsettled   int `json:"unsettled"`
+}
+
+// SummarizeTaxDocumentArchive counts, for `from` to `to` ("YYYY-MM-DD", both
+// included, already validated by the caller), what OpenTaxDocumentArchive's
+// archive would hold, through the same two definitions the archive streams
+// and counts by. ISSUER_NOT_FOUND when no Ecuador Issuer has been recorded.
+func (s *Service) SummarizeTaxDocumentArchive(ctx context.Context, from, to string) (*TaxDocumentArchiveSummary, error) {
+	issuer, err := s.repo.GetEcuadorIssuer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if issuer == nil {
+		return nil, invoicing.ErrIssuerNotFound()
+	}
+	included, err := s.repo.CountArchiveDocuments(ctx, taxDocumentArchiveIncluded(issuer.Issuer.ID, from, to))
+	if err != nil {
+		return nil, err
+	}
+	unsettled, err := s.repo.CountArchiveDocuments(ctx, taxDocumentArchiveUnsettled(issuer.Issuer.ID, from, to))
+	if err != nil {
+		return nil, err
+	}
+	return &TaxDocumentArchiveSummary{
+		Facturas:    included.Facturas(),
+		CreditNotes: included.CreditNotes,
+		Unsettled:   unsettled.Total(),
+	}, nil
+}
+
 // WriteTo streams the ZIP to w: one `<clave de acceso>.xml` per included
 // document at the top level, in Emission Date then clave order, each the
 // stored signed XML byte for byte, and then the readme as the LAST entry.
