@@ -3107,6 +3107,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/invoicing/archive/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Summarize the Tax Document Archive for an Emission Date range
+         * @description Returns what `GET /api/v1/operator/invoicing/archive` would hold for the same `from` and `to`, counted by the SAME definitions the archive streams by: `facturas` (manual Tax Invoices and Sale Invoices, Superseded ones included) and `credit_notes` of the Ecuador Issuer that are `authorized` in `production` with an Emission Date from `from` to `to`, BOTH ENDS INCLUDED; and `unsettled`, the production documents emitted in the range that are still `pending` or `needs_attention` — left out of the archive, not a reason to refuse it. An empty range is not an error: all three are zero. A document that settles between this read and the download changes the archive, not this answer. `from` and `to` are required `YYYY-MM-DD` days: a missing or malformed bound, or `from` after `to`, is refused under VALIDATION_FAILED exactly as the archive refuses them. ISSUER_NOT_FOUND (404) when no Ecuador Issuer has been recorded. Read-only and not logged. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query: {
+                    /** @description First Emission Date of the range (YYYY-MM-DD, inclusive) */
+                    from: string;
+                    /** @description Last Emission Date of the range (YYYY-MM-DD, inclusive) */
+                    to: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeTaxDocumentArchiveSummary"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/invoicing/invoices": {
         parameters: {
             query?: never;
@@ -15386,6 +15466,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeTaxDocumentArchiveSummary": {
+            data?: components["schemas"]["service.TaxDocumentArchiveSummary"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeTerms": {
             data?: components["schemas"]["service.TermsView"];
             error?: components["schemas"]["platform.APIError"];
@@ -19190,6 +19275,11 @@ export interface components {
             canonical_key?: string;
             curated?: boolean;
             name?: string;
+        };
+        "service.TaxDocumentArchiveSummary": {
+            credit_notes?: number;
+            facturas?: number;
+            unsettled?: number;
         };
         /**
          * @description TermsRequired is the interstitial's box — the sign-in door's terms step

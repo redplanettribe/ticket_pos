@@ -61,3 +61,38 @@ func (h *Handler) DownloadTaxDocumentArchive(w http.ResponseWriter, r *http.Requ
 		panic(http.ErrAbortHandler)
 	}
 }
+
+// SummarizeTaxDocumentArchive tells the operator what the Tax Document
+// Archive of a range would hold before they download it (#631, spec #629).
+// It reads its range through the archive's own parser and counts through the
+// archive's own definitions, so it refuses what the archive refuses and
+// counts what the archive holds.
+//
+// @Summary      Summarize the Tax Document Archive for an Emission Date range
+// @Description  Returns what `GET /api/v1/operator/invoicing/archive` would hold for the same `from` and `to`, counted by the SAME definitions the archive streams by: `facturas` (manual Tax Invoices and Sale Invoices, Superseded ones included) and `credit_notes` of the Ecuador Issuer that are `authorized` in `production` with an Emission Date from `from` to `to`, BOTH ENDS INCLUDED; and `unsettled`, the production documents emitted in the range that are still `pending` or `needs_attention` — left out of the archive, not a reason to refuse it. An empty range is not an error: all three are zero. A document that settles between this read and the download changes the archive, not this answer. `from` and `to` are required `YYYY-MM-DD` days: a missing or malformed bound, or `from` after `to`, is refused under VALIDATION_FAILED exactly as the archive refuses them. ISSUER_NOT_FOUND (404) when no Ecuador Issuer has been recorded. Read-only and not logged. Platform Operator only.
+// @Tags         operator
+// @Produce      json
+// @Security     BearerAuth
+// @Param        from  query  string  true  "First Emission Date of the range (YYYY-MM-DD, inclusive)"
+// @Param        to    query  string  true  "Last Emission Date of the range (YYYY-MM-DD, inclusive)"
+// @Success      200  {object}  openapi.EnvelopeTaxDocumentArchiveSummary
+// @Failure      400  {object}  platform.Envelope
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Router       /api/v1/operator/invoicing/archive/summary [get]
+func (h *Handler) SummarizeTaxDocumentArchive(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+	query := r.URL.Query()
+	from, to, fields := archiveRange.parse(query.Get("from"), query.Get("to"))
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+	summary, err := h.svc.SummarizeTaxDocumentArchive(r.Context(), from, to)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, summary)
+}

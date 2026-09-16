@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -24,6 +25,9 @@ import (
 
 // taxArchivePath is the archive route.
 const taxArchivePath = "/api/v1/operator/invoicing/archive"
+
+// taxArchiveSummaryPath is the archive's pre-download summary (#631).
+const taxArchiveSummaryPath = "/api/v1/operator/invoicing/archive/summary"
 
 // The range the fixture is built around, and the days either side of it.
 // The range starts on fixedClock's day because the Drainer can only sign a
@@ -495,7 +499,8 @@ func TestTheTaxDocumentArchiveReadmeFollowsTheOperatorsStaffLocale(t *testing.T)
 }
 
 // TestAMissingMalformedOrReversedArchiveRangeIsRefused: the list's Emission
-// Date filter's refusal, on the archive's two required bounds.
+// Date filter's refusal, on the archive's two required bounds and on its
+// summary's, which are the same two.
 func TestAMissingMalformedOrReversedArchiveRangeIsRefused(t *testing.T) {
 	env := setupTest(t)
 	sid := operatorSession(t, env, "operator@example.com")
@@ -514,17 +519,19 @@ func TestAMissingMalformedOrReversedArchiveRangeIsRefused(t *testing.T) {
 		{"a timestamp where a day belongs", "?from=2026-07-01T00:00:00Z&to=2026-07-31", "from"},
 		{"a start after the end", "?from=2026-07-31&to=2026-07-01", "from"},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			resp, body := sriEnv.getRaw(t, taxArchivePath+tc.query, authHeader(sid))
-			refusal := decodeErrorEnvelope(t, body)
-			if resp.StatusCode != http.StatusBadRequest || refusal.Error == nil || refusal.Error.Code != "VALIDATION_FAILED" {
-				t.Fatalf("archive %q: status=%d body=%s; want 400 VALIDATION_FAILED", tc.query, resp.StatusCode, body)
-			}
-			if !fieldNamed(refusal.Error.Details, tc.field) {
-				t.Fatalf("archive %q: error=%+v; want a %s field error", tc.query, refusal.Error, tc.field)
-			}
-		})
+	for _, path := range []string{taxArchivePath, taxArchiveSummaryPath} {
+		for _, tc := range cases {
+			t.Run(path+" "+tc.name, func(t *testing.T) {
+				resp, body := sriEnv.getRaw(t, path+tc.query, authHeader(sid))
+				refusal := decodeErrorEnvelope(t, body)
+				if resp.StatusCode != http.StatusBadRequest || refusal.Error == nil || refusal.Error.Code != "VALIDATION_FAILED" {
+					t.Fatalf("%s%s: status=%d body=%s; want 400 VALIDATION_FAILED", path, tc.query, resp.StatusCode, body)
+				}
+				if !fieldNamed(refusal.Error.Details, tc.field) {
+					t.Fatalf("%s%s: error=%+v; want a %s field error", path, tc.query, refusal.Error, tc.field)
+				}
+			})
+		}
 	}
 }
 
@@ -536,15 +543,16 @@ func TestTheTaxDocumentArchiveIsPlatformOperatorsOnly(t *testing.T) {
 	sid := operatorSession(t, env, "operator@example.com")
 	issuerReady(t, sid)
 	member := verifyOTP(t, env, "admin@example.com")
-	path := taxArchiveQuery(taxArchiveFrom, taxArchiveTo)
 
-	resp, body := sriEnv.getRaw(t, path, authHeader(member))
-	if refusal := decodeErrorEnvelope(t, body); resp.StatusCode != http.StatusForbidden || refusal.Error == nil || refusal.Error.Code != "FORBIDDEN" {
-		t.Fatalf("a Member's archive: status=%d body=%s; want 403 FORBIDDEN", resp.StatusCode, body)
-	}
-	resp, body = sriEnv.getRaw(t, path, nil)
-	if refusal := decodeErrorEnvelope(t, body); resp.StatusCode != http.StatusUnauthorized || refusal.Error == nil || refusal.Error.Code != "UNAUTHORIZED" {
-		t.Fatalf("an anonymous archive: status=%d body=%s; want 401 UNAUTHORIZED", resp.StatusCode, body)
+	for _, path := range []string{taxArchiveQuery(taxArchiveFrom, taxArchiveTo), taxArchiveSummaryQuery(taxArchiveFrom, taxArchiveTo)} {
+		resp, body := sriEnv.getRaw(t, path, authHeader(member))
+		if refusal := decodeErrorEnvelope(t, body); resp.StatusCode != http.StatusForbidden || refusal.Error == nil || refusal.Error.Code != "FORBIDDEN" {
+			t.Fatalf("a Member's %s: status=%d body=%s; want 403 FORBIDDEN", path, resp.StatusCode, body)
+		}
+		resp, body = sriEnv.getRaw(t, path, nil)
+		if refusal := decodeErrorEnvelope(t, body); resp.StatusCode != http.StatusUnauthorized || refusal.Error == nil || refusal.Error.Code != "UNAUTHORIZED" {
+			t.Fatalf("an anonymous %s: status=%d body=%s; want 401 UNAUTHORIZED", path, resp.StatusCode, body)
+		}
 	}
 }
 
@@ -554,8 +562,97 @@ func TestTheTaxDocumentArchiveWithNoIssuerIsIssuerNotFound(t *testing.T) {
 	env := setupTest(t)
 	sid := operatorSession(t, env, "operator@example.com")
 
-	resp, body := sriEnv.getRaw(t, taxArchiveQuery(taxArchiveFrom, taxArchiveTo), authHeader(sid))
-	if refusal := decodeErrorEnvelope(t, body); resp.StatusCode != http.StatusNotFound || refusal.Error == nil || refusal.Error.Code != "ISSUER_NOT_FOUND" {
-		t.Fatalf("archive with no Issuer: status=%d body=%s; want 404 ISSUER_NOT_FOUND", resp.StatusCode, body)
+	for _, path := range []string{taxArchiveQuery(taxArchiveFrom, taxArchiveTo), taxArchiveSummaryQuery(taxArchiveFrom, taxArchiveTo)} {
+		resp, body := sriEnv.getRaw(t, path, authHeader(sid))
+		if refusal := decodeErrorEnvelope(t, body); resp.StatusCode != http.StatusNotFound || refusal.Error == nil || refusal.Error.Code != "ISSUER_NOT_FOUND" {
+			t.Fatalf("%s with no Issuer: status=%d body=%s; want 404 ISSUER_NOT_FOUND", path, resp.StatusCode, body)
+		}
+	}
+}
+
+// taxArchiveSummaryQuery spells a range on the summary route.
+func taxArchiveSummaryQuery(from, to string) string {
+	return taxArchiveSummaryPath + "?from=" + from + "&to=" + to
+}
+
+// taxArchiveSummaryView is the summary as the staff app reads it.
+type taxArchiveSummaryView struct {
+	Facturas    int `json:"facturas"`
+	CreditNotes int `json:"credit_notes"`
+	Unsettled   int `json:"unsettled"`
+}
+
+// fetchTaxArchiveSummary reads the summary for a range, which must answer 200.
+func fetchTaxArchiveSummary(t *testing.T, sessionID, from, to string) taxArchiveSummaryView {
+	t.Helper()
+	path := taxArchiveSummaryQuery(from, to)
+	resp, body := sriEnv.getRaw(t, path, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s status=%d body=%s", path, resp.StatusCode, body)
+	}
+	var env envelope
+	if err := json.Unmarshal(body, &env); err != nil || env.Error != nil || env.RequestID == "" {
+		t.Fatalf("GET %s body=%s: %v; want a success envelope with a request_id", path, body, err)
+	}
+	var view taxArchiveSummaryView
+	if err := json.Unmarshal(env.Data, &view); err != nil {
+		t.Fatalf("decode summary %s: %v", env.Data, err)
+	}
+	return view
+}
+
+// TestTheTaxDocumentArchiveSummaryCountsWhatTheArchiveHolds: for the same
+// range, the numbers an operator is shown before downloading are the
+// readme's numbers AND the files actually in the ZIP, told apart by the
+// document type the clave de acceso carries (01 factura, 04 nota de crédito).
+func TestTheTaxDocumentArchiveSummaryCountsWhatTheArchiveHolds(t *testing.T) {
+	env := setupTest(t)
+	f := newTaxDocumentArchiveFixture(t, env)
+
+	ranges := [][2]string{
+		{taxArchiveFrom, taxArchiveTo},
+		{taxArchiveDayBefore, taxArchiveDayAfter},
+		{taxArchiveDayAfter, taxArchiveDayAfter},
+	}
+	for _, r := range ranges {
+		summary := fetchTaxArchiveSummary(t, f.operatorSessionID, r[0], r[1])
+		pack := downloadPack(t, sriEnv, f.operatorSessionID, taxArchiveQuery(r[0], r[1]))
+
+		facturas, creditNotes := 0, 0
+		for _, name := range pack.Names {
+			if !strings.HasSuffix(name, ".xml") {
+				continue
+			}
+			// The clave de acceso is ddmmaaaa then the two-digit codDoc.
+			switch codDoc := name[8:10]; codDoc {
+			case "01":
+				facturas++
+			case "04":
+				creditNotes++
+			default:
+				t.Fatalf("archive entry %s has document type %s", name, codDoc)
+			}
+		}
+		if summary.Facturas != facturas || summary.CreditNotes != creditNotes {
+			t.Fatalf("%s..%s: summary %+v; the ZIP holds %d facturas and %d Credit Notes", r[0], r[1], summary, facturas, creditNotes)
+		}
+		assertReadmeCounts(t, pack.Files["README.txt"], summary.Facturas, summary.CreditNotes, summary.Unsettled, readmeLabelsEN)
+	}
+
+	// And the fixture's own expectation, so agreeing-but-wrong cannot pass.
+	want := taxArchiveSummaryView{Facturas: taxArchiveFacturas, CreditNotes: taxArchiveCreditNotes, Unsettled: taxArchiveUnsettled}
+	if got := fetchTaxArchiveSummary(t, f.operatorSessionID, taxArchiveFrom, taxArchiveTo); got != want {
+		t.Fatalf("summary = %+v; want %+v", got, want)
+	}
+}
+
+// TestAnEmptyPeriodsSummaryIsZeros: nothing emitted is an answer, not an
+// error.
+func TestAnEmptyPeriodsSummaryIsZeros(t *testing.T) {
+	env := setupTest(t)
+	f := newTaxDocumentArchiveFixture(t, env)
+
+	if got := fetchTaxArchiveSummary(t, f.operatorSessionID, "2026-08-01", "2026-08-31"); got != (taxArchiveSummaryView{}) {
+		t.Fatalf("an empty period's summary = %+v; want zeros", got)
 	}
 }

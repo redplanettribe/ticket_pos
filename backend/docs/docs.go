@@ -3014,6 +3014,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeTaxDocumentArchiveSummary": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.TaxDocumentArchiveSummary"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeTerms": {
                 "properties": {
                     "data": {
@@ -7891,6 +7905,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.TaxDocumentArchiveSummary": {
+                "properties": {
+                    "credit_notes": {
+                        "type": "integer"
+                    },
+                    "facturas": {
+                        "type": "integer"
+                    },
+                    "unsettled": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "service.TermsRequiredView": {
                 "description": "TermsRequired is the interstitial's box — the sign-in door's terms step\nverbatim, asked of somebody who is already inside — and null when nothing\nis owed.",
                 "properties": {
@@ -11464,6 +11492,92 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Download the Tax Document Archive for an Emission Date range",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/archive/summary": {
+            "get": {
+                "description": "Returns what ` + "`" + `GET /api/v1/operator/invoicing/archive` + "`" + ` would hold for the same ` + "`" + `from` + "`" + ` and ` + "`" + `to` + "`" + `, counted by the SAME definitions the archive streams by: ` + "`" + `facturas` + "`" + ` (manual Tax Invoices and Sale Invoices, Superseded ones included) and ` + "`" + `credit_notes` + "`" + ` of the Ecuador Issuer that are ` + "`" + `authorized` + "`" + ` in ` + "`" + `production` + "`" + ` with an Emission Date from ` + "`" + `from` + "`" + ` to ` + "`" + `to` + "`" + `, BOTH ENDS INCLUDED; and ` + "`" + `unsettled` + "`" + `, the production documents emitted in the range that are still ` + "`" + `pending` + "`" + ` or ` + "`" + `needs_attention` + "`" + ` — left out of the archive, not a reason to refuse it. An empty range is not an error: all three are zero. A document that settles between this read and the download changes the archive, not this answer. ` + "`" + `from` + "`" + ` and ` + "`" + `to` + "`" + ` are required ` + "`" + `YYYY-MM-DD` + "`" + ` days: a missing or malformed bound, or ` + "`" + `from` + "`" + ` after ` + "`" + `to` + "`" + `, is refused under VALIDATION_FAILED exactly as the archive refuses them. ISSUER_NOT_FOUND (404) when no Ecuador Issuer has been recorded. Read-only and not logged. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "First Emission Date of the range (YYYY-MM-DD, inclusive)",
+                        "in": "query",
+                        "name": "from",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Last Emission Date of the range (YYYY-MM-DD, inclusive)",
+                        "in": "query",
+                        "name": "to",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeTaxDocumentArchiveSummary"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Summarize the Tax Document Archive for an Emission Date range",
                 "tags": [
                     "operator"
                 ]

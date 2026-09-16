@@ -99,6 +99,58 @@ export function isTaxDocumentArchiveRangeInverted(range: TaxDocumentArchiveRange
 
 /** The download's address for a range. */
 export function taxDocumentArchiveUrl(range: TaxDocumentArchiveRange): string {
-  const params = new URLSearchParams({ from: range.from, to: range.to });
-  return `${TAX_DOCUMENT_ARCHIVE_PATH}?${params.toString()}`;
+  return `${TAX_DOCUMENT_ARCHIVE_PATH}?${rangeQuery(range)}`;
+}
+
+function rangeQuery(range: TaxDocumentArchiveRange): string {
+  return new URLSearchParams({ from: range.from, to: range.to }).toString();
+}
+
+/** Where the dialog reads the archive's summary from: the BFF's proxy of the API route (#631). */
+export const TAX_DOCUMENT_ARCHIVE_SUMMARY_PATH = "/api/operator/invoicing/archive/summary";
+
+/** The summary's address for a range. */
+export function taxDocumentArchiveSummaryUrl(range: TaxDocumentArchiveRange): string {
+  return `${TAX_DOCUMENT_ARCHIVE_SUMMARY_PATH}?${rangeQuery(range)}`;
+}
+
+/**
+ * What the archive of a range would hold (#631), as the API answers it: the
+ * facturas and Credit Notes it would contain, and the production documents
+ * emitted in the range still pending or needing attention, which it leaves out.
+ */
+export type TaxDocumentArchiveSummary = {
+  facturas: number;
+  credit_notes: number;
+  unsettled: number;
+};
+
+/**
+ * What the dialog says about a summary:
+ * - `counts`: the facturas and Credit Notes the archive will hold;
+ * - `unsettled`: those counts, and a warning that `unsettled` documents of
+ *   the period are not authorized yet and will not be in it;
+ * - `empty`: nothing qualifies, and — when `unsettled` is above zero — that
+ *   the period's only documents are still waiting on the SRI.
+ */
+export type TaxDocumentArchiveSummaryDisplay =
+  | { kind: "counts"; facturas: number; creditNotes: number }
+  | { kind: "unsettled"; facturas: number; creditNotes: number; unsettled: number }
+  | { kind: "empty"; unsettled: number };
+
+/**
+ * Chooses between the plain counts, the unsettled warning and the
+ * empty-period message. None of them stops the download: an unsettled
+ * document is one the operator can take again later, and an empty archive is
+ * still an answer.
+ */
+export function taxDocumentArchiveSummaryDisplay(summary: TaxDocumentArchiveSummary): TaxDocumentArchiveSummaryDisplay {
+  const { facturas, credit_notes: creditNotes, unsettled } = summary;
+  if (facturas + creditNotes === 0) {
+    return { kind: "empty", unsettled };
+  }
+  if (unsettled > 0) {
+    return { kind: "unsettled", facturas, creditNotes, unsettled };
+  }
+  return { kind: "counts", facturas, creditNotes };
 }

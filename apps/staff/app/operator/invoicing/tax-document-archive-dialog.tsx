@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 
 import {
+  Alert,
+  AlertDescription,
   Button,
   Dialog,
   DialogContent,
@@ -15,13 +17,63 @@ import {
 } from "@ticket-pos/ui";
 import { useTranslations } from "next-intl";
 
+import { fetchOperatorTaxDocumentArchiveSummary } from "@/lib/operator-api";
 import {
   type TaxDocumentArchiveRange,
+  type TaxDocumentArchiveSummary,
   isTaxDocumentArchiveRangeComplete,
   isTaxDocumentArchiveRangeInverted,
   startingTaxDocumentArchiveRange,
+  taxDocumentArchiveSummaryDisplay,
   taxDocumentArchiveUrl,
 } from "@/lib/tax-document-archive";
+
+/** Which range a summary was read for. */
+function summaryRangeKey({ from, to }: TaxDocumentArchiveRange): string {
+  return `${from}/${to}`;
+}
+
+/** The summary's read for the dialog's current range. */
+type SummaryState =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "loaded"; summary: TaxDocumentArchiveSummary };
+
+/**
+ * What the archive of the chosen range will hold (#631): the counts, the
+ * warning that unsettled documents are left out, or the empty-period message.
+ * Nothing here holds the download back — a failed read says so and leaves the
+ * button alone.
+ */
+function TaxDocumentArchiveSummaryNote({ state }: { state: SummaryState }) {
+  const t = useTranslations("operator.taxDocumentArchive");
+  if (state.status === "loading") {
+    return (
+      <p className="text-sm text-muted-foreground" role="status">
+        {t("summaryLoading")}
+      </p>
+    );
+  }
+  if (state.status === "error") {
+    return <p className="text-sm text-destructive">{t("summaryFailed")}</p>;
+  }
+  const display = taxDocumentArchiveSummaryDisplay(state.summary);
+  const unsettled = display.kind === "counts" ? 0 : display.unsettled;
+  return (
+    <div className="flex flex-col gap-2" role="status">
+      <p className="text-sm">
+        {display.kind === "empty"
+          ? t("summaryEmpty")
+          : t("summaryCounts", { facturas: display.facturas, creditNotes: display.creditNotes })}
+      </p>
+      {unsettled > 0 ? (
+        <Alert variant="warning">
+          <AlertDescription>{t("summaryUnsettled", { count: unsettled })}</AlertDescription>
+        </Alert>
+      ) : null}
+    </div>
+  );
+}
 
 type TaxDocumentArchiveDialogProps = {
   open: boolean;
@@ -32,8 +84,8 @@ type TaxDocumentArchiveDialogProps = {
 
 /**
  * The Tax Document Archive's dialog (#630, spec #629): a From and a To
- * Emission Date, a note that the list's other filters don't apply, and the
- * download.
+ * Emission Date, a note that the list's other filters don't apply, what the
+ * archive of that range will hold (#631), and the download.
  *
  * THE RANGE IS SEEDED EACH TIME THE DIALOG OPENS, from the list's own
  * Emission Date range when one is set and from last month in Ecuador
@@ -48,16 +100,46 @@ type TaxDocumentArchiveDialogProps = {
 export function TaxDocumentArchiveDialog({ open, onOpenChange, listRange }: TaxDocumentArchiveDialogProps) {
   const t = useTranslations("operator.taxDocumentArchive");
   const [range, setRange] = useState<TaxDocumentArchiveRange>({ from: "", to: "" });
+  const [summary, setSummary] = useState<{ rangeKey: string; state: SummaryState } | null>(null);
 
   const { issuedFrom, issuedTo } = listRange;
   useEffect(() => {
     if (open) {
       setRange(startingTaxDocumentArchiveRange({ issuedFrom, issuedTo }, new Date()));
+      // A summary read on an earlier opening may be out of date by now.
+      setSummary(null);
     }
   }, [open, issuedFrom, issuedTo]);
 
   const complete = isTaxDocumentArchiveRangeComplete(range);
   const inverted = isTaxDocumentArchiveRangeInverted(range);
+
+  // The summary follows the range: read again whenever a complete range
+  // changes. Each answer is kept with the range it was read for, so until the
+  // current range's answer arrives the note says it is counting, and an
+  // answer for a range the operator has since moved off (its request aborted
+  // too) is never shown against the new dates.
+  const { from, to } = range;
+  const rangeKey = summaryRangeKey(range);
+  useEffect(() => {
+    if (!open || !isTaxDocumentArchiveRangeComplete({ from, to })) {
+      return;
+    }
+    const controller = new AbortController();
+    fetchOperatorTaxDocumentArchiveSummary({ from, to }, controller.signal)
+      .then((loaded) => {
+        if (!controller.signal.aborted) {
+          setSummary({ rangeKey: summaryRangeKey({ from, to }), state: { status: "loaded", summary: loaded } });
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setSummary({ rangeKey: summaryRangeKey({ from, to }), state: { status: "error" } });
+        }
+      });
+    return () => controller.abort();
+  }, [open, from, to]);
+  const summaryState: SummaryState = summary?.rangeKey === rangeKey ? summary.state : { status: "loading" };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -96,11 +178,7 @@ export function TaxDocumentArchiveDialog({ open, onOpenChange, listRange }: TaxD
 
         <p className="text-sm text-muted-foreground">{t("filtersNote")}</p>
 
-        {/*
-          The pre-download summary (#631) goes here: the facturas and Credit
-          Notes the range will hold, the unsettled warning and the
-          empty-period message, fetched whenever the range changes.
-        */}
+        {complete ? <TaxDocumentArchiveSummaryNote state={summaryState} /> : null}
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

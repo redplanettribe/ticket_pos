@@ -6,6 +6,8 @@ import {
   isTaxDocumentArchiveRangeComplete,
   previousEcuadorCalendarMonth,
   startingTaxDocumentArchiveRange,
+  taxDocumentArchiveSummaryDisplay,
+  taxDocumentArchiveSummaryUrl,
   taxDocumentArchiveUrl,
 } from "./tax-document-archive.ts";
 
@@ -102,8 +104,74 @@ test("a range is downloadable only with both ends set and in order", () => {
   assert.equal(isTaxDocumentArchiveRangeComplete({ from: "2026-09-01", to: "2026-08-31" }), false);
 });
 
+test("the summary address carries the range as from and to", () => {
+  assert.equal(
+    taxDocumentArchiveSummaryUrl({ from: "2026-08-01", to: "2026-08-31" }),
+    "/api/operator/invoicing/archive/summary?from=2026-08-01&to=2026-08-31",
+  );
+});
+
+// WHAT THE SUMMARY SHOWS (#631). Three outcomes: the plain counts, the counts
+// with a warning that unsettled documents are left out, and the empty-period
+// message, which still warns when the only documents of the period are
+// unsettled. None of them stops the download.
+
+test("a period with documents and nothing unsettled shows the plain counts", () => {
+  assert.deepEqual(taxDocumentArchiveSummaryDisplay({ facturas: 6, credit_notes: 2, unsettled: 0 }), {
+    kind: "counts",
+    facturas: 6,
+    creditNotes: 2,
+  });
+});
+
+test("unsettled documents add a warning beside the counts", () => {
+  assert.deepEqual(taxDocumentArchiveSummaryDisplay({ facturas: 6, credit_notes: 2, unsettled: 2 }), {
+    kind: "unsettled",
+    facturas: 6,
+    creditNotes: 2,
+    unsettled: 2,
+  });
+});
+
+test("Credit Notes alone are not an empty period", () => {
+  assert.deepEqual(taxDocumentArchiveSummaryDisplay({ facturas: 0, credit_notes: 1, unsettled: 0 }), {
+    kind: "counts",
+    facturas: 0,
+    creditNotes: 1,
+  });
+});
+
+test("nothing to include is the empty period", () => {
+  assert.deepEqual(taxDocumentArchiveSummaryDisplay({ facturas: 0, credit_notes: 0, unsettled: 0 }), {
+    kind: "empty",
+    unsettled: 0,
+  });
+});
+
+test("an empty period whose documents are all unsettled still says how many", () => {
+  assert.deepEqual(taxDocumentArchiveSummaryDisplay({ facturas: 0, credit_notes: 0, unsettled: 3 }), {
+    kind: "empty",
+    unsettled: 3,
+  });
+});
+
 test("the dialog has its words in both languages", () => {
-  const keys = ["action", "title", "description", "fromLabel", "toLabel", "filtersNote", "download", "cancel", "rangeInverted"];
+  const keys = [
+    "action",
+    "title",
+    "description",
+    "fromLabel",
+    "toLabel",
+    "filtersNote",
+    "download",
+    "cancel",
+    "rangeInverted",
+    "summaryLoading",
+    "summaryFailed",
+    "summaryCounts",
+    "summaryUnsettled",
+    "summaryEmpty",
+  ];
   for (const locale of ["en", "es"]) {
     const catalog = JSON.parse(readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8")) as {
       operator: { taxDocumentArchive?: Record<string, string> };
