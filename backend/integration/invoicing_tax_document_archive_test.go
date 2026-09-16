@@ -591,8 +591,8 @@ func fetchTaxArchiveSummary(t *testing.T, sessionID, from, to string) taxArchive
 		t.Fatalf("GET %s status=%d body=%s", path, resp.StatusCode, body)
 	}
 	var env envelope
-	if err := json.Unmarshal(body, &env); err != nil || env.Error != nil {
-		t.Fatalf("GET %s body=%s: %v", path, body, err)
+	if err := json.Unmarshal(body, &env); err != nil || env.Error != nil || env.RequestID == "" {
+		t.Fatalf("GET %s body=%s: %v; want a success envelope with a request_id", path, body, err)
 	}
 	var view taxArchiveSummaryView
 	if err := json.Unmarshal(env.Data, &view); err != nil {

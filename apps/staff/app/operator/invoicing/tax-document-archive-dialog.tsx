@@ -28,6 +28,11 @@ import {
   taxDocumentArchiveUrl,
 } from "@/lib/tax-document-archive";
 
+/** Which range a summary was read for. */
+function summaryRangeKey({ from, to }: TaxDocumentArchiveRange): string {
+  return `${from}/${to}`;
+}
+
 /** The summary's read for the dialog's current range. */
 type SummaryState =
   | { status: "loading" }
@@ -62,7 +67,7 @@ function TaxDocumentArchiveSummaryNote({ state }: { state: SummaryState }) {
           : t("summaryCounts", { facturas: display.facturas, creditNotes: display.creditNotes })}
       </p>
       {unsettled > 0 ? (
-        <Alert className="border-amber-500 text-amber-900 [&>svg]:text-amber-700">
+        <Alert variant="warning">
           <AlertDescription>{t("summaryUnsettled", { count: unsettled })}</AlertDescription>
         </Alert>
       ) : null}
@@ -95,11 +100,14 @@ type TaxDocumentArchiveDialogProps = {
 export function TaxDocumentArchiveDialog({ open, onOpenChange, listRange }: TaxDocumentArchiveDialogProps) {
   const t = useTranslations("operator.taxDocumentArchive");
   const [range, setRange] = useState<TaxDocumentArchiveRange>({ from: "", to: "" });
+  const [summary, setSummary] = useState<{ rangeKey: string; state: SummaryState } | null>(null);
 
   const { issuedFrom, issuedTo } = listRange;
   useEffect(() => {
     if (open) {
       setRange(startingTaxDocumentArchiveRange({ issuedFrom, issuedTo }, new Date()));
+      // A summary read on an earlier opening may be out of date by now.
+      setSummary(null);
     }
   }, [open, issuedFrom, issuedTo]);
 
@@ -111,24 +119,22 @@ export function TaxDocumentArchiveDialog({ open, onOpenChange, listRange }: TaxD
   // current range's answer arrives the note says it is counting, and an
   // answer for a range the operator has since moved off (its request aborted
   // too) is never shown against the new dates.
-  const [summary, setSummary] = useState<{ rangeKey: string; state: SummaryState } | null>(null);
   const { from, to } = range;
-  const rangeKey = `${from}/${to}`;
+  const rangeKey = summaryRangeKey(range);
   useEffect(() => {
     if (!open || !isTaxDocumentArchiveRangeComplete({ from, to })) {
       return;
     }
-    const key = `${from}/${to}`;
     const controller = new AbortController();
     fetchOperatorTaxDocumentArchiveSummary({ from, to }, controller.signal)
       .then((loaded) => {
         if (!controller.signal.aborted) {
-          setSummary({ rangeKey: key, state: { status: "loaded", summary: loaded } });
+          setSummary({ rangeKey: summaryRangeKey({ from, to }), state: { status: "loaded", summary: loaded } });
         }
       })
       .catch(() => {
         if (!controller.signal.aborted) {
-          setSummary({ rangeKey: key, state: { status: "error" } });
+          setSummary({ rangeKey: summaryRangeKey({ from, to }), state: { status: "error" } });
         }
       });
     return () => controller.abort();
