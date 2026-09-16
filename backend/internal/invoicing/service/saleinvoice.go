@@ -89,8 +89,11 @@ func saleInvoiceOf(sale sales.PaidOnlineSale, now time.Time) (invoicing.Invoice,
 			LegalName: recipientLegalName(sale.Buyer.FirstName, sale.Buyer.LastName),
 			Email:     sale.Buyer.Email,
 		},
-		Currency:      "USD",
-		PaymentMethod: string(sri.PaymentMethodForProvider(sale.PaymentProvider)),
+		Currency: "USD",
+		// Always "otros con utilización del sistema financiero": true of
+		// credit, debit and Saldo Payphone alike, so nothing about the
+		// instrument needs to be known.
+		PaymentMethod: string(sri.PaymentMethodDefault),
 		// Due at once: the Drainer's first attempt is the immediate one
 		// right after checkout (ADR 0060).
 		NextAttemptAt: &now,

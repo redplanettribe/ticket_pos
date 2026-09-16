@@ -354,7 +354,7 @@ flowchart LR
 | 60 | Seven-year retention of signed XML + authorization XML | **Built** | `backend/migrations/098_sale_invoices.sql` columns; no DELETE anywhere in `B/` | Deliberate. |
 | 61 | Customer erasure request touching invoice rows | **Ruled out** for now (ADR 0060 Consequences; deletion requests go to counsel) | — | No path exists; nothing can delete an issued document. |
 | 62 | IVA: fixed 15% inside the price | **Built** | `B/invoicing/invoice.go` `SaleInvoiceIVARate = IVARate15`; `sri.BackOutIVA` | 0% RUAC (artistic events ≤ 2,000 capacity) explicitly out of scope; manual Tax Invoices may still pick 0/exento/no objeto. |
-| 63 | formaPago | **Built** | `B/invoicing/sri/factura.go:200-235` | Card provider → 19; otherwise 20. |
+| 63 | formaPago | **Built** | `B/invoicing/service/saleinvoice.go` `saleInvoiceOf` | A Sale Invoice always states 20, whatever the Payment Provider or instrument; documents owed before this change keep the 19 they were written with, and a Reissue or Issue again copies its predecessor's code. |
 | 64 | Anexo 26 "RUC Proveedor" campoAdicional | **Ruled out** (ADR 0059: the platform is the emisor, not a provider) | not emitted anywhere in `backend/` | Becomes relevant only if Organizations ever become emisores. |
 | 65 | Platform Fee on the factura | **Ruled out** (ADR 0060: the fee is the platform's own money whichever way Fee Handling went) | `drainer.go:619` `saleFacturaParts` | One line per Ticket Sale Line as the buyer paid it. |
 | 66 | RIMPE `contribuyenteRimpe` tag, `obligadoContabilidad` | **Built** for the single Issuer | `B/invoicing/sri/factura.go:462` from the Issuer regime; goldens `sri/testdata/golden/factura_rimpe.xml` | Facts of the platform's own RUC, entered once. |
