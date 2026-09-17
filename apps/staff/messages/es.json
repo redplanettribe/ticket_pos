@@ -572,7 +572,13 @@
     "emptyWindow_rate": "Ninguna tasa de atribución en {window}: no se contaron clics entre los que dividir. Amplíe el rango para ver días anteriores.",
     "tooltipNothingCounted": "Nada contado",
     "showAllChips": "Mostrar los {count}",
-    "showFewerChips": "Mostrar menos"
+    "showFewerChips": "Mostrar menos",
+    "deselectAllChips": "Quitar todas",
+    "selectAllChips": "Mostrar todas",
+    "blankCleared": "Elija las líneas que quiere comparar.",
+    "blankUnlisted_clicks": "Ninguna de las líneas elegidas tiene clics en este rango. Elija otra línea o amplíe el rango: su selección se conserva.",
+    "blankUnlisted_sales": "Ninguno de los enlaces elegidos tiene ventas atribuidas en este rango. Elija otro enlace o amplíe el rango: su selección se conserva.",
+    "blankUnlisted_rate": "Ninguna de las líneas elegidas tiene tasa de atribución en este rango. Elija otra línea o amplíe el rango: su selección se conserva."
   },
   "pos": {
     "title": "Punto de venta",

@@ -572,7 +572,13 @@
     "emptyWindow_rate": "No attribution rate in {window}: no clicks were counted to divide by. Widen the range to see earlier days.",
     "tooltipNothingCounted": "Nothing counted",
     "showAllChips": "Show all {count}",
-    "showFewerChips": "Show fewer"
+    "showFewerChips": "Show fewer",
+    "deselectAllChips": "Deselect all",
+    "selectAllChips": "Select all",
+    "blankCleared": "Pick the lines to compare.",
+    "blankUnlisted_clicks": "None of the selected lines has clicks in this range. Pick another line or widen the range — your selection is kept.",
+    "blankUnlisted_sales": "None of the selected links has attributed sales in this range. Pick another link or widen the range — your selection is kept.",
+    "blankUnlisted_rate": "None of the selected lines has an attribution rate in this range. Pick another line or widen the range — your selection is kept."
   },
   "pos": {
     "title": "Point of sale",

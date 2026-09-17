@@ -997,12 +997,19 @@ export function countYTicks(yMax: number): number[] {
  * listed series the reader has selected, in the same order, and is the lines.
  * `empty` says nothing at all was counted for this view in this window,
  * whatever is selected: the chart gives way to a message naming the window.
+ * `blank` says why a window with something to show draws nothing: `cleared`
+ * when the reader has nothing selected at all, `unlisted` when what they
+ * picked has nothing to say in this window. Null whenever a line is drawn, and
+ * on an `empty` window, whose own message takes precedence.
  */
 export type ListedTrendsSeries = {
   listed: string[];
   drawn: string[];
   empty: boolean;
+  blank: TrendsBlankReason | null;
 };
+
+export type TrendsBlankReason = "cleared" | "unlisted";
 
 /**
  * listTrendsSeries is the one derivation the Reach Trends legend, lines and
@@ -1026,10 +1033,10 @@ export type ListedTrendsSeries = {
  *
  * `selected` is an input and never rewritten: an unlisted link keeps whatever
  * selected/dimmed state it had for the range that lists it again. When the
- * selection meets nothing this window lists — the reader dimmed a link on 7d
- * and 24h lists only that link — every listed series is drawn rather than
- * none: something is always on the chart, and the selection still stands for
- * the window it was made in.
+ * selection meets nothing this window lists — the reader picked a link on 7d
+ * and 24h lists only others — nothing is drawn and `blank` says so, rather
+ * than every listed series: drawing them all would put back the clutter the
+ * reader just narrowed away, and read as their selection being lost.
  */
 export function listTrendsSeries(
   trends: Pick<AffiliateTrends, "timezone" | "links" | "view_buckets" | "sales_buckets">,
@@ -1084,26 +1091,49 @@ export function listTrendsSeries(
   // A stable sort keeps the API order between equal totals.
   links.sort((a, b) => (totals.get(b) ?? 0) - (totals.get(a) ?? 0));
   const listed = spoke.has(ALL_PAGE_VIEWS_ID) ? [ALL_PAGE_VIEWS_ID, ...links] : links;
-  const chosen = listed.filter((id) => selected.includes(id));
-  const drawn = chosen.length > 0 ? chosen : listed;
-  return { listed, drawn, empty: listed.length === 0 };
+  const drawn = listed.filter((id) => selected.includes(id));
+  const empty = listed.length === 0;
+  const blank = empty || drawn.length > 0 ? null : selected.length === 0 ? "cleared" : "unlisted";
+  return { listed, drawn, empty, blank };
 }
 
 /**
- * toggleListedSeries is `toggleSeriesSelection` as the Reach Trends legend
- * needs it: the chip that cannot be deselected is the last LISTED one still
- * on, not the last selected id — a selected link the window does not list is
- * not on the chart, and must not count as "something is still drawn".
+ * toggleListedSeries is how a Reach Trends chip click changes the selection.
+ * Unlike `toggleSeriesSelection` it refuses nothing: the last chip on can go
+ * too, leaving a blank chart that asks for a pick, because a reader narrowing
+ * to a couple of links needs a way down to none.
  */
 export function toggleListedSeries(
   order: readonly string[],
-  listed: readonly string[],
   selected: readonly string[],
   id: string,
 ): string[] {
-  const drawn = selected.filter((entry) => listed.includes(entry));
-  if (drawn.length <= 1 && drawn.includes(id)) {
-    return [...selected];
+  const next = new Set(selected);
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
   }
-  return toggleSeriesSelection(order, selected, id);
+  return order.filter((entry) => next.has(entry));
+}
+
+/**
+ * allSeriesAction is what the Reach Trends select-all pill offers, read from
+ * what this window draws rather than from the whole selection: with a line on
+ * the chart it deselects, with none it selects — including when the picks
+ * stand only in another window, where "Deselect all" over a blank chart would
+ * name nothing the reader can see.
+ */
+export function allSeriesAction(drawn: readonly string[]): "select" | "deselect" {
+  return drawn.length > 0 ? "deselect" : "select";
+}
+
+/**
+ * flipAllSeries is the select-all pill's click. Either way it reaches past the
+ * window: Deselect all clears picks other windows list too, so a wider range
+ * cannot bring back a line the reader cleared, and Select all is the state the
+ * surface opens in.
+ */
+export function flipAllSeries(order: readonly string[], drawn: readonly string[]): string[] {
+  return allSeriesAction(drawn) === "deselect" ? [] : [...order];
 }
