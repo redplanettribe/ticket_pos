@@ -4371,57 +4371,6 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
-            "service.DossierSaleInvoiceView": {
-                "properties": {
-                    "kind": {
-                        "description": "Kind is ` + "`" + `sale` + "`" + ` or ` + "`" + `credit_note` + "`" + `.",
-                        "enum": [
-                            "sale",
-                            "credit_note"
-                        ],
-                        "type": "string"
-                    },
-                    "number": {
-                        "description": "Number is the document number as printed; null until signed.",
-                        "type": "string"
-                    },
-                    "recipient_legal_name": {
-                        "description": "RecipientLegalName, RecipientTaxIDType and RecipientTaxID are who the\ndocument invoices — a company where one was invoiced rather than the\nperson.",
-                        "type": "string"
-                    },
-                    "recipient_tax_id": {
-                        "type": "string"
-                    },
-                    "recipient_tax_id_type": {
-                        "type": "string"
-                    },
-                    "role": {
-                        "description": "Role is the document's place in the Sale's chain: ` + "`" + `current` + "`" + `,\n` + "`" + `superseded` + "`" + `, ` + "`" + `credit_note` + "`" + ` or ` + "`" + `not_current` + "`" + `.",
-                        "enum": [
-                            "current",
-                            "superseded",
-                            "credit_note",
-                            "not_current"
-                        ],
-                        "type": "string"
-                    },
-                    "status": {
-                        "enum": [
-                            "owed",
-                            "pending",
-                            "authorized",
-                            "not_authorized",
-                            "rejected",
-                            "needs_attention",
-                            "withdrawn",
-                            "annulled",
-                            "abandoned"
-                        ],
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
             "service.DossierSaleLineView": {
                 "properties": {
                     "quantity": {
@@ -4490,14 +4439,6 @@ const docTemplate = `{
                         "description": "ReversedAt is when a reversed or corrected Sale was reversed; null on an\nactive one.",
                         "type": "string"
                     },
-                    "sale_invoices": {
-                        "description": "SaleInvoices are the Sale's Tax Invoices as the operator Sale lookup\nreads them, in the Sale's chain order; empty, never null.",
-                        "items": {
-                            "$ref": "#/components/schemas/service.DossierSaleInvoiceView"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
-                    },
                     "sold_at": {
                         "type": "string"
                     },
@@ -4520,12 +4461,71 @@ const docTemplate = `{
                     "tax_id_type": {
                         "type": "string"
                     },
+                    "tax_invoices": {
+                        "description": "TaxInvoices are the Tax Invoices about the Sale — its Sale Invoices and\nany Credit Notes — as the operator Sale lookup\nreads them, in the Sale's chain order; empty, never null.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.DossierTaxInvoiceView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "ticket_types": {
                         "items": {
                             "$ref": "#/components/schemas/service.DossierSaleLineView"
                         },
                         "type": "array",
                         "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "service.DossierTaxInvoiceView": {
+                "properties": {
+                    "kind": {
+                        "description": "Kind is ` + "`" + `sale` + "`" + ` or ` + "`" + `credit_note` + "`" + `.",
+                        "enum": [
+                            "sale",
+                            "credit_note"
+                        ],
+                        "type": "string"
+                    },
+                    "number": {
+                        "description": "Number is the document number as printed; null until signed.",
+                        "type": "string"
+                    },
+                    "recipient_legal_name": {
+                        "description": "RecipientLegalName, RecipientTaxIDType and RecipientTaxID are who the\ndocument invoices — a company where one was invoiced rather than the\nperson.",
+                        "type": "string"
+                    },
+                    "recipient_tax_id": {
+                        "type": "string"
+                    },
+                    "recipient_tax_id_type": {
+                        "type": "string"
+                    },
+                    "role": {
+                        "description": "Role is the document's place in the Sale's chain: ` + "`" + `current` + "`" + `,\n` + "`" + `superseded` + "`" + `, ` + "`" + `credit_note` + "`" + ` or ` + "`" + `not_current` + "`" + `.",
+                        "enum": [
+                            "current",
+                            "superseded",
+                            "credit_note",
+                            "not_current"
+                        ],
+                        "type": "string"
+                    },
+                    "status": {
+                        "enum": [
+                            "owed",
+                            "pending",
+                            "authorized",
+                            "not_authorized",
+                            "rejected",
+                            "needs_attention",
+                            "withdrawn",
+                            "annulled",
+                            "abandoned"
+                        ],
+                        "type": "string"
                     }
                 },
                 "type": "object"

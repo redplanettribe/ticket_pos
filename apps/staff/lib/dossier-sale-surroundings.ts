@@ -1,14 +1,17 @@
 /**
  * What surrounds a Sale on the Customer Dossier (#639): the phone given on its
- * checkout (ADR 0073), the Affiliate Link that attributed it, its Sale
- * Invoices and when it was re-addressed (ADR 0058). The words these draw live
- * in the `customerDossier` catalog; this module decides which one, so the
- * decisions run under node --test.
+ * checkout (ADR 0073), the Affiliate Link that attributed it, its Tax Invoices
+ * and when it was re-addressed (ADR 0058).
  *
  * The API decides every fact — which phone, which documents in which order and
- * role. Nothing here re-derives them; unknown values are shown as the API's
- * own word rather than guessed at (ADR 0041).
+ * role. A document's kind, status and role are drawn with the operator Tax
+ * Invoice vocabulary (`app/operator/invoicing/invoice-status.ts`,
+ * `lib/sale-documents.ts`) so one state keeps one word; this module only
+ * narrows the Dossier's wire strings onto it, and an unknown value is shown as
+ * the API's own word rather than guessed at (ADR 0041).
  */
+
+import type { InvoiceKind, InvoiceStatus, OperatorDocumentRole } from "./operator-api";
 
 /*
   PHONE
@@ -21,7 +24,7 @@
  */
 export type PhoneGiven = { state: "given"; phone: string; href: string | null } | { state: "none" };
 
-export function phoneGivenOnSale(sale: { phone?: string | null }): PhoneGiven {
+export function phoneGivenOnSale(sale: { phone: string | null }): PhoneGiven {
   const phone = (sale.phone ?? "").trim();
   if (phone === "") {
     return { state: "none" };
@@ -34,7 +37,7 @@ export function phoneGivenOnSale(sale: { phone?: string | null }): PhoneGiven {
 }
 
 /*
-  SALE INVOICES
+  TAX INVOICES
 */
 
 export const DOSSIER_INVOICE_STATUSES = [
@@ -47,81 +50,27 @@ export const DOSSIER_INVOICE_STATUSES = [
   "withdrawn",
   "annulled",
   "abandoned",
-] as const;
+] as const satisfies readonly InvoiceStatus[];
 
-export type DossierInvoiceStatus = (typeof DOSSIER_INVOICE_STATUSES)[number];
+const INVOICE_KINDS = ["manual", "sale", "credit_note"] as const satisfies readonly InvoiceKind[];
 
-const INVOICE_STATUS_KEYS = {
-  owed: "invoiceStatusOwed",
-  pending: "invoiceStatusPending",
-  authorized: "invoiceStatusAuthorized",
-  not_authorized: "invoiceStatusNotAuthorized",
-  rejected: "invoiceStatusRejected",
-  needs_attention: "invoiceStatusNeedsAttention",
-  withdrawn: "invoiceStatusWithdrawn",
-  annulled: "invoiceStatusAnnulled",
-  abandoned: "invoiceStatusAbandoned",
-} as const satisfies Record<DossierInvoiceStatus, string>;
+const DOCUMENT_ROLES = ["current", "superseded", "credit_note", "not_current"] as const satisfies readonly OperatorDocumentRole[];
 
-export type DossierInvoiceStatusKey = (typeof INVOICE_STATUS_KEYS)[DossierInvoiceStatus];
-
-function isInvoiceStatus(status: string | null | undefined): status is DossierInvoiceStatus {
-  return status != null && (DOSSIER_INVOICE_STATUSES as readonly string[]).includes(status);
+function narrow<T extends string>(known: readonly T[], value: string | null | undefined): T | null {
+  return value != null && (known as readonly string[]).includes(value) ? (value as T) : null;
 }
 
-/** The catalog key for a document's status, or null for one never heard of. */
-export function dossierInvoiceStatusKey(status: string | null | undefined): DossierInvoiceStatusKey | null {
-  return isInvoiceStatus(status) ? INVOICE_STATUS_KEYS[status] : null;
+/** A document's status as one the operator vocabulary has words for, or null. */
+export function invoiceStatusToken(status: string | null | undefined): InvoiceStatus | null {
+  return narrow<InvoiceStatus>(DOSSIER_INVOICE_STATUSES, status);
 }
 
-/**
- * The Badge variant a document's status is drawn in, as the operator's Tax
- * Invoices list draws it: authorized stands out, a refusal is trouble, a dead
- * document is quiet. An unknown status is drawn quietly.
- */
-export function dossierInvoiceStatusVariant(
-  status: string | null | undefined,
-): "default" | "secondary" | "destructive" | "outline" {
-  if (!isInvoiceStatus(status)) {
-    return "outline";
-  }
-  switch (status) {
-    case "authorized":
-      return "default";
-    case "owed":
-    case "pending":
-      return "secondary";
-    case "not_authorized":
-    case "rejected":
-    case "needs_attention":
-      return "destructive";
-    default:
-      return "outline";
-  }
+/** A document's kind as one the operator vocabulary has words for, or null. */
+export function invoiceKindToken(kind: string | null | undefined): InvoiceKind | null {
+  return narrow<InvoiceKind>(INVOICE_KINDS, kind);
 }
 
-const INVOICE_KIND_KEYS: Record<string, "invoiceKindSale" | "invoiceKindCreditNote"> = {
-  sale: "invoiceKindSale",
-  credit_note: "invoiceKindCreditNote",
-};
-
-/** The catalog key for a document's kind, or null for one never heard of. */
-export function dossierInvoiceKindKey(kind: string): "invoiceKindSale" | "invoiceKindCreditNote" | null {
-  return Object.hasOwn(INVOICE_KIND_KEYS, kind) ? INVOICE_KIND_KEYS[kind] : null;
-}
-
-/**
- * The catalog key a document's role is badged with, or null where the kind and
- * status already say it — a Credit Note is its kind, a withdrawn or annulled
- * factura its status — as the operator Sale lookup badges them.
- */
-export function dossierInvoiceRoleKey(role: string): "invoiceRoleCurrent" | "invoiceRoleSuperseded" | null {
-  switch (role) {
-    case "current":
-      return "invoiceRoleCurrent";
-    case "superseded":
-      return "invoiceRoleSuperseded";
-    default:
-      return null;
-  }
+/** A document's role in its Sale's chain, or null for one never heard of. */
+export function documentRoleToken(role: string | null | undefined): OperatorDocumentRole | null {
+  return narrow<OperatorDocumentRole>(DOCUMENT_ROLES, role);
 }

@@ -397,14 +397,14 @@ func TestTheCustomerDossierCarriesNoPlatformDeclarations(t *testing.T) {
 // tracer's.
 
 type dossierSaleSurroundings struct {
-	ConfirmationRef   string                     `json:"confirmation_ref"`
-	Phone             *string                    `json:"phone"`
-	AffiliateLinkName *string                    `json:"affiliate_link_name"`
-	SaleInvoices      []dossierSaleInvoiceMirror `json:"sale_invoices"`
-	ReAddressedAt     *string                    `json:"re_addressed_at"`
+	ConfirmationRef   string                    `json:"confirmation_ref"`
+	Phone             *string                   `json:"phone"`
+	AffiliateLinkName *string                   `json:"affiliate_link_name"`
+	TaxInvoices       []dossierTaxInvoiceMirror `json:"tax_invoices"`
+	ReAddressedAt     *string                   `json:"re_addressed_at"`
 }
 
-type dossierSaleInvoiceMirror struct {
+type dossierTaxInvoiceMirror struct {
 	Kind               string  `json:"kind"`
 	Number             *string `json:"number"`
 	Status             string  `json:"status"`
@@ -432,7 +432,7 @@ func dossierSurroundingsByRef(t *testing.T, raw json.RawMessage, ref string) dos
 		if got.ConfirmationRef != ref {
 			continue
 		}
-		for _, key := range []string{"phone", "affiliate_link_name", "sale_invoices", "re_addressed_at"} {
+		for _, key := range []string{"phone", "affiliate_link_name", "tax_invoices", "re_addressed_at"} {
 			if _, ok := sale[key]; !ok {
 				t.Fatalf("sale %s carries no %q key: %s", ref, key, encoded)
 			}
@@ -479,6 +479,15 @@ func TestTheDossierShowsThePhoneGivenOnThisEventsCheckout(t *testing.T) {
 	}
 	if got := readPaymentPhone(t, env, begun.ClientTransactionID); got == nil || *got != foreignMobile {
 		t.Fatalf("the other checkout's phone = %v, want %s — the fixture proves nothing", got, foreignMobile)
+	}
+	// The Customer record now says the other number: a Dossier reading it
+	// would have changed. SQL because no staff surface shows it.
+	var customerPhone *string
+	if err := env.db.QueryRow(`SELECT phone FROM customers WHERE id = $1`, customerID).Scan(&customerPhone); err != nil {
+		t.Fatalf("read the customer's phone: %v", err)
+	}
+	if customerPhone == nil || *customerPhone != foreignMobile {
+		t.Fatalf("the Customer record's phone = %v, want %s — the fixture proves nothing", customerPhone, foreignMobile)
 	}
 
 	_, after := readDossier(t, env, adminSession, eventID, customerID)
@@ -592,16 +601,16 @@ func TestASaleInvoiceShowsOnTheDossier(t *testing.T) {
 
 	_, raw := readDossier(t, env, adminSession, eventID, customerID)
 	got := dossierSurroundingsByRef(t, raw, ref)
-	if len(got.SaleInvoices) != 1 {
-		t.Fatalf("sale_invoices = %+v, want the one Sale Invoice", got.SaleInvoices)
+	if len(got.TaxInvoices) != 1 {
+		t.Fatalf("tax_invoices = %+v, want the one Sale Invoice", got.TaxInvoices)
 	}
-	doc := got.SaleInvoices[0]
+	doc := got.TaxInvoices[0]
 	if doc.Kind != "sale" || doc.Status != "authorized" || strOf(doc.Number) != *listed ||
 		doc.RecipientLegalName != "Ana Lopez" || doc.RecipientTaxIDType != "cedula" || doc.RecipientTaxID != validCedula {
 		t.Errorf("sale invoice = %+v (number %s), want sale/authorized %s to Ana Lopez cedula %s", doc, strOf(doc.Number), *listed, validCedula)
 	}
-	if none := dossierSurroundingsByRef(t, raw, manual.ConfirmationRef); none.SaleInvoices == nil || len(none.SaleInvoices) != 0 {
-		t.Errorf("a Sale owing nothing lists sale_invoices = %+v, want []", none.SaleInvoices)
+	if none := dossierSurroundingsByRef(t, raw, manual.ConfirmationRef); none.TaxInvoices == nil || len(none.TaxInvoices) != 0 {
+		t.Errorf("a Sale owing nothing lists tax_invoices = %+v, want []", none.TaxInvoices)
 	}
 }
 
@@ -645,7 +654,7 @@ func TestAReAddressedSaleShowsWhenAndNeitherAddress(t *testing.T) {
 	if n := strings.Count(body, corrected); n != 1 {
 		t.Errorf("the corrected address appears %d times, want once as customer.email: %s", n, body)
 	}
-	for _, forbidden := range []string{"previous_email", "corrected_email", "token", "operator"} {
+	for _, forbidden := range []string{"previous_email", "corrected_email", "token", "operator_email", "operator@example.com"} {
 		if strings.Contains(body, forbidden) {
 			t.Errorf("the Dossier mentions %q: %s", forbidden, body)
 		}

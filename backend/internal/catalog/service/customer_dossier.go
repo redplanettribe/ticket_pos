@@ -93,9 +93,10 @@ type DossierSaleView struct {
 	// AffiliateLinkName is the display name of the Affiliate Link that
 	// attributed the Sale, or null.
 	AffiliateLinkName *string `json:"affiliate_link_name"`
-	// SaleInvoices are the Sale's Tax Invoices as the operator Sale lookup
+	// TaxInvoices are the Tax Invoices about the Sale — its Sale Invoices and
+	// any Credit Notes — as the operator Sale lookup
 	// reads them, in the Sale's chain order; empty, never null.
-	SaleInvoices []DossierSaleInvoiceView `json:"sale_invoices"`
+	TaxInvoices []DossierTaxInvoiceView `json:"tax_invoices"`
 	// ReAddressedAt is when the Sale was re-addressed (ADR 0058) — the
 	// acceptance of its latest accepted Sale Re-addressing — or null. Neither
 	// address and no token is ever carried.

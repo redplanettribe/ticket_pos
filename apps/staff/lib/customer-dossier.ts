@@ -56,13 +56,13 @@ export type DossierSale = {
   /** The display name of the Affiliate Link that attributed the Sale, or null. */
   affiliate_link_name: string | null;
   /** The Sale's Tax Invoices in chain order; empty, never null. */
-  sale_invoices: DossierSaleInvoice[];
+  tax_invoices: DossierTaxInvoice[];
   /** When the Sale was re-addressed (ADR 0058), or null. Never either address. */
   re_addressed_at: string | null;
 };
 
 /** One Tax Invoice about a Dossier Sale. Strings on the wire: narrow before drawing. */
-export type DossierSaleInvoice = {
+export type DossierTaxInvoice = {
   kind: string;
   role: string;
   /** Null until signed. */

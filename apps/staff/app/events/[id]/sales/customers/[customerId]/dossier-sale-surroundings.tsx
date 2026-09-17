@@ -6,15 +6,16 @@ import type { AppLocale } from "@ticket-pos/locale";
 import { Badge } from "@ticket-pos/ui";
 import { useTranslations } from "next-intl";
 
+import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "@/app/operator/invoicing/invoice-status";
 import type { DossierSale } from "@/lib/customer-dossier";
 import {
-  dossierInvoiceKindKey,
-  dossierInvoiceRoleKey,
-  dossierInvoiceStatusKey,
-  dossierInvoiceStatusVariant,
+  documentRoleToken,
+  invoiceKindToken,
+  invoiceStatusToken,
   phoneGivenOnSale,
 } from "@/lib/dossier-sale-surroundings";
 import { NOTHING_TO_SHOW, formatDateTime } from "@/lib/format";
+import { documentRoleKey } from "@/lib/sale-documents";
 import { taxIdSnapshot } from "@/lib/sales-api";
 
 import { TAX_ID_KEYS } from "../../../sales-list";
@@ -27,16 +28,19 @@ type DossierSaleSurroundingsProps = {
 
 /**
  * What surrounds one Sale (#639): the phone given on its checkout, the
- * Affiliate Link that brought it, when it was re-addressed and its Sale
- * Invoices. Never an address: a re-addressing is only ever a time.
+ * Affiliate Link that brought it, when it was re-addressed and its Tax
+ * Invoices. Never an address: a re-addressing is only ever a time. A
+ * document's kind, status and role use the operator's Tax Invoice words, so a
+ * state has one name across the staff app.
  */
 export function DossierSaleSurroundings({ sale, zone, locale }: DossierSaleSurroundingsProps) {
   const t = useTranslations("customerDossier");
   const tSales = useTranslations("sales");
+  const tOperator = useTranslations("operator");
 
   const phone = phoneGivenOnSale(sale);
   const reAddressedAt = formatDateTime(sale.re_addressed_at, zone, locale);
-  const invoices = sale.sale_invoices ?? [];
+  const invoices = sale.tax_invoices ?? [];
 
   return (
     <dl className="mt-3 grid gap-x-6 gap-y-2 border-t pt-3 sm:grid-cols-2">
@@ -52,28 +56,29 @@ export function DossierSaleSurroundings({ sale, zone, locale }: DossierSaleSurro
         )}
       </Fact>
       <Fact label={t("affiliateLinkLabel")}>{sale.affiliate_link_name || NOTHING_TO_SHOW}</Fact>
-      {reAddressedAt ? <Fact label={t("reAddressedLabel")}>{t("reAddressedAt", { when: reAddressedAt })}</Fact> : null}
+      {reAddressedAt ? <Fact label={t("reAddressedLabel")}>{reAddressedAt}</Fact> : null}
       <div className="min-w-0 sm:col-span-2">
-        <dt className="text-xs text-muted-foreground">{t("saleInvoicesLabel")}</dt>
+        <dt className="text-xs text-muted-foreground">{t("taxInvoicesLabel")}</dt>
         <dd>
           {invoices.length === 0 ? (
-            <span className="text-muted-foreground">{t("saleInvoicesNone")}</span>
+            <span className="text-muted-foreground">{t("taxInvoicesNone")}</span>
           ) : (
             <ul className="space-y-2">
               {invoices.map((invoice, index) => {
-                const kindKey = dossierInvoiceKindKey(invoice.kind);
-                const statusKey = dossierInvoiceStatusKey(invoice.status);
-                const roleKey = dossierInvoiceRoleKey(invoice.role);
+                const kind = invoiceKindToken(invoice.kind);
+                const status = invoiceStatusToken(invoice.status);
+                const role = documentRoleToken(invoice.role);
+                const roleKey = role ? documentRoleKey(role) : null;
                 const taxId = taxIdSnapshot(invoice.recipient_tax_id_type, invoice.recipient_tax_id);
                 return (
                   <li key={`${invoice.number ?? "unnumbered"}-${index}`} className="break-words">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span>{kindKey ? t(kindKey) : invoice.kind}</span>
+                      <span>{kind ? tOperator(INVOICE_KIND_KEYS[kind]) : invoice.kind}</span>
                       <span className="font-mono">{invoice.number ?? t("invoiceUnnumbered")}</span>
-                      <Badge variant={dossierInvoiceStatusVariant(invoice.status)}>
-                        {statusKey ? t(statusKey) : invoice.status}
+                      <Badge variant={status ? INVOICE_STATUS_VARIANTS[status] : "outline"}>
+                        {status ? tOperator(INVOICE_STATUS_KEYS[status]) : invoice.status}
                       </Badge>
-                      {roleKey ? <Badge variant="outline">{t(roleKey)}</Badge> : null}
+                      {roleKey ? <Badge variant="outline">{tOperator(roleKey)}</Badge> : null}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {t("invoiceRecipient", {

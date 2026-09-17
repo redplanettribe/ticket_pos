@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-
-	invoicingsvc "github.com/peter/ticket_pos/backend/internal/invoicing/service"
 )
 
 // What surrounds each Sale on the Customer Dossier (#639, spec #635): the phone
@@ -26,7 +24,7 @@ import (
 // Invoices about one Ticket Sale, in chain order, empty for a Sale that owes
 // nothing. The invoicing service satisfies it.
 type DossierSaleDocuments interface {
-	SaleDocuments(ctx context.Context, ticketSaleID string) ([]invoicingsvc.SaleDocument, error)
+	SaleDocuments(ctx context.Context, ticketSaleID string) ([]InvoicingSaleDocument, error)
 }
 
 // WithDossierSaleDocuments ties the invoicing read the Dossier lists each Sale's
@@ -37,9 +35,9 @@ func (s *Service) WithDossierSaleDocuments(documents DossierSaleDocuments) *Serv
 	return s
 }
 
-// DossierSaleInvoiceView is one Tax Invoice about a Dossier Sale: what it is,
+// DossierTaxInvoiceView is one Tax Invoice about a Dossier Sale: what it is,
 // where it stands, and who was invoiced.
-type DossierSaleInvoiceView struct {
+type DossierTaxInvoiceView struct {
 	// Kind is `sale` or `credit_note`.
 	Kind string `json:"kind" enums:"sale,credit_note"`
 	// Role is the document's place in the Sale's chain: `current`,
@@ -73,7 +71,7 @@ func (s *Service) fillDossierSaleSurroundings(ctx context.Context, sales []Dossi
 		sale.Phone = around.Phone
 		sale.AffiliateLinkName = around.AffiliateLinkName
 		sale.ReAddressedAt = around.ReAddressedAt
-		sale.SaleInvoices = []DossierSaleInvoiceView{}
+		sale.TaxInvoices = []DossierTaxInvoiceView{}
 		if s.saleDocuments == nil {
 			continue
 		}
@@ -82,16 +80,16 @@ func (s *Service) fillDossierSaleSurroundings(ctx context.Context, sales []Dossi
 			return err
 		}
 		for _, doc := range documents {
-			sale.SaleInvoices = append(sale.SaleInvoices, dossierSaleInvoiceView(doc))
+			sale.TaxInvoices = append(sale.TaxInvoices, dossierTaxInvoiceView(doc))
 		}
 	}
 	return nil
 }
 
-// dossierSaleInvoiceView narrows invoicing's document to what the Dossier
+// dossierTaxInvoiceView narrows invoicing's document to what the Dossier
 // shows.
-func dossierSaleInvoiceView(doc invoicingsvc.SaleDocument) DossierSaleInvoiceView {
-	return DossierSaleInvoiceView{
+func dossierTaxInvoiceView(doc InvoicingSaleDocument) DossierTaxInvoiceView {
+	return DossierTaxInvoiceView{
 		Kind:               doc.Kind,
 		Role:               string(doc.Role),
 		Number:             doc.Number,

@@ -16589,31 +16589,6 @@ export interface components {
             email?: string;
             id?: string;
         };
-        "service.DossierSaleInvoiceView": {
-            /**
-             * @description Kind is `sale` or `credit_note`.
-             * @enum {string}
-             */
-            kind?: "sale" | "credit_note";
-            /** @description Number is the document number as printed; null until signed. */
-            number?: string;
-            /**
-             * @description RecipientLegalName, RecipientTaxIDType and RecipientTaxID are who the
-             *     document invoices — a company where one was invoiced rather than the
-             *     person.
-             */
-            recipient_legal_name?: string;
-            recipient_tax_id?: string;
-            recipient_tax_id_type?: string;
-            /**
-             * @description Role is the document's place in the Sale's chain: `current`,
-             *     `superseded`, `credit_note` or `not_current`.
-             * @enum {string}
-             */
-            role?: "current" | "superseded" | "credit_note" | "not_current";
-            /** @enum {string} */
-            status?: "owed" | "pending" | "authorized" | "not_authorized" | "rejected" | "needs_attention" | "withdrawn" | "annulled" | "abandoned";
-        };
         "service.DossierSaleLineView": {
             quantity?: number;
             ticket_type_id?: string;
@@ -16660,11 +16635,6 @@ export interface components {
              *     active one.
              */
             reversed_at?: string;
-            /**
-             * @description SaleInvoices are the Sale's Tax Invoices as the operator Sale lookup
-             *     reads them, in the Sale's chain order; empty, never null.
-             */
-            sale_invoices?: components["schemas"]["service.DossierSaleInvoiceView"][];
             sold_at?: string;
             /** @description Source is the Sales list's `source` for the Sale. */
             source?: string;
@@ -16675,7 +16645,38 @@ export interface components {
             status?: "active" | "reversed" | "corrected";
             tax_id_number?: string;
             tax_id_type?: string;
+            /**
+             * @description TaxInvoices are the Tax Invoices about the Sale — its Sale Invoices and
+             *     any Credit Notes — as the operator Sale lookup
+             *     reads them, in the Sale's chain order; empty, never null.
+             */
+            tax_invoices?: components["schemas"]["service.DossierTaxInvoiceView"][];
             ticket_types?: components["schemas"]["service.DossierSaleLineView"][];
+        };
+        "service.DossierTaxInvoiceView": {
+            /**
+             * @description Kind is `sale` or `credit_note`.
+             * @enum {string}
+             */
+            kind?: "sale" | "credit_note";
+            /** @description Number is the document number as printed; null until signed. */
+            number?: string;
+            /**
+             * @description RecipientLegalName, RecipientTaxIDType and RecipientTaxID are who the
+             *     document invoices — a company where one was invoiced rather than the
+             *     person.
+             */
+            recipient_legal_name?: string;
+            recipient_tax_id?: string;
+            recipient_tax_id_type?: string;
+            /**
+             * @description Role is the document's place in the Sale's chain: `current`,
+             *     `superseded`, `credit_note` or `not_current`.
+             * @enum {string}
+             */
+            role?: "current" | "superseded" | "credit_note" | "not_current";
+            /** @enum {string} */
+            status?: "owed" | "pending" | "authorized" | "not_authorized" | "rejected" | "needs_attention" | "withdrawn" | "annulled" | "abandoned";
         };
         "service.DrainResult": {
             /**
