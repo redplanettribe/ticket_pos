@@ -838,18 +838,13 @@ func TestARetiredTicketQuestionCannotBeAnswered(t *testing.T) {
 	}
 }
 
-// One Organization's Ticket id must not resolve under another's Event, and a
-// Member hired for the door is refused every verb — the same gate the Ticket
-// Question authoring routes use.
+// One Organization's Ticket id must not resolve under another's Event. The role
+// gate on the same routes is TestTheAnswersDialogIsForTheOrgAdminAndTheEventOwner.
 func TestTicketAnswersAreScopedAndGated(t *testing.T) {
 	env := setupTest(t)
 	enableTicketQuestions(t)
-	sessionID, eventID, ticketTypeID, ticketSaleID, _, ticketIDs := answeredFixture(t, env)
+	_, eventID, _, _, _, ticketIDs := answeredFixture(t, env)
 	ticketID := ticketIDs[0]
-
-	question := createTicketQuestion(t, env, sessionID, eventID, ticketTypeID, map[string]any{
-		"label": "T-shirt size", "kind": "short_text",
-	})
 
 	otherSession := verifyOTP(t, env, "other@example.com")
 	createOrganization(t, env, otherSession, "Other Org", "other-org")
@@ -857,38 +852,171 @@ func TestTicketAnswersAreScopedAndGated(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status=%d, want 404 across Organizations; error=%+v", resp.StatusCode, body.Error)
 	}
+}
 
-	resp, body = env.post(t, "/api/v1/staff/members", map[string]string{
-		"email": "doorstaff@example.com", "role": "event_staff",
-	}, authHeader(sessionID))
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("add member status=%d error=%+v", resp.StatusCode, body.Error)
-	}
-	staffSessionID := verifyOTP(t, env, "doorstaff@example.com")
+// THE ANSWERS DIALOG IS FOR THE ORG ADMIN AND THE EVENT OWNER, AND FOR NOBODY
+// ELSE (#636, spec #635).
+//
+// The four Answers routes carry the Holder List read's gate. The Holder List
+// already shows an Event Owner the roster and an Answers button on every row
+// (ADR 0065); a dialog that then refused them was a door painted on a wall.
+// One test for every role and every verb, modelled on
+// TestTheHolderListReadIsForTheOrgAdminAndTheEventOwner, because the decision
+// is the shape of the gate and not any one of its answers.
+//
+// The admitted roles are asserted on the BODY: listing returns the Sale's
+// Tickets, answering stores the Answer and removing clears it — a gate that
+// admits somebody to a no-op has widened the door and not the dialog.
+//
+// Event Staff stay refused on each verb, including a Member whose only Event
+// assignment is to another Event of this Organization. They work the door, and
+// that line does not move with this ticket.
+//
+// WHAT THIS DOES NOT PROVE. Event assignments are recorded but not enforced on
+// any staff route today: a role is Organization-wide, so that last Member is
+// refused for being Event Staff, not for being assigned elsewhere. An Event
+// Owner assigned only to another Event is ADMITTED here, exactly as they are
+// to the Holder List — the same gate, the same gap, until assignments land.
+func TestTheAnswersDialogIsForTheOrgAdminAndTheEventOwner(t *testing.T) {
+	env := setupTest(t)
+	enableTicketQuestions(t)
+	adminSession, eventID, ticketTypeID, ticketSaleID, _, ticketIDs := answeredFixture(t, env)
+	ticketID := ticketIDs[0]
+	question := createTicketQuestion(t, env, adminSession, eventID, ticketTypeID, map[string]any{
+		"label": "T-shirt size", "kind": "short_text",
+	})
 
-	for _, tc := range []struct {
-		name string
-		call func() (*http.Response, envelope)
-	}{
-		{"list a sale's tickets", func() (*http.Response, envelope) {
-			return env.get(t, ticketSaleTicketsPath(eventID, ticketSaleID), authHeader(staffSessionID))
-		}},
-		{"get a ticket", func() (*http.Response, envelope) {
-			return env.get(t, ticketPath(eventID, ticketID), authHeader(staffSessionID))
-		}},
-		{"answer", func() (*http.Response, envelope) {
-			return env.put(t, answerPath(eventID, ticketID, question.ID),
-				map[string]any{"text": "Sneaked in"}, authHeader(staffSessionID))
-		}},
-		{"remove an answer", func() (*http.Response, envelope) {
-			return env.deleteJSON(t, answerPath(eventID, ticketID, question.ID), nil, authHeader(staffSessionID))
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			resp, body := tc.call()
-			if resp.StatusCode != http.StatusForbidden {
-				t.Fatalf("status=%d, want 403; error=%+v", resp.StatusCode, body.Error)
-			}
-		})
+	addMember := func(email, role string) (memberID, sessionID string) {
+		t.Helper()
+		resp, body := env.post(t, "/api/v1/staff/members", map[string]string{
+			"email": email, "role": role,
+		}, authHeader(adminSession))
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("add %s status=%d error=%+v", role, resp.StatusCode, body.Error)
+		}
+		var member struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(body.Data, &member); err != nil {
+			t.Fatalf("decode member: %v", err)
+		}
+		return member.ID, verifyOTP(t, env, email)
 	}
+
+	// mayUseTheDialog runs all four verbs as one caller and checks what each
+	// did, so no role can pass on a status code alone.
+	mayUseTheDialog := func(t *testing.T, sessionID, text string) {
+		t.Helper()
+		resp, body := env.get(t, ticketSaleTicketsPath(eventID, ticketSaleID), authHeader(sessionID))
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("list status=%d, want 200; error=%+v", resp.StatusCode, body.Error)
+		}
+		if got := len(decodeTicketAnswersList(t, body.Data)); got != len(ticketIDs) {
+			t.Fatalf("listed %d Tickets, want the Sale's %d", got, len(ticketIDs))
+		}
+
+		resp, body = env.get(t, ticketPath(eventID, ticketID), authHeader(sessionID))
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("get status=%d, want 200; error=%+v", resp.StatusCode, body.Error)
+		}
+		if got := decodeTicketAnswers(t, body.Data).TicketID; got != ticketID {
+			t.Fatalf("read Ticket %q, want %q", got, ticketID)
+		}
+
+		resp, body = env.put(t, answerPath(eventID, ticketID, question.ID),
+			map[string]any{"text": text}, authHeader(sessionID))
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("answer status=%d, want 200; error=%+v", resp.StatusCode, body.Error)
+		}
+		answer := answerFor(t, decodeTicketAnswers(t, body.Data), question.ID)
+		if answer == nil || answer.Text == nil || *answer.Text != text {
+			t.Fatalf("answer=%+v, want text %q", answer, text)
+		}
+
+		resp, body = env.deleteJSON(t, answerPath(eventID, ticketID, question.ID), nil, authHeader(sessionID))
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("remove status=%d, want 200; error=%+v", resp.StatusCode, body.Error)
+		}
+		if answer := answerFor(t, decodeTicketAnswers(t, body.Data), question.ID); answer != nil {
+			t.Fatalf("answer=%+v after removal, want null", answer)
+		}
+	}
+
+	// refusedTheDialog asserts a 403 on each verb and that nothing got through.
+	refusedTheDialog := func(t *testing.T, sessionID string) {
+		t.Helper()
+		// An Answer to find, so a refused DELETE cannot pass as a 404 and a
+		// refused PUT would show if it had written.
+		putAnswer(t, env, adminSession, eventID, ticketID, question.ID, map[string]any{"text": "M"})
+		for _, tc := range []struct {
+			name string
+			call func() (*http.Response, envelope)
+		}{
+			{"list a sale's tickets", func() (*http.Response, envelope) {
+				return env.get(t, ticketSaleTicketsPath(eventID, ticketSaleID), authHeader(sessionID))
+			}},
+			{"get a ticket", func() (*http.Response, envelope) {
+				return env.get(t, ticketPath(eventID, ticketID), authHeader(sessionID))
+			}},
+			{"answer", func() (*http.Response, envelope) {
+				return env.put(t, answerPath(eventID, ticketID, question.ID),
+					map[string]any{"text": "Sneaked in"}, authHeader(sessionID))
+			}},
+			{"remove an answer", func() (*http.Response, envelope) {
+				return env.deleteJSON(t, answerPath(eventID, ticketID, question.ID), nil, authHeader(sessionID))
+			}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				resp, body := tc.call()
+				if resp.StatusCode != http.StatusForbidden {
+					t.Fatalf("status=%d, want 403; error=%+v", resp.StatusCode, body.Error)
+				}
+			})
+		}
+		resp, body := env.get(t, ticketPath(eventID, ticketID), authHeader(adminSession))
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("admin re-read status=%d error=%+v", resp.StatusCode, body.Error)
+		}
+		if answer := answerFor(t, decodeTicketAnswers(t, body.Data), question.ID); answer == nil || answer.Text == nil || *answer.Text != "M" {
+			t.Fatalf("answer=%+v after the refusals, want the Org Admin's %q untouched", answer, "M")
+		}
+		if resp, body := env.deleteJSON(t, answerPath(eventID, ticketID, question.ID), nil, authHeader(adminSession)); resp.StatusCode != http.StatusOK {
+			t.Fatalf("admin cleanup status=%d error=%+v", resp.StatusCode, body.Error)
+		}
+	}
+
+	t.Run("the Org Admin, unchanged", func(t *testing.T) {
+		mayUseTheDialog(t, adminSession, "L")
+	})
+
+	// assign gives a Member an Event assignment at their role, so each role is
+	// exercised as the Member of a specific Event rather than of no Event.
+	assign := func(eventID, memberID, role string) {
+		t.Helper()
+		resp, body := env.put(t, "/api/v1/staff/events/"+eventID+"/assignments/"+memberID, map[string]string{
+			"role": role,
+		}, authHeader(adminSession))
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("assign %s status=%d error=%+v", role, resp.StatusCode, body.Error)
+		}
+	}
+
+	ownerID, ownerSession := addMember("owner@example.com", "event_owner")
+	assign(eventID, ownerID, "event_owner")
+	t.Run("the Event Owner, newly admitted", func(t *testing.T) {
+		mayUseTheDialog(t, ownerSession, "XL")
+	})
+
+	doorID, doorSession := addMember("doorstaff@example.com", "event_staff")
+	assign(eventID, doorID, "event_staff")
+	t.Run("Event Staff of the Event, still refused", func(t *testing.T) {
+		refusedTheDialog(t, doorSession)
+	})
+
+	otherEventID := createDraftEvent(t, env, adminSession, "Other Fest", "other-fest")
+	elsewhereID, elsewhereSession := addMember("elsewhere@example.com", "event_staff")
+	assign(otherEventID, elsewhereID, "event_staff")
+	t.Run("a Member of another Event of the Organization, still refused", func(t *testing.T) {
+		refusedTheDialog(t, elsewhereSession)
+	})
 }

@@ -11519,7 +11519,7 @@ export interface paths {
         };
         /**
          * List a ticket sale's tickets and answers
-         * @description Lists every Ticket of one Ticket Sale with its Ticket Questions and this Ticket's Answers. Reversed sales are listed and readable; only writing is refused. Answers 404 while the Ticket Question feature flag is off.
+         * @description Lists every Ticket of one Ticket Sale with its Ticket Questions and this Ticket's Answers. Reversed sales are listed and readable; only writing is refused. Org Admin and Event Owner only; Event Staff are refused. Answers 404 while the Ticket Question feature flag is off.
          */
         get: {
             parameters: {
@@ -12760,7 +12760,7 @@ export interface paths {
         };
         /**
          * Get a ticket's questions and answers
-         * @description One Ticket, its Ticket Type's Ticket Questions (retired ones included) and what this Ticket has answered. Answers 404 while the Ticket Question feature flag is off.
+         * @description One Ticket, its Ticket Type's Ticket Questions (retired ones included) and what this Ticket has answered. Org Admin and Event Owner only; Event Staff are refused. Answers 404 while the Ticket Question feature flag is off.
          */
         get: {
             parameters: {
@@ -12832,7 +12832,7 @@ export interface paths {
         get?: never;
         /**
          * Answer a ticket question
-         * @description Writes one Ticket's Answer to one Ticket Question, creating it or correcting it. Refused once the Event has started and on a reversed Ticket Sale. Answers 404 while the Ticket Question feature flag is off.
+         * @description Writes one Ticket's Answer to one Ticket Question, creating it or correcting it. Refused once the Event has started and on a reversed Ticket Sale. Org Admin and Event Owner only; Event Staff are refused. Answers 404 while the Ticket Question feature flag is off.
          */
         put: {
             parameters: {
@@ -12914,7 +12914,7 @@ export interface paths {
         post?: never;
         /**
          * Remove a ticket's answer
-         * @description Removes one Ticket's Answer to one Ticket Question, restoring the Outstanding Answer where the question is required. Refused once the Event has started and on a reversed Ticket Sale. Answers 404 while the Ticket Question feature flag is off.
+         * @description Removes one Ticket's Answer to one Ticket Question, restoring the Outstanding Answer where the question is required. Refused once the Event has started and on a reversed Ticket Sale. Org Admin and Event Owner only; Event Staff are refused. Answers 404 while the Ticket Question feature flag is off.
          */
         delete: {
             parameters: {

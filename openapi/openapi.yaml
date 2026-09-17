@@ -17953,7 +17953,8 @@ paths:
     get:
       description: Lists every Ticket of one Ticket Sale with its Ticket Questions
         and this Ticket's Answers. Reversed sales are listed and readable; only writing
-        is refused. Answers 404 while the Ticket Question feature flag is off.
+        is refused. Org Admin and Event Owner only; Event Staff are refused. Answers
+        404 while the Ticket Question feature flag is off.
       parameters:
       - description: Event ID
         in: path
@@ -18934,8 +18935,8 @@ paths:
   /api/v1/staff/events/{id}/tickets/{ticketId}:
     get:
       description: One Ticket, its Ticket Type's Ticket Questions (retired ones included)
-        and what this Ticket has answered. Answers 404 while the Ticket Question feature
-        flag is off.
+        and what this Ticket has answered. Org Admin and Event Owner only; Event Staff
+        are refused. Answers 404 while the Ticket Question feature flag is off.
       parameters:
       - description: Event ID
         in: path
@@ -18983,8 +18984,9 @@ paths:
     delete:
       description: Removes one Ticket's Answer to one Ticket Question, restoring the
         Outstanding Answer where the question is required. Refused once the Event
-        has started and on a reversed Ticket Sale. Answers 404 while the Ticket Question
-        feature flag is off.
+        has started and on a reversed Ticket Sale. Org Admin and Event Owner only;
+        Event Staff are refused. Answers 404 while the Ticket Question feature flag
+        is off.
       parameters:
       - description: Event ID
         in: path
@@ -19043,7 +19045,8 @@ paths:
     put:
       description: Writes one Ticket's Answer to one Ticket Question, creating it
         or correcting it. Refused once the Event has started and on a reversed Ticket
-        Sale. Answers 404 while the Ticket Question feature flag is off.
+        Sale. Org Admin and Event Owner only; Event Staff are refused. Answers 404
+        while the Ticket Question feature flag is off.
       parameters:
       - description: Event ID
         in: path
