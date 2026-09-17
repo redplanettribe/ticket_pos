@@ -82,6 +82,25 @@ type DossierSaleView struct {
 	CustomerLastName  string                `json:"customer_last_name"`
 	TaxIDType         *string               `json:"tax_id_type"`
 	TaxIDNumber       *string               `json:"tax_id_number"`
+
+	// What surrounds the Sale (#639) — see customer_dossier_surroundings.go.
+
+	// Phone is the number given on the checkout this Sale came from, read off
+	// its Payment (ADR 0073) and never the Customer record's current phone.
+	// Null for a Sale with no checkout behind it — In-Person, imported or
+	// manually recorded — or a checkout that gave none.
+	Phone *string `json:"phone"`
+	// AffiliateLinkName is the display name of the Affiliate Link that
+	// attributed the Sale, or null.
+	AffiliateLinkName *string `json:"affiliate_link_name"`
+	// TaxInvoices are the Tax Invoices about the Sale — its Sale Invoices and
+	// any Credit Notes — as the operator Sale lookup
+	// reads them, in the Sale's chain order; empty, never null.
+	TaxInvoices []DossierTaxInvoiceView `json:"tax_invoices"`
+	// ReAddressedAt is when the Sale was re-addressed (ADR 0058) — the
+	// acceptance of its latest accepted Sale Re-addressing — or null. Neither
+	// address and no token is ever carried.
+	ReAddressedAt *time.Time `json:"re_addressed_at"`
 }
 
 // DossierSaleLineView is one Ticket Type bought on a Dossier Sale.
@@ -125,6 +144,9 @@ func (s *Service) GetCustomerDossier(
 	}
 	for _, row := range saleRows {
 		dossier.Sales = append(dossier.Sales, dossierSaleView(row))
+	}
+	if err := s.fillDossierSaleSurroundings(ctx, dossier.Sales); err != nil {
+		return nil, err
 	}
 	return dossier, nil
 }

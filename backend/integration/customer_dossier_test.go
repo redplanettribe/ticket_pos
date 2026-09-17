@@ -389,3 +389,274 @@ func TestTheCustomerDossierCarriesNoPlatformDeclarations(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// What surrounds each Sale (#639): the phone given on its checkout, the
+// Affiliate Link that attributed it, its Sale Invoices and whether it was
+// re-addressed. Decoded on their own so the Sale mirror above stays the
+// tracer's.
+
+type dossierSaleSurroundings struct {
+	ConfirmationRef   string                    `json:"confirmation_ref"`
+	Phone             *string                   `json:"phone"`
+	AffiliateLinkName *string                   `json:"affiliate_link_name"`
+	TaxInvoices       []dossierTaxInvoiceMirror `json:"tax_invoices"`
+	ReAddressedAt     *string                   `json:"re_addressed_at"`
+}
+
+type dossierTaxInvoiceMirror struct {
+	Kind               string  `json:"kind"`
+	Number             *string `json:"number"`
+	Status             string  `json:"status"`
+	RecipientLegalName string  `json:"recipient_legal_name"`
+	RecipientTaxIDType string  `json:"recipient_tax_id_type"`
+	RecipientTaxID     string  `json:"recipient_tax_id"`
+}
+
+// dossierSurroundingsByRef picks one Sale's surroundings off a raw Dossier,
+// failing when the Sale is absent or a key is missing rather than null.
+func dossierSurroundingsByRef(t *testing.T, raw json.RawMessage, ref string) dossierSaleSurroundings {
+	t.Helper()
+	var keyed struct {
+		Sales []map[string]json.RawMessage `json:"sales"`
+	}
+	if err := json.Unmarshal(raw, &keyed); err != nil {
+		t.Fatalf("decode raw dossier sales: %v", err)
+	}
+	for _, sale := range keyed.Sales {
+		var got dossierSaleSurroundings
+		encoded, _ := json.Marshal(sale)
+		if err := json.Unmarshal(encoded, &got); err != nil {
+			t.Fatalf("decode sale surroundings: %v", err)
+		}
+		if got.ConfirmationRef != ref {
+			continue
+		}
+		for _, key := range []string{"phone", "affiliate_link_name", "tax_invoices", "re_addressed_at"} {
+			if _, ok := sale[key]; !ok {
+				t.Fatalf("sale %s carries no %q key: %s", ref, key, encoded)
+			}
+		}
+		return got
+	}
+	t.Fatalf("sale %s is not on the Dossier: %s", ref, raw)
+	return dossierSaleSurroundings{}
+}
+
+// dossierEventOfSale is the Event a Sale was made at. SQL because the fixture
+// that makes the Sale hands back a reference and not the Event.
+func dossierEventOfSale(t *testing.T, env *testEnv, ref string) string {
+	t.Helper()
+	var eventID string
+	if err := env.db.QueryRow(`SELECT event_id FROM ticket_sales WHERE confirmation_ref = $1`, ref).Scan(&eventID); err != nil {
+		t.Fatalf("read the event of %s: %v", ref, err)
+	}
+	return eventID
+}
+
+// The phone is the one given on THIS Event's checkout through PayPhone, read
+// off its Payment (ADR 0073) — a later checkout at another Organization under
+// another number does not change it, and that number is nowhere in the payload.
+func TestTheDossierShowsThePhoneGivenOnThisEventsCheckout(t *testing.T) {
+	env := setupTest(t)
+	adminSession := orgAdminSession(t, env)
+	eventID, gaID := publishCheckoutEvent(t, env, adminSession, "Call Fest", "call-fest", 1000, 10)
+	ref := paidCheckoutApproved(t, "call-fest", phoneCheckoutBody("pia@example.com", ecuadorMobileTyped, cartLine(gaID, 1)))
+	customerID := customerIDOnSalesList(t, env, adminSession, eventID, "pia@example.com", "active")
+
+	_, before := readDossier(t, env, adminSession, eventID, customerID)
+	if got := dossierSurroundingsByRef(t, before, ref); strOf(got.Phone) != ecuadorMobile {
+		t.Fatalf("phone = %s, want the checkout's canonical %s", strOf(got.Phone), ecuadorMobile)
+	}
+
+	otherAdmin := verifyOTP(t, env, "other@example.com")
+	createOrganization(t, env, otherAdmin, "Other Org", "other-org")
+	_, otherGA := publishCheckoutEvent(t, env, otherAdmin, "Elsewhere Fest", "elsewhere-fest", 1000, 10)
+	begun := beginCheckoutOK(t, payphoneEnv, "other-org", "elsewhere-fest",
+		phoneCheckoutBody("pia@example.com", foreignMobile, cartLine(otherGA, 1)))
+	if resp, body := confirmCheckoutParams(t, payphoneEnv, begun.ClientTransactionID, payphoneReturnParams(begun.ClientTransactionID)); resp.StatusCode != http.StatusOK {
+		t.Fatalf("other-org confirm status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	if got := readPaymentPhone(t, env, begun.ClientTransactionID); got == nil || *got != foreignMobile {
+		t.Fatalf("the other checkout's phone = %v, want %s — the fixture proves nothing", got, foreignMobile)
+	}
+	// The Customer record now says the other number: a Dossier reading it
+	// would have changed. SQL because no staff surface shows it.
+	var customerPhone *string
+	if err := env.db.QueryRow(`SELECT phone FROM customers WHERE id = $1`, customerID).Scan(&customerPhone); err != nil {
+		t.Fatalf("read the customer's phone: %v", err)
+	}
+	if customerPhone == nil || *customerPhone != foreignMobile {
+		t.Fatalf("the Customer record's phone = %v, want %s — the fixture proves nothing", customerPhone, foreignMobile)
+	}
+
+	_, after := readDossier(t, env, adminSession, eventID, customerID)
+	if !bytes.Equal(after, before) {
+		t.Errorf("the Dossier changed after a checkout at another Organization:\nbefore %s\nafter  %s", before, after)
+	}
+	if strings.Contains(string(after), foreignMobile) {
+		t.Errorf("the other Organization's phone is on the Dossier: %s", after)
+	}
+}
+
+// A Sale with no checkout behind it has no phone: a manually recorded Sale and
+// an imported one both say null — never a blank, and never the phone the same
+// Customer gave on an Online checkout of this very Event.
+func TestASaleWithoutACheckoutHasNoPhoneOnTheDossier(t *testing.T) {
+	env := setupTest(t)
+	adminSession := orgAdminSession(t, env)
+	eventID, gaID := publishCheckoutEvent(t, env, adminSession, "Door Fest", "door-fest", 1000, 10)
+	online := paidCheckoutApproved(t, "door-fest", phoneCheckoutBody("ana@example.com", ecuadorMobile, cartLine(gaID, 1)))
+	recordManualSaleOK(t, env, adminSession, eventID,
+		manualSaleBody("ana@example.com", "Ana", "Lopez", gaID, 1, "cash", "2026-07-01T10:00:00Z"))
+	resp, body := env.post(t, "/api/v1/staff/events/"+eventID+"/sale-imports", map[string]any{
+		"idempotency_key": "dossier-batch-1",
+		"source":          "direct",
+		"sales": []map[string]any{{
+			"customer_email":      "ana@example.com",
+			"customer_first_name": "Ana",
+			"customer_last_name":  "Lopez",
+			"ticket_type_id":      gaID,
+			"quantity":            1,
+			"payment_method":      "transfer",
+			"sold_at":             "2026-07-02T10:00:00Z",
+		}},
+	}, authHeader(adminSession))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("sale import status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	customerID := customerIDOnSalesList(t, env, adminSession, eventID, "ana@example.com", "active")
+
+	dossier, raw := readDossier(t, env, adminSession, eventID, customerID)
+	origins := map[string]bool{}
+	for _, sale := range dossier.Sales {
+		origins[sale.Origin] = true
+		got := dossierSurroundingsByRef(t, raw, sale.ConfirmationRef)
+		if sale.ConfirmationRef == online {
+			if strOf(got.Phone) != ecuadorMobile {
+				t.Errorf("online sale phone = %s, want %s", strOf(got.Phone), ecuadorMobile)
+			}
+			continue
+		}
+		if got.Phone != nil {
+			t.Errorf("%s sale %s phone = %q, want null", sale.Origin, sale.ConfirmationRef, *got.Phone)
+		}
+	}
+	if len(dossier.Sales) != 3 || !origins["manually_recorded"] {
+		t.Fatalf("fixture: sales = %+v, want an online, a manually recorded and an imported Sale", dossier.Sales)
+	}
+}
+
+// An attributed Online Sale names its Affiliate Link by display name; an
+// unattributed one says null.
+func TestAnAttributedSaleShowsItsAffiliateLinkOnTheDossier(t *testing.T) {
+	env := setupTest(t)
+	adminSession := orgAdminSession(t, env)
+	eventID, gaID := publishCheckoutEvent(t, env, adminSession, "Ref Fest", "ref-fest", 1000, 10)
+	code := newAffiliateLink(t, env, adminSession, eventID, "María's Instagram")
+
+	attributed := beginCheckoutOK(t, env, "test-org", "ref-fest",
+		affiliateCheckoutBody("ana@example.com", lastClick(code), cartLine(gaID, 1)))
+	attributedRef := confirmCheckoutOK(t, env, attributed.ClientTransactionID, "approved").ConfirmationRef
+	direct := beginCheckoutOK(t, env, "test-org", "ref-fest", checkoutBody("ana@example.com", "Ana", "Buyer", cartLine(gaID, 1)))
+	directRef := confirmCheckoutOK(t, env, direct.ClientTransactionID, "approved").ConfirmationRef
+	if attributedRef == "" || directRef == "" {
+		t.Fatalf("fixture: references %q / %q", attributedRef, directRef)
+	}
+	customerID := customerIDOnSalesList(t, env, adminSession, eventID, "ana@example.com", "active")
+
+	_, raw := readDossier(t, env, adminSession, eventID, customerID)
+	if got := dossierSurroundingsByRef(t, raw, attributedRef); strOf(got.AffiliateLinkName) != "María's Instagram" {
+		t.Errorf("attributed sale affiliate_link_name = %s, want María's Instagram", strOf(got.AffiliateLinkName))
+	}
+	if got := dossierSurroundingsByRef(t, raw, directRef); got.AffiliateLinkName != nil {
+		t.Errorf("unattributed sale affiliate_link_name = %q, want null", *got.AffiliateLinkName)
+	}
+}
+
+// A Sale with a Sale Invoice lists the document as the invoicing module states
+// it: number, status, and the legal name and Tax ID invoiced. A Sale that owes
+// nothing lists an empty array, never null.
+func TestASaleInvoiceShowsOnTheDossier(t *testing.T) {
+	env := setupTest(t)
+	operatorSessionID, invoiceID, _ := houseSaleAuthorized(t, env)
+	ref := lastConfirmation(t, env).Reference
+	eventID := dossierEventOfSale(t, env, ref)
+	adminSession := verifyOTP(t, env, "admin@example.com")
+	customerID := customerIDOnSalesList(t, env, adminSession, eventID, "guest@example.com", "active")
+
+	var listed *string
+	for _, row := range getSaleInvoiceList(t, operatorSessionID).Data {
+		if row.ID == invoiceID {
+			listed = row.Number
+		}
+	}
+	if listed == nil {
+		t.Fatalf("fixture: the authorized Sale Invoice %s has no number on the list", invoiceID)
+	}
+
+	doorID := createTicketTypeWithCapacity(t, env, adminSession, eventID, "Door", 500, 10)
+	manual := recordManualSaleOK(t, env, adminSession, eventID,
+		manualSaleBody("guest@example.com", "Ana", "Lopez", doorID, 1, "cash", "2026-07-01T10:00:00Z"))
+
+	_, raw := readDossier(t, env, adminSession, eventID, customerID)
+	got := dossierSurroundingsByRef(t, raw, ref)
+	if len(got.TaxInvoices) != 1 {
+		t.Fatalf("tax_invoices = %+v, want the one Sale Invoice", got.TaxInvoices)
+	}
+	doc := got.TaxInvoices[0]
+	if doc.Kind != "sale" || doc.Status != "authorized" || strOf(doc.Number) != *listed ||
+		doc.RecipientLegalName != "Ana Lopez" || doc.RecipientTaxIDType != "cedula" || doc.RecipientTaxID != validCedula {
+		t.Errorf("sale invoice = %+v (number %s), want sale/authorized %s to Ana Lopez cedula %s", doc, strOf(doc.Number), *listed, validCedula)
+	}
+	if none := dossierSurroundingsByRef(t, raw, manual.ConfirmationRef); none.TaxInvoices == nil || len(none.TaxInvoices) != 0 {
+		t.Errorf("a Sale owing nothing lists tax_invoices = %+v, want []", none.TaxInvoices)
+	}
+}
+
+// A re-addressed Sale says when it was re-addressed, and nothing else about it:
+// the address it moved from is nowhere in the payload, and the corrected
+// address appears only once, as the Customer's own email — this is now their
+// Dossier. While the re-addressing is pending the Sale says nothing and the
+// payload never carries the address the Operator typed.
+func TestAReAddressedSaleShowsWhenAndNeitherAddress(t *testing.T) {
+	env := setupTest(t)
+	const wrong, corrected = "pablo.mistyped@example.com", "pablo.meant@example.com"
+	s := strandSale(t, env, "Moved Fest", "moved-fest", wrong, corrected, 1)
+
+	ghostID := customerIDOnSalesList(t, env, s.orgSession, s.eventID, wrong, "active")
+	_, pending := readDossier(t, env, s.orgSession, s.eventID, ghostID)
+	if got := dossierSurroundingsByRef(t, pending, s.ref); got.ReAddressedAt != nil {
+		t.Errorf("a pending re-addressing reads re_addressed_at = %s, want null", *got.ReAddressedAt)
+	}
+	if strings.Contains(string(pending), corrected) {
+		t.Errorf("the pending corrected address is on the Dossier: %s", pending)
+	}
+
+	accepted := acceptReAddressingLinkOK(t, payphoneEnv, s.token)
+	if accepted.AcceptedAt == nil {
+		t.Fatalf("fixture: acceptance carries no accepted_at: %+v", accepted)
+	}
+	customerID := customerIDOnSalesList(t, env, s.orgSession, s.eventID, corrected, "active")
+	dossier, raw := readDossier(t, env, s.orgSession, s.eventID, customerID)
+	if dossier.Customer.Email != corrected {
+		t.Fatalf("fixture: the Dossier's Customer is %s, want %s", dossier.Customer.Email, corrected)
+	}
+	got := dossierSurroundingsByRef(t, raw, s.ref)
+	if got.ReAddressedAt == nil || !sameInstant(t, *got.ReAddressedAt, *accepted.AcceptedAt) {
+		t.Errorf("re_addressed_at = %s, want the acceptance at %s", strOf(got.ReAddressedAt), *accepted.AcceptedAt)
+	}
+
+	body := string(raw)
+	if strings.Contains(body, wrong) {
+		t.Errorf("the address the Sale moved from is on the Dossier: %s", body)
+	}
+	if n := strings.Count(body, corrected); n != 1 {
+		t.Errorf("the corrected address appears %d times, want once as customer.email: %s", n, body)
+	}
+	for _, forbidden := range []string{"previous_email", "corrected_email", "token", "operator_email", "operator@example.com"} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("the Dossier mentions %q: %s", forbidden, body)
+		}
+	}
+}

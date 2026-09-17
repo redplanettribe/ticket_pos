@@ -3653,6 +3653,11 @@ components:
       type: object
     service.DossierSaleView:
       properties:
+        affiliate_link_name:
+          description: |-
+            AffiliateLinkName is the display name of the Affiliate Link that
+            attributed the Sale, or null.
+          type: string
         amount_cents:
           type: integer
         channel:
@@ -3674,6 +3679,19 @@ components:
             list derives it (ADR 0052).
           type: string
         payment_method:
+          type: string
+        phone:
+          description: |-
+            Phone is the number given on the checkout this Sale came from, read off
+            its Payment (ADR 0073) and never the Customer record's current phone.
+            Null for a Sale with no checkout behind it — In-Person, imported or
+            manually recorded — or a checkout that gave none.
+          type: string
+        re_addressed_at:
+          description: |-
+            ReAddressedAt is when the Sale was re-addressed (ADR 0058) — the
+            acceptance of its latest accepted Sale Re-addressing — or null. Neither
+            address and no token is ever carried.
           type: string
         recorded_at:
           type: string
@@ -3702,11 +3720,64 @@ components:
           type: string
         tax_id_type:
           type: string
+        tax_invoices:
+          description: |-
+            TaxInvoices are the Tax Invoices about the Sale — its Sale Invoices and
+            any Credit Notes — as the operator Sale lookup
+            reads them, in the Sale's chain order; empty, never null.
+          items:
+            $ref: '#/components/schemas/service.DossierTaxInvoiceView'
+          type: array
+          uniqueItems: false
         ticket_types:
           items:
             $ref: '#/components/schemas/service.DossierSaleLineView'
           type: array
           uniqueItems: false
+      type: object
+    service.DossierTaxInvoiceView:
+      properties:
+        kind:
+          description: Kind is `sale` or `credit_note`.
+          enum:
+          - sale
+          - credit_note
+          type: string
+        number:
+          description: Number is the document number as printed; null until signed.
+          type: string
+        recipient_legal_name:
+          description: |-
+            RecipientLegalName, RecipientTaxIDType and RecipientTaxID are who the
+            document invoices — a company where one was invoiced rather than the
+            person.
+          type: string
+        recipient_tax_id:
+          type: string
+        recipient_tax_id_type:
+          type: string
+        role:
+          description: |-
+            Role is the document's place in the Sale's chain: `current`,
+            `superseded`, `credit_note` or `not_current`.
+          enum:
+          - current
+          - superseded
+          - credit_note
+          - not_current
+          type: string
+        status:
+          enum:
+          - owed
+          - pending
+          - authorized
+          - not_authorized
+          - rejected
+          - needs_attention
+          - withdrawn
+          - annulled
+          - abandoned
+          type: string
       type: object
     service.DrainResult:
       properties:

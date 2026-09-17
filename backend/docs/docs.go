@@ -4387,6 +4387,10 @@ const docTemplate = `{
             },
             "service.DossierSaleView": {
                 "properties": {
+                    "affiliate_link_name": {
+                        "description": "AffiliateLinkName is the display name of the Affiliate Link that\nattributed the Sale, or null.",
+                        "type": "string"
+                    },
                     "amount_cents": {
                         "type": "integer"
                     },
@@ -4414,6 +4418,14 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "payment_method": {
+                        "type": "string"
+                    },
+                    "phone": {
+                        "description": "Phone is the number given on the checkout this Sale came from, read off\nits Payment (ADR 0073) and never the Customer record's current phone.\nNull for a Sale with no checkout behind it — In-Person, imported or\nmanually recorded — or a checkout that gave none.",
+                        "type": "string"
+                    },
+                    "re_addressed_at": {
+                        "description": "ReAddressedAt is when the Sale was re-addressed (ADR 0058) — the\nacceptance of its latest accepted Sale Re-addressing — or null. Neither\naddress and no token is ever carried.",
                         "type": "string"
                     },
                     "recorded_at": {
@@ -4449,12 +4461,71 @@ const docTemplate = `{
                     "tax_id_type": {
                         "type": "string"
                     },
+                    "tax_invoices": {
+                        "description": "TaxInvoices are the Tax Invoices about the Sale — its Sale Invoices and\nany Credit Notes — as the operator Sale lookup\nreads them, in the Sale's chain order; empty, never null.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.DossierTaxInvoiceView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "ticket_types": {
                         "items": {
                             "$ref": "#/components/schemas/service.DossierSaleLineView"
                         },
                         "type": "array",
                         "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "service.DossierTaxInvoiceView": {
+                "properties": {
+                    "kind": {
+                        "description": "Kind is ` + "`" + `sale` + "`" + ` or ` + "`" + `credit_note` + "`" + `.",
+                        "enum": [
+                            "sale",
+                            "credit_note"
+                        ],
+                        "type": "string"
+                    },
+                    "number": {
+                        "description": "Number is the document number as printed; null until signed.",
+                        "type": "string"
+                    },
+                    "recipient_legal_name": {
+                        "description": "RecipientLegalName, RecipientTaxIDType and RecipientTaxID are who the\ndocument invoices — a company where one was invoiced rather than the\nperson.",
+                        "type": "string"
+                    },
+                    "recipient_tax_id": {
+                        "type": "string"
+                    },
+                    "recipient_tax_id_type": {
+                        "type": "string"
+                    },
+                    "role": {
+                        "description": "Role is the document's place in the Sale's chain: ` + "`" + `current` + "`" + `,\n` + "`" + `superseded` + "`" + `, ` + "`" + `credit_note` + "`" + ` or ` + "`" + `not_current` + "`" + `.",
+                        "enum": [
+                            "current",
+                            "superseded",
+                            "credit_note",
+                            "not_current"
+                        ],
+                        "type": "string"
+                    },
+                    "status": {
+                        "enum": [
+                            "owed",
+                            "pending",
+                            "authorized",
+                            "not_authorized",
+                            "rejected",
+                            "needs_attention",
+                            "withdrawn",
+                            "annulled",
+                            "abandoned"
+                        ],
+                        "type": "string"
                     }
                 },
                 "type": "object"

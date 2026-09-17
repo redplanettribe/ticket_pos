@@ -333,6 +333,9 @@ type Service struct {
 	// readable in the staff editor either way, and only the telling is missing.
 	revocationMailer     RevocationMailer
 	revocationRecipients RevocationRecipients
+	// saleDocuments is invoicing's per-Sale documents read, which the Customer
+	// Dossier lists beside each Sale (#639). Nil lists none.
+	saleDocuments DossierSaleDocuments
 }
 
 // New returns a catalog service. The fee rates are the platform's configured

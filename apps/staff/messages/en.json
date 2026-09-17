@@ -829,7 +829,15 @@
     "taxIdGivenLabel": "Tax ID given",
     "notFound": "This customer has no ticket sales at this Event.",
     "loadFailed": "Could not load the customer dossier.",
-    "loadError": "Couldn't load the customer dossier: {message}"
+    "loadError": "Couldn't load the customer dossier: {message}",
+    "phoneLabel": "Phone given",
+    "phoneNone": "No phone was given on this sale.",
+    "affiliateLinkLabel": "Affiliate link",
+    "reAddressedLabel": "Re-addressed",
+    "taxInvoicesLabel": "Tax invoices",
+    "taxInvoicesNone": "No tax invoices.",
+    "invoiceUnnumbered": "Not numbered yet",
+    "invoiceRecipient": "Issued to {name} — {taxId}"
   },
   "trends": {
     "title": "Trends",

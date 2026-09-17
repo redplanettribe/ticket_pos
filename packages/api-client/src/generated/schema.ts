@@ -16595,6 +16595,11 @@ export interface components {
             ticket_type_name?: string;
         };
         "service.DossierSaleView": {
+            /**
+             * @description AffiliateLinkName is the display name of the Affiliate Link that
+             *     attributed the Sale, or null.
+             */
+            affiliate_link_name?: string;
             amount_cents?: number;
             /** @description Channel is the Sales Channel: `online`, `in_person` or `import`. */
             channel?: string;
@@ -16609,6 +16614,19 @@ export interface components {
              */
             origin?: string;
             payment_method?: string;
+            /**
+             * @description Phone is the number given on the checkout this Sale came from, read off
+             *     its Payment (ADR 0073) and never the Customer record's current phone.
+             *     Null for a Sale with no checkout behind it — In-Person, imported or
+             *     manually recorded — or a checkout that gave none.
+             */
+            phone?: string;
+            /**
+             * @description ReAddressedAt is when the Sale was re-addressed (ADR 0058) — the
+             *     acceptance of its latest accepted Sale Re-addressing — or null. Neither
+             *     address and no token is ever carried.
+             */
+            re_addressed_at?: string;
             recorded_at?: string;
             /** @description ReplacedByConfirmationRef names the replacement of a corrected Sale. */
             replaced_by_confirmation_ref?: string;
@@ -16627,7 +16645,38 @@ export interface components {
             status?: "active" | "reversed" | "corrected";
             tax_id_number?: string;
             tax_id_type?: string;
+            /**
+             * @description TaxInvoices are the Tax Invoices about the Sale — its Sale Invoices and
+             *     any Credit Notes — as the operator Sale lookup
+             *     reads them, in the Sale's chain order; empty, never null.
+             */
+            tax_invoices?: components["schemas"]["service.DossierTaxInvoiceView"][];
             ticket_types?: components["schemas"]["service.DossierSaleLineView"][];
+        };
+        "service.DossierTaxInvoiceView": {
+            /**
+             * @description Kind is `sale` or `credit_note`.
+             * @enum {string}
+             */
+            kind?: "sale" | "credit_note";
+            /** @description Number is the document number as printed; null until signed. */
+            number?: string;
+            /**
+             * @description RecipientLegalName, RecipientTaxIDType and RecipientTaxID are who the
+             *     document invoices — a company where one was invoiced rather than the
+             *     person.
+             */
+            recipient_legal_name?: string;
+            recipient_tax_id?: string;
+            recipient_tax_id_type?: string;
+            /**
+             * @description Role is the document's place in the Sale's chain: `current`,
+             *     `superseded`, `credit_note` or `not_current`.
+             * @enum {string}
+             */
+            role?: "current" | "superseded" | "credit_note" | "not_current";
+            /** @enum {string} */
+            status?: "owed" | "pending" | "authorized" | "not_authorized" | "rejected" | "needs_attention" | "withdrawn" | "annulled" | "abandoned";
         };
         "service.DrainResult": {
             /**

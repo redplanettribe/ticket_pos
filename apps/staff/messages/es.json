@@ -829,7 +829,15 @@
     "taxIdGivenLabel": "Identificación tributaria indicada",
     "notFound": "Este cliente no tiene ventas de entradas en este evento.",
     "loadFailed": "No se pudo cargar la ficha del cliente.",
-    "loadError": "No se pudo cargar la ficha del cliente: {message}"
+    "loadError": "No se pudo cargar la ficha del cliente: {message}",
+    "phoneLabel": "Teléfono indicado",
+    "phoneNone": "No se indicó ningún teléfono en esta venta.",
+    "affiliateLinkLabel": "Enlace de afiliado",
+    "reAddressedLabel": "Redirigida",
+    "taxInvoicesLabel": "Comprobantes tributarios",
+    "taxInvoicesNone": "Sin comprobantes tributarios.",
+    "invoiceUnnumbered": "Aún sin número",
+    "invoiceRecipient": "Emitido a {name} — {taxId}"
   },
   "trends": {
     "title": "Tendencias",
