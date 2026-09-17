@@ -48,6 +48,29 @@ export type DossierSale = {
   customer_last_name: string;
   tax_id_type: string | null;
   tax_id_number: string | null;
+  /*
+    What surrounds the Sale (#639); decided by `lib/dossier-sale-surroundings`.
+  */
+  /** The phone given on this Sale's checkout, off its Payment (ADR 0073); null when none was. */
+  phone: string | null;
+  /** The display name of the Affiliate Link that attributed the Sale, or null. */
+  affiliate_link_name: string | null;
+  /** The Sale's Tax Invoices in chain order; empty, never null. */
+  sale_invoices: DossierSaleInvoice[];
+  /** When the Sale was re-addressed (ADR 0058), or null. Never either address. */
+  re_addressed_at: string | null;
+};
+
+/** One Tax Invoice about a Dossier Sale. Strings on the wire: narrow before drawing. */
+export type DossierSaleInvoice = {
+  kind: string;
+  role: string;
+  /** Null until signed. */
+  number: string | null;
+  status: string;
+  recipient_legal_name: string;
+  recipient_tax_id_type: string;
+  recipient_tax_id: string;
 };
 
 export type CustomerDossier = {
