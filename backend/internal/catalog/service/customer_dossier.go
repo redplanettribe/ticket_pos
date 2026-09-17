@@ -222,7 +222,7 @@ func (s *Service) GetCustomerDossier(
 	for _, row := range saleRows {
 		dossier.Sales = append(dossier.Sales, dossierSaleView(row))
 	}
-	if err := s.fillDossierSaleSurroundings(ctx, dossier.Sales); err != nil {
+	if err := s.fillDossierSaleSurroundings(ctx, actor, eventID, dossier.Sales); err != nil {
 		return nil, err
 	}
 	if err := s.fillDossierTickets(ctx, actor, eventID, customerID, dossier.Sales); err != nil {

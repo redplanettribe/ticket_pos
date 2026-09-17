@@ -817,7 +817,7 @@
   "customerDossier": {
     "title": "Customer dossier",
     "description": "What this Event knows about one customer. The name and Tax ID are the ones given on each sale, shown beside it.",
-    "back": "Back to the list",
+    "back": "← Back to the list",
     "openDossier": "Open the customer dossier for {name}",
     "identityHeading": "Who they are",
     "emailLabel": "Email",
