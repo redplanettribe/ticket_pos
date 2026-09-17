@@ -35,6 +35,8 @@ import {
   TAX_ID_KEYS,
 } from "../../../sales-list";
 
+import { DossierTickets } from "./dossier-tickets";
+
 type DossierSalesSectionProps = {
   sales: DossierSale[];
   timezone: string | null;
@@ -161,6 +163,7 @@ export function DossierSaleCard({ sale, zone, locale }: DossierSaleCardProps) {
           {paymentToken ? tSales(PAYMENT_METHOD_KEYS[paymentToken]) : (sale.payment_method ?? NOTHING_TO_SHOW)}
         </Fact>
       </dl>
+      <DossierTickets sale={sale} zone={zone} locale={locale} />
     </article>
   );
 }

@@ -829,7 +829,20 @@
     "taxIdGivenLabel": "Identificación tributaria indicada",
     "notFound": "Este cliente no tiene ventas de entradas en este evento.",
     "loadFailed": "No se pudo cargar la ficha del cliente.",
-    "loadError": "No se pudo cargar la ficha del cliente: {message}"
+    "loadError": "No se pudo cargar la ficha del cliente: {message}",
+    "ticketsLabel": "Entradas",
+    "noTicketsOnSale": "Esta venta no tiene entradas.",
+    "voidTickets": "Estas entradas no son válidas: la venta ya no está vigente.",
+    "selfHeld": "Su propia entrada",
+    "remindersLabel": "Recordatorios de asignación enviados",
+    "remindersNone": "Ninguno enviado",
+    "heldHeading": "Entradas de las que es titular en ventas de otras personas",
+    "heldNone": "No es titular de ninguna entrada en ventas de otras personas.",
+    "heldBoughtBy": "Comprada por {name}",
+    "heldBuyerUnnamed": "Comprada por alguien que no indicó su nombre",
+    "heldAcceptedAt": "Aceptada: {when}",
+    "heldNameGiven": "Nombre indicado como titular: {name}",
+    "heldSaleReversed": "Venta revertida: no hay entrada vigente"
   },
   "trends": {
     "title": "Tendencias",

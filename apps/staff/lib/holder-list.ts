@@ -109,6 +109,13 @@ export type HolderTicket = {
   holder_first_name?: string;
   holder_last_name?: string;
   holder_email?: string;
+  /*
+    THE DOSSIER LINKS (#640). The buyer's Customer id, always; and the Holder's,
+    only once the assignment is ACCEPTED — an address nobody accepted is not a
+    Customer this Event may open a Dossier on. See `holderDossierCustomerId`.
+  */
+  customer_id: string;
+  holder_customer_id?: string;
 };
 
 export type HolderListPage = {
@@ -880,4 +887,21 @@ export function assignmentStateFilterVisible(
  */
 export function questionsVisible(page: HolderListPage): boolean {
   return page.outstanding_count !== undefined;
+}
+
+/**
+ * The Customer whose Dossier a row's Holder name opens (#640), or null when
+ * the name is not a link.
+ *
+ * ONLY AN ACCEPTED ASSIGNMENT. The API sends `holder_customer_id` only then, and
+ * this checks the state as well, so an unaccepted or purged row can never offer
+ * a Dossier on somebody who never said yes — whatever a payload carries.
+ */
+export function holderDossierCustomerId(
+  ticket: Pick<HolderTicket, "assignment_state" | "holder_customer_id">,
+): string | null {
+  if (ticket.assignment_state !== "accepted" || !ticket.holder_customer_id) {
+    return null;
+  }
+  return ticket.holder_customer_id;
 }

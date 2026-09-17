@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { toAppLocale } from "@ticket-pos/locale";
@@ -23,6 +24,7 @@ import { useLocale, useMessages, useTranslations } from "next-intl";
 
 import { SortableHeader } from "@/components/sortable-header";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { dossierHref } from "@/lib/customer-dossier";
 import { ApiError } from "@/lib/events-api";
 // The Sales Export's field-error reader, REUSED rather than re-coined: both
 // downloads refuse over a row cap with a VALIDATION_FAILED whose useful sentence
@@ -43,6 +45,7 @@ import {
   fetchHolderList,
   hasActiveHolderListFilters,
   holderBadgeVariant,
+  holderDossierCustomerId,
   holderListEmptyStateKey,
   holderListQuery,
   holderListVisible,
@@ -842,6 +845,8 @@ export function HolderListSection({
                       channelLabel={sales(SALES_CHANNEL_KEYS[ticket.channel])}
                       showHolder={showHolders}
                       showQuestions={showQuestions}
+                      eventId={eventId}
+                      dossierFrom={`/events/${encodeURIComponent(eventId)}/sales/holders${holderListQuery(page, filters, sort, dir)}`}
                     />
                   ))}
                 </tbody>
@@ -910,6 +915,9 @@ type HolderRowProps = {
   showHolder: boolean;
   /** Whether the questions side of the list exists; see `questionsVisible`. */
   showQuestions: boolean;
+  eventId: string;
+  /** This list's own address, filters and all, for the Dossier's Back (#640). */
+  dossierFrom: string;
 };
 
 /** One Ticket of the Event: its buyer, its Holder, and what it owes. */
@@ -921,8 +929,12 @@ function HolderRow({
   channelLabel,
   showHolder,
   showQuestions,
+  eventId,
+  dossierFrom,
 }: HolderRowProps) {
   const t = useTranslations("outstandingAnswers");
+  const tDossier = useTranslations("customerDossier");
+  const buyer = buyerName(ticket);
   const locale = toAppLocale(useLocale());
 
   // The Event's zone when it is known, and the reader's own when it is not. A
@@ -937,10 +949,22 @@ function HolderRow({
   return (
     <tr className="border-b align-top last:border-0">
       <td className="py-3 pr-4">
-        <div className="font-medium">{buyerName(ticket)}</div>
+        <div className="font-medium">
+          {buyer && ticket.customer_id ? (
+            <Link
+              href={dossierHref(eventId, ticket.customer_id, dossierFrom)}
+              className="underline-offset-2 hover:underline"
+              aria-label={tDossier("openDossier", { name: buyer })}
+            >
+              {buyer}
+            </Link>
+          ) : (
+            buyer
+          )}
+        </div>
         <div className="text-muted-foreground">{ticket.customer_email}</div>
       </td>
-      {showHolder ? <HolderCell ticket={ticket} /> : null}
+      {showHolder ? <HolderCell ticket={ticket} eventId={eventId} dossierFrom={dossierFrom} /> : null}
       <td className="py-3 pr-4">
         {/* The Ticket Type as the Organization named it, with the ordinal that
             tells two Tickets of one line apart, and the buyer's own reference,
@@ -984,7 +1008,7 @@ function HolderRow({
   );
 }
 
-type HolderCellProps = { ticket: HolderTicket };
+type HolderCellProps = { ticket: HolderTicket; eventId: string; dossierFrom: string };
 
 /**
  * Who is coming on one Ticket (#329, ADR 0047).
@@ -1010,13 +1034,30 @@ type HolderCellProps = { ticket: HolderTicket };
  * (ADR 0047) — an Organizer needs a way to reach the people attending its Event,
  * and this platform builds no surface for it to mail them.
  */
-function HolderCell({ ticket }: HolderCellProps) {
+function HolderCell({ ticket, eventId, dossierFrom }: HolderCellProps) {
   const t = useTranslations("outstandingAnswers");
+  const tDossier = useTranslations("customerDossier");
   const name = holderName(ticket);
+  // An unaccepted assignment offers no link (#640): see holderDossierCustomerId.
+  const holderId = holderDossierCustomerId(ticket);
 
   return (
     <td className="py-3 pr-4">
-      {name ? <div className="font-medium">{name}</div> : null}
+      {name ? (
+        <div className="font-medium">
+          {holderId ? (
+            <Link
+              href={dossierHref(eventId, holderId, dossierFrom)}
+              className="underline-offset-2 hover:underline"
+              aria-label={tDossier("openDossier", { name })}
+            >
+              {name}
+            </Link>
+          ) : (
+            name
+          )}
+        </div>
+      ) : null}
       {ticket.holder_email ? (
         <div className="text-muted-foreground">{ticket.holder_email}</div>
       ) : null}

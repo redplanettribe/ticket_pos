@@ -8,6 +8,18 @@ import {
   saleStatusBadgeVariant,
   saleStatusToken,
 } from "./customer-dossier.ts";
+import {
+  assignmentRemindersVisible,
+  dossierTicketBadgeVariant,
+  dossierTicketStateKey,
+  heldTicketBuyerName,
+  heldTicketOnReversedSale,
+  heldTicketsVisible,
+  holderNameOnTicket,
+  nameGivenAsHolder,
+  ticketHolderDossierId,
+} from "./customer-dossier.ts";
+import type { DossierHeldTicket, DossierTicket } from "./customer-dossier.ts";
 
 const EVENT = "abc";
 const LIST = "/events/abc/sales";
@@ -136,4 +148,115 @@ test("nameGivenOnSale joins the halves without a stray space", () => {
   assert.equal(nameGivenOnSale({ customer_first_name: "Ana", customer_last_name: " " }), "Ana");
   assert.equal(nameGivenOnSale({ customer_first_name: "", customer_last_name: "López" }), "López");
   assert.equal(nameGivenOnSale({ customer_first_name: "  ", customer_last_name: "" }), "");
+});
+
+// --- Tickets and Holders (#640) ------------------------------------------------------
+
+const dossierTicket = (fields: Partial<DossierTicket> = {}): DossierTicket => ({
+  ticket_id: "tk_1",
+  ticket_type_id: "tt_1",
+  ticket_type_name: "General",
+  ordinal: 1,
+  ...fields,
+});
+
+test("a Ticket's state is named with the Holder List's own words", () => {
+  assert.equal(dossierTicketStateKey(dossierTicket({ assignment_state: "unassigned" })), "holderUnassigned");
+  assert.equal(dossierTicketStateKey(dossierTicket({ assignment_state: "assigned" })), "holderAssigned");
+  assert.equal(dossierTicketStateKey(dossierTicket({ assignment_state: "accepted" })), "holderAccepted");
+  assert.equal(
+    dossierTicketStateKey(dossierTicket({ assignment_state: "assigned", never_accepted: true })),
+    "holderNeverAccepted",
+  );
+});
+
+// The buyer's Self-held Ticket (ADR 0048) is theirs, not given away.
+test("a Ticket the buyer holds themselves reads as their own", () => {
+  const own = dossierTicket({ assignment_state: "accepted", self_held: true });
+  assert.equal(dossierTicketStateKey(own), "selfHeld");
+  assert.equal(dossierTicketBadgeVariant(own), "secondary");
+});
+
+// Absent with the flag closed, and always absent on a void Sale's Tickets.
+test("a Ticket with no assignment state has no state to draw", () => {
+  assert.equal(dossierTicketStateKey(dossierTicket()), null);
+  assert.equal(dossierTicketBadgeVariant(dossierTicket()), null);
+});
+
+test("a Ticket's badge follows the Holder List's colours", () => {
+  assert.equal(dossierTicketBadgeVariant(dossierTicket({ assignment_state: "accepted" })), "success");
+  assert.equal(dossierTicketBadgeVariant(dossierTicket({ assignment_state: "assigned" })), "warning");
+  assert.equal(dossierTicketBadgeVariant(dossierTicket({ assignment_state: "unassigned" })), "outline");
+  assert.equal(
+    dossierTicketBadgeVariant(dossierTicket({ assignment_state: "assigned", never_accepted: true })),
+    "outline",
+  );
+});
+
+test("holderNameOnTicket joins the halves and is empty without a Holder", () => {
+  assert.equal(
+    holderNameOnTicket(dossierTicket({ holder_first_name: "Carla", holder_last_name: "Ruiz" })),
+    "Carla Ruiz",
+  );
+  assert.equal(holderNameOnTicket(dossierTicket({ holder_first_name: " ", holder_last_name: "Ruiz" })), "Ruiz");
+  assert.equal(holderNameOnTicket(dossierTicket()), "");
+});
+
+test("only an accepted Holder who is somebody else links to their Dossier", () => {
+  assert.equal(
+    ticketHolderDossierId(dossierTicket({ assignment_state: "accepted", holder_customer_id: "cus_2" })),
+    "cus_2",
+  );
+  assert.equal(
+    ticketHolderDossierId(dossierTicket({ assignment_state: "accepted", holder_customer_id: "cus_1", self_held: true })),
+    null,
+  );
+  assert.equal(ticketHolderDossierId(dossierTicket({ assignment_state: "accepted" })), null);
+  assert.equal(
+    ticketHolderDossierId(dossierTicket({ assignment_state: "assigned", holder_customer_id: "cus_2" })),
+    null,
+  );
+  assert.equal(ticketHolderDossierId(dossierTicket({ holder_customer_id: "cus_2" })), null);
+});
+
+// The flag is read off the payload's absence (ADR 0045); an empty list is an
+// open flag and a Sale nobody was reminded about.
+test("the reminder times are drawn only when the payload carries them", () => {
+  assert.equal(assignmentRemindersVisible({}), false);
+  assert.equal(assignmentRemindersVisible({ assignment_reminder_sent_at: [] }), true);
+  assert.equal(assignmentRemindersVisible({ assignment_reminder_sent_at: ["2026-08-22T10:00:00Z"] }), true);
+});
+
+test("the held Tickets section exists only when the payload carries it", () => {
+  assert.equal(heldTicketsVisible({}), false);
+  assert.equal(heldTicketsVisible({ held_tickets: [] }), true);
+});
+
+const heldTicket = (fields: Partial<DossierHeldTicket> = {}): DossierHeldTicket => ({
+  ticket_id: "tk_9",
+  ticket_type_id: "tt_1",
+  ticket_type_name: "General",
+  ordinal: 2,
+  ticket_sale_id: "s_9",
+  confirmation_ref: "XYZ-9",
+  sale_status: "active",
+  buyer_first_name: "Ana",
+  buyer_last_name: "López",
+  accepted_at: "2026-08-20T10:00:00Z",
+  ...fields,
+});
+
+test("a held Ticket names its buyer and the name given as Holder", () => {
+  assert.equal(heldTicketBuyerName(heldTicket()), "Ana López");
+  assert.equal(heldTicketBuyerName(heldTicket({ buyer_first_name: "", buyer_last_name: " " })), "");
+  assert.equal(nameGivenAsHolder(heldTicket({ holder_first_name: "Carla", holder_last_name: "Ruiz" })), "Carla Ruiz");
+  assert.equal(nameGivenAsHolder(heldTicket()), "");
+});
+
+// Only `active` is a live Ticket; anything else, including a status this app
+// has never heard of, is never drawn as one.
+test("a held Ticket on a Sale that no longer stands is told apart from a live one", () => {
+  assert.equal(heldTicketOnReversedSale(heldTicket()), false);
+  assert.equal(heldTicketOnReversedSale(heldTicket({ sale_status: "reversed" })), true);
+  assert.equal(heldTicketOnReversedSale(heldTicket({ sale_status: "corrected" })), true);
 });
