@@ -421,7 +421,7 @@ export function SalesList({
                   onCorrect={() => setCorrectTarget(sale)}
                   dossierLink={
                     canOpenDossier
-                      ? dossierHref(eventId, sale.customer_id, `/events/${eventId}/sales${filterKey}`)
+                      ? dossierHref(eventId, sale.customer_id, `/events/${encodeURIComponent(eventId)}/sales${filterKey}`)
                       : null
                   }
                 />
