@@ -24,9 +24,9 @@ import (
 // disagreed with the screen they took it from and neither of them would say so.
 //
 // IT KNOWS NOTHING ABOUT DISCLOSURE. Which Holder a row may name is
-// fillHolderListEntry's decision, made once for the screen and the file both, and
-// this file routes every row through it rather than reading the repository's
-// columns itself. See buildHolderExportRows.
+// catalog.DiscloseHolder's decision (through fillHolderListEntry), made once for
+// the screen and the file both, and this file routes every row through it rather
+// than reading the repository's columns itself. See buildHolderExportRows.
 //
 // AND IT CARRIES NO MONEY. Not an amount, not Net Proceeds, not a currency — see
 // the exportfile package's holders.go, where that ruling is argued at length. The
@@ -337,11 +337,11 @@ func (s *Service) ExportHolderList(
 //
 // EVERY ROW GOES THROUGH fillHolderListEntry, WHICH IS THE POINT OF THIS
 // FUNCTION. The rule about what an Organization may see of a Holder — nothing at
-// all before that Holder has accepted (ADR 0047) — is decided once, in that
-// method, for the Holder List screen. This builds the same HolderTicketView the
-// screen is drawn from and reads the file's columns off it, so the file cannot
-// disclose one byte more than the screen does and a change to the rule is a
-// change to both. Reading ticket.HolderEmail here instead would be a second copy
+// all before that Holder has accepted (ADR 0047) — is decided once, in
+// catalog.DiscloseHolder, which that method applies for the Holder List screen.
+// This builds the same HolderTicketView the screen is drawn from and reads the
+// file's columns off it, so the file cannot disclose one byte more than the
+// screen does and a change to the rule is a change to both. Reading ticket.HolderEmail here instead would be a second copy
 // of ADR 0047, and the copy nobody updates.
 //
 // It also means a PURGED Ticket reads exactly as it does on the screen —
