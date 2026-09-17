@@ -55,10 +55,10 @@ func DiscloseHolder(assignmentEnabled bool, ticket HolderAssignment) HolderDiscl
 		return HolderDisclosure{}
 	}
 	state := AssignmentState(ticket.HolderEmail, ticket.AssignedAt, ticket.AcceptedAt)
-	if state != TicketAccepted && ticket.HolderAddressPurgedAt != nil {
-		return HolderDisclosure{State: TicketAssigned, NeverAccepted: true}
-	}
 	if state != TicketAccepted {
+		if ticket.HolderAddressPurgedAt != nil {
+			return HolderDisclosure{State: TicketAssigned, NeverAccepted: true}
+		}
 		return HolderDisclosure{State: state}
 	}
 	return HolderDisclosure{

@@ -5,10 +5,10 @@ import (
 	"time"
 )
 
-// The Holder Disclosure rule (ADR 0047, #334, #637) at its own seam. The Holder
-// List, Holder Export and holder address purge integration suites pin what an
-// Organization observes through HTTP; this pins the rule those observations are
-// made of, so a second read (the Customer Dossier, #640) is held to the same
+// What a Ticket discloses about its Holder to the Organization (ADR 0047, #334,
+// #637), tested at its own seam. The Holder List, Holder Export and holder
+// address purge integration suites pin what an Organization observes through
+// HTTP; this pins the rule those observations are made of, so a second read (the Customer Dossier, #640) is held to the same
 // thing without a Holder List fixture.
 func TestDiscloseHolder(t *testing.T) {
 	assigned := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)

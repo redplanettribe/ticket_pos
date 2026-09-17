@@ -592,9 +592,14 @@ func dateRangeBounds(from, to string, loc *time.Location) (*time.Time, *time.Tim
 // accepted — is catalog.DiscloseHolder, the one statement of ADR 0047's rule,
 // shared with every other Organization-facing read of a Holder (#637). This
 // only adapts the repository's NULL-able row to that rule's plain input and
-// copies its answer onto the view; every field it sets is `omitempty`, so a
-// closed build sends the bytes a build without the feature sends (ADR 0045).
+// copies its answer onto the view. The early return is the flag's whole effect
+// here: every field it would set is `omitempty`, so a closed build sends the
+// bytes a build without the feature sends (ADR 0045). DiscloseHolder answers
+// the same for a closed flag; the guard keeps the row literally untouched.
 func (s *Service) fillHolderListEntry(view *HolderTicketView, ticket repository.HolderTicket) {
+	if !s.ticketAssignmentEnabled {
+		return
+	}
 	disclosure := catalog.DiscloseHolder(s.ticketAssignmentEnabled, catalog.HolderAssignment{
 		HolderEmail:           ticket.HolderEmail.String,
 		HolderFirstName:       ticket.HolderFirstName.String,

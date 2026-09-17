@@ -339,9 +339,9 @@ func (s *Service) ExportHolderList(
 // FUNCTION. The rule about what an Organization may see of a Holder — nothing at
 // all before that Holder has accepted (ADR 0047) — is decided once, in
 // catalog.DiscloseHolder, which that method applies for the Holder List screen.
-// This builds the same HolderTicketView the screen is drawn from and reads the file's columns off it, so the file cannot
-// disclose one byte more than the screen does and a change to the rule is a
-// change to both. Reading ticket.HolderEmail here instead would be a second copy
+// This builds the same HolderTicketView the screen is drawn from and reads the
+// file's columns off it, so the file cannot disclose one byte more than the
+// screen does and a change to the rule is a change to both. Reading ticket.HolderEmail here instead would be a second copy
 // of ADR 0047, and the copy nobody updates.
 //
 // It also means a PURGED Ticket reads exactly as it does on the screen —
