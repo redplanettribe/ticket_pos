@@ -98,10 +98,13 @@ type HolderTicketView struct {
 	// column they are read from. Joining them here would mean choosing an order
 	// for them, and which part leads a person's name is the reader's question and
 	// not this payload's.
-	CustomerFirstName string    `json:"customer_first_name"`
-	CustomerLastName  string    `json:"customer_last_name"`
-	CustomerEmail     string    `json:"customer_email"`
-	SoldAt            time.Time `json:"sold_at"`
+	CustomerFirstName string `json:"customer_first_name"`
+	CustomerLastName  string `json:"customer_last_name"`
+	CustomerEmail     string `json:"customer_email"`
+	// CustomerID is the buyer's Customer, which the buyer's name links a
+	// Customer Dossier by (#640).
+	CustomerID string    `json:"customer_id"`
+	SoldAt     time.Time `json:"sold_at"`
 	// THE HOLDER (#329, parent #322, ADR 0047). Who is coming on this Ticket.
 	//
 	// EVERY FIELD IS `omitempty`, AND THAT IS THE FLAG'S DOING, exactly as it is
@@ -145,6 +148,10 @@ type HolderTicketView struct {
 	HolderFirstName string `json:"holder_first_name,omitempty"`
 	HolderLastName  string `json:"holder_last_name,omitempty"`
 	HolderEmail     string `json:"holder_email,omitempty"`
+	// HolderCustomerID is the accepted Holder's Customer, which their name
+	// links a Customer Dossier by (#640). Filled on exactly the name's terms,
+	// through fillHolderListEntry: an unaccepted assignment offers no link.
+	HolderCustomerID string `json:"holder_customer_id,omitempty"`
 	// Outstanding names the required questions this Ticket has not answered, in
 	// the order they are asked. Empty on a Ticket that owes nothing — which
 	// since #333 is an ordinary row of this list, not an absent one.
@@ -387,6 +394,7 @@ func (s *Service) ListHolderList(
 			CustomerFirstName: ticket.CustomerFirstName,
 			CustomerLastName:  ticket.CustomerLastName,
 			CustomerEmail:     ticket.CustomerEmail,
+			CustomerID:        ticket.CustomerID,
 			SoldAt:            ticket.SoldAt,
 		}
 		if s.ticketQuestionsEnabled {
@@ -604,6 +612,7 @@ func (s *Service) fillHolderListEntry(view *HolderTicketView, ticket repository.
 		HolderEmail:           ticket.HolderEmail.String,
 		HolderFirstName:       ticket.HolderFirstName.String,
 		HolderLastName:        ticket.HolderLastName.String,
+		HolderCustomerID:      ticket.HolderCustomerID.String,
 		AssignedAt:            nullTimeOrNil(ticket.AssignedAt),
 		AcceptedAt:            nullTimeOrNil(ticket.AcceptedAt),
 		HolderAddressPurgedAt: nullTimeOrNil(ticket.HolderAddressPurgedAt),
@@ -613,6 +622,7 @@ func (s *Service) fillHolderListEntry(view *HolderTicketView, ticket repository.
 	view.HolderFirstName = disclosure.HolderFirstName
 	view.HolderLastName = disclosure.HolderLastName
 	view.HolderEmail = disclosure.HolderEmail
+	view.HolderCustomerID = disclosure.HolderCustomerID
 }
 
 // outstandingOrEmpty keeps the field an ARRAY on the wire rather than null. A

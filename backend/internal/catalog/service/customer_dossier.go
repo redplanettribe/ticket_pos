@@ -44,6 +44,11 @@ type CustomerDossier struct {
 	// Sales are this Event's Ticket Sales to the Customer, reversed and
 	// corrected ones included, newest first.
 	Sales []DossierSaleView `json:"sales"`
+	// HeldTickets are the Tickets of this Event the Customer ACCEPTED on
+	// somebody else's Sale, reversed Sales included, newest Sale first (#640).
+	// Absent while TICKET_ASSIGNMENT_ENABLED is closed (ADR 0045); `[]` when
+	// they hold none.
+	HeldTickets *[]DossierHeldTicketView `json:"held_tickets,omitempty"`
 }
 
 // DossierCustomerView is who the Customer is, platform-wide: an id and an
@@ -82,6 +87,65 @@ type DossierSaleView struct {
 	CustomerLastName  string                `json:"customer_last_name"`
 	TaxIDType         *string               `json:"tax_id_type"`
 	TaxIDNumber       *string               `json:"tax_id_number"`
+
+	// Tickets and assignment reminders (#640).
+
+	// Tickets are the Sale's Tickets in the catalog's order. A reversed or
+	// corrected Sale's Tickets are void and carry their Ticket Type and ordinal
+	// only; `status` is what says so.
+	Tickets []DossierTicketView `json:"tickets"`
+	// AssignmentReminderSentAt is when an Assignment Reminder was sent about
+	// this Sale, oldest first. Absent while TICKET_ASSIGNMENT_ENABLED is closed.
+	AssignmentReminderSentAt *[]time.Time `json:"assignment_reminder_sent_at,omitempty"`
+}
+
+// DossierTicketView is one Ticket of a Dossier Sale.
+//
+// EVERY ASSIGNMENT FIELD COMES FROM catalog.DiscloseHolder (ADR 0047) and is
+// `omitempty`: absent while TICKET_ASSIGNMENT_ENABLED is closed and on a
+// reversed Sale. An unaccepted assignment is a state and never a person.
+type DossierTicketView struct {
+	// TicketID is what the Ticket's Answers are read and given by.
+	TicketID       string `json:"ticket_id"`
+	TicketTypeID   string `json:"ticket_type_id"`
+	TicketTypeName string `json:"ticket_type_name"`
+	// Ordinal is which of its Ticket Sale Line's units this Ticket is.
+	Ordinal int `json:"ordinal"`
+	// AssignmentState is `unassigned`, `assigned` or `accepted`.
+	AssignmentState string `json:"assignment_state,omitempty" enums:"unassigned,assigned,accepted"`
+	// NeverAccepted marks an assignment whose unaccepted address the retention
+	// purge took; it reads `assigned` beside it (#334).
+	NeverAccepted bool `json:"never_accepted,omitempty"`
+	// SelfHeld marks a Ticket this Customer accepted on their own Sale — their
+	// Self-held Ticket (ADR 0048) — which names nobody else.
+	SelfHeld bool `json:"self_held,omitempty"`
+	// The accepted Holder when that is somebody else: their Customer id, which
+	// links their Dossier, and the name they gave as Holder.
+	HolderCustomerID string `json:"holder_customer_id,omitempty"`
+	HolderFirstName  string `json:"holder_first_name,omitempty"`
+	HolderLastName   string `json:"holder_last_name,omitempty"`
+}
+
+// DossierHeldTicketView is a Ticket the Customer holds on somebody else's Sale.
+type DossierHeldTicketView struct {
+	TicketID       string `json:"ticket_id"`
+	TicketTypeID   string `json:"ticket_type_id"`
+	TicketTypeName string `json:"ticket_type_name"`
+	Ordinal        int    `json:"ordinal"`
+	// TicketSaleID and ConfirmationRef name the Sale it is on.
+	TicketSaleID    string `json:"ticket_sale_id"`
+	ConfirmationRef string `json:"confirmation_ref"`
+	// SaleStatus is `reversed` when that Sale was reversed (a Sale Correction
+	// included): the Ticket is void, and this Customer held it.
+	SaleStatus string `json:"sale_status" enums:"active,reversed"`
+	// The buyer's name as given on that Sale.
+	BuyerFirstName string `json:"buyer_first_name"`
+	BuyerLastName  string `json:"buyer_last_name"`
+	// AcceptedAt is when this Customer accepted the Ticket.
+	AcceptedAt *time.Time `json:"accepted_at"`
+	// The name this Customer gave as its Holder.
+	HolderFirstName string `json:"holder_first_name,omitempty"`
+	HolderLastName  string `json:"holder_last_name,omitempty"`
 }
 
 // DossierSaleLineView is one Ticket Type bought on a Dossier Sale.
@@ -108,7 +172,15 @@ func (s *Service) GetCustomerDossier(
 	if err != nil {
 		return nil, err
 	}
-	if len(saleRows) == 0 {
+	// #640: a Customer who holds a Ticket of this Event — accepted, on somebody
+	// else's Sale, reversed or not — is found too; never while assignment is dark.
+	var heldTickets []DossierHeldTicketView
+	if s.ticketAssignmentEnabled {
+		if heldTickets, err = s.dossierHeldTickets(ctx, actor, eventID, customerID); err != nil {
+			return nil, err
+		}
+	}
+	if len(saleRows) == 0 && len(heldTickets) == 0 {
 		return nil, catalog.ErrCustomerNotFoundAtEvent()
 	}
 	customer, err := s.repo.GetDossierCustomer(ctx, customerID)
@@ -126,7 +198,144 @@ func (s *Service) GetCustomerDossier(
 	for _, row := range saleRows {
 		dossier.Sales = append(dossier.Sales, dossierSaleView(row))
 	}
+	if err := s.fillDossierTickets(ctx, actor, eventID, customerID, dossier.Sales); err != nil {
+		return nil, err
+	}
+	if s.ticketAssignmentEnabled {
+		if heldTickets == nil {
+			heldTickets = []DossierHeldTicketView{}
+		}
+		dossier.HeldTickets = &heldTickets
+	}
 	return dossier, nil
+}
+
+// fillDossierTickets puts each Sale's Tickets and, while assignment is open, its
+// assignment reminder send times on the Sales (#640).
+func (s *Service) fillDossierTickets(
+	ctx context.Context, actor ActorContext, eventID, customerID string, sales []DossierSaleView,
+) error {
+	saleIDs := make([]string, 0, len(sales))
+	for _, sale := range sales {
+		saleIDs = append(saleIDs, sale.ID)
+	}
+	tickets, err := s.repo.ListDossierSaleTickets(ctx, actor.OrganizationID, eventID, saleIDs)
+	if err != nil {
+		return err
+	}
+	ticketsBySale := make(map[string][]repository.DossierTicket, len(sales))
+	for _, ticket := range tickets {
+		ticketsBySale[ticket.TicketSaleID] = append(ticketsBySale[ticket.TicketSaleID], ticket)
+	}
+
+	remindersBySale := map[string][]time.Time{}
+	if s.ticketAssignmentEnabled {
+		reminders, err := s.repo.ListDossierAssignmentReminders(ctx, actor.OrganizationID, eventID, saleIDs)
+		if err != nil {
+			return err
+		}
+		for _, reminder := range reminders {
+			remindersBySale[reminder.TicketSaleID] = append(remindersBySale[reminder.TicketSaleID], reminder.SentAt)
+		}
+	}
+
+	for i := range sales {
+		sale := &sales[i]
+		live := sale.Status == DossierSaleActive
+		sale.Tickets = make([]DossierTicketView, 0, len(ticketsBySale[sale.ID]))
+		for _, ticket := range ticketsBySale[sale.ID] {
+			view := DossierTicketView{
+				TicketID:       ticket.ID,
+				TicketTypeID:   ticket.TicketTypeID,
+				TicketTypeName: ticket.TicketTypeName,
+				Ordinal:        ticket.Ordinal,
+			}
+			// A reversed Sale's Tickets are void: no live assignment state.
+			if live {
+				fillDossierTicketHolder(&view, s.discloseDossierHolder(ticket), customerID)
+			}
+			sale.Tickets = append(sale.Tickets, view)
+		}
+		if s.ticketAssignmentEnabled {
+			sent := remindersBySale[sale.ID]
+			if sent == nil {
+				sent = []time.Time{}
+			}
+			sale.AssignmentReminderSentAt = &sent
+		}
+	}
+	return nil
+}
+
+// fillDossierTicketHolder shapes one live Ticket's disclosure. The buyer's own
+// acceptance is their Self-held Ticket and names nobody; anybody else's is
+// named and linked. A closed flag discloses nothing, so nothing is filled.
+func fillDossierTicketHolder(view *DossierTicketView, disclosure catalog.HolderDisclosure, customerID string) {
+	view.AssignmentState = string(disclosure.State)
+	view.NeverAccepted = disclosure.NeverAccepted
+	if disclosure.HolderCustomerID == "" {
+		return
+	}
+	if disclosure.HolderCustomerID == customerID {
+		view.SelfHeld = true
+		return
+	}
+	view.HolderCustomerID = disclosure.HolderCustomerID
+	view.HolderFirstName = disclosure.HolderFirstName
+	view.HolderLastName = disclosure.HolderLastName
+}
+
+// dossierHeldTickets returns the Tickets the Customer holds on other buyers'
+// Sales of this Event. The query selects accepted Tickets naming the Customer,
+// and each is kept only if DiscloseHolder discloses that very Customer, so the
+// filter can never find somebody the rule would not name.
+func (s *Service) dossierHeldTickets(
+	ctx context.Context, actor ActorContext, eventID, customerID string,
+) ([]DossierHeldTicketView, error) {
+	rows, err := s.repo.ListDossierHeldTickets(ctx, actor.OrganizationID, eventID, customerID)
+	if err != nil {
+		return nil, err
+	}
+	views := make([]DossierHeldTicketView, 0, len(rows))
+	for _, row := range rows {
+		disclosure := s.discloseDossierHolder(row.DossierTicket)
+		if disclosure.HolderCustomerID != customerID {
+			continue
+		}
+		saleStatus := DossierSaleActive
+		if row.SaleStatus == DossierSaleReversed {
+			saleStatus = DossierSaleReversed
+		}
+		views = append(views, DossierHeldTicketView{
+			TicketID:        row.ID,
+			TicketTypeID:    row.TicketTypeID,
+			TicketTypeName:  row.TicketTypeName,
+			Ordinal:         row.Ordinal,
+			TicketSaleID:    row.TicketSaleID,
+			ConfirmationRef: row.ConfirmationRef,
+			SaleStatus:      saleStatus,
+			BuyerFirstName:  row.BuyerFirstName,
+			BuyerLastName:   row.BuyerLastName,
+			AcceptedAt:      disclosure.AcceptedAt,
+			HolderFirstName: disclosure.HolderFirstName,
+			HolderLastName:  disclosure.HolderLastName,
+		})
+	}
+	return views, nil
+}
+
+// discloseDossierHolder is the Dossier's adapter onto catalog.DiscloseHolder,
+// as fillHolderListEntry is the Holder List's.
+func (s *Service) discloseDossierHolder(ticket repository.DossierTicket) catalog.HolderDisclosure {
+	return catalog.DiscloseHolder(s.ticketAssignmentEnabled, catalog.HolderAssignment{
+		HolderEmail:           ticket.HolderEmail.String,
+		HolderFirstName:       ticket.HolderFirstName.String,
+		HolderLastName:        ticket.HolderLastName.String,
+		HolderCustomerID:      ticket.HolderCustomerID.String,
+		AssignedAt:            nullTimeOrNil(ticket.AssignedAt),
+		AcceptedAt:            nullTimeOrNil(ticket.AcceptedAt),
+		HolderAddressPurgedAt: nullTimeOrNil(ticket.HolderAddressPurgedAt),
+	})
 }
 
 // dossierSaleView shapes one Sale row for the Dossier.

@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"reflect"
 	"testing"
 	"time"
 )
@@ -17,11 +18,19 @@ func TestDiscloseHolder(t *testing.T) {
 
 	acceptedTicket := HolderAssignment{
 		HolderEmail: "carla@example.com", HolderFirstName: "Carla", HolderLastName: "Ruiz",
-		AssignedAt: timePtr(assigned), AcceptedAt: timePtr(accepted),
+		HolderCustomerID: "cus-carla",
+		AssignedAt:       timePtr(assigned), AcceptedAt: timePtr(accepted),
 	}
 	assignedTicket := HolderAssignment{
 		HolderEmail: "carla@example.com", AssignedAt: timePtr(assigned),
 	}
+	// Migration 080 refuses a Customer id beside an unaccepted assignment, and
+	// the rule refuses to pass one on regardless (#640): the id is what links a
+	// person's Customer Dossier, and a link to somebody nobody accepted would
+	// disclose them as surely as their name.
+	assignedWithCustomer := assignedTicket
+	assignedWithCustomer.HolderCustomerID = "cus-carla"
+	assignedWithCustomer.HolderFirstName = "Carla"
 	purgedTicket := HolderAssignment{HolderAddressPurgedAt: timePtr(purged)}
 	acceptedAndMarked := acceptedTicket
 	acceptedAndMarked.HolderAddressPurgedAt = timePtr(purged)
@@ -38,9 +47,10 @@ func TestDiscloseHolder(t *testing.T) {
 		{"nothing given", true, HolderAssignment{}, HolderDisclosure{State: TicketUnassigned}},
 		// An address nobody accepted is reported as a state, never as a person.
 		{"assigned, not accepted", true, assignedTicket, HolderDisclosure{State: TicketAssigned}},
+		{"assigned, with a customer id and a name beside it", true, assignedWithCustomer, HolderDisclosure{State: TicketAssigned}},
 		{"accepted", true, acceptedTicket, HolderDisclosure{
 			State: TicketAccepted, HolderFirstName: "Carla", HolderLastName: "Ruiz",
-			HolderEmail: "carla@example.com",
+			HolderEmail: "carla@example.com", HolderCustomerID: "cus-carla", AcceptedAt: timePtr(accepted),
 		}},
 		{"purged before acceptance", true, purgedTicket, HolderDisclosure{
 			State: TicketAssigned, NeverAccepted: true,
@@ -48,10 +58,10 @@ func TestDiscloseHolder(t *testing.T) {
 		// Acceptance outranks the purge marker.
 		{"accepted with a purge marker", true, acceptedAndMarked, HolderDisclosure{
 			State: TicketAccepted, HolderFirstName: "Carla", HolderLastName: "Ruiz",
-			HolderEmail: "carla@example.com",
+			HolderEmail: "carla@example.com", HolderCustomerID: "cus-carla", AcceptedAt: timePtr(accepted),
 		}},
 	} {
-		if got := DiscloseHolder(tc.enabled, tc.ticket); got != tc.want {
+		if got := DiscloseHolder(tc.enabled, tc.ticket); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: got %+v, want %+v", tc.name, got, tc.want)
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The Customer Dossier (#638, spec #635; CONTEXT.md "Customer Dossier"):
@@ -388,4 +389,334 @@ func TestTheCustomerDossierCarriesNoPlatformDeclarations(t *testing.T) {
 			t.Errorf("the Dossier payload mentions %q: %s", forbidden, raw)
 		}
 	}
+}
+
+// --- Tickets and Holders (#640) ----------------------------------------------
+//
+// Each Sale's Tickets and the Tickets a Customer holds on other buyers' Sales,
+// every assignment field disclosed through catalog.DiscloseHolder (ADR 0047):
+// an unaccepted assignment is a state and never a person.
+
+// dossierHolders decodes the #640 part of a Dossier, beside dossierBody.
+type dossierHolders struct {
+	Sales []struct {
+		ConfirmationRef          string          `json:"confirmation_ref"`
+		Status                   string          `json:"status"`
+		Tickets                  []dossierTicket `json:"tickets"`
+		AssignmentReminderSentAt *[]time.Time    `json:"assignment_reminder_sent_at"`
+	} `json:"sales"`
+	HeldTickets *[]dossierHeldTicket `json:"held_tickets"`
+}
+
+type dossierTicket struct {
+	TicketID         string `json:"ticket_id"`
+	TicketTypeID     string `json:"ticket_type_id"`
+	TicketTypeName   string `json:"ticket_type_name"`
+	Ordinal          int    `json:"ordinal"`
+	AssignmentState  string `json:"assignment_state"`
+	NeverAccepted    bool   `json:"never_accepted"`
+	SelfHeld         bool   `json:"self_held"`
+	HolderCustomerID string `json:"holder_customer_id"`
+	HolderFirstName  string `json:"holder_first_name"`
+	HolderLastName   string `json:"holder_last_name"`
+}
+
+type dossierHeldTicket struct {
+	TicketID        string     `json:"ticket_id"`
+	TicketTypeName  string     `json:"ticket_type_name"`
+	Ordinal         int        `json:"ordinal"`
+	TicketSaleID    string     `json:"ticket_sale_id"`
+	ConfirmationRef string     `json:"confirmation_ref"`
+	SaleStatus      string     `json:"sale_status"`
+	BuyerFirstName  string     `json:"buyer_first_name"`
+	BuyerLastName   string     `json:"buyer_last_name"`
+	AcceptedAt      *time.Time `json:"accepted_at"`
+	HolderFirstName string     `json:"holder_first_name"`
+	HolderLastName  string     `json:"holder_last_name"`
+}
+
+func decodeDossierHolders(t *testing.T, raw json.RawMessage) dossierHolders {
+	t.Helper()
+	var out dossierHolders
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("decode dossier tickets: %v", err)
+	}
+	return out
+}
+
+// dossierHolderFixture is one Event with Ticket Assignment open and one
+// Manually Recorded Sale of four Tickets by Ana, whose Tickets stand in every
+// state an Organization can be told about:
+//
+//	selfHeld  Ticket 1, Ana's own (ADR 0048)
+//	accepted  Ticket 2, accepted by Carla Ruiz
+//	assigned  Ticket 3, typed as diego@example.com and never accepted
+//	purged    Ticket 4, named, never accepted, address purged (#334)
+type dossierHolderFixture struct {
+	session  string
+	eventID  string
+	saleID   string
+	saleRef  string
+	ana      string
+	carla    string
+	selfHeld string
+	accepted string
+	assigned string
+	purged   string
+}
+
+func newDossierHolderFixture(t *testing.T, env *testEnv) dossierHolderFixture {
+	t.Helper()
+	enableTicketAssignment(t)
+	f := dossierHolderFixture{session: orgAdminSession(t, env)}
+	f.eventID = createDraftEvent(t, env, f.session, "Holder Fest", "holder-fest")
+	scheduleEvent(t, env, f.session, f.eventID, "Holder Fest", "holder-fest", env.fixedClock.Add(30*24*time.Hour))
+	gaID := createTicketTypeWithCapacity(t, env, f.session, f.eventID, "GA", 1000, 50)
+	sale := recordManualSaleOK(t, env, f.session, f.eventID,
+		manualSaleBody("ana@example.com", "Ana", "Lopez", gaID, 4, "cash", "2026-07-01T10:00:00Z"))
+	f.saleID, f.saleRef = sale.SaleID, sale.ConfirmationRef
+	tickets := ticketIDsOfSale(t, env, f.saleID)
+	if len(tickets) != 4 {
+		t.Fatalf("Tickets minted = %d, want 4", len(tickets))
+	}
+	f.selfHeld, f.accepted, f.assigned, f.purged = tickets[0], tickets[1], tickets[2], tickets[3]
+
+	acceptHolderNamed(t, env, "ana@example.com", f.accepted, "carla@example.com", "Carla", "Ruiz")
+	assignTicketOK(t, env, customerSignIn(t, env, "ana@example.com"), f.saleID, f.assigned, "diego@example.com")
+	stageHolderAddressPurge(t, env, f.purged)
+
+	f.ana = customerIDOnSalesList(t, env, f.session, f.eventID, "ana@example.com", "active")
+	if err := env.db.QueryRow(`SELECT id FROM customers WHERE email = 'carla@example.com'`).Scan(&f.carla); err != nil {
+		t.Fatalf("read Carla's Customer id: %v", err)
+	}
+	return f
+}
+
+func dossierTicketByID(t *testing.T, tickets []dossierTicket, ticketID string) dossierTicket {
+	t.Helper()
+	for _, ticket := range tickets {
+		if ticket.TicketID == ticketID {
+			return ticket
+		}
+	}
+	t.Fatalf("Ticket %s is not on the Sale: %+v", ticketID, tickets)
+	return dossierTicket{}
+}
+
+// A Sale's Tickets carry their Ticket Type, ordinal and assignment state; the
+// accepted Holder is named and linkable, the buyer's Self-held Ticket is marked
+// theirs, and an unaccepted assignment is a state with nobody behind it —
+// nowhere in the body — while a purged one reads never-accepted.
+func TestTheDossierListsEachSalesTicketsThroughTheDisclosureRule(t *testing.T) {
+	env := setupTest(t)
+	f := newDossierHolderFixture(t, env)
+
+	_, raw := readDossier(t, env, f.session, f.eventID, f.ana)
+	dossier := decodeDossierHolders(t, raw)
+	if len(dossier.Sales) != 1 {
+		t.Fatalf("sales = %+v, want Ana's one", dossier.Sales)
+	}
+	tickets := dossier.Sales[0].Tickets
+	if len(tickets) != 4 {
+		t.Fatalf("tickets = %+v, want the Sale's four", tickets)
+	}
+	for i, ticket := range tickets {
+		if ticket.Ordinal != i+1 || ticket.TicketTypeName != "GA" || ticket.TicketTypeID == "" {
+			t.Errorf("ticket %d = %+v, want GA ordinal %d in order", i, ticket, i+1)
+		}
+	}
+
+	if got := dossierTicketByID(t, tickets, f.selfHeld); got.AssignmentState != "accepted" || !got.SelfHeld ||
+		got.HolderCustomerID != "" || got.HolderFirstName != "" {
+		t.Errorf("the Self-held Ticket reads %+v, want accepted and marked self_held, naming nobody else", got)
+	}
+	if got := dossierTicketByID(t, tickets, f.accepted); got.AssignmentState != "accepted" || got.SelfHeld ||
+		got.HolderCustomerID != f.carla || got.HolderFirstName != "Carla" || got.HolderLastName != "Ruiz" {
+		t.Errorf("Carla's Ticket reads %+v, want accepted by Carla Ruiz (%s)", got, f.carla)
+	}
+	if got := dossierTicketByID(t, tickets, f.assigned); got.AssignmentState != "assigned" || got.NeverAccepted ||
+		got.HolderCustomerID != "" || got.HolderFirstName != "" || got.HolderLastName != "" {
+		t.Errorf("the unaccepted Ticket reads %+v, want `assigned` and nobody", got)
+	}
+	if got := dossierTicketByID(t, tickets, f.purged); got.AssignmentState != "assigned" || !got.NeverAccepted ||
+		got.HolderCustomerID != "" || got.HolderFirstName != "" {
+		t.Errorf("the purged Ticket reads %+v, want `assigned` never_accepted and nobody", got)
+	}
+	if strings.Contains(strings.ToLower(string(raw)), "diego") {
+		t.Errorf("an unaccepted Holder's address reaches the Dossier (ADR 0047): %s", raw)
+	}
+	if dossier.HeldTickets == nil || len(*dossier.HeldTickets) != 0 {
+		t.Errorf("Ana's held_tickets = %v, want [] — her own Ticket belongs under her Sale", dossier.HeldTickets)
+	}
+	if sent := dossier.Sales[0].AssignmentReminderSentAt; sent == nil || len(*sent) != 0 {
+		t.Errorf("assignment_reminder_sent_at = %v, want [] for a Sale nobody was reminded about", sent)
+	}
+}
+
+// A Customer who bought nothing at this Event but accepted a Ticket there has a
+// Dossier: the held Ticket with its buyer's name as given on that Sale. A
+// person merely typed as a Holder has none.
+func TestAHolderOnlyCustomersDossierListsTheHeldTicket(t *testing.T) {
+	env := setupTest(t)
+	f := newDossierHolderFixture(t, env)
+
+	body, raw := readDossier(t, env, f.session, f.eventID, f.carla)
+	if body.Customer.ID != f.carla || body.Customer.Email != "carla@example.com" || len(body.Sales) != 0 {
+		t.Fatalf("Carla's Dossier = %+v, want her identity and no Sales", body)
+	}
+	dossier := decodeDossierHolders(t, raw)
+	if dossier.HeldTickets == nil || len(*dossier.HeldTickets) != 1 {
+		t.Fatalf("held_tickets = %v, want Carla's one", dossier.HeldTickets)
+	}
+	held := (*dossier.HeldTickets)[0]
+	if held.TicketID != f.accepted || held.Ordinal != 2 || held.TicketTypeName != "GA" ||
+		held.TicketSaleID != f.saleID || held.ConfirmationRef != f.saleRef || held.SaleStatus != "active" ||
+		held.BuyerFirstName != "Ana" || held.BuyerLastName != "Lopez" || held.AcceptedAt == nil ||
+		held.HolderFirstName != "Carla" || held.HolderLastName != "Ruiz" {
+		t.Errorf("held ticket = %+v, want GA ticket 2 of Ana Lopez's %s, accepted by Carla Ruiz", held, f.saleRef)
+	}
+
+	// Diego was typed and never accepted: at this Event he is nobody.
+	customerSignIn(t, env, "diego@example.com")
+	var diego string
+	if err := env.db.QueryRow(`SELECT id FROM customers WHERE email = 'diego@example.com'`).Scan(&diego); err != nil {
+		t.Fatalf("read Diego's Customer id: %v", err)
+	}
+	if status, code := dossierStatus(t, env, f.session, f.eventID, diego); status != http.StatusNotFound || code != "CUSTOMER_NOT_FOUND" {
+		t.Errorf("an unaccepted Holder's Dossier status=%d code=%s, want 404 CUSTOMER_NOT_FOUND", status, code)
+	}
+}
+
+// A Holder whose Ticket was on a Sale later reversed is still found and told
+// the Sale was reversed; the reversed Sale's own Tickets carry no live state.
+func TestAHolderOnAReversedSaleIsFoundAndToldTheSaleWasReversed(t *testing.T) {
+	env := setupTest(t)
+	f := newDossierHolderFixture(t, env)
+	reverseImportedSaleOK(t, env, f.session, f.eventID, f.saleID)
+
+	_, raw := readDossier(t, env, f.session, f.eventID, f.carla)
+	dossier := decodeDossierHolders(t, raw)
+	if dossier.HeldTickets == nil || len(*dossier.HeldTickets) != 1 {
+		t.Fatalf("held_tickets = %v, want Carla's Ticket on the reversed Sale", dossier.HeldTickets)
+	}
+	if held := (*dossier.HeldTickets)[0]; held.TicketID != f.accepted || held.SaleStatus != "reversed" || held.BuyerFirstName != "Ana" {
+		t.Errorf("held ticket = %+v, want Ana's Ticket marked sale_status reversed", held)
+	}
+
+	_, anaRaw := readDossier(t, env, f.session, f.eventID, f.ana)
+	ana := decodeDossierHolders(t, anaRaw)
+	if len(ana.Sales) != 1 || ana.Sales[0].Status != "reversed" || len(ana.Sales[0].Tickets) != 4 {
+		t.Fatalf("Ana's sales = %+v, want the reversed Sale with its four Tickets", ana.Sales)
+	}
+	var rawSales struct {
+		Sales []struct {
+			Tickets []map[string]json.RawMessage `json:"tickets"`
+		} `json:"sales"`
+	}
+	if err := json.Unmarshal(anaRaw, &rawSales); err != nil {
+		t.Fatalf("decode raw sales: %v", err)
+	}
+	for _, ticket := range rawSales.Sales[0].Tickets {
+		for key := range ticket {
+			switch key {
+			case "ticket_id", "ticket_type_id", "ticket_type_name", "ordinal":
+			default:
+				t.Errorf("a reversed Sale's Ticket carries %q: %v — its Tickets are void", key, ticket)
+			}
+		}
+	}
+}
+
+// Each Sale says when an Assignment Reminder was sent about it.
+func TestTheDossierStatesWhenAnAssignmentReminderWasSentAboutASale(t *testing.T) {
+	env := setupTest(t)
+	f := newAssignmentReminderFixture(t, env)
+	if result := sweepAssignmentReminders(t, env); result.Sent != 1 {
+		t.Fatalf("sweep = %+v, want one reminder sent", result)
+	}
+	customerID := customerIDOnSalesList(t, env, f.staffSession, f.eventID, "ana@example.com", "active")
+
+	_, raw := readDossier(t, env, f.staffSession, f.eventID, customerID)
+	dossier := decodeDossierHolders(t, raw)
+	if len(dossier.Sales) != 1 {
+		t.Fatalf("sales = %+v, want Ana's one", dossier.Sales)
+	}
+	sent := dossier.Sales[0].AssignmentReminderSentAt
+	if sent == nil || len(*sent) != 1 || !(*sent)[0].Equal(f.sweepAt) {
+		t.Errorf("assignment_reminder_sent_at = %v, want the one send at %v", sent, f.sweepAt)
+	}
+}
+
+// With TICKET_ASSIGNMENT_ENABLED closed the Dossier says nothing about
+// assignment — no states, no Holders, no held Tickets, no reminders — while the
+// Sales and the identity remain, and a Holder-only Customer is not found.
+func TestTheDossierSaysNothingAboutAssignmentWhileTheFlagIsClosed(t *testing.T) {
+	env := setupTest(t)
+	f := newDossierHolderFixture(t, env)
+	closeTicketAssignment(t)
+
+	body, raw := readDossier(t, env, f.session, f.eventID, f.ana)
+	if body.Customer.Email != "ana@example.com" || len(body.Sales) != 1 || body.Sales[0].CustomerFirstName != "Ana" {
+		t.Fatalf("Dossier = %+v, want Ana's identity and Sale", body)
+	}
+	if tickets := decodeDossierHolders(t, raw).Sales[0].Tickets; len(tickets) != 4 {
+		t.Errorf("tickets = %+v, want the Sale's four, types and ordinals only", tickets)
+	}
+	for _, forbidden := range []string{"assignment_state", "never_accepted", "self_held", "holder_", "held_tickets", "assignment_reminder", "Carla"} {
+		if strings.Contains(string(raw), forbidden) {
+			t.Errorf("the Dossier carries %q while TICKET_ASSIGNMENT_ENABLED is closed (ADR 0045): %s", forbidden, raw)
+		}
+	}
+	if status, code := dossierStatus(t, env, f.session, f.eventID, f.carla); status != http.StatusNotFound || code != "CUSTOMER_NOT_FOUND" {
+		t.Errorf("a Holder-only Customer's Dossier status=%d code=%s, want 404 while assignment is dark", status, code)
+	}
+}
+
+// The Holder List carries the ids its Dossier links need: every row its buyer's
+// Customer id, and an accepted row its Holder's — never an unaccepted one's.
+func TestTheHolderListCarriesTheCustomerIdsItsDossierLinksNeed(t *testing.T) {
+	env := setupTest(t)
+	f := newDossierHolderFixture(t, env)
+
+	resp, body := env.get(t, holderListPath(f.eventID), authHeader(f.session))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("holder list status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	var page struct {
+		Data []map[string]json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body.Data, &page); err != nil {
+		t.Fatalf("decode holder list: %v", err)
+	}
+	if len(page.Data) != 4 {
+		t.Fatalf("rows = %d, want Ana's four Tickets", len(page.Data))
+	}
+	for _, row := range page.Data {
+		var ticketID, buyer, holder string
+		_ = json.Unmarshal(row["ticket_id"], &ticketID)
+		_ = json.Unmarshal(row["customer_id"], &buyer)
+		rawHolder, present := row["holder_customer_id"]
+		_ = json.Unmarshal(rawHolder, &holder)
+		if buyer != f.ana {
+			t.Errorf("row %s customer_id = %q, want Ana's %s", ticketID, buyer, f.ana)
+		}
+		switch ticketID {
+		case f.accepted:
+			if holder != f.carla {
+				t.Errorf("Carla's row holder_customer_id = %q, want %s", holder, f.carla)
+			}
+		case f.selfHeld:
+			if holder != f.ana {
+				t.Errorf("the Self-held row holder_customer_id = %q, want Ana's own %s", holder, f.ana)
+			}
+		default:
+			if present {
+				t.Errorf("unaccepted row %s carries holder_customer_id %s (ADR 0047)", ticketID, rawHolder)
+			}
+		}
+	}
+
+	// And both links open.
+	readDossier(t, env, f.session, f.eventID, f.carla)
+	readDossier(t, env, f.session, f.eventID, f.ana)
 }
