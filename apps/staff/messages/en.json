@@ -576,9 +576,9 @@
     "deselectAllChips": "Deselect all",
     "selectAllChips": "Select all",
     "blankCleared": "Pick the lines to compare.",
-    "blankUnlisted_clicks": "None of the selected lines has clicks in this range. Pick another line or widen the range — your selection is kept.",
-    "blankUnlisted_sales": "None of the selected links has attributed sales in this range. Pick another link or widen the range — your selection is kept.",
-    "blankUnlisted_rate": "None of the selected lines has an attribution rate in this range. Pick another line or widen the range — your selection is kept."
+    "blankUnlisted_clicks": "Pick the lines to compare. The lines you picked elsewhere have no clicks in this range — they are kept, and come back where they do.",
+    "blankUnlisted_sales": "Pick the lines to compare. The links you picked elsewhere have no attributed sales in this range — they are kept, and come back where they do.",
+    "blankUnlisted_rate": "Pick the lines to compare. The lines you picked elsewhere have no attribution rate in this range — they are kept, and come back where they do."
   },
   "pos": {
     "title": "Point of sale",

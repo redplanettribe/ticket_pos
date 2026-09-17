@@ -51,7 +51,7 @@ import {
   rateYMax,
   rateYTicks,
   salesSeries,
-  toggleListedSeries,
+  toggleSeriesSelection,
   trendsGranularity,
   viewsSeries,
   type AffiliateRateDatum,
@@ -260,7 +260,7 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
   // pick is how a reader narrows to a couple of links.
   const onToggle = useCallback(
     (id: string) => {
-      setSelected((current) => toggleListedSeries(order, current, id));
+      setSelected((current) => toggleSeriesSelection(order, current, id));
     },
     [order],
   );
@@ -675,7 +675,7 @@ function EmptyWindow({
 function BlankChart({ reason, metric }: { reason: TrendsBlankReason; metric: AffiliateTrendsMetric }) {
   const t = useTranslations("affiliateTrends");
   return (
-    <div className="rounded-md border border-dashed px-6 py-12 text-center">
+    <div role="status" className="rounded-md border border-dashed px-6 py-12 text-center">
       <p className="text-sm text-muted-foreground">
         {reason === "cleared" ? t("blankCleared") : t(`blankUnlisted_${metric}`)}
       </p>

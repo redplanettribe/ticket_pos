@@ -349,31 +349,6 @@ function windowStart(
 }
 
 /**
- * toggleSeriesSelection adds or removes a series from the drawn set, returning
- * `order`'s order regardless of click order. The last drawn series cannot be
- * deselected, for the reason Sales Trends' chips refuse it: an empty chart says
- * nothing, and the reader deselecting their last chip already has the
- * single-series view they were reaching for.
- */
-export function toggleSeriesSelection(
-  order: readonly string[],
-  selected: readonly string[],
-  id: string,
-): string[] {
-  const isSelected = selected.includes(id);
-  if (isSelected && selected.length <= 1) {
-    return [...selected];
-  }
-  const next = new Set(selected);
-  if (isSelected) {
-    next.delete(id);
-  } else {
-    next.add(id);
-  }
-  return order.filter((entry) => next.has(entry));
-}
-
-/**
  * The tick steps a Y axis is allowed to round up to, per decade.
  *
  * A finer ladder than Sales Trends' 1, 2, 2.5, 5, 10. A stack of bars is read
@@ -1098,12 +1073,13 @@ export function listTrendsSeries(
 }
 
 /**
- * toggleListedSeries is how a Reach Trends chip click changes the selection.
- * Unlike `toggleSeriesSelection` it refuses nothing: the last chip on can go
- * too, leaving a blank chart that asks for a pick, because a reader narrowing
- * to a couple of links needs a way down to none.
+ * toggleSeriesSelection adds or removes a series from the selection, returning
+ * `order`'s order regardless of click order. It refuses nothing — unlike Sales
+ * Trends' chips, the last one on can go too, leaving a blank chart that asks
+ * for a pick, because a reader narrowing to a couple of links needs a way down
+ * to none.
  */
-export function toggleListedSeries(
+export function toggleSeriesSelection(
   order: readonly string[],
   selected: readonly string[],
   id: string,
