@@ -9547,7 +9547,7 @@ export interface paths {
         };
         /**
          * Get a customer's dossier at an event
-         * @description The Customer Dossier ("Ficha del cliente"): everything this Event knows about one Customer, addressed by the Customer's id and never their email. `customer` carries the Customer's id and email and nothing else from the platform-global Customer record. `sales` lists every one of THIS Event's Ticket Sales to the Customer, newest first, reversed and corrected ones included: each carries the first and last name and the Tax ID type and number given ON THAT SALE — never the Customer record's current values, which a purchase at another Organization may have changed — with its confirmation reference, sold-at and recorded-at, Sales Channel, `source` and `origin` exactly as the Sales list states them, Ticket Types and quantities, amount and currency, and payment method. `status` is `active`, `reversed` (with `reversed_at`) or `corrected` — a reversed Sale a Sale Correction replaced, naming its replacement in `replaced_by_confirmation_ref`. The Organization's other Events are never read. No Terms Acceptance, Adulthood Declaration, Marketing Consent or avatar is ever included. A READ AND NOTHING ELSE: nothing is sent from here. 404 for an Event outside the caller's Organization, and 404 CUSTOMER_NOT_FOUND for a Customer with no Ticket Sale on this Event — including a malformed id and an id naming no Customer, which are indistinguishable from one who bought only elsewhere. Org Admin and Event Owner only; Event Staff are refused with 403.
+         * @description The Customer Dossier ("Ficha del cliente"): everything this Event knows about one Customer, addressed by the Customer's id and never their email. `customer` carries the Customer's id and email and nothing else from the platform-global Customer record. `sales` lists every one of THIS Event's Ticket Sales to the Customer, newest first, reversed and corrected ones included: each carries the first and last name and the Tax ID type and number given ON THAT SALE — never the Customer record's current values, which a purchase at another Organization may have changed — with its confirmation reference, sold-at and recorded-at, Sales Channel, `source` and `origin` exactly as the Sales list states them, Ticket Types and quantities, amount and currency, and payment method. `status` is `active`, `reversed` (with `reversed_at`) or `corrected` — a reversed Sale a Sale Correction replaced, naming its replacement in `replaced_by_confirmation_ref`. The Organization's other Events are never read. No Terms Acceptance, Adulthood Declaration, Marketing Consent or avatar is ever included. Each Sale lists its `tickets` (Ticket Type and ordinal); on an active Sale, while Ticket Assignment is open, each also carries its assignment state, `never_accepted` for an assignment the retention purge closed, `self_held` for the Customer's own Ticket, and — ONLY once accepted by somebody else — that Holder's Customer id and name. An unaccepted assignment's name and address are never included (ADR 0047). A reversed or corrected Sale's Tickets carry Ticket Type and ordinal only. While Ticket Assignment is open each Sale also carries `assignment_reminder_sent_at`, and the Dossier carries `held_tickets`: the Tickets the Customer accepted on somebody else's Sale of this Event, with the buyer's name as given on that Sale, accepted-at, and `sale_status` `reversed` when that Sale was reversed. With Ticket Assignment closed all of those are omitted. A READ AND NOTHING ELSE: nothing is sent from here. 404 for an Event outside the caller's Organization, and 404 CUSTOMER_NOT_FOUND for a Customer with no Ticket Sale on this Event and — while Ticket Assignment is open — no accepted Ticket of it (a Ticket on a reversed Sale included) — including a malformed id and an id naming no Customer, which are indistinguishable from one who bought only elsewhere. Org Admin and Event Owner only; Event Staff are refused with 403.
          */
         get: {
             parameters: {
@@ -16386,6 +16386,13 @@ export interface components {
         "service.CustomerDossier": {
             customer?: components["schemas"]["service.DossierCustomerView"];
             /**
+             * @description HeldTickets are the Tickets of this Event the Customer ACCEPTED on
+             *     somebody else's Sale, reversed Sales included, newest Sale first (#640).
+             *     Absent while TICKET_ASSIGNMENT_ENABLED is closed (ADR 0045); `[]` when
+             *     they hold none.
+             */
+            held_tickets?: components["schemas"]["service.DossierHeldTicketView"][];
+            /**
              * @description Sales are this Event's Ticket Sales to the Customer, reversed and
              *     corrected ones included, newest first.
              */
@@ -16589,6 +16596,29 @@ export interface components {
             email?: string;
             id?: string;
         };
+        "service.DossierHeldTicketView": {
+            /** @description AcceptedAt is when this Customer accepted the Ticket. */
+            accepted_at?: string;
+            /** @description The buyer's name as given on that Sale. */
+            buyer_first_name?: string;
+            buyer_last_name?: string;
+            confirmation_ref?: string;
+            /** @description The name this Customer gave as its Holder. */
+            holder_first_name?: string;
+            holder_last_name?: string;
+            ordinal?: number;
+            /**
+             * @description SaleStatus is `reversed` when that Sale was reversed (a Sale Correction
+             *     included): the Ticket is void, and this Customer held it.
+             * @enum {string}
+             */
+            sale_status?: "active" | "reversed";
+            ticket_id?: string;
+            /** @description TicketSaleID and ConfirmationRef name the Sale it is on. */
+            ticket_sale_id?: string;
+            ticket_type_id?: string;
+            ticket_type_name?: string;
+        };
         "service.DossierSaleLineView": {
             quantity?: number;
             ticket_type_id?: string;
@@ -16601,6 +16631,11 @@ export interface components {
              */
             affiliate_link_name?: string;
             amount_cents?: number;
+            /**
+             * @description AssignmentReminderSentAt is when an Assignment Reminder was sent about
+             *     this Sale, oldest first. Absent while TICKET_ASSIGNMENT_ENABLED is closed.
+             */
+            assignment_reminder_sent_at?: string[];
             /** @description Channel is the Sales Channel: `online`, `in_person` or `import`. */
             channel?: string;
             confirmation_ref?: string;
@@ -16652,6 +16687,12 @@ export interface components {
              */
             tax_invoices?: components["schemas"]["service.DossierTaxInvoiceView"][];
             ticket_types?: components["schemas"]["service.DossierSaleLineView"][];
+            /**
+             * @description Tickets are the Sale's Tickets in the catalog's order. A reversed or
+             *     corrected Sale's Tickets are void and carry their Ticket Type and ordinal
+             *     only; `status` is what says so.
+             */
+            tickets?: components["schemas"]["service.DossierTicketView"][];
         };
         "service.DossierTaxInvoiceView": {
             /**
@@ -16677,6 +16718,36 @@ export interface components {
             role?: "current" | "superseded" | "credit_note" | "not_current";
             /** @enum {string} */
             status?: "owed" | "pending" | "authorized" | "not_authorized" | "rejected" | "needs_attention" | "withdrawn" | "annulled" | "abandoned";
+        };
+        "service.DossierTicketView": {
+            /**
+             * @description AssignmentState is `unassigned`, `assigned` or `accepted`.
+             * @enum {string}
+             */
+            assignment_state?: "unassigned" | "assigned" | "accepted";
+            /**
+             * @description The accepted Holder when that is somebody else: their Customer id, which
+             *     links their Dossier, and the name they gave as Holder.
+             */
+            holder_customer_id?: string;
+            holder_first_name?: string;
+            holder_last_name?: string;
+            /**
+             * @description NeverAccepted marks an assignment whose unaccepted address the retention
+             *     purge took; it reads `assigned` beside it (#334).
+             */
+            never_accepted?: boolean;
+            /** @description Ordinal is which of its Ticket Sale Line's units this Ticket is. */
+            ordinal?: number;
+            /**
+             * @description SelfHeld marks a Ticket this Customer accepted on their own Sale — their
+             *     Self-held Ticket (ADR 0048) — which names nobody else.
+             */
+            self_held?: boolean;
+            /** @description TicketID is what the Ticket's Answers are read and given by. */
+            ticket_id?: string;
+            ticket_type_id?: string;
+            ticket_type_name?: string;
         };
         "service.DrainResult": {
             /**
@@ -17135,7 +17206,18 @@ export interface components {
              *     not this payload's.
              */
             customer_first_name?: string;
+            /**
+             * @description CustomerID is the buyer's Customer, which the buyer's name links a
+             *     Customer Dossier by (#640).
+             */
+            customer_id?: string;
             customer_last_name?: string;
+            /**
+             * @description HolderCustomerID is the accepted Holder's Customer, which their name
+             *     links a Customer Dossier by (#640). Filled on exactly the name's terms,
+             *     through fillHolderListEntry: an unaccepted assignment offers no link.
+             */
+            holder_customer_id?: string;
             holder_email?: string;
             /**
              * @description HolderFirstName, HolderLastName and HolderEmail are the person a Ticket was

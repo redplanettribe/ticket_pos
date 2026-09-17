@@ -13,6 +13,12 @@
  */
 
 import { ApiError } from "./events-api.ts";
+import {
+  ASSIGNMENT_STATE_KEYS,
+  assignmentStateBadgeVariant,
+  type HolderStateKey,
+  type TicketAssignmentState,
+} from "./holder-list.ts";
 import type { SaleTicketType } from "./sales-api.ts";
 
 /*
@@ -59,6 +65,16 @@ export type DossierSale = {
   tax_invoices: DossierTaxInvoice[];
   /** When the Sale was re-addressed (ADR 0058), or null. Never either address. */
   re_addressed_at: string | null;
+  /*
+    TICKETS AND HOLDERS (#640).
+  */
+  /** Every Ticket of the Sale; on a reversed or corrected Sale they are void. */
+  tickets: DossierTicket[];
+  /**
+   * When the Assignment Reminder was sent for this Sale, oldest first. ABSENT
+   * while `TICKET_ASSIGNMENT_ENABLED` is closed, so its absence is the flag.
+   */
+  assignment_reminder_sent_at?: string[];
 };
 
 /** One Tax Invoice about a Dossier Sale. Strings on the wire: narrow before drawing. */
@@ -77,6 +93,50 @@ export type CustomerDossier = {
   customer: { id: string; email: string };
   /** Newest `sold_at` first, as the API orders them. */
   sales: DossierSale[];
+  /**
+   * Tickets this Customer holds, accepted, on SOMEBODY ELSE's Sale (#640).
+   * Absent while `TICKET_ASSIGNMENT_ENABLED` is closed.
+   */
+  held_tickets?: DossierHeldTicket[];
+};
+
+/**
+ * One Ticket of one of the Customer's own Sales (#640).
+ *
+ * The assignment fields follow the Holder List's rules (ADR 0047): all absent
+ * while the flag is closed and on a Sale that no longer stands; a Holder is
+ * named only once they accepted; a purged assignment is `assigned` with
+ * `never_accepted`. `self_held` marks the buyer's own Ticket (ADR 0048).
+ */
+export type DossierTicket = {
+  ticket_id: string;
+  ticket_type_id: string;
+  ticket_type_name: string;
+  ordinal: number;
+  assignment_state?: TicketAssignmentState;
+  never_accepted?: boolean;
+  self_held?: boolean;
+  holder_customer_id?: string;
+  holder_first_name?: string;
+  holder_last_name?: string;
+};
+
+/** A Ticket this Customer accepted on another buyer's Sale (#640). */
+export type DossierHeldTicket = {
+  ticket_id: string;
+  ticket_type_id: string;
+  ticket_type_name: string;
+  ordinal: number;
+  ticket_sale_id: string;
+  confirmation_ref: string;
+  /** `active` or `reversed` on the wire; read it with `heldTicketOnReversedSale`. */
+  sale_status: string;
+  buyer_first_name: string;
+  buyer_last_name: string;
+  accepted_at: string;
+  /** The name this Customer gave as Holder. */
+  holder_first_name?: string;
+  holder_last_name?: string;
 };
 
 /**
@@ -223,4 +283,100 @@ export function nameGivenOnSale(sale: Pick<DossierSale, "customer_first_name" | 
     .map((part) => (part ?? "").trim())
     .filter(Boolean)
     .join(" ");
+}
+
+/*
+  TICKETS AND HOLDERS (#640)
+*/
+
+function joinName(first: string | undefined, last: string | undefined): string {
+  return [first ?? "", last ?? ""]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * The words one Ticket's assignment is named with: the Holder List's own
+ * `outstandingAnswers` keys, so the two screens cannot describe one Ticket
+ * differently — plus `selfHeld`, a `customerDossier` key, for the buyer's own
+ * Ticket, which is theirs and not given away. Null when the payload carries no
+ * state (the flag closed, or a void Sale): there is nothing to draw.
+ */
+export type DossierTicketStateKey = HolderStateKey | "selfHeld";
+
+export function dossierTicketStateKey(ticket: DossierTicket): DossierTicketStateKey | null {
+  if (!ticket.assignment_state) {
+    return null;
+  }
+  if (ticket.self_held) {
+    return "selfHeld";
+  }
+  if (ticket.never_accepted) {
+    return "holderNeverAccepted";
+  }
+  return ASSIGNMENT_STATE_KEYS[ticket.assignment_state];
+}
+
+/** The Badge variant for `dossierTicketStateKey`, in the Holder List's colours. */
+export function dossierTicketBadgeVariant(
+  ticket: DossierTicket,
+): "success" | "warning" | "outline" | "secondary" | null {
+  if (!ticket.assignment_state) {
+    return null;
+  }
+  if (ticket.self_held) {
+    return "secondary";
+  }
+  if (ticket.never_accepted) {
+    return "outline";
+  }
+  return assignmentStateBadgeVariant(ticket.assignment_state);
+}
+
+/** The accepted Holder's name on a Ticket, or "" when nobody is named. */
+export function holderNameOnTicket(ticket: DossierTicket): string {
+  return joinName(ticket.holder_first_name, ticket.holder_last_name);
+}
+
+/**
+ * The Customer whose Dossier a Ticket's Holder name opens, or null for no link:
+ * only an accepted Holder, and never the buyer's own Self-held Ticket, which
+ * would only link back to the page it is on.
+ */
+export function ticketHolderDossierId(ticket: DossierTicket): string | null {
+  if (ticket.assignment_state !== "accepted" || ticket.self_held || !ticket.holder_customer_id) {
+    return null;
+  }
+  return ticket.holder_customer_id;
+}
+
+/** Whether a Sale's Assignment Reminder times exist to draw; off the payload's absence. */
+export function assignmentRemindersVisible(
+  sale: Pick<DossierSale, "assignment_reminder_sent_at">,
+): boolean {
+  return sale.assignment_reminder_sent_at !== undefined;
+}
+
+/** Whether the held Tickets section exists; off the payload's absence (ADR 0045). */
+export function heldTicketsVisible(dossier: Pick<CustomerDossier, "held_tickets">): boolean {
+  return dossier.held_tickets !== undefined;
+}
+
+/** The buyer of the Sale a held Ticket belongs to, or "" when no name was given. */
+export function heldTicketBuyerName(ticket: DossierHeldTicket): string {
+  return joinName(ticket.buyer_first_name, ticket.buyer_last_name);
+}
+
+/** The name this Customer gave as the Holder, or "" when none was given. */
+export function nameGivenAsHolder(ticket: DossierHeldTicket): string {
+  return joinName(ticket.holder_first_name, ticket.holder_last_name);
+}
+
+/**
+ * Whether the held Ticket's Sale no longer stands, so there is no live Ticket.
+ * Anything but `active` counts, so an unfamiliar status is never drawn as live.
+ */
+export function heldTicketOnReversedSale(ticket: DossierHeldTicket): boolean {
+  return ticket.sale_status !== "active";
 }

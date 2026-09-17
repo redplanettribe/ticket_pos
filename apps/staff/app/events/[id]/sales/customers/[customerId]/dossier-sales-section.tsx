@@ -36,6 +36,7 @@ import {
 } from "../../../sales-list";
 
 import { DossierSaleSurroundings } from "./dossier-sale-surroundings";
+import { DossierTickets } from "./dossier-tickets";
 
 type DossierSalesSectionProps = {
   sales: DossierSale[];
@@ -164,6 +165,7 @@ export function DossierSaleCard({ sale, zone, locale }: DossierSaleCardProps) {
         </Fact>
       </dl>
       <DossierSaleSurroundings sale={sale} zone={zone} locale={locale} />
+      <DossierTickets sale={sale} zone={zone} locale={locale} />
     </article>
   );
 }

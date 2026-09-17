@@ -159,6 +159,163 @@ func (r *Repository) ListDossierSales(ctx context.Context, orgID, eventID, custo
 	return out, rows.Err()
 }
 
+// --- Tickets and Holders (#640) ----------------------------------------------
+//
+// THE HOLDER COLUMNS ARE REPORTED, NOT DISCLOSED. These reads hand the service
+// the raw assignment columns of each Ticket, exactly as HolderTicket does for the
+// Holder List, and what an Organization is told about them is decided once, in
+// catalog.DiscloseHolder. The one filter over Holders here — "held by this
+// Customer" — is `holder_customer_id = customer AND accepted_at IS NOT NULL`,
+// which is that rule's `accepted` read through its query-side twin: a Customer
+// id is only ever on an accepted Ticket (migration 080), and only an accepted
+// Holder is disclosed.
+
+// DossierTicket is one Ticket of a Dossier Sale with its raw assignment columns.
+type DossierTicket struct {
+	ID             string
+	TicketSaleID   string
+	Ordinal        int
+	TicketTypeID   string
+	TicketTypeName string
+
+	HolderEmail           sql.NullString
+	HolderCustomerID      sql.NullString
+	AssignedAt            sql.NullTime
+	AcceptedAt            sql.NullTime
+	HolderAddressPurgedAt sql.NullTime
+	// The accepted Holder's name, from the Customer their acceptance minted or
+	// matched — the Holder List's own source (holderRosterHolderJoin).
+	HolderFirstName sql.NullString
+	HolderLastName  sql.NullString
+}
+
+// ListDossierSaleTickets returns every Ticket of the given Sales, re-scoped to
+// this Event of this Organization, grouped by Sale in the catalog's order and
+// then by ordinal — the order the Self-held Ticket is chosen in (ADR 0048).
+func (r *Repository) ListDossierSaleTickets(ctx context.Context, orgID, eventID string, saleIDs []string) ([]DossierTicket, error) {
+	if len(saleIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT tk.id, s.id, tk.ordinal, tt.id, tt.name,
+		       tk.holder_email, tk.holder_customer_id, tk.assigned_at, tk.accepted_at, tk.holder_address_purged_at,
+		       hc.first_name, hc.last_name
+		FROM tickets tk
+		JOIN ticket_sale_lines l ON l.id = tk.ticket_sale_line_id
+		JOIN ticket_sales s ON s.id = l.ticket_sale_id
+		JOIN ticket_types tt ON tt.id = l.ticket_type_id
+	`+holderRosterHolderJoin+`
+		WHERE s.event_id = $1 AND s.organization_id = $2 AND s.id = ANY($3)
+		ORDER BY s.id, tt.sort_order, tt.name COLLATE "C", l.ticket_type_id, tk.ordinal
+	`, eventID, orgID, saleIDs)
+	if err != nil {
+		return nil, fmt.Errorf("dossier sale tickets: %w", err)
+	}
+	defer rows.Close()
+
+	var out []DossierTicket
+	for rows.Next() {
+		var tk DossierTicket
+		if err := rows.Scan(
+			&tk.ID, &tk.TicketSaleID, &tk.Ordinal, &tk.TicketTypeID, &tk.TicketTypeName,
+			&tk.HolderEmail, &tk.HolderCustomerID, &tk.AssignedAt, &tk.AcceptedAt, &tk.HolderAddressPurgedAt,
+			&tk.HolderFirstName, &tk.HolderLastName,
+		); err != nil {
+			return nil, fmt.Errorf("dossier sale tickets scan: %w", err)
+		}
+		out = append(out, tk)
+	}
+	return out, rows.Err()
+}
+
+// DossierHeldTicket is a Ticket the Customer accepted on somebody else's Sale
+// of this Event, with that Sale's standing and the buyer's name as given on it.
+type DossierHeldTicket struct {
+	DossierTicket
+	ConfirmationRef string
+	SaleStatus      string
+	BuyerFirstName  string
+	BuyerLastName   string
+}
+
+// ListDossierHeldTickets returns the Tickets of this Event the Customer has
+// accepted on Sales made to somebody else — reversed Sales included, so a Holder
+// whose Sale was reversed is still found — newest Sale first.
+//
+// Their own Sales' Tickets are excluded: those are listed under the Sale.
+func (r *Repository) ListDossierHeldTickets(ctx context.Context, orgID, eventID, customerID string) ([]DossierHeldTicket, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT tk.id, s.id, tk.ordinal, tt.id, tt.name,
+		       tk.holder_email, tk.holder_customer_id, tk.assigned_at, tk.accepted_at, tk.holder_address_purged_at,
+		       hc.first_name, hc.last_name,
+		       s.confirmation_ref, s.status, s.customer_first_name, s.customer_last_name
+		FROM tickets tk
+		JOIN ticket_sale_lines l ON l.id = tk.ticket_sale_line_id
+		JOIN ticket_sales s ON s.id = l.ticket_sale_id
+		JOIN ticket_types tt ON tt.id = l.ticket_type_id
+	`+holderRosterHolderJoin+`
+		WHERE s.event_id = $1 AND s.organization_id = $2
+		  AND tk.holder_customer_id = $3 AND tk.accepted_at IS NOT NULL
+		  AND s.customer_id <> $3
+		ORDER BY s.sold_at DESC, s.id DESC, tt.sort_order, tt.name COLLATE "C", l.ticket_type_id, tk.ordinal
+	`, eventID, orgID, customerID)
+	if err != nil {
+		return nil, fmt.Errorf("dossier held tickets: %w", err)
+	}
+	defer rows.Close()
+
+	var out []DossierHeldTicket
+	for rows.Next() {
+		var tk DossierHeldTicket
+		if err := rows.Scan(
+			&tk.ID, &tk.TicketSaleID, &tk.Ordinal, &tk.TicketTypeID, &tk.TicketTypeName,
+			&tk.HolderEmail, &tk.HolderCustomerID, &tk.AssignedAt, &tk.AcceptedAt, &tk.HolderAddressPurgedAt,
+			&tk.HolderFirstName, &tk.HolderLastName,
+			&tk.ConfirmationRef, &tk.SaleStatus, &tk.BuyerFirstName, &tk.BuyerLastName,
+		); err != nil {
+			return nil, fmt.Errorf("dossier held tickets scan: %w", err)
+		}
+		out = append(out, tk)
+	}
+	return out, rows.Err()
+}
+
+// DossierAssignmentReminder is one Assignment Reminder sent about a Sale.
+type DossierAssignmentReminder struct {
+	TicketSaleID string
+	SentAt       time.Time
+}
+
+// ListDossierAssignmentReminders returns when an Assignment Reminder was sent
+// about each of the given Sales (the `assignment_reminders` ledger), oldest
+// first, re-scoped to this Event of this Organization.
+func (r *Repository) ListDossierAssignmentReminders(ctx context.Context, orgID, eventID string, saleIDs []string) ([]DossierAssignmentReminder, error) {
+	if len(saleIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT ar.ticket_sale_id, ar.sent_at
+		FROM assignment_reminders ar
+		JOIN ticket_sales s ON s.id = ar.ticket_sale_id
+		WHERE s.event_id = $1 AND s.organization_id = $2 AND s.id = ANY($3)
+		ORDER BY ar.sent_at ASC, ar.id ASC
+	`, eventID, orgID, saleIDs)
+	if err != nil {
+		return nil, fmt.Errorf("dossier assignment reminders: %w", err)
+	}
+	defer rows.Close()
+
+	var out []DossierAssignmentReminder
+	for rows.Next() {
+		var reminder DossierAssignmentReminder
+		if err := rows.Scan(&reminder.TicketSaleID, &reminder.SentAt); err != nil {
+			return nil, fmt.Errorf("dossier assignment reminders scan: %w", err)
+		}
+		out = append(out, reminder)
+	}
+	return out, rows.Err()
+}
+
 // dossierString turns a nullable column into the pointer the Dossier carries.
 func dossierString(v sql.NullString) *string {
 	if !v.Valid {

@@ -837,7 +837,20 @@
     "taxInvoicesLabel": "Tax invoices",
     "taxInvoicesNone": "No tax invoices.",
     "invoiceUnnumbered": "Not numbered yet",
-    "invoiceRecipient": "Issued to {name} — {taxId}"
+    "invoiceRecipient": "Issued to {name} — {taxId}",
+    "ticketsLabel": "Tickets",
+    "noTicketsOnSale": "No tickets on this sale.",
+    "voidTickets": "These tickets are void: the sale no longer stands.",
+    "selfHeld": "Their own ticket",
+    "remindersLabel": "Assignment reminders sent",
+    "remindersNone": "None sent",
+    "heldHeading": "Tickets held on other people's sales",
+    "heldNone": "No tickets held on other people's sales.",
+    "heldBoughtBy": "Bought by {name}",
+    "heldBuyerUnnamed": "Bought by someone who gave no name",
+    "heldAcceptedAt": "Accepted {when}",
+    "heldNameGiven": "Name given as holder: {name}",
+    "heldSaleReversed": "Sale reversed — no live ticket"
   },
   "trends": {
     "title": "Trends",

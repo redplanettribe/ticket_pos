@@ -8,9 +8,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, Skeleton } f
 import { useMessages, useTranslations } from "next-intl";
 
 import { apiErrorMessage } from "@/lib/api-errors";
-import { fetchCustomerDossier, type CustomerDossierResult } from "@/lib/customer-dossier";
+import {
+  fetchCustomerDossier,
+  heldTicketsVisible,
+  type CustomerDossierResult,
+} from "@/lib/customer-dossier";
 import { ApiError } from "@/lib/events-api";
 
+import { DossierHeldTicketsSection } from "./dossier-held-tickets-section";
 import { DossierIdentitySection } from "./dossier-identity-section";
 import { DossierSalesSection } from "./dossier-sales-section";
 
@@ -95,6 +100,9 @@ export function CustomerDossierSection({
             <>
               <DossierIdentitySection customer={load.dossier.customer} />
               <DossierSalesSection sales={load.dossier.sales} timezone={timezone} />
+              {heldTicketsVisible(load.dossier) ? (
+                <DossierHeldTicketsSection heldTickets={load.dossier.held_tickets ?? []} timezone={timezone} />
+              ) : null}
             </>
           )}
         </CardContent>

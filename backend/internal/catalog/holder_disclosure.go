@@ -9,8 +9,11 @@ type HolderAssignment struct {
 	HolderEmail     string
 	HolderFirstName string
 	HolderLastName  string
-	AssignedAt      *time.Time
-	AcceptedAt      *time.Time
+	// HolderCustomerID is the Customer whose acceptance the Ticket records
+	// (`tickets.holder_customer_id`).
+	HolderCustomerID string
+	AssignedAt       *time.Time
+	AcceptedAt       *time.Time
 	// HolderAddressPurgedAt is migration 081's marker: when the retention purge
 	// took an address nobody accepted.
 	HolderAddressPurgedAt *time.Time
@@ -25,6 +28,11 @@ type HolderDisclosure struct {
 	HolderFirstName string
 	HolderLastName  string
 	HolderEmail     string
+	// HolderCustomerID is what links the accepted Holder's Customer Dossier
+	// (#640), and AcceptedAt when they accepted. Filled on the same terms as the
+	// name: a link to a person is as much a disclosure of them as their name.
+	HolderCustomerID string
+	AcceptedAt       *time.Time
 }
 
 // DiscloseHolder is THE rule for what a Ticket discloses about its Holder to the
@@ -49,7 +57,8 @@ type HolderDisclosure struct {
 //
 // The repository's holder filter predicates are this rule's query-side twin and
 // must agree with it (the holder search and `assignment_state` predicates in
-// repository/outstanding_answer_repository.go).
+// repository/outstanding_answer_repository.go, and the Customer Dossier's "held
+// by this Customer" filter in repository/customer_dossier_repository.go).
 func DiscloseHolder(assignmentEnabled bool, ticket HolderAssignment) HolderDisclosure {
 	if !assignmentEnabled {
 		return HolderDisclosure{}
@@ -66,5 +75,8 @@ func DiscloseHolder(assignmentEnabled bool, ticket HolderAssignment) HolderDiscl
 		HolderFirstName: ticket.HolderFirstName,
 		HolderLastName:  ticket.HolderLastName,
 		HolderEmail:     ticket.HolderEmail,
+		// The Customer id and the acceptance time only here, once accepted.
+		HolderCustomerID: ticket.HolderCustomerID,
+		AcceptedAt:       ticket.AcceptedAt,
 	}
 }

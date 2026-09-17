@@ -22,6 +22,7 @@ import {
   holderListQuery,
   holderListVisible,
   holderName,
+  holderDossierCustomerId,
   holderStateKey,
   isOutstandingTheOnlyFilter,
   parseHolderDir,
@@ -38,6 +39,7 @@ const ticket = (first: string, last: string): HolderTicket => ({
   ticket_sale_id: "s_1",
   confirmation_ref: "ABC-123",
   channel: "online",
+  customer_id: "cus_buyer",
   customer_first_name: first,
   customer_last_name: last,
   customer_email: "ana@example.com",
@@ -743,4 +745,27 @@ test("the export path escapes a search term", () => {
     holderExportPath("evt-1", filters({ q: "a b&c=d" })),
     "/api/events/evt-1/holder-list/export?q=a+b%26c%3Dd",
   );
+});
+
+// --- the Holder's Dossier (#640) ---------------------------------------------------
+
+// Only an ACCEPTED Holder is a Customer this Event can name; an address a buyer
+// typed and nobody accepted offers no link, and neither does a purged one.
+test("only an accepted Holder's Dossier can be opened from a row", () => {
+  assert.equal(
+    holderDossierCustomerId(holderRow({ assignment_state: "accepted", holder_customer_id: "cus_holder" })),
+    "cus_holder",
+  );
+  assert.equal(
+    holderDossierCustomerId(holderRow({ assignment_state: "assigned", holder_customer_id: "cus_holder" })),
+    null,
+  );
+  assert.equal(holderDossierCustomerId(holderRow({ assignment_state: "assigned", never_accepted: true })), null);
+  assert.equal(holderDossierCustomerId(holderRow({ assignment_state: "unassigned" })), null);
+  assert.equal(holderDossierCustomerId(holderRow({})), null);
+});
+
+test("an accepted row the API sent without a Holder id offers no link", () => {
+  assert.equal(holderDossierCustomerId(holderRow({ assignment_state: "accepted" })), null);
+  assert.equal(holderDossierCustomerId(holderRow({ assignment_state: "accepted", holder_customer_id: "" })), null);
 });
