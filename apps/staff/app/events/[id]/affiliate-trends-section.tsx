@@ -35,9 +35,11 @@ import {
   DEFAULT_AFFILIATE_TRENDS_RANGE,
   RATE_TRENDS_RANGES,
   affiliateTrendsPlotWidth,
+  allSeriesAction,
   availableTrendsMetrics,
   countYTicks,
   fetchAffiliateTrends,
+  flipAllSeries,
   granularityChoosable,
   hasTrendsData,
   latestBucketsScrollLeft,
@@ -49,7 +51,7 @@ import {
   rateYMax,
   rateYTicks,
   salesSeries,
-  toggleListedSeries,
+  toggleSeriesSelection,
   trendsGranularity,
   viewsSeries,
   type AffiliateRateDatum,
@@ -59,6 +61,7 @@ import {
   type AffiliateTrendsGranularity,
   type AffiliateTrendsMetric,
   type AffiliateTrendsRange,
+  type TrendsBlankReason,
 } from "@/lib/affiliate-trends";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
@@ -187,7 +190,7 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
     () =>
       trends
         ? listTrendsSeries(trends, selected, metric, range, granularity, rateView, now)
-        : { listed: [], drawn: [], empty: true },
+        : { listed: [], drawn: [], empty: true, blank: null },
     [trends, selected, metric, range, granularity, rateView, now],
   );
 
@@ -253,14 +256,23 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
     [t],
   );
 
-  // The last chip THIS window lists cannot be deselected: a still-selected
-  // series the window does not list is not on the chart, so it must not count
-  // as "something is still drawn".
+  // Any chip can go, the last one on included: a blank chart that asks for a
+  // pick is how a reader narrows to a couple of links.
   const onToggle = useCallback(
     (id: string) => {
-      setSelected((current) => toggleListedSeries(order, listing.listed, current, id));
+      setSelected((current) => toggleSeriesSelection(order, current, id));
     },
-    [order, listing],
+    [order],
+  );
+
+  // The pill ahead of the chips, reading what this window draws: Deselect all
+  // while a line is on the chart, Select all while none is.
+  const allToggle = useMemo(
+    () => ({
+      label: t(allSeriesAction(listing.drawn) === "deselect" ? "deselectAllChips" : "selectAllChips"),
+      onClick: () => setSelected(flipAllSeries(order, listing.drawn)),
+    }),
+    [t, order, listing],
   );
 
   return (
@@ -290,6 +302,7 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
                 onToggle={onToggle}
                 ariaLabel={t("chipsLabel")}
                 collapsible={collapseLabels}
+                allToggle={allToggle}
               />
               <div className="flex flex-wrap items-center gap-2">
                 {metricOptions.length > 1 ? (
@@ -325,6 +338,8 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
             </div>
             {listing.empty ? (
               <EmptyWindow metric={metric} range={metric === "rate" ? rateRange(range) : range} />
+            ) : listing.blank ? (
+              <BlankChart reason={listing.blank} metric={metric} />
             ) : metric === "rate" ? (
               <RateChart
                 trends={trends}
@@ -647,6 +662,22 @@ function EmptyWindow({
     <div className="rounded-md border border-dashed px-6 py-12 text-center">
       <p className="text-sm text-muted-foreground">
         {t(`emptyWindow_${metric}`, { window: t(`window_${range}`) })}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * What a window with something to show says when no line is drawn: either the
+ * reader cleared every chip, or what they picked has nothing in this window —
+ * said apart, so a kept selection never reads as missing data.
+ */
+function BlankChart({ reason, metric }: { reason: TrendsBlankReason; metric: AffiliateTrendsMetric }) {
+  const t = useTranslations("affiliateTrends");
+  return (
+    <div role="status" className="rounded-md border border-dashed px-6 py-12 text-center">
+      <p className="text-sm text-muted-foreground">
+        {reason === "cleared" ? t("blankCleared") : t(`blankUnlisted_${metric}`)}
       </p>
     </div>
   );

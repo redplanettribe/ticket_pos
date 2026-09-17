@@ -35,6 +35,18 @@ export type ChartLegendChipsProps = {
    * legend is exactly the plain wrapping row it always was.
    */
   collapsible?: ChartLegendChipsCollapseLabels;
+  /**
+   * Opt in to a pill ahead of the chips that selects or deselects every
+   * series at once. The caller decides what it says and what it does, since
+   * the caller owns the selection; this only draws it where a collapsed legend
+   * cannot hide it. Off by default.
+   */
+  allToggle?: ChartLegendChipsAllToggle;
+};
+
+export type ChartLegendChipsAllToggle = {
+  label: string;
+  onClick: () => void;
 };
 
 /** How many chip rows a collapsed legend shows. */
@@ -71,6 +83,7 @@ export function ChartLegendChips({
   ariaLabel,
   className,
   collapsible,
+  allToggle,
 }: ChartLegendChipsProps) {
   const groupId = React.useId();
   const [group, setGroup] = React.useState<HTMLDivElement | null>(null);
@@ -103,6 +116,20 @@ export function ChartLegendChips({
         className,
       )}
     >
+      {/* First, so a collapsed legend never hides it, and without a colour dot
+          or a chip's fill so it cannot be read as a series. */}
+      {allToggle ? (
+        <button
+          type="button"
+          onClick={allToggle.onClick}
+          className={cn(
+            "inline-flex items-center rounded-full border bg-background px-3 py-1 text-xs font-semibold text-foreground transition-colors hover:bg-accent",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+          )}
+        >
+          {allToggle.label}
+        </button>
+      ) : null}
       {chips.map((chip) => {
         const isSelected = selected.includes(chip.id);
         return (

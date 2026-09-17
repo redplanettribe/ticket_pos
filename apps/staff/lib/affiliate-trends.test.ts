@@ -201,10 +201,6 @@ test("toggling a drawn series off removes it; toggling back restores order", () 
   assert.deepEqual(toggleSeriesSelection(ORDER, without, LINK_A), ORDER);
 });
 
-test("the last drawn series cannot be deselected", () => {
-  assert.deepEqual(toggleSeriesSelection(ORDER, [LINK_B], LINK_B), [LINK_B]);
-});
-
 // --- axis scale and plot width --------------------------------------------
 
 test("the axis tops the tallest single value, rounded to a readable tick", () => {
@@ -800,7 +796,7 @@ test("an empty window opens at the plot's end, and the anchor never overshoots e
 // `selected` is an input it never rewrites — a dimmed link stays dimmed
 // through every range and metric switch, listed or not.
 
-import { listTrendsSeries, toggleListedSeries } from "./affiliate-trends.ts";
+import { allSeriesAction, flipAllSeries, listTrendsSeries } from "./affiliate-trends.ts";
 
 const LINK_C = "5f0f8f6a-0000-0000-0000-00000000000c";
 const LINKS = [LINK_A, LINK_B, LINK_C].map((id) => ({ id, name: id.slice(-1), active: true }));
@@ -915,40 +911,53 @@ test("a window in which nothing was counted is empty, whichever series are selec
     [SALE("2026-08-21T09:00", LINK_A, 1, 1, 100)],
   );
   const clicks = listTrendsSeries(trends, [LINK_B], "clicks", "24h", "hour", "cumulative", NOW);
-  assert.deepEqual(clicks, { listed: [], drawn: [], empty: true });
+  assert.deepEqual(clicks, { listed: [], drawn: [], empty: true, blank: null });
   const sales = listTrendsSeries(trends, ALL_SELECTED, "sales", "24h", "hour", "cumulative", NOW);
   assert.equal(sales.empty, true);
   // The same data is not empty on the week — the window, not the history, is empty.
   const week = listTrendsSeries(trends, ALL_SELECTED, "clicks", "7d", "hour", "cumulative", NOW);
   assert.equal(week.empty, false);
-  // A selection that meets nothing listed draws everything listed: the reader
-  // dimmed a link on one window, and this window lists only that link. Nothing
-  // drawn is never the answer, and `selected` is not rewritten for it.
+  // A selection that meets nothing listed draws nothing: the reader picked a
+  // link on one window, and this window lists only others. The chart stays
+  // empty and says why, and `selected` is not rewritten for it.
   const chosen = [LINK_B];
-  const dimmed = listTrendsSeries(trends, chosen, "clicks", "7d", "hour", "cumulative", NOW);
-  assert.deepEqual(dimmed, {
+  const elsewhere = listTrendsSeries(trends, chosen, "clicks", "7d", "hour", "cumulative", NOW);
+  assert.deepEqual(elsewhere, {
     listed: [ALL_PAGE_VIEWS_ID, LINK_A],
-    drawn: [ALL_PAGE_VIEWS_ID, LINK_A],
+    drawn: [],
     empty: false,
+    blank: "unlisted",
   });
   assert.deepEqual(chosen, [LINK_B]);
+  // With nothing selected at all, nothing is drawn, and the reader is asked to pick.
+  const cleared = listTrendsSeries(trends, [], "clicks", "7d", "hour", "cumulative", NOW);
+  assert.deepEqual(cleared, {
+    listed: [ALL_PAGE_VIEWS_ID, LINK_A],
+    drawn: [],
+    empty: false,
+    blank: "cleared",
+  });
   // Once one listed series is chosen, only the chosen are drawn.
   const one = listTrendsSeries(trends, [LINK_A, LINK_B], "clicks", "7d", "hour", "cumulative", NOW);
   assert.deepEqual(one.drawn, [LINK_A]);
 });
 
-test("the deselect guard refuses only on the last LISTED chip", () => {
+test("a chip toggles freely, the last listed one included, in API order", () => {
   const order = [ALL_PAGE_VIEWS_ID, LINK_A, LINK_B];
-  // A is the only listed chip still selected; B is selected but unlisted here.
-  assert.deepEqual(toggleListedSeries(order, [LINK_A], [LINK_A, LINK_B], LINK_A), [LINK_A, LINK_B]);
-  // With two listed chips on, either can go.
-  assert.deepEqual(toggleListedSeries(order, [ALL_PAGE_VIEWS_ID, LINK_A], order, LINK_A), [
-    ALL_PAGE_VIEWS_ID,
-    LINK_B,
-  ]);
-  // Toggling a chip back on is always allowed, and keeps API order.
-  assert.deepEqual(toggleListedSeries(order, [ALL_PAGE_VIEWS_ID, LINK_A], [LINK_B], LINK_A), [
-    LINK_A,
-    LINK_B,
-  ]);
+  // Switching off the last chip on is allowed: the chart goes blank, not refused.
+  assert.deepEqual(toggleSeriesSelection(order, [LINK_A], LINK_A), []);
+  // Other picks, listed in this window or not, are left alone.
+  assert.deepEqual(toggleSeriesSelection(order, [LINK_A, LINK_B], LINK_A), [LINK_B]);
+  // Toggling a chip back on keeps API order.
+  assert.deepEqual(toggleSeriesSelection(order, [LINK_B], LINK_A), [LINK_A, LINK_B]);
+});
+
+test("the select-all pill clears everything while a line is drawn, and selects everything while none is", () => {
+  const order = [ALL_PAGE_VIEWS_ID, LINK_A, LINK_B];
+  // Something drawn: Deselect all, including a pick this window does not list.
+  assert.equal(allSeriesAction([LINK_A]), "deselect");
+  assert.deepEqual(flipAllSeries(order, [LINK_A]), []);
+  // Nothing drawn, whether cleared or picked elsewhere: Select all, back to the opening state.
+  assert.equal(allSeriesAction([]), "select");
+  assert.deepEqual(flipAllSeries(order, []), [ALL_PAGE_VIEWS_ID, LINK_A, LINK_B]);
 });
