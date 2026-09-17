@@ -1135,16 +1135,14 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("POST /api/v1/staff/events/{id}/question-reviews/{reviewId}/withdraw", eventOwnerOrAdmin(http.HandlerFunc(ch.WithdrawQuestionReview)))
 	// The Answer: what one Ticket says in reply to one Ticket Question (#310).
 	//
-	// GATED `orgAdmin`, EXACTLY AS THE QUESTION-AUTHORING ROUTES ABOVE ARE, and
-	// the choice is worth stating because the ticket is titled for Event Staff.
-	// It is the same gate for two reasons. It is the one the sibling Ticket
-	// Question routes already use, and a surface that decided its own would be a
-	// second answer to a question already answered here. And `event_staff` is
-	// refused every catalog verb today — `canManageEventSales`, which is named
-	// for the door and is where this would widen to, resolves to `orgAdmin`
-	// itself until Event assignments land (V7). So `orgAdmin` is what "Event
-	// Staff" can be given on this platform at this moment, and widening it later
-	// is one word in one place.
+	// GATED `eventOwnerOrAdmin`, THE HOLDER LIST READ'S GATE (#636). These four
+	// were `orgAdmin`, inherited from the question-authoring routes above, until
+	// the Holder List opened to an Event Owner (ADR 0065) and offered them an
+	// Answers button on every row whose requests were then refused. The dialog
+	// reads and writes the same holder data the roster already discloses to
+	// them, so it takes the roster's gate rather than one of its own. Event Staff
+	// stay refused, exactly as they are refused the Holder List; authoring the
+	// questions themselves stays `orgAdmin` above.
 	//
 	// THE READS ARE UNGATED BY THE EDIT WINDOW, deliberately. A reversed Ticket
 	// Sale's Tickets and a started Event's Answers stay listable and readable:
@@ -1159,16 +1157,16 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// sales handler's `/sales`, because what this returns is a Ticket and its
 	// questions rather than anything about the sale — the Ticket Sale is only
 	// how staff reach a Ticket at all.
-	mux.Handle("GET /api/v1/staff/events/{id}/ticket-sales/{ticketSaleId}/tickets", orgAdmin(http.HandlerFunc(ch.ListTicketSaleAnswers)))
-	mux.Handle("GET /api/v1/staff/events/{id}/tickets/{ticketId}", orgAdmin(http.HandlerFunc(ch.GetTicketAnswers)))
+	mux.Handle("GET /api/v1/staff/events/{id}/ticket-sales/{ticketSaleId}/tickets", eventOwnerOrAdmin(http.HandlerFunc(ch.ListTicketSaleAnswers)))
+	mux.Handle("GET /api/v1/staff/events/{id}/tickets/{ticketId}", eventOwnerOrAdmin(http.HandlerFunc(ch.GetTicketAnswers)))
 	// PUT and not POST: there is exactly one Answer per (Ticket, question) and
 	// the address names it, so answering and correcting are the same request
 	// with a different body.
-	mux.Handle("PUT /api/v1/staff/events/{id}/tickets/{ticketId}/answers/{questionId}", orgAdmin(http.HandlerFunc(ch.AnswerTicketQuestion)))
+	mux.Handle("PUT /api/v1/staff/events/{id}/tickets/{ticketId}/answers/{questionId}", eventOwnerOrAdmin(http.HandlerFunc(ch.AnswerTicketQuestion)))
 	// The one real DELETE in this feature, and not an exception to "retired,
 	// never deleted": an Answer points at nothing, so removing one restores the
 	// state the Ticket was in before anybody answered.
-	mux.Handle("DELETE /api/v1/staff/events/{id}/tickets/{ticketId}/answers/{questionId}", orgAdmin(http.HandlerFunc(ch.RemoveTicketAnswer)))
+	mux.Handle("DELETE /api/v1/staff/events/{id}/tickets/{ticketId}/answers/{questionId}", eventOwnerOrAdmin(http.HandlerFunc(ch.RemoveTicketAnswer)))
 	// The Holder List (#333; the Outstanding Answers list of #313, widened to
 	// the roster): every Ticket of this Event, who is coming on each, and —
 	// where the Event asks Ticket Questions — what each still owes.
@@ -1260,6 +1258,11 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// route from drifting, which this is not. What must not drift is the GATE, and
 	// that is one call to the same middleware standing two lines apart.
 	mux.Handle("GET /api/v1/staff/events/{id}/holder-list/export", eventOwnerOrAdmin(http.HandlerFunc(ch.ExportHolderList)))
+	// The Customer Dossier (#638, spec #635): everything this Event knows about
+	// one Customer. Gated exactly as the Holder List read beside it, because it
+	// is the same holder and contact data seen one person at a time — Org Admin
+	// and Event Owner, never Event Staff.
+	mux.Handle("GET /api/v1/staff/events/{id}/customers/{customerId}/dossier", eventOwnerOrAdmin(http.HandlerFunc(ch.GetCustomerDossier)))
 	mux.Handle("GET /api/v1/staff/tags", member(http.HandlerFunc(ch.SearchTags)))
 	mux.Handle("GET /api/v1/staff/tags/popular", member(http.HandlerFunc(ch.ListPopularTags)))
 	mux.Handle("GET /api/v1/staff/events/{id}/tags", member(http.HandlerFunc(ch.ListEventTags)))

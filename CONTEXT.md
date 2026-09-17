@@ -416,6 +416,16 @@ Searched, filtered and sorted (ADR 0065) by who is coming, which Ticket Type the
 Read by an Org Admin and an Event Owner; never by Event Staff.
 _Avoid_: Guest list, attendee list, invitees, RSVP list, outstanding answers (as the name of this list)
 
+**Customer Dossier**:
+Everything one Event knows about one Customer, in one place — the answer to "who is this person to us" when somebody owes an Answer, when something went wrong with their ticket, or when they arrive at the door with nothing but an identity card.
+Opened from a buyer on the sales list and from a buyer or an accepted Holder on the Holder List. An address whose assignment was never accepted has no Dossier, because it is not yet a person the Organization may know about.
+Scoped to the Event and never to the platform-global Customer: it shows the name, Tax ID and phone given on this Event's own Ticket Sales, each beside its Sale, and not what the Customer record currently says, which a later purchase from another Organization may have overwritten. Their Sales at the Organization's other Events are not on it.
+Carries their Ticket Sales with any Sale Invoices, a reversed Sale shown as reversed and holding no live Tickets; each Ticket they bought with its assignment state; each Ticket they hold on somebody else's Sale; what those Tickets answered, still owe and were last reminded about; and that a Sale was re-addressed, without the address it moved from. Never their Terms Acceptance, Adulthood Declaration or Marketing Consent, which are made to the platform rather than to the Event.
+Shows without acting on the person — it sends nothing and checks nobody in — except that an Answer may be given from it on the same terms as anywhere staff give one. Comparing it against an identity card is a person's judgement, and nothing records that it happened.
+Read by an Org Admin and an Event Owner; never by Event Staff.
+In Spanish, **Ficha del cliente**.
+_Avoid_: Customer profile, customer detail, customer page, customer sheet, customer card, user page, account, attendee page
+
 **Sale Reversal**:
 The voiding of a recorded Ticket Sale: its tickets cease to exist, its capacity returns to the Ticket Type, and any money collected is returned to the Customer.
 Reachable by four routes, and the sale records which one reversed it: the Customer on their own Online Sale within the Reversal Window, staff through a Sale Import undo, staff on a single imported Ticket Sale — on its own, or as the first half of a Sale Correction — and a Platform Operator through an Operator Reversal. Always whole-Sale — no part of a Ticket Sale can be reversed on its own.

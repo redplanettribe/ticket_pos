@@ -216,6 +216,7 @@ test("canCorrectSale is Reverse's gate: a sales manager, on an active imported s
 test("correctionPrefill reads the template's columns off the row, blanks for a missing Tax ID, and never pre-ticks the confirmation", () => {
   const prefill = correctionPrefill({
     id: "s1",
+    customer_id: "c1",
     customer_first_name: "Ana",
     customer_last_name: "Lopez",
     customer_email: "ana@example.com",

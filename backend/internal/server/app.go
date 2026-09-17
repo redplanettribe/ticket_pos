@@ -662,6 +662,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// composes the invoicing module's answer the way it composes the other
 	// three, tied on here because invoicing is built after it.
 	operatorService = operatorService.WithDocuments(invoicingService)
+	// The Customer Dossier lists each Sale's Sale Invoices through the same
+	// read (#639), tied here for the same reason.
+	catalogService = catalogService.WithDossierSaleDocuments(invoicingService)
 
 	return &App{
 		Config:            cfg,

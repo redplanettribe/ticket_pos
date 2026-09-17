@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { toAppLocale } from "@ticket-pos/locale";
@@ -28,6 +29,7 @@ import { useLocale, useMessages, useTranslations } from "next-intl";
 
 import { SortableHeader } from "@/components/sortable-header";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { dossierHref } from "@/lib/customer-dossier";
 import { ApiError } from "@/lib/events-api";
 import {
   NOTHING_TO_SHOW,
@@ -86,13 +88,13 @@ import { TicketAnswersDialog } from "./ticket-answers-dialog";
  * tomorrow narrows to null and renders as the API's own word, which is the same
  * floor ADR 0023 puts under an error code this app has not heard of.
  */
-const CHANNEL_KEYS = {
+export const CHANNEL_KEYS = {
   online: "channelOnline",
   in_person: "channelInPerson",
   import: "channelImport",
 } as const satisfies Record<SaleChannel, string>;
 
-const SOURCE_KEYS = {
+export const SOURCE_KEYS = {
   direct: "sourceDirect",
   external_platform: "sourceExternalPlatform",
 } as const satisfies Record<SaleSource, string>;
@@ -100,20 +102,20 @@ const SOURCE_KEYS = {
 // How the sale reached the platform (#370, ADR 0052). The API derives it — the
 // three-way negative that recognises a Manually Recorded Sale is single-sourced
 // in Go — and this map is only the word for each answer.
-const ORIGIN_KEYS = {
+export const ORIGIN_KEYS = {
   sale_import: "originSaleImport",
   manually_recorded: "originManuallyRecorded",
   correction_replacement: "originCorrectionReplacement",
   channel_sale: "originChannelSale",
 } as const satisfies Record<SaleOrigin, string>;
 
-const PAYMENT_METHOD_KEYS = {
+export const PAYMENT_METHOD_KEYS = {
   cash: "paymentCash",
   transfer: "paymentTransfer",
   payphone: "paymentPayphone",
 } as const satisfies Record<PaymentMethod, string>;
 
-const TAX_ID_KEYS = {
+export const TAX_ID_KEYS = {
   cedula: "taxIdCedula",
   ruc: "taxIdRuc",
   passport: "taxIdPassport",
@@ -164,6 +166,10 @@ type SalesListProps = {
   // and with it false no row offers an Answers button: every request behind one
   // would 404, and the answer to whether the feature exists lives in ONE place.
   ticketQuestionsEnabled: boolean;
+  // Whether a buyer's name links to their Customer Dossier (#638): Org Admins
+  // and Event Owners only. Event Staff get plain text, never a link the API
+  // would refuse.
+  canOpenDossier: boolean;
 };
 
 // defaultDirFor is the direction a newly selected sort column starts in: newest
@@ -183,6 +189,7 @@ export function SalesList({
   canExport,
   canManageSales,
   ticketQuestionsEnabled,
+  canOpenDossier,
 }: SalesListProps) {
   const t = useTranslations("sales");
   const errorCopy = useMessages().errors;
@@ -412,6 +419,11 @@ export function SalesList({
                   onReverse={() => setReverseTarget(sale)}
                   canCorrect={canCorrectSale(canManageSales, sale)}
                   onCorrect={() => setCorrectTarget(sale)}
+                  dossierLink={
+                    canOpenDossier
+                      ? dossierHref(eventId, sale.customer_id, `/events/${encodeURIComponent(eventId)}/sales${filterKey}`)
+                      : null
+                  }
                 />
               ))}
             </table>
@@ -831,6 +843,9 @@ type SaleRowsProps = {
   // Whether this row offers Correct (#351): the same gate as Reverse.
   canCorrect: boolean;
   onCorrect: () => void;
+  // The buyer's Customer Dossier, carrying this view back (#638); null draws
+  // the name as plain text.
+  dossierLink: string | null;
 };
 
 function SaleRows({
@@ -845,8 +860,10 @@ function SaleRows({
   onReverse,
   canCorrect,
   onCorrect,
+  dossierLink,
 }: SaleRowsProps) {
   const t = useTranslations("sales");
+  const tDossier = useTranslations("customerDossier");
   // The Answers dialog opens from the row detail rather than from the row: it is
   // a second surface about the same sale, and a button in the row itself would
   // compete with the expand for the same click.
@@ -876,7 +893,21 @@ function SaleRows({
       >
         <td className="py-1.5 pr-2 text-muted-foreground">{expanded ? "▾" : "▸"}</td>
         <td className="py-1.5 pr-4 leading-tight">
-          <div className="font-medium">{name}</div>
+          <div className="font-medium">
+            {dossierLink ? (
+              <Link
+                href={dossierLink}
+                className="underline-offset-2 hover:underline"
+                aria-label={tDossier("openDossier", { name })}
+                // The row expands on click; following the link must not.
+                onClick={(event) => event.stopPropagation()}
+              >
+                {name}
+              </Link>
+            ) : (
+              name
+            )}
+          </div>
           <div className="text-muted-foreground">{sale.customer_email}</div>
           {/* A reversed sale says when it went and which side asked; an active
               one shows nothing extra (#117). */}

@@ -1863,6 +1863,20 @@
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeCustomerDossier": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.CustomerDossier"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeCustomerFollow": {
                 "properties": {
                     "data": {
@@ -4076,6 +4090,30 @@
                     "CustomerDocumentOnItsWay"
                 ]
             },
+            "service.CustomerDossier": {
+                "properties": {
+                    "customer": {
+                        "$ref": "#/components/schemas/service.DossierCustomerView"
+                    },
+                    "held_tickets": {
+                        "description": "HeldTickets are the Tickets of this Event the Customer ACCEPTED on\nsomebody else's Sale, reversed Sales included, newest Sale first (#640).\nAbsent while TICKET_ASSIGNMENT_ENABLED is closed (ADR 0045); `[]` when\nthey hold none.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.DossierHeldTicketView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "sales": {
+                        "description": "Sales are this Event's Ticket Sales to the Customer, reversed and\ncorrected ones included, newest first.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.DossierSaleView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "service.CustomerGateStanding": {
                 "description": "The two gates: when each was last accepted, the exact edition accepted,\nand the standing that edition produces.",
                 "properties": {
@@ -4322,6 +4360,330 @@
                     "DocumentRoleCreditNote",
                     "DocumentRoleNotCurrent"
                 ]
+            },
+            "service.DossierCustomerView": {
+                "properties": {
+                    "email": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.DossierHeldTicketView": {
+                "properties": {
+                    "accepted_at": {
+                        "description": "AcceptedAt is when this Customer accepted the Ticket.",
+                        "type": "string"
+                    },
+                    "answers": {
+                        "description": "Answers are the Ticket's Answers: the Answers dialog's question/Answer\npairs that have an Answer, in the order the questions are asked; `[]`\nwhen it answered nothing. Readable on a reversed Sale too. Absent while\nTICKET_QUESTIONS_ENABLED is closed.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.TicketQuestionAnswerView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "buyer_first_name": {
+                        "description": "The buyer's name as given on that Sale.",
+                        "type": "string"
+                    },
+                    "buyer_last_name": {
+                        "type": "string"
+                    },
+                    "confirmation_ref": {
+                        "type": "string"
+                    },
+                    "holder_first_name": {
+                        "description": "The name this Customer gave as its Holder.",
+                        "type": "string"
+                    },
+                    "holder_last_name": {
+                        "type": "string"
+                    },
+                    "last_answer_reminder_sent_at": {
+                        "description": "LastAnswerReminderSentAt is when an Answer Reminder was last sent about\nthis Ticket, or null when none was. Absent on a reversed Sale and while\nthe questions flag is closed.",
+                        "format": "date-time",
+                        "type": "string"
+                    },
+                    "ordinal": {
+                        "type": "integer"
+                    },
+                    "outstanding_answers": {
+                        "description": "OutstandingAnswers are the required questions it has not answered — the\nHolder List's `outstanding` for the same Ticket; `[]` when it owes\nnothing. Absent on a reversed Sale and while the questions flag is closed.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.OutstandingQuestionView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "sale_status": {
+                        "description": "SaleStatus is `reversed` when that Sale was reversed (a Sale Correction\nincluded): the Ticket is void, and this Customer held it.",
+                        "enum": [
+                            "active",
+                            "reversed"
+                        ],
+                        "type": "string"
+                    },
+                    "ticket_id": {
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
+                        "description": "TicketSaleID and ConfirmationRef name the Sale it is on.",
+                        "type": "string"
+                    },
+                    "ticket_type_id": {
+                        "type": "string"
+                    },
+                    "ticket_type_name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.DossierSaleLineView": {
+                "properties": {
+                    "quantity": {
+                        "type": "integer"
+                    },
+                    "ticket_type_id": {
+                        "type": "string"
+                    },
+                    "ticket_type_name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.DossierSaleView": {
+                "properties": {
+                    "affiliate_link_name": {
+                        "description": "AffiliateLinkName is the display name of the Affiliate Link that\nattributed the Sale, or null.",
+                        "type": "string"
+                    },
+                    "amount_cents": {
+                        "type": "integer"
+                    },
+                    "assignment_reminder_sent_at": {
+                        "description": "AssignmentReminderSentAt is when an Assignment Reminder was sent about\nthis Sale, oldest first. Absent while TICKET_ASSIGNMENT_ENABLED is closed.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "channel": {
+                        "description": "Channel is the Sales Channel: `online`, `in_person` or `import`.",
+                        "type": "string"
+                    },
+                    "confirmation_ref": {
+                        "type": "string"
+                    },
+                    "currency": {
+                        "type": "string"
+                    },
+                    "customer_first_name": {
+                        "type": "string"
+                    },
+                    "customer_last_name": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "origin": {
+                        "description": "Origin is how the Sale reached the platform, derived exactly as the Sales\nlist derives it (ADR 0052).",
+                        "type": "string"
+                    },
+                    "payment_method": {
+                        "type": "string"
+                    },
+                    "phone": {
+                        "description": "Phone is the number given on the checkout this Sale came from, read off\nits Payment (ADR 0073) and never the Customer record's current phone.\nNull for a Sale with no checkout behind it — In-Person, imported or\nmanually recorded — or a checkout that gave none.",
+                        "type": "string"
+                    },
+                    "re_addressed_at": {
+                        "description": "ReAddressedAt is when the Sale was re-addressed (ADR 0058) — the\nacceptance of its latest accepted Sale Re-addressing — or null. Neither\naddress and no token is ever carried.",
+                        "type": "string"
+                    },
+                    "recorded_at": {
+                        "type": "string"
+                    },
+                    "replaced_by_confirmation_ref": {
+                        "description": "ReplacedByConfirmationRef names the replacement of a corrected Sale.",
+                        "type": "string"
+                    },
+                    "reversed_at": {
+                        "description": "ReversedAt is when a reversed or corrected Sale was reversed; null on an\nactive one.",
+                        "type": "string"
+                    },
+                    "sold_at": {
+                        "type": "string"
+                    },
+                    "source": {
+                        "description": "Source is the Sales list's `source` for the Sale.",
+                        "type": "string"
+                    },
+                    "status": {
+                        "description": "Status is `active`, `reversed` or `corrected`.",
+                        "enum": [
+                            "active",
+                            "reversed",
+                            "corrected"
+                        ],
+                        "type": "string"
+                    },
+                    "tax_id_number": {
+                        "type": "string"
+                    },
+                    "tax_id_type": {
+                        "type": "string"
+                    },
+                    "tax_invoices": {
+                        "description": "TaxInvoices are the Tax Invoices about the Sale — its Sale Invoices and\nany Credit Notes — as the operator Sale lookup\nreads them, in the Sale's chain order; empty, never null.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.DossierTaxInvoiceView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "ticket_types": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.DossierSaleLineView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "tickets": {
+                        "description": "Tickets are the Sale's Tickets in the catalog's order. A reversed or\ncorrected Sale's Tickets are void and carry their Ticket Type, ordinal\nand Answers only; `status` is what says so.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.DossierTicketView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "service.DossierTaxInvoiceView": {
+                "properties": {
+                    "kind": {
+                        "description": "Kind is `sale` or `credit_note`.",
+                        "enum": [
+                            "sale",
+                            "credit_note"
+                        ],
+                        "type": "string"
+                    },
+                    "number": {
+                        "description": "Number is the document number as printed; null until signed.",
+                        "type": "string"
+                    },
+                    "recipient_legal_name": {
+                        "description": "RecipientLegalName, RecipientTaxIDType and RecipientTaxID are who the\ndocument invoices — a company where one was invoiced rather than the\nperson.",
+                        "type": "string"
+                    },
+                    "recipient_tax_id": {
+                        "type": "string"
+                    },
+                    "recipient_tax_id_type": {
+                        "type": "string"
+                    },
+                    "role": {
+                        "description": "Role is the document's place in the Sale's chain: `current`,\n`superseded`, `credit_note` or `not_current`.",
+                        "enum": [
+                            "current",
+                            "superseded",
+                            "credit_note",
+                            "not_current"
+                        ],
+                        "type": "string"
+                    },
+                    "status": {
+                        "enum": [
+                            "owed",
+                            "pending",
+                            "authorized",
+                            "not_authorized",
+                            "rejected",
+                            "needs_attention",
+                            "withdrawn",
+                            "annulled",
+                            "abandoned"
+                        ],
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.DossierTicketView": {
+                "properties": {
+                    "answers": {
+                        "description": "Answers are the Ticket's Answers: the Answers dialog's question/Answer\npairs that have an Answer, in the order the questions are asked; `[]`\nwhen it answered nothing. Readable on a reversed Sale too. Absent while\nTICKET_QUESTIONS_ENABLED is closed.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.TicketQuestionAnswerView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "assignment_state": {
+                        "description": "AssignmentState is `unassigned`, `assigned` or `accepted`.",
+                        "enum": [
+                            "unassigned",
+                            "assigned",
+                            "accepted"
+                        ],
+                        "type": "string"
+                    },
+                    "holder_customer_id": {
+                        "description": "The accepted Holder when that is somebody else: their Customer id, which\nlinks their Dossier, and the name they gave as Holder.",
+                        "type": "string"
+                    },
+                    "holder_first_name": {
+                        "type": "string"
+                    },
+                    "holder_last_name": {
+                        "type": "string"
+                    },
+                    "last_answer_reminder_sent_at": {
+                        "description": "LastAnswerReminderSentAt is when an Answer Reminder was last sent about\nthis Ticket, or null when none was. Absent on a reversed Sale and while\nthe questions flag is closed.",
+                        "format": "date-time",
+                        "type": "string"
+                    },
+                    "never_accepted": {
+                        "description": "NeverAccepted marks an assignment whose unaccepted address the retention\npurge took; it reads `assigned` beside it (#334).",
+                        "type": "boolean"
+                    },
+                    "ordinal": {
+                        "description": "Ordinal is which of its Ticket Sale Line's units this Ticket is.",
+                        "type": "integer"
+                    },
+                    "outstanding_answers": {
+                        "description": "OutstandingAnswers are the required questions it has not answered — the\nHolder List's `outstanding` for the same Ticket; `[]` when it owes\nnothing. Absent on a reversed Sale and while the questions flag is closed.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.OutstandingQuestionView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "self_held": {
+                        "description": "SelfHeld marks a Ticket this Customer accepted on their own Sale — their\nSelf-held Ticket (ADR 0048) — which names nobody else.",
+                        "type": "boolean"
+                    },
+                    "ticket_id": {
+                        "description": "TicketID is what the Ticket's Answers are read and given by.",
+                        "type": "string"
+                    },
+                    "ticket_type_id": {
+                        "type": "string"
+                    },
+                    "ticket_type_name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
             },
             "service.DrainResult": {
                 "properties": {
@@ -4898,7 +5260,15 @@
                         "description": "The buyer: the party of record for the Sale, and the person to chase for\nany Ticket nobody has accepted. They are no longer the only one — an\naccepted Ticket names its Holder below — but they remain here on every row,\nbecause a Holder is the named person a Ticket was handed to and never its\nowner, and the Sale stays whole with the buyer either way.\n\nThe two name parts stay APART, as they are on the Sales list and in the\ncolumn they are read from. Joining them here would mean choosing an order\nfor them, and which part leads a person's name is the reader's question and\nnot this payload's.",
                         "type": "string"
                     },
+                    "customer_id": {
+                        "description": "CustomerID is the buyer's Customer, which the buyer's name links a\nCustomer Dossier by (#640).",
+                        "type": "string"
+                    },
                     "customer_last_name": {
+                        "type": "string"
+                    },
+                    "holder_customer_id": {
+                        "description": "HolderCustomerID is the accepted Holder's Customer, which their name\nlinks a Customer Dossier by (#640). Filled on exactly the name's terms,\nthrough fillHolderListEntry: an unaccepted assignment offers no link.",
                         "type": "string"
                     },
                     "holder_email": {
@@ -18445,6 +18815,82 @@
                 ]
             }
         },
+        "/api/v1/staff/events/{id}/customers/{customerId}/dossier": {
+            "get": {
+                "description": "The Customer Dossier (\"Ficha del cliente\"): everything this Event knows about one Customer, addressed by the Customer's id and never their email. `customer` carries the Customer's id and email and nothing else from the platform-global Customer record. `sales` lists every one of THIS Event's Ticket Sales to the Customer, newest first, reversed and corrected ones included: each carries the first and last name and the Tax ID type and number given ON THAT SALE — never the Customer record's current values, which a purchase at another Organization may have changed — with its confirmation reference, sold-at and recorded-at, Sales Channel, `source` and `origin` exactly as the Sales list states them, Ticket Types and quantities, amount and currency, and payment method. `status` is `active`, `reversed` (with `reversed_at`) or `corrected` — a reversed Sale a Sale Correction replaced, naming its replacement in `replaced_by_confirmation_ref`. The Organization's other Events are never read. No Terms Acceptance, Adulthood Declaration, Marketing Consent or avatar is ever included. Each Sale lists its `tickets` (Ticket Type and ordinal); on an active Sale, while Ticket Assignment is open, each also carries its assignment state, `never_accepted` for an assignment the retention purge closed, `self_held` for the Customer's own Ticket, and — ONLY once accepted by somebody else — that Holder's Customer id and name. An unaccepted assignment's name and address are never included (ADR 0047). While Ticket Questions are open each Ticket also carries its `answers`, `outstanding_answers` and `last_answer_reminder_sent_at`. A reversed or corrected Sale's Tickets carry Ticket Type, ordinal and — while Ticket Questions are open — `answers`, and nothing else: no assignment state, `outstanding_answers` or `last_answer_reminder_sent_at`. With Ticket Questions closed no Ticket carries any of the three. While Ticket Assignment is open each Sale also carries `assignment_reminder_sent_at`, and the Dossier carries `held_tickets`: the Tickets the Customer accepted on somebody else's Sale of this Event, with the buyer's name as given on that Sale, accepted-at, and `sale_status` `reversed` when that Sale was reversed. With Ticket Assignment closed all of those are omitted. A READ AND NOTHING ELSE: nothing is sent from here. 404 for an Event outside the caller's Organization, and 404 CUSTOMER_NOT_FOUND for a Customer with no Ticket Sale on this Event and — while Ticket Assignment is open — no accepted Ticket of it (a Ticket on a reversed Sale included) — including a malformed id and an id naming no Customer, which are indistinguishable from one who bought only elsewhere. Org Admin and Event Owner only; Event Staff are refused with 403.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Customer ID",
+                        "in": "path",
+                        "name": "customerId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerDossier"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Get a customer's dossier at an event",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
         "/api/v1/staff/events/{id}/discoverable": {
             "put": {
                 "description": "Sets whether a published event is listed in public discovery surfaces. Available to any organization member.",
@@ -20983,7 +21429,7 @@
         },
         "/api/v1/staff/events/{id}/ticket-sales/{ticketSaleId}/tickets": {
             "get": {
-                "description": "Lists every Ticket of one Ticket Sale with its Ticket Questions and this Ticket's Answers. Reversed sales are listed and readable; only writing is refused. Answers 404 while the Ticket Question feature flag is off.",
+                "description": "Lists every Ticket of one Ticket Sale with its Ticket Questions and this Ticket's Answers. Reversed sales are listed and readable; only writing is refused. Org Admin and Event Owner only; Event Staff are refused. Answers 404 while the Ticket Question feature flag is off.",
                 "parameters": [
                     {
                         "description": "Event ID",
@@ -22590,7 +23036,7 @@
         },
         "/api/v1/staff/events/{id}/tickets/{ticketId}": {
             "get": {
-                "description": "One Ticket, its Ticket Type's Ticket Questions (retired ones included) and what this Ticket has answered. Answers 404 while the Ticket Question feature flag is off.",
+                "description": "One Ticket, its Ticket Type's Ticket Questions (retired ones included) and what this Ticket has answered. Org Admin and Event Owner only; Event Staff are refused. Answers 404 while the Ticket Question feature flag is off.",
                 "parameters": [
                     {
                         "description": "Event ID",
@@ -22666,7 +23112,7 @@
         },
         "/api/v1/staff/events/{id}/tickets/{ticketId}/answers/{questionId}": {
             "delete": {
-                "description": "Removes one Ticket's Answer to one Ticket Question, restoring the Outstanding Answer where the question is required. Refused once the Event has started and on a reversed Ticket Sale. Answers 404 while the Ticket Question feature flag is off.",
+                "description": "Removes one Ticket's Answer to one Ticket Question, restoring the Outstanding Answer where the question is required. Refused once the Event has started and on a reversed Ticket Sale. Org Admin and Event Owner only; Event Staff are refused. Answers 404 while the Ticket Question feature flag is off.",
                 "parameters": [
                     {
                         "description": "Event ID",
@@ -22759,7 +23205,7 @@
                 ]
             },
             "put": {
-                "description": "Writes one Ticket's Answer to one Ticket Question, creating it or correcting it. Refused once the Event has started and on a reversed Ticket Sale. Answers 404 while the Ticket Question feature flag is off.",
+                "description": "Writes one Ticket's Answer to one Ticket Question, creating it or correcting it. Refused once the Event has started and on a reversed Ticket Sale. Org Admin and Event Owner only; Event Staff are refused. Answers 404 while the Ticket Question feature flag is off.",
                 "parameters": [
                     {
                         "description": "Event ID",

@@ -98,10 +98,13 @@ type HolderTicketView struct {
 	// column they are read from. Joining them here would mean choosing an order
 	// for them, and which part leads a person's name is the reader's question and
 	// not this payload's.
-	CustomerFirstName string    `json:"customer_first_name"`
-	CustomerLastName  string    `json:"customer_last_name"`
-	CustomerEmail     string    `json:"customer_email"`
-	SoldAt            time.Time `json:"sold_at"`
+	CustomerFirstName string `json:"customer_first_name"`
+	CustomerLastName  string `json:"customer_last_name"`
+	CustomerEmail     string `json:"customer_email"`
+	// CustomerID is the buyer's Customer, which the buyer's name links a
+	// Customer Dossier by (#640).
+	CustomerID string    `json:"customer_id"`
+	SoldAt     time.Time `json:"sold_at"`
 	// THE HOLDER (#329, parent #322, ADR 0047). Who is coming on this Ticket.
 	//
 	// EVERY FIELD IS `omitempty`, AND THAT IS THE FLAG'S DOING, exactly as it is
@@ -145,6 +148,10 @@ type HolderTicketView struct {
 	HolderFirstName string `json:"holder_first_name,omitempty"`
 	HolderLastName  string `json:"holder_last_name,omitempty"`
 	HolderEmail     string `json:"holder_email,omitempty"`
+	// HolderCustomerID is the accepted Holder's Customer, which their name
+	// links a Customer Dossier by (#640). Filled on exactly the name's terms,
+	// through fillHolderListEntry: an unaccepted assignment offers no link.
+	HolderCustomerID string `json:"holder_customer_id,omitempty"`
 	// Outstanding names the required questions this Ticket has not answered, in
 	// the order they are asked. Empty on a Ticket that owes nothing — which
 	// since #333 is an ordinary row of this list, not an absent one.
@@ -359,19 +366,8 @@ func (s *Service) ListHolderList(
 		for _, ticket := range tickets {
 			ticketIDs = append(ticketIDs, ticket.ID)
 		}
-		questions, err := s.repo.ListOutstandingQuestionsForTickets(
-			ctx, actor.OrganizationID, eventID, ticketIDs,
-		)
-		if err != nil {
+		if byTicket, err = s.outstandingQuestionsByTicket(ctx, actor.OrganizationID, eventID, ticketIDs); err != nil {
 			return nil, err
-		}
-		for _, question := range questions {
-			byTicket[question.TicketID] = append(byTicket[question.TicketID], OutstandingQuestionView{
-				QuestionID: question.QuestionID,
-				Label:      question.Label,
-				Kind:       question.Kind,
-				SortOrder:  question.SortOrder,
-			})
 		}
 	}
 
@@ -387,6 +383,7 @@ func (s *Service) ListHolderList(
 			CustomerFirstName: ticket.CustomerFirstName,
 			CustomerLastName:  ticket.CustomerLastName,
 			CustomerEmail:     ticket.CustomerEmail,
+			CustomerID:        ticket.CustomerID,
 			SoldAt:            ticket.SoldAt,
 		}
 		if s.ticketQuestionsEnabled {
@@ -587,60 +584,57 @@ func dateRangeBounds(from, to string, loc *time.Location) (*time.Time, *time.Tim
 // fillHolderListEntry puts one Ticket's assignment onto the Organization's row,
 // or leaves the row exactly as it was while the flag is closed (#329, ADR 0047).
 //
-// THE EARLY RETURN IS THE FLAG'S WHOLE EFFECT ON THIS READ, for the reason
-// fillBuyerAssignment's is: every field it would otherwise set is `omitempty`, so
-// a closed build sends the bytes a build without the feature sends and ADR 0045's
-// "no surface differs" is an assertion a test can make about the body.
-//
-// THE STATE IS DERIVED THROUGH catalog.AssignmentState and never re-decided, so
-// the word `assigned` cannot mean one thing on the buyer's page and another on
-// the Organization's list — with ONE presentation-level exception, decided here
-// (#334): a Ticket whose unaccepted address the retention purge took reads
-// `assigned` with NeverAccepted beside it, derived at read time from migration
-// 081's marker. catalog.AssignmentState itself still knows three states and
-// still reads such a Ticket as `unassigned` everywhere else — on the buyer's
-// page and in the export a purged Ticket is a Ticket nobody holds, which is the
-// truth. The Holder List alone says more, because it is the morning-after sheet
-// and "nobody was named" and "named and never claimed" are opposite facts to
-// the person reading it. Nothing personal is disclosed: the address is gone by
-// definition.
-//
-// AND THIS IS WHERE THE DISCLOSURE LINE IS DRAWN. Nothing about the Holder is
-// filled until AcceptedAt, and the ONE test is the state. An address a buyer
-// typed and its owner never accepted has no consent moment behind it at all —
-// the person may not know a ticket was bought for them — and ADR 0047 rejects
-// disclosing it outright, in the same breath as it accepts disclosing an accepted
-// one. The Organization is told that such a Ticket is `assigned`, and not who it
-// was assigned to.
-//
-// NOTE THE ASYMMETRY WITH THE BUYER'S ROW, which shows the address from the
-// moment it is typed. It is the same address and two different readers: the buyer
-// typed it and is telling their four Tickets apart, and the Organization is being
-// handed a stranger's contact detail.
+// IT DECIDES NOTHING. What a Ticket discloses about its Holder — the state, the
+// never-accepted presentation (#334), and the name and address only once
+// accepted — is catalog.DiscloseHolder, the one statement of ADR 0047's rule,
+// shared with every other Organization-facing read of a Holder (#637). This
+// only adapts the repository's NULL-able row to that rule's plain input and
+// copies its answer onto the view. The early return is the flag's whole effect
+// here: every field it would set is `omitempty`, so a closed build sends the
+// bytes a build without the feature sends (ADR 0045). DiscloseHolder answers
+// the same for a closed flag; the guard keeps the row literally untouched.
 func (s *Service) fillHolderListEntry(view *HolderTicketView, ticket repository.HolderTicket) {
 	if !s.ticketAssignmentEnabled {
 		return
 	}
+	disclosure := catalog.DiscloseHolder(s.ticketAssignmentEnabled, catalog.HolderAssignment{
+		HolderEmail:           ticket.HolderEmail.String,
+		HolderFirstName:       ticket.HolderFirstName.String,
+		HolderLastName:        ticket.HolderLastName.String,
+		HolderCustomerID:      ticket.HolderCustomerID.String,
+		AssignedAt:            nullTimeOrNil(ticket.AssignedAt),
+		AcceptedAt:            nullTimeOrNil(ticket.AcceptedAt),
+		HolderAddressPurgedAt: nullTimeOrNil(ticket.HolderAddressPurgedAt),
+	})
+	view.AssignmentState = string(disclosure.State)
+	view.NeverAccepted = disclosure.NeverAccepted
+	view.HolderFirstName = disclosure.HolderFirstName
+	view.HolderLastName = disclosure.HolderLastName
+	view.HolderEmail = disclosure.HolderEmail
+	view.HolderCustomerID = disclosure.HolderCustomerID
+}
 
-	holderEmail := ""
-	if ticket.HolderEmail.Valid {
-		holderEmail = ticket.HolderEmail.String
+// outstandingQuestionsByTicket names which required questions each of the given
+// Tickets owes, bucketed by Ticket in the order the questions are asked. The
+// one reading of the debt for a set of Tickets, shared by the Holder List and
+// the Customer Dossier (#641), so the two can never disagree about a Ticket.
+func (s *Service) outstandingQuestionsByTicket(
+	ctx context.Context, organizationID, eventID string, ticketIDs []string,
+) (map[string][]OutstandingQuestionView, error) {
+	questions, err := s.repo.ListOutstandingQuestionsForTickets(ctx, organizationID, eventID, ticketIDs)
+	if err != nil {
+		return nil, err
 	}
-	state := catalog.AssignmentState(
-		holderEmail, nullTimeOrNil(ticket.AssignedAt), nullTimeOrNil(ticket.AcceptedAt),
-	)
-	if state != catalog.TicketAccepted && ticket.HolderAddressPurgedAt.Valid {
-		view.AssignmentState = string(catalog.TicketAssigned)
-		view.NeverAccepted = true
-		return
+	byTicket := make(map[string][]OutstandingQuestionView)
+	for _, question := range questions {
+		byTicket[question.TicketID] = append(byTicket[question.TicketID], OutstandingQuestionView{
+			QuestionID: question.QuestionID,
+			Label:      question.Label,
+			Kind:       question.Kind,
+			SortOrder:  question.SortOrder,
+		})
 	}
-	view.AssignmentState = string(state)
-	if state != catalog.TicketAccepted {
-		return
-	}
-	view.HolderFirstName = ticket.HolderFirstName.String
-	view.HolderLastName = ticket.HolderLastName.String
-	view.HolderEmail = holderEmail
+	return byTicket, nil
 }
 
 // outstandingOrEmpty keeps the field an ARRAY on the wire rather than null. A

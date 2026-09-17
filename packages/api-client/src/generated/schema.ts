@@ -9538,6 +9538,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/staff/events/{id}/customers/{customerId}/dossier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a customer's dossier at an event
+         * @description The Customer Dossier ("Ficha del cliente"): everything this Event knows about one Customer, addressed by the Customer's id and never their email. `customer` carries the Customer's id and email and nothing else from the platform-global Customer record. `sales` lists every one of THIS Event's Ticket Sales to the Customer, newest first, reversed and corrected ones included: each carries the first and last name and the Tax ID type and number given ON THAT SALE — never the Customer record's current values, which a purchase at another Organization may have changed — with its confirmation reference, sold-at and recorded-at, Sales Channel, `source` and `origin` exactly as the Sales list states them, Ticket Types and quantities, amount and currency, and payment method. `status` is `active`, `reversed` (with `reversed_at`) or `corrected` — a reversed Sale a Sale Correction replaced, naming its replacement in `replaced_by_confirmation_ref`. The Organization's other Events are never read. No Terms Acceptance, Adulthood Declaration, Marketing Consent or avatar is ever included. Each Sale lists its `tickets` (Ticket Type and ordinal); on an active Sale, while Ticket Assignment is open, each also carries its assignment state, `never_accepted` for an assignment the retention purge closed, `self_held` for the Customer's own Ticket, and — ONLY once accepted by somebody else — that Holder's Customer id and name. An unaccepted assignment's name and address are never included (ADR 0047). While Ticket Questions are open each Ticket also carries its `answers`, `outstanding_answers` and `last_answer_reminder_sent_at`. A reversed or corrected Sale's Tickets carry Ticket Type, ordinal and — while Ticket Questions are open — `answers`, and nothing else: no assignment state, `outstanding_answers` or `last_answer_reminder_sent_at`. With Ticket Questions closed no Ticket carries any of the three. While Ticket Assignment is open each Sale also carries `assignment_reminder_sent_at`, and the Dossier carries `held_tickets`: the Tickets the Customer accepted on somebody else's Sale of this Event, with the buyer's name as given on that Sale, accepted-at, and `sale_status` `reversed` when that Sale was reversed. With Ticket Assignment closed all of those are omitted. A READ AND NOTHING ELSE: nothing is sent from here. 404 for an Event outside the caller's Organization, and 404 CUSTOMER_NOT_FOUND for a Customer with no Ticket Sale on this Event and — while Ticket Assignment is open — no accepted Ticket of it (a Ticket on a reversed Sale included) — including a malformed id and an id naming no Customer, which are indistinguishable from one who bought only elsewhere. Org Admin and Event Owner only; Event Staff are refused with 403.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Customer ID */
+                    customerId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerDossier"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/events/{id}/discoverable": {
         parameters: {
             query?: never;
@@ -11519,7 +11590,7 @@ export interface paths {
         };
         /**
          * List a ticket sale's tickets and answers
-         * @description Lists every Ticket of one Ticket Sale with its Ticket Questions and this Ticket's Answers. Reversed sales are listed and readable; only writing is refused. Answers 404 while the Ticket Question feature flag is off.
+         * @description Lists every Ticket of one Ticket Sale with its Ticket Questions and this Ticket's Answers. Reversed sales are listed and readable; only writing is refused. Org Admin and Event Owner only; Event Staff are refused. Answers 404 while the Ticket Question feature flag is off.
          */
         get: {
             parameters: {
@@ -12760,7 +12831,7 @@ export interface paths {
         };
         /**
          * Get a ticket's questions and answers
-         * @description One Ticket, its Ticket Type's Ticket Questions (retired ones included) and what this Ticket has answered. Answers 404 while the Ticket Question feature flag is off.
+         * @description One Ticket, its Ticket Type's Ticket Questions (retired ones included) and what this Ticket has answered. Org Admin and Event Owner only; Event Staff are refused. Answers 404 while the Ticket Question feature flag is off.
          */
         get: {
             parameters: {
@@ -12832,7 +12903,7 @@ export interface paths {
         get?: never;
         /**
          * Answer a ticket question
-         * @description Writes one Ticket's Answer to one Ticket Question, creating it or correcting it. Refused once the Event has started and on a reversed Ticket Sale. Answers 404 while the Ticket Question feature flag is off.
+         * @description Writes one Ticket's Answer to one Ticket Question, creating it or correcting it. Refused once the Event has started and on a reversed Ticket Sale. Org Admin and Event Owner only; Event Staff are refused. Answers 404 while the Ticket Question feature flag is off.
          */
         put: {
             parameters: {
@@ -12914,7 +12985,7 @@ export interface paths {
         post?: never;
         /**
          * Remove a ticket's answer
-         * @description Removes one Ticket's Answer to one Ticket Question, restoring the Outstanding Answer where the question is required. Refused once the Event has started and on a reversed Ticket Sale. Answers 404 while the Ticket Question feature flag is off.
+         * @description Removes one Ticket's Answer to one Ticket Question, restoring the Outstanding Answer where the question is required. Refused once the Event has started and on a reversed Ticket Sale. Org Admin and Event Owner only; Event Staff are refused. Answers 404 while the Ticket Question feature flag is off.
          */
         delete: {
             parameters: {
@@ -15066,6 +15137,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeCustomerDossier": {
+            data?: components["schemas"]["service.CustomerDossier"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeCustomerFollow": {
             data?: components["schemas"]["service.FollowView"];
             error?: components["schemas"]["platform.APIError"];
@@ -16307,6 +16383,21 @@ export interface components {
          * @enum {string}
          */
         "service.CustomerDocumentStatus": "authorized" | "on_its_way";
+        "service.CustomerDossier": {
+            customer?: components["schemas"]["service.DossierCustomerView"];
+            /**
+             * @description HeldTickets are the Tickets of this Event the Customer ACCEPTED on
+             *     somebody else's Sale, reversed Sales included, newest Sale first (#640).
+             *     Absent while TICKET_ASSIGNMENT_ENABLED is closed (ADR 0045); `[]` when
+             *     they hold none.
+             */
+            held_tickets?: components["schemas"]["service.DossierHeldTicketView"][];
+            /**
+             * @description Sales are this Event's Ticket Sales to the Customer, reversed and
+             *     corrected ones included, newest first.
+             */
+            sales?: components["schemas"]["service.DossierSaleView"][];
+        };
         /**
          * @description The two gates: when each was last accepted, the exact edition accepted,
          *     and the standing that edition produces.
@@ -16501,6 +16592,203 @@ export interface components {
         };
         /** @enum {string} */
         "service.DocumentRole": "current" | "superseded" | "credit_note" | "not_current";
+        "service.DossierCustomerView": {
+            email?: string;
+            id?: string;
+        };
+        "service.DossierHeldTicketView": {
+            /** @description AcceptedAt is when this Customer accepted the Ticket. */
+            accepted_at?: string;
+            /**
+             * @description Answers are the Ticket's Answers: the Answers dialog's question/Answer
+             *     pairs that have an Answer, in the order the questions are asked; `[]`
+             *     when it answered nothing. Readable on a reversed Sale too. Absent while
+             *     TICKET_QUESTIONS_ENABLED is closed.
+             */
+            answers?: components["schemas"]["service.TicketQuestionAnswerView"][];
+            /** @description The buyer's name as given on that Sale. */
+            buyer_first_name?: string;
+            buyer_last_name?: string;
+            confirmation_ref?: string;
+            /** @description The name this Customer gave as its Holder. */
+            holder_first_name?: string;
+            holder_last_name?: string;
+            /**
+             * Format: date-time
+             * @description LastAnswerReminderSentAt is when an Answer Reminder was last sent about
+             *     this Ticket, or null when none was. Absent on a reversed Sale and while
+             *     the questions flag is closed.
+             */
+            last_answer_reminder_sent_at?: string;
+            ordinal?: number;
+            /**
+             * @description OutstandingAnswers are the required questions it has not answered — the
+             *     Holder List's `outstanding` for the same Ticket; `[]` when it owes
+             *     nothing. Absent on a reversed Sale and while the questions flag is closed.
+             */
+            outstanding_answers?: components["schemas"]["service.OutstandingQuestionView"][];
+            /**
+             * @description SaleStatus is `reversed` when that Sale was reversed (a Sale Correction
+             *     included): the Ticket is void, and this Customer held it.
+             * @enum {string}
+             */
+            sale_status?: "active" | "reversed";
+            ticket_id?: string;
+            /** @description TicketSaleID and ConfirmationRef name the Sale it is on. */
+            ticket_sale_id?: string;
+            ticket_type_id?: string;
+            ticket_type_name?: string;
+        };
+        "service.DossierSaleLineView": {
+            quantity?: number;
+            ticket_type_id?: string;
+            ticket_type_name?: string;
+        };
+        "service.DossierSaleView": {
+            /**
+             * @description AffiliateLinkName is the display name of the Affiliate Link that
+             *     attributed the Sale, or null.
+             */
+            affiliate_link_name?: string;
+            amount_cents?: number;
+            /**
+             * @description AssignmentReminderSentAt is when an Assignment Reminder was sent about
+             *     this Sale, oldest first. Absent while TICKET_ASSIGNMENT_ENABLED is closed.
+             */
+            assignment_reminder_sent_at?: string[];
+            /** @description Channel is the Sales Channel: `online`, `in_person` or `import`. */
+            channel?: string;
+            confirmation_ref?: string;
+            currency?: string;
+            customer_first_name?: string;
+            customer_last_name?: string;
+            id?: string;
+            /**
+             * @description Origin is how the Sale reached the platform, derived exactly as the Sales
+             *     list derives it (ADR 0052).
+             */
+            origin?: string;
+            payment_method?: string;
+            /**
+             * @description Phone is the number given on the checkout this Sale came from, read off
+             *     its Payment (ADR 0073) and never the Customer record's current phone.
+             *     Null for a Sale with no checkout behind it — In-Person, imported or
+             *     manually recorded — or a checkout that gave none.
+             */
+            phone?: string;
+            /**
+             * @description ReAddressedAt is when the Sale was re-addressed (ADR 0058) — the
+             *     acceptance of its latest accepted Sale Re-addressing — or null. Neither
+             *     address and no token is ever carried.
+             */
+            re_addressed_at?: string;
+            recorded_at?: string;
+            /** @description ReplacedByConfirmationRef names the replacement of a corrected Sale. */
+            replaced_by_confirmation_ref?: string;
+            /**
+             * @description ReversedAt is when a reversed or corrected Sale was reversed; null on an
+             *     active one.
+             */
+            reversed_at?: string;
+            sold_at?: string;
+            /** @description Source is the Sales list's `source` for the Sale. */
+            source?: string;
+            /**
+             * @description Status is `active`, `reversed` or `corrected`.
+             * @enum {string}
+             */
+            status?: "active" | "reversed" | "corrected";
+            tax_id_number?: string;
+            tax_id_type?: string;
+            /**
+             * @description TaxInvoices are the Tax Invoices about the Sale — its Sale Invoices and
+             *     any Credit Notes — as the operator Sale lookup
+             *     reads them, in the Sale's chain order; empty, never null.
+             */
+            tax_invoices?: components["schemas"]["service.DossierTaxInvoiceView"][];
+            ticket_types?: components["schemas"]["service.DossierSaleLineView"][];
+            /**
+             * @description Tickets are the Sale's Tickets in the catalog's order. A reversed or
+             *     corrected Sale's Tickets are void and carry their Ticket Type, ordinal
+             *     and Answers only; `status` is what says so.
+             */
+            tickets?: components["schemas"]["service.DossierTicketView"][];
+        };
+        "service.DossierTaxInvoiceView": {
+            /**
+             * @description Kind is `sale` or `credit_note`.
+             * @enum {string}
+             */
+            kind?: "sale" | "credit_note";
+            /** @description Number is the document number as printed; null until signed. */
+            number?: string;
+            /**
+             * @description RecipientLegalName, RecipientTaxIDType and RecipientTaxID are who the
+             *     document invoices — a company where one was invoiced rather than the
+             *     person.
+             */
+            recipient_legal_name?: string;
+            recipient_tax_id?: string;
+            recipient_tax_id_type?: string;
+            /**
+             * @description Role is the document's place in the Sale's chain: `current`,
+             *     `superseded`, `credit_note` or `not_current`.
+             * @enum {string}
+             */
+            role?: "current" | "superseded" | "credit_note" | "not_current";
+            /** @enum {string} */
+            status?: "owed" | "pending" | "authorized" | "not_authorized" | "rejected" | "needs_attention" | "withdrawn" | "annulled" | "abandoned";
+        };
+        "service.DossierTicketView": {
+            /**
+             * @description Answers are the Ticket's Answers: the Answers dialog's question/Answer
+             *     pairs that have an Answer, in the order the questions are asked; `[]`
+             *     when it answered nothing. Readable on a reversed Sale too. Absent while
+             *     TICKET_QUESTIONS_ENABLED is closed.
+             */
+            answers?: components["schemas"]["service.TicketQuestionAnswerView"][];
+            /**
+             * @description AssignmentState is `unassigned`, `assigned` or `accepted`.
+             * @enum {string}
+             */
+            assignment_state?: "unassigned" | "assigned" | "accepted";
+            /**
+             * @description The accepted Holder when that is somebody else: their Customer id, which
+             *     links their Dossier, and the name they gave as Holder.
+             */
+            holder_customer_id?: string;
+            holder_first_name?: string;
+            holder_last_name?: string;
+            /**
+             * Format: date-time
+             * @description LastAnswerReminderSentAt is when an Answer Reminder was last sent about
+             *     this Ticket, or null when none was. Absent on a reversed Sale and while
+             *     the questions flag is closed.
+             */
+            last_answer_reminder_sent_at?: string;
+            /**
+             * @description NeverAccepted marks an assignment whose unaccepted address the retention
+             *     purge took; it reads `assigned` beside it (#334).
+             */
+            never_accepted?: boolean;
+            /** @description Ordinal is which of its Ticket Sale Line's units this Ticket is. */
+            ordinal?: number;
+            /**
+             * @description OutstandingAnswers are the required questions it has not answered — the
+             *     Holder List's `outstanding` for the same Ticket; `[]` when it owes
+             *     nothing. Absent on a reversed Sale and while the questions flag is closed.
+             */
+            outstanding_answers?: components["schemas"]["service.OutstandingQuestionView"][];
+            /**
+             * @description SelfHeld marks a Ticket this Customer accepted on their own Sale — their
+             *     Self-held Ticket (ADR 0048) — which names nobody else.
+             */
+            self_held?: boolean;
+            /** @description TicketID is what the Ticket's Answers are read and given by. */
+            ticket_id?: string;
+            ticket_type_id?: string;
+            ticket_type_name?: string;
+        };
         "service.DrainResult": {
             /**
              * @description Claimed is how many pending Digests this run took out of the queue. Zero is
@@ -16958,7 +17246,18 @@ export interface components {
              *     not this payload's.
              */
             customer_first_name?: string;
+            /**
+             * @description CustomerID is the buyer's Customer, which the buyer's name links a
+             *     Customer Dossier by (#640).
+             */
+            customer_id?: string;
             customer_last_name?: string;
+            /**
+             * @description HolderCustomerID is the accepted Holder's Customer, which their name
+             *     links a Customer Dossier by (#640). Filled on exactly the name's terms,
+             *     through fillHolderListEntry: an unaccepted assignment offers no link.
+             */
+            holder_customer_id?: string;
             holder_email?: string;
             /**
              * @description HolderFirstName, HolderLastName and HolderEmail are the person a Ticket was

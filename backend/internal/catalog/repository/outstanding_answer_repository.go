@@ -729,6 +729,13 @@ type HolderTicket struct {
 	// and never claimed". It carries no address; the address is gone by
 	// definition.
 	HolderAddressPurgedAt sql.NullTime
+
+	// CustomerID is the buyer's Customer, and HolderCustomerID the Customer who
+	// accepted the Ticket (NULL until accepted) — the ids the Holder List links
+	// each person's Customer Dossier by (#640). The Holder's goes out only
+	// through catalog.DiscloseHolder, like the rest of the Holder.
+	CustomerID       string
+	HolderCustomerID sql.NullString
 }
 
 // OutstandingQuestion is one required Ticket Question one Ticket has not
@@ -1089,7 +1096,8 @@ func (r *Repository) ListHolderTickets(
 		       s.id, s.confirmation_ref, s.channel,
 		       s.customer_first_name, s.customer_last_name, s.customer_email, s.sold_at,
 		       tk.holder_email, tk.assigned_at, tk.accepted_at, tk.holder_address_purged_at,
-		       hc.first_name, hc.last_name
+		       hc.first_name, hc.last_name,
+		       s.customer_id, tk.holder_customer_id
 	`+holderRosterFrom+holderRosterHolderJoin+owesJoin+`
 		WHERE `+where+`
 		`+orderBy+`
@@ -1109,6 +1117,7 @@ func (r *Repository) ListHolderTickets(
 			&t.CustomerFirstName, &t.CustomerLastName, &t.CustomerEmail, &t.SoldAt,
 			&t.HolderEmail, &t.AssignedAt, &t.AcceptedAt, &t.HolderAddressPurgedAt,
 			&t.HolderFirstName, &t.HolderLastName,
+			&t.CustomerID, &t.HolderCustomerID,
 		); err != nil {
 			return nil, 0, err
 		}
