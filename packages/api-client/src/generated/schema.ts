@@ -9538,6 +9538,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/staff/events/{id}/customers/{customerId}/dossier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a customer's dossier at an event
+         * @description The Customer Dossier ("Ficha del cliente"): everything this Event knows about one Customer, addressed by the Customer's id and never their email. `customer` carries the Customer's id and email and nothing else from the platform-global Customer record. `sales` lists every one of THIS Event's Ticket Sales to the Customer, newest first, reversed and corrected ones included: each carries the first and last name and the Tax ID type and number given ON THAT SALE — never the Customer record's current values, which a purchase at another Organization may have changed — with its confirmation reference, sold-at and recorded-at, Sales Channel, `source` and `origin` exactly as the Sales list states them, Ticket Types and quantities, amount and currency, and payment method. `status` is `active`, `reversed` (with `reversed_at`) or `corrected` — a reversed Sale a Sale Correction replaced, naming its replacement in `replaced_by_confirmation_ref`. The Organization's other Events are never read. No Terms Acceptance, Adulthood Declaration, Marketing Consent or avatar is ever included. A READ AND NOTHING ELSE: nothing is sent from here. 404 for an Event outside the caller's Organization, and 404 CUSTOMER_NOT_FOUND for a Customer with no Ticket Sale on this Event — including a malformed id and an id naming no Customer, which are indistinguishable from one who bought only elsewhere. Org Admin and Event Owner only; Event Staff are refused with 403.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Customer ID */
+                    customerId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerDossier"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/events/{id}/discoverable": {
         parameters: {
             query?: never;
@@ -15066,6 +15137,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeCustomerDossier": {
+            data?: components["schemas"]["service.CustomerDossier"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeCustomerFollow": {
             data?: components["schemas"]["service.FollowView"];
             error?: components["schemas"]["platform.APIError"];
@@ -16307,6 +16383,14 @@ export interface components {
          * @enum {string}
          */
         "service.CustomerDocumentStatus": "authorized" | "on_its_way";
+        "service.CustomerDossier": {
+            customer?: components["schemas"]["service.DossierCustomerView"];
+            /**
+             * @description Sales are this Event's Ticket Sales to the Customer, reversed and
+             *     corrected ones included, newest first.
+             */
+            sales?: components["schemas"]["service.DossierSaleView"][];
+        };
         /**
          * @description The two gates: when each was last accepted, the exact edition accepted,
          *     and the standing that edition produces.
@@ -16501,6 +16585,50 @@ export interface components {
         };
         /** @enum {string} */
         "service.DocumentRole": "current" | "superseded" | "credit_note" | "not_current";
+        "service.DossierCustomerView": {
+            email?: string;
+            id?: string;
+        };
+        "service.DossierSaleLineView": {
+            quantity?: number;
+            ticket_type_id?: string;
+            ticket_type_name?: string;
+        };
+        "service.DossierSaleView": {
+            amount_cents?: number;
+            /** @description Channel is the Sales Channel: `online`, `in_person` or `import`. */
+            channel?: string;
+            confirmation_ref?: string;
+            currency?: string;
+            customer_first_name?: string;
+            customer_last_name?: string;
+            id?: string;
+            /**
+             * @description Origin is how the Sale reached the platform, derived exactly as the Sales
+             *     list derives it (ADR 0052).
+             */
+            origin?: string;
+            payment_method?: string;
+            recorded_at?: string;
+            /** @description ReplacedByConfirmationRef names the replacement of a corrected Sale. */
+            replaced_by_confirmation_ref?: string;
+            /**
+             * @description ReversedAt is when a reversed or corrected Sale was reversed; null on an
+             *     active one.
+             */
+            reversed_at?: string;
+            sold_at?: string;
+            /** @description Source is the Sales list's `source` for the Sale. */
+            source?: string;
+            /**
+             * @description Status is `active`, `reversed` or `corrected`.
+             * @enum {string}
+             */
+            status?: "active" | "reversed" | "corrected";
+            tax_id_number?: string;
+            tax_id_type?: string;
+            ticket_types?: components["schemas"]["service.DossierSaleLineView"][];
+        };
         "service.DrainResult": {
             /**
              * @description Claimed is how many pending Digests this run took out of the queue. Zero is
