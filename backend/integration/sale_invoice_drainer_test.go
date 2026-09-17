@@ -239,7 +239,7 @@ func TestSaleInvoiceDrainerAuthorizesOnFirstDrain(t *testing.T) {
 		"/factura/infoFactura/totalSinImpuestos":                        "19.39",
 		"/factura/infoFactura/totalDescuento":                           "0.00",
 		"/factura/infoFactura/importeTotal":                             "22.30",
-		"/factura/infoFactura/pagos/pago/formaPago":                     "19",
+		"/factura/infoFactura/pagos/pago/formaPago":                     "20",
 		"/factura/infoFactura/pagos/pago/total":                         "22.30",
 		"/factura/detalles/detalle/cantidad":                            "2.00",
 		"/factura/detalles/detalle/precioUnitario":                      "9.695",

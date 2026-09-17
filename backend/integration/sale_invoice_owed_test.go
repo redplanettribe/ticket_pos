@@ -260,8 +260,8 @@ func TestPaidHouseCheckoutOwesASaleInvoice(t *testing.T) {
 	} else if at, err := time.Parse(time.RFC3339, *detail.NextAttemptAt); err != nil || !at.Equal(env.fixedClock) {
 		t.Fatalf("next_attempt_at = %s (%v); want the server's clock %s", *detail.NextAttemptAt, err, env.fixedClock)
 	}
-	if detail.PaymentMethod != "19" {
-		t.Fatalf("payment_method = %q; want 19 (card), mapped from the Payment Provider", detail.PaymentMethod)
+	if detail.PaymentMethod != "20" {
+		t.Fatalf("payment_method = %q; want 20, which every Sale Invoice states", detail.PaymentMethod)
 	}
 	if len(detail.Attempts) != 0 || detail.HasAuthorizationXML {
 		t.Fatalf("owed document has attempts (%d) or an authorization; want none", len(detail.Attempts))
