@@ -204,7 +204,7 @@ func (r *Repository) ListDossierSaleTickets(ctx context.Context, orgID, eventID 
 		JOIN ticket_sale_lines l ON l.id = tk.ticket_sale_line_id
 		JOIN ticket_sales s ON s.id = l.ticket_sale_id
 		JOIN ticket_types tt ON tt.id = l.ticket_type_id
-		LEFT JOIN customers hc ON hc.id = tk.holder_customer_id
+	`+holderRosterHolderJoin+`
 		WHERE s.event_id = $1 AND s.organization_id = $2 AND s.id = ANY($3)
 		ORDER BY s.id, tt.sort_order, tt.name COLLATE "C", l.ticket_type_id, tk.ordinal
 	`, eventID, orgID, saleIDs)
@@ -253,7 +253,7 @@ func (r *Repository) ListDossierHeldTickets(ctx context.Context, orgID, eventID,
 		JOIN ticket_sale_lines l ON l.id = tk.ticket_sale_line_id
 		JOIN ticket_sales s ON s.id = l.ticket_sale_id
 		JOIN ticket_types tt ON tt.id = l.ticket_type_id
-		LEFT JOIN customers hc ON hc.id = tk.holder_customer_id
+	`+holderRosterHolderJoin+`
 		WHERE s.event_id = $1 AND s.organization_id = $2
 		  AND tk.holder_customer_id = $3 AND tk.accepted_at IS NOT NULL
 		  AND s.customer_id <> $3

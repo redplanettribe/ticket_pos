@@ -57,7 +57,8 @@ type HolderDisclosure struct {
 //
 // The repository's holder filter predicates are this rule's query-side twin and
 // must agree with it (the holder search and `assignment_state` predicates in
-// repository/outstanding_answer_repository.go).
+// repository/outstanding_answer_repository.go, and the Customer Dossier's "held
+// by this Customer" filter in repository/customer_dossier_repository.go).
 func DiscloseHolder(assignmentEnabled bool, ticket HolderAssignment) HolderDisclosure {
 	if !assignmentEnabled {
 		return HolderDisclosure{}

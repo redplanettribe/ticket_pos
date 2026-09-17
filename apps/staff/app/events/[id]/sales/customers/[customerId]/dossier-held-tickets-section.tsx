@@ -39,7 +39,7 @@ export function DossierHeldTicketsSection({ heldTickets, timezone }: DossierHeld
         <ul className="space-y-3">
           {heldTickets.map((ticket) => {
             const buyer = heldTicketBuyerName(ticket);
-            const holder = nameGivenAsHolder(ticket);
+            const nameAsHolder = nameGivenAsHolder(ticket);
             const reversed = heldTicketOnReversedSale(ticket);
             const acceptedAt = formatDateTime(ticket.accepted_at, zone, locale);
             return (
@@ -53,7 +53,7 @@ export function DossierHeldTicketsSection({ heldTickets, timezone }: DossierHeld
                 </div>
                 <div className="mt-2 space-y-0.5 break-words">
                   <div>{buyer ? t("heldBoughtBy", { name: buyer }) : t("heldBuyerUnnamed")}</div>
-                  {holder ? <div>{t("heldNameGiven", { name: holder })}</div> : null}
+                  {nameAsHolder ? <div>{t("heldNameGiven", { name: nameAsHolder })}</div> : null}
                   {acceptedAt ? (
                     <div className="text-xs text-muted-foreground">{t("heldAcceptedAt", { when: acceptedAt })}</div>
                   ) : null}
