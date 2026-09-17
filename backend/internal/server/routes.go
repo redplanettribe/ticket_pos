@@ -1258,6 +1258,11 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// route from drifting, which this is not. What must not drift is the GATE, and
 	// that is one call to the same middleware standing two lines apart.
 	mux.Handle("GET /api/v1/staff/events/{id}/holder-list/export", eventOwnerOrAdmin(http.HandlerFunc(ch.ExportHolderList)))
+	// The Customer Dossier (#638, spec #635): everything this Event knows about
+	// one Customer. Gated exactly as the Holder List read beside it, because it
+	// is the same holder and contact data seen one person at a time — Org Admin
+	// and Event Owner, never Event Staff.
+	mux.Handle("GET /api/v1/staff/events/{id}/customers/{customerId}/dossier", eventOwnerOrAdmin(http.HandlerFunc(ch.GetCustomerDossier)))
 	mux.Handle("GET /api/v1/staff/tags", member(http.HandlerFunc(ch.SearchTags)))
 	mux.Handle("GET /api/v1/staff/tags/popular", member(http.HandlerFunc(ch.ListPopularTags)))
 	mux.Handle("GET /api/v1/staff/events/{id}/tags", member(http.HandlerFunc(ch.ListEventTags)))

@@ -1,0 +1,139 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  dossierBackHref,
+  dossierHref,
+  nameGivenOnSale,
+  saleStatusBadgeVariant,
+  saleStatusToken,
+} from "./customer-dossier.ts";
+
+const EVENT = "abc";
+const LIST = "/events/abc/sales";
+
+// --- dossierHref -------------------------------------------------------------
+
+test("dossierHref addresses the Dossier by customer id and carries the list back", () => {
+  assert.equal(
+    dossierHref(EVENT, "cus_1", "/events/abc/sales?q=ana&page=2"),
+    "/events/abc/sales/customers/cus_1?from=%2Fevents%2Fabc%2Fsales%3Fq%3Dana%26page%3D2",
+  );
+});
+
+test("dossierHref encodes the ids", () => {
+  assert.equal(
+    dossierHref("a/b", "c?d", LIST),
+    "/events/a%2Fb/sales/customers/c%3Fd?from=%2Fevents%2Fabc%2Fsales",
+  );
+});
+
+test("a from built by dossierHref comes back through dossierBackHref intact", () => {
+  const from = "/events/abc/sales?status=reversed&sort=amount&dir=asc&page=3";
+  const href = dossierHref(EVENT, "cus_1", from);
+  const decoded = new URL(href, "https://staff.example").searchParams.get("from");
+  assert.equal(dossierBackHref(decoded, EVENT), from);
+});
+
+// --- dossierBackHref: accepted -------------------------------------------------
+
+test("dossierBackHref keeps a path within this Event, query and all", () => {
+  for (const from of [
+    "/events/abc",
+    "/events/abc/",
+    "/events/abc/sales",
+    "/events/abc/sales?q=ana%40example.com&page=2",
+    "/events/abc?tab=x",
+    "/events/abc#top",
+    "/events/abc/sales/holders?outstanding=true&sort=owes&dir=desc",
+    "/events/abc/sales?q=a..b",
+  ]) {
+    assert.equal(dossierBackHref(from, EVENT), from, from);
+  }
+});
+
+// --- dossierBackHref: refused ---------------------------------------------------
+
+test("dossierBackHref falls back to the Sales list when from is missing", () => {
+  assert.equal(dossierBackHref(undefined, EVENT), LIST);
+  assert.equal(dossierBackHref(null, EVENT), LIST);
+  assert.equal(dossierBackHref("", EVENT), LIST);
+});
+
+test("dossierBackHref refuses absolute URLs, schemes and protocol-relative paths", () => {
+  for (const from of [
+    "https://evil.example/events/abc/sales",
+    "http://evil.example",
+    "javascript:alert(1)",
+    "//evil.example/events/abc",
+    "//events/abc",
+    "events/abc/sales",
+    " /events/abc/sales",
+  ]) {
+    assert.equal(dossierBackHref(from, EVENT), LIST, from);
+  }
+});
+
+test("dossierBackHref refuses another Event, including one whose id starts with this one's", () => {
+  for (const from of ["/events/abcd/sales", "/events/ab/sales", "/events/xyz/sales", "/events/abc-2", "/events", "/"]) {
+    assert.equal(dossierBackHref(from, EVENT), LIST, from);
+  }
+});
+
+test("dossierBackHref refuses backslashes", () => {
+  for (const from of ["/events/abc\\..\\..\\evil", "/\\evil.example", "/events/abc/sales\\"]) {
+    assert.equal(dossierBackHref(from, EVENT), LIST, from);
+  }
+});
+
+test("dossierBackHref refuses dot segments, literal or encoded", () => {
+  for (const from of [
+    "/events/abc/..",
+    "/events/abc/../xyz/sales",
+    "/events/abc/./sales",
+    "/events/abc/sales/..?q=1",
+    "/events/abc/%2e%2e/xyz",
+    "/events/abc/%2E./xyz",
+    "/events/abc/.%2e#x",
+  ]) {
+    assert.equal(dossierBackHref(from, EVENT), LIST, from);
+  }
+});
+
+test("dossierBackHref refuses control characters", () => {
+  for (const from of ["/events/abc/sales\n", "/events/abc\t/sales", "/events/abc/\u0000", "/events/abc/\u007f"]) {
+    assert.equal(dossierBackHref(from, EVENT), LIST, JSON.stringify(from));
+  }
+});
+
+// --- status ----------------------------------------------------------------------
+
+test("saleStatusToken names the three statuses", () => {
+  assert.equal(saleStatusToken("active"), "active");
+  assert.equal(saleStatusToken("reversed"), "reversed");
+  assert.equal(saleStatusToken("corrected"), "corrected");
+});
+
+test("saleStatusToken answers null for a status this app has never heard of", () => {
+  assert.equal(saleStatusToken("refunded"), null);
+  assert.equal(saleStatusToken("Active"), null);
+  assert.equal(saleStatusToken(""), null);
+  assert.equal(saleStatusToken(null), null);
+  assert.equal(saleStatusToken(undefined), null);
+});
+
+test("a Sale that no longer stands is drawn as such, and an unknown one never as live", () => {
+  assert.equal(saleStatusBadgeVariant("active"), "secondary");
+  assert.equal(saleStatusBadgeVariant("reversed"), "destructive");
+  assert.equal(saleStatusBadgeVariant("corrected"), "destructive");
+  assert.equal(saleStatusBadgeVariant(null), "outline");
+});
+
+// --- name ------------------------------------------------------------------------
+
+test("nameGivenOnSale joins the halves without a stray space", () => {
+  assert.equal(nameGivenOnSale({ customer_first_name: "Ana", customer_last_name: "López" }), "Ana López");
+  assert.equal(nameGivenOnSale({ customer_first_name: "Ana", customer_last_name: " " }), "Ana");
+  assert.equal(nameGivenOnSale({ customer_first_name: "", customer_last_name: "López" }), "López");
+  assert.equal(nameGivenOnSale({ customer_first_name: "  ", customer_last_name: "" }), "");
+});

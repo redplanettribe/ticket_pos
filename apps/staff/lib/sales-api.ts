@@ -15,6 +15,9 @@ export type SaleTicketType = {
 
 export type SaleListRow = {
   id: string;
+  // The buyer's Customer id: what the Customer Dossier is addressed by (#638),
+  // so a link to it never carries the email.
+  customer_id: string;
   customer_first_name: string;
   customer_last_name: string;
   customer_email: string;

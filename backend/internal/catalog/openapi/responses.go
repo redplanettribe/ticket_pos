@@ -102,6 +102,14 @@ type EnvelopeHolderList struct {
 	RequestID string                 `json:"request_id"`
 }
 
+// EnvelopeCustomerDossier documents the Customer Dossier response (#638): one
+// Customer's identity and this Event's Ticket Sales to them.
+type EnvelopeCustomerDossier struct {
+	Data      service.CustomerDossier `json:"data"`
+	Error     *platform.APIError      `json:"error"`
+	RequestID string                  `json:"request_id"`
+}
+
 // EnvelopeAssignmentLink documents all three Assignment Link responses —
 // accepting one, naming the Holder, and answering through it (#325, ADR 0046).
 //

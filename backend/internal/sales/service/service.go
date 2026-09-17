@@ -1051,7 +1051,10 @@ type SaleLine struct {
 // active sale, and both stay null on a sale reversed before either was recorded
 // — the same never-backfilled treatment, for the same reason (#117, ADR 0018).
 type SaleListItem struct {
-	ID                string     `json:"id"`
+	ID string `json:"id"`
+	// CustomerID is the buyer's Customer: the address of their Customer
+	// Dossier (#638), so a row links to it by id and never by email.
+	CustomerID        string     `json:"customer_id"`
 	CustomerFirstName string     `json:"customer_first_name"`
 	CustomerLastName  string     `json:"customer_last_name"`
 	CustomerEmail     string     `json:"customer_email"`
@@ -1197,6 +1200,7 @@ func (s *Service) ListSales(ctx context.Context, actor ActorContext, eventID str
 		}
 		items = append(items, SaleListItem{
 			ID:                        row.ID,
+			CustomerID:                row.CustomerID,
 			CustomerFirstName:         row.CustomerFirstName,
 			CustomerLastName:          row.CustomerLastName,
 			CustomerEmail:             row.CustomerEmail,
