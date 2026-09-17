@@ -125,6 +125,7 @@ export default async function EventSalesPage({ params, searchParams }: EventSale
       canExport={isOwner}
       canManageSales={isOwner}
       ticketQuestionsEnabled={facts.ticketQuestionsEnabled}
+      canOpenDossier={isOwner}
     />
   );
 }

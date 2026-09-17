@@ -814,6 +814,23 @@
     "recordVerdictFitsPlain": "This sale fits.",
     "ticketAnswers": "Answers"
   },
+  "customerDossier": {
+    "title": "Customer dossier",
+    "description": "What this Event knows about one customer. The name and Tax ID are the ones given on each sale, shown beside it.",
+    "back": "Back to the list",
+    "openDossier": "Open the customer dossier for {name}",
+    "identityHeading": "Who they are",
+    "emailLabel": "Email",
+    "salesHeading": "Ticket sales at this Event",
+    "salesCount": "{count, plural, one {# sale} other {# sales}}",
+    "statusActive": "Active",
+    "reversedAt": "Reversed {when}",
+    "nameGivenLabel": "Name given",
+    "taxIdGivenLabel": "Tax ID given",
+    "notFound": "This customer has no ticket sales at this Event.",
+    "loadFailed": "Could not load the customer dossier.",
+    "loadError": "Couldn't load the customer dossier: {message}"
+  },
   "trends": {
     "title": "Trends",
     "description": "How this Event has sold, day by day, in the Event's own timezone. Reversed sales are left out, as they are everywhere else.",

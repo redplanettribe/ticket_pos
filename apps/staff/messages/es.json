@@ -814,6 +814,23 @@
     "recordVerdictFitsPlain": "La venta cabe.",
     "ticketAnswers": "Respuestas"
   },
+  "customerDossier": {
+    "title": "Ficha del cliente",
+    "description": "Lo que este evento sabe de un cliente. El nombre y la identificación tributaria son los indicados en cada venta, junto a ella.",
+    "back": "Volver a la lista",
+    "openDossier": "Abrir la ficha del cliente de {name}",
+    "identityHeading": "Quién es",
+    "emailLabel": "Correo",
+    "salesHeading": "Ventas de entradas en este evento",
+    "salesCount": "{count, plural, one {# venta} other {# ventas}}",
+    "statusActive": "Activa",
+    "reversedAt": "Revertida el {when}",
+    "nameGivenLabel": "Nombre indicado",
+    "taxIdGivenLabel": "Identificación tributaria indicada",
+    "notFound": "Este cliente no tiene ventas de entradas en este evento.",
+    "loadFailed": "No se pudo cargar la ficha del cliente.",
+    "loadError": "No se pudo cargar la ficha del cliente: {message}"
+  },
   "trends": {
     "title": "Tendencias",
     "description": "Cómo se ha vendido este evento, día a día, en la zona horaria del propio evento. Las ventas revertidas quedan fuera, como en todas partes.",
