@@ -16599,6 +16599,13 @@ export interface components {
         "service.DossierHeldTicketView": {
             /** @description AcceptedAt is when this Customer accepted the Ticket. */
             accepted_at?: string;
+            /**
+             * @description Answers are the Ticket's Answers: the Answers dialog's question/Answer
+             *     pairs that have an Answer, in the order the questions are asked; `[]`
+             *     when it answered nothing. Readable on a reversed Sale too. Absent while
+             *     TICKET_QUESTIONS_ENABLED is closed.
+             */
+            answers?: components["schemas"]["service.TicketQuestionAnswerView"][];
             /** @description The buyer's name as given on that Sale. */
             buyer_first_name?: string;
             buyer_last_name?: string;
@@ -16606,7 +16613,20 @@ export interface components {
             /** @description The name this Customer gave as its Holder. */
             holder_first_name?: string;
             holder_last_name?: string;
+            /**
+             * Format: date-time
+             * @description LastAnswerReminderSentAt is when an Answer Reminder was last sent about
+             *     this Ticket, or null when none was. Absent on a reversed Sale and while
+             *     the questions flag is closed.
+             */
+            last_answer_reminder_sent_at?: string;
             ordinal?: number;
+            /**
+             * @description OutstandingAnswers are the required questions it has not answered — the
+             *     Holder List's `outstanding` for the same Ticket; `[]` when it owes
+             *     nothing. Absent on a reversed Sale and while the questions flag is closed.
+             */
+            outstanding_answers?: components["schemas"]["service.OutstandingQuestionView"][];
             /**
              * @description SaleStatus is `reversed` when that Sale was reversed (a Sale Correction
              *     included): the Ticket is void, and this Customer held it.
@@ -16689,8 +16709,8 @@ export interface components {
             ticket_types?: components["schemas"]["service.DossierSaleLineView"][];
             /**
              * @description Tickets are the Sale's Tickets in the catalog's order. A reversed or
-             *     corrected Sale's Tickets are void and carry their Ticket Type and ordinal
-             *     only; `status` is what says so.
+             *     corrected Sale's Tickets are void and carry their Ticket Type, ordinal
+             *     and Answers only; `status` is what says so.
              */
             tickets?: components["schemas"]["service.DossierTicketView"][];
         };
@@ -16721,6 +16741,13 @@ export interface components {
         };
         "service.DossierTicketView": {
             /**
+             * @description Answers are the Ticket's Answers: the Answers dialog's question/Answer
+             *     pairs that have an Answer, in the order the questions are asked; `[]`
+             *     when it answered nothing. Readable on a reversed Sale too. Absent while
+             *     TICKET_QUESTIONS_ENABLED is closed.
+             */
+            answers?: components["schemas"]["service.TicketQuestionAnswerView"][];
+            /**
              * @description AssignmentState is `unassigned`, `assigned` or `accepted`.
              * @enum {string}
              */
@@ -16733,12 +16760,25 @@ export interface components {
             holder_first_name?: string;
             holder_last_name?: string;
             /**
+             * Format: date-time
+             * @description LastAnswerReminderSentAt is when an Answer Reminder was last sent about
+             *     this Ticket, or null when none was. Absent on a reversed Sale and while
+             *     the questions flag is closed.
+             */
+            last_answer_reminder_sent_at?: string;
+            /**
              * @description NeverAccepted marks an assignment whose unaccepted address the retention
              *     purge took; it reads `assigned` beside it (#334).
              */
             never_accepted?: boolean;
             /** @description Ordinal is which of its Ticket Sale Line's units this Ticket is. */
             ordinal?: number;
+            /**
+             * @description OutstandingAnswers are the required questions it has not answered — the
+             *     Holder List's `outstanding` for the same Ticket; `[]` when it owes
+             *     nothing. Absent on a reversed Sale and while the questions flag is closed.
+             */
+            outstanding_answers?: components["schemas"]["service.OutstandingQuestionView"][];
             /**
              * @description SelfHeld marks a Ticket this Customer accepted on their own Sale — their
              *     Self-held Ticket (ADR 0048) — which names nobody else.

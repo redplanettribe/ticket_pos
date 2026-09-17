@@ -19,6 +19,8 @@ import {
 } from "@/lib/customer-dossier";
 import { NOTHING_TO_SHOW, formatDateTime } from "@/lib/format";
 
+import { DossierTicketAnswers } from "./dossier-ticket-answers";
+
 /**
  * The page a link from this Dossier comes back to: this Dossier, query and all,
  * so Back from a Holder's Dossier returns here (`dossierBackHref` accepts any
@@ -31,9 +33,11 @@ function useThisPageHref(): string {
 }
 
 type DossierTicketsProps = {
-  sale: Pick<DossierSale, "status" | "tickets" | "assignment_reminder_sent_at">;
+  sale: Pick<DossierSale, "id" | "confirmation_ref" | "status" | "tickets" | "assignment_reminder_sent_at">;
   zone: string;
   locale: AppLocale;
+  /** Opens the Answers dialog on a Sale (#641). */
+  onOpenAnswers: (ticketSaleId: string, confirmationRef: string) => void;
 };
 
 /**
@@ -42,7 +46,7 @@ type DossierTicketsProps = {
  * own Dossier only once they accepted, and the buyer's own Ticket reads as
  * theirs. A Sale that no longer stands lists its Tickets as void.
  */
-export function DossierTickets({ sale, zone, locale }: DossierTicketsProps) {
+export function DossierTickets({ sale, zone, locale, onOpenAnswers }: DossierTicketsProps) {
   const t = useTranslations("customerDossier");
   const eventId = useParams<{ id: string }>().id;
   const from = useThisPageHref();
@@ -60,7 +64,15 @@ export function DossierTickets({ sale, zone, locale }: DossierTicketsProps) {
         ) : (
           <ul className="mt-1 space-y-1.5">
             {sale.tickets.map((ticket) => (
-              <DossierTicketRow key={ticket.ticket_id} ticket={ticket} eventId={eventId} from={from} />
+              <DossierTicketRow
+                key={ticket.ticket_id}
+                ticket={ticket}
+                eventId={eventId}
+                from={from}
+                zone={zone}
+                locale={locale}
+                onOpenAnswers={() => onOpenAnswers(sale.id, sale.confirmation_ref)}
+              />
             ))}
           </ul>
         )}
@@ -87,9 +99,12 @@ type DossierTicketRowProps = {
   ticket: DossierTicket;
   eventId: string;
   from: string;
+  zone: string;
+  locale: AppLocale;
+  onOpenAnswers: () => void;
 };
 
-function DossierTicketRow({ ticket, eventId, from }: DossierTicketRowProps) {
+function DossierTicketRow({ ticket, eventId, from, zone, locale, onOpenAnswers }: DossierTicketRowProps) {
   const t = useTranslations("customerDossier");
   const tHolders = useTranslations("outstandingAnswers");
 
@@ -97,26 +112,36 @@ function DossierTicketRow({ ticket, eventId, from }: DossierTicketRowProps) {
   const variant = dossierTicketBadgeVariant(ticket);
   const name = stateKey === "selfHeld" ? "" : holderNameOnTicket(ticket);
   const holderId = ticketHolderDossierId(ticket);
+  const heading = tHolders("ticketHeading", { name: ticket.ticket_type_name, ordinal: ticket.ordinal });
 
   return (
-    <li className="flex flex-wrap items-center gap-x-2 gap-y-1">
-      <span>{tHolders("ticketHeading", { name: ticket.ticket_type_name, ordinal: ticket.ordinal })}</span>
-      {name ? (
-        holderId ? (
-          <Link
-            href={dossierHref(eventId, holderId, from)}
-            className="font-medium underline-offset-2 hover:underline"
-            aria-label={t("openDossier", { name })}
-          >
-            {name}
-          </Link>
-        ) : (
-          <span className="font-medium">{name}</span>
-        )
-      ) : null}
-      {stateKey && variant ? (
-        <Badge variant={variant}>{stateKey === "selfHeld" ? t("selfHeld") : tHolders(stateKey)}</Badge>
-      ) : null}
+    <li className="min-w-0">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span>{heading}</span>
+        {name ? (
+          holderId ? (
+            <Link
+              href={dossierHref(eventId, holderId, from)}
+              className="font-medium underline-offset-2 hover:underline"
+              aria-label={t("openDossier", { name })}
+            >
+              {name}
+            </Link>
+          ) : (
+            <span className="font-medium">{name}</span>
+          )
+        ) : null}
+        {stateKey && variant ? (
+          <Badge variant={variant}>{stateKey === "selfHeld" ? t("selfHeld") : tHolders(stateKey)}</Badge>
+        ) : null}
+      </div>
+      <DossierTicketAnswers
+        ticket={ticket}
+        ticketName={heading}
+        zone={zone}
+        locale={locale}
+        onOpenAnswers={onOpenAnswers}
+      />
     </li>
   );
 }

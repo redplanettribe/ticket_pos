@@ -4385,6 +4385,14 @@ const docTemplate = `{
                         "description": "AcceptedAt is when this Customer accepted the Ticket.",
                         "type": "string"
                     },
+                    "answers": {
+                        "description": "Answers are the Ticket's Answers: the Answers dialog's question/Answer\npairs that have an Answer, in the order the questions are asked; ` + "`" + `[]` + "`" + `\nwhen it answered nothing. Readable on a reversed Sale too. Absent while\nTICKET_QUESTIONS_ENABLED is closed.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.TicketQuestionAnswerView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "buyer_first_name": {
                         "description": "The buyer's name as given on that Sale.",
                         "type": "string"
@@ -4402,8 +4410,21 @@ const docTemplate = `{
                     "holder_last_name": {
                         "type": "string"
                     },
+                    "last_answer_reminder_sent_at": {
+                        "description": "LastAnswerReminderSentAt is when an Answer Reminder was last sent about\nthis Ticket, or null when none was. Absent on a reversed Sale and while\nthe questions flag is closed.",
+                        "format": "date-time",
+                        "type": "string"
+                    },
                     "ordinal": {
                         "type": "integer"
+                    },
+                    "outstanding_answers": {
+                        "description": "OutstandingAnswers are the required questions it has not answered — the\nHolder List's ` + "`" + `outstanding` + "`" + ` for the same Ticket; ` + "`" + `[]` + "`" + ` when it owes\nnothing. Absent on a reversed Sale and while the questions flag is closed.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.OutstandingQuestionView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
                     "sale_status": {
                         "description": "SaleStatus is ` + "`" + `reversed` + "`" + ` when that Sale was reversed (a Sale Correction\nincluded): the Ticket is void, and this Customer held it.",
@@ -4543,7 +4564,7 @@ const docTemplate = `{
                         "uniqueItems": false
                     },
                     "tickets": {
-                        "description": "Tickets are the Sale's Tickets in the catalog's order. A reversed or\ncorrected Sale's Tickets are void and carry their Ticket Type and ordinal\nonly; ` + "`" + `status` + "`" + ` is what says so.",
+                        "description": "Tickets are the Sale's Tickets in the catalog's order. A reversed or\ncorrected Sale's Tickets are void and carry their Ticket Type, ordinal\nand Answers only; ` + "`" + `status` + "`" + ` is what says so.",
                         "items": {
                             "$ref": "#/components/schemas/service.DossierTicketView"
                         },
@@ -4606,6 +4627,14 @@ const docTemplate = `{
             },
             "service.DossierTicketView": {
                 "properties": {
+                    "answers": {
+                        "description": "Answers are the Ticket's Answers: the Answers dialog's question/Answer\npairs that have an Answer, in the order the questions are asked; ` + "`" + `[]` + "`" + `\nwhen it answered nothing. Readable on a reversed Sale too. Absent while\nTICKET_QUESTIONS_ENABLED is closed.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.TicketQuestionAnswerView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "assignment_state": {
                         "description": "AssignmentState is ` + "`" + `unassigned` + "`" + `, ` + "`" + `assigned` + "`" + ` or ` + "`" + `accepted` + "`" + `.",
                         "enum": [
@@ -4625,6 +4654,11 @@ const docTemplate = `{
                     "holder_last_name": {
                         "type": "string"
                     },
+                    "last_answer_reminder_sent_at": {
+                        "description": "LastAnswerReminderSentAt is when an Answer Reminder was last sent about\nthis Ticket, or null when none was. Absent on a reversed Sale and while\nthe questions flag is closed.",
+                        "format": "date-time",
+                        "type": "string"
+                    },
                     "never_accepted": {
                         "description": "NeverAccepted marks an assignment whose unaccepted address the retention\npurge took; it reads ` + "`" + `assigned` + "`" + ` beside it (#334).",
                         "type": "boolean"
@@ -4632,6 +4666,14 @@ const docTemplate = `{
                     "ordinal": {
                         "description": "Ordinal is which of its Ticket Sale Line's units this Ticket is.",
                         "type": "integer"
+                    },
+                    "outstanding_answers": {
+                        "description": "OutstandingAnswers are the required questions it has not answered — the\nHolder List's ` + "`" + `outstanding` + "`" + ` for the same Ticket; ` + "`" + `[]` + "`" + ` when it owes\nnothing. Absent on a reversed Sale and while the questions flag is closed.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.OutstandingQuestionView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
                     "self_held": {
                         "description": "SelfHeld marks a Ticket this Customer accepted on their own Sale — their\nSelf-held Ticket (ADR 0048) — which names nobody else.",

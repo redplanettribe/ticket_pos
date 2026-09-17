@@ -316,6 +316,45 @@ func (r *Repository) ListDossierAssignmentReminders(ctx context.Context, orgID, 
 	return out, rows.Err()
 }
 
+// DossierAnswerReminder is when an Answer Reminder was last sent about a Ticket.
+type DossierAnswerReminder struct {
+	TicketID   string
+	LastSentAt time.Time
+}
+
+// ListDossierLastAnswerReminders returns, for each of the given Tickets that
+// has ever been chased, when the last Answer Reminder about it was sent (the
+// `answer_reminders` ledger, one row per Ticket a mail covered), re-scoped to
+// this Event of this Organization (#641). A Ticket never chased has no row.
+func (r *Repository) ListDossierLastAnswerReminders(ctx context.Context, orgID, eventID string, ticketIDs []string) ([]DossierAnswerReminder, error) {
+	if len(ticketIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT ar.ticket_id, MAX(ar.sent_at)
+		FROM answer_reminders ar
+		JOIN tickets tk ON tk.id = ar.ticket_id
+		JOIN ticket_sale_lines l ON l.id = tk.ticket_sale_line_id
+		JOIN ticket_sales s ON s.id = l.ticket_sale_id
+		WHERE s.event_id = $1 AND s.organization_id = $2 AND ar.ticket_id = ANY($3)
+		GROUP BY ar.ticket_id
+	`, eventID, orgID, ticketIDs)
+	if err != nil {
+		return nil, fmt.Errorf("dossier answer reminders: %w", err)
+	}
+	defer rows.Close()
+
+	var out []DossierAnswerReminder
+	for rows.Next() {
+		var reminder DossierAnswerReminder
+		if err := rows.Scan(&reminder.TicketID, &reminder.LastSentAt); err != nil {
+			return nil, fmt.Errorf("dossier answer reminders scan: %w", err)
+		}
+		out = append(out, reminder)
+	}
+	return out, rows.Err()
+}
+
 // dossierString turns a nullable column into the pointer the Dossier carries.
 func dossierString(v sql.NullString) *string {
 	if !v.Valid {

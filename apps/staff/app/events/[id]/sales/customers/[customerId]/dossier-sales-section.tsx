@@ -41,10 +41,12 @@ import { DossierTickets } from "./dossier-tickets";
 type DossierSalesSectionProps = {
   sales: DossierSale[];
   timezone: string | null;
+  /** Opens the Answers dialog on a Sale (#641). */
+  onOpenAnswers: (ticketSaleId: string, confirmationRef: string) => void;
 };
 
 /** This Event's Ticket Sales to the person, newest first, one card each. */
-export function DossierSalesSection({ sales, timezone }: DossierSalesSectionProps) {
+export function DossierSalesSection({ sales, timezone, onOpenAnswers }: DossierSalesSectionProps) {
   const t = useTranslations("customerDossier");
   const locale = toAppLocale(useLocale());
 
@@ -59,7 +61,12 @@ export function DossierSalesSection({ sales, timezone }: DossierSalesSectionProp
       <ul className="space-y-3">
         {sales.map((sale) => (
           <li key={sale.id}>
-            <DossierSaleCard sale={sale} zone={timezone ?? PLATFORM_TIME_ZONE} locale={locale} />
+            <DossierSaleCard
+              sale={sale}
+              zone={timezone ?? PLATFORM_TIME_ZONE}
+              locale={locale}
+              onOpenAnswers={onOpenAnswers}
+            />
           </li>
         ))}
       </ul>
@@ -71,6 +78,7 @@ type DossierSaleCardProps = {
   sale: DossierSale;
   zone: string;
   locale: AppLocale;
+  onOpenAnswers: (ticketSaleId: string, confirmationRef: string) => void;
 };
 
 /**
@@ -78,7 +86,7 @@ type DossierSaleCardProps = {
  * payment method and Tax ID Type are the sales list's own (`sales` namespace),
  * so the two screens cannot name one Sale differently.
  */
-export function DossierSaleCard({ sale, zone, locale }: DossierSaleCardProps) {
+export function DossierSaleCard({ sale, zone, locale, onOpenAnswers }: DossierSaleCardProps) {
   const t = useTranslations("customerDossier");
   const tSales = useTranslations("sales");
 
@@ -165,7 +173,7 @@ export function DossierSaleCard({ sale, zone, locale }: DossierSaleCardProps) {
         </Fact>
       </dl>
       <DossierSaleSurroundings sale={sale} zone={zone} locale={locale} />
-      <DossierTickets sale={sale} zone={zone} locale={locale} />
+      <DossierTickets sale={sale} zone={zone} locale={locale} onOpenAnswers={onOpenAnswers} />
     </article>
   );
 }

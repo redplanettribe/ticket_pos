@@ -20,6 +20,7 @@ import {
   type TicketAssignmentState,
 } from "./holder-list.ts";
 import type { SaleTicketType } from "./sales-api.ts";
+import type { DossierTicketAnswerFields } from "./dossier-ticket-answers.ts";
 
 /*
   THE READ
@@ -119,7 +120,7 @@ export type DossierTicket = {
   holder_customer_id?: string;
   holder_first_name?: string;
   holder_last_name?: string;
-};
+} & DossierTicketAnswerFields;
 
 /** A Ticket this Customer accepted on another buyer's Sale (#640). */
 export type DossierHeldTicket = {
@@ -137,7 +138,7 @@ export type DossierHeldTicket = {
   /** The name this Customer gave as Holder. */
   holder_first_name?: string;
   holder_last_name?: string;
-};
+} & DossierTicketAnswerFields;
 
 /**
  * What loading a Dossier can come to, short of a thrown failure.
