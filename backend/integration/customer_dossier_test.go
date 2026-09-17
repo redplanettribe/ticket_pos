@@ -759,6 +759,9 @@ func newDossierHolderFixture(t *testing.T, env *testEnv) dossierHolderFixture {
 	stageHolderAddressPurge(t, env, f.purged)
 
 	f.ana = customerIDOnSalesList(t, env, f.session, f.eventID, "ana@example.com", "active")
+	// SQL, not the Holder List's holder_customer_id: that field is itself under
+	// test here (TestTheHolderListCarriesTheCustomerIdsItsDossierLinksNeed), and
+	// reading the expected id from it would make that assertion circular.
 	if err := env.db.QueryRow(`SELECT id FROM customers WHERE email = 'carla@example.com'`).Scan(&f.carla); err != nil {
 		t.Fatalf("read Carla's Customer id: %v", err)
 	}
@@ -852,6 +855,8 @@ func TestAHolderOnlyCustomersDossierListsTheHeldTicket(t *testing.T) {
 	// Diego was typed and never accepted: at this Event he is nobody.
 	customerSignIn(t, env, "diego@example.com")
 	var diego string
+	// SQL because no staff API names Diego: an unaccepted Holder's identity is
+	// never shown (ADR 0047), which is exactly what this test relies on.
 	if err := env.db.QueryRow(`SELECT id FROM customers WHERE email = 'diego@example.com'`).Scan(&diego); err != nil {
 		t.Fatalf("read Diego's Customer id: %v", err)
 	}
