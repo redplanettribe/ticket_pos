@@ -817,7 +817,7 @@
   "customerDossier": {
     "title": "Ficha del cliente",
     "description": "Lo que este evento sabe de un cliente. El nombre y la identificación tributaria son los indicados en cada venta, junto a ella.",
-    "back": "Volver a la lista",
+    "back": "← Volver a la lista",
     "openDossier": "Abrir la ficha del cliente de {name}",
     "identityHeading": "Quién es",
     "emailLabel": "Correo",

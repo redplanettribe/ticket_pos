@@ -105,7 +105,7 @@ export function CustomerDossierSection({
   return (
     <div className="space-y-4">
       <Link href={backHref} className="inline-block text-sm text-muted-foreground hover:underline">
-        {`← ${t("back")}`}
+        {t("back")}
       </Link>
       <Card>
         <CardHeader>
