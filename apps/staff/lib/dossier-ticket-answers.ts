@@ -16,7 +16,7 @@
  */
 
 import type { OutstandingQuestion } from "./holder-list.ts";
-import type { TicketQuestionAnswer } from "./ticket-answers.ts";
+import { hasAnswer, type TicketQuestionAnswer } from "./ticket-answers.ts";
 
 /** The three optional keys #641 adds to a Dossier Ticket and a held Ticket. */
 export type DossierTicketAnswerFields = {
@@ -36,7 +36,7 @@ export function ticketAnswersVisible(ticket: Pick<DossierTicketAnswerFields, "an
  * never draws an empty value as if it were an Answer.
  */
 export function answeredPairs(ticket: Pick<DossierTicketAnswerFields, "answers">): TicketQuestionAnswer[] {
-  return (ticket.answers ?? []).filter((pair) => pair.answer !== null);
+  return (ticket.answers ?? []).filter(hasAnswer);
 }
 
 /**

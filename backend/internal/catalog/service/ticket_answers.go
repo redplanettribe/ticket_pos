@@ -419,9 +419,9 @@ func (s *Service) resolveAnswerOptions(
 // ticketAnswersViews assembles the payload: the questions of each Ticket's
 // Ticket Type, paired with that Ticket's Answers.
 func (s *Service) ticketAnswersViews(ctx context.Context, tickets []repository.AnswerableTicket) ([]TicketAnswersView, error) {
-	typed := make([]typedTicket, 0, len(tickets))
+	typed := make([]ticketOfType, 0, len(tickets))
 	for _, ticket := range tickets {
-		typed = append(typed, typedTicket{ID: ticket.ID, TicketTypeID: ticket.TicketTypeID})
+		typed = append(typed, ticketOfType{ID: ticket.ID, TicketTypeID: ticket.TicketTypeID})
 	}
 	pairsByTicket, err := s.ticketQuestionAnswers(ctx, typed)
 	if err != nil {
@@ -447,9 +447,9 @@ func (s *Service) ticketAnswersViews(ctx context.Context, tickets []repository.A
 	return views, nil
 }
 
-// typedTicket is all ticketQuestionAnswers needs of a Ticket: which one, and
+// ticketOfType is all ticketQuestionAnswers needs of a Ticket: which one, and
 // which Ticket Type's questions it is asked.
-type typedTicket struct {
+type ticketOfType struct {
 	ID           string
 	TicketTypeID string
 }
@@ -463,7 +463,7 @@ type typedTicket struct {
 // It reads the questions ONCE PER TICKET TYPE and the Answers ONCE FOR ALL
 // TICKETS. A Ticket Sale is usually one line of several Tickets, so the loop is
 // over one or two Ticket Types however many Tickets there are.
-func (s *Service) ticketQuestionAnswers(ctx context.Context, tickets []typedTicket) (map[string][]TicketQuestionAnswerView, error) {
+func (s *Service) ticketQuestionAnswers(ctx context.Context, tickets []ticketOfType) (map[string][]TicketQuestionAnswerView, error) {
 	ticketIDs := make([]string, 0, len(tickets))
 	for _, ticket := range tickets {
 		ticketIDs = append(ticketIDs, ticket.ID)

@@ -17,11 +17,10 @@ import {
   ASSIGNMENT_STATE_KEYS,
   assignmentStateBadgeVariant,
   type HolderStateKey,
-  type OutstandingQuestion,
   type TicketAssignmentState,
 } from "./holder-list.ts";
 import type { SaleTicketType } from "./sales-api.ts";
-import type { TicketQuestionAnswer } from "./ticket-answers.ts";
+import type { DossierTicketAnswerFields } from "./dossier-ticket-answers.ts";
 
 /*
   THE READ
@@ -121,26 +120,7 @@ export type DossierTicket = {
   holder_customer_id?: string;
   holder_first_name?: string;
   holder_last_name?: string;
-  /*
-    ANSWERS (#641). Read them with lib/dossier-ticket-answers.ts.
-  */
-  /**
-   * The Ticket's ANSWERED questions only, in question order. ABSENT while
-   * `TICKET_QUESTIONS_ENABLED` is closed, so its absence is the flag.
-   */
-  answers?: TicketQuestionAnswer[];
-  /**
-   * What the Ticket still owes: the Holder List's own Outstanding Answers.
-   * Absent with the flag closed, and on a Ticket of a Sale that no longer
-   * stands, which owes nothing.
-   */
-  outstanding_answers?: OutstandingQuestion[];
-  /**
-   * When the last Answer Reminder about this Ticket was sent; null if never.
-   * Absent under the same conditions as `outstanding_answers`.
-   */
-  last_answer_reminder_sent_at?: string | null;
-};
+} & DossierTicketAnswerFields;
 
 /** A Ticket this Customer accepted on another buyer's Sale (#640). */
 export type DossierHeldTicket = {
@@ -158,26 +138,7 @@ export type DossierHeldTicket = {
   /** The name this Customer gave as Holder. */
   holder_first_name?: string;
   holder_last_name?: string;
-  /*
-    ANSWERS (#641). Read them with lib/dossier-ticket-answers.ts.
-  */
-  /**
-   * The Ticket's ANSWERED questions only, in question order. ABSENT while
-   * `TICKET_QUESTIONS_ENABLED` is closed, so its absence is the flag.
-   */
-  answers?: TicketQuestionAnswer[];
-  /**
-   * What the Ticket still owes: the Holder List's own Outstanding Answers.
-   * Absent with the flag closed, and on a Ticket of a Sale that no longer
-   * stands, which owes nothing.
-   */
-  outstanding_answers?: OutstandingQuestion[];
-  /**
-   * When the last Answer Reminder about this Ticket was sent; null if never.
-   * Absent under the same conditions as `outstanding_answers`.
-   */
-  last_answer_reminder_sent_at?: string | null;
-};
+} & DossierTicketAnswerFields;
 
 /**
  * What loading a Dossier can come to, short of a thrown failure.

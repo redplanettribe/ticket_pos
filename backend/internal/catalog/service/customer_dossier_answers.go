@@ -51,18 +51,18 @@ func (s *Service) fillDossierAnswers(
 		return nil
 	}
 
-	var tickets []typedTicket
+	var tickets []ticketOfType
 	var liveIDs []string
 	for _, sale := range sales {
 		for _, ticket := range sale.Tickets {
-			tickets = append(tickets, typedTicket{ID: ticket.TicketID, TicketTypeID: ticket.TicketTypeID})
+			tickets = append(tickets, ticketOfType{ID: ticket.TicketID, TicketTypeID: ticket.TicketTypeID})
 			if sale.Status == DossierSaleActive {
 				liveIDs = append(liveIDs, ticket.TicketID)
 			}
 		}
 	}
 	for _, ticket := range held {
-		tickets = append(tickets, typedTicket{ID: ticket.TicketID, TicketTypeID: ticket.TicketTypeID})
+		tickets = append(tickets, ticketOfType{ID: ticket.TicketID, TicketTypeID: ticket.TicketTypeID})
 		if ticket.SaleStatus == DossierSaleActive {
 			liveIDs = append(liveIDs, ticket.TicketID)
 		}
@@ -93,11 +93,11 @@ func (s *Service) fillDossierAnswers(
 		live := sales[i].Status == DossierSaleActive
 		for j := range sales[i].Tickets {
 			ticket := &sales[i].Tickets[j]
-			ticket.DossierTicketAnswers = reads.ticket(ticket.TicketID, live)
+			ticket.DossierTicketAnswers = reads.answersOf(ticket.TicketID, live)
 		}
 	}
 	for i := range held {
-		held[i].DossierTicketAnswers = reads.ticket(held[i].TicketID, held[i].SaleStatus == DossierSaleActive)
+		held[i].DossierTicketAnswers = reads.answersOf(held[i].TicketID, held[i].SaleStatus == DossierSaleActive)
 	}
 	return nil
 }
@@ -109,9 +109,9 @@ type dossierAnswerReads struct {
 	lastReminded map[string]time.Time
 }
 
-// ticket shapes one Ticket's block: its Answers always, and its debt and last
+// answersOf shapes one Ticket's block: its Answers always, and its debt and last
 // reminder only while the Ticket is live.
-func (r dossierAnswerReads) ticket(ticketID string, live bool) DossierTicketAnswers {
+func (r dossierAnswerReads) answersOf(ticketID string, live bool) DossierTicketAnswers {
 	answered := make([]TicketQuestionAnswerView, 0)
 	for _, pair := range r.pairs[ticketID] {
 		if pair.Answer != nil {
