@@ -16261,8 +16261,12 @@ paths:
         assignment state, `never_accepted` for an assignment the retention purge closed,
         `self_held` for the Customer''s own Ticket, and — ONLY once accepted by somebody
         else — that Holder''s Customer id and name. An unaccepted assignment''s name
-        and address are never included (ADR 0047). A reversed or corrected Sale''s
-        Tickets carry Ticket Type and ordinal only. While Ticket Assignment is open
+        and address are never included (ADR 0047). While Ticket Questions are open
+        each Ticket also carries its `answers`, `outstanding_answers` and `last_answer_reminder_sent_at`.
+        A reversed or corrected Sale''s Tickets carry Ticket Type, ordinal and — while
+        Ticket Questions are open — `answers`, and nothing else: no assignment state,
+        `outstanding_answers` or `last_answer_reminder_sent_at`. With Ticket Questions
+        closed no Ticket carries any of the three. While Ticket Assignment is open
         each Sale also carries `assignment_reminder_sent_at`, and the Dossier carries
         `held_tickets`: the Tickets the Customer accepted on somebody else''s Sale
         of this Event, with the buyer''s name as given on that Sale, accepted-at,
