@@ -66,7 +66,7 @@ func ticketAnswerRoute(w http.ResponseWriter, r *http.Request, reqID string) (ev
 // Answers.
 //
 // @Summary      List a ticket sale's tickets and answers
-// @Description  Lists every Ticket of one Ticket Sale with its Ticket Questions and this Ticket's Answers. Reversed sales are listed and readable; only writing is refused. Answers 404 while the Ticket Question feature flag is off.
+// @Description  Lists every Ticket of one Ticket Sale with its Ticket Questions and this Ticket's Answers. Reversed sales are listed and readable; only writing is refused. Org Admin and Event Owner only; Event Staff are refused. Answers 404 while the Ticket Question feature flag is off.
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth
@@ -99,7 +99,7 @@ func (h *Handler) ListTicketSaleAnswers(w http.ResponseWriter, r *http.Request) 
 // GetTicketAnswers returns one Ticket with its questions and Answers.
 //
 // @Summary      Get a ticket's questions and answers
-// @Description  One Ticket, its Ticket Type's Ticket Questions (retired ones included) and what this Ticket has answered. Answers 404 while the Ticket Question feature flag is off.
+// @Description  One Ticket, its Ticket Type's Ticket Questions (retired ones included) and what this Ticket has answered. Org Admin and Event Owner only; Event Staff are refused. Answers 404 while the Ticket Question feature flag is off.
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth
@@ -137,7 +137,7 @@ func (h *Handler) GetTicketAnswers(w http.ResponseWriter, r *http.Request) {
 // arrangement the Option endpoints have with their question.
 //
 // @Summary      Answer a ticket question
-// @Description  Writes one Ticket's Answer to one Ticket Question, creating it or correcting it. Refused once the Event has started and on a reversed Ticket Sale. Answers 404 while the Ticket Question feature flag is off.
+// @Description  Writes one Ticket's Answer to one Ticket Question, creating it or correcting it. Refused once the Event has started and on a reversed Ticket Sale. Org Admin and Event Owner only; Event Staff are refused. Answers 404 while the Ticket Question feature flag is off.
 // @Tags         staff
 // @Accept       json
 // @Produce      json
@@ -203,7 +203,7 @@ func (h *Handler) AnswerTicketQuestion(w http.ResponseWriter, r *http.Request) {
 // tell from a real reply.
 //
 // @Summary      Remove a ticket's answer
-// @Description  Removes one Ticket's Answer to one Ticket Question, restoring the Outstanding Answer where the question is required. Refused once the Event has started and on a reversed Ticket Sale. Answers 404 while the Ticket Question feature flag is off.
+// @Description  Removes one Ticket's Answer to one Ticket Question, restoring the Outstanding Answer where the question is required. Refused once the Event has started and on a reversed Ticket Sale. Org Admin and Event Owner only; Event Staff are refused. Answers 404 while the Ticket Question feature flag is off.
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth
