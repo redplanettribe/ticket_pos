@@ -25,10 +25,11 @@ type DossierSaleSurroundings struct {
 }
 
 // ListDossierSaleSurroundings returns the surroundings of each named Ticket
-// Sale, keyed by Sale id. The ids are the ones ListDossierSales already scoped
-// to the Event and the Organization; a Sale with nothing around it still gets
-// an entry.
-func (r *Repository) ListDossierSaleSurroundings(ctx context.Context, ticketSaleIDs []string) (map[string]DossierSaleSurroundings, error) {
+// Sale of the Event in the Organization, keyed by Sale id. The ids are the ones
+// ListDossierSales already scoped, and the scope is re-applied here so a stray
+// id from elsewhere is never read; a Sale with nothing around it still gets an
+// entry.
+func (r *Repository) ListDossierSaleSurroundings(ctx context.Context, organizationID, eventID string, ticketSaleIDs []string) (map[string]DossierSaleSurroundings, error) {
 	out := make(map[string]DossierSaleSurroundings, len(ticketSaleIDs))
 	if len(ticketSaleIDs) == 0 {
 		return out, nil
@@ -49,7 +50,9 @@ func (r *Repository) ListDossierSaleSurroundings(ctx context.Context, ticketSale
 		FROM ticket_sales ts
 		LEFT JOIN affiliate_links al ON al.id = ts.affiliate_link_id
 		WHERE ts.id = ANY($1)
-	`, ticketSaleIDs)
+		  AND ts.organization_id = $2
+		  AND ts.event_id = $3
+	`, ticketSaleIDs, organizationID, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("dossier sale surroundings: %w", err)
 	}

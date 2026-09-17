@@ -56,12 +56,12 @@ type DossierTaxInvoiceView struct {
 
 // fillDossierSaleSurroundings sets each Sale's phone, Affiliate Link name,
 // re-addressing instant and Sale Invoices.
-func (s *Service) fillDossierSaleSurroundings(ctx context.Context, sales []DossierSaleView) error {
+func (s *Service) fillDossierSaleSurroundings(ctx context.Context, actor ActorContext, eventID string, sales []DossierSaleView) error {
 	ids := make([]string, 0, len(sales))
 	for _, sale := range sales {
 		ids = append(ids, sale.ID)
 	}
-	surroundings, err := s.repo.ListDossierSaleSurroundings(ctx, ids)
+	surroundings, err := s.repo.ListDossierSaleSurroundings(ctx, actor.OrganizationID, eventID, ids)
 	if err != nil {
 		return err
 	}
