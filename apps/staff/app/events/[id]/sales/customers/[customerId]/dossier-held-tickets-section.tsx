@@ -12,9 +12,13 @@ import {
 } from "@/lib/customer-dossier";
 import { PLATFORM_TIME_ZONE, formatDateTime } from "@/lib/format";
 
+import { DossierTicketAnswers } from "./dossier-ticket-answers";
+
 type DossierHeldTicketsSectionProps = {
   heldTickets: DossierHeldTicket[];
   timezone: string | null;
+  /** Opens the Answers dialog on the held Ticket's Sale (#641). */
+  onOpenAnswers: (ticketSaleId: string, confirmationRef: string) => void;
 };
 
 /**
@@ -22,7 +26,7 @@ type DossierHeldTicketsSectionProps = {
  * Sale was reversed stays listed, marked as no live Ticket, because having held
  * it is still something this Event knows about the person.
  */
-export function DossierHeldTicketsSection({ heldTickets, timezone }: DossierHeldTicketsSectionProps) {
+export function DossierHeldTicketsSection({ heldTickets, timezone, onOpenAnswers }: DossierHeldTicketsSectionProps) {
   const t = useTranslations("customerDossier");
   const tHolders = useTranslations("outstandingAnswers");
   const locale = toAppLocale(useLocale());
@@ -42,12 +46,11 @@ export function DossierHeldTicketsSection({ heldTickets, timezone }: DossierHeld
             const nameAsHolder = nameGivenAsHolder(ticket);
             const reversed = heldTicketOnReversedSale(ticket);
             const acceptedAt = formatDateTime(ticket.accepted_at, zone, locale);
+            const heading = tHolders("ticketHeading", { name: ticket.ticket_type_name, ordinal: ticket.ordinal });
             return (
               <li key={ticket.ticket_id} className="rounded-md border p-3 text-sm sm:p-4">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <span className="font-medium">
-                    {tHolders("ticketHeading", { name: ticket.ticket_type_name, ordinal: ticket.ordinal })}
-                  </span>
+                  <span className="font-medium">{heading}</span>
                   <span className="font-mono text-xs text-muted-foreground">{ticket.confirmation_ref}</span>
                   {reversed ? <Badge variant="destructive">{t("heldSaleReversed")}</Badge> : null}
                 </div>
@@ -58,6 +61,13 @@ export function DossierHeldTicketsSection({ heldTickets, timezone }: DossierHeld
                     <div className="text-xs text-muted-foreground">{t("heldAcceptedAt", { when: acceptedAt })}</div>
                   ) : null}
                 </div>
+                <DossierTicketAnswers
+                  ticket={ticket}
+                  ticketName={heading}
+                  zone={zone}
+                  locale={locale}
+                  onOpenAnswers={() => onOpenAnswers(ticket.ticket_sale_id, ticket.confirmation_ref)}
+                />
               </li>
             );
           })}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import Link from "next/link";
 
@@ -14,6 +14,8 @@ import {
   type CustomerDossierResult,
 } from "@/lib/customer-dossier";
 import { ApiError } from "@/lib/events-api";
+
+import { TicketAnswersDialog } from "../../../ticket-answers-dialog";
 
 import { DossierHeldTicketsSection } from "./dossier-held-tickets-section";
 import { DossierIdentitySection } from "./dossier-identity-section";
@@ -47,13 +49,41 @@ export function CustomerDossierSection({
   const t = useTranslations("customerDossier");
   const errorCopy = useMessages().errors;
   const [load, setLoad] = useState<LoadState>({ state: "loading" });
+  /*
+    THE ANSWERS DIALOG (#641). One for the page, opened on a Sale from any of
+    its Tickets. Closing it refetches, because whatever was answered there —
+    including nothing — the next read is the truth, and a cleared debt must show.
+    The refetch keeps the current Dossier on screen rather than flashing the
+    skeleton: `reload` bumps the effect, and only a first load or a new person
+    shows "loading".
+  */
+  const [openSale, setOpenSale] = useState<{ ticketSaleId: string; confirmationRef: string } | null>(null);
+  const [reload, setReload] = useState(0);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const fetchKey = `${eventId}/${customerId}`;
+
+  const openAnswers = useCallback((ticketSaleId: string, confirmationRef: string) => {
+    setOpenSale({ ticketSaleId, confirmationRef });
+  }, []);
+
+  const closeDialog = useCallback((open: boolean) => {
+    if (!open) {
+      setOpenSale(null);
+      setReload((count) => count + 1);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    setLoad({ state: "loading" });
+    if (loadedKey !== fetchKey) {
+      setLoad({ state: "loading" });
+    }
     fetchCustomerDossier(eventId, customerId)
       .then((result) => {
-        if (!cancelled) setLoad(result);
+        if (!cancelled) {
+          setLoad(result);
+          setLoadedKey(fetchKey);
+        }
       })
       .catch((error: unknown) => {
         if (!cancelled) {
@@ -67,9 +97,10 @@ export function CustomerDossierSection({
     return () => {
       cancelled = true;
     };
-    // errorCopy and t are stable per locale; the ids are the fetch key.
+    // errorCopy and t are stable per locale; loadedKey is read, not reacted to.
+    // The ids are the fetch key, and `reload` asks for the same person again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventId, customerId]);
+  }, [eventId, customerId, reload]);
 
   return (
     <div className="space-y-4">
@@ -99,14 +130,27 @@ export function CustomerDossierSection({
           ) : (
             <>
               <DossierIdentitySection customer={load.dossier.customer} />
-              <DossierSalesSection sales={load.dossier.sales} timezone={timezone} />
+              <DossierSalesSection sales={load.dossier.sales} timezone={timezone} onOpenAnswers={openAnswers} />
               {heldTicketsVisible(load.dossier) ? (
-                <DossierHeldTicketsSection heldTickets={load.dossier.held_tickets ?? []} timezone={timezone} />
+                <DossierHeldTicketsSection
+                  heldTickets={load.dossier.held_tickets ?? []}
+                  timezone={timezone}
+                  onOpenAnswers={openAnswers}
+                />
               ) : null}
             </>
           )}
         </CardContent>
       </Card>
+      {openSale ? (
+        <TicketAnswersDialog
+          open
+          onOpenChange={closeDialog}
+          eventId={eventId}
+          ticketSaleId={openSale.ticketSaleId}
+          confirmationRef={openSale.confirmationRef}
+        />
+      ) : null}
     </div>
   );
 }

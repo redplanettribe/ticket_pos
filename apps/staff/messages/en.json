@@ -850,7 +850,17 @@
     "heldBuyerUnnamed": "Bought by someone who gave no name",
     "heldAcceptedAt": "Accepted {when}",
     "heldNameGiven": "Name given as holder: {name}",
-    "heldSaleReversed": "Sale reversed — no live ticket"
+    "heldSaleReversed": "Sale reversed — no live ticket",
+    "answersLabel": "Answers",
+    "answersNone": "No answers given yet.",
+    "answerYes": "Yes",
+    "answerNo": "No",
+    "outstandingLabel": "Outstanding answers",
+    "owesNothing": "Owes no answers",
+    "answerReminderLabel": "Last answer reminder",
+    "answerReminderNever": "Never reminded",
+    "openAnswers": "View or record answers",
+    "openAnswersFor": "View or record answers for {ticket}"
   },
   "trends": {
     "title": "Trends",

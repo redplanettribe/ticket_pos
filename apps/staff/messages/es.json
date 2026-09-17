@@ -850,7 +850,17 @@
     "heldBuyerUnnamed": "Comprada por alguien que no indicó su nombre",
     "heldAcceptedAt": "Aceptada: {when}",
     "heldNameGiven": "Nombre indicado como titular: {name}",
-    "heldSaleReversed": "Venta revertida: no hay entrada vigente"
+    "heldSaleReversed": "Venta revertida: no hay entrada vigente",
+    "answersLabel": "Respuestas",
+    "answersNone": "Todavía no hay respuestas.",
+    "answerYes": "Sí",
+    "answerNo": "No",
+    "outstandingLabel": "Respuestas pendientes",
+    "owesNothing": "No tiene respuestas pendientes",
+    "answerReminderLabel": "Último recordatorio de respuestas",
+    "answerReminderNever": "Nunca se ha enviado un recordatorio",
+    "openAnswers": "Ver o registrar respuestas",
+    "openAnswersFor": "Ver o registrar respuestas de {ticket}"
   },
   "trends": {
     "title": "Tendencias",
