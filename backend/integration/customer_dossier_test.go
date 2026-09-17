@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -728,6 +729,7 @@ type dossierHolderFixture struct {
 	eventID  string
 	saleID   string
 	saleRef  string
+	gaID     string
 	ana      string
 	carla    string
 	selfHeld string
@@ -742,9 +744,9 @@ func newDossierHolderFixture(t *testing.T, env *testEnv) dossierHolderFixture {
 	f := dossierHolderFixture{session: orgAdminSession(t, env)}
 	f.eventID = createDraftEvent(t, env, f.session, "Holder Fest", "holder-fest")
 	scheduleEvent(t, env, f.session, f.eventID, "Holder Fest", "holder-fest", env.fixedClock.Add(30*24*time.Hour))
-	gaID := createTicketTypeWithCapacity(t, env, f.session, f.eventID, "GA", 1000, 50)
+	f.gaID = createTicketTypeWithCapacity(t, env, f.session, f.eventID, "GA", 1000, 50)
 	sale := recordManualSaleOK(t, env, f.session, f.eventID,
-		manualSaleBody("ana@example.com", "Ana", "Lopez", gaID, 4, "cash", "2026-07-01T10:00:00Z"))
+		manualSaleBody("ana@example.com", "Ana", "Lopez", f.gaID, 4, "cash", "2026-07-01T10:00:00Z"))
 	f.saleID, f.saleRef = sale.SaleID, sale.ConfirmationRef
 	tickets := ticketIDsOfSale(t, env, f.saleID)
 	if len(tickets) != 4 {
@@ -990,4 +992,392 @@ func TestTheHolderListCarriesTheCustomerIdsItsDossierLinksNeed(t *testing.T) {
 	// And both links open.
 	readDossier(t, env, f.session, f.eventID, f.carla)
 	readDossier(t, env, f.session, f.eventID, f.ana)
+}
+
+// --- Answers, Outstanding Answers and Answer Reminders (#641) -----------------
+//
+// Each Ticket on the Dossier — on the buyer's own Sales and held on somebody
+// else's — carries its Answers, its Outstanding Answers and when an Answer
+// Reminder was last sent about it. Nothing is re-decided: the debt is the
+// Holder List's own derivation and the Answers are the Answers dialog's, so the
+// tests below read those surfaces for the same Tickets and demand equality.
+
+// dossierTicketsByID indexes every Ticket on a Dossier, own and held, by id, as
+// raw JSON objects so a test can say which keys are present at all.
+func dossierTicketsByID(t *testing.T, raw json.RawMessage) map[string]map[string]json.RawMessage {
+	t.Helper()
+	var body struct {
+		Sales []struct {
+			Tickets []map[string]json.RawMessage `json:"tickets"`
+		} `json:"sales"`
+		HeldTickets []map[string]json.RawMessage `json:"held_tickets"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatalf("decode dossier tickets: %v", err)
+	}
+	out := map[string]map[string]json.RawMessage{}
+	add := func(ticket map[string]json.RawMessage) {
+		var id string
+		if err := json.Unmarshal(ticket["ticket_id"], &id); err != nil {
+			t.Fatalf("decode ticket_id: %v", err)
+		}
+		out[id] = ticket
+	}
+	for _, sale := range body.Sales {
+		for _, ticket := range sale.Tickets {
+			add(ticket)
+		}
+	}
+	for _, ticket := range body.HeldTickets {
+		add(ticket)
+	}
+	return out
+}
+
+// dossierTicketRaw picks one Ticket's raw object off a Dossier.
+func dossierTicketRaw(t *testing.T, raw json.RawMessage, ticketID string) map[string]json.RawMessage {
+	t.Helper()
+	ticket, ok := dossierTicketsByID(t, raw)[ticketID]
+	if !ok {
+		t.Fatalf("Ticket %s is not on the Dossier: %s", ticketID, raw)
+	}
+	return ticket
+}
+
+// assertSameJSON compares two JSON values semantically.
+func assertSameJSON(t *testing.T, what string, got, want json.RawMessage) {
+	t.Helper()
+	var g, w any
+	if err := json.Unmarshal(got, &g); err != nil {
+		t.Fatalf("%s: decode got %s: %v", what, got, err)
+	}
+	if err := json.Unmarshal(want, &w); err != nil {
+		t.Fatalf("%s: decode want %s: %v", what, want, err)
+	}
+	if !reflect.DeepEqual(g, w) {
+		t.Errorf("%s:\n got %s\nwant %s", what, got, want)
+	}
+}
+
+// answeredPairsFromTheDialog is what the staff Answers dialog says one Ticket
+// has answered: its question/Answer pairs with an Answer, in the dialog's order.
+func answeredPairsFromTheDialog(t *testing.T, env *testEnv, session, eventID, ticketID string) json.RawMessage {
+	t.Helper()
+	resp, body := env.get(t, ticketPath(eventID, ticketID), authHeader(session))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("read Ticket %s status=%d error=%+v", ticketID, resp.StatusCode, body.Error)
+	}
+	var ticket struct {
+		Questions []map[string]json.RawMessage `json:"questions"`
+	}
+	if err := json.Unmarshal(body.Data, &ticket); err != nil {
+		t.Fatalf("decode Ticket answers: %v", err)
+	}
+	answered := make([]map[string]json.RawMessage, 0)
+	for _, pair := range ticket.Questions {
+		if string(pair["answer"]) != "null" {
+			answered = append(answered, pair)
+		}
+	}
+	out, err := json.Marshal(answered)
+	if err != nil {
+		t.Fatalf("encode answered pairs: %v", err)
+	}
+	return out
+}
+
+// outstandingFromTheHolderList is what the Holder List says one Ticket owes.
+func outstandingFromTheHolderList(t *testing.T, env *testEnv, session, eventID, ticketID string) json.RawMessage {
+	t.Helper()
+	resp, body := env.get(t, holderListPath(eventID), authHeader(session))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("holder list status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	var page struct {
+		Data []map[string]json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body.Data, &page); err != nil {
+		t.Fatalf("decode holder list: %v", err)
+	}
+	for _, row := range page.Data {
+		var id string
+		_ = json.Unmarshal(row["ticket_id"], &id)
+		if id == ticketID {
+			return row["outstanding"]
+		}
+	}
+	t.Fatalf("Ticket %s is not on the Holder List", ticketID)
+	return nil
+}
+
+// dossierQuestionsFixture opens Ticket Questions on the holder fixture and asks
+// two required questions and one optional one of its GA Tickets.
+type dossierQuestionsFixture struct {
+	dossierHolderFixture
+	size     string
+	diet     string
+	optional string
+}
+
+func newDossierQuestionsFixture(t *testing.T, env *testEnv) dossierQuestionsFixture {
+	t.Helper()
+	f := dossierQuestionsFixture{dossierHolderFixture: newDossierHolderFixture(t, env)}
+	enableTicketQuestions(t)
+	f.size = createTicketQuestion(t, env, f.session, f.eventID, f.gaID, map[string]any{
+		"label": "T-shirt size", "kind": "short_text", "required": true,
+	}).ID
+	f.diet = createTicketQuestion(t, env, f.session, f.eventID, f.gaID, map[string]any{
+		"label": "Diet", "kind": "short_text", "required": true,
+	}).ID
+	f.optional = createTicketQuestion(t, env, f.session, f.eventID, f.gaID, map[string]any{
+		"label": "Anything else", "kind": "short_text",
+	}).ID
+	return f
+}
+
+// Every Ticket's Answers are the Answers dialog's answered pairs, and its
+// Outstanding Answers are exactly what the Holder List says it owes.
+func TestTheDossierShowsEachTicketsAnswersAndDebtsAsTheHolderListDoes(t *testing.T) {
+	env := setupTest(t)
+	f := newDossierQuestionsFixture(t, env)
+	putAnswer(t, env, f.session, f.eventID, f.selfHeld, f.size, map[string]any{"text": "M"})
+	putAnswer(t, env, f.session, f.eventID, f.selfHeld, f.optional, map[string]any{"text": "Vegan friend"})
+	putAnswer(t, env, f.session, f.eventID, f.assigned, f.diet, map[string]any{"text": "None"})
+
+	_, raw := readDossier(t, env, f.session, f.eventID, f.ana)
+	for _, ticketID := range []string{f.selfHeld, f.accepted, f.assigned, f.purged} {
+		ticket := dossierTicketRaw(t, raw, ticketID)
+		assertSameJSON(t, "answers of "+ticketID, ticket["answers"],
+			answeredPairsFromTheDialog(t, env, f.session, f.eventID, ticketID))
+		assertSameJSON(t, "outstanding_answers of "+ticketID, ticket["outstanding_answers"],
+			outstandingFromTheHolderList(t, env, f.session, f.eventID, ticketID))
+	}
+
+	selfHeld := dossierTicketRaw(t, raw, f.selfHeld)
+	var answers []struct {
+		Question struct {
+			Label string `json:"label"`
+		} `json:"question"`
+		Answer struct {
+			Text string `json:"text"`
+		} `json:"answer"`
+	}
+	if err := json.Unmarshal(selfHeld["answers"], &answers); err != nil {
+		t.Fatalf("decode answers: %v", err)
+	}
+	if len(answers) != 2 || answers[0].Question.Label != "T-shirt size" || answers[0].Answer.Text != "M" ||
+		answers[1].Answer.Text != "Vegan friend" {
+		t.Errorf("the Self-held Ticket's answers = %+v, want size M and the optional note", answers)
+	}
+	var owed []struct {
+		Label string `json:"label"`
+	}
+	if err := json.Unmarshal(selfHeld["outstanding_answers"], &owed); err != nil {
+		t.Fatalf("decode outstanding_answers: %v", err)
+	}
+	if len(owed) != 1 || owed[0].Label != "Diet" {
+		t.Errorf("the Self-held Ticket owes %+v, want Diet alone", owed)
+	}
+	if got := string(dossierTicketRaw(t, raw, f.accepted)["answers"]); got != "[]" {
+		t.Errorf("an unanswered Ticket's answers = %s, want []", got)
+	}
+	if got := string(selfHeld["last_answer_reminder_sent_at"]); got != "null" {
+		t.Errorf("last_answer_reminder_sent_at = %s, want null before any reminder", got)
+	}
+}
+
+// A Ticket says when an Answer Reminder was last sent about it, and a Ticket
+// nobody was chased about says null.
+func TestTheDossierStatesWhenAnAnswerReminderWasLastSentAboutATicket(t *testing.T) {
+	env := setupTest(t)
+	f := newDossierQuestionsFixture(t, env)
+
+	first := env.fixedClock
+	moveClockTo(t, first)
+	if result := sweepAnswerReminders(t, env); result.Sent == 0 {
+		t.Fatalf("first sweep = %+v, want reminders sent", result)
+	}
+	second := first.Add(8 * 24 * time.Hour)
+	moveClockTo(t, second)
+	if result := sweepAnswerReminders(t, env); result.Sent == 0 {
+		t.Fatalf("second sweep = %+v, want reminders sent", result)
+	}
+
+	for _, tc := range []struct {
+		customer, ticketID string
+		want               *time.Time
+	}{
+		{f.ana, f.selfHeld, &second},
+		{f.carla, f.accepted, &second},
+		{f.ana, f.assigned, nil},
+		{f.ana, f.purged, nil},
+	} {
+		_, raw := readDossier(t, env, f.session, f.eventID, tc.customer)
+		value, present := dossierTicketRaw(t, raw, tc.ticketID)["last_answer_reminder_sent_at"]
+		if !present {
+			t.Errorf("Ticket %s carries no last_answer_reminder_sent_at", tc.ticketID)
+			continue
+		}
+		var got *time.Time
+		if err := json.Unmarshal(value, &got); err != nil {
+			t.Fatalf("decode last_answer_reminder_sent_at: %v", err)
+		}
+		switch {
+		case tc.want == nil && got != nil:
+			t.Errorf("Ticket %s last reminded %v, want null — nobody was chased about it", tc.ticketID, got)
+		case tc.want != nil && (got == nil || !got.Equal(*tc.want)):
+			t.Errorf("Ticket %s last reminded %v, want the later send %v", tc.ticketID, got, *tc.want)
+		}
+	}
+}
+
+// A reversed Sale's Tickets keep their Answers readable and owe nothing: no
+// Outstanding Answers and no reminder time, on the buyer's Sale and the
+// Holder's held Ticket alike.
+func TestAReversedSalesTicketsKeepTheirAnswersAndOweNothing(t *testing.T) {
+	env := setupTest(t)
+	f := newDossierQuestionsFixture(t, env)
+	putAnswer(t, env, f.session, f.eventID, f.selfHeld, f.size, map[string]any{"text": "L"})
+	putAnswer(t, env, f.session, f.eventID, f.accepted, f.size, map[string]any{"text": "S"})
+	want := map[string]json.RawMessage{
+		f.selfHeld: answeredPairsFromTheDialog(t, env, f.session, f.eventID, f.selfHeld),
+		f.accepted: answeredPairsFromTheDialog(t, env, f.session, f.eventID, f.accepted),
+	}
+	reverseImportedSaleOK(t, env, f.session, f.eventID, f.saleID)
+
+	_, anaRaw := readDossier(t, env, f.session, f.eventID, f.ana)
+	_, carlaRaw := readDossier(t, env, f.session, f.eventID, f.carla)
+	for _, tc := range []struct {
+		name     string
+		raw      json.RawMessage
+		ticketID string
+	}{
+		{"Ana's Self-held Ticket", anaRaw, f.selfHeld},
+		{"Carla's held Ticket", carlaRaw, f.accepted},
+	} {
+		ticket := dossierTicketRaw(t, tc.raw, tc.ticketID)
+		assertSameJSON(t, tc.name+" answers", ticket["answers"], want[tc.ticketID])
+		for _, key := range []string{"outstanding_answers", "last_answer_reminder_sent_at"} {
+			if value, present := ticket[key]; present {
+				t.Errorf("%s on a reversed Sale carries %s = %s — nothing is owed", tc.name, key, value)
+			}
+		}
+	}
+	for id, ticket := range dossierTicketsByID(t, anaRaw) {
+		if _, present := ticket["answers"]; !present {
+			t.Errorf("reversed Ticket %s carries no answers key", id)
+		}
+	}
+}
+
+// An Event Owner reads what a Ticket owes, gives the Answers through the staff
+// Answers endpoint, and the next Dossier read shows the debt cleared.
+func TestAnEventOwnerGivesAnAnswerAndTheDossierShowsTheDebtCleared(t *testing.T) {
+	env := setupTest(t)
+	f := newDossierQuestionsFixture(t, env)
+	owner := addOrgMember(t, env, f.session, "owner@example.com", "event_owner")
+
+	_, before := readDossier(t, env, owner, f.eventID, f.ana)
+	var owed []struct {
+		QuestionID string `json:"question_id"`
+	}
+	if err := json.Unmarshal(dossierTicketRaw(t, before, f.selfHeld)["outstanding_answers"], &owed); err != nil {
+		t.Fatalf("decode outstanding_answers: %v", err)
+	}
+	if len(owed) != 2 {
+		t.Fatalf("the Self-held Ticket owes %+v, want both required questions", owed)
+	}
+
+	putAnswer(t, env, owner, f.eventID, f.selfHeld, f.size, map[string]any{"text": "XL"})
+	putAnswer(t, env, owner, f.eventID, f.selfHeld, f.diet, map[string]any{"text": "None"})
+
+	_, after := readDossier(t, env, owner, f.eventID, f.ana)
+	ticket := dossierTicketRaw(t, after, f.selfHeld)
+	if got := string(ticket["outstanding_answers"]); got != "[]" {
+		t.Errorf("outstanding_answers after answering = %s, want []", got)
+	}
+	if !strings.Contains(string(ticket["answers"]), `"XL"`) {
+		t.Errorf("answers after answering = %s, want the XL just given", ticket["answers"])
+	}
+}
+
+// With TICKET_QUESTIONS_ENABLED closed no Ticket carries Answers, Outstanding
+// Answers or a reminder time, and the rest of the Dossier is exactly what it
+// was with the flag open, less those three keys.
+func TestTheDossierSaysNothingAboutAnswersWhileTheQuestionsFlagIsClosed(t *testing.T) {
+	env := setupTest(t)
+	f := newDossierQuestionsFixture(t, env)
+	putAnswer(t, env, f.session, f.eventID, f.selfHeld, f.size, map[string]any{"text": "M"})
+	putAnswer(t, env, f.session, f.eventID, f.accepted, f.size, map[string]any{"text": "S"})
+
+	for _, customer := range []string{f.ana, f.carla} {
+		_, open := readDossier(t, env, f.session, f.eventID, customer)
+		sharedApp.CatalogService.WithTicketQuestions(false)
+		sharedApp.SalesService.WithTicketQuestions(false)
+		_, closed := readDossier(t, env, f.session, f.eventID, customer)
+		enableTicketQuestions(t)
+
+		for _, forbidden := range []string{"answers", "last_answer_reminder_sent_at", "T-shirt size"} {
+			if strings.Contains(string(closed), forbidden) {
+				t.Errorf("the Dossier carries %q while TICKET_QUESTIONS_ENABLED is closed (ADR 0045): %s", forbidden, closed)
+			}
+		}
+		var withFlag, withoutFlag map[string]any
+		if err := json.Unmarshal(open, &withFlag); err != nil {
+			t.Fatalf("decode open dossier: %v", err)
+		}
+		if err := json.Unmarshal(closed, &withoutFlag); err != nil {
+			t.Fatalf("decode closed dossier: %v", err)
+		}
+		stripAnswerKeys(withFlag)
+		if !reflect.DeepEqual(withFlag, withoutFlag) {
+			t.Errorf("closing the questions flag changed more than the Answers:\nopen   %s\nclosed %s", open, closed)
+		}
+	}
+}
+
+// stripAnswerKeys removes the three #641 keys from every Ticket of a decoded
+// Dossier, own and held.
+func stripAnswerKeys(dossier map[string]any) {
+	strip := func(tickets any) {
+		list, _ := tickets.([]any)
+		for _, ticket := range list {
+			if object, ok := ticket.(map[string]any); ok {
+				delete(object, "answers")
+				delete(object, "outstanding_answers")
+				delete(object, "last_answer_reminder_sent_at")
+			}
+		}
+	}
+	sales, _ := dossier["sales"].([]any)
+	for _, sale := range sales {
+		if object, ok := sale.(map[string]any); ok {
+			strip(object["tickets"])
+		}
+	}
+	strip(dossier["held_tickets"])
+}
+
+// A Holder-only Customer's Answers hang off the Ticket they hold: Carla's
+// Dossier shows what her Ticket answered and still owes.
+func TestAHeldTicketOnTheDossierShowsItsAnswers(t *testing.T) {
+	env := setupTest(t)
+	f := newDossierQuestionsFixture(t, env)
+	putAnswer(t, env, f.session, f.eventID, f.accepted, f.diet, map[string]any{"text": "Vegetarian"})
+
+	_, raw := readDossier(t, env, f.session, f.eventID, f.carla)
+	held := dossierTicketRaw(t, raw, f.accepted)
+	assertSameJSON(t, "Carla's answers", held["answers"],
+		answeredPairsFromTheDialog(t, env, f.session, f.eventID, f.accepted))
+	assertSameJSON(t, "Carla's outstanding_answers", held["outstanding_answers"],
+		outstandingFromTheHolderList(t, env, f.session, f.eventID, f.accepted))
+	if !strings.Contains(string(held["answers"]), `"Vegetarian"`) {
+		t.Errorf("Carla's held Ticket answers = %s, want Vegetarian", held["answers"])
+	}
+	if !strings.Contains(string(held["outstanding_answers"]), `"T-shirt size"`) {
+		t.Errorf("Carla's held Ticket owes %s, want the T-shirt size", held["outstanding_answers"])
+	}
+	if value, present := held["last_answer_reminder_sent_at"]; !present || string(value) != "null" {
+		t.Errorf("Carla's last_answer_reminder_sent_at = %s (present %v), want null", value, present)
+	}
 }

@@ -418,11 +418,52 @@ func (s *Service) resolveAnswerOptions(
 
 // ticketAnswersViews assembles the payload: the questions of each Ticket's
 // Ticket Type, paired with that Ticket's Answers.
+func (s *Service) ticketAnswersViews(ctx context.Context, tickets []repository.AnswerableTicket) ([]TicketAnswersView, error) {
+	typed := make([]typedTicket, 0, len(tickets))
+	for _, ticket := range tickets {
+		typed = append(typed, typedTicket{ID: ticket.ID, TicketTypeID: ticket.TicketTypeID})
+	}
+	pairsByTicket, err := s.ticketQuestionAnswers(ctx, typed)
+	if err != nil {
+		return nil, err
+	}
+
+	now := s.now()
+	views := make([]TicketAnswersView, 0, len(tickets))
+	for _, ticket := range tickets {
+		refusal := catalog.AnswerWindow(ticket.SaleStatus, nullTimeOrNil(ticket.EventStartsAt), now)
+		views = append(views, TicketAnswersView{
+			TicketID:          ticket.ID,
+			Ordinal:           ticket.Ordinal,
+			TicketTypeID:      ticket.TicketTypeID,
+			TicketTypeName:    ticket.TicketTypeName,
+			TicketSaleID:      ticket.TicketSaleID,
+			ConfirmationRef:   ticket.ConfirmationRef,
+			Answerable:        refusal == catalog.AnswerWindowOpen,
+			AnswerableRefusal: answerRefusalToken(refusal),
+			Questions:         pairsByTicket[ticket.ID],
+		})
+	}
+	return views, nil
+}
+
+// typedTicket is all ticketQuestionAnswers needs of a Ticket: which one, and
+// which Ticket Type's questions it is asked.
+type typedTicket struct {
+	ID           string
+	TicketTypeID string
+}
+
+// ticketQuestionAnswers pairs each Ticket with every approved question its
+// Ticket Type asks, in the order they are asked, and that Ticket's Answer or
+// null — keyed by Ticket id, never nil for a Ticket passed in. It is the one
+// statement of how an Answer reads to staff, shared by the Answers dialog and
+// the Customer Dossier (#641).
 //
 // It reads the questions ONCE PER TICKET TYPE and the Answers ONCE FOR ALL
 // TICKETS. A Ticket Sale is usually one line of several Tickets, so the loop is
 // over one or two Ticket Types however many Tickets there are.
-func (s *Service) ticketAnswersViews(ctx context.Context, tickets []repository.AnswerableTicket) ([]TicketAnswersView, error) {
+func (s *Service) ticketQuestionAnswers(ctx context.Context, tickets []typedTicket) (map[string][]TicketQuestionAnswerView, error) {
 	ticketIDs := make([]string, 0, len(tickets))
 	for _, ticket := range tickets {
 		ticketIDs = append(ticketIDs, ticket.ID)
@@ -442,8 +483,7 @@ func (s *Service) ticketAnswersViews(ctx context.Context, tickets []repository.A
 	}
 
 	questionsByType := make(map[string][]TicketQuestionView)
-	now := s.now()
-	views := make([]TicketAnswersView, 0, len(tickets))
+	pairsByTicket := make(map[string][]TicketQuestionAnswerView, len(tickets))
 	for _, ticket := range tickets {
 		questions, ok := questionsByType[ticket.TicketTypeID]
 		if !ok {
@@ -453,29 +493,17 @@ func (s *Service) ticketAnswersViews(ctx context.Context, tickets []repository.A
 			}
 			questionsByType[ticket.TicketTypeID] = questions
 		}
-
-		refusal := catalog.AnswerWindow(ticket.SaleStatus, nullTimeOrNil(ticket.EventStartsAt), now)
-		view := TicketAnswersView{
-			TicketID:          ticket.ID,
-			Ordinal:           ticket.Ordinal,
-			TicketTypeID:      ticket.TicketTypeID,
-			TicketTypeName:    ticket.TicketTypeName,
-			TicketSaleID:      ticket.TicketSaleID,
-			ConfirmationRef:   ticket.ConfirmationRef,
-			Answerable:        refusal == catalog.AnswerWindowOpen,
-			AnswerableRefusal: answerRefusalToken(refusal),
-			Questions:         make([]TicketQuestionAnswerView, 0, len(questions)),
-		}
+		pairs := make([]TicketQuestionAnswerView, 0, len(questions))
 		for _, question := range questions {
 			pair := TicketQuestionAnswerView{Question: question}
 			if answer, found := byTicketQuestion[ticket.ID][question.ID]; found {
 				pair.Answer = toAnswerView(answer)
 			}
-			view.Questions = append(view.Questions, pair)
+			pairs = append(pairs, pair)
 		}
-		views = append(views, view)
+		pairsByTicket[ticket.ID] = pairs
 	}
-	return views, nil
+	return pairsByTicket, nil
 }
 
 // ticketQuestionViews reads one Ticket Type's APPROVED questions with their

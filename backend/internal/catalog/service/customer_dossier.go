@@ -109,8 +109,8 @@ type DossierSaleView struct {
 	// Tickets and assignment reminders (#640).
 
 	// Tickets are the Sale's Tickets in the catalog's order. A reversed or
-	// corrected Sale's Tickets are void and carry their Ticket Type and ordinal
-	// only; `status` is what says so.
+	// corrected Sale's Tickets are void and carry their Ticket Type, ordinal
+	// and Answers only; `status` is what says so.
 	Tickets []DossierTicketView `json:"tickets"`
 	// AssignmentReminderSentAt is when an Assignment Reminder was sent about
 	// this Sale, oldest first. Absent while TICKET_ASSIGNMENT_ENABLED is closed.
@@ -142,6 +142,9 @@ type DossierTicketView struct {
 	HolderCustomerID string `json:"holder_customer_id,omitempty"`
 	HolderFirstName  string `json:"holder_first_name,omitempty"`
 	HolderLastName   string `json:"holder_last_name,omitempty"`
+	// Answers, Outstanding Answers and the last Answer Reminder (#641); a
+	// Ticket on a reversed Sale carries its Answers only.
+	DossierTicketAnswers
 }
 
 // DossierHeldTicketView is a Ticket the Customer holds on somebody else's Sale.
@@ -164,6 +167,9 @@ type DossierHeldTicketView struct {
 	// The name this Customer gave as its Holder.
 	HolderFirstName string `json:"holder_first_name,omitempty"`
 	HolderLastName  string `json:"holder_last_name,omitempty"`
+	// Answers, Outstanding Answers and the last Answer Reminder (#641); a
+	// Ticket on a reversed Sale carries its Answers only.
+	DossierTicketAnswers
 }
 
 // DossierSaleLineView is one Ticket Type bought on a Dossier Sale.
@@ -220,6 +226,9 @@ func (s *Service) GetCustomerDossier(
 		return nil, err
 	}
 	if err := s.fillDossierTickets(ctx, actor, eventID, customerID, dossier.Sales); err != nil {
+		return nil, err
+	}
+	if err := s.fillDossierAnswers(ctx, actor, eventID, dossier.Sales, heldTickets); err != nil {
 		return nil, err
 	}
 	if s.ticketAssignmentEnabled {

@@ -366,19 +366,8 @@ func (s *Service) ListHolderList(
 		for _, ticket := range tickets {
 			ticketIDs = append(ticketIDs, ticket.ID)
 		}
-		questions, err := s.repo.ListOutstandingQuestionsForTickets(
-			ctx, actor.OrganizationID, eventID, ticketIDs,
-		)
-		if err != nil {
+		if byTicket, err = s.outstandingQuestionsByTicket(ctx, actor.OrganizationID, eventID, ticketIDs); err != nil {
 			return nil, err
-		}
-		for _, question := range questions {
-			byTicket[question.TicketID] = append(byTicket[question.TicketID], OutstandingQuestionView{
-				QuestionID: question.QuestionID,
-				Label:      question.Label,
-				Kind:       question.Kind,
-				SortOrder:  question.SortOrder,
-			})
 		}
 	}
 
@@ -623,6 +612,29 @@ func (s *Service) fillHolderListEntry(view *HolderTicketView, ticket repository.
 	view.HolderLastName = disclosure.HolderLastName
 	view.HolderEmail = disclosure.HolderEmail
 	view.HolderCustomerID = disclosure.HolderCustomerID
+}
+
+// outstandingQuestionsByTicket names which required questions each of the given
+// Tickets owes, bucketed by Ticket in the order the questions are asked. The
+// one reading of the debt for a set of Tickets, shared by the Holder List and
+// the Customer Dossier (#641), so the two can never disagree about a Ticket.
+func (s *Service) outstandingQuestionsByTicket(
+	ctx context.Context, organizationID, eventID string, ticketIDs []string,
+) (map[string][]OutstandingQuestionView, error) {
+	questions, err := s.repo.ListOutstandingQuestionsForTickets(ctx, organizationID, eventID, ticketIDs)
+	if err != nil {
+		return nil, err
+	}
+	byTicket := make(map[string][]OutstandingQuestionView)
+	for _, question := range questions {
+		byTicket[question.TicketID] = append(byTicket[question.TicketID], OutstandingQuestionView{
+			QuestionID: question.QuestionID,
+			Label:      question.Label,
+			Kind:       question.Kind,
+			SortOrder:  question.SortOrder,
+		})
+	}
+	return byTicket, nil
 }
 
 // outstandingOrEmpty keeps the field an ARRAY on the wire rather than null. A
