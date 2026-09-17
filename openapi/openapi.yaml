@@ -1535,6 +1535,15 @@ components:
         request_id:
           type: string
       type: object
+    openapi.EnvelopeCustomerDossier:
+      properties:
+        data:
+          $ref: '#/components/schemas/service.CustomerDossier'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
     openapi.EnvelopeCustomerFollow:
       properties:
         data:
@@ -3363,6 +3372,19 @@ components:
       x-enum-varnames:
       - CustomerDocumentAuthorized
       - CustomerDocumentOnItsWay
+    service.CustomerDossier:
+      properties:
+        customer:
+          $ref: '#/components/schemas/service.DossierCustomerView'
+        sales:
+          description: |-
+            Sales are this Event's Ticket Sales to the Customer, reversed and
+            corrected ones included, newest first.
+          items:
+            $ref: '#/components/schemas/service.DossierSaleView'
+          type: array
+          uniqueItems: false
+      type: object
     service.CustomerGateStanding:
       description: |-
         The two gates: when each was last accepted, the exact edition accepted,
@@ -3613,6 +3635,79 @@ components:
       - DocumentRoleSuperseded
       - DocumentRoleCreditNote
       - DocumentRoleNotCurrent
+    service.DossierCustomerView:
+      properties:
+        email:
+          type: string
+        id:
+          type: string
+      type: object
+    service.DossierSaleLineView:
+      properties:
+        quantity:
+          type: integer
+        ticket_type_id:
+          type: string
+        ticket_type_name:
+          type: string
+      type: object
+    service.DossierSaleView:
+      properties:
+        amount_cents:
+          type: integer
+        channel:
+          description: 'Channel is the Sales Channel: `online`, `in_person` or `import`.'
+          type: string
+        confirmation_ref:
+          type: string
+        currency:
+          type: string
+        customer_first_name:
+          type: string
+        customer_last_name:
+          type: string
+        id:
+          type: string
+        origin:
+          description: |-
+            Origin is how the Sale reached the platform, derived exactly as the Sales
+            list derives it (ADR 0052).
+          type: string
+        payment_method:
+          type: string
+        recorded_at:
+          type: string
+        replaced_by_confirmation_ref:
+          description: ReplacedByConfirmationRef names the replacement of a corrected
+            Sale.
+          type: string
+        reversed_at:
+          description: |-
+            ReversedAt is when a reversed or corrected Sale was reversed; null on an
+            active one.
+          type: string
+        sold_at:
+          type: string
+        source:
+          description: Source is the Sales list's `source` for the Sale.
+          type: string
+        status:
+          description: Status is `active`, `reversed` or `corrected`.
+          enum:
+          - active
+          - reversed
+          - corrected
+          type: string
+        tax_id_number:
+          type: string
+        tax_id_type:
+          type: string
+        ticket_types:
+          items:
+            $ref: '#/components/schemas/service.DossierSaleLineView'
+          type: array
+          uniqueItems: false
+      type: object
     service.DrainResult:
       properties:
         claimed:
@@ -15905,6 +16000,71 @@ paths:
       security:
       - BearerAuth: []
       summary: Create cover upload URL
+      tags:
+      - staff
+  /api/v1/staff/events/{id}/customers/{customerId}/dossier:
+    get:
+      description: 'The Customer Dossier ("Ficha del cliente"): everything this Event
+        knows about one Customer, addressed by the Customer''s id and never their
+        email. `customer` carries the Customer''s id and email and nothing else from
+        the platform-global Customer record. `sales` lists every one of THIS Event''s
+        Ticket Sales to the Customer, newest first, reversed and corrected ones included:
+        each carries the first and last name and the Tax ID type and number given
+        ON THAT SALE — never the Customer record''s current values, which a purchase
+        at another Organization may have changed — with its confirmation reference,
+        sold-at and recorded-at, Sales Channel, `source` and `origin` exactly as the
+        Sales list states them, Ticket Types and quantities, amount and currency,
+        and payment method. `status` is `active`, `reversed` (with `reversed_at`)
+        or `corrected` — a reversed Sale a Sale Correction replaced, naming its replacement
+        in `replaced_by_confirmation_ref`. The Organization''s other Events are never
+        read. No Terms Acceptance, Adulthood Declaration, Marketing Consent or avatar
+        is ever included. A READ AND NOTHING ELSE: nothing is sent from here. 404
+        for an Event outside the caller''s Organization, and 404 CUSTOMER_NOT_FOUND
+        for a Customer with no Ticket Sale on this Event — including a malformed id
+        and an id naming no Customer, which are indistinguishable from one who bought
+        only elsewhere. Org Admin and Event Owner only; Event Staff are refused with
+        403.'
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - description: Customer ID
+        in: path
+        name: customerId
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeCustomerDossier'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
+      security:
+      - BearerAuth: []
+      summary: Get a customer's dossier at an event
       tags:
       - staff
   /api/v1/staff/events/{id}/discoverable:

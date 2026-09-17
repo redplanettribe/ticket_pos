@@ -1320,7 +1320,10 @@ type SaleLineRollup struct {
 // channel/source/status/reference plus the recorded-at and payment method the
 // row-detail expand reveals.
 type SaleRow struct {
-	ID                string
+	ID string
+	// CustomerID is the buyer's Customer, which addresses their Customer
+	// Dossier (#638).
+	CustomerID        string
 	CustomerFirstName string
 	CustomerLastName  string
 	CustomerEmail     string
@@ -1565,6 +1568,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 	query := fmt.Sprintf(`
 		SELECT
 			ts.id,
+			ts.customer_id,
 			ts.customer_first_name,
 			ts.customer_last_name,
 			ts.customer_email,
@@ -1636,6 +1640,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 		var reversedAt sql.NullTime
 		if err := rows.Scan(
 			&s.ID,
+			&s.CustomerID,
 			&s.CustomerFirstName,
 			&s.CustomerLastName,
 			&s.CustomerEmail,
