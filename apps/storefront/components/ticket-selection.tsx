@@ -168,9 +168,11 @@ type TicketSelectionProps = {
    */
   openCheckoutOnArrival?: boolean;
   /**
-   * Whether an Online Sale hands the buyer its first Ticket as their own
-   * (ADR 0048) — the platform's assignment flag, read off the event payload so
-   * the dialog calls a Ticket "yours" only when the sale will make it so.
+   * Whether an Online Sale hands the buyer a Ticket of their own (ADR 0048) —
+   * the platform's assignment flag, read off the event payload so the dialog
+   * calls a Ticket "yours" only when the sale will make it so. WHICH Ticket is
+   * the dearest one in the cart (ADR 0074) and is ownTicketSlot's business; the
+   * name is the published field's and is left alone.
    */
   buyerHoldsFirstTicket: boolean;
   /**

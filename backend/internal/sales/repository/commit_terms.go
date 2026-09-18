@@ -5,7 +5,7 @@ import "time"
 // CommitTerms is the Sale Commit Terms (CONTEXT.md): the terms every Ticket
 // Sale is recorded on, whatever channel records it — when the write happens, how
 // the buyer's Customer is resolved inside the transaction, and whether the buyer
-// is seated on Ticket 1 as it is minted.
+// is seated on a Ticket of their own as it is minted.
 //
 // IT EXISTS BECAUSE THESE THREE TRAVELLED TOGETHER AND WERE RESTATED APART. The
 // sale-commit spine, the Sale Import batch, the Manually Recorded Sale and the
@@ -26,8 +26,10 @@ type CommitTerms struct {
 	// Required: every Ticket Sale must reference a Customer.
 	UpsertCustomer UpsertCustomer
 	// SelfHeld makes one Ticket of each sale the buyer's own: the first Ticket
-	// of the line whose Ticket Type sorts first in the catalog is assigned to
-	// the buyer and accepted in the same transaction that mints it (ADR 0048).
+	// of the sale's dearest line is assigned to the buyer and accepted in the
+	// same transaction that mints it (ADR 0048, seated on the dearest by ADR
+	// 0074). WHICH line that is belongs to the spine and to selfHeldSeat beside
+	// it; this flag says only whether a buyer is seated at all.
 	//
 	// Set by the online checkout and by all three import routes while
 	// TICKET_ASSIGNMENT_ENABLED is on (ADR 0055), and by nothing else: an

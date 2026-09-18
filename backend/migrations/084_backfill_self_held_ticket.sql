@@ -22,6 +22,18 @@
 -- buyer's. Two lines of one Sale never share a Ticket Type (the checkout
 -- merges them), but ticket_type_id and ordinal close the ordering anyway.
 --
+-- THAT AGREEMENT ENDED WITH ADR 0074 (#646), AND THIS FILE IS LEFT AS IT RAN.
+-- The commit spine now seats the buyer on the Sale's DEAREST line, ties broken
+-- by this same catalog order; the statement below still picks the catalog-first
+-- line and is no longer a copy of the forward rule. Deliberately: this migration
+-- ran once, against the Sales that existed when ADR 0048 shipped, and it is
+-- idempotent by construction — a Sale whose Ticket is already held matches
+-- nothing — so re-cutting it to the new rule would change no production row, and
+-- on a restored database it would re-seat exactly the buyers ADR 0074 decided
+-- not to re-seat (it re-seats three named Sales and leaves every other
+-- historical mis-seat alone). The "C" collation stays for the same reason it
+-- arrived: it is what made THIS statement's tie-break match the Go one.
+--
 -- WHICH SALES — and the four that are left alone, each for a reason:
 --
 --   channel = 'online'      A door sale's or Sale Import's buyer is a name

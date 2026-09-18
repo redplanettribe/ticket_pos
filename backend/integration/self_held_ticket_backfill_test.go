@@ -224,11 +224,32 @@ func TestBackfillHoldsOnlyTheLowestOrdinalOfASingleLine(t *testing.T) {
 	}
 }
 
-// A MULTI-LINE SALE WHOSE CATALOG-FIRST LINE WAS NOT WRITTEN FIRST: the
-// migration holds the Ticket the checkout's own rule picked — first by Ticket
-// Type sort_order then name, not by cart order — so new and backfilled Sales
-// never disagree about which Ticket is the buyer's.
-func TestBackfillAgreesWithTheCheckoutAboutWhichTicketIsTheBuyers(t *testing.T) {
+// ticketOfSale is one Ticket of a Sale named the way this file talks about them
+// — by Ticket Type and ordinal — read off the buyer's own Sale page.
+func ticketOfSale(t *testing.T, tickets []buyerTicket, ticketTypeName string, ordinal int) string {
+	t.Helper()
+	for _, tk := range tickets {
+		if tk.TicketTypeName == ticketTypeName && tk.Ordinal == ordinal {
+			return tk.TicketID
+		}
+	}
+	t.Fatalf("the Sale has no %s #%d", ticketTypeName, ordinal)
+	return ""
+}
+
+// A MULTI-LINE SALE WHOSE CATALOG-FIRST LINE IS NOT THE DEAREST: the migration
+// holds the CATALOG-FIRST Ticket, which the commit spine no longer picks.
+//
+// THE DIVERGENCE IS DELIBERATE (ADR 0074, #646), and asserted rather than merely
+// tolerated. 084 is a historical backfill: it ran once, against the Sales that
+// existed when ADR 0048 shipped, and it is idempotent by construction — a Sale
+// whose Ticket is already held matches nothing — so re-cutting it to the dearest
+// rule would change no production row. On a restored database it would do worse
+// than nothing: it would re-seat the buyers ADR 0074 deliberately leaves alone,
+// that ruling having re-seated three named Sales and no others. So the migration
+// keeps the rule it ran under, and the two rules are now two sentences rather
+// than one. This is the test that says which is which.
+func TestBackfillHoldsTheCatalogFirstTicketTheCommitSpineNoLongerPicks(t *testing.T) {
 	env := setupTest(t)
 	enableTicketQuestions(t)
 	enableTicketAssignment(t)
@@ -236,7 +257,7 @@ func TestBackfillAgreesWithTheCheckoutAboutWhichTicketIsTheBuyers(t *testing.T) 
 	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Order Fest", "order-fest", 2000, 20)
 	vipID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "VIP", 5000, 5)
 
-	// VIP first in the cart; GA first in the catalog.
+	// VIP first in the cart, GA first in the catalog, VIP the dearest.
 	begun := beginCheckoutOK(t, env, "test-org", "order-fest",
 		checkoutBody("ana@example.com", "Ana", "Lopez", cartLine(vipID, 2), cartLine(gaID, 2)))
 	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
@@ -248,11 +269,10 @@ func TestBackfillAgreesWithTheCheckoutAboutWhichTicketIsTheBuyers(t *testing.T) 
 
 	ana := customerSignIn(t, env, "ana@example.com")
 	tickets := listBuyerTickets(t, env, ana, saleID)
-	assertHeldByBuyer(t, tickets, checkoutPick, "ana@example.com")
-	held := findBuyerRow(t, tickets, checkoutPick)
-	if held.TicketTypeName != "GA" || held.Ordinal != 1 {
-		t.Errorf("the backfill held %s #%d, want GA #1 — the catalog-first line's first Ticket",
-			held.TicketTypeName, held.Ordinal)
+	catalogFirst := ticketOfSale(t, tickets, "GA", 1)
+	assertHeldByBuyer(t, tickets, catalogFirst, "ana@example.com")
+	if checkoutPick == catalogFirst {
+		t.Error("the checkout seated the buyer on GA #1; since ADR 0074 it seats them on the dearest line's VIP #1")
 	}
 }
 

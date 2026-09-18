@@ -566,10 +566,10 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 
 		amountCents := 0
 		// The buyer's own Ticket, chosen as the lines are written: the first
-		// Ticket of the line whose Ticket Type comes first in catalog order
-		// (sort_order, then name — the order every storefront list shows).
-		var selfHeldTicketID string
-		var selfHeldType lockedType
+		// Ticket of the Sale's DEAREST line, ties broken by the catalog's order
+		// (ADR 0074, #646). See selfHeldSeat for why price decides and which
+		// price it is.
+		var seat selfHeldSeat
 		for _, line := range s.Lines {
 			unitPrice := locked[line.TicketTypeID].priceCents
 			if line.UnitPriceCents != nil {
@@ -604,11 +604,19 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			if err != nil {
 				return nil, err
 			}
-			if lt := locked[line.TicketTypeID]; in.Terms.SelfHeld && (selfHeldTicketID == "" ||
-				lt.sortOrder < selfHeldType.sortOrder ||
-				(lt.sortOrder == selfHeldType.sortOrder && lt.name < selfHeldType.name)) {
-				selfHeldTicketID = ticketIDs[1]
-				selfHeldType = lt
+			if lt := locked[line.TicketTypeID]; in.Terms.SelfHeld {
+				// unitPrice and not lt.priceCents: the seat follows what this
+				// buyer paid, so a Promotional Price and a Sale Import row's
+				// overriding amount both count.
+				claim := selfHeldSeat{
+					ticketID:       ticketIDs[1],
+					unitPriceCents: unitPrice,
+					sortOrder:      lt.sortOrder,
+					name:           lt.name,
+				}
+				if claim.outranks(seat) {
+					seat = claim
+				}
 			}
 			// And the Answers the buyer gave at checkout, landing on those very
 			// Tickets in the same transaction (#311). The Payment held them keyed
@@ -646,8 +654,8 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			}
 		}
 
-		if selfHeldTicketID != "" {
-			if err := holdOwnTicket(ctx, tx, selfHeldTicketID, customerID, s.Customer.Email, in.Terms.Now); err != nil {
+		if seat.ticketID != "" {
+			if err := holdOwnTicket(ctx, tx, seat.ticketID, customerID, s.Customer.Email, in.Terms.Now); err != nil {
 				return nil, err
 			}
 		}
