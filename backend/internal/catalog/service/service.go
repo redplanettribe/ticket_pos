@@ -226,6 +226,19 @@ type CreateVideoUploadURLInput struct {
 // See the implementation for why nothing on this side can check that.
 type CustomerHoldings interface {
 	CustomerEventHoldings(ctx context.Context, eventID, email string) (map[string]int, error)
+	// SurrenderableFreeTickets is the Upgrade's half of the same question
+	// (ADR 0074, #648): how many free Tickets this Customer could give up on
+	// this Event. It rides this seam and not a new one because it is the same
+	// shape of fact — a sales rule about one identified person on one Event,
+	// read for the public Event page and answered by the module that would act
+	// on it — and because catalog restating the predicate would be exactly the
+	// drift the single-predicate rule exists to prevent: eligibility is
+	// re-evaluated inside the commit transaction, and a page that offered an
+	// Upgrade the commit refuses is the failure this seam forecloses.
+	//
+	// The same warning applies to the email: it must be one the caller has
+	// proven the requester owns.
+	SurrenderableFreeTickets(ctx context.Context, eventID, email string) (int, error)
 }
 
 // Service implements catalog business rules.

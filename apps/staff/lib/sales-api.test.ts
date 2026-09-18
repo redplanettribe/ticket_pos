@@ -7,7 +7,9 @@ import {
   correctionPrefill,
   correctionVerdict,
   exportFieldMessage,
+  isUpgradeReplacement,
   paymentMethodToken,
+  replacementReasonToken,
   reversalProvenance,
   rowFieldErrors,
   saleChannelToken,
@@ -163,6 +165,48 @@ test("a payload with no origin at all narrows to null", () => {
   assert.equal(saleOriginToken(""), null);
 });
 
+// --- why two sales are linked ---------------------------------------------
+
+/*
+ * The Sales list picks its own badge off the replacement linkage, which used to
+ * have one reason and now has two (#651, ADR 0074). A correction says the
+ * Organization staff recorded a sale wrongly; an Upgrade says a buyer changed
+ * their mind about one recorded perfectly, and reading the first off the second
+ * is the whole bug this ticket exists to stop.
+ */
+test("replacementReasonToken names both reasons a sale can stand in for another", () => {
+  assert.equal(replacementReasonToken("correction"), "correction");
+  assert.equal(replacementReasonToken("upgrade"), "upgrade");
+});
+
+test("no link, and a reason this app cannot name, both leave the correction wording alone", () => {
+  // Null is what every caller compares against `upgrade`, so anything unknown
+  // keeps ADR 0050 older and narrower sentence rather than claiming an election
+  // no buyer made.
+  assert.equal(replacementReasonToken(null), null);
+  assert.equal(replacementReasonToken(undefined), null);
+  assert.equal(replacementReasonToken(""), null);
+  assert.equal(replacementReasonToken("Upgrade"), null);
+  assert.equal(replacementReasonToken("re_addressing"), null);
+});
+
+/*
+ * The reason sits on BOTH halves of the pair, so it is asked once per LINK. The
+ * paid Sale of an Upgrade is an ordinary Online Sale: its buyer may undo it in
+ * their Reversal Window, or an Operator may reverse it after a refund, and a row
+ * that read the reason alone would then draw "Upgraded" over a reversal nobody
+ * upgraded.
+ */
+test("a link is an Upgrade's only when it is there and the reason says so", () => {
+  assert.equal(isUpgradeReplacement("TP-2", "upgrade"), true);
+  assert.equal(isUpgradeReplacement("TP-2", "correction"), false);
+  assert.equal(isUpgradeReplacement(null, "upgrade"), false);
+  assert.equal(isUpgradeReplacement(undefined, "upgrade"), false);
+  assert.equal(isUpgradeReplacement("", "upgrade"), false);
+  assert.equal(isUpgradeReplacement("TP-2", null), false);
+  assert.equal(isUpgradeReplacement("TP-2", "re_addressing"), false);
+});
+
 // --- the Sales Export refusal ---------------------------------------------
 
 // The one sentence on these surfaces that stays the API's English on purpose:
@@ -238,6 +282,7 @@ test("correctionPrefill reads the template's columns off the row, blanks for a m
     replaces_sale_id: null,
     replaced_by_confirmation_ref: null,
     replaces_confirmation_ref: null,
+    replacement_reason: null,
     held_ticket_count: 0,
     // The row states its origin (#370). The Correct form takes nothing from it:
     // a correction's replacement is a new sale with an origin of its own.

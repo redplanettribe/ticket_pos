@@ -7,6 +7,7 @@ import {
   checkoutAnswerBodies,
   hasCheckoutQuestions,
   ownTicketSlot,
+  upgradeOffer,
   type AnsweredTicketType,
   type AnswerValues,
 } from "./checkout-answers.ts";
@@ -30,13 +31,28 @@ const meal = {
   ],
 };
 
+// The catalog, cheap-to-dear as Organizations in fact list them — so "first in
+// the catalog" and "the dearest" are never the same line here.
 const generalAdmission: AnsweredTicketType = {
   id: "tt-ga",
   name: "General Admission",
+  price_cents: 2000,
   ticket_questions: [size, meal],
 };
 
-const vip: AnsweredTicketType = { id: "tt-vip", name: "VIP", ticket_questions: [] };
+const premium: AnsweredTicketType = {
+  id: "tt-premium",
+  name: "Premium",
+  price_cents: 5000,
+  ticket_questions: [size],
+};
+
+const vip: AnsweredTicketType = {
+  id: "tt-vip",
+  name: "VIP",
+  price_cents: 9000,
+  ticket_questions: [],
+};
 
 // A cart of three of one Ticket Type presents THREE separate answer sets. This
 // is the acceptance criterion the whole section exists for: the buyer of four
@@ -154,9 +170,10 @@ test("checkoutAnswerBodies distinguishes an unticked checkbox from an untouched 
     required: false,
     options: [],
   };
-  const slots = answerSlots([{ id: "tt-ga", name: "GA", ticket_questions: [dinner] }], {
-    "tt-ga": 2,
-  });
+  const slots = answerSlots(
+    [{ id: "tt-ga", name: "GA", price_cents: 2000, ticket_questions: [dinner] }],
+    { "tt-ga": 2 },
+  );
 
   assert.deepEqual(checkoutAnswerBodies(slots, { "tt-ga:1:q-dinner": { checked: false } }), [
     { ticket_type_id: "tt-ga", ticket_index: 1, ticket_question_id: "q-dinner", checked: false },
@@ -189,16 +206,32 @@ test("checkoutAnswerBodies sends a number as a string", () => {
     required: false,
     options: [],
   };
-  const slots = answerSlots([{ id: "tt-ga", name: "GA", ticket_questions: [age] }], { "tt-ga": 1 });
+  const slots = answerSlots(
+    [{ id: "tt-ga", name: "GA", price_cents: 2000, ticket_questions: [age] }],
+    { "tt-ga": 1 },
+  );
   const [body] = checkoutAnswerBodies(slots, { "tt-ga:1:q-age": { number: "3.50" } });
   assert.equal(body?.number, "3.50");
 });
 
-// CHECKOUT ASKS ABOUT THE BUYER'S OWN TICKET AND NO OTHER (ADR 0048): the
-// first ticket of the first Ticket Type in catalog order, whatever the cart's
-// quantities — the other two of three are their Holders' to answer.
-test("ownTicketSlot is the first ticket of the first catalog type in the cart", () => {
-  const slot = ownTicketSlot([vip, generalAdmission], { "tt-vip": 0, "tt-ga": 3 }, true);
+// CHECKOUT ASKS ABOUT THE BUYER'S OWN TICKET AND NO OTHER (ADR 0048): the first
+// ticket of the DEAREST line the cart holds (ADR 0074), whatever the catalog's
+// order and whatever the quantities — the other two of three are their Holders'
+// to answer. The same choice the commit spine makes, so the questions on the
+// page belong to the Ticket the buyer will in fact hold.
+test("ownTicketSlot is the first ticket of the dearest type in the cart", () => {
+  const slot = ownTicketSlot([generalAdmission, premium], { "tt-ga": 3, "tt-premium": 1 }, true);
+  assert.deepEqual(slot, {
+    ticketTypeId: "tt-premium",
+    ticketTypeName: "Premium",
+    index: 1,
+    questions: [size],
+  });
+});
+
+// A type nobody is buying never takes the seat, however dear it is.
+test("ownTicketSlot ignores types the cart does not hold", () => {
+  const slot = ownTicketSlot([generalAdmission, premium], { "tt-ga": 2, "tt-premium": 0 }, true);
   assert.deepEqual(slot, {
     ticketTypeId: "tt-ga",
     ticketTypeName: "General Admission",
@@ -207,13 +240,160 @@ test("ownTicketSlot is the first ticket of the first catalog type in the cart", 
   });
 });
 
-// Catalog order wins over which line asks questions: a buyer holding a VIP
-// that asks nothing holds the VIP, and is asked nothing.
+// EQUALLY PRICED LINES TIE-BREAK ON THE CATALOG'S ORDER, exactly as the whole
+// rule used to: the list arrives in that order, so the first of the equals wins.
+test("ownTicketSlot tie-breaks equally priced types on the catalog's order", () => {
+  const balcony: AnsweredTicketType = {
+    id: "tt-balcony",
+    name: "Balcony",
+    price_cents: generalAdmission.price_cents,
+    ticket_questions: [meal],
+  };
+  const slot = ownTicketSlot([generalAdmission, balcony], { "tt-ga": 1, "tt-balcony": 1 }, true);
+  assert.equal(slot?.ticketTypeId, "tt-ga");
+});
+
+// THE PRICE IS THE ONE THE BUYER PAYS. `price_cents` is the effective buyer
+// price the API computes — already the Promotional Price where one is live — so
+// a discounted dear line loses to a cheaper line sold at its List Price, which
+// is what the commit spine compares too.
+test("ownTicketSlot compares the price as sold, not the list price", () => {
+  // Premium's List Price is 5000; a live Promotion has the API reporting 500,
+  // which is what this app is given and all it ever compares.
+  const discountedPremium: AnsweredTicketType = { ...premium, price_cents: 500 };
+  const slot = ownTicketSlot(
+    [generalAdmission, discountedPremium],
+    { "tt-ga": 1, "tt-premium": 1 },
+    true,
+  );
+  assert.equal(slot?.ticketTypeId, "tt-ga");
+});
+
+// The dearest line wins even when it asks nothing: a buyer holding a VIP that
+// asks no questions holds the VIP, and is asked nothing.
 test("ownTicketSlot is null when the buyer's own ticket type asks nothing", () => {
-  assert.equal(ownTicketSlot([vip, generalAdmission], { "tt-vip": 1, "tt-ga": 2 }, true), null);
+  assert.equal(ownTicketSlot([generalAdmission, vip], { "tt-ga": 2, "tt-vip": 1 }, true), null);
 });
 
 test("ownTicketSlot is null with assignment closed or an empty cart", () => {
   assert.equal(ownTicketSlot([generalAdmission], { "tt-ga": 3 }, false), null);
   assert.equal(ownTicketSlot([generalAdmission], { "tt-ga": 0 }, true), null);
+});
+
+// A Free Ticket Type, which an Organization prices at zero and the API reports
+// at zero — the only kind of Ticket a buyer may ever surrender (ADR 0074).
+const community: AnsweredTicketType = {
+  id: "tt-community",
+  name: "Community",
+  price_cents: 0,
+  ticket_questions: [],
+};
+
+const student: AnsweredTicketType = {
+  id: "tt-student",
+  name: "Student",
+  price_cents: 0,
+  ticket_questions: [],
+};
+
+const catalog = [community, student, generalAdmission, premium];
+
+// THE ANONYMOUS READ IS NOT ZERO. A null count says "we do not know who is
+// asking", and a buyer the platform cannot identify cannot be offered an
+// Upgrade: there is no earlier Sale to have counted. Coercing null to 0 would
+// offer the prompt to every anonymous reader holding a free and a paid line,
+// which is the one way this rule can silently go wrong.
+test("upgradeOffer is withheld from a reader the API could not identify", () => {
+  assert.equal(
+    upgradeOffer(catalog, { "tt-community": 1, "tt-ga": 1 }, null, true),
+    null,
+    "a null count must never be read as zero",
+  );
+});
+
+// A DARK TICKET ASSIGNMENT BUILD ANSWERS THE COUNT 0, NOT NULL, so the
+// arithmetic alone would offer here — and the commit, which gates on its own
+// spelling of the same flag, would silently drop the election. A buyer would
+// tick "give up the free one", pay, and keep both, having been told otherwise.
+// Nothing is self-held in that build, so nothing is surrenderable.
+test("upgradeOffer is withheld where the sale hands the buyer no Ticket of their own", () => {
+  assert.equal(upgradeOffer(catalog, { "tt-community": 1, "tt-ga": 1 }, 0, false), null);
+  assert.equal(upgradeOffer([generalAdmission], { "tt-ga": 1 }, 1, false), null);
+});
+
+// The same-basket half: the cart itself holds the one free Ticket in play, and
+// the prompt names the line the commit will drop.
+test("upgradeOffer offers the cart's free line when the buyer has none on file", () => {
+  const prompt = upgradeOffer(catalog, { "tt-community": 1, "tt-ga": 1 }, 0, true);
+  assert.deepEqual(prompt, {
+    surrendered: { ticketTypeId: "tt-community", ticketTypeName: "Community" },
+  });
+});
+
+// The cross-Sale half: the free Ticket is on an earlier Sale, so the cart holds
+// nothing to give up and the prompt names no line.
+test("upgradeOffer offers an earlier Sale's free Ticket against a paid cart", () => {
+  const prompt = upgradeOffer([generalAdmission], { "tt-ga": 1 }, 1, true);
+  assert.deepEqual(prompt, { surrendered: null });
+});
+
+// AMBIGUITY MEANS NO OFFER, counted over quantity and not over lines: a single
+// line of two free Tickets is two free Tickets, and a prompt that has to ask
+// which of two people it is about has stopped clarifying.
+test("upgradeOffer is withheld when more than one free Ticket is in play", () => {
+  // Two on one line.
+  assert.equal(upgradeOffer(catalog, { "tt-community": 2, "tt-ga": 1 }, 0, true), null);
+  // Two on two lines.
+  assert.equal(
+    upgradeOffer(catalog, { "tt-community": 1, "tt-student": 1, "tt-ga": 1 }, 0, true),
+    null,
+  );
+  // One in the cart beside one on an earlier Sale — the case neither side can
+  // see alone, and the whole reason this arithmetic happens here.
+  assert.equal(upgradeOffer(catalog, { "tt-community": 1, "tt-ga": 1 }, 1, true), null);
+  // Two on file.
+  assert.equal(upgradeOffer(catalog, { "tt-ga": 1 }, 2, true), null);
+});
+
+// An Upgrade is free to paid and no further, so without something paid to move
+// onto there is nothing to elect. This is the precondition the backend's
+// OffersUpgrade deliberately does not carry: it belongs to the offering surface,
+// and on this side that surface is this function.
+test("upgradeOffer is withheld from a cart holding nothing paid", () => {
+  assert.equal(upgradeOffer(catalog, { "tt-community": 1 }, 0, true), null);
+  assert.equal(upgradeOffer(catalog, {}, 1, true), null);
+  assert.equal(upgradeOffer(catalog, { "tt-community": 0, "tt-ga": 0 }, 1, true), null);
+});
+
+// FREE IS THE PRICE AS SOLD, not the price the Organization listed.
+// `price_cents` is already the Promotional Price where a Promotion is live, so a
+// Ticket Type given away today is free in this basket — the same reading the
+// commit takes off `unit_price_cents`.
+test("upgradeOffer reads free off the price as sold", () => {
+  const freeToday: AnsweredTicketType = { ...premium, price_cents: 0 };
+  const cart = { "tt-premium": 1, "tt-ga": 1 };
+  const prompt = upgradeOffer([freeToday, generalAdmission], cart, 0, true);
+  assert.deepEqual(prompt, {
+    surrendered: { ticketTypeId: "tt-premium", ticketTypeName: "Premium" },
+  });
+});
+
+// A cart of several paid Tickets is still one free Ticket in play, and how many
+// paid ones there are is nobody's business here.
+test("upgradeOffer does not care how many paid Tickets the cart holds", () => {
+  const prompt = upgradeOffer(catalog, { "tt-community": 1, "tt-ga": 3, "tt-premium": 2 }, 0, true);
+  assert.deepEqual(prompt, {
+    surrendered: { ticketTypeId: "tt-community", ticketTypeName: "Community" },
+  });
+});
+
+// A Ticket Type nobody is buying contributes nothing on either side. An Event
+// selling two Free Ticket Types would otherwise look permanently ambiguous to
+// every buyer on it, and the offer would never be made to anybody.
+test("upgradeOffer counts the cart and not the catalog", () => {
+  // Two Free Ticket Types on the Event, neither of them in this cart.
+  assert.deepEqual(upgradeOffer(catalog, { "tt-ga": 1 }, 1, true), { surrendered: null });
+  // And with the buyer holding none on file either, there is nothing to offer
+  // rather than an ambiguity — the catalog's free types are still not counted.
+  assert.equal(upgradeOffer(catalog, { "tt-ga": 1 }, 0, true), null);
 });

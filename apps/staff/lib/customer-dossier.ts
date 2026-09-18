@@ -27,10 +27,15 @@ import type { DossierTicketAnswerFields } from "./dossier-ticket-answers.ts";
 */
 
 /**
- * A Sale's standing. `corrected` is a Sale reversed by a Sale Correction, told
- * apart by the API so this side need not infer it from the replacement ref.
+ * A Sale's standing. `corrected` is a Sale reversed by a Sale Correction and
+ * `upgraded` one its own buyer surrendered for a paid Ticket — both told apart
+ * by the API, so this side never infers either from the replacement ref.
+ *
+ * The last two are two words on purpose (#651, ADR 0074). A correction says
+ * somebody at the Organization recorded a sale wrongly; an Upgrade says a buyer
+ * changed their mind about one recorded perfectly.
  */
-export type DossierSaleStatus = "active" | "reversed" | "corrected";
+export type DossierSaleStatus = "active" | "reversed" | "corrected" | "upgraded";
 
 /** One of this Event's Ticket Sales to this Customer, as given on that Sale. */
 export type DossierSale = {
@@ -38,10 +43,26 @@ export type DossierSale = {
   confirmation_ref: string;
   /** A string on the wire: narrow it with `saleStatusToken` before drawing. */
   status: string;
-  /** When it was reversed; set for `reversed` and `corrected`. */
+  /** When it was reversed; set for `reversed`, `corrected` and `upgraded`. */
   reversed_at: string | null;
-  /** The Sale Correction's replacement, on a `corrected` Sale. */
+  /**
+   * What stands in this Sale's place: the Sale Correction's replacement on a
+   * `corrected` Sale, or the paid Sale on an `upgraded` one.
+   */
   replaced_by_confirmation_ref: string | null;
+  /**
+   * The other half of that pair, stated on the REPLACEMENT: the mistaken Sale
+   * it corrects, or the free Sale its buyer gave up for it. Published so an
+   * Organization can explain from either row where a Ticket went (#651).
+   */
+  replaces_confirmation_ref: string | null;
+  /**
+   * WHY the pair exists: `correction` or `upgrade`, null without a link.
+   * Narrow it with `replacementReasonToken`. The replaced half's word arrives
+   * in `status`; this is the only thing the replacement — an ordinary active
+   * Sale — has to go on.
+   */
+  replacement_reason: string | null;
   sold_at: string;
   recorded_at: string;
   channel: string;
@@ -243,7 +264,12 @@ export function dossierBackHref(from: string | null | undefined, eventId: string
   LABELLING
 */
 
-export const DOSSIER_SALE_STATUSES = ["active", "reversed", "corrected"] as const satisfies readonly DossierSaleStatus[];
+export const DOSSIER_SALE_STATUSES = [
+  "active",
+  "reversed",
+  "corrected",
+  "upgraded",
+] as const satisfies readonly DossierSaleStatus[];
 
 /**
  * A Sale's status as a token this app has words for, or null for one it has
@@ -260,6 +286,17 @@ export function saleStatusToken(status: string | null | undefined): DossierSaleS
  * The Badge variant a status is drawn in. A Sale that no longer stands is
  * destructive, as on the sales list; an unrecognised status is drawn quietly
  * rather than as a live Sale, because nothing says it is one.
+ *
+ * AN UPGRADE IS NOT DRAWN AS AN ERROR (#651, ADR 0074). Destructive is this
+ * app's colour for a Sale that should not have happened or was undone against
+ * somebody's interest, and painting an Upgrade red would say in colour exactly
+ * what the word `upgraded` exists to stop the page saying in words: the buyer
+ * got the Ticket they asked for and nobody erred. It cannot be `secondary`
+ * either — that is the live Sale's chip, and this Sale no longer stands. The
+ * quiet outline is what honestly remains: set aside, nobody at fault. It is
+ * written as its own case rather than left to the default, because sharing a
+ * variant with "a status this build cannot name" is a coincidence and not a
+ * decision.
  */
 export function saleStatusBadgeVariant(
   token: DossierSaleStatus | null,
@@ -270,6 +307,8 @@ export function saleStatusBadgeVariant(
     case "reversed":
     case "corrected":
       return "destructive";
+    case "upgraded":
+      return "outline";
     default:
       return "outline";
   }

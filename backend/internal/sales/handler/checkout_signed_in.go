@@ -84,6 +84,18 @@ type beginCustomerCheckoutBody struct {
 	// written at all.
 	AdulthoodDeclaration *bool `json:"adulthood_declaration"`
 
+	// UpgradeElected is the Upgrade Prompt's checkbox, under the same rules as
+	// on the public body it converges into (ADR 0074, #649/#650): a plain bool whose
+	// absence means keep both, never a field error, and never trusted — the
+	// commit re-evaluates eligibility in its own transaction and ignores an
+	// election it did not offer.
+	//
+	// It is asked only of a SIGNED-IN buyer, which is what makes the prompt
+	// possible at all: the free Ticket being surrendered is one this very
+	// Customer holds, and the Event page publishes the count for that Customer
+	// alone (#648).
+	UpgradeElected bool `json:"upgrade_elected"`
+
 	Answers []checkoutAnswerBody `json:"answers"`
 }
 
@@ -111,6 +123,7 @@ func (b beginCustomerCheckoutBody) addressedTo(email string) beginCheckoutBody {
 		NetworkingConsent:    b.NetworkingConsent,
 		TermsAcceptance:      b.TermsAcceptance,
 		AdulthoodDeclaration: b.AdulthoodDeclaration,
+		UpgradeElected:       b.UpgradeElected,
 		Answers:              b.Answers,
 	}
 }

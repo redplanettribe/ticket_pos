@@ -55,6 +55,14 @@ export type AnsweredTicketType = {
   id: string;
   name: string;
   /**
+   * The effective buyer price per ticket, exactly as the Event page received it:
+   * server-computed, fee included where the Event passes it on, and ALREADY the
+   * Promotional Price where a Promotion is live. It is here because the buyer's
+   * own Ticket is the dearest one in the cart (ADR 0074), and the price that
+   * decides that is the price as sold — this app never recomputes either.
+   */
+  price_cents: number;
+  /**
    * Absent on a deployment where the feature flag is closed, which is how it
    * ships — the API omits the key entirely, so there is nothing to draw and no
    * second flag on this side to disagree with it (ADR 0045).
@@ -148,9 +156,18 @@ export function answerSlots(
 /**
  * ownTicketSlot is the one ticket checkout asks about: the buyer's own, which
  * the sale will hand them as a Self-held Ticket (ADR 0048). It is the FIRST
- * ticket of the first Ticket Type in catalog order that the cart holds — the
- * same choice the commit spine makes, so what the dialog calls "your ticket"
- * is the Ticket the buyer will in fact hold.
+ * ticket of the DEAREST Ticket Type the cart holds, ties broken by the catalog's
+ * order (ADR 0074) — the same choice the commit spine makes, so what the dialog
+ * calls "your ticket" is the Ticket the buyer will in fact hold.
+ *
+ * THE TWO RULES MUST STAY ONE SENTENCE. A buyer seated by the backend on one
+ * Ticket and asked another Ticket's questions by this page answers for somebody
+ * who is not them, and leaves their own Ticket owing — which is the bug ADR 0074
+ * was written about, in its other half.
+ *
+ * The price compared is `price_cents`: what this buyer pays, Promotional Price
+ * and all, never a List Price. The catalog arrives in its own order, so keeping
+ * the first of the equals IS the tie-break.
  *
  * THE OTHER TICKETS ARE NOT ASKED ABOUT AT ALL, and are not mentioned. A buyer
  * of four is not assumed to know four people's sizes; those Tickets are for
@@ -167,11 +184,137 @@ export function ownTicketSlot(
   buyerHoldsFirstTicket: boolean,
 ): AnswerSlot | null {
   if (!buyerHoldsFirstTicket) return null;
-  const first = ticketTypes.find((ticketType) => (quantities[ticketType.id] ?? 0) > 0);
-  if (first === undefined) return null;
-  const questions = first.ticket_questions ?? [];
+  let own: AnsweredTicketType | undefined;
+  for (const ticketType of ticketTypes) {
+    if ((quantities[ticketType.id] ?? 0) <= 0) continue;
+    if (own === undefined || ticketType.price_cents > own.price_cents) own = ticketType;
+  }
+  if (own === undefined) return null;
+  const questions = own.ticket_questions ?? [];
   if (questions.length === 0) return null;
-  return { ticketTypeId: first.id, ticketTypeName: first.name, index: 1, questions };
+  return { ticketTypeId: own.id, ticketTypeName: own.name, index: 1, questions };
+}
+
+/**
+ * An Upgrade this checkout may offer, and the free Ticket it is about.
+ *
+ * AN OFFER AND NOT THE PROMPT. The Upgrade Prompt is the control that draws this
+ * (components/upgrade-prompt.tsx); this is the platform's answer to "is there an
+ * Upgrade to offer here at all", which is a different thing and belongs on this
+ * side of the framework line. Naming both of them after the glossary's term
+ * would leave two exports a case apart in the file that imports both.
+ */
+export type UpgradeOffer = {
+  /**
+   * The cart line the buyer gives up by electing, or NULL when the free Ticket
+   * in play is on an earlier Sale and the cart holds none.
+   *
+   * It is the only thing the two mechanisms differ by that this app may know,
+   * and it exists here for one reason: the prompt has to say something true, and
+   * "the free ticket in your basket" and "the free ticket you already have" are
+   * not the same sentence. The MECHANISM behind them — a line never bought
+   * versus a Sale reversed inside the paid commit — is never mentioned to the
+   * buyer, by ADR 0074, and this field must not become a way to mention it.
+   *
+   * NOTHING IS DROPPED FROM `lines` ON ACCOUNT OF IT. The cart is sent exactly
+   * as the buyer built it and the commit drops the free line itself, so this
+   * names what WILL happen rather than something this app does. A Storefront
+   * that pre-emptively removed the line would be a second implementation of the
+   * ambiguity rule, and would sell one Ticket fewer the moment the two disagreed.
+   */
+  surrendered: { ticketTypeId: string; ticketTypeName: string } | null;
+};
+
+/**
+ * upgradeOffer decides whether the checkout offers an Upgrade, and about which
+ * free Ticket (ADR 0074, #652).
+ *
+ * THIS RESTATES A BACKEND RULE, AND IT IS THE ONE PLACE IN THE FEATURE WHERE
+ * DRIFT CAN ENTER. The Go counterpart is
+ * `UpgradeEligibility.OffersUpgrade(freeTicketsInBasket)` in
+ * `backend/internal/sales/repository/self_held.go` —
+ * `surrenderable_free_tickets + free Tickets in the basket == 1` — and the
+ * duplication is unavoidable rather than sloppy: the basket is client-side and
+ * never reaches the Event-page request that publishes the count, so neither side
+ * can do this arithmetic alone. Nothing but review keeps the two sentences the
+ * same. It is written ONCE, here, so that there is only ever one of them to
+ * check, and the component above it decides nothing.
+ *
+ * THE COUNT IS NULLABLE AND NULL IS NOT ZERO. Null is the anonymous read — "we
+ * do not know who is asking" — and yields no prompt: there is no buyer whose
+ * earlier Sales were counted, so there is no offer to make. Zero is a real
+ * answer given to somebody we can identify, and a zero with one free Ticket in
+ * the cart is a genuine offer. Reading null as 0 would show the prompt to
+ * anonymous readers, and it is the only mistake here that produces a plausible-
+ * looking page rather than a visible one.
+ *
+ * NOTHING IT RETURNS CAN FAIL A PURCHASE. A prompt drawn where the commit will
+ * not honour it costs nothing — an election the backend did not offer is IGNORED
+ * and never refused — and a prompt withheld where the commit would have honoured
+ * it costs a buyer nothing but the offer. That asymmetry is why the rule may
+ * live in two places at all.
+ *
+ * Four things must hold, and each is a case ADR 0074 argued:
+ *
+ *   - TICKET ASSIGNMENT IS OPEN, which `buyerHoldsFirstTicket` is the published
+ *     spelling of. THIS IS NOT REDUNDANT WITH THE COUNT, and the trap is worth
+ *     naming: a dark build answers the count 0 rather than null, so `0 + one
+ *     free line in the cart === 1` and this function would otherwise offer. The
+ *     commit gates separately on its own spelling of the same flag
+ *     (`Terms.SelfHeld`) and would silently drop the election — leaving a buyer
+ *     who ticked "give up the free one" holding both, having been told
+ *     otherwise. Nothing is self-held in that build, so nothing is surrenderable
+ *     and there is nothing to offer; the backend's own SurrenderableFreeTickets
+ *     says a caller gating on neither flag "would be a build offering what it
+ *     cannot perform", and this is the surface it meant.
+ *   - THE CART HOLDS SOMETHING PAID. An Upgrade is free to paid, so without a
+ *     paid Ticket to move onto there is nothing to elect. The backend's
+ *     OffersUpgrade deliberately does not carry this precondition, leaving it to
+ *     whichever surface does the offering; on this side, that is this function.
+ *   - EXACTLY ONE FREE TICKET IS IN PLAY, counting the cart and the buyer's
+ *     earlier Sales together. Two is ambiguous from either side, and the answer
+ *     to ambiguity is no prompt rather than a guess.
+ *   - FREE MEANS `price_cents === 0`, which is the price AS SOLD: the API has
+ *     already applied any Promotional Price, and this app never recomputes a
+ *     price. A Ticket Type given away today is free in this basket, which is the
+ *     honest reading of "cost nothing" and the one `unit_price_cents` takes.
+ *
+ * Counted over QUANTITY throughout: a line of two free Tickets is two free
+ * Tickets. Since exactly one free Ticket in the cart is therefore exactly one
+ * free LINE, naming the line and naming the Ticket are the same act here.
+ */
+export function upgradeOffer(
+  ticketTypes: AnsweredTicketType[],
+  quantities: Record<string, number>,
+  surrenderableFreeTickets: number | null,
+  buyerHoldsFirstTicket: boolean,
+): UpgradeOffer | null {
+  if (!buyerHoldsFirstTicket) return null;
+  if (surrenderableFreeTickets === null) return null;
+
+  let freeInBasket = 0;
+  let paidInBasket = 0;
+  let freeLine: AnsweredTicketType | undefined;
+  for (const ticketType of ticketTypes) {
+    const quantity = quantities[ticketType.id] ?? 0;
+    if (quantity <= 0) continue;
+    if (ticketType.price_cents === 0) {
+      freeInBasket += quantity;
+      freeLine ??= ticketType;
+      continue;
+    }
+    paidInBasket += quantity;
+  }
+
+  if (paidInBasket === 0) return null;
+  if (surrenderableFreeTickets + freeInBasket !== 1) return null;
+
+  return {
+    surrendered:
+      freeLine === undefined
+        ? null
+        : { ticketTypeId: freeLine.id, ticketTypeName: freeLine.name },
+  };
 }
 
 /**

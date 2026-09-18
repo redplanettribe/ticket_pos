@@ -290,6 +290,13 @@
       "optionalLabel": "{question} · Opcional",
       "noAnswer": "Sin respuesta"
     },
+    "upgrade": {
+      "title": "Su entrada gratuita",
+      "inBasket": "Está comprando una entrada gratuita y una pagada. Si marca la casilla, dejamos la gratuita fuera de su compra; puede volver por ella más adelante, mientras queden entradas.",
+      "earlier": "Ya tiene una entrada gratuita para este evento. Si marca la casilla, renuncia a ella al pagar, de forma definitiva: no podrá recuperarla.",
+      "label": "Solo quiero la entrada pagada: renuncio a la gratuita",
+      "hint": "Si la deja sin marcar, conserva las dos."
+    },
     "consent": {
       "notice": "Cómo tratamos sus datos",
       "readPolicy": "Leer la Política de Privacidad completa",

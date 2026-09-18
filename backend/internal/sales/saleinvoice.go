@@ -60,6 +60,10 @@ type PaidOnlineSaleLine struct {
 // fact told twice. The stored `reversed_by` actor is coarser — `staff`
 // covers three levers — so the route is decided where the lever is pulled
 // and handed down, never derived afterwards.
+//
+// FIVE WORDS AND A SIXTH THAT IS NOT LIKE THEM. ReversalRouteUpgrade below
+// reaches no document and no spreadsheet cell; read its own comment before
+// treating it as a member of this set.
 const (
 	// ReversalRouteCustomer: the buyer undid their own Online Sale.
 	ReversalRouteCustomer = "customer"
@@ -71,6 +75,29 @@ const (
 	ReversalRouteStaffReversal = "staff_reversal"
 	// ReversalRouteCorrection: one imported sale replaced by a Sale Correction.
 	ReversalRouteCorrection = "correction"
+	// ReversalRouteUpgrade: a free Online Sale surrendered by its buyer for a
+	// paid one, inside the transaction that commits the paid Sale (#650,
+	// ADR 0074).
+	//
+	// IT IS THE SIXTH ROUTE AND NOBODY READS IT. Saying so plainly is the point
+	// of this comment. Route exists to reach the invoicing seam, and the Upgrade
+	// passes that seam nil — an Upgrade is free-to-paid and no further, so the
+	// Sale it reverses carried no money, no Tax Invoice and therefore nothing to
+	// withdraw or credit. The word is handed to reverseSalesTx, which stores it
+	// nowhere and forwards it to a seam that is not there, and it stops. It is
+	// deliberately NOT in the credit_note_reason CHECK (migration 100): a credit
+	// note for an Upgrade would be a credit note for nothing.
+	//
+	// IT IS THEREFORE NOT WHERE `upgrade` COMES FROM ANYWHERE A READER SEES IT.
+	// The Sales Export's `upgrade` is exportfile.ReversedByUpgrade, derived by
+	// exportedReversalRoute from the Sale's `replacement_reason` — because the
+	// stored actor is `customer` on both an Upgrade and an ordinary buyer's undo,
+	// and the reason column is the only thing that tells them apart. This
+	// constant is kept only so the call site can name the lever it pulled instead
+	// of passing "" past a field whose every other caller names one; it must not
+	// be mistaken for the source of the word, and a reader chasing "where does
+	// `upgrade` get written" should go to replacement_reason.
+	ReversalRouteUpgrade = "upgrade"
 )
 
 // SaleReversal is what the reversal primitive tells the invoicing module

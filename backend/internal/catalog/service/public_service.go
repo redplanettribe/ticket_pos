@@ -339,12 +339,44 @@ type PublicEventDetail struct {
 	// cannot be (the publish gate requires it, #208).
 	RegistrationURL *string `json:"registration_url"`
 	// BuyerHoldsFirstTicket is whether an Online Sale of this Event hands the
-	// buyer its first Ticket as their own Self-held Ticket (ADR 0048) — which
-	// is the platform's Ticket Assignment flag and not a property of the
-	// Event, riding here for the reason ticket_questions does: the checkout
-	// dialog draws a "Your ticket" section from this payload, and it may only
-	// call a Ticket the buyer's own when the sale will actually make it so.
+	// buyer a Ticket of their own as a Self-held Ticket (ADR 0048) — which is
+	// the platform's Ticket Assignment flag and not a property of the Event,
+	// riding here for the reason ticket_questions does: the checkout dialog
+	// draws a "Your ticket" section from this payload, and it may only call a
+	// Ticket the buyer's own when the sale will actually make it so.
+	//
+	// THE NAME OUTLIVED THE RULE. Since ADR 0074 the Ticket handed over is the
+	// Sale's dearest, not its first; the field is left named as it is because
+	// it is published, and renaming it is nobody's half of that ruling. It
+	// never said WHICH Ticket anyway — only whether there is one.
 	BuyerHoldsFirstTicket bool `json:"buyer_holds_first_ticket"`
+	// SurrenderableFreeTickets is how many free Tickets the Customer who asked
+	// for this page could give up on this Event through an Upgrade (ADR 0074,
+	// #648): free Tickets of theirs that are each their own accepted Self-held
+	// Ticket, on an active Online Sale of this Event carrying that one Ticket
+	// and nothing else, sold at zero.
+	//
+	// IT IS A COUNT AND NOT A VERDICT, because the verdict is not this payload's
+	// alone to give. An Upgrade is offered only where exactly one free Ticket is
+	// IN PLAY, and the basket counts: a buyer holding one of these who puts a
+	// second free Ticket in their cart is as ambiguous as one holding two, and
+	// gets no Upgrade Prompt either. The cart does not exist when this page is
+	// read, so the figure states the half the server knows and the client adds
+	// its own — `surrenderable_free_tickets + free Tickets in the basket == 1`
+	// is the whole rule, and the same arithmetic runs again inside the
+	// transaction that commits the Sale.
+	//
+	// NULL MEANS WE DO NOT KNOW WHO IS ASKING, on the already_held precedent,
+	// and a client must not turn it into 0: an anonymous read must reveal
+	// nothing about anybody, and there is no way to ask this about an address
+	// you have not proven you own. 0 is a real answer given to a Customer we can
+	// identify — "nothing of yours here is surrenderable" — and is also the
+	// answer while Ticket Assignment is dark, since no Ticket is self-held in
+	// that build and so none can be given up.
+	//
+	// The name is new and says what it counts. It deliberately does not follow
+	// buyer_holds_first_ticket above, whose name outlived its rule.
+	SurrenderableFreeTickets *int `json:"surrenderable_free_tickets"`
 }
 
 // PublicEventPage is one page of global explorer results.
@@ -524,11 +556,28 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 	// signed-in Customer's already_held null, which this payload reserves for
 	// saying we do not know who is asking.
 	var ownHoldings map[string]int
+	// surrenderable is the Upgrade's eligibility for this reader, left nil for
+	// an anonymous one — the same distinction already_held draws, and for the
+	// same reason: a number here would be a statement about a person nobody has
+	// identified.
+	var surrenderable *int
+	mode := catalog.RegistrationModeOrDefault(row.RegistrationMode)
 	if viewer != nil {
 		ownHoldings, err = s.holdings.CustomerEventHoldings(ctx, row.ID, viewer.Email)
 		if err != nil {
 			return nil, err
 		}
+		// Asked of sales rather than decided here (ADR 0074, #648), and asked
+		// on every Event rather than only on the ones that could answer yes.
+		// An Event with External Registration has no Ticket Sale to find and
+		// answers 0 of its own accord; short-circuiting it here would put a
+		// second, weaker copy of the predicate on the read path, which is the
+		// one thing this fact must not have.
+		count, err := s.holdings.SurrenderableFreeTickets(ctx, row.ID, viewer.Email)
+		if err != nil {
+			return nil, err
+		}
+		surrenderable = &count
 	}
 
 	tags, err := s.repo.ListEventTags(ctx, row.ID)
@@ -542,7 +591,6 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 	}
 
 	handling := sales.FeeHandlingOrDefault(row.FeeHandling)
-	mode := catalog.RegistrationModeOrDefault(row.RegistrationMode)
 	detail := &PublicEventDetail{
 		Slug:             row.Slug,
 		Name:             row.Name,
@@ -565,6 +613,8 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 		// Only a ticketed Event sells online; an external one never makes a
 		// Sale and so never hands anybody a Ticket.
 		BuyerHoldsFirstTicket: s.ticketAssignmentEnabled && mode != catalog.RegistrationModeExternal,
+		// Null for an anonymous read, a number for a Customer we can identify.
+		SurrenderableFreeTickets: surrenderable,
 	}
 	// The Registration Link travels only on the Event that actually registers
 	// through it.

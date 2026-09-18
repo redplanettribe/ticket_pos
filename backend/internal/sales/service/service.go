@@ -671,6 +671,16 @@ func (s *Service) kickSaleInvoiceDrainer(ctx context.Context, sale *repository.R
 // that moment for something beside the commit — a Sale Correction stamps its
 // reversal with it, the confirm leg its Payment. Passing it in is what keeps the
 // two from being two different instants.
+//
+// UPGRADEELECTED IS DELIBERATELY NOT A PARAMETER HERE, and no caller of this
+// function states one (ADR 0074, #649/#650). The Upgrade is the buyer's own
+// election, made once at begin-checkout, and it lives on the Payment row from
+// that moment: ApprovePaymentAndCommitSale sets the term from `upgrade_elected`
+// under the lock it already holds, for both settling legs alike. The three staff
+// routes never touch a Payment and so keep the zero value, which is the truth
+// about them — nobody transacting on a buyer's behalf may elect for them. A
+// parameter would give every one of these five call sites a say in a fact only
+// one of them can know.
 func (s *Service) commitTerms(now time.Time) repository.CommitTerms {
 	return repository.CommitTerms{
 		Now:            now,
@@ -1083,6 +1093,21 @@ type SaleListItem struct {
 	// exactly when the matching id is.
 	ReplacedByConfirmationRef *string `json:"replaced_by_confirmation_ref"`
 	ReplacesConfirmationRef   *string `json:"replaces_confirmation_ref"`
+	// ReplacementReason is WHY the pair above was written: `correction` for a
+	// Sale Correction (ADR 0050) and `upgrade` for an Upgrade (ADR 0074). Null
+	// exactly when both links are.
+	//
+	// IT IS PUBLISHED BECAUSE THE SALES LIST DERIVES ITS OWN WORD (#651). Unlike
+	// the Customer Dossier, which is handed a finished `status`, this page picks
+	// its badge from the linkage itself — so the reason has to travel, or the
+	// page has no way to tell an Upgrade from an error its staff made. It is
+	// carried on both halves of the pair, so the replacement's row can say what
+	// it stands in for without fetching the other.
+	//
+	// A word this API adds later is narrowed away by the client rather than
+	// guessed at, the same floor `origin` keeps: only `upgrade` says Upgrade,
+	// and everything else keeps ADR 0050's older, narrower sentence.
+	ReplacementReason *string `json:"replacement_reason" enums:"correction,upgrade"`
 	// HeldTicketCount is how many of the sale's Tickets have an accepted
 	// Holder: the people a reversal would tell, stated on the row so the
 	// confirm dialog can say so before anybody is told.
@@ -1222,6 +1247,7 @@ func (s *Service) ListSales(ctx context.Context, actor ActorContext, eventID str
 			ReplacesSaleID:            row.ReplacesSaleID,
 			ReplacedByConfirmationRef: row.ReplacedByConfirmationRef,
 			ReplacesConfirmationRef:   row.ReplacesConfirmationRef,
+			ReplacementReason:         row.ReplacementReason,
 			HeldTicketCount:           row.HeldTicketCount,
 			// Derived here and nowhere else, off the row's own columns: the
 			// Sales list never learns the predicate, it is told the answer
@@ -1412,13 +1438,17 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 			// screen can never disagree about where a sale came from. A
 			// Manually Recorded Sale is a three-way negative, and restating it
 			// here would be the copy that stops being updated.
-			Origin:         sales.DeriveSaleOrigin(row.Channel, row.ImportBatchID, row.ReplacesSaleID),
-			PaymentMethod:  row.PaymentMethod,
-			Status:         row.Status,
-			ReversedAt:     row.ReversedAt,
-			ReversedBy:     exportedReversalRoute(row),
-			CorrectedByRef: row.ReplacedByConfirmationRef,
-			CorrectsRef:    row.ReplacesConfirmationRef,
+			Origin:        sales.DeriveSaleOrigin(row.Channel, row.ImportBatchID, row.ReplacesSaleID),
+			PaymentMethod: row.PaymentMethod,
+			Status:        row.Status,
+			ReversedAt:    row.ReversedAt,
+			ReversedBy:    exportedReversalRoute(row),
+			// ADR 0050's pair of columns, and ADR 0050's rows only: an
+			// Upgrade links the same two database columns but is not a
+			// correction, and `corrected_by` is a header an accountant reads as
+			// a claim about the Organization's own staff (#651).
+			CorrectedByRef: exportedCorrectionRef(row.ReplacedBySaleID, row.ReplacedByConfirmationRef, row.ReplacementReason),
+			CorrectsRef:    exportedCorrectionRef(row.ReplacesSaleID, row.ReplacesConfirmationRef, row.ReplacementReason),
 		})
 	}
 
@@ -1577,6 +1607,11 @@ func exportedNetProceeds(row repository.SaleRow) *int {
 //     when it went with its whole Sale Import batch (its reversed_at is the
 //     batch's undone_at), and `staff_reversal` when one sale was reversed on its
 //     own from the Sales list.
+//   - `customer` becomes `upgrade` where the sale carries the Upgrade
+//     replacement reason (#651, ADR 0074). The buyer caused both, so the actor
+//     cannot separate them; a Reversal Window undo leaves the buyer with
+//     nothing, and an Upgrade hands them the Ticket they paid for instead. The
+//     stored reason is the only witness, and it is read before the switch.
 //
 // Anything else is dropped to nil rather than emitted. A value added to the
 // stored set later — a new reversal route, and the column's constraint is
@@ -1595,6 +1630,18 @@ func exportedReversalRoute(row repository.SaleRow) *string {
 		return nil
 	}
 	var route string
+	// An Upgrade is recognised BEFORE the actor is looked at, and it has to be.
+	// The stored actor is `customer` — the buyer elected it — so this would
+	// otherwise leave the file saying the buyer undid their own sale from the
+	// Storefront, which is a different lever with a different outcome: that one
+	// leaves them holding nothing, this one hands them the Ticket they paid for
+	// (#651, ADR 0074). The reason column is the only thing that can tell them
+	// apart, and reading it here keeps the sixth route out of the actor switch,
+	// where it does not belong.
+	if sales.IsUpgradeReplacement(row.ReplacedBySaleID, row.ReplacementReason) {
+		route = exportfile.ReversedByUpgrade
+		return &route
+	}
 	switch *row.ReversedBy {
 	case sales.ReversalActorCustomer:
 		route = exportfile.ReversedByCustomer
@@ -1613,6 +1660,27 @@ func exportedReversalRoute(row repository.SaleRow) *string {
 		return nil
 	}
 	return &route
+}
+
+// exportedCorrectionRef passes a linked sale's Confirmation reference through to
+// the file's corrected_by/corrects pair — unless the link was an Upgrade, in
+// which case there is nothing for those two columns to say.
+//
+// Blank rather than re-headed. The Sales Export is a file that leaves the
+// platform and gets forwarded, summed and kept, and renaming a column an
+// accountant already built a sheet around is a cost this distinction does not
+// need to impose: the row still states what happened, in reversed_by, and the
+// two screens name the counterpart Sale. See Sale.CorrectedByRef in exportfile.
+//
+// EACH COLUMN IS JUDGED ON ITS OWN LINK, so the id and the reference travel
+// together: the reason sits on both halves of a pair, and a row asked only "is
+// your reason `upgrade`" would blank the column belonging to the OTHER link it
+// might separately hold.
+func exportedCorrectionRef(linkSaleID, ref, replacementReason *string) *string {
+	if sales.IsUpgradeReplacement(linkSaleID, replacementReason) {
+		return nil
+	}
+	return ref
 }
 
 // The two values exportedNetProceeds tests against, named so the rule above

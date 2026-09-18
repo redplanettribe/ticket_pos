@@ -20,6 +20,7 @@ import {
   formatNumber,
 } from "@/lib/format";
 import {
+  isUpgradeReplacement,
   paymentMethodToken,
   saleChannelToken,
   saleOriginToken,
@@ -98,7 +99,16 @@ export function DossierSaleCard({ sale, zone, locale, onOpenAnswers }: DossierSa
         ? tSales("reversedBadge")
         : statusToken === "corrected"
           ? tSales("correctedBadge")
-          : sale.status;
+          : statusToken === "upgraded"
+            ? tSales("upgradedBadge")
+            : sale.status;
+  // WHY this Sale is linked to another (#651, ADR 0074), asked once PER LINK
+  // because the reason sits on both halves of the pair. The replaced half's word
+  // also arrives in `status`; the REPLACEMENT — an ordinary active Sale — has
+  // only this to say whether it corrects a mistake or stands in for a Ticket its
+  // buyer traded up from.
+  const surrendered = isUpgradeReplacement(sale.replaced_by_confirmation_ref, sale.replacement_reason);
+  const stoodInForUpgrade = isUpgradeReplacement(sale.replaces_confirmation_ref, sale.replacement_reason);
   const reversedAt = statusToken !== "active" ? formatDateTime(sale.reversed_at, zone, locale) : null;
 
   const channelToken = saleChannelToken(sale.channel);
@@ -117,7 +127,18 @@ export function DossierSaleCard({ sale, zone, locale, onOpenAnswers }: DossierSa
         <Badge variant={saleStatusBadgeVariant(statusToken)}>{statusLabel}</Badge>
         {sale.replaced_by_confirmation_ref ? (
           <span className="font-mono text-xs text-muted-foreground">
-            {tSales("correctedTo", { reference: sale.replaced_by_confirmation_ref })}
+            {surrendered
+              ? tSales("upgradedTo", { reference: sale.replaced_by_confirmation_ref })
+              : tSales("correctedTo", { reference: sale.replaced_by_confirmation_ref })}
+          </span>
+        ) : null}
+        {/* The other half: an Organization asked where a buyer's free Ticket
+            went can answer it from this row too. */}
+        {sale.replaces_confirmation_ref ? (
+          <span className="font-mono text-xs text-muted-foreground">
+            {stoodInForUpgrade
+              ? tSales("upgradedFrom", { reference: sale.replaces_confirmation_ref })
+              : tSales("corrects", { reference: sale.replaces_confirmation_ref })}
           </span>
         ) : null}
         {reversedAt ? (
