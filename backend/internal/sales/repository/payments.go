@@ -143,7 +143,21 @@ type CreatePaymentInput struct {
 	// request and never from its body. Empty fields are stored NULL, because
 	// "not collected" and "collected as blank" are different answers.
 	ConsentEvidence consent.Evidence
-	Now             time.Time
+	// UpgradeElected is the Upgrade Prompt's answer, snapshotted for the same
+	// reason everything above it is: the election is made on the checkout dialog
+	// and ACTED ON in the transaction that commits the paid Ticket Sale, and
+	// between those two moments the buyer goes to the Payment Provider and comes
+	// back on a redirect carrying a transaction id and nothing else (ADR 0074,
+	// #650).
+	//
+	// HELD AND NOT PERFORMED, which is the whole of the Upgrade's safety. A
+	// Payment abandoned or declined never reaches the commit, so the buyer keeps
+	// the free Ticket they still hold; nothing here surrenders anything.
+	//
+	// False is "keep both", the reversible answer, and it is what an ignored
+	// prompt means (ADR 0074).
+	UpgradeElected bool
+	Now            time.Time
 }
 
 // CreatePayment records a pending Payment and its line snapshot atomically,
@@ -166,10 +180,11 @@ func (r *Repository) CreatePayment(ctx context.Context, in CreatePaymentInput) (
 			consent_terms_acceptance, consent_terms_version_id,
 			consent_adulthood_declaration,
 			consent_ip, consent_user_agent, consent_origin_url,
+			upgrade_elected,
 			created_at, updated_at
 		)
 		VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $10, $11, $12, $13, $14, $15,
-			$16, $17, $18, $22, $23, $24, $19, $20, $21, $9, $9)
+			$16, $17, $18, $22, $23, $24, $19, $20, $21, $25, $9, $9)
 		RETURNING id
 	`, in.EventID, in.OrganizationID, in.Provider, in.ClientTransactionID,
 		in.AmountCents, in.Customer.Email, in.Customer.FirstName, in.Customer.LastName, in.Now,
@@ -183,7 +198,11 @@ func (r *Repository) CreatePayment(ctx context.Context, in CreatePaymentInput) (
 		// never reaches a Payment at all. The NULL is the ordinary value — the
 		// box was not drawn — and migration 119's CHECK holds it to the Terms
 		// answer two arguments above.
-		nullBool(in.Consent.AdulthoodDeclaration)).Scan(&paymentID)
+		nullBool(in.Consent.AdulthoodDeclaration),
+		// Plain and never NULL, unlike the consent answers beside it: the Upgrade
+		// Prompt has two answers and not three, and an unanswered prompt means
+		// keep both (ADR 0074).
+		in.UpgradeElected).Scan(&paymentID)
 	if err != nil {
 		return "", err
 	}
@@ -508,6 +527,13 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	// nothing else. NULL here is "the box was not drawn at begin" and never a No.
 	var consentAdulthood sql.NullBool
 	var consentIP, consentUserAgent, consentOriginURL, consentTermsVersionID sql.NullString
+	// The Upgrade the buyer elected at begin-checkout (#650, ADR 0074, migration
+	// 124), read on this row under the very lock that makes the settlement
+	// atomic. BOTH CHECKOUT LEGS ARRIVE HERE, which is why the election is read
+	// here and not threaded down from either of them: the provider's return leg
+	// has no request body to carry it back, and a rule stated once in the one
+	// function both legs reach cannot be stated differently by one of them.
+	var upgradeElected bool
 	err = tx.QueryRowContext(ctx, `
 		SELECT id, event_id, organization_id, status, customer_email, customer_first_name, customer_last_name,
 		       customer_tax_id_type, customer_tax_id_number, customer_phone, customer_session_authorized,
@@ -515,7 +541,8 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 		       consent_policy_acceptance, consent_marketing, consent_networking,
 		       consent_terms_acceptance, consent_terms_version_id,
 		       consent_adulthood_declaration,
-		       consent_ip, consent_user_agent, consent_origin_url
+		       consent_ip, consent_user_agent, consent_origin_url,
+		       upgrade_elected
 		FROM payments
 		WHERE client_transaction_id = $1
 		FOR UPDATE
@@ -523,13 +550,20 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 		&taxIDType, &taxIDNumber, &phone, &sessionAuthorized, &affiliateLinkID, &locale,
 		&consentPolicy, &consentMarketing, &consentNetworking,
 		&consentTerms, &consentTermsVersionID, &consentAdulthood,
-		&consentIP, &consentUserAgent, &consentOriginURL)
+		&consentIP, &consentUserAgent, &consentOriginURL, &upgradeElected)
 	if err != nil {
 		return nil, err
 	}
 	if status != "pending" && status != "expired" {
 		return &ApprovedPayment{AlreadySettled: true}, nil
 	}
+
+	// The election joins the Sale Commit Terms, where the spine looks for it. It
+	// is OR-ed rather than assigned so that a caller which has already stated the
+	// term is never silently contradicted by a row it also wrote; today no caller
+	// does, and the Payment is the only durable record of what the buyer chose.
+	terms := in.Terms
+	terms.UpgradeElected = terms.UpgradeElected || upgradeElected
 
 	// The Answers this Payment has been holding since begin-checkout (migration
 	// 074), read here and copied onto the Tickets the commit below mints — inside
@@ -601,7 +635,7 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 		// This Payment's own hold must convert into sold_count, not count
 		// against itself (ADR 0013).
 		ExcludePaymentID: paymentID,
-		Terms:            in.Terms,
+		Terms:            terms,
 		Sales: []CommitSale{{
 			// The buyer is rebuilt from the Payment verbatim: the sale records
 			// what they supplied at begin-checkout, whatever their profile says

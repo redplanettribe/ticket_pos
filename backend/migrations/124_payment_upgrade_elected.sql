@@ -1,0 +1,22 @@
+-- The buyer's Upgrade election, held on the Payment until there is a Sale to
+-- act on (#650, parent #645, ADR 0074).
+--
+-- An Upgrade is elected on the checkout dialog and PERFORMED in the transaction
+-- that commits the paid Ticket Sale — never at begin-checkout, because a
+-- checkout abandoned at the Payment Provider would otherwise take a Ticket and
+-- give nothing back, the mirror of the worst outcome this system has. Between
+-- those two moments the buyer goes to the provider and comes back on a redirect
+-- carrying a transaction id and nothing else.
+--
+-- So the election is snapshotted here, for the fifth time and the same reason as
+-- the phone (029), the attribution (036), the Sale Locale (059), the consent
+-- answers (064) and the Adulthood Declaration (119): what is not on this row at
+-- begin is lost by the time the sale is committed.
+--
+-- NOT NULL DEFAULT FALSE, unlike the consent columns beside it, and the
+-- difference is deliberate. A consent box has three states — ticked, an explicit
+-- No, and never drawn — and the platform must be able to tell them apart. The
+-- Upgrade Prompt has two: the buyer elected it, or they did not. Silence means
+-- KEEP BOTH (ADR 0074), the reversible answer, and that is exactly what a
+-- Payment begun before this column existed should say.
+ALTER TABLE payments ADD COLUMN upgrade_elected BOOLEAN NOT NULL DEFAULT FALSE;

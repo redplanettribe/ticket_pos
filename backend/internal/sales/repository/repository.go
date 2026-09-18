@@ -181,6 +181,24 @@ type RecordedSale struct {
 	// reads it to promise the factura, and nothing else does. False on every
 	// other channel and every other sale.
 	SaleInvoiceOwed bool
+	// UpgradedOutOfSaleID is the free Ticket Sale this commit reversed because
+	// the buyer elected an Upgrade (#650, ADR 0074), and empty on every commit
+	// that reversed nothing — which is all of them but this one case.
+	//
+	// AN ID AND NOTHING ELSE, DELIBERATELY. The reversal primitive hands back a
+	// whole ReversedSale — the buyer's name, their address, the Confirmation
+	// reference, the Sale Locale — everything a Sale Voided notice is composed
+	// from. None of it travels out of the transaction here, because an Upgrade's
+	// reversal is SILENT and the surest way to keep a mail unsent is to leave the
+	// caller unable to write it. It is the same structural posture
+	// platform.NoLongerHolding takes about the cause of a reversal: the field does
+	// not exist, so the copy cannot ask for it.
+	//
+	// WHAT THE CALLER DOES WITH IT is state the notification policy that says so
+	// out loud — platform.NobodyIsBeingWrittenTo, through the shared helper every
+	// reversal route tells its displaced Holders through. Silence is a value
+	// passed, not a call omitted.
+	UpgradedOutOfSaleID string
 }
 
 // CommittedBatch is the outcome of a committed (or replayed) Sale Import.
@@ -570,6 +588,12 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		// (ADR 0074, #646). See selfHeldSeat for why price decides and which
 		// price it is.
 		var seat selfHeldSeat
+		// How many Tickets this basket's own free lines mint, counted the way
+		// every other count in this system is — off the Line quantities. It is
+		// half of the Upgrade's ambiguity rule, and it is accumulated here rather
+		// than re-derived afterwards because the price AS SOLD is only in scope
+		// while the line is being written (ADR 0074, #650).
+		freeTicketsInBasket := 0
 		for _, line := range s.Lines {
 			unitPrice := locked[line.TicketTypeID].priceCents
 			if line.UnitPriceCents != nil {
@@ -582,6 +606,9 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 				fee = *line.Fee
 			}
 			amountCents += line.Quantity * unitPrice
+			if unitPrice == 0 {
+				freeTicketsInBasket += line.Quantity
+			}
 			var lineID string
 			if err := tx.QueryRowContext(ctx, `
 				INSERT INTO ticket_sale_lines (
@@ -654,22 +681,50 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			}
 		}
 
+		// The Upgrade, if one was elected and is still available (ADR 0074, #650).
+		//
+		// INSIDE THE SEATING HOOK, because an Upgrade is a fact ABOUT the seat: it
+		// swaps the Ticket this buyer holds for the one they were just seated on,
+		// and in a build where nobody is seated there is no such swap to make. That
+		// is also the whole of the Ticket Assignment gate — `seat.ticketID` is only
+		// ever set under in.Terms.SelfHeld, so a dark build cannot reach this line
+		// and needs no second check to be safe.
+		//
+		// AFTER holdOwnTicket AND NOT BEFORE. The buyer must be holding the paid
+		// Ticket before the free one is taken away, so that no instant inside this
+		// transaction exists in which they hold neither.
+		var upgradedOutOfSaleID string
 		if seat.ticketID != "" {
 			if err := holdOwnTicket(ctx, tx, seat.ticketID, customerID, s.Customer.Email, in.Terms.Now); err != nil {
 				return nil, err
 			}
+			if in.Terms.UpgradeElected {
+				upgradedOutOfSaleID, err = upgradeOutOfEarlierFreeSaleTx(ctx, tx, upgradeOutOfEarlierFreeSale{
+					EventID:             in.EventID,
+					OrganizationID:      in.OrganizationID,
+					CustomerID:          customerID,
+					PaidSaleID:          saleID,
+					SeatUnitPriceCents:  seat.unitPriceCents,
+					FreeTicketsInBasket: freeTicketsInBasket,
+					Now:                 in.Terms.Now,
+				})
+				if err != nil {
+					return nil, err
+				}
+			}
 		}
 
 		recorded = append(recorded, RecordedSale{
-			ID:                saleID,
-			CustomerID:        customerID,
-			ConfirmationRef:   s.ConfirmationRef,
-			CustomerEmail:     s.Customer.Email,
-			CustomerFirstName: s.Customer.FirstName,
-			CustomerLastName:  s.Customer.LastName,
-			AmountCents:       amountCents,
-			CustomerTaxID:     s.Customer.TaxID,
-			Locale:            s.Locale,
+			ID:                  saleID,
+			CustomerID:          customerID,
+			ConfirmationRef:     s.ConfirmationRef,
+			CustomerEmail:       s.Customer.Email,
+			CustomerFirstName:   s.Customer.FirstName,
+			CustomerLastName:    s.Customer.LastName,
+			AmountCents:         amountCents,
+			CustomerTaxID:       s.Customer.TaxID,
+			Locale:              s.Locale,
+			UpgradedOutOfSaleID: upgradedOutOfSaleID,
 		})
 	}
 

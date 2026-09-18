@@ -218,6 +218,20 @@ type BeginCheckoutInput struct {
 	// carrying answers to a deployment that asks none is simply a body this
 	// deployment has no questions for.
 	Answers []CheckoutAnswerInput
+	// UpgradeElected is the buyer's answer to the Upgrade Prompt: they are moving
+	// up, and the paid Ticket in this basket takes the place of a free one
+	// (ADR 0074, #650).
+	//
+	// UNTRUSTED AND NEVER A REFUSAL. Nothing here checks whether an Upgrade was
+	// offered, and nothing needs to: the election is snapshotted onto the Payment
+	// and re-judged against the eligibility predicate inside the commit's own
+	// transaction, where an election the backend did not offer simply does
+	// nothing. A checkout is never refused over one, because the answer to "you
+	// cannot upgrade" is to sell the buyer the Ticket they asked for.
+	//
+	// ABSENT MEANS FALSE MEANS KEEP BOTH — the reversible answer, and the one a
+	// buyer who scrolled past the prompt is owed.
+	UpgradeElected bool
 	// ConsentEvidence is the technical proof of that act: the client IP as
 	// platform.ClientIP derived it, the user agent, and the page it happened on.
 	//
@@ -603,7 +617,11 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		Consent:               in.Consent,
 		ConsentTermsVersionID: in.ConsentTermsVersionID,
 		ConsentEvidence:       in.ConsentEvidence,
-		Now:                   now,
+		// Held for the same reason and by the same rule: the Upgrade is PERFORMED
+		// in the transaction that commits the paid Sale and never here, so an
+		// abandoned or declined Payment surrenders nothing (ADR 0074, #650).
+		UpgradeElected: in.UpgradeElected,
+		Now:            now,
 	})
 	if err != nil {
 		return nil, err
@@ -1019,6 +1037,7 @@ func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.Chec
 	}
 
 	s.sendSaleConfirmation(ctx, event.OrganizationID, event.ID, approved.Sale)
+	s.tellHoldersOfTheUpgradedFreeSale(ctx, approved.Sale)
 	s.kickSaleInvoiceDrainer(ctx, approved.Sale)
 
 	return &BeginCheckoutResult{
@@ -1058,6 +1077,36 @@ func (s *Service) captureCheckoutConsent(ctx context.Context, tx *sql.Tx, captur
 // channel: a Confirmation Link names a Ticket Sale by its database id, and until
 // commit there is no sale to name. A failure to send is swallowed — the sale is
 // recorded and the buyer's tickets do not depend on the email arriving.
+// tellHoldersOfTheUpgradedFreeSale states this commit's Buyer Notification
+// Policy for the free Ticket Sale an Upgrade reversed — which is that nobody is
+// written to at all (#650, ADR 0074).
+//
+// IT IS CALLED ON EVERY SETTLEMENT AND NOT ONLY ON AN UPGRADE. The shared helper
+// no-ops on an empty set, so the ordinary checkout costs one comparison, and the
+// two legs read the same three lines whether or not a Ticket was surrendered.
+//
+// THE SILENCE IS A VALUE PASSED, NEVER A CALL OMITTED, and that is this
+// function's whole reason to exist. Two mails must stay quiet — the Sale Voided
+// notice, composed in this module, and the No Longer Holding mail, composed in
+// catalog through the seam below — and a rule kept by remembering not to call
+// something is a rule that the next route to reverse a Sale will not know about.
+// Stated as platform.NobodyIsBeingWrittenTo it travels the road every other
+// reversal's policy travels, and the far side honours it before it reads a
+// single address.
+//
+// THE OTHER HALF OF THE SILENCE IS STRUCTURAL: the commit hands back an id and
+// no buyer, so there is nothing here a Sale Voided notice could be composed from
+// even if somebody tried (see RecordedSale.UpgradedOutOfSaleID).
+//
+// WHAT THE BUYER DOES GET is the paid Sale's Sale Confirmation, sent beside this
+// call, and nothing else. They upgraded; they have not lost a sale.
+func (s *Service) tellHoldersOfTheUpgradedFreeSale(ctx context.Context, sale *repository.RecordedSale) {
+	if sale == nil || sale.UpgradedOutOfSaleID == "" {
+		return
+	}
+	s.tellDisplacedHolders(ctx, []string{sale.UpgradedOutOfSaleID}, platform.NobodyIsBeingWrittenTo)
+}
+
 func (s *Service) sendSaleConfirmation(ctx context.Context, organizationID, eventID string, sale *repository.RecordedSale) {
 	event, ok, err := s.repo.GetEventImportContext(ctx, organizationID, eventID)
 	if err != nil || !ok {
@@ -1231,6 +1280,7 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 	}
 
 	s.sendSaleConfirmation(ctx, payment.OrganizationID, payment.EventID, approved.Sale)
+	s.tellHoldersOfTheUpgradedFreeSale(ctx, approved.Sale)
 	s.kickSaleInvoiceDrainer(ctx, approved.Sale)
 
 	return &ConfirmCheckoutResult{

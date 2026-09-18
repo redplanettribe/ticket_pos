@@ -237,6 +237,12 @@ components:
             any later bump — and the API refuses the checkout without it exactly as
             it does the policy's (TERMS_ACCEPTANCE_REQUIRED).
           type: boolean
+        upgrade_elected:
+          description: |-
+            UpgradeElected is the Upgrade Prompt's answer (ADR 0074, #650), a plain
+            bool for the reason the public body gives: the prompt has two answers and
+            an absent key means keep both.
+          type: boolean
       type: object
     handler.buyerAssignmentBody:
       properties:

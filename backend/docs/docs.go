@@ -253,6 +253,10 @@ const docTemplate = `{
                     "terms_acceptance": {
                         "description": "TermsAcceptance is the Términos y Condiciones box (#537, ADR 0066),\nunder the same nil discipline: it is drawn only for a Customer whose\nlive session spans the current Terms edition — the one-time re-gate, or\nany later bump — and the API refuses the checkout without it exactly as\nit does the policy's (TERMS_ACCEPTANCE_REQUIRED).",
                         "type": "boolean"
+                    },
+                    "upgrade_elected": {
+                        "description": "UpgradeElected is the Upgrade Prompt's answer (ADR 0074, #650), a plain\nbool for the reason the public body gives: the prompt has two answers and\nan absent key means keep both.",
+                        "type": "boolean"
                     }
                 },
                 "type": "object"

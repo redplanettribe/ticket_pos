@@ -147,6 +147,17 @@ func (s *Service) TellHoldersOfReversedSales(
 	if len(ticketSaleIDs) == 0 {
 		return nil
 	}
+	// A SILENT REVERSAL READS NOBODY (#650, ADR 0074). The Upgrade is the one
+	// route that says this, and it says it here rather than by not calling: the
+	// policy argument is what every caller states, so the caller that has nothing
+	// to say states it in the same place as the four that do.
+	//
+	// Before the read and not inside the loop, because "nobody" is not a filter
+	// over a list of Holders — it is the question not being asked. A reversal
+	// that has decided to tell nobody has no business selecting addresses.
+	if !buyer.WritesToAnybody() {
+		return nil
+	}
 
 	displaced, err := s.repo.ListDisplacedHoldersForSales(ctx, ticketSaleIDs)
 	if err != nil {

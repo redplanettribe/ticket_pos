@@ -71,6 +71,20 @@ const (
 	ReversalRouteStaffReversal = "staff_reversal"
 	// ReversalRouteCorrection: one imported sale replaced by a Sale Correction.
 	ReversalRouteCorrection = "correction"
+	// ReversalRouteUpgrade: a free Online Sale surrendered by its buyer for a
+	// paid one, inside the transaction that commits the paid Sale (#650,
+	// ADR 0074).
+	//
+	// IT IS THE SIXTH ROUTE AND THE ONLY ONE THAT NEVER REACHES A DOCUMENT. An
+	// Upgrade is free-to-paid and no further, so the Sale it reverses carried no
+	// money and no Tax Invoice — the zero boundary is exactly the line past
+	// which surrendering would owe a Credit Note, and this word sits on the safe
+	// side of it. It is stated anyway, because the reversal primitive's Route is
+	// how a reversal says which lever was pulled, and a lever with no name is a
+	// row nobody can account for later. It is deliberately NOT in the
+	// credit_note_reason CHECK (migration 100): a credit note for an Upgrade
+	// would be a credit note for nothing.
+	ReversalRouteUpgrade = "upgrade"
 )
 
 // SaleReversal is what the reversal primitive tells the invoicing module
