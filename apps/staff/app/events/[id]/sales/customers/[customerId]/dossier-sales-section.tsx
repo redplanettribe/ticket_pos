@@ -20,8 +20,8 @@ import {
   formatNumber,
 } from "@/lib/format";
 import {
+  isUpgradeReplacement,
   paymentMethodToken,
-  replacementReasonToken,
   saleChannelToken,
   saleOriginToken,
   saleSourceToken,
@@ -102,11 +102,13 @@ export function DossierSaleCard({ sale, zone, locale, onOpenAnswers }: DossierSa
           : statusToken === "upgraded"
             ? tSales("upgradedBadge")
             : sale.status;
-  // WHY this Sale is linked to another (#651, ADR 0074). The replaced half's
-  // word is already in `status`; this is what the REPLACEMENT — an ordinary
-  // active Sale — needs to say whether it corrects a mistake or stands in for a
-  // Ticket its buyer traded up from.
-  const upgraded = replacementReasonToken(sale.replacement_reason) === "upgrade";
+  // WHY this Sale is linked to another (#651, ADR 0074), asked once PER LINK
+  // because the reason sits on both halves of the pair. The replaced half's word
+  // also arrives in `status`; the REPLACEMENT — an ordinary active Sale — has
+  // only this to say whether it corrects a mistake or stands in for a Ticket its
+  // buyer traded up from.
+  const surrendered = isUpgradeReplacement(sale.replaced_by_confirmation_ref, sale.replacement_reason);
+  const stoodInForUpgrade = isUpgradeReplacement(sale.replaces_confirmation_ref, sale.replacement_reason);
   const reversedAt = statusToken !== "active" ? formatDateTime(sale.reversed_at, zone, locale) : null;
 
   const channelToken = saleChannelToken(sale.channel);
@@ -125,7 +127,7 @@ export function DossierSaleCard({ sale, zone, locale, onOpenAnswers }: DossierSa
         <Badge variant={saleStatusBadgeVariant(statusToken)}>{statusLabel}</Badge>
         {sale.replaced_by_confirmation_ref ? (
           <span className="font-mono text-xs text-muted-foreground">
-            {upgraded
+            {surrendered
               ? tSales("upgradedTo", { reference: sale.replaced_by_confirmation_ref })
               : tSales("correctedTo", { reference: sale.replaced_by_confirmation_ref })}
           </span>
@@ -134,7 +136,7 @@ export function DossierSaleCard({ sale, zone, locale, onOpenAnswers }: DossierSa
             went can answer it from this row too. */}
         {sale.replaces_confirmation_ref ? (
           <span className="font-mono text-xs text-muted-foreground">
-            {upgraded
+            {stoodInForUpgrade
               ? tSales("upgradedFrom", { reference: sale.replaces_confirmation_ref })
               : tSales("corrects", { reference: sale.replaces_confirmation_ref })}
           </span>

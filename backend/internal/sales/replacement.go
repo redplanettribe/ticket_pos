@@ -37,17 +37,28 @@ const (
 	ReplacementReasonUpgrade = "upgrade"
 )
 
-// IsUpgradeReplacement answers whether a Sale's replacement link was written by
-// an Upgrade, from the column as it is read — nil and all.
+// IsUpgradeReplacement answers whether ONE NAMED LINK on a Ticket Sale was
+// written by an Upgrade: the caller passes the link it is about to draw —
+// `replaced_by_sale_id` or `replaces_sale_id` — beside the reason.
 //
-// EVERY READER ASKS THE QUESTION THIS WAY ROUND, and that is the point of the
-// helper rather than a switch at each call site. `correction` is the OLDER and
-// NARROWER claim and the one a surface may keep making by default: a row with a
-// link and no reason cannot exist (migration 123's CHECK), and a reason this
-// build has never heard of is not evidence of an Upgrade. So only the word
-// `upgrade` moves a surface off the sentence it printed before this feature
-// existed, which is what keeps a genuine Sale Correction reading `corrected`
-// everywhere it ever did.
-func IsUpgradeReplacement(replacementReason *string) bool {
-	return replacementReason != nil && *replacementReason == ReplacementReasonUpgrade
+// THE LINK IS A PARAMETER BECAUSE THE REASON ALONE CANNOT ANSWER. It is written
+// on BOTH halves of the pair (#650), so "this Sale's reason is `upgrade`" is
+// true of the surrendered free Sale AND of the paid Sale that replaced it. A
+// surface asking the reason on its own gets a yes for the paid Sale too — and
+// that Sale is an ordinary Online Sale that may later be reversed in its
+// Reversal Window or by an Operator, at which point it would report that it was
+// upgraded out of, naming a lever nobody pulled. Asking "was I replaced, and was
+// it an Upgrade" is one question and is answered here once.
+//
+// THE OTHER HALF OF THE ASYMMETRY: `correction` is the OLDER and NARROWER claim
+// and the one a surface may keep making by default. A row with a link and no
+// reason cannot exist (migration 123's CHECK), and a reason this build has never
+// heard of is not evidence of an Upgrade. So only the word `upgrade`, on a link
+// that is actually there, moves a surface off the sentence it printed before
+// this feature existed — which is what keeps a genuine Sale Correction reading
+// `corrected` everywhere it ever did.
+func IsUpgradeReplacement(replacementLinkSaleID, replacementReason *string) bool {
+	return replacementLinkSaleID != nil &&
+		replacementReason != nil &&
+		*replacementReason == ReplacementReasonUpgrade
 }

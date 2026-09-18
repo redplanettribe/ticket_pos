@@ -49,8 +49,8 @@ import {
   exportFieldMessage,
   fetchSalesList,
   hasActiveSalesFilters,
+  isUpgradeReplacement,
   paymentMethodToken,
-  replacementReasonToken,
   reversalProvenance,
   reverseSale,
   saleChannelToken,
@@ -873,10 +873,12 @@ function SaleRows({
   // and the platform's clock beneath it — never the reader's machine.
   const name = `${sale.customer_first_name} ${sale.customer_last_name}`.trim() || NOTHING_TO_SHOW;
   const reversed = sale.status !== "active";
-  // WHY this Sale is linked to another, where it is. Read once and used on both
-  // halves of the pair: the surrendered Sale's badge and the paid Sale's "in
-  // place of" line (#651).
-  const upgraded = replacementReasonToken(sale.replacement_reason) === "upgrade";
+  // WHY this Sale is linked to another, asked once PER LINK (#651). The reason
+  // sits on both halves of the pair, so the direction is what tells "I was given
+  // up" from "I took something's place" — and the paid half is an ordinary
+  // Online Sale that may be reversed later on its own account.
+  const surrendered = isUpgradeReplacement(sale.replaced_by_sale_id, sale.replacement_reason);
+  const stoodInForUpgrade = isUpgradeReplacement(sale.replaces_sale_id, sale.replacement_reason);
   const zone = timezone ?? PLATFORM_TIME_ZONE;
   const taxId = taxIdSnapshot(sale.tax_id_type, sale.tax_id_number);
   const channelToken = saleChannelToken(sale.channel);
@@ -924,8 +926,8 @@ function SaleRows({
                   are two reasons now, and only the marker tells them apart.
                   Red here would tell an Organization its staff erred on a Sale
                   no human touched. */}
-              <Badge variant={upgraded ? "outline" : "destructive"}>
-                {upgraded
+              <Badge variant={surrendered ? "outline" : "destructive"}>
+                {surrendered
                   ? t("upgradedBadge")
                   : sale.replaced_by_confirmation_ref
                     ? t("correctedBadge")
@@ -937,7 +939,7 @@ function SaleRows({
                 {sale.replaced_by_confirmation_ref ? (
                   <>
                     <span className="font-mono">
-                      {upgraded
+                      {surrendered
                         ? t("upgradedTo", { reference: sale.replaced_by_confirmation_ref })
                         : t("correctedTo", { reference: sale.replaced_by_confirmation_ref })}
                     </span>
@@ -954,7 +956,7 @@ function SaleRows({
           {sale.replaces_confirmation_ref ? (
             <div className="mt-1 text-xs text-muted-foreground">
               <span className="font-mono">
-                {upgraded
+                {stoodInForUpgrade
                   ? t("upgradedFrom", { reference: sale.replaces_confirmation_ref })
                   : t("corrects", { reference: sale.replaces_confirmation_ref })}
               </span>

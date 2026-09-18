@@ -175,6 +175,61 @@ func TestTheSalesExportCallsAnUpgradeAnUpgrade(t *testing.T) {
 	active.blank(t, paid, "corrected_by")
 }
 
+// TestReversingTheUpgradesPaidSaleIsNotItselfAnUpgrade: the replacement reason
+// is written on BOTH halves of the pair, so the paid Sale carries the word
+// `upgrade` too — and it is an ordinary Online Sale that can be reversed on its
+// own account afterwards.
+//
+// THE DIRECTION OF THE LINK IS WHAT ANSWERS, not the reason. Asked "is your
+// reason `upgrade`", this Sale says yes and every surface would report that it
+// was traded in — naming a lever nobody pulled, on the one row where the buyer
+// really did lose a Ticket and get money back. Asked "were YOU replaced, and was
+// that an Upgrade", it says no, and the reversal reads as the Operator Reversal
+// it is.
+func TestReversingTheUpgradesPaidSaleIsNotItselfAnUpgrade(t *testing.T) {
+	f := performUpgrade(t)
+
+	// The operator asserts what the buyer got back, and it must be a real
+	// figure: read the Sale's own amount rather than a constant from another
+	// fixture's price list.
+	paidAmount := saleRowByID(t, f.env, f.staff, f.eventID, f.paidSaleID, "active").AmountCents
+	operator := operatorSession(t, f.env, "operator@example.com")
+	result := operatorReverseOK(t, f.env, operator, f.paidRef, operatorReversalBody{
+		RefundedAmountCents: intPtr(paidAmount),
+		PlatformFeeKept:     boolPtr(false),
+	})
+	if result.Status != "reversed" {
+		t.Fatalf("operator reversal = %+v, want the paid Sale reversed", result)
+	}
+
+	// The Customer Dossier: reversed, and never upgraded. Nothing replaced it.
+	dossier, _ := readDossier(t, f.env, f.staff, f.eventID, f.customerID)
+	paid := dossierSaleByRef(t, dossier, f.paidRef)
+	if paid.Status != "reversed" {
+		t.Errorf("the reversed paid Sale's status = %q, want reversed — it was not itself upgraded out of", paid.Status)
+	}
+	// It still names the free Sale it stood in for: that link did not change.
+	if strOf(paid.ReplacesConfirmationRef) != f.freeRef {
+		t.Errorf("replaces_confirmation_ref = %s, want the free Sale %s", strOf(paid.ReplacesConfirmationRef), f.freeRef)
+	}
+	// And the free Sale is untouched by any of it.
+	if surrendered := dossierSaleByRef(t, dossier, f.freeRef); surrendered.Status != "upgraded" {
+		t.Errorf("the surrendered free Sale's status = %q, want upgraded still", surrendered.Status)
+	}
+
+	// The Sales Export: the route is the Operator Reversal's, not the Upgrade's.
+	reversed := reversedSalesExport(t, f.env, f.staff, f.eventID)
+	if reversed.dataRows != 2 {
+		t.Fatalf("reversed rows = %d, want both Sales", reversed.dataRows)
+	}
+	// Both rows belong to the one buyer, so they are told apart by the column
+	// rather than by a lookup on the email.
+	routes := reversed.column(t, "reversed_by")
+	if !equalStrings(routes, []string{"platform", "upgrade"}) {
+		t.Errorf("reversed_by column = %v, want the Operator Reversal's `platform` beside the Upgrade", routes)
+	}
+}
+
 // TestASaleCorrectionStillReadsCorrectedOnEverySurface is the regression half,
 // and it is the reason the reading code asks "is this an Upgrade" rather than
 // "is this a correction": everything that is not the one word keeps ADR 0050's

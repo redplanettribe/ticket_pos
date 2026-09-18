@@ -764,6 +764,27 @@ export function replacementReasonToken(reason: string | null | undefined): Repla
   return narrow(REPLACEMENT_REASONS, reason);
 }
 
+/**
+ * Whether ONE NAMED LINK on a Sale was written by an Upgrade: pass the link the
+ * caller is about to draw — the replacement's reference or the replaced Sale's —
+ * beside the reason.
+ *
+ * THE LINK IS AN ARGUMENT BECAUSE THE REASON ALONE CANNOT ANSWER. It is stored
+ * on BOTH halves of the pair, so "this Sale's reason is `upgrade`" is true of
+ * the surrendered free Sale and of the paid Sale that replaced it alike. The
+ * paid one is an ordinary Online Sale that its buyer may later undo in their
+ * Reversal Window, or an Operator may reverse after refunding them — and a row
+ * that asked the reason on its own would then read "Upgraded" over a reversal
+ * nobody upgraded. Mirrors `sales.IsUpgradeReplacement` in Go, which is asked
+ * the same way round for the same reason.
+ */
+export function isUpgradeReplacement(
+  link: string | null | undefined,
+  replacementReason: string | null | undefined,
+): boolean {
+  return Boolean(link) && replacementReasonToken(replacementReason) === "upgrade";
+}
+
 /** Which Payment Method a row was taken by, or null for one this app cannot name. */
 export function paymentMethodToken(paymentMethod: string | null): PaymentMethod | null {
   return narrow(PAYMENT_METHODS, paymentMethod);

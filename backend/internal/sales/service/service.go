@@ -1437,8 +1437,8 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 			// Upgrade links the same two database columns but is not a
 			// correction, and `corrected_by` is a header an accountant reads as
 			// a claim about the Organization's own staff (#651).
-			CorrectedByRef: exportedCorrectionRef(row, row.ReplacedByConfirmationRef),
-			CorrectsRef:    exportedCorrectionRef(row, row.ReplacesConfirmationRef),
+			CorrectedByRef: exportedCorrectionRef(row.ReplacedBySaleID, row.ReplacedByConfirmationRef, row.ReplacementReason),
+			CorrectsRef:    exportedCorrectionRef(row.ReplacesSaleID, row.ReplacesConfirmationRef, row.ReplacementReason),
 		})
 	}
 
@@ -1628,7 +1628,7 @@ func exportedReversalRoute(row repository.SaleRow) *string {
 	// (#651, ADR 0074). The reason column is the only thing that can tell them
 	// apart, and reading it here keeps the sixth route out of the actor switch,
 	// where it does not belong.
-	if sales.IsUpgradeReplacement(row.ReplacementReason) {
+	if sales.IsUpgradeReplacement(row.ReplacedBySaleID, row.ReplacementReason) {
 		route = exportfile.ReversedByUpgrade
 		return &route
 	}
@@ -1661,8 +1661,13 @@ func exportedReversalRoute(row repository.SaleRow) *string {
 // accountant already built a sheet around is a cost this distinction does not
 // need to impose: the row still states what happened, in reversed_by, and the
 // two screens name the counterpart Sale. See Sale.CorrectedByRef in exportfile.
-func exportedCorrectionRef(row repository.SaleRow, ref *string) *string {
-	if sales.IsUpgradeReplacement(row.ReplacementReason) {
+//
+// EACH COLUMN IS JUDGED ON ITS OWN LINK, so the id and the reference travel
+// together: the reason sits on both halves of a pair, and a row asked only "is
+// your reason `upgrade`" would blank the column belonging to the OTHER link it
+// might separately hold.
+func exportedCorrectionRef(linkSaleID, ref, replacementReason *string) *string {
+	if sales.IsUpgradeReplacement(linkSaleID, replacementReason) {
 		return nil
 	}
 	return ref

@@ -444,7 +444,7 @@ func dossierSaleStatus(row repository.DossierSale) string {
 	if row.ReplacedBySaleID == nil {
 		return DossierSaleReversed
 	}
-	if sales.IsUpgradeReplacement(row.ReplacementReason) {
+	if sales.IsUpgradeReplacement(row.ReplacedBySaleID, row.ReplacementReason) {
 		return DossierSaleUpgraded
 	}
 	return DossierSaleCorrected

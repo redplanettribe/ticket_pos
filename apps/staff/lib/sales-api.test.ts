@@ -7,6 +7,7 @@ import {
   correctionPrefill,
   correctionVerdict,
   exportFieldMessage,
+  isUpgradeReplacement,
   paymentMethodToken,
   replacementReasonToken,
   reversalProvenance,
@@ -187,6 +188,23 @@ test("no link, and a reason this app cannot name, both leave the correction word
   assert.equal(replacementReasonToken(""), null);
   assert.equal(replacementReasonToken("Upgrade"), null);
   assert.equal(replacementReasonToken("re_addressing"), null);
+});
+
+/*
+ * The reason sits on BOTH halves of the pair, so it is asked once per LINK. The
+ * paid Sale of an Upgrade is an ordinary Online Sale: its buyer may undo it in
+ * their Reversal Window, or an Operator may reverse it after a refund, and a row
+ * that read the reason alone would then draw "Upgraded" over a reversal nobody
+ * upgraded.
+ */
+test("a link is an Upgrade's only when it is there and the reason says so", () => {
+  assert.equal(isUpgradeReplacement("TP-2", "upgrade"), true);
+  assert.equal(isUpgradeReplacement("TP-2", "correction"), false);
+  assert.equal(isUpgradeReplacement(null, "upgrade"), false);
+  assert.equal(isUpgradeReplacement(undefined, "upgrade"), false);
+  assert.equal(isUpgradeReplacement("", "upgrade"), false);
+  assert.equal(isUpgradeReplacement("TP-2", null), false);
+  assert.equal(isUpgradeReplacement("TP-2", "re_addressing"), false);
 });
 
 // --- the Sales Export refusal ---------------------------------------------
