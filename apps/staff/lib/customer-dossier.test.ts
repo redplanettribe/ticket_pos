@@ -120,10 +120,11 @@ test("dossierBackHref refuses control characters", () => {
 
 // --- status ----------------------------------------------------------------------
 
-test("saleStatusToken names the three statuses", () => {
+test("saleStatusToken names the four statuses", () => {
   assert.equal(saleStatusToken("active"), "active");
   assert.equal(saleStatusToken("reversed"), "reversed");
   assert.equal(saleStatusToken("corrected"), "corrected");
+  assert.equal(saleStatusToken("upgraded"), "upgraded");
 });
 
 test("saleStatusToken answers null for a status this app has never heard of", () => {
@@ -139,6 +140,15 @@ test("a Sale that no longer stands is drawn as such, and an unknown one never as
   assert.equal(saleStatusBadgeVariant("reversed"), "destructive");
   assert.equal(saleStatusBadgeVariant("corrected"), "destructive");
   assert.equal(saleStatusBadgeVariant(null), "outline");
+});
+
+// An Upgrade is neither live nor an error, and the badge has to say both things
+// at once: not the active chip, because the Sale no longer stands, and not the
+// destructive one, because nobody erred (#651, ADR 0074).
+test("an upgraded Sale is drawn quietly rather than as an error", () => {
+  assert.equal(saleStatusBadgeVariant("upgraded"), "outline");
+  assert.notEqual(saleStatusBadgeVariant("upgraded"), saleStatusBadgeVariant("corrected"));
+  assert.notEqual(saleStatusBadgeVariant("upgraded"), saleStatusBadgeVariant("active"));
 });
 
 // --- name ------------------------------------------------------------------------

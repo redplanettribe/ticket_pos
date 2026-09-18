@@ -78,6 +78,10 @@ type saleListRow struct {
 	// "Corrected → TP-X" / "Corrects TP-Y" without a second lookup.
 	ReplacedByConfirmationRef *string `json:"replaced_by_confirmation_ref"`
 	ReplacesConfirmationRef   *string `json:"replaces_confirmation_ref"`
+	// WHY that pair was written (#651, ADR 0074): `correction` or `upgrade`,
+	// null when there is no link. The page derives its own badge from the
+	// linkage, so this is what stops an Upgrade reading "Corrected".
+	ReplacementReason *string `json:"replacement_reason"`
 	// How many of the sale's Tickets have an accepted Holder — the people a
 	// reversal would tell, stated on the row so the confirm can say so first.
 	HeldTicketCount int `json:"held_ticket_count"`

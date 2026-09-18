@@ -32,6 +32,7 @@ type dossierSale struct {
 	Status                    string  `json:"status"`
 	ReversedAt                *string `json:"reversed_at"`
 	ReplacedByConfirmationRef *string `json:"replaced_by_confirmation_ref"`
+	ReplacesConfirmationRef   *string `json:"replaces_confirmation_ref"`
 	SoldAt                    string  `json:"sold_at"`
 	RecordedAt                string  `json:"recorded_at"`
 	Channel                   string  `json:"channel"`
