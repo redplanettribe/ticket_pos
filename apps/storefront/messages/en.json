@@ -290,6 +290,13 @@
       "optionalLabel": "{question} · Optional",
       "noAnswer": "No answer"
     },
+    "upgrade": {
+      "title": "Your free ticket",
+      "inBasket": "You're buying a free ticket and a paid one.",
+      "earlier": "You already have a free ticket for this event.",
+      "label": "I only want the paid ticket — give up the free one",
+      "hint": "Tick this only if the paid ticket takes the place of the free one. The free ticket is then given up for good and cannot be brought back. Leave it unticked and you keep both."
+    },
     "consent": {
       "notice": "How we handle your data",
       "readPolicy": "Read the full Privacy Policy",

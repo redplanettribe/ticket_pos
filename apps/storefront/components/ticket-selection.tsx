@@ -24,11 +24,17 @@ import { useMemo, useState, type FormEvent } from "react";
 
 import { CheckoutAnswers } from "@/components/checkout-answers";
 import { ConsentCheckbox } from "@/components/consent-checkbox";
+import { UpgradePrompt } from "@/components/upgrade-prompt";
 import { SignInOtherAddressButton } from "@/components/sign-in-other-address-button";
 import { useFormatLocale } from "@/i18n/format-locale";
 import { Link, usePathname } from "@/i18n/navigation";
 import type { BeginCheckoutResult, PrivacyPolicy, PublicTicketType, Terms } from "@/lib/api";
-import { checkoutAnswerBodies, ownTicketSlot, type AnswerValues } from "@/lib/checkout-answers";
+import {
+  checkoutAnswerBodies,
+  ownTicketSlot,
+  upgradePrompt,
+  type AnswerValues,
+} from "@/lib/checkout-answers";
 import {
   apiErrorMessage,
   fieldCodeMessage,
@@ -175,6 +181,18 @@ type TicketSelectionProps = {
    * name is the published field's and is left alone.
    */
   buyerHoldsFirstTicket: boolean;
+  /**
+   * How many free Tickets this buyer could give up on this Event through an
+   * Upgrade, as the Event payload published it (ADR 0074, #648) — the server's
+   * half of whether the Upgrade Prompt is drawn.
+   *
+   * NULL IS THE ANONYMOUS READ and never 0: the page was fetched without a
+   * Customer Session, so nobody's earlier Sales were counted. upgradePrompt
+   * draws nothing on a null, which is also the right answer for a visitor who
+   * has not met the sign-in wall yet — they are sent through it before they can
+   * buy, and the page they come back to is read with their session.
+   */
+  surrenderableFreeTickets: number | null;
   /**
    * The current Policy Version's Short Notice and checkbox labels, as the API
    * serves them — null when it could not be reached (#253).
@@ -355,6 +373,7 @@ export function TicketSelection({
   identity,
   openCheckoutOnArrival = false,
   buyerHoldsFirstTicket,
+  surrenderableFreeTickets,
   priceIncludesFee,
   timezone,
   allClosed,
@@ -462,6 +481,17 @@ export function TicketSelection({
   // refusals mean different things: declining the Terms is "I do not agree",
   // declining this is "I am a child", and one control cannot say both.
   const [adulthoodDeclared, setAdulthoodDeclared] = useState(false);
+  // The Upgrade Prompt's answer (#652, ADR 0074), starting UNTICKED for
+  // everybody and never prefilled from anything. The two answers are not equally
+  // recoverable — keep-both is fixable at leisure, an Upgrade destroys a Ticket
+  // silently inside the payment's own transaction — so the default falls to the
+  // reversible side and a buyer who scrolls past this loses nothing by it.
+  //
+  // It is deliberately NOT cleared when the cart changes under it. A stale tick
+  // cannot travel: the send below is gated on the prompt still being drawn for
+  // the cart as it now stands, and clearing here as well would silently undo a
+  // buyer's own answer when they added and then removed a ticket.
+  const [upgradeElected, setUpgradeElected] = useState(false);
   // What the buyer has typed into the answer section, keyed by (Ticket Type,
   // ticket number, question) (#311).
   //
@@ -491,6 +521,12 @@ export function TicketSelection({
   // with the quantities, so emptying the cart removes the section.
   const own = ownTicketSlot(ticketTypes, quantities, buyerHoldsFirstTicket);
   const slots = own === null ? [] : [own];
+
+  // Whether this checkout offers an Upgrade, and about which free Ticket (ADR
+  // 0074). Recomputed with the quantities, so changing the cart can withdraw an
+  // offer that no longer makes sense — and withdrawing it is also what stops a
+  // tick made against an older cart from travelling.
+  const upgrade = upgradePrompt(ticketTypes, quantities, surrenderableFreeTickets);
 
   const count = totalQuantity(quantities);
   const total = totalCents(ticketTypes, quantities);
@@ -666,6 +702,23 @@ export function TicketSelection({
           // are the Tax ID and the phone, and an answer deliberately joins
           // neither of them (ADR 0044).
           ...(answerBodies.length > 0 ? { answers: answerBodies } : {}),
+          // The Upgrade Prompt's answer (#652, ADR 0074), sent ONLY WHERE THE
+          // PROMPT IS DRAWN for the cart as it stands right now — which is the
+          // whole of how a tick made against an older cart is prevented from
+          // travelling, and why the state above is never reset behind the
+          // buyer's back.
+          //
+          // The election rides the Payment across the Payment Provider redirect
+          // and is read back inside the commit's transaction; the return leg
+          // carries no election of its own. NOTHING HERE CAN FAIL THE PURCHASE:
+          // the commit re-judges eligibility and ignores an election it did not
+          // offer, so a cart that changed in a tab left open overnight still
+          // sells the buyer the Ticket they asked for.
+          //
+          // It goes into `upgrade_elected` and the cart's `lines` are sent
+          // UNCHANGED: dropping the free line here would be this app performing
+          // the Upgrade, and a second implementation of a rule the commit owns.
+          ...(upgrade !== null ? { upgrade_elected: upgradeElected } : {}),
           lines: selectionLines(quantities),
           // The language this page is being read in, stated rather than left to
           // be inferred. It is written into the checkout context cookie so the
@@ -1301,6 +1354,34 @@ export function TicketSelection({
                   }}
                 />
               : null}
+              {/*
+                The Upgrade Prompt (#652, ADR 0074), drawn where the platform
+                offers one and nowhere else — the arithmetic is upgradePrompt's
+                and this line only asks it.
+
+                It sits BESIDE the answer section and above consent, among the
+                other things that can be skipped, because that is what it is: a
+                question about the buyer's own Ticket that gates nothing. The pay
+                button below deliberately does not mention it, and there is no
+                required check anywhere in it.
+
+                The sentence above the box names which free Ticket this is about
+                — the one in the basket, or the one already held — and never
+                which mechanism gives it up. The buyer is told neither.
+              */}
+              {upgrade !== null ? (
+                <UpgradePrompt
+                  checked={upgradeElected}
+                  onChange={setUpgradeElected}
+                  labels={{
+                    title: t("upgrade.title"),
+                    situation:
+                      upgrade.surrendered === null ? t("upgrade.earlier") : t("upgrade.inBasket"),
+                    label: t("upgrade.label"),
+                    hint: t("upgrade.hint"),
+                  }}
+                />
+              ) : null}
               {/*
                 The consent section: the Short Notice and the three boxes, in
                 the dialog the purchase happens in, because the guidance

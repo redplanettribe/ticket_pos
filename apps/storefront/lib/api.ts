@@ -467,6 +467,24 @@ export type PublicEventDetail = {
   // ADR 0074 the Ticket is the Sale's dearest, and the published name is left
   // alone rather than churned.
   buyer_holds_first_ticket: boolean;
+  // How many free Tickets the Customer who asked for this page could give up on
+  // this Event through an Upgrade (ADR 0074, #648): free Tickets of theirs, each
+  // its own accepted Self-held Ticket on an active Online Sale of this Event
+  // carrying that one Ticket and nothing else, sold at zero.
+  //
+  // A COUNT AND NOT A VERDICT. An Upgrade is offered only where exactly one free
+  // Ticket is in play, and the cart counts — which this read cannot see, because
+  // the cart does not exist when the page is read. So the server states its half
+  // and this app adds its own: `surrenderable_free_tickets + free Tickets in the
+  // basket === 1` is the whole rule, and lib/checkout-answers.ts holds the one
+  // copy of it (upgradePrompt).
+  //
+  // NULL IS THE ANONYMOUS READ, on already_held's precedent, and must never be
+  // turned into 0: it says we do not know who is asking. 0 is a real answer to a
+  // Customer we can identify — "nothing of yours here is surrenderable" — and is
+  // also the answer while Ticket Assignment is dark, since nothing is self-held
+  // in that build and so nothing can be given up.
+  surrenderable_free_tickets: number | null;
   tags: PublicTag[];
   // Whether the Event advertises itself. It gates nothing about rendering or
   // selling — a published Event is reachable by direct link either way (ADR
@@ -780,6 +798,31 @@ export type BeginCheckoutRequest = {
    * produces no Tickets and no Answers on any Ticket.
    */
   answers?: CheckoutAnswerBody[];
+  /**
+   * The Upgrade Prompt's answer (#652, ADR 0074): the paid Ticket in this cart
+   * takes the place of a free Ticket, whether that free one is a line in this
+   * very cart or sits on an earlier Sale to be reversed. ONE ANSWER COVERS BOTH,
+   * and the commit decides which mechanism it meant.
+   *
+   * IT TRAVELS ON THIS BODY AND NOWHERE ELSE. Begin-checkout is the only request
+   * the buyer makes with the prompt in front of them, so the API snapshots the
+   * election onto the Payment row and reads it back inside the commit's own
+   * transaction. The Payment Provider's return leg carries no election and is
+   * not asked for one: a browser that lost its state between the two legs must
+   * not silently change what the buyer chose.
+   *
+   * SENT ONLY WHERE THE PROMPT WAS DRAWN, like the consent boxes above — but for
+   * a plainer reason than theirs. This one is not tri-state: an absent key, an
+   * unticked box and a prompt nobody was shown all mean KEEP BOTH, which is the
+   * reversible answer ADR 0074 puts the default on. Omitting it where nothing
+   * was drawn is honesty about what was asked, not a third state.
+   *
+   * IT CAN NEVER FAIL A PURCHASE, and it shares that with `answers` alone. The
+   * commit re-judges eligibility inside its own transaction and an election it
+   * did not offer is IGNORED rather than refused: a `true` that no longer holds
+   * simply sells the buyer the Ticket they asked for.
+   */
+  upgrade_elected?: boolean;
   lines: { ticket_type_id: string; quantity: number }[];
 };
 
