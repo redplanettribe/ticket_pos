@@ -41,17 +41,22 @@ type strandedFixture struct {
 	slug      string
 }
 
+// strandedPaidCents is what the dearer Ticket Type costs in every fixture here.
+// One figure rather than a parameter: no test in this file turns on the amount,
+// only on the fact that one line cost money and the other cost nothing.
+const strandedPaidCents = 3000
+
 // newStrandedFixture publishes an Event whose "GA" costs nothing and whose
 // "Senior" costs money, mirroring the production Event where the Community
 // Ticket was free and the Community Senior was not.
-func newStrandedFixture(t *testing.T, name, slug string, paidCents int) strandedFixture {
+func newStrandedFixture(t *testing.T, name, slug string) strandedFixture {
 	t.Helper()
 	env := setupTest(t)
 	enableTicketQuestions(t)
 	enableTicketAssignment(t)
 	sessionID := orgAdminSession(t, env)
 	eventID, freeID := publishCheckoutEvent(t, env, sessionID, name, slug, 0, 40)
-	paidID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "Senior", paidCents, 40)
+	paidID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "Senior", strandedPaidCents, 40)
 	return strandedFixture{env: env, sessionID: sessionID, eventID: eventID, freeID: freeID, paidID: paidID, slug: slug}
 }
 
@@ -76,6 +81,11 @@ func (f strandedFixture) strand(t *testing.T, saleID string) (freeTicket, paidTi
 }
 
 // ticketOfType names the first Ticket of the Sale's line of one Ticket Type.
+//
+// SQL because no surface addresses a Ticket that way: the buyer's Sale page
+// names Tickets by Ticket Type NAME and ordinal, and these fixtures hold the
+// Ticket Type's id. Reading it here also means a test can name its two Tickets
+// before opening any surface, which the staging needs.
 func ticketOfType(t *testing.T, env *testEnv, saleID, ticketTypeID string) string {
 	t.Helper()
 	var id string
@@ -121,15 +131,17 @@ func seatBuyerOn(t *testing.T, env *testEnv, saleID, ticketID string) {
 // no fixture here means to stage by accident.
 func seatOf(t *testing.T, env *testEnv, saleID string) string {
 	t.Helper()
+	// Who the buyer is, is a fact about the SALE and is read once, before the
+	// Tickets are walked.
+	var buyer string
+	if err := env.db.QueryRow(
+		`SELECT lower(btrim(customer_email)) FROM ticket_sales WHERE id = $1`, saleID).Scan(&buyer); err != nil {
+		t.Fatalf("read the buyer of %s: %v", saleID, err)
+	}
 	var seats []string
 	for _, r := range holderRows(t, env, saleID) {
 		if !r.holder.Valid {
 			continue
-		}
-		var buyer string
-		if err := env.db.QueryRow(
-			`SELECT lower(btrim(customer_email)) FROM ticket_sales WHERE id = $1`, saleID).Scan(&buyer); err != nil {
-			t.Fatalf("read the buyer of %s: %v", saleID, err)
 		}
 		if r.holder.String == buyer {
 			seats = append(seats, r.ticketID)
@@ -144,6 +156,37 @@ func seatOf(t *testing.T, env *testEnv, saleID string) string {
 		t.Fatalf("the buyer holds %d Tickets of sale %s", len(seats), saleID)
 		return ""
 	}
+}
+
+// untouchables is everything the correction promises not to move: the Sale's
+// money, its Tax Invoices, and the Event's capacity. SQL on every count, because
+// the promise is about rows and not about a reading — a surface that recomputed
+// one of these from the Tickets would agree with itself while the stored figure
+// drifted, which is exactly the regression worth catching.
+type untouchables struct {
+	amountCents int
+	invoices    int
+	soldCount   int
+}
+
+func readUntouchables(t *testing.T, env *testEnv, saleID string) untouchables {
+	t.Helper()
+	var u untouchables
+	if err := env.db.QueryRow(`
+		SELECT
+			coalesce((
+				SELECT sum(l.quantity * l.unit_price_cents)
+				FROM ticket_sale_lines l WHERE l.ticket_sale_id = ts.id
+			), 0),
+			(SELECT count(*) FROM invoicing_invoices i WHERE i.ticket_sale_id = ts.id),
+			coalesce((
+				SELECT sum(tt.sold_count) FROM ticket_types tt WHERE tt.event_id = ts.event_id
+			), 0)
+		FROM ticket_sales ts WHERE ts.id = $1
+	`, saleID).Scan(&u.amountCents, &u.invoices, &u.soldCount); err != nil {
+		t.Fatalf("read what %s must keep: %v", saleID, err)
+	}
+	return u
 }
 
 // saleCreatedAt is the instant the Sale was recorded at — the stamp the
@@ -191,7 +234,7 @@ func ticketCount(t *testing.T, env *testEnv, saleID string) int {
 // buyer paid for, the free Ticket goes back to `unassigned`, nothing is
 // destroyed, nobody is mailed and nobody is made Verified.
 func TestReseatMovesTheStrandedBuyerOntoTheTicketTheyPaidFor(t *testing.T) {
-	f := newStrandedFixture(t, "Stranded Fest", "stranded-fest", 3000)
+	f := newStrandedFixture(t, "Stranded Fest", "stranded-fest")
 	saleID, _ := f.buyMixed(t, "ana@example.com")
 	freeTicket, paidTicket := f.strand(t, saleID)
 	if seatOf(t, f.env, saleID) != freeTicket {
@@ -199,6 +242,7 @@ func TestReseatMovesTheStrandedBuyerOntoTheTicketTheyPaidFor(t *testing.T) {
 	}
 	before := captureMailBaseline(f.env)
 	tickets := ticketCount(t, f.env, saleID)
+	keeps := readUntouchables(t, f.env, saleID)
 	created := saleCreatedAt(t, f.env, saleID)
 	// WHETHER THE BUYER IS VERIFIED IS READ ON BOTH SIDES rather than asserted to
 	// be NULL afterwards. Since ADR 0054 a checkout needs a Customer Session, so
@@ -214,6 +258,9 @@ func TestReseatMovesTheStrandedBuyerOntoTheTicketTheyPaidFor(t *testing.T) {
 	assertNoAssignmentMailWasSent(t, f.env, before)
 	if got := ticketCount(t, f.env, saleID); got != tickets {
 		t.Errorf("the Sale has %d Tickets after the correction, want %d — nothing is destroyed", got, tickets)
+	}
+	if got := readUntouchables(t, f.env, saleID); got != keeps {
+		t.Errorf("the correction moved money, a Tax Invoice or capacity: %+v, want %+v", got, keeps)
 	}
 	if _, verifiedAfter := buyerVerification(t, f.env, saleID); verifiedAfter != verifiedBefore {
 		t.Errorf("the buyer's verified_at moved from %v to %v; the correction never touches it", verifiedBefore, verifiedAfter)
@@ -271,7 +318,7 @@ func TestReseatMovesTheStrandedBuyerOntoTheTicketTheyPaidFor(t *testing.T) {
 // and the assertion real. It is also the shape production is in: these Sales
 // were made minutes and months apart.
 func TestReseatStampsEachSaleWithItsOwnPurchaseTime(t *testing.T) {
-	f := newStrandedFixture(t, "Two Fest", "two-fest", 3000)
+	f := newStrandedFixture(t, "Two Fest", "two-fest")
 	defer moveClockTo(t, fixedClock)
 
 	firstSale, _ := f.buyMixed(t, "ana@example.com")
@@ -311,7 +358,7 @@ func TestReseatStampsEachSaleWithItsOwnPurchaseTime(t *testing.T) {
 // the whole safety argument, and production contains both shapes: two buyers
 // hold both Tickets of their Sale, and one gave the paid Ticket to a friend.
 func TestReseatLeavesTheDearerTicketsHolderAlone(t *testing.T) {
-	f := newStrandedFixture(t, "Held Fest", "held-fest", 3000)
+	f := newStrandedFixture(t, "Held Fest", "held-fest")
 	ana := customerSignIn(t, f.env, "ana@example.com")
 
 	// assertSeatDidNotMove reads the seat back off the buyer's own Sale page:
@@ -390,7 +437,7 @@ func TestReseatLeavesTheDearerTicketsHolderAlone(t *testing.T) {
 // definition of a live request (migration 039's partial unique index) is the one
 // used, which is 088's narrowing of 084 rather than 084's "whatever became of it".
 func TestReseatCorrectsOnlyAnActiveSale(t *testing.T) {
-	f := newStrandedFixture(t, "Active Fest", "active-fest", 3000)
+	f := newStrandedFixture(t, "Active Fest", "active-fest")
 
 	t.Run("reversed by an operator", func(t *testing.T) {
 		saleID, ref := f.buyMixed(t, "rev@example.com")
@@ -451,7 +498,7 @@ func insertReversalRequest(t *testing.T, env *testEnv, saleID, clientTransaction
 // both sides that the platform does not know. The remedy for those is
 // reassignment, exactly as ADR 0048 said.
 func TestReseatLeavesACheaperPaidSeatAlone(t *testing.T) {
-	f := newStrandedFixture(t, "Paid Fest", "paid-fest", 3000)
+	f := newStrandedFixture(t, "Paid Fest", "paid-fest")
 	cheapID := createTicketTypeWithCapacity(t, f.env, f.sessionID, f.eventID, "Cheap", 500, 40)
 
 	begun := beginCheckoutOK(t, f.env, "test-org", f.slug,
@@ -468,15 +515,15 @@ func TestReseatLeavesACheaperPaidSeatAlone(t *testing.T) {
 	}
 }
 
-// A DOOR SALE AND A SALE IMPORT ARE NOT IN THIS SHAPE and are never touched:
-// an In-Person Sale has no Self-held Ticket at all, and an imported Sale's seat
-// was migration 088's. Neither channel has a recording endpoint that mixes a
-// free line with a paid one, so each is staged in SQL from an Online Sale, the
-// way the export and backfill tests stage them.
+// AN IN-PERSON SALE AND A SALE IMPORT ARE NOT IN THIS SHAPE and are never
+// touched: an In-Person Sale has no Self-held Ticket at all, and an imported
+// Sale's seat was migration 088's. Neither channel has a recording endpoint that
+// mixes a free line with a paid one, so each is staged in SQL from an Online
+// Sale, the way the export and backfill tests stage them.
 func TestReseatLeavesOtherChannelsAlone(t *testing.T) {
-	f := newStrandedFixture(t, "Channel Fest", "channel-fest", 3000)
+	f := newStrandedFixture(t, "Channel Fest", "channel-fest")
 
-	t.Run("door sale", func(t *testing.T) {
+	t.Run("in-person sale", func(t *testing.T) {
 		saleID, ref := f.buyMixed(t, "door@example.com")
 		freeTicket, _ := f.strand(t, saleID)
 		moveSaleToTheDoor(t, f.env, ref)
@@ -484,7 +531,7 @@ func TestReseatLeavesOtherChannelsAlone(t *testing.T) {
 		executeMigration(t, f.env, reseatStranded)
 
 		if got := seatOf(t, f.env, saleID); got != freeTicket {
-			t.Errorf("the seat moved to %q on a door sale", got)
+			t.Errorf("the seat moved to %q on an In-Person Sale", got)
 		}
 	})
 
@@ -521,7 +568,7 @@ func TestReseatLeavesOtherChannelsAlone(t *testing.T) {
 // "the later Sale" would then be whichever the database happened to return
 // first. Ten minutes is the gap ADR 0074 measured on several of the 27.
 func TestReseatLeavesCrossSaleDoubleHoldersAlone(t *testing.T) {
-	f := newStrandedFixture(t, "Return Fest", "return-fest", 3000)
+	f := newStrandedFixture(t, "Return Fest", "return-fest")
 	defer moveClockTo(t, fixedClock)
 
 	freeSale := saleIDOfRef(t, f.env, claimFree(t, f.env, f.slug, f.freeID, "ana@example.com", 1))
@@ -554,7 +601,7 @@ func TestReseatLeavesCrossSaleDoubleHoldersAlone(t *testing.T) {
 // RE-EXECUTING THE MIGRATION CHANGES NOTHING, on a Sale it has corrected, on one
 // it deliberately refused, and on one the spine seated itself under ADR 0074.
 func TestReseatIsIdempotent(t *testing.T) {
-	f := newStrandedFixture(t, "Twice Fest", "twice-fest", 3000)
+	f := newStrandedFixture(t, "Twice Fest", "twice-fest")
 
 	corrected, _ := f.buyMixed(t, "ana@example.com")
 	f.strand(t, corrected)
@@ -592,7 +639,7 @@ func TestReseatIsIdempotent(t *testing.T) {
 // as long as the flag was closed, and a backfill gated on a switch somebody can
 // forget to flip has not run at all.
 func TestReseatRunsWhileAssignmentIsClosed(t *testing.T) {
-	f := newStrandedFixture(t, "Dark Fest", "dark-reseat-fest", 3000)
+	f := newStrandedFixture(t, "Dark Fest", "dark-reseat-fest")
 	saleID, _ := f.buyMixed(t, "ana@example.com")
 	_, paidTicket := f.strand(t, saleID)
 	sharedApp.CatalogService.WithTicketAssignment(false)

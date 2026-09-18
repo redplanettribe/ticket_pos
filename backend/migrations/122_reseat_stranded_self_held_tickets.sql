@@ -43,7 +43,25 @@
 -- shape of Sale is being changed and why every other shape is not. The predicate
 -- is the whole argument, and on production it matches exactly the three Sales
 -- ADR 0074 names — `TP-4Z3MNO5A`, `TP-U2HKDYJD` and `TP-W7CXRAEE` — out of the
--- six Sales in the mixed free-and-paid shape.
+-- six Sales in the mixed free-and-paid shape. That was measured and not assumed:
+-- run inside a rolled-back transaction against a copy of the production database
+-- on 2026-09-18, this file changed six rows on exactly those three Sales — the
+-- paid Ticket seated and the free one released on each — and a second execution
+-- in the same transaction changed none.
+--
+-- TWO NARROWINGS OF THE WORDING, both deliberate and both stricter:
+--
+--   THE DEAREST LINE, NOT MERELY A DEARER ONE. The seat may only move to the
+--   Ticket today's commit spine would pick. If that Ticket is held, the Sale is
+--   left alone even though some cheaper paid line might have an unheld Ticket —
+--   moving the buyer somewhere the spine would not have put them would leave a
+--   corrected Sale disagreeing with every Sale made after #646, which is the one
+--   outcome this whole exercise exists to end.
+--
+--   THE FREE TICKET MUST BE ACCEPTED, which a Self-held Ticket always is: it is
+--   accepted in the transaction that mints it. A free Ticket merely ASSIGNED to
+--   the buyer's own address and not yet accepted is somebody's pending
+--   invitation, not the seat the old rule wrote, and is left alone.
 --
 -- WHICH SALES, and the ones deliberately left alone:
 --
