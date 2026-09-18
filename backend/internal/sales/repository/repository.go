@@ -611,10 +611,10 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		// price it is.
 		var seat selfHeldSeat
 		for _, line := range lines {
-			unitPrice := locked[line.TicketTypeID].priceCents
-			if line.UnitPriceCents != nil {
-				unitPrice = *line.UnitPriceCents
-			}
+			// The one definition of "what is this line sold at", shared with the
+			// Upgrade's free/paid split beside it (#649): the two must agree, or
+			// a line this commit called free could be written at a price.
+			unitPrice := committedUnitPrice(line, locked)
 			// A line with no fee snapshot was sold on a channel the platform took
 			// no cut of: its base price is simply what it sold for.
 			fee := sales.FeeSnapshot{BasePriceCents: unitPrice}

@@ -890,7 +890,9 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string
 		CreatedByMemberID: actor.MemberID,
 		IdempotencyKey:    idempotencyKey,
 		Sales:             commitSales,
-		Terms:             s.commitTerms(s.now(), false),
+		// No Upgrade: it is the buyer's own election at checkout, and nothing
+		// transcribed on their behalf may make it for them (#649).
+		Terms: s.commitTerms(s.now(), false),
 	})
 	if err != nil {
 		return nil, mapCommitError(err)

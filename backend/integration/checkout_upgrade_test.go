@@ -371,15 +371,80 @@ func TestAnUpgradedHouseBasketStillOwesItsSaleInvoice(t *testing.T) {
 		electing(mixedBasket("ana@example.com", freeID, paidID)))
 	confirmElectingUpgrade(t, payphoneEnv, begun.ClientTransactionID)
 
+	// The same basket, un-upgraded, from somebody else: the factura it owes is
+	// what the upgraded one is measured against.
+	bruno := buyerSession(t, env, "bruno@example.com")
+	kept := beginCheckoutAsOK(t, payphoneEnv, testOrgSlug, "house-upgrade-fest", bruno,
+		checkoutBody("bruno@example.com", "Bruno", "Diaz", cartLine(freeID, 1), cartLine(paidID, 1)))
+	confirmCheckoutParams(t, payphoneEnv, kept.ClientTransactionID, payphoneReturnParams(kept.ClientTransactionID))
+
 	sale := saleOf(t, env, adminSessionID, eventID, "ana@example.com")
 	assertLines(t, sale, map[string]int{"VIP": 1}, "an upgraded House basket")
 
 	list := getSaleInvoiceList(t, operatorSessionID)
-	if list.Pagination.Total != 1 || len(list.Data) != 1 {
-		t.Fatalf("invoices after an upgraded paid House checkout = %d rows (total %d); want exactly one",
+	if list.Pagination.Total != 2 || len(list.Data) != 2 {
+		t.Fatalf("invoices after two paid House checkouts = %d rows (total %d); want two",
 			len(list.Data), list.Pagination.Total)
 	}
-	if row := list.Data[0]; row.Kind != "sale" || row.Status != "owed" {
-		t.Fatalf("row kind/status = %s/%s; want sale/owed", row.Kind, row.Status)
+	var upgraded, unchanged saleInvoiceDetailView
+	for _, row := range list.Data {
+		if row.Kind != "sale" || row.Status != "owed" {
+			t.Fatalf("row kind/status = %s/%s; want sale/owed", row.Kind, row.Status)
+		}
+		detail := getSaleInvoiceDetail(t, operatorSessionID, row.ID)
+		if row.TicketSaleID != nil && *row.TicketSaleID == sale.ID {
+			upgraded = detail
+			continue
+		}
+		unchanged = detail
+	}
+	if upgraded.ID == "" || unchanged.ID == "" {
+		t.Fatal("could not tell the two House facturas apart")
+	}
+	// EVERY AMOUNT IS IDENTICAL. That is the acceptance criterion and the whole
+	// reason an Upgrade may happen inside a payment's transaction: the Ticket
+	// given up cost nothing, so there is no refund, no credit note and no figure
+	// on this document that moves (ADR 0074).
+	if upgraded.Totals != unchanged.Totals {
+		t.Fatalf("the upgraded basket's factura totals %+v, the un-upgraded one %+v; a line worth zero moves no money",
+			upgraded.Totals, unchanged.Totals)
+	}
+	// What DOES differ is the line that was never sold. A document describes the
+	// Sale it names, and this Sale does not contain the giveaway.
+	if len(upgraded.Lines) != 1 {
+		t.Fatalf("the upgraded basket's factura has %d lines, want 1 — it names only what was bought", len(upgraded.Lines))
+	}
+	if len(unchanged.Lines) != 2 {
+		t.Fatalf("the un-upgraded basket's factura has %d lines, want 2", len(unchanged.Lines))
+	}
+}
+
+// TestAnElectionLostOnTheReturnLegKeepsBothTickets pins the transport. The
+// election is acted on where the Sale is committed, so a paid checkout carries
+// it back across the Payment Provider's redirect — and a return leg that arrives
+// without it is not an error but the default answer.
+//
+// That is the honest failure direction for every way the trip can go wrong: an
+// older client, a browser that dropped its state, a webview that lost the tab.
+// The buyer keeps both Tickets, which they can still do something about; the
+// alternative would be destroying one on a guess.
+func TestAnElectionLostOnTheReturnLegKeepsBothTickets(t *testing.T) {
+	env := setupTest(t)
+	enableTicketAssignment(t)
+	enableTicketAssignmentThroughPayPhone(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, freeID, paidID := publishUpgradeEvent(t, env, sessionID, "Lost Election Fest", "lost-election-fest")
+
+	ana := buyerSession(t, env, "ana@example.com")
+	// Elected at begin, where the dialog drew the prompt and the buyer ticked it.
+	begun := beginCheckoutAsOK(t, payphoneEnv, testOrgSlug, "lost-election-fest", ana,
+		electing(mixedBasket("ana@example.com", freeID, paidID)))
+	// And absent from the leg that settles the Payment.
+	confirmCheckoutParams(t, payphoneEnv, begun.ClientTransactionID, payphoneReturnParams(begun.ClientTransactionID))
+
+	assertLines(t, saleOf(t, env, sessionID, eventID, "ana@example.com"),
+		map[string]int{"GA": 1, "VIP": 1}, "an election that did not survive the redirect")
+	if got := soldCount(t, env, sessionID, eventID, freeID); got != 1 {
+		t.Fatalf("the giveaway's sold_count = %d, want 1 — the buyer kept it", got)
 	}
 }
