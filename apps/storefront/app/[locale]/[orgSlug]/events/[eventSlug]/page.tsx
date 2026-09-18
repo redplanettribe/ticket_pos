@@ -369,6 +369,13 @@ export default async function EventPage({ params, searchParams }: EventPageProps
                 // component decides: this is what the address ASKED for.
                 openCheckoutOnArrival={opensCheckout(query.checkout)}
                 buyerHoldsFirstTicket={event.buyer_holds_first_ticket}
+                // How many free Tickets this buyer could give up here (ADR
+                // 0074), from the read above — so it is filled for a signed-in
+                // buyer and null for the anonymous visitor, who meets the
+                // sign-in wall before any of this can matter. Passed through as
+                // it arrived: null is "we do not know who is asking", and this
+                // page must not be the one that turns it into a zero.
+                surrenderableFreeTickets={event.surrenderable_free_tickets}
                 priceIncludesFee={event.price_includes_fee}
                 timezone={event.timezone}
                 // Every Ticket Type past its Sales Cutoff (ADR 0070). The

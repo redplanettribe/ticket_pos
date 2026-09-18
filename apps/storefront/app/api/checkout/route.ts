@@ -64,6 +64,7 @@ type CheckoutRequestBody = {
   networking_consent?: unknown;
   terms_acceptance?: unknown;
   adulthood_declaration?: unknown;
+  upgrade_elected?: unknown;
   lines?: unknown;
   locale?: unknown;
   answers?: unknown;
@@ -308,6 +309,23 @@ export async function POST(request: Request) {
         // ADULTHOOD_DECLARATION_REQUIRED, before any Payment exists.
         ...(consentAnswer(body.adulthood_declaration) !== undefined
           ? { adulthood_declaration: consentAnswer(body.adulthood_declaration) }
+          : {}),
+        // The Upgrade Prompt's answer (#652, ADR 0074), relayed shape-only and
+        // dropped unless it is a boolean — this hop never coerces one, and never
+        // invents a `false` for a prompt the dialog did not draw.
+        //
+        // IT IS NOT A GATE AND CANNOT BECOME ONE. Unlike the five above, nothing
+        // downstream can refuse this checkout over it: the API re-judges
+        // eligibility inside the commit's transaction and ignores an election it
+        // did not offer. So there is nothing for this hop to guess at.
+        //
+        // A hand-written `true` is not a hole, either. Eligibility is judged
+        // against the Customer Session this request already carries, and the
+        // only Ticket it can ever surrender is one of that Customer's OWN free
+        // ones — so a forged body can cost nobody but the person sending it, and
+        // costs them a Ticket they could give up from their own account anyway.
+        ...(typeof body.upgrade_elected === "boolean"
+          ? { upgrade_elected: body.upgrade_elected }
           : {}),
         ...(affiliateCodes.length > 0 ? { affiliate_codes: affiliateCodes } : {}),
         // Dropped rather than sent null when nothing here can say which page
