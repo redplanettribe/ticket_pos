@@ -73,6 +73,15 @@ func (s selfHeldSeat) outranks(held selfHeldSeat) bool {
 type SurrenderableFreeTicket struct {
 	TicketID     string
 	TicketSaleID string
+	// TicketTypeID is the Ticket Type that Sale's one line sold. It travels for
+	// one reason and it is not display: it is the `ticket_types` row a cross-Sale
+	// Upgrade would lock to give the capacity back, and the commit spine has to
+	// know it BEFORE it takes its sorted lock set, or the reversal takes a second
+	// lock set in an order nothing coordinates (see CommitSales' "THE ONE LOCK
+	// SET"). Unambiguous by the same rule that makes the Ticket unambiguous: the
+	// Sale carries exactly one Ticket, so it has exactly one line and therefore
+	// exactly one Ticket Type.
+	TicketTypeID string
 }
 
 // UpgradeEligibility is everything the platform knows about one buyer's free
@@ -174,7 +183,7 @@ func UpgradeEligibilityFor(ctx context.Context, q rowQuerier, eventID, customerI
 		return UpgradeEligibility{}, nil
 	}
 	rows, err := q.QueryContext(ctx, `
-		SELECT t.id, ts.id
+		SELECT t.id, ts.id, tsl.ticket_type_id
 		FROM tickets t
 		JOIN ticket_sale_lines tsl ON tsl.id = t.ticket_sale_line_id
 		JOIN ticket_sales ts ON ts.id = tsl.ticket_sale_id
@@ -204,7 +213,7 @@ func UpgradeEligibilityFor(ctx context.Context, q rowQuerier, eventID, customerI
 	var found []SurrenderableFreeTicket
 	for rows.Next() {
 		var candidate SurrenderableFreeTicket
-		if err := rows.Scan(&candidate.TicketID, &candidate.TicketSaleID); err != nil {
+		if err := rows.Scan(&candidate.TicketID, &candidate.TicketSaleID, &candidate.TicketTypeID); err != nil {
 			return UpgradeEligibility{}, err
 		}
 		found = append(found, candidate)

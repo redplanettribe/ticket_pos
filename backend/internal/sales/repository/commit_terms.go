@@ -4,8 +4,9 @@ import "time"
 
 // CommitTerms is the Sale Commit Terms (CONTEXT.md): the terms every Ticket
 // Sale is recorded on, whatever channel records it — when the write happens, how
-// the buyer's Customer is resolved inside the transaction, and whether the buyer
-// is seated on a Ticket of their own as it is minted.
+// the buyer's Customer is resolved inside the transaction, whether the buyer is
+// seated on a Ticket of their own as it is minted, and whether they elected an
+// Upgrade.
 //
 // IT EXISTS BECAUSE THESE THREE TRAVELLED TOGETHER AND WERE RESTATED APART. The
 // sale-commit spine, the Sale Import batch, the Manually Recorded Sale and the
@@ -16,7 +17,18 @@ import "time"
 //
 // IT IS NOT THE SALE AND NOT THE CHANNEL. What is being sold, to whom, on which
 // Sales Channel and against which Sale Import batch all vary by route and stay
-// on the route's own input; these three do not vary by route at all.
+// on the route's own input; those first three do not vary by route at all.
+//
+// THE FOURTH TERM IS NOT LIKE THE OTHER THREE, and saying so is the honest
+// version of this doc. UpgradeElected DOES vary by route: exactly one route sets
+// it — ApprovePaymentAndCommitSale, off the Payment's own column — and every
+// other leaves it false. It is here rather than on the online checkout's input
+// because the spine is what acts on it, and a term the spine reads is a term the
+// spine should be handed; the alternative is a checkout-shaped field
+// hand-forwarded through three import routes and a Sale Correction that have no
+// answer to it, which is the Data Clump this type was made to end. Its false is
+// a real answer and not an absence: "keep both" is the truth about a route with
+// no buyer at a keyboard.
 type CommitTerms struct {
 	// Now is the instant the whole commit is written at — the sale's
 	// recorded_at, its Tickets' minting, the Customer upsert and the sold_count

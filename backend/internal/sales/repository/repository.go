@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -500,6 +501,34 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		}
 	}
 
+	// The buyers, resolved BEFORE any ticket_types row is locked.
+	//
+	// The Customer is created or reused in this same transaction, so a sale and
+	// the Customer it references are never recorded apart. The sale keeps its own
+	// copy of the recorded name and email verbatim; the upsert never rewrites it.
+	//
+	// The buyer goes across whole, and the parts of them the sale does not
+	// record — the phone, and the flag saying they proved the email is theirs
+	// — go through here and stop: the INSERT below has no column for either,
+	// deliberately (see CommitSale.Customer).
+	//
+	// AHEAD OF THE LOCKS AND NOT INSIDE THE WRITING LOOP, which is where it used
+	// to sit. The Upgrade needs a customerID to ask which Ticket Type it might
+	// have to touch, and that question has to be answered while the single
+	// sorted lock acquisition below can still include the answer. Nothing here
+	// reads a locked row — the upsert takes the buyer's own fields and the
+	// commit instant and nothing else — so the move costs the spine nothing, and
+	// it puts `customers` uniformly BEFORE `ticket_types` on every route through
+	// this function rather than after it on some and before it on none.
+	customerIDs := make([]string, len(in.Sales))
+	for i, s := range in.Sales {
+		customerID, err := in.Terms.UpsertCustomer(ctx, tx, s.Customer, in.Terms.Now)
+		if err != nil {
+			return nil, err
+		}
+		customerIDs[i] = customerID
+	}
+
 	// Aggregate requested quantities per Ticket Type, remembering the first sale
 	// that references each type for error reporting. Lock the involved rows in a
 	// stable order to avoid deadlocks between concurrent commits.
@@ -516,10 +545,57 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			requested[id] += line.Quantity
 		}
 	}
-	sort.Strings(typeIDs)
 
-	locked := make(map[string]lockedType, len(typeIDs))
-	for _, id := range typeIDs {
+	// THE ONE LOCK SET. Everything this transaction may lock in `ticket_types`
+	// is named here, sorted once, and taken in that one order — the basket's
+	// Ticket Types AND the Ticket Type of a free Sale a cross-Sale Upgrade might
+	// reverse (ADR 0074, #650).
+	//
+	// WHY THE UPGRADE'S CANDIDATE BELONGS IN THIS SET. The Upgrade reverses an
+	// earlier free Sale inside this transaction, and reverseSalesTx locks that
+	// Sale's Ticket Types FOR UPDATE to give their capacity back. That Ticket
+	// Type is typically NOT in the basket — free type on the old Sale, paid type
+	// in the cart — so, acquired down there, it would be a SECOND sorted lock
+	// set outside this one, and two independent sorted sets are not an order at
+	// all. With one free type F and one paid type V, F < V: a buyer upgrading
+	// out of F into a paid-only basket would take V then F, while an ordinary
+	// buyer committing a mixed free+paid basket takes F then V. That is a cycle,
+	// and Postgres breaks cycles by aborting one side with 40P01 — which for the
+	// Upgrade would land in the transaction committing an ALREADY-APPROVED
+	// Payment, the one incident this platform resolves by hand.
+	//
+	// Naming the candidate here makes the two acquisitions one: by the time
+	// reverseSalesTx runs, this transaction already holds the row it asks for,
+	// and re-locking a row you hold waits for nobody. The Upgrade enforces that
+	// rather than hoping for it — see upgradeOutOfEarlierFreeSale.LockedTypes.
+	lockIDs := append([]string(nil), typeIDs...)
+	if in.Terms.UpgradeElected && in.Terms.SelfHeld {
+		for i := range in.Sales {
+			// Read on the tx, so it sees this transaction's own writes — the
+			// customer upserted moments ago above, in particular. It is NOT the
+			// judgement: the Upgrade re-reads eligibility at the point it acts,
+			// and this read only decides what to lock.
+			eligibility, err := UpgradeEligibilityFor(ctx, tx, in.EventID, customerIDs[i])
+			if err != nil {
+				return nil, err
+			}
+			candidate := eligibility.Ticket.TicketTypeID
+			if candidate == "" {
+				continue
+			}
+			if _, inBasket := requested[candidate]; inBasket {
+				continue
+			}
+			if !slices.Contains(lockIDs, candidate) {
+				lockIDs = append(lockIDs, candidate)
+			}
+		}
+	}
+	sort.Strings(typeIDs)
+	sort.Strings(lockIDs)
+
+	locked := make(map[string]lockedType, len(lockIDs))
+	for _, id := range lockIDs {
 		var lt lockedType
 		err := tx.QueryRowContext(ctx, `
 			SELECT price_cents, capacity, sold_count, sort_order, name
@@ -528,7 +604,15 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			FOR UPDATE
 		`, id, in.EventID, in.OrganizationID).Scan(&lt.priceCents, &lt.capacity, &lt.soldCount, &lt.sortOrder, &lt.name)
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, &UnknownTicketTypeError{Row: firstRow[id], TicketTypeID: id}
+			// A basket line naming a Ticket Type that does not exist is the
+			// caller's error and is reported as one. An Upgrade candidate's type
+			// that cannot be read is not: it is a row this transaction merely
+			// MIGHT have touched, and the Upgrade degrades to silence for it
+			// below because the type never enters `locked`.
+			if _, inBasket := requested[id]; inBasket {
+				return nil, &UnknownTicketTypeError{Row: firstRow[id], TicketTypeID: id}
+			}
+			continue
 		}
 		if err != nil {
 			return nil, err
@@ -568,25 +652,17 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 	// sold_count increment at the end is what has to be told, or a Ticket Type
 	// would count a sale with no line behind it.
 	surrendered := map[string]int{}
-	for _, s := range in.Sales {
-		// The Customer is created or reused in this same transaction, so a sale and
-		// the Customer it references are never recorded apart. The sale keeps its own
-		// copy of the recorded name and email verbatim; the upsert never rewrites it.
-		//
-		// The buyer goes across whole, and the parts of them the sale does not
-		// record — the phone, and the flag saying they proved the email is theirs
-		// — go through here and stop: the INSERT below has no column for either,
-		// deliberately (see CommitSale.Customer).
-		customerID, err := in.Terms.UpsertCustomer(ctx, tx, s.Customer, in.Terms.Now)
-		if err != nil {
-			return nil, err
-		}
+	for saleIndex, s := range in.Sales {
+		// The buyer, resolved above with every other buyer of this commit and
+		// before the lock set was taken. See the upsert loop for why it is no
+		// longer done here.
+		customerID := customerIDs[saleIndex]
 
 		// The buyer's Upgrade, where they elected one and the platform offered
 		// it: the free line is dropped here, BEFORE the Ticket Sale row exists,
 		// so it is never bought rather than bought and undone (ADR 0074, #649).
-		// Asked after the upsert because eligibility is a question about a
-		// Customer, and this is the line at which this sale has one.
+		// It needs the Customer, which is why the upsert must have run first —
+		// it now runs well before this, ahead of the locks.
 		//
 		// Gated on Terms.SelfHeld because that is this path's spelling of the
 		// Ticket Assignment flag: a build that seats nobody has nothing
@@ -604,7 +680,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		}
 
 		var saleID string
-		err = tx.QueryRowContext(ctx, `
+		err := tx.QueryRowContext(ctx, `
 			INSERT INTO ticket_sales (
 				event_id, organization_id, channel, source, payment_method,
 				customer_id, customer_email, customer_first_name, customer_last_name,
@@ -753,6 +829,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 					PaidSaleID:          saleID,
 					SeatUnitPriceCents:  seat.unitPriceCents,
 					FreeTicketsInBasket: freeTicketsInBasket,
+					LockedTypes:         locked,
 					Now:                 in.Terms.Now,
 				})
 				if err != nil {
@@ -1206,6 +1283,23 @@ func reverseSalesTx(ctx context.Context, tx *sql.Tx, in ReverseSalesInput) ([]Re
 
 	// Lock the affected Ticket Types in a stable order (symmetric to CommitSales)
 	// then restore capacity.
+	//
+	// THIS IS THE SECOND PLACE `ticket_types` IS LOCKED, AND IT MUST NEVER BE A
+	// SECOND LOCK SET. Sorting here makes two concurrent reversals safe with each
+	// other; it does NOT make a reversal safe inside a transaction that has
+	// already sorted and taken a different set. The Upgrade (ADR 0074, #650) is
+	// the one caller that reverses inside another transaction's commit, and it is
+	// safe only because CommitSales names the Sale's Ticket Type into its own
+	// sorted set first and upgradeOutOfEarlierFreeSaleTx refuses to act when it
+	// has not — so by the time this loop runs, every row it asks for is already
+	// held by this transaction and it waits for nobody.
+	//
+	// A FUTURE CALLER THAT REVERSES INSIDE A COMMIT MUST DO THE SAME. Taking a
+	// fresh sorted set here, after the commit's, is a lock-order inversion:
+	// with a free type F and a paid type V, F < V, one transaction takes V then
+	// F while an ordinary mixed-basket commit takes F then V, and Postgres
+	// resolves the cycle by aborting one with 40P01 — inside a transaction that
+	// may be committing an already-approved Payment.
 	for _, id := range typeIDs {
 		var dummy int
 		if err := tx.QueryRowContext(ctx, `

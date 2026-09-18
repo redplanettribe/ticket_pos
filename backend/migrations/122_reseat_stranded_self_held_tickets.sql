@@ -68,8 +68,18 @@
 --   channel = 'online'      An In-Person Sale has no Self-held Ticket at all
 --                           and an imported one's seat was 088's; neither is in
 --                           the shape this is correcting.
---   active                  A reversed Sale's Tickets admit nobody, so moving a
+--   not reversed            A reversed Sale's Tickets admit nobody, so moving a
 --                           seat between them would put a no-show on a roster.
+--                           WRITTEN AS `status <> 'reversed'` AND NOT AS
+--                           `status = 'active'`, which is the looser of the two
+--                           spellings and worth being honest about: the Upgrade's
+--                           eligibility predicate (sales/repository self_held.go)
+--                           says `= 'active'`. They select the same rows here and
+--                           cannot come apart, because migration 010's CHECK
+--                           admits exactly `active` and `reversed` and nothing
+--                           else — but a third status added later would be
+--                           included by this clause and excluded by that one, so
+--                           a reader comparing the two should know which is which.
 --                           `status` covers an operator's reversal and a
 --                           `sale_reversals` row that is not `refused` covers a
 --                           live Reversal Request — the schema's own definition
