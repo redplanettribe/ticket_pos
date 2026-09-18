@@ -225,6 +225,21 @@ type BeginCheckoutInput struct {
 	// enforces that — this service takes what it is given, exactly as it takes
 	// Customer.SelfAsserted.
 	ConsentEvidence consent.Evidence
+	// UpgradeElected is the buyer's answer to the Upgrade Prompt: that a paid
+	// Ticket in this basket should take the place of the free one, which is then
+	// simply never bought (ADR 0074, #649).
+	//
+	// FALSE IS THE DEFAULT AND MEANS KEEP BOTH. An absent field, an unticked box
+	// and a client that has never heard of the prompt are one and the same
+	// answer, deliberately: the two outcomes are not equally recoverable, and
+	// keep-both is the one a buyer can still fix afterwards.
+	//
+	// UNTRUSTED, AND IGNORED RATHER THAN REFUSED WHEN IT IS WRONG. Nothing here
+	// asks whether an Upgrade was offered; the commit re-evaluates that inside
+	// its own transaction and drops an election it did not offer (ADR 0074,
+	// repository.CommitTerms.UpgradeElected). A stale tab or a forged body must
+	// never surrender somebody's Ticket, and must never fail a payment either.
+	UpgradeElected bool
 	// ConsentTermsVersionID is the Terms edition a held Terms answer is about
 	// (#537). NEVER a caller's input: BeginCheckout overwrites it from the
 	// consent module's own finding beside the owed-answer narrowing, and it
@@ -617,7 +632,7 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 	s.holdCheckoutAnswers(ctx, paymentID, requested, in.Answers, now)
 
 	if free {
-		return s.settleFreeCheckout(ctx, event, clientTransactionID, customer.Email, now)
+		return s.settleFreeCheckout(ctx, event, clientTransactionID, customer.Email, in.UpgradeElected, now)
 	}
 
 	initiation, err := s.provider.Initiate(ctx, platform.PaymentInitiateInput{
@@ -969,7 +984,7 @@ func (s *Service) holdCheckoutAnswers(
 // No Payment Provider is asked, no redirect is handed out, and no confirm leg
 // ever arrives — the buyer has their tickets by the time the response is
 // written.
-func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.CheckoutEvent, clientTransactionID, addressedTo string, now time.Time) (*BeginCheckoutResult, error) {
+func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.CheckoutEvent, clientTransactionID, addressedTo string, upgradeElected bool, now time.Time) (*BeginCheckoutResult, error) {
 	ref, err := generateConfirmationRef()
 	if err != nil {
 		return nil, err
@@ -981,7 +996,7 @@ func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.Chec
 		// nothing was charged to anything.
 		PaymentMethod:   freePaymentMethod,
 		ConfirmationRef: ref,
-		Terms:           s.commitTerms(now),
+		Terms:           s.commitTerms(now, upgradeElected),
 		CaptureConsent:  s.captureCheckoutConsent,
 		// Handed over even though a free claim never owes: the spine decides
 		// what qualifies, and a settlement that omitted the seam would be a
@@ -1151,7 +1166,16 @@ type ConfirmCheckoutResult struct {
 // decline the Payment ends failed and no sale exists. If the provider approves
 // but the sale commit fails, the Payment is left approved WITHOUT a sale and
 // the incident is logged loudly for the operator (parent spec decision 24).
-func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID string, providerParams map[string]string) (*ConfirmCheckoutResult, error) {
+//
+// upgradeElected is the buyer's Upgrade Prompt answer, relayed by the return leg
+// on the request that settles the Payment (ADR 0074, #649). It travels on the
+// wire rather than off the Payment because this is where the election is ACTED
+// on, and taking it from a request is safe for the reason the whole feature
+// rests on: the commit re-evaluates eligibility inside its own transaction and
+// IGNORES — never refuses — an election it did not offer. A browser that came
+// back having lost everything simply keeps both Tickets, which is the
+// recoverable side of the two.
+func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID string, providerParams map[string]string, upgradeElected bool) (*ConfirmCheckoutResult, error) {
 	payment, err := s.repo.GetPaymentByClientTransactionID(ctx, clientTransactionID)
 	if err != nil {
 		return nil, err
@@ -1201,7 +1225,7 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 		Instrument:            confirmation.Instrument,
 		PaymentMethod:         onlinePaymentMethod,
 		ConfirmationRef:       ref,
-		Terms:                 s.commitTerms(s.now()),
+		Terms:                 s.commitTerms(s.now(), upgradeElected),
 		CaptureConsent:        s.captureCheckoutConsent,
 		OweSaleInvoice:        s.oweSaleInvoice(),
 	})

@@ -671,11 +671,18 @@ func (s *Service) kickSaleInvoiceDrainer(ctx context.Context, sale *repository.R
 // that moment for something beside the commit — a Sale Correction stamps its
 // reversal with it, the confirm leg its Payment. Passing it in is what keeps the
 // two from being two different instants.
-func (s *Service) commitTerms(now time.Time) repository.CommitTerms {
+// UPGRADEELECTED IS THE CALLER'S TOO, and it is an argument rather than a field
+// this reads off the service for the reason SelfHeld is not: it is a fact about
+// ONE checkout body and not about the deployment. Only the online checkout's two
+// legs can carry one; the three staff routes pass false, said out loud at each of
+// them, because an Upgrade is the buyer's election and nobody transacting on
+// their behalf may make it for them (ADR 0074, #649).
+func (s *Service) commitTerms(now time.Time, upgradeElected bool) repository.CommitTerms {
 	return repository.CommitTerms{
 		Now:            now,
 		UpsertCustomer: s.customers.UpsertForSale,
 		SelfHeld:       s.ticketAssignmentEnabled,
+		UpgradeElected: upgradeElected,
 	}
 }
 
@@ -883,7 +890,7 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string
 		CreatedByMemberID: actor.MemberID,
 		IdempotencyKey:    idempotencyKey,
 		Sales:             commitSales,
-		Terms:             s.commitTerms(s.now()),
+		Terms:             s.commitTerms(s.now(), false),
 	})
 	if err != nil {
 		return nil, mapCommitError(err)

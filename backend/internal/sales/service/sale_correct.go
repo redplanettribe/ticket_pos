@@ -91,7 +91,9 @@ func (s *Service) CorrectImportedSale(ctx context.Context, actor ActorContext, e
 	if err != nil {
 		return nil, nil, err
 	}
-	terms := s.commitTerms(s.now())
+	// No Upgrade: an Upgrade is the buyer's own election at checkout, and
+	// nothing transacted on their behalf may make it for them (#649).
+	terms := s.commitTerms(s.now(), false)
 	corrected, err := s.repo.CorrectImportedSale(ctx, repository.CorrectImportedSaleInput{
 		EventID:        eventID,
 		OrganizationID: actor.OrganizationID,

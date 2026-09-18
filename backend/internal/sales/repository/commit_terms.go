@@ -45,4 +45,27 @@ type CommitTerms struct {
 	// replacement forgot it would drop the buyer off the roster in the act of
 	// correcting their details, which is the bug ADR 0055 named.
 	SelfHeld bool
+	// UpgradeElected carries the buyer's election that a paid Ticket takes the
+	// place of a free one (ADR 0074, #649): the Upgrade Prompt's checkbox, as
+	// the checkout body reported it.
+	//
+	// IT IS THE CLIENT'S ASSERTION AND NOTHING MORE. Nothing on the way here
+	// checked that an Upgrade was ever offered, and the commit does not trust
+	// it: eligibility is re-evaluated inside this very transaction
+	// (UpgradeEligibilityFor), and an election the platform did not offer is
+	// IGNORED — never refused. A stale tab, a replayed body or a forged one may
+	// not surrender somebody's Ticket, and may not fail a payment either.
+	//
+	// IT IS GATED BY SelfHeld ABOVE, at every point that reads it. Nothing is
+	// seated in a dark build, so nothing is surrenderable in one, and a
+	// deployment with Ticket Assignment closed must perform no Upgrade whatever
+	// its bodies say.
+	//
+	// SET BY THE ONLINE CHECKOUT ALONE — its two settlements, the free leg and
+	// the Payment Provider's return — because an Upgrade is the BUYER's
+	// election and the staff channels transact on somebody else's behalf. The
+	// three import routes pass false explicitly rather than by omission, for
+	// SelfHeld's reason: a term that can default is a term a fourth route will
+	// get wrong.
+	UpgradeElected bool
 }

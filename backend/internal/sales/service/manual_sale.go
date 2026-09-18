@@ -108,7 +108,9 @@ func (s *Service) RecordManualSale(ctx context.Context, actor ActorContext, even
 		// path's own terms, buyer seated on Ticket 1 and all (ADR 0055). There is
 		// deliberately no checkbox to opt out of that: a Holder differing from
 		// the buyer must be written `assigned`, which ADR 0047 shows no name for.
-		Terms: s.commitTerms(s.now()),
+		// No Upgrade: an Upgrade is the buyer's own election at checkout, and
+		// nothing transacted on their behalf may make it for them (#649).
+		Terms: s.commitTerms(s.now(), false),
 		Sale: repository.CommitSale{
 			// No phone and no self-assertion, exactly as a file import records
 			// none: an Organization's account of a sale it took off-platform

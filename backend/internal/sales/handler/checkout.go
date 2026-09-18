@@ -232,7 +232,23 @@ type beginCheckoutBody struct {
 	// OPTIONAL AND USUALLY ABSENT. A cart whose Ticket Types ask nothing sends no
 	// such key, and neither does a buyer who skipped the whole section, which is
 	// explicitly a supported way to check out.
-	Answers []checkoutAnswerBody `json:"answers"`
+	// UpgradeElected is the Upgrade Prompt's checkbox (ADR 0074, #649): the
+	// buyer electing that a paid Ticket in this basket takes the place of the
+	// free one, which is then simply never bought.
+	//
+	// A PLAIN BOOL, AND ABSENT MEANS FALSE — the one field on this body where the
+	// pointer discipline above would be wrong. "Not shown" and "shown and left
+	// unticked" are the SAME answer here (keep both), so there is nothing for a
+	// nil to say, and the prompt is informational: it never gates submission and
+	// is never a required choice.
+	//
+	// IT IS NEVER A FIELD ERROR. An election the platform did not offer — a stale
+	// tab, a replayed body, a forged one — is IGNORED by the commit, which
+	// re-evaluates eligibility inside the transaction that records the sale. A
+	// checkbox may not surrender somebody's Ticket, and it may not fail a payment
+	// either.
+	UpgradeElected bool                 `json:"upgrade_elected"`
+	Answers        []checkoutAnswerBody `json:"answers"`
 }
 
 // checkoutAnswerBody is one Answer as the checkout form states it: which Ticket
@@ -270,6 +286,24 @@ type confirmCheckoutBody struct {
 	// carried, relayed verbatim by the Storefront return handler (for the stub:
 	// {"outcome": "approved"|"declined"}).
 	ProviderParams map[string]string `json:"provider_params"`
+	// UpgradeElected is the Upgrade Prompt answer the buyer gave at begin,
+	// relayed again on the leg that actually records the sale (ADR 0074, #649).
+	//
+	// IT IS SENT TWICE BECAUSE THE SALE IS COMMITTED ON WHICHEVER LEG SETTLES
+	// IT. A cart with nothing to collect settles inside begin-checkout and reads
+	// the election from that body; a cart with money to collect settles here,
+	// minutes later, on a request the Payment Provider's redirect produced. This
+	// field is how the election survives that trip.
+	//
+	// A LOST ELECTION IS A KEPT TICKET AND NEVER AN ERROR. A return leg that
+	// arrives without it — an older client, a browser that dropped its state,
+	// the idempotent replay of an already-settled Payment — commits both lines,
+	// which is the recoverable one of the two answers. And a return leg that
+	// invents one changes nothing on its own: eligibility is re-evaluated inside
+	// the commit's transaction, and an election the platform did not offer is
+	// ignored rather than refused, so this public, ungated route cannot be used
+	// to destroy anybody's Ticket.
+	UpgradeElected bool `json:"upgrade_elected"`
 }
 
 // validateBeginCheckout applies handler-layer validation (shape, formats,
@@ -394,6 +428,11 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 		// field error. The service reads them against the cart it resolved and
 		// drops what does not fit; see checkoutAnswers.
 		Answers: checkoutAnswers(body.Answers),
+		// Relayed as typed too, and validated nowhere: whether an Upgrade was
+		// ever offered to this buyer is a question only the commit's own
+		// transaction can answer, and its answer is a drop rather than a
+		// refusal (#649).
+		UpgradeElected: body.UpgradeElected,
 		// Relayed exactly as they arrived, nils and all: what a missing box means
 		// is the consent module's rule, and the service refuses a checkout whose
 		// required box is not a present true. Nothing here rewrites an absent
@@ -496,7 +535,7 @@ func (h *Handler) ConfirmCheckout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.svc.ConfirmCheckout(r.Context(), clientTransactionID, body.ProviderParams)
+	result, err := h.svc.ConfirmCheckout(r.Context(), clientTransactionID, body.ProviderParams, body.UpgradeElected)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return

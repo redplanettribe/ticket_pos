@@ -253,6 +253,10 @@ const docTemplate = `{
                     "terms_acceptance": {
                         "description": "TermsAcceptance is the Términos y Condiciones box (#537, ADR 0066),\nunder the same nil discipline: it is drawn only for a Customer whose\nlive session spans the current Terms edition — the one-time re-gate, or\nany later bump — and the API refuses the checkout without it exactly as\nit does the policy's (TERMS_ACCEPTANCE_REQUIRED).",
                         "type": "boolean"
+                    },
+                    "upgrade_elected": {
+                        "description": "UpgradeElected is the Upgrade Prompt's checkbox, under the same rules as\non the public body it converges into (ADR 0074, #649): a plain bool whose\nabsence means keep both, never a field error, and never trusted — the\ncommit re-evaluates eligibility in its own transaction and ignores an\nelection it did not offer.\n\nIt is asked only of a SIGNED-IN buyer, which is what makes the prompt\npossible at all: the free Ticket being surrendered is one this very\nCustomer holds, and the Event page publishes the count for that Customer\nalone (#648).",
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -337,6 +341,10 @@ const docTemplate = `{
                         },
                         "description": "ProviderParams are the query params the provider's return redirect\ncarried, relayed verbatim by the Storefront return handler (for the stub:\n{\"outcome\": \"approved\"|\"declined\"}).",
                         "type": "object"
+                    },
+                    "upgrade_elected": {
+                        "description": "UpgradeElected is the Upgrade Prompt answer the buyer gave at begin,\nrelayed again on the leg that actually records the sale (ADR 0074, #649).\n\nIT IS SENT TWICE BECAUSE THE SALE IS COMMITTED ON WHICHEVER LEG SETTLES\nIT. A cart with nothing to collect settles inside begin-checkout and reads\nthe election from that body; a cart with money to collect settles here,\nminutes later, on a request the Payment Provider's redirect produced. This\nfield is how the election survives that trip.\n\nA LOST ELECTION IS A KEPT TICKET AND NEVER AN ERROR. A return leg that\narrives without it — an older client, a browser that dropped its state,\nthe idempotent replay of an already-settled Payment — commits both lines,\nwhich is the recoverable one of the two answers. And a return leg that\ninvents one changes nothing on its own: eligibility is re-evaluated inside\nthe commit's transaction, and an election the platform did not offer is\nignored rather than refused, so this public, ungated route cannot be used\nto destroy anybody's Ticket.",
+                        "type": "boolean"
                     }
                 },
                 "type": "object"

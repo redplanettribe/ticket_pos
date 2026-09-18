@@ -181,6 +181,18 @@ type RecordedSale struct {
 	// reads it to promise the factura, and nothing else does. False on every
 	// other channel and every other sale.
 	SaleInvoiceOwed bool
+	// Lines are this sale's Ticket Sale Lines AS WRITTEN, which is not always
+	// the lines the caller handed in: an elected Upgrade drops the basket's free
+	// line before the sale exists (ADR 0074, #649), and the caller's own list
+	// still names it.
+	//
+	// It is echoed back for the one caller that describes the sale to something
+	// outside the spine — the invoicing seam, which reads a Ticket Type name per
+	// line out of the rows this commit just inserted. Handed the submitted list
+	// instead, it would look for a line that was never written and fail the
+	// commit of a Payment the provider has already approved, which is the one
+	// incident this platform resolves by hand.
+	Lines []CommitLine
 }
 
 // CommittedBatch is the outcome of a committed (or replayed) Sale Import.
@@ -531,6 +543,13 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 	}
 
 	recorded := make([]RecordedSale, 0, len(in.Sales))
+	// Tickets this commit counted against capacity above and is not going to
+	// sell after all: the free lines an elected Upgrade drops (ADR 0074, #649).
+	// The capacity check stays deliberately conservative — it ran before any
+	// buyer was resolved, so it judges the cart the buyer submitted — and the
+	// sold_count increment at the end is what has to be told, or a Ticket Type
+	// would count a sale with no line behind it.
+	surrendered := map[string]int{}
 	for _, s := range in.Sales {
 		// The Customer is created or reused in this same transaction, so a sale and
 		// the Customer it references are never recorded apart. The sale keeps its own
@@ -543,6 +562,27 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		customerID, err := in.Terms.UpsertCustomer(ctx, tx, s.Customer, in.Terms.Now)
 		if err != nil {
 			return nil, err
+		}
+
+		// The buyer's Upgrade, where they elected one and the platform offered
+		// it: the free line is dropped here, BEFORE the Ticket Sale row exists,
+		// so it is never bought rather than bought and undone (ADR 0074, #649).
+		// Asked after the upsert because eligibility is a question about a
+		// Customer, and this is the line at which this sale has one.
+		//
+		// Gated on Terms.SelfHeld because that is this path's spelling of the
+		// Ticket Assignment flag: a build that seats nobody has nothing
+		// surrenderable and performs no Upgrade.
+		lines := s.Lines
+		if in.Terms.UpgradeElected && in.Terms.SelfHeld {
+			kept, dropped, err := upgradedBasket(ctx, tx, in.EventID, customerID, s.Lines, locked)
+			if err != nil {
+				return nil, err
+			}
+			if dropped != nil {
+				lines = kept
+				surrendered[dropped.TicketTypeID] += dropped.Quantity
+			}
 		}
 
 		var saleID string
@@ -570,7 +610,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		// (ADR 0074, #646). See selfHeldSeat for why price decides and which
 		// price it is.
 		var seat selfHeldSeat
-		for _, line := range s.Lines {
+		for _, line := range lines {
 			unitPrice := locked[line.TicketTypeID].priceCents
 			if line.UnitPriceCents != nil {
 				unitPrice = *line.UnitPriceCents
@@ -670,14 +710,22 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			AmountCents:       amountCents,
 			CustomerTaxID:     s.Customer.TaxID,
 			Locale:            s.Locale,
+			Lines:             lines,
 		})
 	}
 
 	for _, id := range typeIDs {
+		sold := requested[id] - surrendered[id]
+		// A Ticket Type whose only line this commit dropped sold nothing, and
+		// an UPDATE adding zero would still bump updated_at on a row this
+		// commit did not change.
+		if sold == 0 {
+			continue
+		}
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE ticket_types SET sold_count = sold_count + $1, updated_at = $2
 			WHERE id = $3
-		`, requested[id], in.Terms.Now, id); err != nil {
+		`, sold, in.Terms.Now, id); err != nil {
 			return nil, err
 		}
 	}

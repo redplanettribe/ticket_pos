@@ -14278,6 +14278,19 @@ export interface components {
              *     it does the policy's (TERMS_ACCEPTANCE_REQUIRED).
              */
             terms_acceptance?: boolean;
+            /**
+             * @description UpgradeElected is the Upgrade Prompt's checkbox, under the same rules as
+             *     on the public body it converges into (ADR 0074, #649): a plain bool whose
+             *     absence means keep both, never a field error, and never trusted — the
+             *     commit re-evaluates eligibility in its own transaction and ignores an
+             *     election it did not offer.
+             *
+             *     It is asked only of a SIGNED-IN buyer, which is what makes the prompt
+             *     possible at all: the free Ticket being surrendered is one this very
+             *     Customer holds, and the Event page publishes the count for that Customer
+             *     alone (#648).
+             */
+            upgrade_elected?: boolean;
         };
         "handler.buyerAssignmentBody": {
             /**
@@ -14322,6 +14335,26 @@ export interface components {
             provider_params?: {
                 [key: string]: string;
             };
+            /**
+             * @description UpgradeElected is the Upgrade Prompt answer the buyer gave at begin,
+             *     relayed again on the leg that actually records the sale (ADR 0074, #649).
+             *
+             *     IT IS SENT TWICE BECAUSE THE SALE IS COMMITTED ON WHICHEVER LEG SETTLES
+             *     IT. A cart with nothing to collect settles inside begin-checkout and reads
+             *     the election from that body; a cart with money to collect settles here,
+             *     minutes later, on a request the Payment Provider's redirect produced. This
+             *     field is how the election survives that trip.
+             *
+             *     A LOST ELECTION IS A KEPT TICKET AND NEVER AN ERROR. A return leg that
+             *     arrives without it — an older client, a browser that dropped its state,
+             *     the idempotent replay of an already-settled Payment — commits both lines,
+             *     which is the recoverable one of the two answers. And a return leg that
+             *     invents one changes nothing on its own: eligibility is re-evaluated inside
+             *     the commit's transaction, and an election the platform did not offer is
+             *     ignored rather than refused, so this public, ungated route cannot be used
+             *     to destroy anybody's Ticket.
+             */
+            upgrade_elected?: boolean;
         };
         "handler.confirmationLinkBody": {
             /**
