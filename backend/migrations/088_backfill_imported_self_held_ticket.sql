@@ -38,6 +38,15 @@
 -- different Tickets as the buyer's. ADR 0055 makes the forward rule and 0048's
 -- the same sentence; this keeps the backfills the same sentence too.
 --
+-- ADR 0074 (#646) MOVED THE FORWARD RULE AND THIS FILE STAYED. The commit spine
+-- now seats the buyer on the Sale's DEAREST line, ties broken by this same
+-- catalog order. 088 and 084 still agree with each other; what neither states
+-- any more is what a checkout does today. Deliberately, and for 084's reasons
+-- exactly: both ran once against the Sales that predated them, both are
+-- idempotent by construction, so re-cutting them to the new rule would change no
+-- production row — and on a restored database it would re-seat the buyers ADR
+-- 0074 decided to leave alone.
+--
 -- WHICH SALES — and the five that are left alone, each for a reason (one more
 -- than 084, which did not split a live reversal from a refused one):
 --

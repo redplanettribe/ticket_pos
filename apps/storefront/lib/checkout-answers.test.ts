@@ -30,13 +30,28 @@ const meal = {
   ],
 };
 
+// The catalog, cheap-to-dear as Organizations in fact list them — so "first in
+// the catalog" and "the dearest" are never the same line here.
 const generalAdmission: AnsweredTicketType = {
   id: "tt-ga",
   name: "General Admission",
+  price_cents: 2000,
   ticket_questions: [size, meal],
 };
 
-const vip: AnsweredTicketType = { id: "tt-vip", name: "VIP", ticket_questions: [] };
+const premium: AnsweredTicketType = {
+  id: "tt-premium",
+  name: "Premium",
+  price_cents: 5000,
+  ticket_questions: [size],
+};
+
+const vip: AnsweredTicketType = {
+  id: "tt-vip",
+  name: "VIP",
+  price_cents: 9000,
+  ticket_questions: [],
+};
 
 // A cart of three of one Ticket Type presents THREE separate answer sets. This
 // is the acceptance criterion the whole section exists for: the buyer of four
@@ -154,9 +169,10 @@ test("checkoutAnswerBodies distinguishes an unticked checkbox from an untouched 
     required: false,
     options: [],
   };
-  const slots = answerSlots([{ id: "tt-ga", name: "GA", ticket_questions: [dinner] }], {
-    "tt-ga": 2,
-  });
+  const slots = answerSlots(
+    [{ id: "tt-ga", name: "GA", price_cents: 2000, ticket_questions: [dinner] }],
+    { "tt-ga": 2 },
+  );
 
   assert.deepEqual(checkoutAnswerBodies(slots, { "tt-ga:1:q-dinner": { checked: false } }), [
     { ticket_type_id: "tt-ga", ticket_index: 1, ticket_question_id: "q-dinner", checked: false },
@@ -189,16 +205,32 @@ test("checkoutAnswerBodies sends a number as a string", () => {
     required: false,
     options: [],
   };
-  const slots = answerSlots([{ id: "tt-ga", name: "GA", ticket_questions: [age] }], { "tt-ga": 1 });
+  const slots = answerSlots(
+    [{ id: "tt-ga", name: "GA", price_cents: 2000, ticket_questions: [age] }],
+    { "tt-ga": 1 },
+  );
   const [body] = checkoutAnswerBodies(slots, { "tt-ga:1:q-age": { number: "3.50" } });
   assert.equal(body?.number, "3.50");
 });
 
-// CHECKOUT ASKS ABOUT THE BUYER'S OWN TICKET AND NO OTHER (ADR 0048): the
-// first ticket of the first Ticket Type in catalog order, whatever the cart's
-// quantities — the other two of three are their Holders' to answer.
-test("ownTicketSlot is the first ticket of the first catalog type in the cart", () => {
-  const slot = ownTicketSlot([vip, generalAdmission], { "tt-vip": 0, "tt-ga": 3 }, true);
+// CHECKOUT ASKS ABOUT THE BUYER'S OWN TICKET AND NO OTHER (ADR 0048): the first
+// ticket of the DEAREST line the cart holds (ADR 0074), whatever the catalog's
+// order and whatever the quantities — the other two of three are their Holders'
+// to answer. The same choice the commit spine makes, so the questions on the
+// page belong to the Ticket the buyer will in fact hold.
+test("ownTicketSlot is the first ticket of the dearest type in the cart", () => {
+  const slot = ownTicketSlot([generalAdmission, premium], { "tt-ga": 3, "tt-premium": 1 }, true);
+  assert.deepEqual(slot, {
+    ticketTypeId: "tt-premium",
+    ticketTypeName: "Premium",
+    index: 1,
+    questions: [size],
+  });
+});
+
+// A type nobody is buying never takes the seat, however dear it is.
+test("ownTicketSlot ignores types the cart does not hold", () => {
+  const slot = ownTicketSlot([generalAdmission, premium], { "tt-ga": 2, "tt-premium": 0 }, true);
   assert.deepEqual(slot, {
     ticketTypeId: "tt-ga",
     ticketTypeName: "General Admission",
@@ -207,10 +239,39 @@ test("ownTicketSlot is the first ticket of the first catalog type in the cart", 
   });
 });
 
-// Catalog order wins over which line asks questions: a buyer holding a VIP
-// that asks nothing holds the VIP, and is asked nothing.
+// EQUALLY PRICED LINES TIE-BREAK ON THE CATALOG'S ORDER, exactly as the whole
+// rule used to: the list arrives in that order, so the first of the equals wins.
+test("ownTicketSlot tie-breaks equally priced types on the catalog's order", () => {
+  const balcony: AnsweredTicketType = {
+    id: "tt-balcony",
+    name: "Balcony",
+    price_cents: generalAdmission.price_cents,
+    ticket_questions: [meal],
+  };
+  const slot = ownTicketSlot([generalAdmission, balcony], { "tt-ga": 1, "tt-balcony": 1 }, true);
+  assert.equal(slot?.ticketTypeId, "tt-ga");
+});
+
+// THE PRICE IS THE ONE THE BUYER PAYS. `price_cents` is the effective buyer
+// price the API computes — already the Promotional Price where one is live — so
+// a discounted dear line loses to a cheaper line sold at its List Price, which
+// is what the commit spine compares too.
+test("ownTicketSlot compares the price as sold, not the list price", () => {
+  // Premium's List Price is 5000; a live Promotion has the API reporting 500,
+  // which is what this app is given and all it ever compares.
+  const discountedPremium: AnsweredTicketType = { ...premium, price_cents: 500 };
+  const slot = ownTicketSlot(
+    [generalAdmission, discountedPremium],
+    { "tt-ga": 1, "tt-premium": 1 },
+    true,
+  );
+  assert.equal(slot?.ticketTypeId, "tt-ga");
+});
+
+// The dearest line wins even when it asks nothing: a buyer holding a VIP that
+// asks no questions holds the VIP, and is asked nothing.
 test("ownTicketSlot is null when the buyer's own ticket type asks nothing", () => {
-  assert.equal(ownTicketSlot([vip, generalAdmission], { "tt-vip": 1, "tt-ga": 2 }, true), null);
+  assert.equal(ownTicketSlot([generalAdmission, vip], { "tt-ga": 2, "tt-vip": 1 }, true), null);
 });
 
 test("ownTicketSlot is null with assignment closed or an empty cart", () => {

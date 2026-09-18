@@ -290,7 +290,7 @@ The medium through which a Ticket Sale is recorded: `online`, `in_person`, or `i
 _Avoid_: Sale type, payment method
 
 **Sale Commit Terms**:
-The terms a Ticket Sale is recorded on, the same on every Sales Channel: the instant the whole write happens at, how the buyer's Customer is resolved as it happens, and whether the buyer is seated on the Sale's first Ticket as a Self-held Ticket while it is minted.
+The terms a Ticket Sale is recorded on, the same on every Sales Channel: the instant the whole write happens at, how the buyer's Customer is resolved as it happens, and whether the buyer is seated on a Self-held Ticket while it is minted. Which Ticket that is belongs to the Self-held Ticket and not to these terms — no Sales Channel gets its own answer.
 One value rather than three facts travelling side by side, because none of them varies without the others and none of them varies by route. What is sold, to whom, on which Sales Channel and against which Sale Import batch differ between a checkout, an upload, a Manually Recorded Sale and a Sale Correction; these are the same question asked of all four, and the answer to the third is the same on all three record routes because it is the Ticket Assignment feature's answer and not a route's.
 Says nothing about mail, money or refusals: a commit's terms end where the transaction does.
 _Avoid_: Commit options, write options, sale context, sale config, commit flags

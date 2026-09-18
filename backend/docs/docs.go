@@ -7124,7 +7124,7 @@ const docTemplate = `{
                         "type": "boolean"
                     },
                     "buyer_holds_first_ticket": {
-                        "description": "BuyerHoldsFirstTicket is whether an Online Sale of this Event hands the\nbuyer its first Ticket as their own Self-held Ticket (ADR 0048) — which\nis the platform's Ticket Assignment flag and not a property of the\nEvent, riding here for the reason ticket_questions does: the checkout\ndialog draws a \"Your ticket\" section from this payload, and it may only\ncall a Ticket the buyer's own when the sale will actually make it so.",
+                        "description": "BuyerHoldsFirstTicket is whether an Online Sale of this Event hands the\nbuyer a Ticket of their own as a Self-held Ticket (ADR 0048) — which is\nthe platform's Ticket Assignment flag and not a property of the Event,\nriding here for the reason ticket_questions does: the checkout dialog\ndraws a \"Your ticket\" section from this payload, and it may only call a\nTicket the buyer's own when the sale will actually make it so.\n\nTHE NAME OUTLIVED THE RULE. Since ADR 0074 the Ticket handed over is the\nSale's dearest, not its first; the field is left named as it is because\nit is published, and renaming it is nobody's half of that ruling. It\nnever said WHICH Ticket anyway — only whether there is one.",
                         "type": "boolean"
                     },
                     "cover_image_url": {

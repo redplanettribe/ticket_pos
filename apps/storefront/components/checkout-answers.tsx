@@ -14,9 +14,9 @@ import {
  * The checkout dialog's answer section: the buyer's OWN ticket's questions, and
  * nobody else's (#311, ADR 0044, ADR 0048).
  *
- * ONE SET, NOT ONE PER TICKET. The sale hands the buyer its first Ticket as
- * their own, so these are questions about the buyer, which the buyer can
- * answer. The cart's other tickets are not mentioned here at all: an Answer
+ * ONE SET, NOT ONE PER TICKET. The sale hands the buyer the dearest of its
+ * Tickets as their own (ADR 0074), so these are questions about the buyer,
+ * which the buyer can answer. The cart's other tickets are not mentioned here at all: an Answer
  * belongs to the Ticket (ADR 0043), and those Tickets' Holders give theirs
  * after the purchase, through the links on the sale page.
  *

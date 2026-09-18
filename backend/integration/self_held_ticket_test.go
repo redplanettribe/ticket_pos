@@ -7,24 +7,26 @@ import (
 	"time"
 )
 
-// THE BUYER HOLDS ONE TICKET BY PAYING (ADR 0048). One Ticket of every Online
-// Sale is the buyer's own from the moment the Sale is made: assigned to the
-// buyer's address and accepted, so the Organization's roster names the buyer
-// and the storefront can say "your ticket" truthfully. It is the first Ticket
-// of the line whose Ticket Type comes FIRST IN THE CATALOG, not first in the
-// cart, and every other Ticket starts `unassigned` exactly as before.
-func TestOnlineCheckoutMakesTheFirstCatalogTicketTheBuyersOwn(t *testing.T) {
+// THE BUYER HOLDS ONE TICKET BY PAYING (ADR 0048), AND IT IS THE DEAREST ONE
+// (ADR 0074). One Ticket of every Online Sale is the buyer's own from the moment
+// the Sale is made: assigned to the buyer's address and accepted, so the
+// Organization's roster names the buyer and the storefront can say "your ticket"
+// truthfully. It is the first Ticket of the Sale's DEAREST line — not the first
+// in the catalog, which a catalog listed cheap-to-dear made mean "the cheapest
+// thing in the basket", and not the first in the cart either. Every other Ticket
+// starts `unassigned` exactly as before.
+func TestOnlineCheckoutMakesTheDearestTicketTheBuyersOwn(t *testing.T) {
 	env := setupTest(t)
 	enableTicketQuestions(t)
 	enableTicketAssignment(t)
 	sessionID := orgAdminSession(t, env)
 	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Held Fest", "held-fest", 2000, 20)
-	// Created second, so it sorts AFTER GA in the catalog — and goes first in
-	// the cart, so the test tells the two orders apart.
+	// Created second, so it sorts AFTER GA in the catalog — and it goes second
+	// in the cart too, so neither of the orders this rule replaced could pick it.
 	vipID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "VIP", 5000, 5)
 
 	begun := beginCheckoutOK(t, env, "test-org", "held-fest",
-		checkoutBody("ana@example.com", "Ana", "Lopez", cartLine(vipID, 1), cartLine(gaID, 2)))
+		checkoutBody("ana@example.com", "Ana", "Lopez", cartLine(gaID, 2), cartLine(vipID, 1)))
 	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
 	saleID := saleIDOfPayment(t, env, begun.ClientTransactionID)
 
@@ -36,7 +38,7 @@ func TestOnlineCheckoutMakesTheFirstCatalogTicketTheBuyersOwn(t *testing.T) {
 	var own, others int
 	for _, ticket := range tickets {
 		switch {
-		case ticket.TicketTypeName == "GA" && ticket.Ordinal == 1:
+		case ticket.TicketTypeName == "VIP" && ticket.Ordinal == 1:
 			own++
 			if ticket.AssignmentState != "accepted" || ticket.HolderEmail != "ana@example.com" || ticket.AcceptedAt == nil {
 				t.Errorf("the buyer's own Ticket reads state=%q holder=%q accepted=%v; want accepted by the buyer",
@@ -84,7 +86,7 @@ func TestOnlineCheckoutMakesTheFirstCatalogTicketTheBuyersOwn(t *testing.T) {
 	}
 	var seen bool
 	for _, row := range decodeOutstanding(t, body.Data).Data {
-		if row.TicketTypeName == "GA" && row.Ordinal == 1 {
+		if row.TicketTypeName == "VIP" && row.Ordinal == 1 {
 			seen = true
 			if row.AssignmentState != "accepted" || row.HolderEmail != "ana@example.com" ||
 				row.HolderFirstName != "Ana" || row.HolderLastName != "Lopez" {
@@ -95,6 +97,147 @@ func TestOnlineCheckoutMakesTheFirstCatalogTicketTheBuyersOwn(t *testing.T) {
 	}
 	if !seen {
 		t.Fatal("the buyer's own Ticket is not on the Holder List")
+	}
+}
+
+// selfHeldTypeName is the Ticket Type of the Ticket a Sale made the buyer's own,
+// read off the buyer's own Sale page — the surface that says `self_held` — and
+// failing when the Sale seated them on none or on more than one.
+func selfHeldTypeName(t *testing.T, env *testEnv, customerSession, saleID string) string {
+	t.Helper()
+	var names []string
+	for _, ticket := range listBuyerTickets(t, env, customerSession, saleID) {
+		if ticket.SelfHeld {
+			names = append(names, ticket.TicketTypeName)
+		}
+	}
+	if len(names) != 1 {
+		t.Fatalf("the Sale seated the buyer on %d Tickets (%v), want exactly 1", len(names), names)
+	}
+	return names[0]
+}
+
+// THE BUYER IS ASKED THEIR DEAREST TICKET'S QUESTIONS AND NO OTHER. Checkout
+// asks the Self-held Ticket's Ticket Questions alone, so moving the seat moves
+// the questions with it — which is the whole of why `TP-W7CXRAEE`'s buyer was
+// shown nothing: the free Ticket they were seated on asked nothing, while the
+// Ticket they were plainly attending on asked one thing and went out owing it.
+//
+// Read through the held-ticket list, the buyer's own answering surface: what it
+// holds is what they may answer, and it is the same list the checkout dialog
+// draws its one section from.
+func TestTheBuyerIsAskedTheDearestTicketsQuestions(t *testing.T) {
+	env := setupTest(t)
+	enableTicketQuestions(t)
+	enableTicketAssignment(t)
+	sessionID := orgAdminSession(t, env)
+	// The giveaway first in the catalog and asking nothing, the paid Ticket
+	// after it and asking one required thing: production's own shape.
+	eventID, freeID := publishCheckoutEvent(t, env, sessionID, "Asked Fest", "asked-fest", 0, 20)
+	seniorID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "Senior", 3000, 5)
+	size := createTicketQuestion(t, env, sessionID, eventID, seniorID, map[string]any{
+		"label": "T-shirt size", "kind": "short_text", "required": true,
+	})
+
+	begun := beginCheckoutOK(t, env, "test-org", "asked-fest",
+		checkoutBody("ana@example.com", "Ana", "Lopez", cartLine(freeID, 1), cartLine(seniorID, 1)))
+	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
+	saleID := saleIDOfPayment(t, env, begun.ClientTransactionID)
+
+	ana := customerSignIn(t, env, "ana@example.com")
+	if got := selfHeldTypeName(t, env, ana, saleID); got != "Senior" {
+		t.Fatalf("the buyer is seated on %q, want the dearest line's Senior", got)
+	}
+	held, raw := listHeldTickets(t, env, ana)
+	if len(held) != 1 {
+		t.Fatalf("Ana holds %d Tickets, want her one Self-held Ticket: %s", len(held), raw)
+	}
+	if held[0].TicketTypeName != "Senior" || held[0].OutstandingCount != 1 || len(held[0].Questions) != 1 {
+		t.Fatalf("the held row reads type=%q outstanding=%d questions=%d, want the Senior's one question",
+			held[0].TicketTypeName, held[0].OutstandingCount, len(held[0].Questions))
+	}
+	if held[0].Questions[0].Question.ID != size.ID {
+		t.Errorf("the buyer is asked question %s, want the Senior's %s", held[0].Questions[0].Question.ID, size.ID)
+	}
+}
+
+// EQUALLY PRICED LINES TIE-BREAK ON THE CATALOG'S ORDER, exactly as the whole
+// rule used to: price decides first and the catalog decides only what price
+// leaves undecided (sort_order, then name). Nothing about the tie-break changed.
+func TestEquallyPricedLinesSeatTheBuyerByCatalogOrder(t *testing.T) {
+	env := setupTest(t)
+	// The buyer's Sale page is the Ticket Questions surface, and it is what
+	// says which Ticket is self-held.
+	enableTicketQuestions(t)
+	enableTicketAssignment(t)
+	sessionID := orgAdminSession(t, env)
+	// Same price, and the catalog-later one goes FIRST in the cart, so a tie
+	// settled by cart order would pick the wrong one.
+	eventID, floorID := publishCheckoutEvent(t, env, sessionID, "Tie Fest", "tie-fest", 2500, 20)
+	balconyID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "Balcony", 2500, 5)
+
+	begun := beginCheckoutOK(t, env, "test-org", "tie-fest",
+		checkoutBody("ana@example.com", "Ana", "Lopez", cartLine(balconyID, 1), cartLine(floorID, 1)))
+	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
+	saleID := saleIDOfPayment(t, env, begun.ClientTransactionID)
+
+	ana := customerSignIn(t, env, "ana@example.com")
+	if got := selfHeldTypeName(t, env, ana, saleID); got != "GA" {
+		t.Errorf("the buyer is seated on %q, want the catalog-first GA of two equally priced lines", got)
+	}
+}
+
+// THE PRICE COMPARED IS THE PRICE AS SOLD. A Promotion makes a dear Ticket Type
+// cheap for as long as its window is open, and the buyer is seated on what they
+// actually paid most for — so a discounted dear line LOSES to a cheaper line
+// sold at its List Price. The alternative, comparing catalog prices, would seat
+// a buyer on the Ticket that cost them least of the two.
+func TestAPromotionalPriceDecidesWhichTicketIsTheBuyersOwn(t *testing.T) {
+	env := setupTest(t)
+	// The buyer's Sale page is the Ticket Questions surface, and it is what
+	// says which Ticket is self-held.
+	enableTicketQuestions(t)
+	enableTicketAssignment(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Promo Seat Fest", "promo-seat-fest", 3000, 20)
+	vipID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "VIP", 9000, 5)
+	// The dearer Ticket Type, sold today for less than the cheaper one.
+	setPromotion(t, env, sessionID, eventID, vipID, 1000, nil, env.fixedClock.Add(48*time.Hour))
+
+	begun := beginCheckoutOK(t, env, "test-org", "promo-seat-fest",
+		checkoutBody("ana@example.com", "Ana", "Lopez", cartLine(gaID, 1), cartLine(vipID, 1)))
+	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
+	saleID := saleIDOfPayment(t, env, begun.ClientTransactionID)
+
+	ana := customerSignIn(t, env, "ana@example.com")
+	if got := selfHeldTypeName(t, env, ana, saleID); got != "GA" {
+		t.Errorf("the buyer is seated on %q, want the GA they paid 3000 for over the VIP discounted to 1000", got)
+	}
+}
+
+// THE FREE LEG SEATS THE BUYER TOO, and a basket of nothing but free lines is
+// all ties: every line is worth the same nothing, so the catalog decides, which
+// is the rule this Sale would have got before ADR 0074 as well. Asserted because
+// the free leg commits inside begin-checkout rather than on a provider's return,
+// and the seat must not depend on which leg wrote the Sale.
+func TestAFreeCheckoutSeatsTheBuyerByCatalogOrder(t *testing.T) {
+	env := setupTest(t)
+	// The buyer's Sale page is the Ticket Questions surface, and it is what
+	// says which Ticket is self-held.
+	enableTicketQuestions(t)
+	enableTicketAssignment(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, communityID := publishCheckoutEvent(t, env, sessionID, "Comp Fest", "comp-fest", 0, 20)
+	guestID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "Guest", 0, 5)
+
+	ana := buyerSession(t, env, "ana@example.com")
+	settled := beginCheckoutSettled(t, env, "test-org", "comp-fest", ana,
+		checkoutBody("ana@example.com", "Ana", "Lopez", cartLine(guestID, 1), cartLine(communityID, 1)))
+	approvedRef(t, settled)
+
+	saleID := saleIDOfPayment(t, env, settled.ClientTransactionID)
+	if got := selfHeldTypeName(t, env, ana, saleID); got != "GA" {
+		t.Errorf("the buyer is seated on %q, want the catalog-first GA of two free lines", got)
 	}
 }
 
@@ -230,6 +373,12 @@ func activeSaleIDByEmail(t *testing.T, env *testEnv, eventID, email string) stri
 // assertBuyerHoldsTicketOneAlone is ADR 0055's forward rule over one Sale: the
 // lowest-ordinal Ticket is accepted under the buyer's own address in the act
 // that recorded the Sale, and every other Ticket is untouched.
+//
+// FOR A ONE-LINE SALE, which is every sale the record routes make: an `import`
+// Sale has never carried a second Ticket Sale Line (ADR 0052). Ticket 1 is the
+// dearest line's first Ticket when there is only one line to be dearest, so this
+// helper says nothing about the pick ADR 0074 moved — the Sales that mix prices
+// are asserted by Ticket Type name above, and must be.
 func assertBuyerHoldsTicketOneAlone(t *testing.T, env *testEnv, saleID, buyerEmail string, quantity int) {
 	t.Helper()
 	tickets := importedTicketRows(t, env, saleID)
