@@ -234,7 +234,17 @@ type beginCheckoutBody struct {
 	// explicitly a supported way to check out.
 	Answers []checkoutAnswerBody `json:"answers"`
 	// UpgradeElected is the Upgrade Prompt's answer: the paid Ticket in this
-	// basket takes the place of a free one the buyer has (ADR 0074, #650).
+	// basket takes the place of a free one the buyer has (ADR 0074, #649/#650)
+	// — whether that free one is an earlier Sale to be reversed or a line in
+	// this very cart that is then never bought. ONE CHECKBOX ANSWERS BOTH; the
+	// commit decides which mechanism the answer means.
+	//
+	// IT ENTERS HERE AND NOWHERE ELSE. Begin-checkout is the only request the
+	// buyer makes with the prompt in front of them, so the election is
+	// snapshotted onto the Payment row (migration 124) and read back inside the
+	// commit's own transaction. The Payment Provider's return leg carries no
+	// election of its own and is not asked for one: a browser that lost its
+	// state between the two legs must not silently change what the buyer chose.
 	//
 	// A PLAIN BOOL AND NOT A POINTER, which is the one place it differs from the
 	// consent boxes above, and the difference is real rather than stylistic. Those
@@ -287,6 +297,18 @@ type confirmCheckoutBody struct {
 	// carried, relayed verbatim by the Storefront return handler (for the stub:
 	// {"outcome": "approved"|"declined"}).
 	ProviderParams map[string]string `json:"provider_params"`
+	// NO UPGRADE ELECTION TRAVELS ON THIS BODY, and that is a decision rather
+	// than an omission (ADR 0074, #649/#650). The buyer elected at begin-checkout
+	// and the election was snapshotted onto the Payment there (migration 124);
+	// this leg settles that same Payment and reads it back inside the commit's
+	// own transaction, under the lock that already makes the settlement atomic.
+	//
+	// RELAYING IT AGAIN WOULD BE A SECOND, WEAKER SOURCE. This request is
+	// produced by a redirect, minutes later, from a browser that may have lost
+	// everything it knew: an election dropped on the way back would silently keep
+	// both Tickets, and an election invented on the way back would be the one
+	// public, ungated route by which a body gets a say in surrendering a Ticket.
+	// Neither is possible if the field does not exist.
 }
 
 // validateBeginCheckout applies handler-layer validation (shape, formats,
@@ -414,7 +436,7 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 		// Relayed as typed and incapable of a field error for the third reason on
 		// this body: whether an Upgrade was ever offered is a business rule read
 		// inside the commit's own transaction, and an election that no longer holds
-		// is ignored rather than refused (ADR 0074).
+		// is ignored rather than refused (ADR 0074, #649/#650).
 		UpgradeElected: body.UpgradeElected,
 		// Relayed exactly as they arrived, nils and all: what a missing box means
 		// is the consent module's rule, and the service refuses a checkout whose

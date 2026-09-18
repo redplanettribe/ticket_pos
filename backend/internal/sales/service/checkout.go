@@ -220,7 +220,13 @@ type BeginCheckoutInput struct {
 	Answers []CheckoutAnswerInput
 	// UpgradeElected is the buyer's answer to the Upgrade Prompt: they are moving
 	// up, and the paid Ticket in this basket takes the place of a free one
-	// (ADR 0074, #650).
+	// (ADR 0074, #649/#650) — an earlier Sale's, which is reversed, or another
+	// line of this same basket, which is then never bought.
+	//
+	// THIS INPUT IS THE ONLY WAY IT ENTERS THE SERVICE. Begin-checkout is where
+	// the buyer answered, so the election is snapshotted onto the Payment here
+	// and read back at commit; ConfirmCheckout takes no such argument, and the
+	// Payment Provider's return leg is never asked what the buyer chose.
 	//
 	// UNTRUSTED AND NEVER A REFUSAL. Nothing here checks whether an Upgrade was
 	// offered, and nothing needs to: the election is snapshotted onto the Payment
@@ -1200,6 +1206,14 @@ type ConfirmCheckoutResult struct {
 // decline the Payment ends failed and no sale exists. If the provider approves
 // but the sale commit fails, the Payment is left approved WITHOUT a sale and
 // the incident is logged loudly for the operator (parent spec decision 24).
+//
+// IT TAKES NO UPGRADE ARGUMENT, and that is ADR 0074's decision rather than an
+// oversight (#649/#650). The buyer's Upgrade Prompt answer was snapshotted onto
+// the Payment at begin-checkout and is read back inside the commit's own
+// transaction, under the lock that already makes this settlement atomic. This
+// leg is a redirect from a browser that may have lost everything it knew: an
+// election that had to survive that trip would be lost by accident, or supplied
+// by anyone, on the one public route that commits a Sale.
 func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID string, providerParams map[string]string) (*ConfirmCheckoutResult, error) {
 	payment, err := s.repo.GetPaymentByClientTransactionID(ctx, clientTransactionID)
 	if err != nil {

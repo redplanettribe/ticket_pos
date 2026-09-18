@@ -46,23 +46,33 @@ type CommitTerms struct {
 	// correcting their details, which is the bug ADR 0055 named.
 	SelfHeld bool
 	// UpgradeElected is the buyer's election that the paid Ticket this commit is
-	// seating them on takes the place of a free one they already have (ADR 0074,
-	// #650). It is the Upgrade Prompt's answer and nothing else: not a verdict,
-	// not an instruction, and never a reason to refuse anything.
+	// seating them on takes the place of a free one (ADR 0074, #649/#650) — one
+	// on an earlier Sale, which is reversed here, or one in this very basket,
+	// whose line is then never written. It is the Upgrade Prompt's answer and
+	// nothing else: not a verdict, not an instruction, and never a reason to
+	// refuse anything.
+	//
+	// IT HAS EXACTLY ONE SOURCE, and it is not the caller. No checkout leg sets
+	// this term: ApprovePaymentAndCommitSale overwrites it from the Payment's own
+	// `upgrade_elected` column (migration 124), read under the FOR UPDATE that
+	// already makes the settlement atomic. That is deliberate. The election is
+	// made once, at begin-checkout, with the prompt in front of the buyer; the
+	// free leg and the Payment Provider's return leg both settle a Payment, and a
+	// term two legs could each state their own way is a term they will one day
+	// state differently. No body is consulted here, on either leg.
 	//
 	// FALSE IS KEEP BOTH, and false is what every route that never asks says. The
 	// three import routes and the Sale Correction have no buyer at a keyboard to
-	// ask, so they leave it alone and the zero value is the truth about them.
-	// Only the two online checkout legs set it, from the Payment the election was
-	// snapshotted onto at begin-checkout.
+	// ask and never touch a Payment row, so the zero value is the truth about
+	// them.
 	//
 	// AN ELECTION THE BACKEND DID NOT OFFER IS IGNORED, NEVER REFUSED. Eligibility
-	// is re-evaluated inside this transaction and the election simply does nothing
-	// when it no longer holds — so this field is a request and the spine's own
-	// predicate is the answer.
+	// is re-evaluated inside this transaction (UpgradeEligibilityFor) and the
+	// election simply does nothing when it no longer holds — so this field is a
+	// request and the spine's own predicate is the answer.
 	//
-	// IT DOES NOTHING WITHOUT SelfHeld ABOVE, structurally rather than by a second
-	// check: an Upgrade surrenders the Ticket a buyer holds for the Ticket they
-	// are being seated on, and in a build where nobody is seated there is neither.
+	// IT DOES NOTHING WITHOUT SelfHeld ABOVE, at every point that reads it: an
+	// Upgrade surrenders the Ticket a buyer holds for the Ticket they are being
+	// seated on, and in a build where nobody is seated there is neither.
 	UpgradeElected bool
 }

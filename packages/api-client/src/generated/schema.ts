@@ -14279,9 +14279,16 @@ export interface components {
              */
             terms_acceptance?: boolean;
             /**
-             * @description UpgradeElected is the Upgrade Prompt's answer (ADR 0074, #650), a plain
-             *     bool for the reason the public body gives: the prompt has two answers and
-             *     an absent key means keep both.
+             * @description UpgradeElected is the Upgrade Prompt's checkbox, under the same rules as
+             *     on the public body it converges into (ADR 0074, #649/#650): a plain bool whose
+             *     absence means keep both, never a field error, and never trusted — the
+             *     commit re-evaluates eligibility in its own transaction and ignores an
+             *     election it did not offer.
+             *
+             *     It is asked only of a SIGNED-IN buyer, which is what makes the prompt
+             *     possible at all: the free Ticket being surrendered is one this very
+             *     Customer holds, and the Event page publishes the count for that Customer
+             *     alone (#648).
              */
             upgrade_elected?: boolean;
         };

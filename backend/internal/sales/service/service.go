@@ -671,6 +671,16 @@ func (s *Service) kickSaleInvoiceDrainer(ctx context.Context, sale *repository.R
 // that moment for something beside the commit — a Sale Correction stamps its
 // reversal with it, the confirm leg its Payment. Passing it in is what keeps the
 // two from being two different instants.
+//
+// UPGRADEELECTED IS DELIBERATELY NOT A PARAMETER HERE, and no caller of this
+// function states one (ADR 0074, #649/#650). The Upgrade is the buyer's own
+// election, made once at begin-checkout, and it lives on the Payment row from
+// that moment: ApprovePaymentAndCommitSale sets the term from `upgrade_elected`
+// under the lock it already holds, for both settling legs alike. The three staff
+// routes never touch a Payment and so keep the zero value, which is the truth
+// about them — nobody transacting on a buyer's behalf may elect for them. A
+// parameter would give every one of these five call sites a say in a fact only
+// one of them can know.
 func (s *Service) commitTerms(now time.Time) repository.CommitTerms {
 	return repository.CommitTerms{
 		Now:            now,
@@ -883,7 +893,7 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string
 		CreatedByMemberID: actor.MemberID,
 		IdempotencyKey:    idempotencyKey,
 		Sales:             commitSales,
-		Terms:             s.commitTerms(s.now()),
+		Terms: s.commitTerms(s.now()),
 	})
 	if err != nil {
 		return nil, mapCommitError(err)

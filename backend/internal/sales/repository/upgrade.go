@@ -61,17 +61,37 @@ type upgradeOutOfEarlierFreeSale struct {
 	// one free Ticket in play is an offer, two is no offer at all, and the two
 	// sides are counted together or the rule is not the rule.
 	//
-	// IT IS COUNTED FROM THE LINES AS THE SPINE WRITES THEM, and that is a
-	// CONTRACT with the same-basket mechanism (#649) rather than an incidental
-	// choice. A basket holding one free line BESIDE an earlier qualifying free
-	// Sale is two Tickets in play and therefore no offer at all — and the only
-	// thing making that refusal true here is that the free line is still in the
-	// basket when this count is taken. A same-basket drop performed BEFORE the
-	// commit would leave this at zero, the ambiguity guard would open, and a
-	// forged election could take the earlier Sale as well as the line: the buyer
-	// would lose two Tickets having elected to lose one. Either the drop happens
-	// after this count, or the same-basket route must not also set
-	// CommitTerms.UpgradeElected.
+	// IT IS COUNTED FROM THE LINES AS THE SPINE WRITES THEM, which since #649
+	// means AFTER a same-basket Upgrade has dropped its free line. That ordering
+	// was the one thing this field feared, and it is safe — but for a reason
+	// worth writing down, because it is not local to this function.
+	//
+	// THE FEAR. A basket holding one free line BESIDE an earlier qualifying free
+	// Sale is two Tickets in play and therefore no offer at all. If the drop ran
+	// first and left this count at zero, the ambiguity guard below would open on
+	// a basket that should have closed it, and an election could take the earlier
+	// Sale AS WELL AS the dropped line: the buyer would lose two Tickets having
+	// elected to lose one. ADR 0074 calls that the mirror of the worst thing this
+	// system can do.
+	//
+	// WHY IT CANNOT HAPPEN. Both halves gate on the SAME predicate — this type's
+	// OffersUpgrade, "earlier + basket == 1" — so a drop implies the answer it
+	// was given, and the two answers cannot disagree:
+	//
+	//   - earlier=0, basket=1: the drop fires. This count is then 0 and the
+	//     earlier count is still 0, so OffersUpgrade(0) is false here and this
+	//     half does nothing. One Ticket surrendered, the one elected.
+	//   - earlier=1, basket=0: upgradedBasket returns early and drops nothing, so
+	//     this count is untouched and the cross-Sale reversal is the half that
+	//     fires. Again one Ticket.
+	//   - earlier=1, basket=1: OffersUpgrade(1) is 2, so NEITHER half fires and
+	//     the buyer keeps everything — the ambiguous answer, which is no.
+	//
+	// A drop can only ever have happened when there were no earlier qualifying
+	// Sales, and this half needs exactly one of those to act on. The zero this
+	// count is left at meets a zero on the other side of the sum, and the guard
+	// stays shut. TestABasketBesideAnEarlierFreeSaleSurrendersNothing pins the
+	// crossing shape over HTTP.
 	FreeTicketsInBasket int
 	Now                 time.Time
 }

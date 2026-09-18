@@ -757,7 +757,14 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 			return nil, err
 		}
 		if house {
-			sale, err := paidOnlineSaleOf(ctx, tx, &recorded[0], orgID, eventID, in.PaymentMethod, lines)
+			// The lines AS COMMITTED and not the Payment's snapshot: an
+			// elected Upgrade dropped the basket's free line before the sale
+			// was written (#649), and a document naming a Ticket this Sale does
+			// not contain would be a document about a sale that did not happen.
+			// Every amount is untouched either way — the dropped line was worth
+			// zero — so the factura's total, taxes and forma de pago are what
+			// the un-upgraded basket would have produced.
+			sale, err := paidOnlineSaleOf(ctx, tx, &recorded[0], orgID, eventID, in.PaymentMethod, recorded[0].Lines)
 			if err != nil {
 				return nil, err
 			}
