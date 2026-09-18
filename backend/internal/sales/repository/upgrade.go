@@ -93,7 +93,27 @@ type upgradeOutOfEarlierFreeSale struct {
 	// stays shut. TestABasketBesideAnEarlierFreeSaleSurrendersNothing pins the
 	// crossing shape over HTTP.
 	FreeTicketsInBasket int
-	Now                 time.Time
+	// LockedTypes is every `ticket_types` row the commit transaction already
+	// holds FOR UPDATE — the spine's one sorted lock set, handed down whole.
+	//
+	// IT IS A LOCK-ORDER INVARIANT AND NOT AN OPTIMISATION. The reversal below
+	// locks the free Sale's Ticket Type to give its capacity back. If this
+	// transaction did not already hold that row, that would be a SECOND sorted
+	// lock set taken after the first, in an order nothing coordinates with the
+	// order an ordinary mixed free+paid commit takes — which is a two-transaction
+	// deadlock (40P01) landing in a transaction that is committing an
+	// already-approved Payment. CommitSales names the Upgrade's candidate into
+	// its one set precisely so that cannot happen; this field is how that
+	// promise is CHECKED here rather than assumed, because the check is cheap and
+	// the failure mode is the worst one this system has.
+	//
+	// A candidate outside the set is possible and is not a bug: the spine's
+	// lock-set read and the authoritative re-read below are two statements, and
+	// under READ COMMITTED another transaction can commit a qualifying free Sale
+	// between them. That is a stale offer like any other, and it degrades to
+	// silence like any other.
+	LockedTypes map[string]lockedType
+	Now         time.Time
 }
 
 // upgradeOutOfEarlierFreeSaleTx performs the Upgrade if it is still available,
@@ -154,6 +174,16 @@ func upgradeOutOfEarlierFreeSaleTx(ctx context.Context, tx *sql.Tx, in upgradeOu
 	// applies. The zero value is how UpgradeEligibility says so, and asking it
 	// directly is what keeps this half from ever acting on the other's case.
 	if eligibility.Ticket.TicketSaleID == "" {
+		return "", nil
+	}
+	// THE LOCK-ORDER GUARD. The reversal is about to lock this Ticket Type; act
+	// only if this transaction is already holding it, so that the acquisition
+	// down there is a re-lock of a row we hold and never a new edge in the wait
+	// graph. See LockedTypes for the deadlock this closes, and for why a
+	// candidate falling outside the set is an ordinary stale offer rather than an
+	// error: the answer to a stale offer is always the paid Sale committing
+	// unchanged, and nobody told.
+	if _, held := in.LockedTypes[eligibility.Ticket.TicketTypeID]; !held {
 		return "", nil
 	}
 
