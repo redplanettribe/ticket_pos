@@ -893,7 +893,7 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string
 		CreatedByMemberID: actor.MemberID,
 		IdempotencyKey:    idempotencyKey,
 		Sales:             commitSales,
-		Terms: s.commitTerms(s.now()),
+		Terms:             s.commitTerms(s.now()),
 	})
 	if err != nil {
 		return nil, mapCommitError(err)
