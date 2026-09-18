@@ -156,7 +156,7 @@ func upgradeOutOfEarlierFreeSaleTx(ctx context.Context, tx *sql.Tx, in upgradeOu
 		return "", nil
 	}
 
-	if err := linkReplacementTx(ctx, tx, reversed[0].ID, in.PaidSaleID, replacementReasonUpgrade); err != nil {
+	if err := linkReplacementTx(ctx, tx, reversed[0].ID, in.PaidSaleID, sales.ReplacementReasonUpgrade); err != nil {
 		return "", err
 	}
 	return reversed[0].ID, nil
@@ -206,16 +206,3 @@ func linkReplacementTx(ctx context.Context, tx *sql.Tx, reversedSaleID, replacem
 	}
 	return nil
 }
-
-// The whole value set of ticket_sales.replacement_reason (migration 123): why
-// one Ticket Sale stands in the place of another.
-//
-// TWO WORDS FOR TWO ACTS, and the distinction is the point rather than a detail.
-// A Sale Correction is a mistake being put right by an Organization; an Upgrade
-// is a buyer changing their mind about a purchase that was recorded perfectly.
-// #651 reads these on the staff surfaces, and every surface that shows a
-// reversed Sale has to pick one of two sentences.
-const (
-	replacementReasonCorrection = "correction"
-	replacementReasonUpgrade    = "upgrade"
-)

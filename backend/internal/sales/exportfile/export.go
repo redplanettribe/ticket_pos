@@ -96,6 +96,22 @@ const (
 	// this one imported sale and recorded a replacement in the same act. The
 	// replacement's reference sits in corrected_by on the same row.
 	ReversedByCorrection = "correction"
+	// ReversedByUpgrade: an Upgrade (#650, ADR 0074) — the buyer surrendered
+	// their free Online Sale for a paid one, inside the transaction that
+	// committed it.
+	//
+	// THE SIXTH ROUTE AND THE SECOND ONE THE BUYER CAUSED, and it is stated
+	// apart from `customer` for the same reason the two staff levers are stated
+	// apart from each other: the column names the LEVER, and "the buyer undid
+	// their own sale from the Storefront" is a different lever from "the buyer
+	// traded it in for a better ticket" — one leaves them with nothing, the
+	// other with a Ticket they paid for. It is also why it is not `correction`:
+	// nothing was recorded wrongly and no member of staff acted (#651).
+	//
+	// The corrected_by/corrects pair is BLANK on an Upgrade's rows, because
+	// those two columns are ADR 0050's and say a correction happened; the
+	// screens state the counterpart Sale instead. See Sale.CorrectedByRef.
+	ReversedByUpgrade = "upgrade"
 )
 
 // fixedColumns are the columns every export has, in order, left to right. The
@@ -332,6 +348,15 @@ type Sale struct {
 	// reference of the replacement that stands in for it; CorrectsRef is, on
 	// that replacement, the reference of the sale it corrects (ADR 0050). Each
 	// is nil — a blank cell — on every other row.
+	//
+	// AN UPGRADE'S TWO SALES ARE "EVERY OTHER ROW" AND LEAVE BOTH BLANK (#651,
+	// ADR 0074). They are linked through the same database columns, but these
+	// two columns are headed `corrected_by` and `corrects` in the file, and
+	// filling them for an Upgrade would tell an accountant, in a header they
+	// cannot argue with, that somebody at the Organization recorded a sale
+	// wrongly — on a Sale no human there ever touched. reversed_by says
+	// `upgrade` on such a row instead, and the Sales list and the Customer
+	// Dossier are where the counterpart Sale is named.
 	CorrectedByRef *string
 	CorrectsRef    *string
 }

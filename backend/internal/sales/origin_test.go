@@ -53,3 +53,30 @@ func TestDeriveSaleOriginIgnoresWhatLaterHappenedToTheSale(t *testing.T) {
 		t.Errorf("a corrected hand-typed sale = %q, want %q", got, sales.SaleOriginManuallyRecorded)
 	}
 }
+
+// AN UPGRADE'S PAID SALE IS AN ONLINE SALE AND STAYS ONE (#651, ADR 0074).
+//
+// It carries replaces_sale_id — the free Sale it stands in for — and that column
+// is the very thing this derivation reads to recognise a Sale Correction's
+// replacement. The two are told apart by the CHANNEL and nothing else: the
+// function short-circuits before it ever looks at the linkage, because an origin
+// is how a sale REACHED the platform and an Upgrade's paid Sale reached it the
+// way every Online Sale does.
+//
+// ASSERTED RATHER THAN ASSUMED, because that short-circuit is the only thing
+// standing between ADR 0074 and an Upgrade reading `correction_replacement` on
+// the Sales list, the Sales Export and the Customer Dossier at once — the three
+// callers share this one derivation. The staff app mirrors the origin TOKENS
+// without re-deriving anything, so nothing on that side would catch it either.
+func TestDeriveSaleOriginOfAnUpgrade(t *testing.T) {
+	freeSale := "free-sale-1"
+	if got := sales.DeriveSaleOrigin("online", nil, &freeSale); got != sales.SaleOriginChannelSale {
+		t.Errorf("an upgraded Online Sale = %q, want %q", got, sales.SaleOriginChannelSale)
+	}
+	// And the surrendered free Sale itself, which carries the linkage the other
+	// way round and is not told it at all: it sold online, and being replaced
+	// never changed where it came from.
+	if got := sales.DeriveSaleOrigin("online", nil, nil); got != sales.SaleOriginChannelSale {
+		t.Errorf("a surrendered free Online Sale = %q, want %q", got, sales.SaleOriginChannelSale)
+	}
+}

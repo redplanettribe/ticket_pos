@@ -53,6 +53,12 @@ export type SaleListRow = {
   // matching id is.
   replaced_by_confirmation_ref: string | null;
   replaces_confirmation_ref: string | null;
+  // WHY that pair was written: `correction` or `upgrade` (#651, ADR 0074), null
+  // when there is no link. This page picks its own badge off the linkage — the
+  // API sends it no status word — so without the reason it would go on calling
+  // an Upgrade a correction, telling an Organization its staff erred on a Sale
+  // no human touched. Narrow it with `replacementReasonToken`.
+  replacement_reason: string | null;
   // How many of the sale's Tickets have an accepted Holder: the people a
   // reversal tells. Stated on the row so the confirm dialog can say so first.
   held_ticket_count: number;
@@ -691,6 +697,20 @@ export const SALE_ORIGINS = [
 ] as const;
 export type SaleOrigin = (typeof SALE_ORIGINS)[number];
 
+/**
+ * WHY one Ticket Sale stands in the place of another (#651, ADR 0074):
+ *
+ * - `correction` — a Sale Correction. Somebody recorded a sale wrongly and
+ *   staff typed a replacement in the same act (ADR 0050).
+ * - `upgrade` — an Upgrade. The buyer surrendered a free Ticket's Sale for a
+ *   paid one, inside the transaction that committed it.
+ *
+ * Both are the same pair of links, and the reason is the only thing that tells
+ * them apart — which is why it travels rather than being inferred here.
+ */
+export const REPLACEMENT_REASONS = ["correction", "upgrade"] as const;
+export type ReplacementReason = (typeof REPLACEMENT_REASONS)[number];
+
 // Who caused a Sale Reversal: the buyer undoing their own Online Sale inside the
 // Reversal Window, their own staff undoing a Sale Import, or the platform
 // recording a refund it made off-platform at the organization's request. The two
@@ -728,6 +748,20 @@ export function saleSourceToken(source: string | null): SaleSource | null {
  */
 export function saleOriginToken(origin: string | null | undefined): SaleOrigin | null {
   return narrow(SALE_ORIGINS, origin);
+}
+
+/**
+ * Why a Sale carries a replacement link, or null where it carries none — and
+ * null too for a reason this app cannot name.
+ *
+ * NULL MEANS "KEEP SAYING WHAT YOU SAID BEFORE", which is the whole shape of
+ * this one. Every caller draws ADR 0050's correction wording unless this answers
+ * `upgrade`, so a third reason added to the API later reads as a correction
+ * rather than as an Upgrade nobody elected: the older word is the narrower
+ * claim, and it is the safe one to be wrong with.
+ */
+export function replacementReasonToken(reason: string | null | undefined): ReplacementReason | null {
+  return narrow(REPLACEMENT_REASONS, reason);
 }
 
 /** Which Payment Method a row was taken by, or null for one this app cannot name. */

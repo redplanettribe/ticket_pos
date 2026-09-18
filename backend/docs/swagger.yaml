@@ -3783,13 +3783,35 @@ components:
         recorded_at:
           type: string
         replaced_by_confirmation_ref:
-          description: ReplacedByConfirmationRef names the replacement of a corrected
-            Sale.
+          description: |-
+            ReplacedByConfirmationRef names the replacement of a corrected Sale, or
+            the paid Sale an upgraded one was surrendered for.
+          type: string
+        replacement_reason:
+          description: |-
+            ReplacementReason is WHY the two Sales are linked: `correction` or
+            `upgrade`, null when there is no link.
+
+            IT IS FOR THE REPLACEMENT'S HALF, which `status` cannot speak for. The
+            replaced Sale's word arrives in `status` — `corrected` or `upgraded`,
+            decided here so the page never infers it — but the Sale standing in its
+            place is simply `active`, and it still has to say whether it corrects a
+            mistake or stands in for a Ticket its buyer traded up from.
+          enum:
+          - correction
+          - upgrade
+          type: string
+        replaces_confirmation_ref:
+          description: |-
+            ReplacesConfirmationRef is the other half of that pair, stated on the
+            REPLACEMENT: the mistaken Sale it corrects, or the free Sale its buyer
+            gave up for it. Both halves are published so an Organization reading
+            either row can explain to a buyer where a Ticket went (#651).
           type: string
         reversed_at:
           description: |-
-            ReversedAt is when a reversed or corrected Sale was reversed; null on an
-            active one.
+            ReversedAt is when a reversed, corrected or upgraded Sale was reversed;
+            null on an active one.
           type: string
         sold_at:
           type: string
@@ -3797,11 +3819,12 @@ components:
           description: Source is the Sales list's `source` for the Sale.
           type: string
         status:
-          description: Status is `active`, `reversed` or `corrected`.
+          description: Status is `active`, `reversed`, `corrected` or `upgraded`.
           enum:
           - active
           - reversed
           - corrected
+          - upgraded
           type: string
         tax_id_number:
           type: string
@@ -16304,32 +16327,39 @@ paths:
         at another Organization may have changed — with its confirmation reference,
         sold-at and recorded-at, Sales Channel, `source` and `origin` exactly as the
         Sales list states them, Ticket Types and quantities, amount and currency,
-        and payment method. `status` is `active`, `reversed` (with `reversed_at`)
-        or `corrected` — a reversed Sale a Sale Correction replaced, naming its replacement
-        in `replaced_by_confirmation_ref`. The Organization''s other Events are never
-        read. No Terms Acceptance, Adulthood Declaration, Marketing Consent or avatar
-        is ever included. Each Sale lists its `tickets` (Ticket Type and ordinal);
-        on an active Sale, while Ticket Assignment is open, each also carries its
-        assignment state, `never_accepted` for an assignment the retention purge closed,
-        `self_held` for the Customer''s own Ticket, and — ONLY once accepted by somebody
-        else — that Holder''s Customer id and name. An unaccepted assignment''s name
-        and address are never included (ADR 0047). While Ticket Questions are open
-        each Ticket also carries its `answers`, `outstanding_answers` and `last_answer_reminder_sent_at`.
-        A reversed or corrected Sale''s Tickets carry Ticket Type, ordinal and — while
-        Ticket Questions are open — `answers`, and nothing else: no assignment state,
-        `outstanding_answers` or `last_answer_reminder_sent_at`. With Ticket Questions
-        closed no Ticket carries any of the three. While Ticket Assignment is open
-        each Sale also carries `assignment_reminder_sent_at`, and the Dossier carries
-        `held_tickets`: the Tickets the Customer accepted on somebody else''s Sale
-        of this Event, with the buyer''s name as given on that Sale, accepted-at,
-        and `sale_status` `reversed` when that Sale was reversed. With Ticket Assignment
-        closed all of those are omitted. A READ AND NOTHING ELSE: nothing is sent
-        from here. 404 for an Event outside the caller''s Organization, and 404 CUSTOMER_NOT_FOUND
-        for a Customer with no Ticket Sale on this Event and — while Ticket Assignment
-        is open — no accepted Ticket of it (a Ticket on a reversed Sale included)
-        — including a malformed id and an id naming no Customer, which are indistinguishable
-        from one who bought only elsewhere. Org Admin and Event Owner only; Event
-        Staff are refused with 403.'
+        and payment method. `status` is `active`, `reversed` (with `reversed_at`),
+        `corrected` — a reversed Sale a Sale Correction replaced (ADR 0050) — or `upgraded`,
+        a reversed Sale its own buyer surrendered for a paid one (ADR 0074); the last
+        two are told apart here rather than by the reader, because one says an Organization''s
+        staff erred and the other says a buyer changed their mind. Both halves of
+        such a pair name the other: the replaced Sale carries `replaced_by_confirmation_ref`
+        and the replacement carries `replaces_confirmation_ref`, so an Organization
+        can explain from either row where a Ticket went; `replacement_reason` (`correction`
+        or `upgrade`, null without a link) says why the pair exists, which is the
+        one thing the REPLACEMENT''s own `active` status cannot. The Organization''s
+        other Events are never read. No Terms Acceptance, Adulthood Declaration, Marketing
+        Consent or avatar is ever included. Each Sale lists its `tickets` (Ticket
+        Type and ordinal); on an active Sale, while Ticket Assignment is open, each
+        also carries its assignment state, `never_accepted` for an assignment the
+        retention purge closed, `self_held` for the Customer''s own Ticket, and —
+        ONLY once accepted by somebody else — that Holder''s Customer id and name.
+        An unaccepted assignment''s name and address are never included (ADR 0047).
+        While Ticket Questions are open each Ticket also carries its `answers`, `outstanding_answers`
+        and `last_answer_reminder_sent_at`. A reversed or corrected Sale''s Tickets
+        carry Ticket Type, ordinal and — while Ticket Questions are open — `answers`,
+        and nothing else: no assignment state, `outstanding_answers` or `last_answer_reminder_sent_at`.
+        With Ticket Questions closed no Ticket carries any of the three. While Ticket
+        Assignment is open each Sale also carries `assignment_reminder_sent_at`, and
+        the Dossier carries `held_tickets`: the Tickets the Customer accepted on somebody
+        else''s Sale of this Event, with the buyer''s name as given on that Sale,
+        accepted-at, and `sale_status` `reversed` when that Sale was reversed. With
+        Ticket Assignment closed all of those are omitted. A READ AND NOTHING ELSE:
+        nothing is sent from here. 404 for an Event outside the caller''s Organization,
+        and 404 CUSTOMER_NOT_FOUND for a Customer with no Ticket Sale on this Event
+        and — while Ticket Assignment is open — no accepted Ticket of it (a Ticket
+        on a reversed Sale included) — including a malformed id and an id naming no
+        Customer, which are indistinguishable from one who bought only elsewhere.
+        Org Admin and Event Owner only; Event Staff are refused with 403.'
       parameters:
       - description: Event ID
         in: path
@@ -17435,10 +17465,14 @@ paths:
         here), the Sale Correction linkage (replaced_by_sale_id on a corrected sale
         and replaces_sale_id on its replacement, each with the linked sale''s Confirmation
         reference beside it as replaced_by_confirmation_ref / replaces_confirmation_ref,
-        all null until a correction is recorded — ADR 0050), `origin` — how the sale
-        reached the platform, one of `sale_import` (it arrived in an uploaded Sale
-        Import batch), `manually_recorded` (a Manually Recorded Sale somebody typed),
-        `correction_replacement` (a Sale Correction''s replacement) or `channel_sale`
+        all null until a replacement is recorded — ADR 0050), `replacement_reason`
+        — WHY that pair was written, `correction` for a Sale Correction or `upgrade`
+        for an Upgrade (ADR 0074), null exactly when the links are, because the link
+        alone can no longer say and a page that read it as a correction would tell
+        an Organization its staff erred on a Sale no human touched, `origin` — how
+        the sale reached the platform, one of `sale_import` (it arrived in an uploaded
+        Sale Import batch), `manually_recorded` (a Manually Recorded Sale somebody
+        typed), `correction_replacement` (a Sale Correction''s replacement) or `channel_sale`
         (it sold on a Sales Channel of its own), derived from the row and stored nowhere,
         so a row nobody recognises can be accounted for (ADR 0052) — each rolled-up
         Ticket Type carrying its ticket_type_id so the Correct form can be pre-filled
@@ -17955,45 +17989,48 @@ paths:
         `reversed_by` names the ROUTE only — `customer` (the buyer undid their own
         Online Sale), `platform` (an Operator Reversal), or `import_undo` (a whole
         Sale Import batch undone), `staff_reversal` (one imported sale reversed on
-        its own) or `correction` (one replaced by a Sale Correction) — and never the
-        acting Platform Operator''s identity or their note, which are operator-facing
-        and never reach this file (ADR-0019). The Sale Correction linkage follows
-        the reversal pair: corrected_by carries the replacement''s Confirmation reference
-        on a corrected sale and corrects carries the mistaken sale''s reference on
-        its replacement, both blank on every other row (ADR 0050). The Tax ID pair
-        carries the snapshot the sale was transacted under and is blank — never a
-        placeholder — on a sale recorded without one. The workbook has exactly two
-        sheets. `Info` comes first and is the active sheet on open: it states the
-        Event''s name, the generated-at timestamp (which also tells a reader which
-        moment''s Ticket Type catalog the headings reflect), the timezone named outright
-        as the Event''s, the row count, the currency, and the applied filters rendered
-        in words rather than as query parameters — including, plainly, that reversed
-        sales were excluded when the status filter left them out. The free-text search
-        is stated as having been applied but its term is never written into the file,
-        since it matches customer email and Tax ID number. The data sheet is named
-        `Ticket Sales` and deliberately not `Sales`: the Sale Import parser selects
-        its sheet by that name, so an export accidentally uploaded as an import fails
-        rather than duplicating every sale. It carries nothing above its header row,
-        so select-all, autofilter and pivot source ranges work without deleting a
-        preamble — which is why the stamp is a sheet of its own. The filename is set
-        by Content-Disposition as `sales-{event-slug}-{YYYY-MM-DD}.xlsx`. Generation
-        is synchronous and the workbook is buffered in memory, so the file is CAPPED
-        at 10,000 Ticket Sales — the same constant the Sale Import accepts, so an
-        export can never exceed what the importer would take back. A request whose
-        filters match MORE than the cap builds nothing and is refused with the standard
-        VALIDATION_FAILED envelope, carrying one field error on `filters` whose message
-        names how many sales matched and how many may be downloaded at once, so the
-        caller knows how much narrower to go; exactly the cap succeeds. One structured
-        log line is written per generated file — the acting Member, Organization,
-        Event, the structural filters and the row count — because this is the largest
-        concentration of buyer PII the product emits and "who pulled the customer
-        list" cannot be answered retroactively. The free-text search is recorded in
-        it as a boolean only: it matches customer email and Tax ID number, and logging
-        the term would copy a buyer''s PII into a log aggregator. Restricted to Org
-        Admins and Event Owners — the same guard as the sales summary, because this
-        file concentrates every buyer''s email and Tax ID for an Event into something
-        that is forwarded and retained; Event Staff are refused and keep the on-screen
-        Sales list.'
+        its own), `correction` (one replaced by a Sale Correction) or `upgrade` (a
+        free Online Sale its buyer surrendered for a paid one, ADR 0074 — the buyer
+        caused it, as with `customer`, but the two levers leave them in opposite places)
+        — and never the acting Platform Operator''s identity or their note, which
+        are operator-facing and never reach this file (ADR-0019). The Sale Correction
+        linkage follows the reversal pair: corrected_by carries the replacement''s
+        Confirmation reference on a corrected sale and corrects carries the mistaken
+        sale''s reference on its replacement, both blank on every other row (ADR 0050)
+        — an Upgrade''s two sales included, since those headings would assert a mistake
+        the Organization''s staff never made. The Tax ID pair carries the snapshot
+        the sale was transacted under and is blank — never a placeholder — on a sale
+        recorded without one. The workbook has exactly two sheets. `Info` comes first
+        and is the active sheet on open: it states the Event''s name, the generated-at
+        timestamp (which also tells a reader which moment''s Ticket Type catalog the
+        headings reflect), the timezone named outright as the Event''s, the row count,
+        the currency, and the applied filters rendered in words rather than as query
+        parameters — including, plainly, that reversed sales were excluded when the
+        status filter left them out. The free-text search is stated as having been
+        applied but its term is never written into the file, since it matches customer
+        email and Tax ID number. The data sheet is named `Ticket Sales` and deliberately
+        not `Sales`: the Sale Import parser selects its sheet by that name, so an
+        export accidentally uploaded as an import fails rather than duplicating every
+        sale. It carries nothing above its header row, so select-all, autofilter and
+        pivot source ranges work without deleting a preamble — which is why the stamp
+        is a sheet of its own. The filename is set by Content-Disposition as `sales-{event-slug}-{YYYY-MM-DD}.xlsx`.
+        Generation is synchronous and the workbook is buffered in memory, so the file
+        is CAPPED at 10,000 Ticket Sales — the same constant the Sale Import accepts,
+        so an export can never exceed what the importer would take back. A request
+        whose filters match MORE than the cap builds nothing and is refused with the
+        standard VALIDATION_FAILED envelope, carrying one field error on `filters`
+        whose message names how many sales matched and how many may be downloaded
+        at once, so the caller knows how much narrower to go; exactly the cap succeeds.
+        One structured log line is written per generated file — the acting Member,
+        Organization, Event, the structural filters and the row count — because this
+        is the largest concentration of buyer PII the product emits and "who pulled
+        the customer list" cannot be answered retroactively. The free-text search
+        is recorded in it as a boolean only: it matches customer email and Tax ID
+        number, and logging the term would copy a buyer''s PII into a log aggregator.
+        Restricted to Org Admins and Event Owners — the same guard as the sales summary,
+        because this file concentrates every buyer''s email and Tax ID for an Event
+        into something that is forwarded and retained; Event Staff are refused and
+        keep the on-screen Sales list.'
       parameters:
       - description: Event ID
         in: path

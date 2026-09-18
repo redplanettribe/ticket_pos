@@ -50,6 +50,7 @@ import {
   fetchSalesList,
   hasActiveSalesFilters,
   paymentMethodToken,
+  replacementReasonToken,
   reversalProvenance,
   reverseSale,
   saleChannelToken,
@@ -872,6 +873,10 @@ function SaleRows({
   // and the platform's clock beneath it — never the reader's machine.
   const name = `${sale.customer_first_name} ${sale.customer_last_name}`.trim() || NOTHING_TO_SHOW;
   const reversed = sale.status !== "active";
+  // WHY this Sale is linked to another, where it is. Read once and used on both
+  // halves of the pair: the surrendered Sale's badge and the paid Sale's "in
+  // place of" line (#651).
+  const upgraded = replacementReasonToken(sale.replacement_reason) === "upgrade";
   const zone = timezone ?? PLATFORM_TIME_ZONE;
   const taxId = taxIdSnapshot(sale.tax_id_type, sale.tax_id_number);
   const channelToken = saleChannelToken(sale.channel);
@@ -913,16 +918,28 @@ function SaleRows({
               one shows nothing extra (#117). */}
           {reversed ? (
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <Badge variant="destructive">
-                {sale.replaced_by_confirmation_ref ? t("correctedBadge") : t("reversedBadge")}
+              {/* An UPGRADE IS NOT AN ERROR (#651, ADR 0074). A reversed row
+                  naming a replacement used to be a Sale Correction and nothing
+                  else, so the link alone chose the word and the colour; there
+                  are two reasons now, and only the marker tells them apart.
+                  Red here would tell an Organization its staff erred on a Sale
+                  no human touched. */}
+              <Badge variant={upgraded ? "outline" : "destructive"}>
+                {upgraded
+                  ? t("upgradedBadge")
+                  : sale.replaced_by_confirmation_ref
+                    ? t("correctedBadge")
+                    : t("reversedBadge")}
               </Badge>
               <span className="text-xs text-muted-foreground">
-                {/* A corrected sale names its replacement first (#351): the
+                {/* A replaced sale names its replacement first (#351): the
                     reference is what the reader goes looking for next. */}
                 {sale.replaced_by_confirmation_ref ? (
                   <>
                     <span className="font-mono">
-                      {t("correctedTo", { reference: sale.replaced_by_confirmation_ref })}
+                      {upgraded
+                        ? t("upgradedTo", { reference: sale.replaced_by_confirmation_ref })
+                        : t("correctedTo", { reference: sale.replaced_by_confirmation_ref })}
                     </span>
                     {" · "}
                   </>
@@ -931,11 +948,15 @@ function SaleRows({
               </span>
             </div>
           ) : null}
-          {/* The replacement says what it stands in for, on an active row too. */}
+          {/* The replacement says what it stands in for, on an active row too —
+              and an Upgrade's paid Sale is exactly such a row, which is why the
+              reason is carried on both halves of the pair. */}
           {sale.replaces_confirmation_ref ? (
             <div className="mt-1 text-xs text-muted-foreground">
               <span className="font-mono">
-                {t("corrects", { reference: sale.replaces_confirmation_ref })}
+                {upgraded
+                  ? t("upgradedFrom", { reference: sale.replaces_confirmation_ref })
+                  : t("corrects", { reference: sale.replaces_confirmation_ref })}
               </span>
             </div>
           ) : null}

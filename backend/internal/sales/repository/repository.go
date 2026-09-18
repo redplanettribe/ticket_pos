@@ -1434,6 +1434,15 @@ type SaleRow struct {
 	// matching id is.
 	ReplacedByConfirmationRef *string
 	ReplacesConfirmationRef   *string
+	// ReplacementReason is WHY that pair was written (migration 123): a Sale
+	// Correction or an Upgrade (sales.ReplacementReason*). It is carried on both
+	// halves, so this row answers without a join to the other one. Nil exactly
+	// when both link ids are, which the column's CHECK enforces.
+	//
+	// Read because the LINK NO LONGER SAYS WHY (#651, ADR 0074): the Sales list
+	// and the Sales Export both used to take a replacement to mean a correction,
+	// and an Upgrade is one no human made.
+	ReplacementReason *string
 	// ImportBatchID is the Sale Import batch the sale arrived in, nil on every
 	// sale that never came out of an uploaded file: an Online Sale, a Sale
 	// Correction's replacement, and a Manually Recorded Sale. It is read for
@@ -1655,6 +1664,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			ts.import_batch_id,
 			(SELECT confirmation_ref FROM ticket_sales r WHERE r.id = ts.replaced_by_sale_id),
 			(SELECT confirmation_ref FROM ticket_sales r WHERE r.id = ts.replaces_sale_id),
+			ts.replacement_reason,
 			COALESCE((
 				SELECT b.undone_at IS NOT NULL AND b.undone_at = ts.reversed_at
 				FROM sale_import_batches b WHERE b.id = ts.import_batch_id
@@ -1700,6 +1710,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 		var typesJSON []byte
 		var source, paymentMethod, taxIDType, taxIDNumber, reversedBy sql.NullString
 		var replacedBy, replaces, importBatchID, replacedByRef, replacesRef sql.NullString
+		var replacementReason sql.NullString
 		var reversedAt sql.NullTime
 		if err := rows.Scan(
 			&s.ID,
@@ -1727,6 +1738,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			&importBatchID,
 			&replacedByRef,
 			&replacesRef,
+			&replacementReason,
 			&s.ReversedByBatchUndo,
 			&s.HeldTicketCount,
 			&total,
@@ -1747,6 +1759,9 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 		}
 		if replacesRef.Valid {
 			s.ReplacesConfirmationRef = &replacesRef.String
+		}
+		if replacementReason.Valid {
+			s.ReplacementReason = &replacementReason.String
 		}
 		if err := json.Unmarshal(typesJSON, &s.TicketTypes); err != nil {
 			return nil, 0, err

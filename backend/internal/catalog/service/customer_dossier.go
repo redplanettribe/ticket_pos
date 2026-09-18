@@ -31,11 +31,20 @@ import (
 
 // Dossier Sale statuses. `corrected` is a reversed Sale that a Sale Correction
 // replaced — the same reading the Sales list gives a reversed row naming its
-// replacement.
+// replacement — and `upgraded` is a reversed Sale its own buyer surrendered for
+// a paid one.
+//
+// THE LAST TWO ARE BOTH "REVERSED AND REPLACED" AND THEY ARE STILL TWO WORDS
+// (#651, ADR 0074). `corrected` is ADR 0050's, and it says somebody recorded a
+// sale wrongly and staff put it right; an Upgrade is a Sale recorded perfectly
+// by a buyer who changed their mind, and no member of staff ever touched it.
+// One word for both would tell an Organization its people erred on a Sale nobody
+// there has ever seen.
 const (
 	DossierSaleActive    = "active"
 	DossierSaleReversed  = "reversed"
 	DossierSaleCorrected = "corrected"
+	DossierSaleUpgraded  = "upgraded"
 )
 
 // CustomerDossier is the Customer Dossier response.
@@ -63,15 +72,30 @@ type DossierCustomerView struct {
 type DossierSaleView struct {
 	ID              string `json:"id"`
 	ConfirmationRef string `json:"confirmation_ref"`
-	// Status is `active`, `reversed` or `corrected`.
-	Status string `json:"status" enums:"active,reversed,corrected"`
-	// ReversedAt is when a reversed or corrected Sale was reversed; null on an
-	// active one.
+	// Status is `active`, `reversed`, `corrected` or `upgraded`.
+	Status string `json:"status" enums:"active,reversed,corrected,upgraded"`
+	// ReversedAt is when a reversed, corrected or upgraded Sale was reversed;
+	// null on an active one.
 	ReversedAt *time.Time `json:"reversed_at"`
-	// ReplacedByConfirmationRef names the replacement of a corrected Sale.
-	ReplacedByConfirmationRef *string   `json:"replaced_by_confirmation_ref"`
-	SoldAt                    time.Time `json:"sold_at"`
-	RecordedAt                time.Time `json:"recorded_at"`
+	// ReplacedByConfirmationRef names the replacement of a corrected Sale, or
+	// the paid Sale an upgraded one was surrendered for.
+	ReplacedByConfirmationRef *string `json:"replaced_by_confirmation_ref"`
+	// ReplacesConfirmationRef is the other half of that pair, stated on the
+	// REPLACEMENT: the mistaken Sale it corrects, or the free Sale its buyer
+	// gave up for it. Both halves are published so an Organization reading
+	// either row can explain to a buyer where a Ticket went (#651).
+	ReplacesConfirmationRef *string `json:"replaces_confirmation_ref"`
+	// ReplacementReason is WHY the two Sales are linked: `correction` or
+	// `upgrade`, null when there is no link.
+	//
+	// IT IS FOR THE REPLACEMENT'S HALF, which `status` cannot speak for. The
+	// replaced Sale's word arrives in `status` — `corrected` or `upgraded`,
+	// decided here so the page never infers it — but the Sale standing in its
+	// place is simply `active`, and it still has to say whether it corrects a
+	// mistake or stands in for a Ticket its buyer traded up from.
+	ReplacementReason *string   `json:"replacement_reason" enums:"correction,upgrade"`
+	SoldAt            time.Time `json:"sold_at"`
+	RecordedAt        time.Time `json:"recorded_at"`
 	// Channel is the Sales Channel: `online`, `in_person` or `import`.
 	Channel string `json:"channel"`
 	// Source is the Sales list's `source` for the Sale.
@@ -380,6 +404,8 @@ func dossierSaleView(row repository.DossierSale) DossierSaleView {
 		Status:                    dossierSaleStatus(row),
 		ReversedAt:                row.ReversedAt,
 		ReplacedByConfirmationRef: row.ReplacedByConfirmationRef,
+		ReplacesConfirmationRef:   row.ReplacesConfirmationRef,
+		ReplacementReason:         row.ReplacementReason,
 		SoldAt:                    row.SoldAt,
 		RecordedAt:                row.RecordedAt,
 		Channel:                   row.Channel,
@@ -397,13 +423,29 @@ func dossierSaleView(row repository.DossierSale) DossierSaleView {
 }
 
 // dossierSaleStatus reads a Sale's status for the Dossier: a reversed Sale a
-// correction replaced is `corrected`.
+// correction replaced is `corrected`, one its buyer upgraded out of is
+// `upgraded`, and a reversal with no replacement behind it is just `reversed`.
+//
+// THE REASON IS READ AND THE LINK IS NOT ENOUGH (#651, ADR 0074). Until the
+// Upgrade there was one way to replace a Ticket Sale, so the link alone could
+// stand for the reason; there are two now, and `replacement_reason` is the
+// column that tells them apart (migration 123, written on both halves so no join
+// is needed here).
+//
+// ONLY THE UPGRADE'S OWN WORD MOVES THIS OFF `corrected`. The fallthrough is
+// deliberate rather than defensive: a link whose reason this build cannot read —
+// a third reason added later, or a row written by an older binary — keeps the
+// older, narrower sentence instead of being promoted to a claim about a buyer's
+// election that nobody made.
 func dossierSaleStatus(row repository.DossierSale) string {
 	if row.Status != DossierSaleReversed {
 		return DossierSaleActive
 	}
-	if row.ReplacedBySaleID != nil {
-		return DossierSaleCorrected
+	if row.ReplacedBySaleID == nil {
+		return DossierSaleReversed
 	}
-	return DossierSaleReversed
+	if sales.IsUpgradeReplacement(row.ReplacementReason) {
+		return DossierSaleUpgraded
+	}
+	return DossierSaleCorrected
 }

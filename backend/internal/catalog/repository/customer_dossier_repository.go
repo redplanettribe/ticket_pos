@@ -41,19 +41,25 @@ type DossierSale struct {
 	ReplacedBySaleID          *string
 	ReplacedByConfirmationRef *string
 	ReplacesSaleID            *string
-	ImportBatchID             *string
-	SoldAt                    time.Time
-	RecordedAt                time.Time
-	Channel                   string
-	Source                    *string
-	TicketTypes               []DossierSaleLine
-	AmountCents               int
-	Currency                  string
-	PaymentMethod             *string
-	CustomerFirstName         string
-	CustomerLastName          string
-	TaxIDType                 *string
-	TaxIDNumber               *string
+	ReplacesConfirmationRef   *string
+	// ReplacementReason is WHY the two Sales are linked (migration 123): a Sale
+	// Correction or an Upgrade. Read beside the link because the link alone can
+	// no longer say — see sales.ReplacementReason* and dossierSaleStatus. Null
+	// exactly when both link columns are, which the column's CHECK enforces.
+	ReplacementReason *string
+	ImportBatchID     *string
+	SoldAt            time.Time
+	RecordedAt        time.Time
+	Channel           string
+	Source            *string
+	TicketTypes       []DossierSaleLine
+	AmountCents       int
+	Currency          string
+	PaymentMethod     *string
+	CustomerFirstName string
+	CustomerLastName  string
+	TaxIDType         *string
+	TaxIDNumber       *string
 }
 
 // GetDossierCustomer returns the Customer's identity, or nil when the id names
@@ -87,6 +93,8 @@ func (r *Repository) ListDossierSales(ctx context.Context, orgID, eventID, custo
 			ts.replaced_by_sale_id,
 			(SELECT confirmation_ref FROM ticket_sales r WHERE r.id = ts.replaced_by_sale_id),
 			ts.replaces_sale_id,
+			(SELECT confirmation_ref FROM ticket_sales p WHERE p.id = ts.replaces_sale_id),
+			ts.replacement_reason,
 			ts.import_batch_id,
 			ts.sold_at,
 			ts.created_at,
@@ -129,10 +137,11 @@ func (r *Repository) ListDossierSales(ctx context.Context, orgID, eventID, custo
 		var s DossierSale
 		var typesJSON []byte
 		var reversedAt sql.NullTime
-		var replacedBy, replacedByRef, replaces, importBatch, source, paymentMethod, taxIDType, taxIDNumber sql.NullString
+		var replacedBy, replacedByRef, replaces, replacesRef, replacementReason sql.NullString
+		var importBatch, source, paymentMethod, taxIDType, taxIDNumber sql.NullString
 		if err := rows.Scan(
 			&s.ID, &s.ConfirmationRef, &s.Status, &reversedAt,
-			&replacedBy, &replacedByRef, &replaces, &importBatch,
+			&replacedBy, &replacedByRef, &replaces, &replacesRef, &replacementReason, &importBatch,
 			&s.SoldAt, &s.RecordedAt, &s.Channel, &source,
 			&typesJSON, &s.AmountCents, &s.Currency, &paymentMethod,
 			&s.CustomerFirstName, &s.CustomerLastName, &taxIDType, &taxIDNumber,
@@ -149,6 +158,8 @@ func (r *Repository) ListDossierSales(ctx context.Context, orgID, eventID, custo
 		s.ReplacedBySaleID = dossierString(replacedBy)
 		s.ReplacedByConfirmationRef = dossierString(replacedByRef)
 		s.ReplacesSaleID = dossierString(replaces)
+		s.ReplacesConfirmationRef = dossierString(replacesRef)
+		s.ReplacementReason = dossierString(replacementReason)
 		s.ImportBatchID = dossierString(importBatch)
 		s.Source = dossierString(source)
 		s.PaymentMethod = dossierString(paymentMethod)

@@ -21,6 +21,7 @@ import {
 } from "@/lib/format";
 import {
   paymentMethodToken,
+  replacementReasonToken,
   saleChannelToken,
   saleOriginToken,
   saleSourceToken,
@@ -98,7 +99,14 @@ export function DossierSaleCard({ sale, zone, locale, onOpenAnswers }: DossierSa
         ? tSales("reversedBadge")
         : statusToken === "corrected"
           ? tSales("correctedBadge")
-          : sale.status;
+          : statusToken === "upgraded"
+            ? tSales("upgradedBadge")
+            : sale.status;
+  // WHY this Sale is linked to another (#651, ADR 0074). The replaced half's
+  // word is already in `status`; this is what the REPLACEMENT — an ordinary
+  // active Sale — needs to say whether it corrects a mistake or stands in for a
+  // Ticket its buyer traded up from.
+  const upgraded = replacementReasonToken(sale.replacement_reason) === "upgrade";
   const reversedAt = statusToken !== "active" ? formatDateTime(sale.reversed_at, zone, locale) : null;
 
   const channelToken = saleChannelToken(sale.channel);
@@ -117,7 +125,18 @@ export function DossierSaleCard({ sale, zone, locale, onOpenAnswers }: DossierSa
         <Badge variant={saleStatusBadgeVariant(statusToken)}>{statusLabel}</Badge>
         {sale.replaced_by_confirmation_ref ? (
           <span className="font-mono text-xs text-muted-foreground">
-            {tSales("correctedTo", { reference: sale.replaced_by_confirmation_ref })}
+            {upgraded
+              ? tSales("upgradedTo", { reference: sale.replaced_by_confirmation_ref })
+              : tSales("correctedTo", { reference: sale.replaced_by_confirmation_ref })}
+          </span>
+        ) : null}
+        {/* The other half: an Organization asked where a buyer's free Ticket
+            went can answer it from this row too. */}
+        {sale.replaces_confirmation_ref ? (
+          <span className="font-mono text-xs text-muted-foreground">
+            {upgraded
+              ? tSales("upgradedFrom", { reference: sale.replaces_confirmation_ref })
+              : tSales("corrects", { reference: sale.replaces_confirmation_ref })}
           </span>
         ) : null}
         {reversedAt ? (

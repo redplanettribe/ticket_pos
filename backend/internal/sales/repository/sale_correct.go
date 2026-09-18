@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"database/sql"
+
+	"github.com/peter/ticket_pos/backend/internal/sales"
 )
 
 // CorrectImportedSaleInput names one imported Ticket Sale to reverse and the
@@ -73,7 +75,7 @@ func (r *Repository) CorrectImportedSale(ctx context.Context, in CorrectImported
 	// second writer (ADR 0074). Nothing about a Sale Correction changed: it still
 	// says exactly what ADR 0050 said it says, and now it says it in a column
 	// rather than by being the only thing that could have written the link.
-	if err := linkReplacementTx(ctx, tx, in.SaleID, recorded.ID, replacementReasonCorrection); err != nil {
+	if err := linkReplacementTx(ctx, tx, in.SaleID, recorded.ID, sales.ReplacementReasonCorrection); err != nil {
 		return nil, err
 	}
 
