@@ -1037,7 +1037,7 @@ func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.Chec
 	}
 
 	s.sendSaleConfirmation(ctx, event.OrganizationID, event.ID, approved.Sale)
-	s.tellHoldersOfTheUpgradedFreeSale(ctx, approved.Sale)
+	s.tellNobodyAboutTheUpgradedFreeSale(ctx, approved.Sale)
 	s.kickSaleInvoiceDrainer(ctx, approved.Sale)
 
 	return &BeginCheckoutResult{
@@ -1077,36 +1077,6 @@ func (s *Service) captureCheckoutConsent(ctx context.Context, tx *sql.Tx, captur
 // channel: a Confirmation Link names a Ticket Sale by its database id, and until
 // commit there is no sale to name. A failure to send is swallowed — the sale is
 // recorded and the buyer's tickets do not depend on the email arriving.
-// tellHoldersOfTheUpgradedFreeSale states this commit's Buyer Notification
-// Policy for the free Ticket Sale an Upgrade reversed — which is that nobody is
-// written to at all (#650, ADR 0074).
-//
-// IT IS CALLED ON EVERY SETTLEMENT AND NOT ONLY ON AN UPGRADE. The shared helper
-// no-ops on an empty set, so the ordinary checkout costs one comparison, and the
-// two legs read the same three lines whether or not a Ticket was surrendered.
-//
-// THE SILENCE IS A VALUE PASSED, NEVER A CALL OMITTED, and that is this
-// function's whole reason to exist. Two mails must stay quiet — the Sale Voided
-// notice, composed in this module, and the No Longer Holding mail, composed in
-// catalog through the seam below — and a rule kept by remembering not to call
-// something is a rule that the next route to reverse a Sale will not know about.
-// Stated as platform.NobodyIsBeingWrittenTo it travels the road every other
-// reversal's policy travels, and the far side honours it before it reads a
-// single address.
-//
-// THE OTHER HALF OF THE SILENCE IS STRUCTURAL: the commit hands back an id and
-// no buyer, so there is nothing here a Sale Voided notice could be composed from
-// even if somebody tried (see RecordedSale.UpgradedOutOfSaleID).
-//
-// WHAT THE BUYER DOES GET is the paid Sale's Sale Confirmation, sent beside this
-// call, and nothing else. They upgraded; they have not lost a sale.
-func (s *Service) tellHoldersOfTheUpgradedFreeSale(ctx context.Context, sale *repository.RecordedSale) {
-	if sale == nil || sale.UpgradedOutOfSaleID == "" {
-		return
-	}
-	s.tellDisplacedHolders(ctx, []string{sale.UpgradedOutOfSaleID}, platform.NobodyIsBeingWrittenTo)
-}
-
 func (s *Service) sendSaleConfirmation(ctx context.Context, organizationID, eventID string, sale *repository.RecordedSale) {
 	event, ok, err := s.repo.GetEventImportContext(ctx, organizationID, eventID)
 	if err != nil || !ok {
@@ -1140,6 +1110,36 @@ func (s *Service) sendSaleConfirmation(ctx context.Context, organizationID, even
 		SaleInvoiceFollows: sale.SaleInvoiceOwed,
 		Locale:             s.mailLocale(ctx, sale.ID, sale.Locale, sale.CustomerEmail),
 	})
+}
+
+// tellNobodyAboutTheUpgradedFreeSale states this commit's Buyer Notification
+// Policy for the free Ticket Sale an Upgrade reversed — which is that nobody is
+// written to at all (#650, ADR 0074).
+//
+// IT IS CALLED ON EVERY SETTLEMENT AND NOT ONLY ON AN UPGRADE. The shared helper
+// no-ops on an empty set, so the ordinary checkout costs one comparison, and the
+// two legs read the same three lines whether or not a Ticket was surrendered.
+//
+// THE SILENCE IS A VALUE PASSED, NEVER A CALL OMITTED, and that is this
+// function's whole reason to exist. Two mails must stay quiet — the Sale Voided
+// notice, composed in this module, and the No Longer Holding mail, composed in
+// catalog through the seam below — and a rule kept by remembering not to call
+// something is a rule that the next route to reverse a Sale will not know about.
+// Stated as platform.NobodyIsBeingWrittenTo it travels the road every other
+// reversal's policy travels, and the far side honours it before it reads a
+// single address.
+//
+// THE OTHER HALF OF THE SILENCE IS STRUCTURAL: the commit hands back an id and
+// no buyer, so there is nothing here a Sale Voided notice could be composed from
+// even if somebody tried (see RecordedSale.UpgradedOutOfSaleID).
+//
+// WHAT THE BUYER DOES GET is the paid Sale's Sale Confirmation, sent beside this
+// call, and nothing else. They upgraded; they have not lost a sale.
+func (s *Service) tellNobodyAboutTheUpgradedFreeSale(ctx context.Context, sale *repository.RecordedSale) {
+	if sale == nil || sale.UpgradedOutOfSaleID == "" {
+		return
+	}
+	s.tellDisplacedHolders(ctx, []string{sale.UpgradedOutOfSaleID}, platform.NobodyIsBeingWrittenTo)
 }
 
 // consentConfirmationLink is the link the receipt carries when this buyer's
@@ -1280,7 +1280,7 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 	}
 
 	s.sendSaleConfirmation(ctx, payment.OrganizationID, payment.EventID, approved.Sale)
-	s.tellHoldersOfTheUpgradedFreeSale(ctx, approved.Sale)
+	s.tellNobodyAboutTheUpgradedFreeSale(ctx, approved.Sale)
 	s.kickSaleInvoiceDrainer(ctx, approved.Sale)
 
 	return &ConfirmCheckoutResult{

@@ -73,15 +73,7 @@ func (r *Repository) CorrectImportedSale(ctx context.Context, in CorrectImported
 	// second writer (ADR 0074). Nothing about a Sale Correction changed: it still
 	// says exactly what ADR 0050 said it says, and now it says it in a column
 	// rather than by being the only thing that could have written the link.
-	// Migration 123's pairing CHECK is what makes stating it unforgettable.
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE ticket_sales SET replaced_by_sale_id = $2, replacement_reason = $3 WHERE id = $1
-	`, in.SaleID, recorded.ID, replacementReasonCorrection); err != nil {
-		return nil, err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE ticket_sales SET replaces_sale_id = $2, replacement_reason = $3 WHERE id = $1
-	`, recorded.ID, in.SaleID, replacementReasonCorrection); err != nil {
+	if err := linkReplacementTx(ctx, tx, in.SaleID, recorded.ID, replacementReasonCorrection); err != nil {
 		return nil, err
 	}
 

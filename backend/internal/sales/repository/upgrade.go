@@ -60,6 +60,18 @@ type upgradeOutOfEarlierFreeSale struct {
 	// mint, counted over quantities. It is the other half of the ambiguity rule:
 	// one free Ticket in play is an offer, two is no offer at all, and the two
 	// sides are counted together or the rule is not the rule.
+	//
+	// IT IS COUNTED FROM THE LINES AS THE SPINE WRITES THEM, and that is a
+	// CONTRACT with the same-basket mechanism (#649) rather than an incidental
+	// choice. A basket holding one free line BESIDE an earlier qualifying free
+	// Sale is two Tickets in play and therefore no offer at all — and the only
+	// thing making that refusal true here is that the free line is still in the
+	// basket when this count is taken. A same-basket drop performed BEFORE the
+	// commit would leave this at zero, the ambiguity guard would open, and a
+	// forged election could take the earlier Sale as well as the line: the buyer
+	// would lose two Tickets having elected to lose one. Either the drop happens
+	// after this count, or the same-basket route must not also set
+	// CommitTerms.UpgradeElected.
 	FreeTicketsInBasket int
 	Now                 time.Time
 }
@@ -144,14 +156,22 @@ func upgradeOutOfEarlierFreeSaleTx(ctx context.Context, tx *sql.Tx, in upgradeOu
 		return "", nil
 	}
 
-	if err := linkUpgradeReplacementTx(ctx, tx, reversed[0].ID, in.PaidSaleID); err != nil {
+	if err := linkReplacementTx(ctx, tx, reversed[0].ID, in.PaidSaleID, replacementReasonUpgrade); err != nil {
 		return "", err
 	}
 	return reversed[0].ID, nil
 }
 
-// linkUpgradeReplacementTx points the two Ticket Sales at each other and says
-// WHY — the marker that stops an Upgrade reading as a Sale Correction.
+// linkReplacementTx points two Ticket Sales at each other and says WHY: the
+// reversed one names its replacement, the replacement names what it stands in
+// for, and both carry the reason.
+//
+// IT IS THE ONLY WRITER OF THAT PAIR, which is the point of it being here rather
+// than spelled out at each of the two acts that have one. ADR 0050's Sale
+// Correction and ADR 0074's Upgrade differ in exactly one token — the reason —
+// and migration 123's CHECK refuses a link without one; a second copy of these
+// two statements would be a second chance to write a link that the database then
+// rejects, or worse, one that carries the wrong word.
 //
 // THE PAIR IS ADR 0050'S AND IS REUSED DELIBERATELY. "This Ticket Sale stands in
 // the place of that one" is one relation, and a second pair of columns for the
@@ -161,27 +181,27 @@ func upgradeOutOfEarlierFreeSaleTx(ctx context.Context, tx *sql.Tx, in upgradeOu
 // Organization its staff erred on a Sale no human touched.
 //
 // THE REASON IS WRITTEN ON BOTH HALVES, so either row answers on its own. The
-// reversed free Sale reads "replaced by that one, because the buyer upgraded";
-// the paid Sale reads "replaces that one, for the same reason". Neither needs a
-// join to the other to be displayed correctly, which is what the Sales list and
-// the Customer Dossier both want.
+// reversed Sale reads "replaced by that one, for this reason"; the replacement
+// reads "replaces that one, for the same reason". Neither needs a join to the
+// other to be displayed correctly, which is what the Sales list and the Customer
+// Dossier both want.
 //
-// TWO STATEMENTS AND NOT ONE, exactly as the Sale Correction writes them, so the
-// per-row CHECK that pairs the reason with the link is satisfied at every point:
-// each UPDATE sets a row's link and its reason together (migration 123).
-func linkUpgradeReplacementTx(ctx context.Context, tx *sql.Tx, freeSaleID, paidSaleID string) error {
+// TWO STATEMENTS AND NOT ONE, because each row's link and reason must land
+// together for the per-row CHECK to hold at every point, and the two rows are
+// different rows.
+func linkReplacementTx(ctx context.Context, tx *sql.Tx, reversedSaleID, replacementSaleID, reason string) error {
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE ticket_sales
 		SET replaced_by_sale_id = $2, replacement_reason = $3
 		WHERE id = $1
-	`, freeSaleID, paidSaleID, replacementReasonUpgrade); err != nil {
+	`, reversedSaleID, replacementSaleID, reason); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE ticket_sales
 		SET replaces_sale_id = $2, replacement_reason = $3
 		WHERE id = $1
-	`, paidSaleID, freeSaleID, replacementReasonUpgrade); err != nil {
+	`, replacementSaleID, reversedSaleID, reason); err != nil {
 		return err
 	}
 	return nil

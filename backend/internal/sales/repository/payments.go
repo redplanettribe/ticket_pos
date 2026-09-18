@@ -558,12 +558,12 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 		return &ApprovedPayment{AlreadySettled: true}, nil
 	}
 
-	// The election joins the Sale Commit Terms, where the spine looks for it. It
-	// is OR-ed rather than assigned so that a caller which has already stated the
-	// term is never silently contradicted by a row it also wrote; today no caller
-	// does, and the Payment is the only durable record of what the buyer chose.
+	// The election joins the Sale Commit Terms, where the spine looks for it. The
+	// Payment is the only durable record of what the buyer chose, so it is the
+	// only thing this term can honestly be set from — no caller states it, and one
+	// that tried would be asserting something it could not know on the return leg.
 	terms := in.Terms
-	terms.UpgradeElected = terms.UpgradeElected || upgradeElected
+	terms.UpgradeElected = upgradeElected
 
 	// The Answers this Payment has been holding since begin-checkout (migration
 	// 074), read here and copied onto the Tickets the commit below mints — inside

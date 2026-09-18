@@ -2,6 +2,7 @@ package integration
 
 import (
 	"database/sql"
+	"net/http"
 	"testing"
 
 	"github.com/peter/ticket_pos/backend/internal/sales"
@@ -246,6 +247,19 @@ func TestAnElectedUpgradeReversesTheEarlierFreeSaleInsideThePaidCommit(t *testin
 		t.Fatalf("paid Ticket Type sold_count = %d, want 1", sold)
 	}
 
+	// THE PAID SALE IS STILL A CHANNEL SALE. This commit is the first thing in the
+	// platform to put replaces_sale_id on an ONLINE Sale, and that column is half
+	// of how DeriveSaleOrigin recognises a Sale Correction's replacement — but
+	// only within the `import` channel, so an Upgrade's paid Sale must go on
+	// reading `channel_sale` and not start claiming to be somebody's correction
+	// (ADR 0052). Asserted rather than assumed, because nothing else would catch
+	// it if the ordering in that switch ever moved.
+	for _, row := range eventSales(t, f.env, f.staff, f.eventID) {
+		if row.ConfirmationRef == paid.ConfirmationRef && row.Origin != "channel_sale" {
+			t.Fatalf("the paid Sale's origin = %q, want channel_sale", row.Origin)
+		}
+	}
+
 	// THE SILENCE, and the one mail that is owed.
 	assertNobodyWasToldAboutAReversal(t, f.env)
 	confirmations := f.env.email.Confirmations()
@@ -276,6 +290,56 @@ func TestWithoutTheElectionTheBuyerKeepsBothSales(t *testing.T) {
 		t.Fatalf("free Ticket Type sold_count = %d, want 1 — nothing was given back", sold)
 	}
 	assertNobodyWasToldAboutAReversal(t, f.env)
+}
+
+// TestTheSurrenderedTicketStopsCountingAgainstThePurchaseLimit: the Purchase
+// Limit reads off Ticket Sale Line quantities and the Upgrade changes nothing
+// about how it is counted — a reversed Sale's lines simply stop being counted,
+// exactly as they do after any other reversal.
+//
+// It is asserted through the limit rather than through a number because that is
+// where a buyer would feel it: rationed to one free Ticket, a buyer who
+// surrendered theirs must be able to claim one again, and one who did not must
+// not.
+func TestTheSurrenderedTicketStopsCountingAgainstThePurchaseLimit(t *testing.T) {
+	f := newCrossSaleUpgrade(t)
+	rationFreeTicketsToOne(t, f)
+
+	// Rationed and still holding: the free Ticket they have is the only one they
+	// may have, and a second claim is refused.
+	resp, _ := beginCheckoutAs(t, f.env, "test-org", f.eventSlug, buyerSession(t, f.env, f.buyer),
+		checkoutBody(f.buyer, "Ada", "Byron", cartLine(f.freeTypeID, 1)))
+	if resp.StatusCode == http.StatusCreated {
+		t.Fatal("a second free claim was allowed while the buyer still held their one rationed Ticket")
+	}
+
+	confirmCheckoutOK(t, f.env, f.buyPaid(t, true), "approved")
+	if status := readSaleProvenance(t, f.env, f.freeSaleID).Status; status != "reversed" {
+		t.Fatalf("the free Sale is %q, want reversed — the rest of this test is about what that frees up", status)
+	}
+
+	// Surrendered: the reversed Sale's line stops counting, so the ration is free
+	// again. Nothing here special-cases an Upgrade; the quantity simply belongs to
+	// a Sale that is no longer active.
+	again := beginCheckoutSettled(t, f.env, "test-org", f.eventSlug, buyerSession(t, f.env, f.buyer),
+		checkoutBody(f.buyer, "Ada", "Byron", cartLine(f.freeTypeID, 1)))
+	approvedRef(t, again)
+}
+
+// rationFreeTicketsToOne puts a Purchase Limit of one on the free Ticket Type.
+// It is set here rather than in the fixture because the tests about ambiguity
+// deliberately claim two.
+func rationFreeTicketsToOne(t *testing.T, f crossSaleUpgrade) {
+	t.Helper()
+	resp, body := f.env.patch(t, "/api/v1/staff/events/"+f.eventID+"/ticket-types/"+f.freeTypeID, map[string]any{
+		"name":             "Community",
+		"price_cents":      0,
+		"capacity":         20,
+		"max_per_customer": 1,
+	}, authHeader(f.staff))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("set Purchase Limit status=%d error=%+v", resp.StatusCode, body.Error)
+	}
 }
 
 // --- the instant: nothing is surrendered before the money lands -------------
