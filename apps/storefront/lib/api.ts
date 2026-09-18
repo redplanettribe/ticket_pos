@@ -461,9 +461,11 @@ export type PublicEventDetail = {
   // buyable — an entirely sold-out Event is a different sentence, and one this
   // feature does not write.
   all_closed: boolean;
-  // Whether an Online Sale hands the buyer its first Ticket as their own
-  // (ADR 0048) — the platform's assignment flag, so the checkout dialog only
-  // calls a Ticket "yours" when the sale will make it so.
+  // Whether an Online Sale hands the buyer a Ticket of their own (ADR 0048) —
+  // the platform's assignment flag, so the checkout dialog only calls a Ticket
+  // "yours" when the sale will make it so. It says whether, never which: since
+  // ADR 0074 the Ticket is the Sale's dearest, and the published name is left
+  // alone rather than churned.
   buyer_holds_first_ticket: boolean;
   tags: PublicTag[];
   // Whether the Event advertises itself. It gates nothing about rendering or

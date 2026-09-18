@@ -18688,11 +18688,16 @@ export interface components {
             all_closed?: boolean;
             /**
              * @description BuyerHoldsFirstTicket is whether an Online Sale of this Event hands the
-             *     buyer its first Ticket as their own Self-held Ticket (ADR 0048) — which
-             *     is the platform's Ticket Assignment flag and not a property of the
-             *     Event, riding here for the reason ticket_questions does: the checkout
-             *     dialog draws a "Your ticket" section from this payload, and it may only
-             *     call a Ticket the buyer's own when the sale will actually make it so.
+             *     buyer a Ticket of their own as a Self-held Ticket (ADR 0048) — which is
+             *     the platform's Ticket Assignment flag and not a property of the Event,
+             *     riding here for the reason ticket_questions does: the checkout dialog
+             *     draws a "Your ticket" section from this payload, and it may only call a
+             *     Ticket the buyer's own when the sale will actually make it so.
+             *
+             *     THE NAME OUTLIVED THE RULE. Since ADR 0074 the Ticket handed over is the
+             *     Sale's dearest, not its first; the field is left named as it is because
+             *     it is published, and renaming it is nobody's half of that ruling. It
+             *     never said WHICH Ticket anyway — only whether there is one.
              */
             buyer_holds_first_ticket?: boolean;
             cover_image_url?: string;

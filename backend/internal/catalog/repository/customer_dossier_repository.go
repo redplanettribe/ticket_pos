@@ -191,7 +191,12 @@ type DossierTicket struct {
 
 // ListDossierSaleTickets returns every Ticket of the given Sales, re-scoped to
 // this Event of this Organization, grouped by Sale in the catalog's order and
-// then by ordinal — the order the Self-held Ticket is chosen in (ADR 0048).
+// then by ordinal — the order every list of a Sale's Tickets is read in.
+//
+// IT IS NOT THE SELF-HELD TICKET'S ORDER and no longer claims to be: since ADR
+// 0074 the buyer is seated on the Sale's dearest line, so the Ticket that is
+// theirs may sit anywhere in this list. The Dossier says which one it is by
+// reading the holder columns, never by position.
 func (r *Repository) ListDossierSaleTickets(ctx context.Context, orgID, eventID string, saleIDs []string) ([]DossierTicket, error) {
 	if len(saleIDs) == 0 {
 		return nil, nil

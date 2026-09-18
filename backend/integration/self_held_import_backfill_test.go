@@ -256,17 +256,23 @@ func TestImportBackfillHoldsOnlyTheLowestOrdinalOfAnImportedSale(t *testing.T) {
 	}
 }
 
-// THE MIGRATION AND THE CHECKOUT PICK THE SAME TICKET. The rule is one
-// sentence in ADR 0055 and it must stay one: the lowest-ordinal Ticket of the
-// line whose Ticket Type sorts first by sort_order then name, not the first
-// line written. A multi-line imported Sale is staged from a real checkout —
-// the import routes record one line per Sale — so the Ticket the checkout's
-// own code chose can be compared to the Ticket this migration chooses.
-func TestImportBackfillAgreesWithTheCheckoutAboutWhichTicketIsTheBuyers(t *testing.T) {
+// THE MIGRATION KEEPS 084'S RULE, WHICH THE COMMIT SPINE HAS LEFT. 088 was
+// written to be byte-for-byte 084's pick — the lowest-ordinal Ticket of the line
+// whose Ticket Type sorts first by sort_order then name — and it stays that way
+// now that the spine seats the buyer on the dearest line instead (ADR 0074,
+// #646). Both are historical backfills, both ran once and are idempotent by
+// construction, and re-cutting either to the new rule would re-seat exactly the
+// buyers ADR 0074 decided not to re-seat. The two backfills still agree with
+// each other; what they no longer state is the forward rule.
+//
+// A multi-line imported Sale is staged from a real checkout — the import routes
+// record one line per Sale — so the Ticket the spine chose and the Ticket this
+// migration chooses can be told apart.
+func TestImportBackfillHoldsTheCatalogFirstTicketTheCommitSpineNoLongerPicks(t *testing.T) {
 	f := newImportBackfillFixture(t, "Order Import Fest", "order-import-fest")
 	vipID := createTicketTypeWithCapacity(t, f.env, f.sessionID, f.eventID, "VIP", 5000, 5)
 
-	// VIP first in the cart; GA first in the catalog.
+	// VIP first in the cart, GA first in the catalog, VIP the dearest.
 	begun := beginCheckoutOK(t, f.env, "test-org", f.slug,
 		checkoutBody("ana@example.com", "Ana", "Lopez", cartLine(vipID, 2), cartLine(f.gaID, 2)))
 	confirmCheckoutOK(t, f.env, begun.ClientTransactionID, "approved")
@@ -284,11 +290,10 @@ func TestImportBackfillAgreesWithTheCheckoutAboutWhichTicketIsTheBuyers(t *testi
 
 	ana := customerSignIn(t, f.env, "ana@example.com")
 	tickets := listBuyerTickets(t, f.env, ana, saleID)
-	assertHeldByBuyer(t, tickets, checkoutPick, "ana@example.com")
-	held := findBuyerRow(t, tickets, checkoutPick)
-	if held.TicketTypeName != "GA" || held.Ordinal != 1 {
-		t.Errorf("the backfill held %s #%d, want GA #1 — the catalog-first line's first Ticket",
-			held.TicketTypeName, held.Ordinal)
+	catalogFirst := ticketOfSale(t, tickets, "GA", 1)
+	assertHeldByBuyer(t, tickets, catalogFirst, "ana@example.com")
+	if checkoutPick == catalogFirst {
+		t.Error("the commit spine seated the buyer on GA #1; since ADR 0074 it seats them on the dearest line's VIP #1")
 	}
 }
 

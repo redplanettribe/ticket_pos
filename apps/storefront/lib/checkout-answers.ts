@@ -55,6 +55,14 @@ export type AnsweredTicketType = {
   id: string;
   name: string;
   /**
+   * The effective buyer price per ticket, exactly as the Event page received it:
+   * server-computed, fee included where the Event passes it on, and ALREADY the
+   * Promotional Price where a Promotion is live. It is here because the buyer's
+   * own Ticket is the dearest one in the cart (ADR 0074), and the price that
+   * decides that is the price as sold — this app never recomputes either.
+   */
+  price_cents: number;
+  /**
    * Absent on a deployment where the feature flag is closed, which is how it
    * ships — the API omits the key entirely, so there is nothing to draw and no
    * second flag on this side to disagree with it (ADR 0045).
@@ -148,9 +156,18 @@ export function answerSlots(
 /**
  * ownTicketSlot is the one ticket checkout asks about: the buyer's own, which
  * the sale will hand them as a Self-held Ticket (ADR 0048). It is the FIRST
- * ticket of the first Ticket Type in catalog order that the cart holds — the
- * same choice the commit spine makes, so what the dialog calls "your ticket"
- * is the Ticket the buyer will in fact hold.
+ * ticket of the DEAREST Ticket Type the cart holds, ties broken by the catalog's
+ * order (ADR 0074) — the same choice the commit spine makes, so what the dialog
+ * calls "your ticket" is the Ticket the buyer will in fact hold.
+ *
+ * THE TWO RULES MUST STAY ONE SENTENCE. A buyer seated by the backend on one
+ * Ticket and asked another Ticket's questions by this page answers for somebody
+ * who is not them, and leaves their own Ticket owing — which is the bug ADR 0074
+ * was written about, in its other half.
+ *
+ * The price compared is `price_cents`: what this buyer pays, Promotional Price
+ * and all, never a List Price. The catalog arrives in its own order, so keeping
+ * the first of the equals IS the tie-break.
  *
  * THE OTHER TICKETS ARE NOT ASKED ABOUT AT ALL, and are not mentioned. A buyer
  * of four is not assumed to know four people's sizes; those Tickets are for
@@ -167,11 +184,15 @@ export function ownTicketSlot(
   buyerHoldsFirstTicket: boolean,
 ): AnswerSlot | null {
   if (!buyerHoldsFirstTicket) return null;
-  const first = ticketTypes.find((ticketType) => (quantities[ticketType.id] ?? 0) > 0);
-  if (first === undefined) return null;
-  const questions = first.ticket_questions ?? [];
+  let own: AnsweredTicketType | undefined;
+  for (const ticketType of ticketTypes) {
+    if ((quantities[ticketType.id] ?? 0) <= 0) continue;
+    if (own === undefined || ticketType.price_cents > own.price_cents) own = ticketType;
+  }
+  if (own === undefined) return null;
+  const questions = own.ticket_questions ?? [];
   if (questions.length === 0) return null;
-  return { ticketTypeId: first.id, ticketTypeName: first.name, index: 1, questions };
+  return { ticketTypeId: own.id, ticketTypeName: own.name, index: 1, questions };
 }
 
 /**
