@@ -69,14 +69,11 @@ func (r *Repository) CorrectImportedSale(ctx context.Context, in CorrectImported
 		return nil, err
 	}
 
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE ticket_sales SET replaced_by_sale_id = $2 WHERE id = $1
-	`, in.SaleID, recorded.ID); err != nil {
-		return nil, err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE ticket_sales SET replaces_sale_id = $2 WHERE id = $1
-	`, recorded.ID, in.SaleID); err != nil {
+	// The reason travels with the link, and it has since #650 gave the pair a
+	// second writer (ADR 0074). Nothing about a Sale Correction changed: it still
+	// says exactly what ADR 0050 said it says, and now it says it in a column
+	// rather than by being the only thing that could have written the link.
+	if err := linkReplacementTx(ctx, tx, in.SaleID, recorded.ID, replacementReasonCorrection); err != nil {
 		return nil, err
 	}
 

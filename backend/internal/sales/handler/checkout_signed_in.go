@@ -85,6 +85,10 @@ type beginCustomerCheckoutBody struct {
 	AdulthoodDeclaration *bool `json:"adulthood_declaration"`
 
 	Answers []checkoutAnswerBody `json:"answers"`
+	// UpgradeElected is the Upgrade Prompt's answer (ADR 0074, #650), a plain
+	// bool for the reason the public body gives: the prompt has two answers and
+	// an absent key means keep both.
+	UpgradeElected bool `json:"upgrade_elected"`
 }
 
 // addressedTo turns this body into the public one by supplying the address the
@@ -112,6 +116,7 @@ func (b beginCustomerCheckoutBody) addressedTo(email string) beginCheckoutBody {
 		TermsAcceptance:      b.TermsAcceptance,
 		AdulthoodDeclaration: b.AdulthoodDeclaration,
 		Answers:              b.Answers,
+		UpgradeElected:       b.UpgradeElected,
 	}
 }
 

@@ -233,6 +233,23 @@ type beginCheckoutBody struct {
 	// such key, and neither does a buyer who skipped the whole section, which is
 	// explicitly a supported way to check out.
 	Answers []checkoutAnswerBody `json:"answers"`
+	// UpgradeElected is the Upgrade Prompt's answer: the paid Ticket in this
+	// basket takes the place of a free one the buyer has (ADR 0074, #650).
+	//
+	// A PLAIN BOOL AND NOT A POINTER, which is the one place it differs from the
+	// consent boxes above, and the difference is real rather than stylistic. Those
+	// boxes have three states because "not shown" is a fact the platform must be
+	// able to evidence. This prompt has two: the buyer elected an Upgrade, or they
+	// did not — and an absent key, an unticked box and a prompt that was never
+	// drawn all mean the same thing, KEEP BOTH. That is the reversible answer, and
+	// ADR 0074 puts the default on the reversible side deliberately, because an
+	// Upgrade destroys a Ticket silently inside the payment's own transaction.
+	//
+	// IT CAN NEVER PRODUCE A FIELD ERROR, and shares that with `answers` alone. An
+	// election the backend did not offer is IGNORED and never refused: the commit
+	// re-judges eligibility inside its own transaction, and a `true` that no
+	// longer holds simply sells the buyer the Ticket they asked for.
+	UpgradeElected bool `json:"upgrade_elected"`
 }
 
 // checkoutAnswerBody is one Answer as the checkout form states it: which Ticket
@@ -394,6 +411,11 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 		// field error. The service reads them against the cart it resolved and
 		// drops what does not fit; see checkoutAnswers.
 		Answers: checkoutAnswers(body.Answers),
+		// Relayed as typed and incapable of a field error for the third reason on
+		// this body: whether an Upgrade was ever offered is a business rule read
+		// inside the commit's own transaction, and an election that no longer holds
+		// is ignored rather than refused (ADR 0074).
+		UpgradeElected: body.UpgradeElected,
 		// Relayed exactly as they arrived, nils and all: what a missing box means
 		// is the consent module's rule, and the service refuses a checkout whose
 		// required box is not a present true. Nothing here rewrites an absent

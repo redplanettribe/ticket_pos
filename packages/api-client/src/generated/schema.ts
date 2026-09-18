@@ -14278,6 +14278,12 @@ export interface components {
              *     it does the policy's (TERMS_ACCEPTANCE_REQUIRED).
              */
             terms_acceptance?: boolean;
+            /**
+             * @description UpgradeElected is the Upgrade Prompt's answer (ADR 0074, #650), a plain
+             *     bool for the reason the public body gives: the prompt has two answers and
+             *     an absent key means keep both.
+             */
+            upgrade_elected?: boolean;
         };
         "handler.buyerAssignmentBody": {
             /**
