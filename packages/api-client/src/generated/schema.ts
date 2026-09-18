@@ -8257,7 +8257,7 @@ export interface paths {
         };
         /**
          * Get public event
-         * @description Returns a published event with its ticket types for the Storefront event page. A Customer Session presented in Authorization is optional and changes nothing but one field: each ticket type then carries already_held, how many of it that Customer already holds — their active Ticket Sales plus their live Capacity Holds, the same count begin-checkout refuses on, so the picker can bound itself at max(0, max_per_customer - already_held) and a ticket type whose allowance is spent can say so instead of claiming to be sold out (ADR 0025). An absent, expired or invalid token reads the event as an anonymous visitor rather than failing, and already_held is then null — null means "we do not know who is asking", which is not the same statement as 0. already_held may exceed max_per_customer, because lowering a Purchase Limit is never retroactive. No unauthenticated lookup of anybody's holdings exists: the count comes from the session and from nothing in the URL. The Event also states its Tickets Sold as tickets_sold: an integer at or above the floor of 5, null beneath it and null on an Event with External Registration; 0 is never sent (ADR 0072).
+         * @description Returns a published event with its ticket types for the Storefront event page. A Customer Session presented in Authorization is optional and changes nothing but one field: each ticket type then carries already_held, how many of it that Customer already holds — their active Ticket Sales plus their live Capacity Holds, the same count begin-checkout refuses on, so the picker can bound itself at max(0, max_per_customer - already_held) and a ticket type whose allowance is spent can say so instead of claiming to be sold out (ADR 0025). An absent, expired or invalid token reads the event as an anonymous visitor rather than failing, and already_held is then null — null means "we do not know who is asking", which is not the same statement as 0. already_held may exceed max_per_customer, because lowering a Purchase Limit is never retroactive. No unauthenticated lookup of anybody's holdings exists: the count comes from the session and from nothing in the URL. The Event also states its Tickets Sold as tickets_sold: an integer at or above the floor of 5, null beneath it and null on an Event with External Registration; 0 is never sent (ADR 0072). A session also fills surrenderable_free_tickets: how many free Tickets this Customer could give up on this Event through an Upgrade (ADR 0074) — their own accepted Self-held Tickets, each on an active Online Sale of this Event carrying that one Ticket and nothing else, sold at zero. It is a COUNT and not a verdict: an Upgrade is offered only where exactly one free Ticket is in play counting the basket too, which this read cannot see, so the client adds the free Tickets in its cart and offers only on a total of exactly one — the same arithmetic the commit repeats inside its own transaction. Null carries already_held's meaning, "we do not know who is asking", and must not be read as 0; 0 is a real answer to a Customer we can identify, and is also what an Event with External Registration and a dark Ticket Assignment build answer.
          */
         get: {
             parameters: {
@@ -18756,6 +18756,35 @@ export interface components {
             registration_url?: string;
             slug?: string;
             starts_at?: string;
+            /**
+             * @description SurrenderableFreeTickets is how many free Tickets the Customer who asked
+             *     for this page could give up on this Event through an Upgrade (ADR 0074,
+             *     #648): free Tickets of theirs that are each their own accepted Self-held
+             *     Ticket, on an active Online Sale of this Event carrying that one Ticket
+             *     and nothing else, sold at zero.
+             *
+             *     IT IS A COUNT AND NOT A VERDICT, because the verdict is not this payload's
+             *     alone to give. An Upgrade is offered only where exactly one free Ticket is
+             *     IN PLAY, and the basket counts: a buyer holding one of these who puts a
+             *     second free Ticket in their cart is as ambiguous as one holding two, and
+             *     gets no Upgrade Prompt either. The cart does not exist when this page is
+             *     read, so the figure states the half the server knows and the client adds
+             *     its own — `surrenderable_free_tickets + free Tickets in the basket == 1`
+             *     is the whole rule, and the same arithmetic runs again inside the
+             *     transaction that commits the Sale.
+             *
+             *     NULL MEANS WE DO NOT KNOW WHO IS ASKING, on the already_held precedent,
+             *     and a client must not turn it into 0: an anonymous read must reveal
+             *     nothing about anybody, and there is no way to ask this about an address
+             *     you have not proven you own. 0 is a real answer given to a Customer we can
+             *     identify — "nothing of yours here is surrenderable" — and is also the
+             *     answer while Ticket Assignment is dark, since no Ticket is self-held in
+             *     that build and so none can be given up.
+             *
+             *     The name is new and says what it counts. It deliberately does not follow
+             *     buyer_holds_first_ticket above, whose name outlived its rule.
+             */
+            surrenderable_free_tickets?: number;
             tags?: components["schemas"]["service.TagView"][];
             ticket_types?: components["schemas"]["service.PublicTicketType"][];
             /**
