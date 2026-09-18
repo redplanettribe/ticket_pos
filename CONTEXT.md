@@ -172,6 +172,7 @@ _Avoid_: Ticket tier, ticket class, fare, SKU
 **Free Ticket Type**:
 A Ticket Type an Organization prices at zero.
 Listed, selected, and counted against capacity exactly like any other, but a checkout that totals nothing never reaches a Payment Provider.
+The only Ticket Type whose Ticket a buyer may surrender, through an Upgrade: it carries no money and no Tax Invoice, so giving one up is the one act of unselling this platform can perform without an accounting event.
 _Avoid_: Free tier, complimentary ticket, comp, RSVP, giveaway
 
 **List Price**:
@@ -374,11 +375,26 @@ Distinct from an Event assignment, which puts a Member on an Event's staff and h
 _Avoid_: Transfer, allocation, ticket sharing, invite, guest list entry, seat assignment, delegation
 
 **Self-held Ticket**:
-The one Ticket of a Ticket Sale that is the buyer's own: the first Ticket of the Sale's first line in the catalog's order, assigned to the buyer and accepted the moment the Sale is made, because "who is this for" is the one question a buyer never needs asking about themself. On a sale of one Ticket it is simply that Ticket.
+The one Ticket of a Ticket Sale that is the buyer's own: the first Ticket of the Sale's **dearest** line, ties broken by the catalog's order, assigned to the buyer and accepted the moment the Sale is made, because "who is this for" is the one question a buyer never needs asking about themself. On a sale of one Ticket it is simply that Ticket.
+Seated on the dearest rather than the first because a buyer is presumed to attend on what they paid most for, and because a catalog listed cheap-to-dear made "first in the catalog's order" mean "cheapest in the basket" every time a buyer mixed Ticket Types — reliably seating them on a giveaway and stranding the Ticket they paid for. Price is still only a guess at which Ticket is theirs, and the remedy for a wrong guess is reassignment, exactly as before.
 Accepted by purchase or by transcription rather than by link, so it proves nothing about the buyer's inbox and makes nobody Verified; to the Organization it is an ordinary accepted Ticket held by the buyer, under the name and address the Sale was made with. Its Ticket Questions are the only ones checkout asks, under "Your ticket", and the only ones the buyer is presumed able to answer; the Sale's other Tickets are for their own Holders to answer.
 Still the buyer's to reassign, like any Ticket — a buyer who is not attending hands it on, and it stops being self-held.
 On an Online Sale the warrant is the payment; on an imported sale it is the transcription — the file records a transaction that already happened, and the address on it is the person who bought. An imported buyer is therefore **presumed** to attend rather than proven to, which is the weakest warrant the roster rests on and is stated rather than hidden: the remedy is reassignment, the same one an online buyer has. An In-Person Sale has no Self-held Ticket, because it has no buyer surface to reassign from and no route by which a wrong Holder could be removed — an exclusion pending a POS, not a judgement about door buyers.
 _Avoid_: Buyer's ticket (as the term), primary ticket, own ticket, main ticket, purchaser ticket
+
+**Upgrade**:
+The buyer's election that a paid Ticket takes the place of a Ticket of a Free Ticket Type — the answer to "are you moving up, or buying for somebody else too", which a basket holding both otherwise cannot express.
+An election, never a change to a Ticket: no Ticket ever changes its Ticket Type. A free Ticket is destroyed or never minted, and a dearer Ticket exists instead. The mechanism differs by where the free Ticket is, and the buyer is told neither difference — in one basket the free line is simply not bought, and against a Ticket Sale already made the free Sale is reversed in the same transaction that commits the paid one, so the buyer either holds the paid Ticket and not the free one or nothing moved at all.
+Free to paid only. Surrendering a Ticket that cost nothing owes nobody anything — no refund, no Tax Invoice to credit, no Reversal Window to argue about — and that is the whole of why the line sits at zero rather than at "anything cheaper". A buyer moving between two paid Ticket Types is not offered one, and holds both.
+Offered only where the free Ticket is unambiguously the buyer's to give up: exactly one of them, on an active Online Sale, still held by the buyer themself. A free Ticket somebody else accepted is not the buyer's to surrender, and a free Ticket Sale of several would take a stranger's Ticket down with it.
+The reversal it performs is silent — no Sale Voided notice, no No Longer Holding mail — because a buyer who upgraded has not lost a sale and should not be told they have. The reversed free Sale names the paid Sale that replaced it, marked as an Upgrade rather than as a Sale Correction: nothing was recorded wrongly, the buyer changed their mind.
+_Avoid_: Upgrade the tier, free tier upgrade, change ticket type, swap ticket, ticket exchange, ticket transfer, sale correction
+
+**Upgrade Prompt**:
+The checkout question that offers an Upgrade, shown when a buyer with exactly one surrenderable free Ticket is buying a paid one.
+Never a gate: it can be ignored like any Ticket Question, and silence means **keep both** — the reversible answer. An Upgrade destroys a Ticket silently and inside the payment's own transaction, and a buyer who scrolled past a prompt they did not read must not discover afterwards that a Ticket they held is gone.
+Withheld rather than guessed at whenever the buyer's seat is ambiguous — more than one free Ticket in play, or one in the basket and another on an earlier Sale. A prompt that has to ask which of several people it is about has stopped clarifying and started puzzling.
+_Avoid_: Upgrade modal, upsell, cross-sell, offer, interstitial
 
 **Holder**:
 The person a Ticket was assigned to. Capitalised as a role, and the same word ADR 0044 used in lowercase for whoever happened to be holding an Answer Link — the difference is that a Holder is named, proven and known to the platform.
