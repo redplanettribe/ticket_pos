@@ -7,7 +7,7 @@ import {
   checkoutAnswerBodies,
   hasCheckoutQuestions,
   ownTicketSlot,
-  upgradePrompt,
+  upgradeOffer,
   type AnsweredTicketType,
   type AnswerValues,
 } from "./checkout-answers.ts";
@@ -303,18 +303,28 @@ const catalog = [community, student, generalAdmission, premium];
 // Upgrade: there is no earlier Sale to have counted. Coercing null to 0 would
 // offer the prompt to every anonymous reader holding a free and a paid line,
 // which is the one way this rule can silently go wrong.
-test("upgradePrompt is withheld from a reader the API could not identify", () => {
+test("upgradeOffer is withheld from a reader the API could not identify", () => {
   assert.equal(
-    upgradePrompt(catalog, { "tt-community": 1, "tt-ga": 1 }, null),
+    upgradeOffer(catalog, { "tt-community": 1, "tt-ga": 1 }, null, true),
     null,
     "a null count must never be read as zero",
   );
 });
 
+// A DARK TICKET ASSIGNMENT BUILD ANSWERS THE COUNT 0, NOT NULL, so the
+// arithmetic alone would offer here — and the commit, which gates on its own
+// spelling of the same flag, would silently drop the election. A buyer would
+// tick "give up the free one", pay, and keep both, having been told otherwise.
+// Nothing is self-held in that build, so nothing is surrenderable.
+test("upgradeOffer is withheld where the sale hands the buyer no Ticket of their own", () => {
+  assert.equal(upgradeOffer(catalog, { "tt-community": 1, "tt-ga": 1 }, 0, false), null);
+  assert.equal(upgradeOffer([generalAdmission], { "tt-ga": 1 }, 1, false), null);
+});
+
 // The same-basket half: the cart itself holds the one free Ticket in play, and
 // the prompt names the line the commit will drop.
-test("upgradePrompt offers the cart's free line when the buyer has none on file", () => {
-  const prompt = upgradePrompt(catalog, { "tt-community": 1, "tt-ga": 1 }, 0);
+test("upgradeOffer offers the cart's free line when the buyer has none on file", () => {
+  const prompt = upgradeOffer(catalog, { "tt-community": 1, "tt-ga": 1 }, 0, true);
   assert.deepEqual(prompt, {
     surrendered: { ticketTypeId: "tt-community", ticketTypeName: "Community" },
   });
@@ -322,43 +332,47 @@ test("upgradePrompt offers the cart's free line when the buyer has none on file"
 
 // The cross-Sale half: the free Ticket is on an earlier Sale, so the cart holds
 // nothing to give up and the prompt names no line.
-test("upgradePrompt offers an earlier Sale's free Ticket against a paid cart", () => {
-  const prompt = upgradePrompt(catalog, { "tt-ga": 1 }, 1);
+test("upgradeOffer offers an earlier Sale's free Ticket against a paid cart", () => {
+  const prompt = upgradeOffer([generalAdmission], { "tt-ga": 1 }, 1, true);
   assert.deepEqual(prompt, { surrendered: null });
 });
 
 // AMBIGUITY MEANS NO OFFER, counted over quantity and not over lines: a single
 // line of two free Tickets is two free Tickets, and a prompt that has to ask
 // which of two people it is about has stopped clarifying.
-test("upgradePrompt is withheld when more than one free Ticket is in play", () => {
+test("upgradeOffer is withheld when more than one free Ticket is in play", () => {
   // Two on one line.
-  assert.equal(upgradePrompt(catalog, { "tt-community": 2, "tt-ga": 1 }, 0), null);
+  assert.equal(upgradeOffer(catalog, { "tt-community": 2, "tt-ga": 1 }, 0, true), null);
   // Two on two lines.
-  assert.equal(upgradePrompt(catalog, { "tt-community": 1, "tt-student": 1, "tt-ga": 1 }, 0), null);
+  assert.equal(
+    upgradeOffer(catalog, { "tt-community": 1, "tt-student": 1, "tt-ga": 1 }, 0, true),
+    null,
+  );
   // One in the cart beside one on an earlier Sale — the case neither side can
   // see alone, and the whole reason this arithmetic happens here.
-  assert.equal(upgradePrompt(catalog, { "tt-community": 1, "tt-ga": 1 }, 1), null);
+  assert.equal(upgradeOffer(catalog, { "tt-community": 1, "tt-ga": 1 }, 1, true), null);
   // Two on file.
-  assert.equal(upgradePrompt(catalog, { "tt-ga": 1 }, 2), null);
+  assert.equal(upgradeOffer(catalog, { "tt-ga": 1 }, 2, true), null);
 });
 
 // An Upgrade is free to paid and no further, so without something paid to move
 // onto there is nothing to elect. This is the precondition the backend's
 // OffersUpgrade deliberately does not carry: it belongs to the offering surface,
 // and on this side that surface is this function.
-test("upgradePrompt is withheld from a cart holding nothing paid", () => {
-  assert.equal(upgradePrompt(catalog, { "tt-community": 1 }, 0), null);
-  assert.equal(upgradePrompt(catalog, {}, 1), null);
-  assert.equal(upgradePrompt(catalog, { "tt-community": 0, "tt-ga": 0 }, 1), null);
+test("upgradeOffer is withheld from a cart holding nothing paid", () => {
+  assert.equal(upgradeOffer(catalog, { "tt-community": 1 }, 0, true), null);
+  assert.equal(upgradeOffer(catalog, {}, 1, true), null);
+  assert.equal(upgradeOffer(catalog, { "tt-community": 0, "tt-ga": 0 }, 1, true), null);
 });
 
 // FREE IS THE PRICE AS SOLD, not the price the Organization listed.
 // `price_cents` is already the Promotional Price where a Promotion is live, so a
 // Ticket Type given away today is free in this basket — the same reading the
 // commit takes off `unit_price_cents`.
-test("upgradePrompt reads free off the price as sold", () => {
+test("upgradeOffer reads free off the price as sold", () => {
   const freeToday: AnsweredTicketType = { ...premium, price_cents: 0 };
-  const prompt = upgradePrompt([freeToday, generalAdmission], { "tt-premium": 1, "tt-ga": 1 }, 0);
+  const cart = { "tt-premium": 1, "tt-ga": 1 };
+  const prompt = upgradeOffer([freeToday, generalAdmission], cart, 0, true);
   assert.deepEqual(prompt, {
     surrendered: { ticketTypeId: "tt-premium", ticketTypeName: "Premium" },
   });
@@ -366,15 +380,20 @@ test("upgradePrompt reads free off the price as sold", () => {
 
 // A cart of several paid Tickets is still one free Ticket in play, and how many
 // paid ones there are is nobody's business here.
-test("upgradePrompt does not care how many paid Tickets the cart holds", () => {
-  const prompt = upgradePrompt(catalog, { "tt-community": 1, "tt-ga": 3, "tt-premium": 2 }, 0);
+test("upgradeOffer does not care how many paid Tickets the cart holds", () => {
+  const prompt = upgradeOffer(catalog, { "tt-community": 1, "tt-ga": 3, "tt-premium": 2 }, 0, true);
   assert.deepEqual(prompt, {
     surrendered: { ticketTypeId: "tt-community", ticketTypeName: "Community" },
   });
 });
 
-// A Ticket Type nobody is buying contributes nothing on either side, so a
-// catalog full of Free Ticket Types is not by itself ambiguous.
-test("upgradePrompt counts the cart and not the catalog", () => {
-  assert.deepEqual(upgradePrompt(catalog, { "tt-ga": 1 }, 1), { surrendered: null });
+// A Ticket Type nobody is buying contributes nothing on either side. An Event
+// selling two Free Ticket Types would otherwise look permanently ambiguous to
+// every buyer on it, and the offer would never be made to anybody.
+test("upgradeOffer counts the cart and not the catalog", () => {
+  // Two Free Ticket Types on the Event, neither of them in this cart.
+  assert.deepEqual(upgradeOffer(catalog, { "tt-ga": 1 }, 1, true), { surrendered: null });
+  // And with the buyer holding none on file either, there is nothing to offer
+  // rather than an ambiguity — the catalog's free types are still not counted.
+  assert.equal(upgradeOffer(catalog, { "tt-ga": 1 }, 0, true), null);
 });

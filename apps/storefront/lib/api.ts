@@ -477,7 +477,7 @@ export type PublicEventDetail = {
   // the cart does not exist when the page is read. So the server states its half
   // and this app adds its own: `surrenderable_free_tickets + free Tickets in the
   // basket === 1` is the whole rule, and lib/checkout-answers.ts holds the one
-  // copy of it (upgradePrompt).
+  // copy of it (upgradeOffer).
   //
   // NULL IS THE ANONYMOUS READ, on already_held's precedent, and must never be
   // turned into 0: it says we do not know who is asking. 0 is a real answer to a

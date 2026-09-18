@@ -5,7 +5,7 @@
  * so the paid one takes its place (ADR 0074, #652).
  *
  * IT DRAWS AND NOTHING ELSE. Whether it appears at all, and which free Ticket it
- * is about, are lib/checkout-answers.ts's findings (upgradePrompt) — the one
+ * is about, are lib/checkout-answers.ts's findings (upgradeOffer) — the one
  * place the eligibility arithmetic is written on this side. A component that
  * decided any part of that would be a second copy of a rule the backend also
  * holds, in the file least likely to be read when the rule changes.
@@ -27,6 +27,11 @@
  * ConsentCheckbox documents: declared inside the dialog it would be a new
  * component type on every render, and React would remount the input, taking the
  * focus with it mid-interaction.
+ *
+ * It is drawn as the answer section's sibling — the same card, the same heading
+ * weight — because that is what it is to the buyer: one more optional question
+ * about their own Ticket, in the run of them, rather than something the dialog
+ * raises its voice for.
  */
 export function UpgradePrompt({
   checked,
@@ -38,21 +43,32 @@ export function UpgradePrompt({
   labels: {
     /** The section's heading. */
     title: string;
-    /** Which free Ticket this is about — the cart's line, or one already held. */
+    /**
+     * Which free Ticket this is about — the cart's line, or one already held —
+     * and what ticking the box costs. THE TWO ARE NOT THE SAME SENTENCE and must
+     * not be flattened into one: a free Ticket already held is destroyed for
+     * good, while one merely in the cart is left unbought and can be bought
+     * again while stock lasts. Saying "gone for good" of both would be a warning
+     * that is false half the times it is shown, and a buyer who acted on it
+     * would decline an Upgrade for a reason that did not apply to them.
+     */
     situation: string;
     /** The box's own words, the same in both situations. */
     label: string;
-    /** What ticking it costs, and what leaving it alone keeps. */
+    /** What leaving it alone keeps — the one line true in both situations. */
     hint: string;
   };
 }) {
   return (
-    <div className="space-y-2">
-      <h3 className="text-sm font-medium">{labels.title}</h3>
-      <p className="text-sm text-muted-foreground">{labels.situation}</p>
+    <div className="space-y-3 rounded-lg border bg-muted/40 p-3">
+      <div className="space-y-1">
+        <p className="text-sm font-medium">{labels.title}</p>
+        {/* Which free Ticket this is about, said before the box asks about it. */}
+        <p className="text-sm text-muted-foreground">{labels.situation}</p>
+      </div>
       <label
         htmlFor="upgrade-elected"
-        className="flex items-start gap-3 rounded-lg border p-3 text-sm"
+        className="flex items-start gap-3 rounded-lg border bg-background p-3 text-sm"
       >
         <input
           id="upgrade-elected"

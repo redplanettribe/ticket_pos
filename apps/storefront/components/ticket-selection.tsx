@@ -24,15 +24,15 @@ import { useMemo, useState, type FormEvent } from "react";
 
 import { CheckoutAnswers } from "@/components/checkout-answers";
 import { ConsentCheckbox } from "@/components/consent-checkbox";
-import { UpgradePrompt } from "@/components/upgrade-prompt";
 import { SignInOtherAddressButton } from "@/components/sign-in-other-address-button";
+import { UpgradePrompt } from "@/components/upgrade-prompt";
 import { useFormatLocale } from "@/i18n/format-locale";
 import { Link, usePathname } from "@/i18n/navigation";
 import type { BeginCheckoutResult, PrivacyPolicy, PublicTicketType, Terms } from "@/lib/api";
 import {
   checkoutAnswerBodies,
   ownTicketSlot,
-  upgradePrompt,
+  upgradeOffer,
   type AnswerValues,
 } from "@/lib/checkout-answers";
 import {
@@ -187,7 +187,7 @@ type TicketSelectionProps = {
    * half of whether the Upgrade Prompt is drawn.
    *
    * NULL IS THE ANONYMOUS READ and never 0: the page was fetched without a
-   * Customer Session, so nobody's earlier Sales were counted. upgradePrompt
+   * Customer Session, so nobody's earlier Sales were counted. upgradeOffer
    * draws nothing on a null, which is also the right answer for a visitor who
    * has not met the sign-in wall yet — they are sent through it before they can
    * buy, and the page they come back to is read with their session.
@@ -526,7 +526,12 @@ export function TicketSelection({
   // 0074). Recomputed with the quantities, so changing the cart can withdraw an
   // offer that no longer makes sense — and withdrawing it is also what stops a
   // tick made against an older cart from travelling.
-  const upgrade = upgradePrompt(ticketTypes, quantities, surrenderableFreeTickets);
+  const upgrade = upgradeOffer(
+    ticketTypes,
+    quantities,
+    surrenderableFreeTickets,
+    buyerHoldsFirstTicket,
+  );
 
   const count = totalQuantity(quantities);
   const total = totalCents(ticketTypes, quantities);
@@ -1356,7 +1361,7 @@ export function TicketSelection({
               : null}
               {/*
                 The Upgrade Prompt (#652, ADR 0074), drawn where the platform
-                offers one and nowhere else — the arithmetic is upgradePrompt's
+                offers one and nowhere else — the arithmetic is upgradeOffer's
                 and this line only asks it.
 
                 It sits BESIDE the answer section and above consent, among the

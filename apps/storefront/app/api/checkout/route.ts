@@ -317,9 +317,13 @@ export async function POST(request: Request) {
         // IT IS NOT A GATE AND CANNOT BECOME ONE. Unlike the five above, nothing
         // downstream can refuse this checkout over it: the API re-judges
         // eligibility inside the commit's transaction and ignores an election it
-        // did not offer. So there is nothing for this hop to guess at, and
-        // nothing a browser could send here that costs anybody a Ticket they did
-        // not ask to give up.
+        // did not offer. So there is nothing for this hop to guess at.
+        //
+        // A hand-written `true` is not a hole, either. Eligibility is judged
+        // against the Customer Session this request already carries, and the
+        // only Ticket it can ever surrender is one of that Customer's OWN free
+        // ones — so a forged body can cost nobody but the person sending it, and
+        // costs them a Ticket they could give up from their own account anyway.
         ...(typeof body.upgrade_elected === "boolean"
           ? { upgrade_elected: body.upgrade_elected }
           : {}),

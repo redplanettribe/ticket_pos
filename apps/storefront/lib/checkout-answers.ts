@@ -195,8 +195,16 @@ export function ownTicketSlot(
   return { ticketTypeId: own.id, ticketTypeName: own.name, index: 1, questions };
 }
 
-/** The Upgrade Prompt, as the dialog needs it: whether to draw it, and about what. */
-export type UpgradePrompt = {
+/**
+ * An Upgrade this checkout may offer, and the free Ticket it is about.
+ *
+ * AN OFFER AND NOT THE PROMPT. The Upgrade Prompt is the control that draws this
+ * (components/upgrade-prompt.tsx); this is the platform's answer to "is there an
+ * Upgrade to offer here at all", which is a different thing and belongs on this
+ * side of the framework line. Naming both of them after the glossary's term
+ * would leave two exports a case apart in the file that imports both.
+ */
+export type UpgradeOffer = {
   /**
    * The cart line the buyer gives up by electing, or NULL when the free Ticket
    * in play is on an earlier Sale and the cart holds none.
@@ -218,7 +226,7 @@ export type UpgradePrompt = {
 };
 
 /**
- * upgradePrompt decides whether the checkout offers an Upgrade, and about which
+ * upgradeOffer decides whether the checkout offers an Upgrade, and about which
  * free Ticket (ADR 0074, #652).
  *
  * THIS RESTATES A BACKEND RULE, AND IT IS THE ONE PLACE IN THE FEATURE WHERE
@@ -246,8 +254,19 @@ export type UpgradePrompt = {
  * it costs a buyer nothing but the offer. That asymmetry is why the rule may
  * live in two places at all.
  *
- * Three things must hold, and each is a case ADR 0074 argued:
+ * Four things must hold, and each is a case ADR 0074 argued:
  *
+ *   - TICKET ASSIGNMENT IS OPEN, which `buyerHoldsFirstTicket` is the published
+ *     spelling of. THIS IS NOT REDUNDANT WITH THE COUNT, and the trap is worth
+ *     naming: a dark build answers the count 0 rather than null, so `0 + one
+ *     free line in the cart === 1` and this function would otherwise offer. The
+ *     commit gates separately on its own spelling of the same flag
+ *     (`Terms.SelfHeld`) and would silently drop the election — leaving a buyer
+ *     who ticked "give up the free one" holding both, having been told
+ *     otherwise. Nothing is self-held in that build, so nothing is surrenderable
+ *     and there is nothing to offer; the backend's own SurrenderableFreeTickets
+ *     says a caller gating on neither flag "would be a build offering what it
+ *     cannot perform", and this is the surface it meant.
  *   - THE CART HOLDS SOMETHING PAID. An Upgrade is free to paid, so without a
  *     paid Ticket to move onto there is nothing to elect. The backend's
  *     OffersUpgrade deliberately does not carry this precondition, leaving it to
@@ -264,11 +283,13 @@ export type UpgradePrompt = {
  * Tickets. Since exactly one free Ticket in the cart is therefore exactly one
  * free LINE, naming the line and naming the Ticket are the same act here.
  */
-export function upgradePrompt(
+export function upgradeOffer(
   ticketTypes: AnsweredTicketType[],
   quantities: Record<string, number>,
   surrenderableFreeTickets: number | null,
-): UpgradePrompt | null {
+  buyerHoldsFirstTicket: boolean,
+): UpgradeOffer | null {
+  if (!buyerHoldsFirstTicket) return null;
   if (surrenderableFreeTickets === null) return null;
 
   let freeInBasket = 0;

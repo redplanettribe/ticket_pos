@@ -292,10 +292,10 @@
     },
     "upgrade": {
       "title": "Your free ticket",
-      "inBasket": "You're buying a free ticket and a paid one.",
-      "earlier": "You already have a free ticket for this event.",
+      "inBasket": "You're buying a free ticket and a paid one. Tick the box and we'll leave the free one out of your order — you can come back for it later, while tickets last.",
+      "earlier": "You already have a free ticket for this event. Tick the box and you give it up when you pay, for good: it cannot be brought back.",
       "label": "I only want the paid ticket — give up the free one",
-      "hint": "Tick this only if the paid ticket takes the place of the free one. The free ticket is then given up for good and cannot be brought back. Leave it unticked and you keep both."
+      "hint": "Leave it unticked and you keep both."
     },
     "consent": {
       "notice": "How we handle your data",
