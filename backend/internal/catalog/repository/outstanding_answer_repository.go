@@ -1073,7 +1073,7 @@ func (r *Repository) ListHolderTickets(
 	// The page's own two arguments, appended AFTER the filters' so the numbering
 	// depends on how many filters were active rather than on a constant nobody
 	// remembers to update.
-	roster, _ := holderRosterSelect(q)
+	roster := holderRosterSelect(q, where)
 	pageArgs := append(append([]any{}, args...), q.Limit, q.Offset)
 	rows, err := r.db.Pool.QueryContext(ctx,
 		roster+fmt.Sprintf("\n\t\tLIMIT $%d OFFSET $%d", len(args)+1, len(args)+2), pageArgs...)
@@ -1094,15 +1094,17 @@ func (r *Repository) ListHolderTickets(
 }
 
 // holderRosterSelect is the roster's whole read - its columns, its joins, its
-// WHERE and its ORDER BY - with no page on it, and the arguments it binds.
+// WHERE and its ORDER BY - with no page on it.
 //
 // ONE STATEMENT FOR THE SCREEN AND THE FILE. The Holder List pages it and the
 // Holder Export reads it through a cursor to the end (ADR 0075), and neither
 // assembles a second copy: "the file mirrors the view" is a promise only one
 // query can keep.
-func holderRosterSelect(q ListHolderTicketsQuery) (string, []any) {
-	where, args := holderRosterFilters(q)
-
+//
+// THE WHERE IS THE CALLER'S, from its own holderRosterFilters(q) call, and binds
+// that call's arguments: the Holder List counts its view with the same WHERE it
+// pages, so one call describes both and they cannot drift apart.
+func holderRosterSelect(q ListHolderTicketsQuery, where string) string {
 	// THE ORDER, AND THE ONE JOIN THAT ONLY AN ORDER NEEDS (#527). holderOrderBy
 	// resolves the sort against its allowlist — an unrecognised key is the
 	// default order, never an error — and says whether the debt-count join has
@@ -1129,7 +1131,7 @@ func holderRosterSelect(q ListHolderTicketsQuery) (string, []any) {
 		       s.customer_id, tk.holder_customer_id
 	` + holderRosterFrom + holderRosterHolderJoin + owesJoin + `
 		WHERE ` + where + `
-		` + orderBy, args
+		` + orderBy
 }
 
 // scanHolderTicket reads one row of holderRosterSelect.
