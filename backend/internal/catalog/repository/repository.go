@@ -407,7 +407,11 @@ func (r *Repository) NextTicketTypeSortOrder(ctx context.Context, eventID string
 
 // ListTicketTypesByEventID returns Ticket Types for an Event ordered by sort_order.
 func (r *Repository) ListTicketTypesByEventID(ctx context.Context, orgID, eventID string) ([]TicketType, error) {
-	rows, err := r.db.Pool.QueryContext(ctx, `
+	return listTicketTypesByEventID(ctx, r.db.Pool, orgID, eventID)
+}
+
+func listTicketTypesByEventID(ctx context.Context, q querier, orgID, eventID string) ([]TicketType, error) {
+	rows, err := q.QueryContext(ctx, `
 		SELECT `+ticketTypeColumns+`
 		FROM ticket_types
 		WHERE event_id = $1 AND organization_id = $2

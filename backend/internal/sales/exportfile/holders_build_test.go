@@ -20,7 +20,7 @@ type HolderRoster struct {
 // memory, so these tests read exactly the bytes a download carries.
 func BuildHolderExport(roster HolderRoster, loc *time.Location, info HolderInfo) ([]byte, error) {
 	var buf bytes.Buffer
-	export, err := BeginHolderExport(&buf, HolderColumns{Questions: roster.Questions, Assignment: roster.Assignment}, loc)
+	export, err := BeginHolderExport(&buf, HolderColumns{Questions: roster.Questions, Assignment: roster.Assignment}, loc, info.GeneratedAt)
 	if err != nil {
 		return nil, err
 	}

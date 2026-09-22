@@ -2,11 +2,18 @@ package service
 
 import (
 	"context"
+	"database/sql"
+	"database/sql/driver"
 	"errors"
+	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/catalog/repository"
@@ -19,8 +26,8 @@ import (
 //
 // IT IS THE SAME QUERY THE SCREEN RAN. The rows come from the statement
 // repository.ListHolderTickets pages, with the same filters, the same sort and the
-// same honoured-filter treatment as ListHolderList — read to the end through a
-// cursor instead of a page at a time (ADR 0075) — because "the file mirrors the
+// same honoured-filter treatment as ListHolderList - read to the end through a
+// cursor instead of a page at a time (ADR 0075) - because "the file mirrors the
 // view" is a promise only one code path can keep. A second query built for the file could be built
 // differently, and the day it was, a person would forward a spreadsheet that
 // disagreed with the screen they took it from and neither of them would say so.
@@ -105,6 +112,17 @@ func (s *Service) WithHolderExportPause(pause func(ctx context.Context, rowsWrit
 	return s
 }
 
+// WithHolderExportDeadline overrides how long one Holder Export may stream
+// (tests). Zero, the default, is holderExportDeadline.
+//
+// IT EXISTS BECAUSE THE DEADLINE'S BEHAVIOUR HAS TO BE SEEN, not assumed: a
+// client that stops reading must be let go when it passes, and a test cannot
+// wait 290 seconds to watch that happen.
+func (s *Service) WithHolderExportDeadline(d time.Duration) *Service {
+	s.holderExportDeadline = d
+	return s
+}
+
 // ExportHolderList streams the Event's Holder List as an .xlsx, narrowed and
 // ordered by exactly the filters the list was showing (ADR 0075).
 //
@@ -123,19 +141,23 @@ func (s *Service) WithHolderExportPause(pause func(ctx context.Context, rowsWrit
 //
 // start IS CALLED EXACTLY ONCE, AND ONLY WHEN THE FILE IS READY TO BEGIN: the
 // snapshot is open and the roster's first batch has been read. It is given the
-// filename and returns where the bytes go. An error returned before start was
-// called is an ordinary refusal and the caller answers it with the standard
-// envelope; an error after it means the response is already a 200 with a file
-// part way down the wire, and the only honest thing left is to abort it. The
-// file is never finished on a failure, so a cut download is bytes no
-// spreadsheet program will open - never a short, well-formed roster.
+// filename and the moment the export's deadline passes, and returns where the
+// bytes go. The deadline is the caller's to put on the connection, so a write
+// blocked on a client that stopped reading gives up when the export does; if
+// the caller cannot do that it returns an error, and the export is refused
+// before its first byte rather than streamed without one. An error returned
+// before start succeeded is an ordinary refusal and the caller answers it with
+// the standard envelope; an error after it means the response is already a 200
+// with a file part way down the wire, and the only honest thing left is to
+// abort it. The file is never finished on a failure, so a cut download is bytes
+// no spreadsheet program will open - never a short, well-formed roster.
 func (s *Service) ExportHolderList(
 	ctx context.Context,
 	actor ActorContext,
 	eventID string,
 	params ListHolderListParams,
-	start func(filename string) io.Writer,
-) error {
+	start func(filename string, deadline time.Time) (io.Writer, error),
+) (err error) {
 	event, err := s.holderListAvailable(ctx, actor, eventID)
 	if err != nil {
 		return err
@@ -159,8 +181,9 @@ func (s *Service) ExportHolderList(
 	}
 	defer s.releaseHolderExport()
 
-	ctx, cancel := context.WithTimeout(ctx, holderExportDeadline)
+	ctx, cancel := context.WithTimeout(ctx, s.holderExportTimeout())
 	defer cancel()
+	deadline, _ := ctx.Deadline()
 
 	// ONE SNAPSHOT FOR THE WHOLE FILE. The generation time is taken as it opens,
 	// and it is what the Info sheet and the filename state: the file is the
@@ -184,6 +207,13 @@ func (s *Service) ExportHolderList(
 		}
 	}
 	columns, fansOut, optionLabels := holderExportQuestionColumns(questions)
+
+	// The filtered Ticket Type's name, for the Info sheet, read inside the same
+	// snapshot as everything else.
+	ticketTypeName, err := holderExportTicketTypeName(ctx, snapshot, actor.OrganizationID, eventID, honoured.TicketTypeID)
+	if err != nil {
+		return err
+	}
 
 	// IT IS THE SAME QUERY THE SCREEN RAN, with no page on it.
 	if err := snapshot.OpenRoster(ctx, repository.ListHolderTicketsQuery{
@@ -219,8 +249,8 @@ func (s *Service) ExportHolderList(
 			OwingOnly: honoured.OwingOnly,
 			// BY NAME AND BY WORDING WHERE THEY CAN BE RESOLVED, AND BY ID WHERE
 			// THEY CANNOT. The reader never saw an id, so the label is what the
-			// sheet prints — but resolving one is a READ, and a read can fail or
-			// come back without the row (a stale bookmark's id, another Event's).
+			// sheet prints - but a stale bookmark's id, or another Event's, names
+			// nothing here and resolves to no label at all.
 			//
 			// THE ID TRAVELS ALONGSIDE, ALWAYS, whenever the filter was honoured.
 			// Passing only the label meant a blank label became a SILENT filter:
@@ -236,7 +266,7 @@ func (s *Service) ExportHolderList(
 			QuestionLabel:   holderExportQuestionLabel(questions, honoured.QuestionID),
 			QuestionID:      honoured.QuestionID,
 			AssignmentState: honoured.AssignmentState,
-			TicketTypeName:  s.holderExportTicketTypeName(ctx, actor.OrganizationID, eventID, honoured.TicketTypeID),
+			TicketTypeName:  ticketTypeName,
 			TicketTypeID:    honoured.TicketTypeID,
 			Channel:         honoured.Channel,
 			SoldFrom:        honoured.SoldFrom,
@@ -250,21 +280,38 @@ func (s *Service) ExportHolderList(
 		},
 	}
 
+	// THE RESPONSE BEGINS. Everything above could still be refused with an
+	// envelope, and so can a caller that cannot hold the connection to the
+	// deadline. The headers carry no personal data; the rows do, and none is
+	// written before the started line below.
+	out, err := start(holderExportFilename(event.Slug, generatedAt.In(loc)), deadline)
+	if err != nil {
+		return err
+	}
+	// The sink remembers whether a write to the response failed, which is how a
+	// client that went away is told apart from a database that did.
+	sink := &holderExportSink{w: out}
+
 	// THE ONE RECORD THAT A COPY OF THIS EVENT'S ATTENDEES LEFT THE BUILDING,
 	// now in two lines (ADR 0075).
 	//
-	// There is no audit table behind them — that implies a reading surface, a
+	// There is no audit table behind them - that implies a reading surface, a
 	// retention policy and an access rule, and should be designed once across the
 	// platform's personal-data reads rather than growing out of this feature. So
 	// these lines are the whole answer to "who pulled the guest list", and it is
 	// not a question that can be answered retroactively.
 	//
-	// "STARTED" IS WRITTEN BEFORE THE FIRST BYTE, because personal data leaves
+	// "STARTED" IS WRITTEN BEFORE THE FIRST ROW, because personal data leaves
 	// with the first chunk and not with the last, and it is the only line that
 	// survives every way a stream can die - a deploy, a scale-down, the process
 	// killed under it. A request refused before this point writes neither line,
 	// because nothing was taken. "FINISHED" says how it ended and how many rows
-	// went.
+	// were produced, and is written on every way out of here from this point on,
+	// a panic included; see logHolderExportFinished.
+	//
+	// THE REQUEST ID IS ON BOTH, as the key that joins them to each other and to
+	// the request line: two colleagues downloading the same Event at once are two
+	// started lines that differ in nothing else.
 	//
 	// THE FILTERS ARE THE HONOURED ONES, for the reason the Info sheet's are: a
 	// line naming `assignment_state=accepted` beside a roster that is the whole
@@ -274,10 +321,11 @@ func (s *Service) ExportHolderList(
 	// THE FREE-TEXT SEARCH IS A BOOLEAN AND NEVER ITS VALUE, on either line. It
 	// matches a buyer's name and email address, the Sale Confirmation reference
 	// and an accepted Holder's name and address, so a support lookup for one
-	// attendee puts that attendee's address into the filter — and a log
+	// attendee puts that attendee's address into the filter - and a log
 	// aggregator typically has broader access and longer retention than the
 	// database it would be copied out of.
 	who := []any{
+		"request_id", platform.RequestID(ctx),
 		"member_id", actor.MemberID,
 		"organization_id", actor.OrganizationID,
 		"event_id", eventID,
@@ -295,53 +343,95 @@ func (s *Service) ExportHolderList(
 		"search", searched,
 	)...)
 
-	// THE FIRST BYTE. Everything above could still be refused with an envelope;
-	// from here on, a failure can only abort. The sink remembers whether a write
-	// to the response failed, which is how a client that went away is told apart
-	// from a database that did.
-	sink := &holderExportSink{w: start(holderExportFilename(event.Slug, generatedAt.In(loc)))}
-	rows, err := s.streamHolderExport(ctx, snapshot, sink, batch, exportfile.HolderColumns{
+	var export *exportfile.HolderExport
+	defer func() {
+		// recover() only stops a panic when called directly by the deferred
+		// function, so it is here and the logging is a call away. The panic is
+		// raised again untouched: recording it is this function's business,
+		// handling it is not.
+		recovered := recover()
+		rows := 0
+		if export != nil {
+			rows = export.Rows()
+		}
+		s.logHolderExportFinished(ctx, who, rows, err, sink.err, recovered)
+		if recovered != nil {
+			panic(recovered)
+		}
+	}()
+
+	export, err = exportfile.BeginHolderExport(sink, exportfile.HolderColumns{
 		Questions: columns,
 		// THE FLAG AND NOT THE DATA decides whether the file carries the Holder
 		// block, exactly as it decides whether the Sales Export's per-Ticket sheet
 		// carries its four (ADR 0045). With assignment closed the columns are
 		// absent on every Event, not merely empty.
 		Assignment: s.ticketAssignmentEnabled,
-	}, len(questions) > 0, fansOut, optionLabels, loc, info)
+	}, loc, generatedAt)
 	if err != nil {
-		s.logger.Info("holder export finished", append(who,
-			"outcome", "aborted",
-			"row_count", rows,
-			"reason", holderExportAbortReason(ctx, sink.err),
-			"error", err.Error(),
-		)...)
 		return err
 	}
-	s.logger.Info("holder export finished", append(who,
-		"outcome", "completed",
-		"row_count", rows,
-	)...)
-	return nil
+	return s.streamHolderExport(ctx, snapshot, export, batch, len(questions) > 0, fansOut, optionLabels, info)
 }
 
-// streamHolderExport writes the file from the roster's first batch to the end
-// and returns how many rows it wrote, whether or not it finished.
+// holderExportTimeout is how long this service lets one Holder Export stream.
+func (s *Service) holderExportTimeout() time.Duration {
+	if s.holderExportDeadline > 0 {
+		return s.holderExportDeadline
+	}
+	return holderExportDeadline
+}
+
+// logHolderExportFinished writes the "holder export finished" line for an
+// export that had begun, however it ended: err is what it returned, writeErr
+// the first write to the response that failed, and recovered a panic's value,
+// or nil.
+//
+// A COMPLETED EXPORT IS INFO AND ANY OTHER IS WARN: a finished file is routine,
+// and a cut one is somebody's failed download that may need explaining.
+//
+// row_count IS ROWS PRODUCED, NOT ROWS DELIVERED. It counts the rows handed to
+// the file's encoder, and a row is in there before it has been compressed,
+// flushed or read by anybody; on an abort some of the last of them never left
+// this process. For a completed export the two are the same.
+//
+// AN ABORT RECORDS A REASON AND A CLASS, NEVER THE ERROR'S TEXT. The text of a
+// failed write names the client's address and port, and an error wrapped
+// further up could carry whatever its wrapper put in it - on the one line whose
+// whole purpose is to be kept.
+func (s *Service) logHolderExportFinished(
+	ctx context.Context, who []any, rows int, err, writeErr error, recovered any,
+) {
+	if err == nil && recovered == nil {
+		s.logger.Info("holder export finished", append(who,
+			"outcome", "completed",
+			"row_count", rows,
+		)...)
+		return
+	}
+	reason, class := holderExportAbortReason(ctx, writeErr), holderExportErrorClass(err)
+	if recovered != nil {
+		reason, class = holderExportAbortPanic, fmt.Sprintf("panic %T", recovered)
+	}
+	s.logger.Warn("holder export finished", append(who,
+		"outcome", "aborted",
+		"row_count", rows,
+		"reason", reason,
+		"error_class", class,
+	)...)
+}
+
+// streamHolderExport writes the file from the roster's first batch to the end.
 func (s *Service) streamHolderExport(
 	ctx context.Context,
 	snapshot *repository.HolderRosterSnapshot,
-	w io.Writer,
+	export *exportfile.HolderExport,
 	batch []repository.HolderTicket,
-	columns exportfile.HolderColumns,
 	asked bool,
 	fansOut map[string]bool,
 	optionLabels map[string]string,
-	loc *time.Location,
 	info exportfile.HolderInfo,
-) (int, error) {
-	export, err := exportfile.BeginHolderExport(w, columns, loc)
-	if err != nil {
-		return 0, err
-	}
+) error {
 	s.pauseHolderExport(ctx, 0)
 
 	for len(batch) > 0 {
@@ -357,7 +447,7 @@ func (s *Service) streamHolderExport(
 			}
 			answers, err := snapshot.ListTicketAnswers(ctx, ticketIDs)
 			if err != nil {
-				return export.Rows(), err
+				return err
 			}
 			for _, answer := range answers {
 				answersByTicket[answer.TicketID] = append(answersByTicket[answer.TicketID], answer)
@@ -365,17 +455,18 @@ func (s *Service) streamHolderExport(
 		}
 		for _, row := range s.buildHolderExportRows(batch, answersByTicket, fansOut, optionLabels) {
 			if err := export.Append(row); err != nil {
-				return export.Rows(), err
+				return err
 			}
 		}
 		s.pauseHolderExport(ctx, export.Rows())
+		var err error
 		if batch, err = snapshot.NextTickets(ctx); err != nil {
-			return export.Rows(), err
+			return err
 		}
 	}
 
 	// Last, so the row count the Info sheet states is the rows written.
-	return export.Rows(), export.Finish(info)
+	return export.Finish(info)
 }
 
 // holderExportSink is the response, remembering the first write that failed.
@@ -397,24 +488,67 @@ const (
 	holderExportAbortClientGone = "client_gone"
 	holderExportAbortDeadline   = "deadline"
 	holderExportAbortDatabase   = "database_error"
+	holderExportAbortPanic      = "panic"
 )
 
 // holderExportAbortReason says why a stream that had begun did not finish,
 // from the export's own context and the first failed write to the response.
 //
 // THE DEADLINE IS ASKED FIRST, because once it passes every read fails with
-// it and the client may be gone too; it is the cause and they are symptoms.
+// it and the client may be gone too; it is the cause and they are symptoms. It
+// arrives one of two ways: the export's context expiring, or a write to a
+// client that stopped reading timing out on the connection's write deadline,
+// which is set to the same moment. The second is not the context's deadline
+// even then: a failed write cancels the request, so the context reads as
+// cancelled, and only the write's own error says it was the clock.
+//
 // Then the client: a cancelled request is one the client abandoned, and a write
 // that failed is one whose reader is no longer there. Anything else broke on
 // the database side, which is the only other thing the stream reads from.
 func holderExportAbortReason(ctx context.Context, writeErr error) string {
 	switch {
-	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+	case errors.Is(ctx.Err(), context.DeadlineExceeded), errors.Is(writeErr, os.ErrDeadlineExceeded):
 		return holderExportAbortDeadline
 	case ctx.Err() != nil, writeErr != nil:
 		return holderExportAbortClientGone
 	default:
 		return holderExportAbortDatabase
+	}
+}
+
+// holderExportErrorClass names the kind of error an export ended on, in words
+// that carry nothing of the error's own text: a context's end, a connection's
+// deadline, reset or closed pipe, a Postgres SQLSTATE, or - for anything it does
+// not recognise - the Go type of the innermost error, which is a name in this
+// program's source and never data.
+func holderExportErrorClass(err error) string {
+	var pgErr *pgconn.PgError
+	switch {
+	case err == nil:
+		return "none"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "context_deadline_exceeded"
+	case errors.Is(err, context.Canceled):
+		return "context_canceled"
+	case errors.Is(err, os.ErrDeadlineExceeded):
+		return "write_deadline_exceeded"
+	case errors.Is(err, syscall.EPIPE):
+		return "broken_pipe"
+	case errors.Is(err, syscall.ECONNRESET):
+		return "connection_reset"
+	case errors.As(err, &pgErr):
+		return "postgres " + pgErr.Code
+	case errors.Is(err, driver.ErrBadConn), errors.Is(err, sql.ErrConnDone):
+		return "database_connection_lost"
+	case errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, io.EOF):
+		return "unexpected_eof"
+	}
+	for {
+		inner := errors.Unwrap(err)
+		if inner == nil {
+			return fmt.Sprintf("%T", err)
+		}
+		err = inner
 	}
 }
 
@@ -569,10 +703,12 @@ func holderExportAnswer(
 		out.Checked = &checked
 	}
 	// The number arrives as the text the NUMERIC column holds, and becomes a real
-	// number for the cell. A value too wide for a float64 is left BLANK rather than
-	// written rounded: a cell that quietly disagrees with what somebody typed is
-	// worse than one a reader can see is missing. Nothing catalog accepts can reach
-	// here, so this is a guard rather than a case.
+	// number for the cell. A value with more significant digits than a float64
+	// holds - 12345678901234567890, say - is written ROUNDED to the nearest
+	// float64, because that is all an Excel number cell can hold either: the
+	// spreadsheet would round it on the way in whatever this wrote. Only a
+	// magnitude past float64's range (about 1.8e308), which ParseFloat refuses,
+	// is left blank.
 	if answer.Number.Valid {
 		if parsed, err := strconv.ParseFloat(answer.Number.String, 64); err == nil {
 			out.Number = &parsed
@@ -616,34 +752,38 @@ func holderExportQuestionLabel(questions []repository.EventTicketQuestion, quest
 // sheet prints, or "" when nothing was filtered or the id names no Ticket Type of
 // this Event.
 //
-// IT COSTS A QUERY ONLY WHEN THE FILTER IS SET, which is why it is a method and
-// not a lookup over a list read unconditionally: unlike the Sales Export, this
-// file has no per-Ticket-Type columns and therefore no other reason to read the
-// catalog at all. An unfiltered download should not pay for a read whose only
-// output would be a line the sheet does not print.
+// IT COSTS A QUERY ONLY WHEN THE FILTER IS SET, which is why it is a function
+// and not a lookup over a list read unconditionally: unlike the Sales Export,
+// this file has no per-Ticket-Type columns and therefore no other reason to read
+// the catalog at all. An unfiltered download should not pay for a read whose
+// only output would be a line the sheet does not print.
 //
-// A FAILED READ IS NOT A FAILED EXPORT. The name is a sentence on a cover sheet;
-// losing it costs the reader one line and losing the file costs them the roster.
-// THAT TOLERANCE IS NOT A LICENCE TO GO QUIET, though, which is what it had
-// become: the Info sheet drew its Ticket Type line from this name alone, so a
-// transient catalog failure produced a genuinely filtered file whose cover said
-// no filters were applied. The failure is still swallowed here — the export is
-// still produced — and the caller passes the ID alongside, so the sheet says the
-// file is narrowed even on the day it cannot say to what.
-func (s *Service) holderExportTicketTypeName(ctx context.Context, orgID, eventID, ticketTypeID string) string {
+// IT READS INSIDE THE SNAPSHOT, like every other read the file makes, so the
+// name the cover states is the name at the moment the roster is (ADR 0075).
+//
+// A FAILED READ IS A FAILED EXPORT, which it was not before the snapshot. The
+// name is only a sentence on a cover sheet, but a statement that fails inside a
+// Postgres transaction aborts the transaction, and every read after it - the
+// roster included - would fail too. It fails before the first byte, so it is
+// an ordinary refusal. An id naming nothing on this Event is not a failure: it
+// resolves to "", and the caller passes the id alongside, so the sheet says the
+// file is narrowed even when it cannot say to what.
+func holderExportTicketTypeName(
+	ctx context.Context, snapshot *repository.HolderRosterSnapshot, orgID, eventID, ticketTypeID string,
+) (string, error) {
 	if ticketTypeID == "" {
-		return ""
+		return "", nil
 	}
-	types, err := s.repo.ListTicketTypesByEventID(ctx, orgID, eventID)
+	types, err := snapshot.ListTicketTypesByEventID(ctx, orgID, eventID)
 	if err != nil {
-		return ""
+		return "", err
 	}
 	for _, tt := range types {
 		if tt.ID == ticketTypeID {
-			return tt.Name
+			return tt.Name, nil
 		}
 	}
-	return ""
+	return "", nil
 }
 
 // holderExportFilename names a Holder Export after its Event and the day it was

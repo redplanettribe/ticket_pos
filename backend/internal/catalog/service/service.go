@@ -335,6 +335,9 @@ type Service struct {
 	// holderExportPause is the Holder Export's test-only pause point; see
 	// WithHolderExportPause. Nil in production.
 	holderExportPause func(ctx context.Context, rowsWritten int)
+	// holderExportDeadline overrides holderExportDeadline when non-zero; see
+	// WithHolderExportDeadline. Zero in production.
+	holderExportDeadline time.Duration
 	// holderExports counts the Holder Exports streaming on this instance; see
 	// holderExportConcurrency. The zero value is none.
 	holderExports struct {

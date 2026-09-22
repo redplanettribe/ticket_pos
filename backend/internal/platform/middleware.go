@@ -50,6 +50,13 @@ func (r *statusRecorder) WriteHeader(status int) {
 	r.ResponseWriter.WriteHeader(status)
 }
 
+// Unwrap hands http.ResponseController the connection's own writer, without
+// which a handler behind this middleware cannot set a write deadline or flush:
+// the Holder Export sets one so a client that stops reading is let go (ADR 0075).
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}
+
 func newRequestID() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {

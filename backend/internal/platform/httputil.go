@@ -80,9 +80,28 @@ func WriteDomainError(w http.ResponseWriter, requestID string, err error) error 
 	var domainErr apperror.DomainError
 	if errors.As(err, &domainErr) {
 		status := domainHTTPStatus(domainErr.Code())
+		if after := domainRetryAfter(domainErr.Code()); after != "" {
+			w.Header().Set("Retry-After", after)
+		}
 		return WriteHandlerError(w, requestID, status, domainErr.Code(), domainErr.Message(), domainErr.Details())
 	}
 	return WriteHandlerError(w, requestID, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred", nil)
+}
+
+// domainRetryAfter is the Retry-After, in seconds, a domain refusal carries, or
+// "" for one that carries none.
+//
+// ONLY A REFUSAL ABOUT CAPACITY GETS ONE, where the same request a moment later
+// is expected to succeed and saying when is useful to the caller. It lives
+// beside the status mapping so a handler never special-cases a code to add it.
+func domainRetryAfter(code string) string {
+	switch code {
+	// Every Holder Export slot on the instance is streaming (ADR 0075). Most
+	// exports finish in seconds, so a few seconds is when a retry is worth it.
+	case "HOLDER_EXPORT_BUSY":
+		return "5"
+	}
+	return ""
 }
 
 func domainHTTPStatus(code string) int {

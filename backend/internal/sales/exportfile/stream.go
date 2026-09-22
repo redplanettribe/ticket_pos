@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
+	"unicode/utf16"
 )
 
 // A STREAMING WORKBOOK WRITER of our own (#657, ADR 0075): one data sheet
@@ -45,16 +45,23 @@ import (
 // few lines use the shared table, as excelize writes them.
 
 // SheetLayout declares a streamed workbook's data sheet: its name, its header
-// row, and the width of every column the header spans.
+// row, and the width of every column the header spans - and the moment every
+// part of the file is stamped with.
 type SheetLayout struct {
 	Name     string
 	Headings []string
 	Width    float64
+	// Modified is the time each zip entry carries, and should be the moment the
+	// file was generated. The zero time leaves the entries at the zip format's
+	// zero date, which an archive tool lists as 1980.
+	Modified time.Time
 }
 
 // Stream is a workbook being written. It is not safe for concurrent use.
 type Stream struct {
 	zip *zip.Writer
+	// modified is the time every zip entry is stamped with.
+	modified time.Time
 	// sheet buffers the data sheet's XML in front of the zip entry's deflater,
 	// so a row is a few large writes to it rather than dozens of tiny ones.
 	sheet   *bufio.Writer
@@ -67,9 +74,10 @@ type Stream struct {
 	finished bool
 }
 
-// maxCellChars is the most characters a cell may hold; longer text is cut to
-// it, as excelize cuts it, rather than written into a file Excel refuses.
-const maxCellChars = 32767
+// maxCellUnits is the most a cell may hold, in UTF-16 code units, which is
+// what Excel counts; longer text is cut to it rather than written into a file
+// Excel refuses. See cutCellText.
+const maxCellUnits = 32767
 
 // The styles every streamed workbook carries, by index into cellXfs; index 0
 // is the default a cell with no s attribute takes.
@@ -85,7 +93,7 @@ func BeginStream(w io.Writer, layout SheetLayout) (*Stream, error) {
 	if len(layout.Headings) == 0 {
 		return nil, errors.New("exportfile: a streamed sheet needs at least one column")
 	}
-	s := &Stream{zip: zip.NewWriter(w), columns: make([]string, len(layout.Headings))}
+	s := &Stream{zip: zip.NewWriter(w), modified: layout.Modified, columns: make([]string, len(layout.Headings))}
 	for i := range layout.Headings {
 		s.columns[i] = columnName(i + 1)
 	}
@@ -102,7 +110,7 @@ func BeginStream(w io.Writer, layout SheetLayout) (*Stream, error) {
 		}
 	}
 
-	entry, err := s.zip.Create(dataSheetPart)
+	entry, err := s.create(dataSheetPart)
 	if err != nil {
 		return nil, err
 	}
@@ -187,6 +195,11 @@ func (s *Stream) row(number int, cells []Cell) {
 func (s *Stream) cell(ref string, c Cell) {
 	switch c.Kind {
 	case CellText:
+		if c.Text == "" {
+			// An empty string is an empty cell, as a CellBlank is: an inline
+			// string holding nothing reads as a value to "is blank".
+			return
+		}
 		s.put(`<c r="` + ref + `" t="inlineStr"><is><t xml:space="preserve">`)
 		s.text(c.Text)
 		s.put(`</t></is></c>`)
@@ -214,14 +227,12 @@ func (s *Stream) cell(ref string, c Cell) {
 	}
 }
 
-// text writes escaped cell text, cut to maxCellChars.
+// text writes escaped cell text, cut to maxCellUnits.
 func (s *Stream) text(v string) {
 	if s.err != nil {
 		return
 	}
-	if utf8.RuneCountInString(v) > maxCellChars {
-		v = string([]rune(v)[:maxCellChars])
-	}
+	v = cutCellText(v)
 	// EscapeText also replaces characters XML cannot carry at all, so a stray
 	// control character somebody typed costs one cell a U+FFFD rather than
 	// costing the whole file its well-formedness.
@@ -239,8 +250,40 @@ func (s *Stream) put(v string) {
 	}
 }
 
+// cutCellText cuts v to at most maxCellUnits UTF-16 code units.
+//
+// UTF-16 AND NOT RUNES, because Excel's limit is in UTF-16 units: a character
+// outside the Basic Multilingual Plane (most emoji) is one rune and two units,
+// so a rune count lets through text Excel refuses. The cut is always on a rune
+// boundary, so a surrogate pair is never split in half; a character built of
+// several runes (an emoji with a skin-tone modifier, a flag) may still be
+// split, which costs its last visible character and not the file.
+func cutCellText(v string) string {
+	// A UTF-8 string is never shorter in bytes than in UTF-16 units.
+	if len(v) <= maxCellUnits {
+		return v
+	}
+	units := 0
+	for i, r := range v {
+		width := utf16.RuneLen(r)
+		if width < 0 {
+			width = 1 // invalid UTF-8, which EscapeText writes as one U+FFFD
+		}
+		if units+width > maxCellUnits {
+			return v[:i]
+		}
+		units += width
+	}
+	return v
+}
+
+// create begins a zip entry stamped with the workbook's modified time.
+func (s *Stream) create(name string) (io.Writer, error) {
+	return s.zip.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Deflate, Modified: s.modified})
+}
+
 func (s *Stream) writePart(name, body string) error {
-	entry, err := s.zip.Create(name)
+	entry, err := s.create(name)
 	if err != nil {
 		return s.fail(err)
 	}

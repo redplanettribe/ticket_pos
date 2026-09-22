@@ -62,6 +62,12 @@ func (s *HolderRosterSnapshot) ListEventTicketQuestions(ctx context.Context, org
 	return listEventTicketQuestions(ctx, s.tx, orgID, eventID)
 }
 
+// ListTicketTypesByEventID is the repository's read of the same name, at the
+// snapshot's moment.
+func (s *HolderRosterSnapshot) ListTicketTypesByEventID(ctx context.Context, orgID, eventID string) ([]TicketType, error) {
+	return listTicketTypesByEventID(ctx, s.tx, orgID, eventID)
+}
+
 // OpenRoster declares the cursor over the roster q names - holderRosterSelect,
 // the Holder List's own statement, with no page on it. Limit and Offset are
 // ignored: the file is the whole view.
