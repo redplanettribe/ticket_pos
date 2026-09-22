@@ -560,6 +560,48 @@ func TestBuildHolderExportQuestionColumnsComeFromTheSharedBuilder(t *testing.T) 
 	}
 }
 
+// The Holder Export writes the same cells as the Sales Export for the two
+// answers a spreadsheet cannot take literally, because both come from the one
+// cell rule: empty text is no cell, and a date before 1900 is its ISO date text.
+func TestBuildHolderExportWritesWhatTheCellRuleDecides(t *testing.T) {
+	longAgo := time.Date(1850, time.January, 1, 0, 0, 0, 0, time.UTC)
+	roster := holderFixture()
+	roster.Questions = []QuestionColumn{
+		{ID: "q-notes", Label: "Notes"},
+		{ID: "q-birthday", Label: "Birthday"},
+	}
+	roster.Tickets[0].Answers = map[string]Answer{
+		"q-notes":    {Text: ptr("")},
+		"q-birthday": {Date: &longAgo},
+	}
+	_, f := buildHolders(t, roster, holderInfoFixture())
+
+	header := holderHeader(t, f)
+	ref := func(heading string) string {
+		t.Helper()
+		for i, h := range header {
+			if h == heading {
+				name, err := excelize.CoordinatesToCellName(i+1, 2)
+				if err != nil {
+					t.Fatalf("cell name: %v", err)
+				}
+				return name
+			}
+		}
+		t.Fatalf("no %q column in %v", heading, header)
+		return ""
+	}
+	if got, _ := f.GetCellType(HolderSheet, ref("Notes")); got != excelize.CellTypeUnset {
+		t.Fatalf("empty text answer written as a cell of type %v, want no cell", got)
+	}
+	if v, _ := f.GetCellValue(HolderSheet, ref("Notes"), excelize.Options{RawCellValue: true}); v != "" {
+		t.Fatalf("empty text answer holds %q, want nothing", v)
+	}
+	if got := holderCell(t, f, 0, "Birthday"); got != "1850-01-01" {
+		t.Fatalf("pre-1900 date answer reads %q, want the ISO date 1850-01-01", got)
+	}
+}
+
 // infoText is the Info sheet flattened to one string, for assertions about what
 // it says rather than about which row says it.
 func infoText(t *testing.T, f *excelize.File) string {

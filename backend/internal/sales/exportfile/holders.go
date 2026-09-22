@@ -518,11 +518,10 @@ func (h *HolderExport) holderState(ticket HolderRow) {
 	h.text(colHolderEmail, ticket.HolderEmail)
 }
 
-// text sets a text cell, leaving an empty value genuinely blank.
+// text sets a text cell by the cell rule, which leaves an empty value
+// genuinely blank.
 func (h *HolderExport) text(key, value string) {
-	if value != "" {
-		h.set(key, Cell{Kind: CellText, Text: value})
-	}
+	h.set(key, TextCell(value))
 }
 
 // set places a cell by column key. Every key comes from the slices the layout

@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf16"
 )
 
 // A STREAMING WORKBOOK WRITER of our own (#657, ADR 0075): one data sheet
@@ -74,11 +73,6 @@ type Stream struct {
 	finished bool
 }
 
-// maxCellUnits is the most a cell may hold, in UTF-16 code units, which is
-// what Excel counts; longer text is cut to it rather than written into a file
-// Excel refuses. See cutCellText.
-const maxCellUnits = 32767
-
 // The styles every streamed workbook carries, by index into cellXfs; index 0
 // is the default a cell with no s attribute takes.
 const (
@@ -121,7 +115,7 @@ func BeginStream(w io.Writer, layout SheetLayout) (*Stream, error) {
 		`" customWidth="1"/></cols><sheetData>`)
 	header := make([]Cell, len(layout.Headings))
 	for i, h := range layout.Headings {
-		header[i] = Cell{Kind: CellText, Text: h}
+		header[i] = TextCell(h)
 	}
 	s.row(1, header)
 	return s, s.err
@@ -191,15 +185,12 @@ func (s *Stream) row(number int, cells []Cell) {
 }
 
 // cell is the streamed sheet's serializer of a Cell: the part of each kind that
-// is about SpreadsheetML and nothing else.
+// is about SpreadsheetML and nothing else. What a value IS - that empty text is
+// a blank, how long text may be, that a date Excel cannot hold is text - is the
+// cell rule's (cell.go), and a Cell arrives here already decided.
 func (s *Stream) cell(ref string, c Cell) {
 	switch c.Kind {
 	case CellText:
-		if c.Text == "" {
-			// An empty string is an empty cell, as a CellBlank is: an inline
-			// string holding nothing reads as a value to "is blank".
-			return
-		}
 		s.put(`<c r="` + ref + `" t="inlineStr"><is><t xml:space="preserve">`)
 		s.text(c.Text)
 		s.put(`</t></is></c>`)
@@ -218,21 +209,22 @@ func (s *Stream) cell(ref string, c Cell) {
 		}
 		serial, ok := excelSerial(c.Date)
 		if !ok {
-			// Before 1900, which Excel has no serial for: written as text, as
+			// Before 1900, which Excel has no serial for. The rule never hands
+			// over such a date (Answer.Cell makes it text), and a sale's moment
+			// cannot be one; if it ever arrives it is written as text, as
 			// excelize writes such a time, rather than as a wrong date.
-			s.cell(ref, Cell{Kind: CellText, Text: c.Date.Format(time.RFC3339Nano)})
+			s.cell(ref, TextCell(c.Date.Format(time.RFC3339Nano)))
 			return
 		}
 		s.put(`<c r="` + ref + `" s="` + strconv.Itoa(style) + `"><v>` + formatNumber(serial) + `</v></c>`)
 	}
 }
 
-// text writes escaped cell text, cut to maxCellUnits.
+// text writes escaped cell text.
 func (s *Stream) text(v string) {
 	if s.err != nil {
 		return
 	}
-	v = cutCellText(v)
 	// EscapeText also replaces characters XML cannot carry at all, so a stray
 	// control character somebody typed costs one cell a U+FFFD rather than
 	// costing the whole file its well-formedness.
@@ -248,33 +240,6 @@ func (s *Stream) put(v string) {
 	if _, err := s.sheet.WriteString(v); err != nil {
 		s.fail(err)
 	}
-}
-
-// cutCellText cuts v to at most maxCellUnits UTF-16 code units.
-//
-// UTF-16 AND NOT RUNES, because Excel's limit is in UTF-16 units: a character
-// outside the Basic Multilingual Plane (most emoji) is one rune and two units,
-// so a rune count lets through text Excel refuses. The cut is always on a rune
-// boundary, so a surrogate pair is never split in half; a character built of
-// several runes (an emoji with a skin-tone modifier, a flag) may still be
-// split, which costs its last visible character and not the file.
-func cutCellText(v string) string {
-	// A UTF-8 string is never shorter in bytes than in UTF-16 units.
-	if len(v) <= maxCellUnits {
-		return v
-	}
-	units := 0
-	for i, r := range v {
-		width := utf16.RuneLen(r)
-		if width < 0 {
-			width = 1 // invalid UTF-8, which EscapeText writes as one U+FFFD
-		}
-		if units+width > maxCellUnits {
-			return v[:i]
-		}
-		units += width
-	}
-	return v
 }
 
 // create begins a zip entry stamped with the workbook's modified time.

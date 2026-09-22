@@ -1,6 +1,9 @@
 package exportfile
 
-import "time"
+import (
+	"time"
+	"unicode/utf16"
+)
 
 // The ONE RULE for what a Ticket Answer looks like as a cell (#656, ADR 0075).
 //
@@ -59,7 +62,7 @@ type Cell struct {
 func (a Answer) Cell() Cell {
 	switch {
 	case a.Text != nil:
-		return Cell{Kind: CellText, Text: *a.Text}
+		return TextCell(*a.Text)
 	case a.Number != nil:
 		// At the precision it was given: a `number` question may be asked for a
 		// headcount or for a measurement, and the schema stores it as
@@ -72,7 +75,14 @@ func (a Answer) Cell() Cell {
 		// day early, which is the bug migration 073's DATE column exists to
 		// prevent. Rebuilt at midnight UTC so no writer reads an offset off it.
 		d := *a.Date
-		return Cell{Kind: CellDate, Date: time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC)}
+		day := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC)
+		if day.Before(firstSerialDay) {
+			// Excel's 1900 date system has no serial for it, so it cannot be a
+			// date cell. It is the calendar date as ISO text: what was typed,
+			// with no time and no zone that nobody typed.
+			return TextCell(day.Format(time.DateOnly))
+		}
+		return Cell{Kind: CellDate, Date: day}
 	case a.Checked != nil:
 		return Cell{Kind: CellBool, Bool: *a.Checked}
 	}
@@ -82,4 +92,54 @@ func (a Answer) Cell() Cell {
 	// and a blank keeps it looking like the Outstanding Answer it would be
 	// indistinguishable from anyway.
 	return Cell{Kind: CellBlank}
+}
+
+// firstSerialDay is the first day Excel's 1900 date system has a serial for.
+var firstSerialDay = time.Date(1900, time.January, 1, 0, 0, 0, 0, time.UTC)
+
+// TextCell is what a piece of text is written as, in either file.
+//
+// EMPTY TEXT IS A BLANK, not a text cell holding nothing: an empty string reads
+// as a value to "is blank", and a reader filtering on "is blank" is asking who
+// left it empty. A Holder's name, a buyer's and an Answer somebody cleared are
+// all written this way, by both writers.
+//
+// Anything longer than Excel's limit is cut to it (see cutCellText), rather
+// than written into a file Excel refuses to open.
+func TextCell(v string) Cell {
+	if v == "" {
+		return Cell{Kind: CellBlank}
+	}
+	return Cell{Kind: CellText, Text: cutCellText(v)}
+}
+
+// maxCellUnits is the most a cell may hold, in UTF-16 code units, which is
+// what Excel counts.
+const maxCellUnits = 32767
+
+// cutCellText cuts v to at most maxCellUnits UTF-16 code units.
+//
+// UTF-16 AND NOT RUNES, because Excel's limit is in UTF-16 units: a character
+// outside the Basic Multilingual Plane (most emoji) is one rune and two units,
+// so a rune count lets through text Excel refuses. The cut is always on a rune
+// boundary, so a surrogate pair is never split in half; a character built of
+// several runes (an emoji with a skin-tone modifier, a flag) may still be
+// split, which costs its last visible character and not the file.
+func cutCellText(v string) string {
+	// A UTF-8 string is never shorter in bytes than in UTF-16 units.
+	if len(v) <= maxCellUnits {
+		return v
+	}
+	units := 0
+	for i, r := range v {
+		width := utf16.RuneLen(r)
+		if width < 0 {
+			width = 1 // invalid UTF-8, which a writer escapes as one U+FFFD
+		}
+		if units+width > maxCellUnits {
+			return v[:i]
+		}
+		units += width
+	}
+	return v
 }
