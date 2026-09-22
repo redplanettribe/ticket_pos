@@ -702,6 +702,17 @@ func TestTheHolderExportLetsAStalledClientGoAtTheDeadline(t *testing.T) {
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("third export status=%d with both slots stalled, want 503; body=%.300s", resp.StatusCode, data)
 	}
+	var busy struct {
+		Data  json.RawMessage `json:"data"`
+		Error *struct {
+			Code string `json:"code"`
+		} `json:"error"`
+		RequestID string `json:"request_id"`
+	}
+	if err := json.Unmarshal(data, &busy); err != nil || string(busy.Data) != "null" ||
+		busy.Error == nil || busy.Error.Code != "HOLDER_EXPORT_BUSY" || busy.RequestID == "" {
+		t.Fatalf("third export refusal = %.300s, want the HOLDER_EXPORT_BUSY envelope", data)
+	}
 	if time.Since(began) >= deadline {
 		t.Fatal("the stalled exports reached their deadline before the refusal was checked; the test proves nothing")
 	}
@@ -797,6 +808,17 @@ func TestTheHolderExportRecordsAndAbortsOnAPanicMidStream(t *testing.T) {
 	}
 	assertAbortLineIsSanitized(t, logs, finished)
 	if strings.Contains(logs.rendered(), "injected mid-stream failure") {
-		t.Errorf("the panic's own message reached the audit line; it carries the class only:\n%s", logs.rendered())
+		t.Errorf("the panic's own message reached the log; only a runtime panic's is logged:\n%s", logs.rendered())
+	}
+	// The panic is still diagnosable: its stack is logged under the request id.
+	panicked := logs.only(t, "holder export panicked")
+	if panicked.level != "error" {
+		t.Errorf("the panic line is %s, want error", panicked.level)
+	}
+	if stack, _ := panicked.arg(t, "stack").(string); !strings.Contains(stack, "streamHolderExport") {
+		t.Errorf("the panic line's stack does not reach the export:\n%s", stack)
+	}
+	if got := panicked.arg(t, "request_id"); got != finished.arg(t, "request_id") {
+		t.Errorf("the panic line's request_id = %v, the finished line's = %v", got, finished.arg(t, "request_id"))
 	}
 }

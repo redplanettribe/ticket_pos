@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -119,7 +121,7 @@ func (s *Service) WithHolderExportPause(pause func(ctx context.Context, rowsWrit
 // client that stops reading must be let go when it passes, and a test cannot
 // wait 290 seconds to watch that happen.
 func (s *Service) WithHolderExportDeadline(d time.Duration) *Service {
-	s.holderExportDeadline = d
+	s.holderExportDeadlineOverride = d
 	return s
 }
 
@@ -376,8 +378,8 @@ func (s *Service) ExportHolderList(
 
 // holderExportTimeout is how long this service lets one Holder Export stream.
 func (s *Service) holderExportTimeout() time.Duration {
-	if s.holderExportDeadline > 0 {
-		return s.holderExportDeadline
+	if s.holderExportDeadlineOverride > 0 {
+		return s.holderExportDeadlineOverride
 	}
 	return holderExportDeadline
 }
@@ -412,6 +414,18 @@ func (s *Service) logHolderExportFinished(
 	reason, class := holderExportAbortReason(ctx, writeErr), holderExportErrorClass(err)
 	if recovered != nil {
 		reason, class = holderExportAbortPanic, fmt.Sprintf("panic %T", recovered)
+		// A PANIC STILL HAS TO BE DIAGNOSABLE, and after the file has begun the
+		// handler turns it into a silent abort, so nothing further out logs it.
+		// Its stack is logged here, under the same request id, as a line of its
+		// own: code locations and never values. The panic's message is logged
+		// only when the runtime wrote it (an index out of range, a nil
+		// dereference), because a panic this program raised could carry
+		// anything its author put in it.
+		fields := append(append([]any{}, who...), "panic_type", fmt.Sprintf("%T", recovered), "stack", string(debug.Stack()))
+		if runtimeErr, ok := recovered.(runtime.Error); ok {
+			fields = append(fields, "panic", runtimeErr.Error())
+		}
+		s.logger.Error("holder export panicked", fields...)
 	}
 	s.logger.Warn("holder export finished", append(who,
 		"outcome", "aborted",
