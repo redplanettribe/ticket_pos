@@ -162,9 +162,12 @@ func registerOperatorRoutes(mux Router, app *App) {
 	h := app.OperatorHandler
 	svc := app.IdentityService
 
+	// A malformed id in an operator path is refused as its resource's 404 once
+	// the caller is known to be an operator (path_ids.go).
+	operatorIDs := requireWellFormedPathIDs(operatorPathIDs)
 	operator := func(handler http.Handler) http.Handler {
 		return identitymiddleware.SessionAuth(svc)(
-			identitymiddleware.RequirePlatformOperator(svc)(handler),
+			identitymiddleware.RequirePlatformOperator(svc)(operatorIDs(handler)),
 		)
 	}
 
@@ -1023,10 +1026,14 @@ func registerStaffRoutes(mux Router, app *App) {
 		identitymiddleware.SessionAuth(svc)(http.HandlerFunc(h.AcceptStaffTermsOnSession)),
 	)
 
+	// Each gate below refuses a malformed id in the path as its resource's 404,
+	// after the gate itself has admitted the caller (path_ids.go).
+	staffIDs := requireWellFormedPathIDs(staffPathIDs)
+
 	orgAdmin := func(handler http.Handler) http.Handler {
 		return identitymiddleware.SessionAuth(svc)(
 			identitymiddleware.LoadActiveMember(svc)(
-				identitymiddleware.RequireOrgAdmin(handler),
+				identitymiddleware.RequireOrgAdmin(staffIDs(handler)),
 			),
 		)
 	}
@@ -1034,7 +1041,7 @@ func registerStaffRoutes(mux Router, app *App) {
 	// member gates a route to any active Member of the organization, regardless of role.
 	member := func(handler http.Handler) http.Handler {
 		return identitymiddleware.SessionAuth(svc)(
-			identitymiddleware.LoadActiveMember(svc)(handler),
+			identitymiddleware.LoadActiveMember(svc)(staffIDs(handler)),
 		)
 	}
 
@@ -1043,7 +1050,7 @@ func registerStaffRoutes(mux Router, app *App) {
 	eventOwnerOrAdmin := func(handler http.Handler) http.Handler {
 		return identitymiddleware.SessionAuth(svc)(
 			identitymiddleware.LoadActiveMember(svc)(
-				identitymiddleware.RequireEventOwnerOrAdmin(handler),
+				identitymiddleware.RequireEventOwnerOrAdmin(staffIDs(handler)),
 			),
 		)
 	}
