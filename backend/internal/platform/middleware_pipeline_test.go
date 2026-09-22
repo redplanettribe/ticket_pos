@@ -239,6 +239,25 @@ func TestRequestPipelineLogsAnAbortBeforeTheFirstByteWithNoStatus(t *testing.T) 
 	}
 }
 
+// An abort is logged at WARN even when the status already sent was a 5xx: the
+// abort is the event the line reports.
+func TestRequestPipelineLogsAnAbortAtWarnWhateverStatusWasSent(t *testing.T) {
+	handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		panic(http.ErrAbortHandler)
+	}))
+
+	func() {
+		defer func() { _ = recover() }()
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/export", nil))
+	}()
+
+	line := requestLogLine(t, buf)
+	if line.str("level") != "WARN" || line.status() != http.StatusServiceUnavailable {
+		t.Fatalf("request log = %v, want WARN with status 503", line)
+	}
+}
+
 // Streaming handlers reach the connection through http.ResponseController, so
 // the pipeline's response wrapper must not hide the writer underneath it.
 func TestRequestPipelineLeavesTheResponseControllerWorking(t *testing.T) {

@@ -126,7 +126,9 @@ func callRoute(t *testing.T, env *testEnv, method, path, token string) routeAnsw
 	}
 	defer resp.Body.Close()
 	var decoded envelope
-	_ = json.NewDecoder(resp.Body).Decode(&decoded)
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatalf("%s %s: status %d with a body that is not an envelope: %v", method, path, resp.StatusCode, err)
+	}
 	answer := routeAnswer{status: resp.StatusCode, requestID: decoded.RequestID}
 	if decoded.Error != nil {
 		answer.code = decoded.Error.Code
@@ -285,4 +287,3 @@ func TestAMalformedPathIDIsRefusedOnlyAfterTheGate(t *testing.T) {
 	resp, body = env.get(t, "/api/v1/operator/organizations/not-a-uuid", authHeader(orgAdminSession(t, env)))
 	assertAPIError(t, resp, body, http.StatusForbidden, "FORBIDDEN")
 }
-

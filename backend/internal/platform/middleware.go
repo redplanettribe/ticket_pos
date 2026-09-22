@@ -80,7 +80,7 @@ func wellFormedRequestID(id string) bool {
 // which is how a streamed download that fails after its first byte ends: at
 // WARN, with aborted=true and the status that had already been sent (0 when
 // nothing had). The abort is then passed on so the server still drops the
-// connection. A 5xx is logged at ERROR, everything else at INFO.
+// connection. Otherwise a 5xx is logged at ERROR and everything else at INFO.
 func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -91,13 +91,16 @@ func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 			status := rec.status
 			switch {
 			case aborted != nil:
+				// WARN whatever status went out: the abort is the event.
 				level = slog.LevelWarn
 			case status == 0:
 				// A handler that returns without writing sends an implicit 200.
 				status = http.StatusOK
-			}
-			if status >= http.StatusInternalServerError {
-				level = slog.LevelError
+				fallthrough
+			default:
+				if status >= http.StatusInternalServerError {
+					level = slog.LevelError
+				}
 			}
 			attrs := []any{
 				"request_id", RequestID(r.Context()),

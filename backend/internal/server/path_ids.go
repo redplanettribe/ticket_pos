@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/google/uuid"
-
 	"github.com/peter/ticket_pos/backend/internal/affiliates"
 	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/consent"
@@ -85,7 +83,7 @@ var operatorPathIDs = pathIDs{
 func requireWellFormedPathIDs(ids pathIDs) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if err := ids.malformed(r); err != nil {
+			if err := ids.notFoundForMalformed(r); err != nil {
 				_ = platform.WriteDomainError(w, platform.RequestID(r.Context()), err)
 				return
 			}
@@ -94,9 +92,9 @@ func requireWellFormedPathIDs(ids pathIDs) func(http.Handler) http.Handler {
 	}
 }
 
-// malformed returns the not-found error of the leftmost id wildcard in r's
+// notFoundForMalformed returns the not-found error of the leftmost id wildcard in r's
 // matched pattern whose value is not a UUID, or nil.
-func (ids pathIDs) malformed(r *http.Request) error {
+func (ids pathIDs) notFoundForMalformed(r *http.Request) error {
 	path := r.Pattern
 	if _, afterMethod, hasMethod := strings.Cut(path, " "); hasMethod {
 		path = afterMethod
@@ -116,16 +114,9 @@ func (ids pathIDs) malformed(r *http.Request) error {
 			continue
 		}
 		value := r.PathValue(strings.TrimSuffix(strings.TrimPrefix(wildcard, "{"), "}"))
-		if !canonicalUUID(value) {
+		if !catalog.IsUUID(value) {
 			return notFound(value)
 		}
 	}
 	return nil
-}
-
-// canonicalUUID accepts only the 36-character hyphenated form. uuid.Validate
-// alone also takes "urn:uuid:" and braced forms, and Postgres refuses the
-// first of those.
-func canonicalUUID(s string) bool {
-	return len(s) == 36 && uuid.Validate(s) == nil
 }
