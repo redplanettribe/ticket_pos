@@ -81,12 +81,16 @@ func WriteDomainError(w http.ResponseWriter, requestID string, err error) error 
 	if errors.As(err, &domainErr) {
 		status := domainHTTPStatus(domainErr.Code())
 		if after := domainRetryAfter(domainErr.Code()); after != "" {
-			w.Header().Set("Retry-After", after)
+			w.Header().Set(retryAfterHeader, after)
 		}
 		return WriteHandlerError(w, requestID, status, domainErr.Code(), domainErr.Message(), domainErr.Details())
 	}
 	return WriteHandlerError(w, requestID, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred", nil)
 }
+
+// retryAfterHeader is set only from domainRetryAfter, and the request log reads
+// it back to tell a capacity refusal from a failure.
+const retryAfterHeader = "Retry-After"
 
 // domainRetryAfter is the Retry-After, in seconds, a domain refusal carries, or
 // "" for one that carries none.

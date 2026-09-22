@@ -107,7 +107,8 @@ func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 			default:
 				switch {
 				case status < http.StatusInternalServerError:
-				case rec.Header().Get("Retry-After") != "":
+					// INFO, as set above.
+				case rec.Header().Get(retryAfterHeader) != "":
 					level = slog.LevelWarn
 				default:
 					level = slog.LevelError
