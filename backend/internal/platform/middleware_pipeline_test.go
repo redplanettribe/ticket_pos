@@ -261,72 +261,52 @@ func TestRequestPipelineLogsAnAbortAtWarnWhateverStatusWasSent(t *testing.T) {
 	}
 }
 
-// unwrappingWriter stands for a middleware between the pipeline and a handler
-// that wraps the response writer the way the pipeline's own recorder does.
-type unwrappingWriter struct{ http.ResponseWriter }
-
-func (u unwrappingWriter) Unwrap() http.ResponseWriter { return u.ResponseWriter }
-
-// AN EXPECTED DOMAIN REFUSAL IS NEVER AN ERROR IN THE LOG, whatever its status.
-// A response written from a mapped domain error - a 503 HOLDER_EXPORT_BUSY, a
-// 404 EVENT_NOT_FOUND - is the platform answering as designed, so the request
-// line is WARN, also through a middleware that wraps the writer.
-func TestRequestPipelineLogsAMappedDomainErrorAtWarnWhateverItsStatus(t *testing.T) {
+// THE LEVEL OF A REQUEST LINE FOLLOWS ITS STATUS, NOT WHETHER IT WAS MAPPED.
+// A 2xx, 3xx or 4xx is INFO. A 5xx is ERROR - a mapped deployment fault or
+// failed commit as much as an unmapped failure - except a capacity refusal the
+// platform makes as designed, which declares a Retry-After and is WARN.
+func TestRequestPipelineLogsARequestAtTheLevelItsStatusCalls(t *testing.T) {
+	domainError := func(code string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()), apperror.New(code, "refused", nil))
+		}
+	}
 	for _, tc := range []struct {
-		name   string
-		code   string
-		status int
-		wrap   bool
+		name       string
+		handler    http.HandlerFunc
+		wantStatus int
+		wantLevel  string
 	}{
-		{"a 503 capacity refusal", "HOLDER_EXPORT_BUSY", http.StatusServiceUnavailable, false},
-		{"a 503 capacity refusal through a wrapped writer", "HOLDER_EXPORT_BUSY", http.StatusServiceUnavailable, true},
-		{"a 404", "EVENT_NOT_FOUND", http.StatusNotFound, false},
+		{"a success", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusCreated)
+		}, http.StatusCreated, "INFO"},
+		{"a redirect", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusSeeOther)
+		}, http.StatusSeeOther, "INFO"},
+		{"a mapped 404", domainError("EVENT_NOT_FOUND"), http.StatusNotFound, "INFO"},
+		{"a mapped 409", domainError("CAPACITY_EXCEEDED"), http.StatusConflict, "INFO"},
+		{"a mapped 503 capacity refusal", domainError("HOLDER_EXPORT_BUSY"), http.StatusServiceUnavailable, "WARN"},
+		{"a mapped 500 failed commit", domainError("PAYMENT_SALE_COMMIT_FAILED"), http.StatusInternalServerError, "ERROR"},
+		{"a mapped 503 deployment fault", domainError("CERTIFICATE_KEY_NOT_CONFIGURED"), http.StatusServiceUnavailable, "ERROR"},
+		{"an unmapped error", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()), errors.New("connection refused"))
+		}, http.StatusInternalServerError, "ERROR"},
+		{"a 500 written by hand", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}, http.StatusInternalServerError, "ERROR"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if tc.wrap {
-					w = unwrappingWriter{w}
-				}
-				_ = WriteDomainError(w, RequestID(r.Context()), apperror.New(tc.code, "refused", nil))
-			}))
+			handler, buf := pipelineUnderTest(tc.handler)
 			rec := httptest.NewRecorder()
 
 			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/export", nil))
 
-			if rec.Code != tc.status {
-				t.Fatalf("status = %d, want %d", rec.Code, tc.status)
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tc.wantStatus)
 			}
 			line := requestLogLine(t, buf)
-			if line.str("level") != "WARN" || line.status() != tc.status {
-				t.Fatalf("request log = %v, want WARN with status %d", line, tc.status)
-			}
-		})
-	}
-}
-
-// An error that is not a mapped domain error is a 500 nobody designed, and that
-// IS an error: WriteDomainError's INTERNAL_ERROR, and a 5xx a handler writes
-// itself, both log at ERROR.
-func TestRequestPipelineLogsAnUnmappedFailureAtError(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		write func(w http.ResponseWriter, r *http.Request)
-	}{
-		{"an unmapped error", func(w http.ResponseWriter, r *http.Request) {
-			_ = WriteDomainError(w, RequestID(r.Context()), errors.New("connection refused"))
-		}},
-		{"a 500 written by hand", func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusInternalServerError)
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			handler, buf := pipelineUnderTest(http.HandlerFunc(tc.write))
-
-			handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/export", nil))
-
-			line := requestLogLine(t, buf)
-			if line.str("level") != "ERROR" || line.status() != http.StatusInternalServerError {
-				t.Fatalf("request log = %v, want ERROR with status 500", line)
+			if line.str("level") != tc.wantLevel || line.status() != tc.wantStatus {
+				t.Fatalf("request log = %v, want %s with status %d", line, tc.wantLevel, tc.wantStatus)
 			}
 		})
 	}

@@ -174,8 +174,9 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
 - `platform.RequestPipeline` is the one middleware stack: the request id outermost, then the request log, then panic recovery.
   The id is on the request context (`platform.RequestID(ctx)`), in the `request` log line, and in every envelope's `request_id`.
 - The `request` log line is written for every request, at WARN with `aborted=true` when a streamed download aborts after its first byte (`panic(http.ErrAbortHandler)`), carrying the status already sent.
-  A response written from a mapped domain error (`platform.WriteDomainError`) is logged at WARN whatever its status, so an expected refusal such as the 503 `HOLDER_EXPORT_BUSY` is never an error.
-  Any other 5xx - an unmapped failure, `INTERNAL_ERROR`, a recovered panic - is logged at ERROR, and everything else at INFO.
+  Otherwise a 2xx, 3xx or 4xx is logged at INFO, and a 5xx at ERROR whether or not it was mapped from a domain error.
+  The one exception is a capacity refusal, a 5xx carrying a `Retry-After`, which is logged at WARN because the platform refuses as designed.
+  A `Retry-After` is only ever set by `platform.WriteDomainError` from the domain error's own declaration (`domainRetryAfter`, today only the 503 `HOLDER_EXPORT_BUSY`), so a mapped deployment fault or failed commit such as `PAYMENT_SALE_COMMIT_FAILED` stays an ERROR.
 - Staff and Storefront Next apps forward `X-Request-ID` on server-side calls to the Go API.
 - Metrics, distributed tracing, and error reporting SaaS are **deferred** until production hosting is chosen.
 

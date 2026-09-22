@@ -147,6 +147,10 @@ Each domain module owns its types (e.g. `catalog.ErrEventNotFound`, `sales.ErrCa
 | Conflict / state violation | 409 | `CAPACITY_EXCEEDED` |
 | Permission (domain) | 403 | `FORBIDDEN` |
 
+A refusal about capacity, where the same request a moment later is expected to succeed, also declares a `Retry-After` in `domainRetryAfter` beside the status table (today only `HOLDER_EXPORT_BUSY`).
+The declaration decides the request log level too: a 5xx is logged at ERROR, mapped or not, unless it carries a `Retry-After`, which makes it a designed refusal logged at WARN.
+A 4xx is logged at INFO.
+
 Handlers stay thin:
 
 1. Validate request (handler).
