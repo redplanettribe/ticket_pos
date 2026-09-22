@@ -3,6 +3,7 @@ package integration
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"testing"
@@ -679,10 +680,13 @@ func TestSalesListSearchFilter(t *testing.T) {
 		{"customer_email": "john@other.test", "customer_first_name": "John", "customer_last_name": "Smith", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-02T10:00:00Z"},
 	})
 
-	// Name substring, case-insensitive.
-	_, body := env.get(t, "/api/v1/staff/events/"+eventID+"/sales?q=garc", authHeader(sessionID))
+	// Name substring, case-insensitive. The accent keeps the term out of every
+	// confirmation reference (`TP-` and eight base32 characters, A-Z and 2-7):
+	// an all-letter fragment such as "garc" sits inside a random reference often
+	// enough to match the other Sale now and then.
+	_, body := env.get(t, "/api/v1/staff/events/"+eventID+"/sales?q="+url.QueryEscape("garcí"), authHeader(sessionID))
 	if got := listSalesEmails(salesList(t, body)); len(got) != 1 || got[0] != "maria.garcia@example.com" {
-		t.Fatalf("q=garc = %v, want [maria.garcia@example.com]", got)
+		t.Fatalf("q=garcí = %v, want [maria.garcia@example.com]", got)
 	}
 
 	// Email substring on the other row.
