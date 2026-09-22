@@ -7,7 +7,7 @@
     "start": "next start --port 3001",
     "lint": "next lint",
     "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"lib/*.test.ts\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
     "@ticket-pos/locale": "workspace:*",
