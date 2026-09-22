@@ -470,7 +470,6 @@ func (h *Handler) ExportHolderList(w http.ResponseWriter, r *http.Request) {
 			// The file is attendee personal data: no cache between here and the
 			// browser may keep a copy.
 			w.Header().Set("Cache-Control", "no-store")
-			w.Header().Set("X-Request-ID", reqID)
 			w.WriteHeader(http.StatusOK)
 			return w, nil
 		})

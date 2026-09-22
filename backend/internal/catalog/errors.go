@@ -757,8 +757,9 @@ func ErrQuestionReviewUnknownItem(itemID string) apperror.DomainError {
 	)
 }
 
-// ErrHolderExportBusy is returned when a Holder Export is asked for while as
-// many as one API instance streams at once are already streaming (ADR 0075).
+// ErrHolderExportBusy is returned when a Holder Export is asked for while this
+// API instance is already streaming as many Holder Exports as it allows at
+// once (ADR 0075).
 //
 // IT IS ABOUT CAPACITY AND NEVER ABOUT THE REQUEST: nothing about the Event or
 // the filters is wrong, and the same request a moment later succeeds. So it is
