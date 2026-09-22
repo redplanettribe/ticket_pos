@@ -8,26 +8,15 @@ import (
 
 // The ONE STATEMENT of how an export refuses to be too big.
 //
-// Two exports carry a synchronous row cap — the Sales Export
-// (sales/service.exportTooManyRows) and the Holder Export
-// (catalog/service.holderExportTooManyRows) — and each had its own copy of this
-// file's two functions, character for character, sign branch included, for
-// counts that are never negative. ADR 0065 is explicit about where the line
-// falls: "We accept two overlapping FILES; we refuse two IMPLEMENTATIONS."
-//
-// WHAT IS SHARED IS THE MECHANISM AND NOT THE WORDING. Each caller keeps its own
-// cap constant — the Sales Export's is importfile.MaxRows and means "no more
-// rows than the importer would take back", the Holder Export's is a measured
-// memory ceiling and means something else entirely — and each keeps its own
-// sentence, because one says "sales" and the other says "tickets" and a reader
-// told the wrong noun cannot work out which number the cap applies to. What must
-// not be stated twice is the DIGIT GROUPING and the FIELD-ERROR CONSTRUCTION,
-// which are about rendering a FieldError and belong here beside the codes.
-//
-// THIS IS THE NATURAL HOME rather than either service, because promoting the
-// helper into one of them would make catalog depend on sales (or the reverse)
-// for six lines of formatting — a module edge bought with a `strings.Builder`.
-// platform is already what both import for FieldError and CodeTooManyItems.
+// The Sales Export carries a synchronous row cap
+// (sales/service.exportTooManyRows); its cap is importfile.MaxRows and means "no
+// more rows than the importer would take back". The Holder Export carried one
+// too until ADR 0075 streamed it and removed it, which is why this was ever
+// shared, and why it stays here rather than moving into the sales service: the
+// digit grouping and the field-error construction are about rendering a
+// FieldError and belong beside the codes, and the next export that needs a
+// refusal should find them here rather than write a second copy. Each caller
+// keeps its own sentence, because the noun in it is the file's own.
 
 // GroupDigits renders a count with thousands separators, because these numbers
 // are read by a person deciding how much to narrow a filter and "24,318" is
@@ -56,7 +45,7 @@ func GroupDigits(n int) string {
 // `filters`, CodeTooManyItems, and the caller's own sentence with the matched
 // count and the cap grouped into it.
 //
-// THE FIELD IS `filters` AND NOT ANY ONE PARAMETER, for both callers and for one
+// THE FIELD IS `filters` AND NOT ANY ONE PARAMETER, and for one
 // reason: no single filter is at fault, and blaming `sold_from` would be wrong
 // for somebody whose lever is the Ticket Type or the channel. The staff app
 // renders this message inline beside the filter bar, so the message IS the
@@ -68,9 +57,8 @@ func GroupDigits(n int) string {
 // the button that sent it, and narrowing them is the fix.
 //
 // `format` takes exactly two %s verbs, the matched count then the cap, and stays
-// at the call site because the noun in it is the file's own — "sales" for one
-// export, "tickets" for the other. Integration tests pin both sentences
-// verbatim.
+// at the call site because the noun in it is the file's own. Integration tests
+// pin the sentence verbatim.
 func ExportTooManyRows(format string, matched, rowCap int) FieldError {
 	return FieldError{
 		Field:   "filters",

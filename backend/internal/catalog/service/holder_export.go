@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -15,11 +16,11 @@ import (
 // The HOLDER EXPORT (#529, parent #518, ADR 0065): the Holder List, as the
 // reader is looking at it, handed over as an .xlsx of who is coming.
 //
-// IT IS THE SAME QUERY THE SCREEN RAN. The rows come from
-// repository.ListHolderTickets with the same filters, the same sort and the same
-// honoured-filter treatment as ListHolderList — literally the same call, with the
-// page replaced by the cap — because "the file mirrors the view" is a promise
-// only one code path can keep. A second query built for the file could be built
+// IT IS THE SAME QUERY THE SCREEN RAN. The rows come from the statement
+// repository.ListHolderTickets pages, with the same filters, the same sort and the
+// same honoured-filter treatment as ListHolderList — read to the end through a
+// cursor instead of a page at a time (ADR 0075) — because "the file mirrors the
+// view" is a promise only one code path can keep. A second query built for the file could be built
 // differently, and the day it was, a person would forward a spreadsheet that
 // disagreed with the screen they took it from and neither of them would say so.
 //
@@ -33,76 +34,17 @@ import (
 // Sales Export is the money and this is the people; two files that could be
 // mistaken for one another would be worse than either.
 
-// defaultHolderExportRowCap is how many Tickets one Holder Export may carry.
+// holderExportDeadline is how long one Holder Export may stream.
 //
-// IT IS ITS OWN CONSTANT WITH ITS OWN REASON, and referencing the Sales Export's
-// defaultExportRowCap instead is the obvious wrong move (ADR 0065). That number
-// is importfile.MaxRows — the Sale Import's row limit — and its reason is
-// SYMMETRY: an export of sales must never hand back more rows than the importer
-// would take back, so the system has one answer to how many sale rows travel in a
-// file. NOTHING ABOUT THAT TRANSFERS HERE. There is no Holder Import; nobody
-// uploads this file anywhere; a roster row is not a sale row and one Ticket Sale
-// of forty tickets is one row there and forty here, so even the units differ.
-//
-// WHAT THIS NUMBER IS is a SYNCHRONOUS GENERATION CEILING. Generation happens
-// inside the request and the workbook is buffered whole in memory, so an
-// unbounded Event produces a request that hangs and then either times out at the
-// proxy or takes the process down — on the busiest day of the Event, which is
-// exactly when somebody reaches for this.
-//
-// IT IS NOW A MEASUREMENT, AND THE MEASUREMENT BROUGHT IT DOWN FROM FIFTY
-// THOUSAND (#530). It was a judgement when ADR 0065 wrote it, contingent on a
-// file of that size with the full Option column set generating inside the
-// request budget, and the benchmark that settled it — TestHolderExportAtTheCap
-// in the integration suite, end to end over HTTP against a seeded Postgres —
-// found the contingency false. THE BINDING LIMIT IS MEMORY AND NOT TIME, which
-// is the thing the original wording got wrong: fifty thousand Tickets across 219
-// columns (eight multiple-choice questions of twenty-five Options, retired ones
-// included, plus six single-column questions) generated in 22 SECONDS against a
-// 300s Cloud Run request timeout — thirteen times inside it — while taking 6.9
-// GiB of process memory against an api_memory of 512Mi. An OOM does not fail the
-// request; it takes the instance down under every other request in flight.
-//
-// TWO THOUSAND IS WHAT THE MEASUREMENT SUPPORTS at that worst plausible width:
-// 265 MiB peak RSS, which leaves headroom over the running process inside 512Mi,
-// where three thousand reaches 392 MiB and leaves none. The number is deliberately
-// chosen against the WIDE case rather than the common one, because a cap that
-// only holds for Events that ask nothing is not a bound: the same benchmark at
-// the minimum width — thirteen columns, no Ticket Questions at all — still needs
-// 556 MiB at fifty thousand rows, so the old number did not hold even there.
-//
-// IT IS A CAP ON ROWS AND THE COST IS IN CELLS, which is why it is this severe.
-// A roster of two thousand costs a narrow Event almost nothing and is all a wide
-// one can afford, and one number has to be safe for both. Raising it means
-// changing what it bounds — an excelize StreamWriter, or a ceiling counted in
-// cells rather than rows, or more api_memory — and each of those is a decision
-// with its own ticket, not a bigger constant here.
-const defaultHolderExportRowCap = 2_000
-
-// WithHolderExportRowCap narrows how many Tickets a Holder Export may carry.
-//
-// It exists so a test can prove the cap is a cap. Reaching the deployed number
-// would mean seeding one Ticket more than it, which takes minutes and buys
-// nothing: what has to hold is the behaviour AT the bound — the refusal,
-// the count it names, and that exactly the cap still succeeds — and none of that
-// is a property of the number. A value of zero or less keeps the default, so a
-// misapplied override can never quietly mean "export nothing".
-//
-// Nothing in production calls it; the deployed cap is defaultHolderExportRowCap.
-func (s *Service) WithHolderExportRowCap(rows int) *Service {
-	if rows > 0 {
-		s.holderExportRowCap = rows
-	}
-	return s
-}
-
-// HolderExportRowCap reports the Holder Export row cap currently in force.
-func (s *Service) HolderExportRowCap() int {
-	if s.holderExportRowCap > 0 {
-		return s.holderExportRowCap
-	}
-	return defaultHolderExportRowCap
-}
+// IT IS INSIDE THE REQUEST TIMEOUT ON PURPOSE (ADR 0075). With no cap the only
+// ceiling left is Cloud Run's api_request_timeout_seconds, and a request the
+// platform kills there is indistinguishable, from in here, from a client that
+// went away - while its snapshot holds one of the instance's database
+// connections to the last second. Expiring first means an export that would
+// have run past the timeout ends as an aborted download for a reason this
+// process can name, and gives its connection back while it still can.
+// TestTheHolderExportDeadlineIsInsideTheRequestTimeout holds the relationship.
+const holderExportDeadline = 290 * time.Second
 
 // WithLogger overrides where this service's audit lines go (tests).
 //
@@ -116,39 +58,55 @@ func (s *Service) WithLogger(logger platform.Logger) *Service {
 	return s
 }
 
-// HolderExport is a built Holder Export: the .xlsx bytes and the filename the
-// download carries. The filename is decided here rather than at the HTTP edge so
-// there is one answer to what an exported file is called.
-type HolderExport struct {
-	Data     []byte
-	Filename string
+// WithHolderExportPause installs a function every Holder Export calls once its
+// file has begun streaming, and again after each batch of rows it writes, with
+// how many rows are written so far (tests).
+//
+// IT EXISTS BECAUSE A TEST HAS TO HOLD AN EXPORT OPEN AT A KNOWN POINT, which
+// TCP buffering alone cannot promise: to commit a sale in the middle of one, or
+// to have two in flight at once. The pause blocks the export exactly where it
+// stands, snapshot open and response started. Nil, the default, is no pause.
+//
+// Nothing in production calls it; no configuration reaches it.
+func (s *Service) WithHolderExportPause(pause func(ctx context.Context, rowsWritten int)) *Service {
+	s.holderExportPause = pause
+	return s
 }
 
-// ExportHolderList builds the Event's Holder List into an .xlsx, narrowed and
-// ordered by exactly the filters the list was showing.
+// ExportHolderList streams the Event's Holder List as an .xlsx, narrowed and
+// ordered by exactly the filters the list was showing (ADR 0075).
 //
 // It takes ListHolderListParams and honours every filter on it that this build
 // honours on the screen, ignoring only Page and PageSize: pagination is a
 // property of a screen, and a file that stopped at row 50 would be a quietly
-// wrong answer. The caller's role is gated at the route — Org Admin and Event
+// wrong answer. The caller's role is gated at the route - Org Admin and Event
 // Owner, never Event Staff, the same gate the Holder List read and the Sales
-// Export carry — because this file is the platform's densest concentration of
+// Export carry - because this file is the platform's densest concentration of
 // attendee personal data and it is forwarded and kept.
 //
-// Above the row cap it builds nothing and returns field errors instead, which the
-// handler writes as the standard VALIDATION_FAILED envelope. The answer is not
-// "this failed" but "narrow your filters", and the filters are on screen beside
-// the button; the refusal names how many Tickets matched, because that is how the
-// person knows how much narrower to go.
+// THERE IS NO CAP. The roster is read through a cursor inside one snapshot and
+// every row is written, compressed and handed to the response as it comes, so
+// nothing here holds the whole roster or the whole file, however many Tickets
+// match.
+//
+// start IS CALLED EXACTLY ONCE, AND ONLY WHEN THE FILE IS READY TO BEGIN: the
+// snapshot is open and the roster's first batch has been read. It is given the
+// filename and returns where the bytes go. An error returned before start was
+// called is an ordinary refusal and the caller answers it with the standard
+// envelope; an error after it means the response is already a 200 with a file
+// part way down the wire, and the only honest thing left is to abort it. The
+// file is never finished on a failure, so a cut download is bytes no
+// spreadsheet program will open - never a short, well-formed roster.
 func (s *Service) ExportHolderList(
 	ctx context.Context,
 	actor ActorContext,
 	eventID string,
 	params ListHolderListParams,
-) (*HolderExport, []platform.FieldError, error) {
+	start func(filename string) io.Writer,
+) error {
 	event, err := s.holderListAvailable(ctx, actor, eventID)
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// THE HONOURED FILTERS, AND EVERYTHING DOWNSTREAM READS THESE AND NOT
@@ -161,14 +119,34 @@ func (s *Service) ExportHolderList(
 	loc := resolveEventLocation(event.Timezone.String)
 	soldFrom, soldTo := dateRangeBounds(honoured.SoldFrom, honoured.SoldTo, loc)
 
-	// ONE ROW PAST THE CAP IS ALL THAT IS EVER READ. The total the roster query
-	// reports is its own COUNT(*), computed from the same WHERE and BEFORE the
-	// LIMIT, so the true matched count is exact however far over the cap the Event
-	// is — the refusal can name it without a second query, and an Event with two
-	// hundred thousand Tickets never pulls two hundred thousand rows into this
-	// process to be told so.
-	rowCap := s.HolderExportRowCap()
-	tickets, total, err := s.repo.ListHolderTickets(ctx, repository.ListHolderTicketsQuery{
+	ctx, cancel := context.WithTimeout(ctx, holderExportDeadline)
+	defer cancel()
+
+	// ONE SNAPSHOT FOR THE WHOLE FILE. The generation time is taken as it opens,
+	// and it is what the Info sheet and the filename state: the file is the
+	// roster at that moment, whatever is sold or reassigned while it downloads.
+	snapshot, err := s.repo.OpenHolderRosterSnapshot(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = snapshot.Close() }()
+	generatedAt := s.now()
+
+	// The Event's Ticket Questions, as the file's columns — the EVENT's, not the
+	// ones the exported Tickets happen to have answered, which is what keeps the
+	// shape of the sheet stable under the filters. Read only while the feature is
+	// open: a dark feature owes nobody a column (ADR 0045).
+	var questions []repository.EventTicketQuestion
+	if s.ticketQuestionsEnabled {
+		questions, err = snapshot.ListEventTicketQuestions(ctx, actor.OrganizationID, eventID)
+		if err != nil {
+			return err
+		}
+	}
+	columns, fansOut, optionLabels := holderExportQuestionColumns(questions)
+
+	// IT IS THE SAME QUERY THE SCREEN RAN, with no page on it.
+	if err := snapshot.OpenRoster(ctx, repository.ListHolderTicketsQuery{
 		OrganizationID:  actor.OrganizationID,
 		EventID:         eventID,
 		OwingOnly:       honoured.OwingOnly,
@@ -181,58 +159,19 @@ func (s *Service) ExportHolderList(
 		SoldTo:          soldTo,
 		Sort:            honoured.Sort,
 		Dir:             honoured.Dir,
-		Limit:           rowCap + 1,
-	})
+	}); err != nil {
+		return err
+	}
+	batch, err := snapshot.NextTickets(ctx)
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
-	if total > rowCap {
-		// REFUSED, NEVER TRUNCATED. A file silently missing its last ten thousand
-		// people is the one outcome nobody can detect from the file itself.
-		return nil, []platform.FieldError{holderExportTooManyRows(total, rowCap)}, nil
-	}
-
-	// The Event's Ticket Questions, as the file's columns — the EVENT's, not the
-	// ones the exported Tickets happen to have answered, which is what keeps the
-	// shape of the sheet stable under the filters. Read only while the feature is
-	// open: a dark feature owes nobody a column (ADR 0045).
-	var questions []repository.EventTicketQuestion
-	if s.ticketQuestionsEnabled {
-		questions, err = s.repo.ListEventTicketQuestions(ctx, actor.OrganizationID, eventID)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-	columns, fansOut, optionLabels := holderExportQuestionColumns(questions)
-
-	// What those Tickets have ANSWERED. The screen reads what each still OWES,
-	// which is the opposite half of the same fact and not a substitute for it: a
-	// file of blanks where the answers should be would be the roster without its
-	// point. Skipped entirely when nothing is asked, so an Event with no questions
-	// makes no query at all.
-	answersByTicket := map[string][]repository.TicketAnswer{}
-	if len(questions) > 0 && len(tickets) > 0 {
-		ticketIDs := make([]string, 0, len(tickets))
-		for _, ticket := range tickets {
-			ticketIDs = append(ticketIDs, ticket.ID)
-		}
-		answers, err := s.repo.ListTicketAnswers(ctx, ticketIDs)
-		if err != nil {
-			return nil, nil, err
-		}
-		for _, answer := range answers {
-			answersByTicket[answer.TicketID] = append(answersByTicket[answer.TicketID], answer)
-		}
-	}
-
-	rows := s.buildHolderExportRows(tickets, answersByTicket, fansOut, optionLabels)
 
 	// Whether a free-text search was applied, computed once and read twice: the
 	// Info sheet states it and the audit line records it, and both must say THAT
 	// one happened without ever repeating what it was.
 	searched := strings.TrimSpace(honoured.Search) != ""
 
-	generatedAt := s.now()
 	info := exportfile.HolderInfo{
 		EventName:   event.Name,
 		GeneratedAt: generatedAt,
@@ -271,17 +210,54 @@ func (s *Service) ExportHolderList(
 		},
 	}
 
-	data, err := exportfile.BuildHolderExport(exportfile.HolderRoster{
+	// THE FIRST BYTE. Everything above could still be refused with an envelope;
+	// from here on, a failure can only abort.
+	export, err := exportfile.BeginHolderExport(start(holderExportFilename(event.Slug, generatedAt.In(loc))), exportfile.HolderColumns{
 		Questions: columns,
 		// THE FLAG AND NOT THE DATA decides whether the file carries the Holder
 		// block, exactly as it decides whether the Sales Export's per-Ticket sheet
 		// carries its four (ADR 0045). With assignment closed the columns are
 		// absent on every Event, not merely empty.
 		Assignment: s.ticketAssignmentEnabled,
-		Tickets:    rows,
-	}, loc, info)
+	}, loc)
 	if err != nil {
-		return nil, nil, err
+		return err
+	}
+	s.pauseHolderExport(ctx, 0)
+
+	for len(batch) > 0 {
+		// What this batch's Tickets have ANSWERED, read at the snapshot's moment.
+		// The screen reads what each still OWES, which is the opposite half of the
+		// same fact and not a substitute for it. Skipped entirely when nothing is
+		// asked, so an Event with no questions makes no such query at all.
+		answersByTicket := map[string][]repository.TicketAnswer{}
+		if len(questions) > 0 {
+			ticketIDs := make([]string, 0, len(batch))
+			for _, ticket := range batch {
+				ticketIDs = append(ticketIDs, ticket.ID)
+			}
+			answers, err := snapshot.ListTicketAnswers(ctx, ticketIDs)
+			if err != nil {
+				return err
+			}
+			for _, answer := range answers {
+				answersByTicket[answer.TicketID] = append(answersByTicket[answer.TicketID], answer)
+			}
+		}
+		for _, row := range s.buildHolderExportRows(batch, answersByTicket, fansOut, optionLabels) {
+			if err := export.Append(row); err != nil {
+				return err
+			}
+		}
+		s.pauseHolderExport(ctx, export.Rows())
+		if batch, err = snapshot.NextTickets(ctx); err != nil {
+			return err
+		}
+	}
+
+	// Last, so the row count the Info sheet states is the rows written.
+	if err := export.Finish(info); err != nil {
+		return err
 	}
 
 	// THE ONE RECORD THAT A COPY OF THIS EVENT'S ATTENDEES LEFT THE BUILDING.
@@ -292,10 +268,6 @@ func (s *Service) ExportHolderList(
 	// this line is the whole answer to "who pulled the guest list", and it is not
 	// a question that can be answered retroactively: it is written here or it is
 	// never written.
-	//
-	// It is logged AFTER the workbook exists, so the line claims a file that was
-	// actually handed over rather than one whose build then failed. A refusal over
-	// the cap returns above and logs nothing, because no file was taken.
 	//
 	// THE FILTERS ARE THE HONOURED ONES, for the reason the Info sheet's are: a
 	// line naming `assignment_state=accepted` beside a row count that is the whole
@@ -314,7 +286,7 @@ func (s *Service) ExportHolderList(
 		"member_id", actor.MemberID,
 		"organization_id", actor.OrganizationID,
 		"event_id", eventID,
-		"row_count", len(rows),
+		"row_count", export.Rows(),
 		"ticket_type_id", honoured.TicketTypeID,
 		"channel", honoured.Channel,
 		"assignment_state", honoured.AssignmentState,
@@ -326,11 +298,14 @@ func (s *Service) ExportHolderList(
 		"dir", honoured.Dir,
 		"search", searched,
 	)
+	return nil
+}
 
-	return &HolderExport{
-		Data:     data,
-		Filename: holderExportFilename(event.Slug, generatedAt.In(loc)),
-	}, nil, nil
+// pauseHolderExport calls the test-only pause, if one is installed.
+func (s *Service) pauseHolderExport(ctx context.Context, rowsWritten int) {
+	if s.holderExportPause != nil {
+		s.holderExportPause(ctx, rowsWritten)
+	}
 }
 
 // buildHolderExportRows turns the roster's rows into the file's rows.
@@ -552,30 +527,6 @@ func (s *Service) holderExportTicketTypeName(ctx context.Context, orgID, eventID
 		}
 	}
 	return ""
-}
-
-// holderExportTooManyRows is the refusal a Holder Export over the row cap
-// carries.
-//
-// THE SENTENCE IS THE ONLY THING THIS FUNCTION OWNS. The field name, the code
-// and the thousands grouping are platform.ExportTooManyRows', shared with the
-// Sales Export's refusal — ADR 0065 accepts two overlapping FILES and refuses
-// two IMPLEMENTATIONS, and a second copy of six lines of digit formatting plus a
-// second FieldError literal was exactly the second implementation. Sharing it
-// through platform rather than through either service is what keeps catalog from
-// depending on sales for a `strings.Builder`.
-//
-// WHAT STAYS HERE IS THE WORDING, because it must differ: it NAMES TICKETS AND
-// NOT SALES, which is the difference between this file and the Sales Export in
-// one word — a person told "1,200 matching sales" over a roster of 4,000 Tickets
-// cannot work out which number the cap applies to — and it points at the filters
-// generally rather than at the date range, because on a roster the lever is as
-// often the Ticket Type or the assignment state.
-func holderExportTooManyRows(matched, rowCap int) platform.FieldError {
-	return platform.ExportTooManyRows(
-		"This view matches %s tickets; up to %s can be downloaded at once. Narrow the filters and try again.",
-		matched, rowCap,
-	)
 }
 
 // holderExportFilename names a Holder Export after its Event and the day it was

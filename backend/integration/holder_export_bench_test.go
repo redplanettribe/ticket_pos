@@ -2,65 +2,69 @@ package integration
 
 import (
 	"bytes"
+	"io"
+	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
-	"sort"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/xuri/excelize/v2"
 )
 
-// THE HOLDER EXPORT'S CAP, MEASURED END TO END (#530, parent #518, ADR 0065).
+// THE HOLDER EXPORT'S MEMORY, MEASURED FLAT (#658, parent #655, ADR 0075).
 //
-// ADR 0065 set the fifty-thousand-Ticket cap as an explicit JUDGEMENT and named
-// this measurement as the thing that settles it. The cap bounds a SYNCHRONOUS
-// generation: the roster is queried, the Answers are assembled and the workbook
-// is buffered whole in memory INSIDE the request, so what has to fit is one
-// request's worth of all three at once — inside Cloud Run's
-// api_request_timeout_seconds (300s, the module default, unoverridden in
-// terraform/envs/prod) and, the tighter bound, inside api_memory (512Mi).
+// This was the cap benchmark (#530). It found that excelize held the whole
+// workbook at roughly 600 B a cell - fifty thousand wide rows took 6.9 GiB
+// against an api_memory of 512Mi - which is why the Holder Export was capped at
+// 2,000 Tickets. ADR 0075 removed the cap by streaming the file end to end, and
+// the claim that has to hold now is not "this height fits" but "memory does not
+// grow with the height at all". So the benchmark weighs one export at two
+// heights, four times apart, and the two peaks should be level.
 //
-// IT GOES OVER HTTP, which is the whole point of doing it here rather than only
-// in exportfile's BenchmarkHolderExportBuild: the query, the answer assembly, the
-// workbook build and the response are all in one number, and that number is what
-// the timeout actually measures. The build benchmark next door remains the
-// instrument for the SHAPE of the curve, because it can sweep heights in seconds
-// where this must seed a database first.
+// IT GOES OVER HTTP against a seeded Postgres, so the cursor, the Answer
+// batches, the writer and the response are all in one number. The download is
+// written to a file on disk as it arrives, not into memory, because the client
+// runs in this same process and a client holding the file would be weighed as
+// though the server were.
 //
-// THE FIXTURE IS SEEDED WITH DIRECT SQL and not through the API, and that is a
-// deliberate compromise stated rather than hidden. Fifty thousand Tickets through
-// checkout or Sale Import would take far longer than the measurement itself and
-// would measure the importer. The rows are inserted in the shape the API would
-// have left behind — active online sales, two Tickets per line, an accepted
-// Holder per Ticket, an Answer per Ticket per question — so every query the
-// export runs reads exactly what it reads in production.
+// THE FIXTURE IS SEEDED WITH DIRECT SQL and not through the API, a deliberate
+// compromise: two hundred thousand Tickets through checkout or Sale Import would
+// take far longer than the measurement and would measure the importer. The rows
+// are inserted in the shape the API would have left behind - active online
+// sales, two Tickets per line, an accepted Holder per Ticket, an Answer per
+// Ticket per question - so every query the export runs reads exactly what it
+// reads in production.
 //
 // IT IS GUARDED BY AN ENVIRONMENT VARIABLE and therefore never part of `make
-// test-integration`: seeding alone is over a million rows and the run holds
-// several gigabytes. Rerun it with:
+// test-integration`: seeding the taller height alone is millions of rows.
+// Rerun it with:
 //
-//	HOLDER_EXPORT_BENCH=1 go test ./integration/ -run TestHolderExportAtTheCap -v -timeout 60m
+//	HOLDER_EXPORT_BENCH=1 go test ./integration/ -run TestHolderExportMemoryIsFlat -v -timeout 60m
 //
-// and, for the peak RSS the memory limit is actually about:
+// HOLDER_EXPORT_BENCH_HEIGHTS overrides the heights (default "50000,200000").
 //
-//	HOLDER_EXPORT_BENCH=1 /usr/bin/time -v go test ./integration/ -run TestHolderExportAtTheCap -v -timeout 60m
+// MEASURED 2026-09-22 on the development machine, at the widest plausible shape
+// below (219 columns), with the process as deployed (no GOMEMLIMIT, GOGC=100):
 //
-// HOLDER_EXPORT_BENCH_ROWS overrides the height (default 50,000) and
-// HOLDER_EXPORT_BENCH_RUNS how many exports are timed (default 3), because one
-// sample is not a measurement.
+//	 50,000 rows (10.95M cells):   7.0s, peak live heap 36 MiB, peak RSS 84 MiB, 27.7 MiB .xlsx
+//	200,000 rows (43.8M cells):  33.5s, peak live heap 37 MiB, peak RSS 88 MiB, 110.8 MiB .xlsx
+//
+// against a 512Mi instance and a 300s request timeout.
 
-// The WORST-CASE-BUT-PLAUSIBLE question shape, matching exportfile's build
-// benchmark exactly so the two numbers can be subtracted from one another: eight
-// multiple-choice questions of twenty-five Options each — five of them RETIRED,
-// which still take columns — and six questions of the kinds that take one column.
+// The WORST-CASE-BUT-PLAUSIBLE question shape, the one #530 measured the
+// excelize build at, so the two can be compared: eight multiple-choice
+// questions of twenty-five Options each - five of them RETIRED, which still
+// take columns - and six questions of the kinds that take one column.
 //
 // The shape is chosen from what an Organization could actually do rather than
 // from what the schema permits. A multi-day conference asks a workshop track, a
 // dietary requirement, a t-shirt size, an arrival day and a merch choice, and a
 // twenty-five-Option list is one of those after two years of additions and
-// retirements. A WIDER SHAPE WOULD BE WORSE and nothing measured here covers it.
+// retirements.
 const (
 	benchChoiceQuestions = 8
 	benchOptionsPer      = 25
@@ -69,94 +73,108 @@ const (
 	benchTicketsPerSale  = 2
 )
 
-// TestHolderExportAtTheCap times and weighs a Holder Export at the row cap.
+// TestHolderExportMemoryIsFlat weighs a Holder Export at each height.
 //
 // It asserts nothing about the numbers. A threshold here would be a benchmark
-// that fails on a busy laptop and passes on an idle one, and the comparison that
-// matters — against a deployed timeout and a deployed memory limit on a machine
-// that is neither — is a judgement for the person reading the output, recorded on
-// the ticket. What it DOES assert is that the export succeeded and carries the
-// rows it was given, so a number can never be reported for a file that was never
-// built.
-func TestHolderExportAtTheCap(t *testing.T) {
+// that fails on a busy laptop and passes on an idle one; the comparison that
+// matters - the two heights against each other, and both against a deployed
+// memory limit on a machine that is neither - is a judgement for the person
+// reading the output, recorded above. What it DOES assert is that each export
+// succeeded and carries the rows it was given, so a number can never be
+// reported for a file that was never built.
+func TestHolderExportMemoryIsFlat(t *testing.T) {
 	if os.Getenv("HOLDER_EXPORT_BENCH") != "1" {
-		t.Skip("the Holder Export cap benchmark is run by hand: HOLDER_EXPORT_BENCH=1 (#530)")
+		t.Skip("the Holder Export memory benchmark is run by hand: HOLDER_EXPORT_BENCH=1 (#658)")
 	}
-	rows := benchEnvInt(t, "HOLDER_EXPORT_BENCH_ROWS", 50_000)
-	runs := benchEnvInt(t, "HOLDER_EXPORT_BENCH_RUNS", 3)
+	for _, rows := range benchHeights(t) {
+		t.Run(strconv.Itoa(rows), func(t *testing.T) {
+			env := setupTest(t)
+			enableTicketQuestions(t)
+			enableTicketAssignment(t)
+			sessionID := orgAdminSession(t, env)
+			eventID := createDraftEvent(t, env, sessionID, "Benchmark Fest", "benchmark-fest")
+			ticketTypeID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 2000, rows+1000)
 
-	env := setupTest(t)
-	enableTicketQuestions(t)
-	enableTicketAssignment(t)
-	sessionID := orgAdminSession(t, env)
-	eventID := createDraftEvent(t, env, sessionID, "Benchmark Fest", "benchmark-fest")
-	ticketTypeID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 2000, rows+1000)
+			seedStart := time.Now()
+			seedHolderExportBenchFixture(t, env, eventID, ticketTypeID, rows)
+			t.Logf("seeded %d Tickets in %s", rows, time.Since(seedStart).Round(time.Millisecond))
 
-	seedStart := time.Now()
-	seedHolderExportBenchFixture(t, env, eventID, ticketTypeID, rows)
-	t.Logf("seeded %d Tickets in %s", rows, time.Since(seedStart).Round(time.Millisecond))
+			path := filepath.Join(t.TempDir(), "holders.xlsx")
+			runtime.GC()
+			var before runtime.MemStats
+			runtime.ReadMemStats(&before)
+			resetPeakRSS()
+			stop := sampleMemory()
+			start := time.Now()
+			size := downloadHolderExportToFile(t, env, sessionID, eventID, path)
+			elapsed := time.Since(start)
+			peakHeap, peakSys := stop()
+			rss := peakRSS()
 
-	type sample struct {
-		elapsed time.Duration
-		heap    uint64
-		sys     uint64
-		data    []byte
-	}
-	samples := make([]sample, 0, runs)
-	for run := 0; run < runs; run++ {
-		// GC first so the heap reading is this export's and not the last one's
-		// litter. Sys is never returned to the OS promptly, so it accumulates
-		// across runs and is reported as a high-water mark rather than per run.
-		runtime.GC()
-		var before, after runtime.MemStats
-		runtime.ReadMemStats(&before)
-		start := time.Now()
-		resp, data := downloadHolderExport(t, env, sessionID, eventID, "")
-		elapsed := time.Since(start)
-		runtime.ReadMemStats(&after)
-		if resp.StatusCode != 200 {
-			t.Fatalf("run %d: status=%d body=%s", run, resp.StatusCode, string(data[:min(len(data), 500)]))
-		}
-		samples = append(samples, sample{
-			elapsed: elapsed,
-			heap:    after.HeapAlloc,
-			sys:     after.Sys,
-			data:    data,
+			wantColumns := 13 + benchChoiceQuestions*benchOptionsPer + benchPlainQuestions
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read the download back: %v", err)
+			}
+			verifyHolderExportShape(t, data, rows, wantColumns)
+
+			t.Logf(
+				"VERDICT INPUT: %d rows x %d columns (%.2fM cells); %s wall against a 300s request timeout; "+
+					"peak live heap %.0f MiB (%.0f MiB before), peak Go Sys %.0f MiB, peak RSS %.0f MiB "+
+					"against a 512Mi instance limit; %.1f MiB .xlsx",
+				rows, wantColumns, float64(rows*wantColumns)/1e6, elapsed.Round(time.Millisecond),
+				mib(peakHeap), mib(before.HeapAlloc), mib(peakSys), mib(rss), float64(size)/(1<<20),
+			)
 		})
-		t.Logf(
-			"run %d: %s wall, %.0f MiB heap after, %.0f MiB sys, %.0f MiB allocated, %.1f MiB .xlsx",
-			run+1, elapsed.Round(time.Millisecond),
-			mib(after.HeapAlloc), mib(after.Sys), mib(after.TotalAlloc-before.TotalAlloc),
-			float64(len(data))/(1<<20),
-		)
 	}
+}
 
-	// The file is real, or the numbers above are about nothing.
-	//
-	// STREAMED AND NOT read with the suite's openHolderExport helper, which calls
-	// GetRows: at eleven million cells that materialises the whole sheet as
-	// [][]string a second time, and the VERIFICATION would then cost several times
-	// the measurement it is checking. Only the header row's cells are decoded —
-	// the width is the dimension this is all about — and the rest are counted.
-	wantColumns := 13 + benchChoiceQuestions*benchOptionsPer + benchPlainQuestions
-	verifyHolderExportShape(t, samples[len(samples)-1].data, rows, wantColumns)
-
-	sorted := make([]time.Duration, 0, len(samples))
-	var peakSys, peakHeap uint64
-	for _, s := range samples {
-		sorted = append(sorted, s.elapsed)
-		peakSys = max(peakSys, s.sys)
-		peakHeap = max(peakHeap, s.heap)
+// benchHeights is HOLDER_EXPORT_BENCH_HEIGHTS, or the two defaults.
+func benchHeights(t *testing.T) []int {
+	t.Helper()
+	raw := os.Getenv("HOLDER_EXPORT_BENCH_HEIGHTS")
+	if raw == "" {
+		return []int{50_000, 200_000}
 	}
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-	t.Logf(
-		"VERDICT INPUT: %d rows x %d columns; wall %s..%s (median %s) against a 300s request timeout; "+
-			"peak live heap %.0f MiB, peak Go Sys %.0f MiB against a 512Mi instance limit",
-		rows, wantColumns,
-		sorted[0].Round(time.Millisecond), sorted[len(sorted)-1].Round(time.Millisecond),
-		sorted[len(sorted)/2].Round(time.Millisecond),
-		mib(peakHeap), mib(peakSys),
-	)
+	var heights []int
+	for _, part := range strings.Split(raw, ",") {
+		n, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil || n <= 0 {
+			t.Fatalf("HOLDER_EXPORT_BENCH_HEIGHTS=%q is not a list of positive numbers", raw)
+		}
+		heights = append(heights, n)
+	}
+	return heights
+}
+
+// downloadHolderExportToFile streams the unfiltered export onto disk and
+// returns its size, failing on anything but a clean 200.
+func downloadHolderExportToFile(t *testing.T, env *testEnv, sessionID, eventID, path string) int64 {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, env.server.URL+holderExportPath(eventID), nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+sessionID)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 500))
+		t.Fatalf("status=%d body=%s", resp.StatusCode, string(body))
+	}
+	out, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create %s: %v", path, err)
+	}
+	defer func() { _ = out.Close() }()
+	size, err := io.Copy(out, resp.Body)
+	if err != nil {
+		t.Fatalf("download: %v", err)
+	}
+	return size
 }
 
 // verifyHolderExportShape reads back the downloaded workbook's height and width
@@ -193,21 +211,6 @@ func verifyHolderExportShape(t *testing.T, data []byte, wantRows, wantColumns in
 	if dataRows-1 != wantRows {
 		t.Fatalf("export carries %d rows, seeded %d", dataRows-1, wantRows)
 	}
-}
-
-func mib(bytes uint64) float64 { return float64(bytes) / (1 << 20) }
-
-func benchEnvInt(t *testing.T, name string, fallback int) int {
-	t.Helper()
-	raw := os.Getenv(name)
-	if raw == "" {
-		return fallback
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
-		t.Fatalf("%s=%q is not a positive number", name, raw)
-	}
-	return n
 }
 
 // seedHolderExportBenchFixture stages the roster the export is measured against:

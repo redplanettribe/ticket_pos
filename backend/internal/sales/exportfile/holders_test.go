@@ -17,7 +17,7 @@ import (
 // These tests are about the FILE and not about the query behind it: which
 // columns exist, what a cell holds, what the Info sheet says, and — the
 // load-bearing one — that an address the builder was never handed is nowhere in
-// the bytes. The service's own rules (which filters were honoured, the row cap,
+// the bytes. The service's own rules (which filters were honoured, the snapshot,
 // the disclosure decision) are asserted where they live, in the integration
 // suite.
 

@@ -15,6 +15,7 @@ import {
   assignmentStateFilterVisible,
   buyerName,
   defaultHolderDirFor,
+  downloadHolderExport,
   hasActiveHolderListFilters,
   holderBadgeVariant,
   holderListEmptyStateKey,
@@ -768,4 +769,64 @@ test("only an accepted Holder's Dossier can be opened from a row", () => {
 test("an accepted row the API sent without a Holder id offers no link", () => {
   assert.equal(holderDossierCustomerId(holderRow({ assignment_state: "accepted" })), null);
   assert.equal(holderDossierCustomerId(holderRow({ assignment_state: "accepted", holder_customer_id: "" })), null);
+});
+
+// THE DOWNLOAD (ADR 0075). The export streams with no size limit, so a failure
+// part way arrives as a broken body rather than an envelope. These stub the
+// browser's fetch, document and object URLs, and watch what gets saved.
+function stubDownloadBrowser(t: { after: (fn: () => void) => void }, response: Response) {
+  const saved: string[] = [];
+  const original = {
+    fetch: globalThis.fetch,
+    document: (globalThis as { document?: unknown }).document,
+    createObjectURL: URL.createObjectURL,
+    revokeObjectURL: URL.revokeObjectURL,
+  };
+  globalThis.fetch = async () => response;
+  URL.createObjectURL = () => "blob:holder-export";
+  URL.revokeObjectURL = () => {};
+  (globalThis as { document?: unknown }).document = {
+    body: { appendChild: () => {} },
+    createElement: () => ({
+      href: "",
+      download: "",
+      click(this: { download: string }) {
+        saved.push(this.download);
+      },
+      remove: () => {},
+    }),
+  };
+  t.after(() => {
+    globalThis.fetch = original.fetch;
+    (globalThis as { document?: unknown }).document = original.document;
+    URL.createObjectURL = original.createObjectURL;
+    URL.revokeObjectURL = original.revokeObjectURL;
+  });
+  return saved;
+}
+
+test("a finished download is saved under the API's filename", async (t) => {
+  const saved = stubDownloadBrowser(
+    t,
+    new Response(new Uint8Array([0x50, 0x4b]), {
+      status: 200,
+      headers: { "Content-Disposition": 'attachment; filename="holders-fest-2026-09-22.xlsx"' },
+    }),
+  );
+  await downloadHolderExport("evt_1", EMPTY_HOLDER_LIST_FILTERS);
+  assert.deepEqual(saved, ["holders-fest-2026-09-22.xlsx"]);
+});
+
+// A stream cut part way is a failed download and saves NO file: a roster missing
+// its last people must never reach anybody's Downloads folder.
+test("a download cut part way rejects and saves no file", async (t) => {
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array([0x50, 0x4b, 0x03, 0x04]));
+      controller.error(new TypeError("terminated"));
+    },
+  });
+  const saved = stubDownloadBrowser(t, new Response(body, { status: 200 }));
+  await assert.rejects(downloadHolderExport("evt_1", EMPTY_HOLDER_LIST_FILTERS));
+  assert.deepEqual(saved, []);
 });

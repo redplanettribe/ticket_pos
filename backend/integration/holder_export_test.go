@@ -190,21 +190,6 @@ func holderExportRefusal(t *testing.T, resp *http.Response, data []byte) []platf
 	return body.Error.Details.Fields
 }
 
-// withHolderExportCap lowers the Holder Export's row cap for one test and
-// restores the deployed one afterwards.
-//
-// Reaching the real cap would mean seeding fifty thousand and one Tickets, which
-// takes minutes and buys nothing: what is under test is the behaviour AT the
-// bound, and the bound is configuration. This mirrors withSalesExportCap next
-// door, and the deployed default is pinned separately by
-// TestHolderExportCapIsItsOwnNumber so the two can never quietly become one.
-func withHolderExportCap(t *testing.T, rows int) {
-	t.Helper()
-	original := sharedApp.CatalogService.HolderExportRowCap()
-	sharedApp.CatalogService.WithHolderExportRowCap(rows)
-	t.Cleanup(func() { sharedApp.CatalogService.WithHolderExportRowCap(original) })
-}
-
 // withCatalogLogger captures what the catalog service logs for one test, so the
 // Holder Export's audit line can be read back the way a log aggregator would see
 // it. The sibling of withSalesLogger, over the other service.
@@ -478,9 +463,10 @@ func assertPresentInExport(t *testing.T, data []byte, needle string) {
 }
 
 // exportZipEntries reads every entry of an .xlsx zip into memory, by name, and
-// insists xl/sharedStrings.xml is among them — that is where every text cell's
-// value lives, so a search that missed it would miss the thing it is looking
-// for.
+// insists xl/sharedStrings.xml is among them — a workbook without one is not the
+// file the search was written against. Since ADR 0075 the data sheet's text is
+// inline in the sheet part and the shared table holds the Info sheet's, and the
+// search reads every entry, so it misses neither.
 func exportZipEntries(t *testing.T, data []byte) map[string]string {
 	t.Helper()
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
@@ -687,87 +673,6 @@ func TestTheHolderExportDataSheetIsNeverNamedSales(t *testing.T) {
 	}
 }
 
-// OVER THE CAP THE REQUEST IS REFUSED, NAMING HOW MANY TICKETS MATCHED, and
-// nothing is truncated. Exactly the cap still succeeds.
-//
-// The refusal is the feature: generation is synchronous and the workbook is
-// buffered whole, so an unbounded Event is a request that hangs and then takes
-// something down — on the busiest day of the Event, which is exactly when
-// somebody reaches for this. A TRUNCATED file would be the one failure nobody
-// can detect from the file itself, so the answer is "narrow your filters", and
-// the message names the count because that is how the person knows how much
-// narrower to go.
-func TestTheHolderExportRefusesOverTheCapRatherThanTruncating(t *testing.T) {
-	env := setupTest(t)
-	enableTicketAssignment(t)
-	f := newHolderFilterFixture(t, env)
-
-	withHolderExportCap(t, 3)
-	resp, data := downloadHolderExport(t, env, f.sessionID, f.eventID, "")
-	fields := holderExportRefusal(t, resp, data)
-	if len(fields) != 1 {
-		t.Fatalf("refusal carries %d fields, want one: %+v", len(fields), fields)
-	}
-	// The field is `filters` and not any one parameter: no single filter is at
-	// fault, and blaming sold_from would be wrong for somebody whose lever is the
-	// channel.
-	if fields[0].Field != "filters" {
-		t.Errorf("refusal field = %q, want filters", fields[0].Field)
-	}
-	if fields[0].Code != platform.CodeTooManyItems {
-		t.Errorf("refusal code = %q, want %q", fields[0].Code, platform.CodeTooManyItems)
-	}
-	// THE COUNT IS THE MATCHED TOTAL and not the cap: the roster holds four, and
-	// a person told only "too many" cannot tell whether to narrow a little or a
-	// lot.
-	if !strings.Contains(fields[0].Message, "4 tickets") {
-		t.Errorf("refusal message = %q, want it to name the 4 matching tickets", fields[0].Message)
-	}
-	if !strings.Contains(fields[0].Message, "3") {
-		t.Errorf("refusal message = %q, want it to name the cap", fields[0].Message)
-	}
-
-	// NOTHING WAS TRUNCATED: no file at all came back.
-	if strings.HasPrefix(string(data), "PK") {
-		t.Fatalf("a refusal returned a workbook; it must build nothing")
-	}
-
-	// THE FILTERS ARE THE LEVER, and they work: the same Event narrowed to one
-	// channel is under the cap and downloads.
-	if file := openHolderExport(t, env, f.sessionID, f.eventID, "channel=online"); file.dataRows != 2 {
-		t.Fatalf("narrowed export = %d rows, want 2", file.dataRows)
-	}
-
-	// EXACTLY THE CAP SUCCEEDS. The bound is inclusive, which is the off-by-one
-	// worth a test of its own.
-	withHolderExportCap(t, 4)
-	file := openHolderExport(t, env, f.sessionID, f.eventID, "")
-	if file.dataRows != 4 {
-		t.Fatalf("at exactly the cap the export has %d rows, want 4", file.dataRows)
-	}
-}
-
-// THE CAP IS ITS OWN NUMBER WITH ITS OWN REASON — 2,000 Tickets, a synchronous
-// generation ceiling — and deliberately NOT the Sales Export's, whose reason is
-// symmetry with what a Sale Import would take back and does not transfer to a
-// file nobody imports.
-//
-// This pins the two apart. Referencing the other constant is the obvious wrong
-// move, and it would pass every other test in this file.
-//
-// THE NUMBER CAME DOWN FROM FIFTY THOUSAND ON A MEASUREMENT (#530): at the worst
-// plausible width a fifty-thousand-row file took 6.9 GiB against an api_memory
-// of 512Mi, where it took 22 seconds against a 300s timeout — memory binds, not
-// time. This test is what stops it drifting back up without one.
-func TestTheHolderExportCapIsItsOwnNumber(t *testing.T) {
-	if got := sharedApp.CatalogService.HolderExportRowCap(); got != 2_000 {
-		t.Fatalf("deployed Holder Export cap = %d, want 2,000 Tickets", got)
-	}
-	if sharedApp.CatalogService.HolderExportRowCap() == sharedApp.SalesService.ExportRowCap() {
-		t.Fatal("the Holder Export and the Sales Export share a cap; they count different things for different reasons")
-	}
-}
-
 // AN AUDIT LINE IS WRITTEN PER GENERATED FILE, naming who took it, from which
 // Organization and Event, under which structural filters, and how many rows.
 //
@@ -830,9 +735,8 @@ func TestTheHolderExportLogsWhoTookWhatAndHowMuch(t *testing.T) {
 	// AND A REFUSAL LOGS NOTHING, because no file was taken. The line claims a
 	// file that was actually handed over.
 	logs.reset()
-	withHolderExportCap(t, 1)
-	if resp, data := downloadHolderExport(t, env, f.sessionID, f.eventID, ""); resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("over-cap status=%d, want 400; body=%s", resp.StatusCode, string(data))
+	if resp, data := downloadHolderExport(t, env, f.sessionID, f.eventID, "channel=carrier_pigeon"); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("refused export status=%d, want 400; body=%s", resp.StatusCode, string(data))
 	}
 	for _, logged := range logs.lines {
 		if strings.Contains(logged.msg, "holder export") {

@@ -38,9 +38,8 @@ export async function GET(request: Request, context: RouteContext) {
 
   if (!upstream.ok) {
     // The API returns a JSON envelope on error; pass it through unchanged so the
-    // caller can show the reason rather than a broken download. The row-cap
-    // refusal is the case that matters — its message names how many tickets
-    // matched, and rewriting it here would delete the one actionable fact.
+    // caller can show the reason rather than a broken download, and read the
+    // code the catalog words it by.
     const body = await upstream.text();
     return new NextResponse(body, {
       status: upstream.status,
@@ -58,5 +57,11 @@ export async function GET(request: Request, context: RouteContext) {
   if (disposition) {
     headers.set("Content-Disposition", disposition);
   }
+  // THE BODY IS PASSED THROUGH AS A STREAM AND NEVER BUFFERED (ADR 0075). The
+  // export has no size limit, so buffering it here would put the whole roster
+  // in this process's memory. And it is what carries a failure through: when the
+  // API aborts a download part way, the upstream body errors, Next's pipe
+  // aborts this response with it, and the browser sees a broken connection
+  // rather than a clean end - so its blob() rejects and no file is saved.
   return new NextResponse(upstream.body, { status: 200, headers });
 }

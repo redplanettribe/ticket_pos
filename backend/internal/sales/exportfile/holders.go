@@ -2,9 +2,8 @@ package exportfile
 
 import (
 	"fmt"
+	"io"
 	"time"
-
-	"github.com/xuri/excelize/v2"
 )
 
 // The HOLDER EXPORT (#529, parent #518, ADR 0065): an .xlsx of who is coming to
@@ -22,11 +21,16 @@ import (
 // per-Ticket sheet (#520). The first time somebody corrects `Mediun` to `Medium`
 // the two files move a heading together or they do not move together at all.
 //
+// SINCE ADR 0075 THE TWO FILES NO LONGER SHARE A WRITER. This one streams
+// through Stream, with no cap, so the server never holds the roster or the file;
+// the Sales Export stays on excelize. What an Answer looks like in a cell is
+// still decided once, by Answer.Cell, and only the bytes are written twice.
+//
 // IT LIVES IN THIS PACKAGE RATHER THAN IN A SECOND ONE beside the catalog
 // service that calls it, and that is deliberate. This package is a LEAF — pure
 // formatting, no database, no domain — and the shared column builder is already
 // in it. A second workbook package importing this one for BuildQuestionColumns,
-// cellRef, setStr and the layout type would be a package that exists to hold one
+// Answer.Cell and the layout type would be a package that exists to hold one
 // caller, and moving the builder out to a third package to serve both would put a
 // change to the Sales Export's headings in the blast radius of a package the
 // Sales Export does not own. Cross-domain imports already run both ways here
@@ -185,7 +189,7 @@ type HolderRow struct {
 	CustomerLastName  string
 	CustomerEmail     string
 
-	// THE HOLDER (ADR 0047). Written only while HolderRoster.Assignment is open.
+	// THE HOLDER (ADR 0047). Written only while HolderColumns.Assignment is open.
 
 	// AssignmentState is `unassigned`, `assigned` or `accepted`. It is the only
 	// one of these that is written on every row, and it is what makes the blanks
@@ -220,11 +224,10 @@ type HolderRow struct {
 	Answers map[string]Answer
 }
 
-// HolderRoster is the whole of the Holder Export's data: the Event's Ticket
-// Questions as columns, whether the Holder block exists, and the Tickets of the
-// filtered roster as rows.
-type HolderRoster struct {
-	// Questions are the Event's Ticket Questions — the Event's, and not the ones
+// HolderColumns is what decides the Holder Export's columns: the Event's Ticket
+// Questions, and whether the Holder block exists.
+type HolderColumns struct {
+	// Questions are the Event's Ticket Questions - the Event's, and not the ones
 	// the exported Tickets happen to have answered, which is what keeps the shape
 	// of the sheet stable under the filters. Empty on a build with Ticket
 	// Questions dark, and on an Event that asks nothing.
@@ -232,16 +235,11 @@ type HolderRoster struct {
 	// Assignment is whether TICKET_ASSIGNMENT_ENABLED is open, and the whole of
 	// the test for whether the sheet carries holderStateColumns.
 	Assignment bool
-	// Tickets are the roster's rows, IN THE ORDER THE CALLER PAGED THEM. This file
-	// re-sorts nothing: the sort was chosen on screen, applied in SQL, and the
-	// promise the download makes is that the file mirrors the view — a second
-	// ordering here, however sensible, would break exactly that promise.
-	Tickets []HolderRow
 }
 
 // asked reports whether the Event has any Ticket Question, and so whether the
 // sheet carries question columns at all.
-func (r HolderRoster) asked() bool { return len(r.Questions) > 0 }
+func (c HolderColumns) asked() bool { return len(c.Questions) > 0 }
 
 // HolderInfo is what the Holder Export's Info sheet says about the file: the
 // facts a reader needs to know what they are holding, none of which can be read
@@ -362,14 +360,14 @@ type HolderFilters struct {
 // columns onto the fixed ones.
 //
 // It is the only place THIS SHEET's layout is decided: the header row is written
-// from it and every column letter is derived from it, exactly as layoutFor and
+// from it and every cell's position is derived from it, exactly as layoutFor and
 // answersLayoutFor do for the Sales Export's two sheets. What the question
-// columns themselves ARE is emphatically not decided here — BuildQuestionColumns
+// columns themselves ARE is emphatically not decided here - BuildQuestionColumns
 // decides that, once, for this file and the Sales Export's per-Ticket sheet both
 // (#520, ADR 0065). All this function knows is where they are spliced in: last,
 // after the person, in the order the builder hands them back.
-func holderLayoutFor(roster HolderRoster) layout {
-	questions := BuildQuestionColumns(roster.Questions)
+func holderLayoutFor(columns HolderColumns) layout {
+	questions := BuildQuestionColumns(columns.Questions)
 	width := len(holderFixedColumns) + len(holderStateColumns) + questions.Len()
 	out := layout{
 		headers: make([]string, 0, width),
@@ -382,7 +380,7 @@ func holderLayoutFor(roster HolderRoster) layout {
 	for _, col := range holderFixedColumns {
 		add(col, col)
 	}
-	if roster.Assignment {
+	if columns.Assignment {
 		for _, col := range holderStateColumns {
 			add(col, col)
 		}
@@ -394,176 +392,148 @@ func holderLayoutFor(roster HolderRoster) layout {
 	return out
 }
 
-// BuildHolderExport produces the Holder Export's .xlsx: an "Info" sheet that
-// explains the file, then a "Ticket Holders" sheet holding a header row and one
-// row per Ticket, with nothing above the header so select-all, autofilter and
-// pivot source ranges all work without deleting a preamble.
+// HolderExport is a Holder Export being streamed (ADR 0075): an "Info" sheet
+// that explains the file, then a "Ticket Holders" sheet holding a header row and
+// one row per Ticket, with nothing above the header so select-all, autofilter
+// and pivot source ranges all work without deleting a preamble.
+//
+// ROWS GO STRAIGHT THROUGH. Each Append is written, compressed and handed to the
+// output before the next row exists, so the roster is never held here, and the
+// Info sheet - written by Finish, opening first - states the rows actually
+// written. A stream abandoned before Finish is not an openable file; see
+// Stream.
+//
+// It writes the rows in the order it is given them and narrows nothing: the
+// filtering and the sort happened in SQL, against the same query the screen ran.
+type HolderExport struct {
+	stream  *Stream
+	columns HolderColumns
+	cols    layout
+	// questions is the builder the layout was made from, so the cells a row
+	// writes and the columns they are written to cannot be worked out two
+	// different ways.
+	questions QuestionColumns
+	loc       *time.Location
+	// row is reused for every Ticket: one row's worth of cells is the most this
+	// type ever holds.
+	row []Cell
+}
+
+// BeginHolderExport writes the workbook's fixed parts and the data sheet's
+// header onto w.
 //
 // loc is the EVENT's timezone, which every date is drawn in and which the Info
 // sheet names outright, since an Excel date cell carries no timezone of its own.
-//
-// It writes the rows in the order it was given them and narrows nothing: the
-// filtering and the sort happened in SQL, against the same query the screen ran.
-func BuildHolderExport(roster HolderRoster, loc *time.Location, info HolderInfo) ([]byte, error) {
-	f := excelize.NewFile()
-	defer func() { _ = f.Close() }()
-
-	cols := holderLayoutFor(roster)
-	// The same builder the layout was made from, so the cells a row writes and the
-	// columns they are written to cannot be worked out two different ways.
-	questions := BuildQuestionColumns(roster.Questions)
-
-	if err := f.SetSheetName(f.GetSheetName(0), HolderSheet); err != nil {
-		return nil, err
-	}
-	for i, h := range cols.headers {
-		cell, err := excelize.CoordinatesToCellName(i+1, 1)
-		if err != nil {
-			return nil, err
-		}
-		if err := f.SetCellStr(HolderSheet, cell, h); err != nil {
-			return nil, err
-		}
-	}
-
-	dateStyle, err := f.NewStyle(&excelize.Style{CustomNumFmt: ptr(dateFormat)})
+func BeginHolderExport(w io.Writer, columns HolderColumns, loc *time.Location) (*HolderExport, error) {
+	cols := holderLayoutFor(columns)
+	// Wide enough that an email address - the longest thing on the sheet - is
+	// readable without the recipient widening every column first. The same 22
+	// both of the Sales Export's sheets use.
+	stream, err := BeginStream(w, SheetLayout{Name: HolderSheet, Headings: cols.headers, Width: 22})
 	if err != nil {
 		return nil, err
 	}
-	answerDateStyle, err := f.NewStyle(&excelize.Style{CustomNumFmt: ptr(answerDateFormat)})
-	if err != nil {
-		return nil, err
-	}
-
-	for i, ticket := range roster.Tickets {
-		row := i + 2 // the header is row 1
-
-		for _, col := range []struct {
-			key   string
-			value string
-		}{
-			{colConfirmationRef, ticket.ConfirmationRef},
-			{colChannel, ticket.Channel},
-			{colTicketTypeName, ticket.TicketTypeName},
-			{colCustomerFirstName, ticket.CustomerFirstName},
-			{colCustomerLastName, ticket.CustomerLastName},
-			{colCustomerEmail, ticket.CustomerEmail},
-		} {
-			if err := setStr(f, HolderSheet, cols, col.key, row, col.value); err != nil {
-				return nil, err
-			}
-		}
-
-		// A real date cell, drawn in the Event's timezone: excelize reads the
-		// value's zone offset off the time itself, so converting first is what puts
-		// the Event's wall clock in the cell. The same format the Sales Export
-		// stamps sold_at with, because it is the same fact about the same sale.
-		soldAt, err := cellRef(cols, colSoldAt, row)
-		if err != nil {
-			return nil, err
-		}
-		if err := f.SetCellValue(HolderSheet, soldAt, ticket.SoldAt.In(loc)); err != nil {
-			return nil, err
-		}
-		// Set after the value: excelize stamps a default date style of its own when
-		// writing a time, and this replaces it.
-		if err := f.SetCellStyle(HolderSheet, soldAt, soldAt, dateStyle); err != nil {
-			return nil, err
-		}
-
-		// A REAL NUMBER and not text, so "10" sorts after "9" rather than before
-		// it. It is the only number on the sheet and it is a counter, not money.
-		ordinal, err := cellRef(cols, colTicketOrdinal, row)
-		if err != nil {
-			return nil, err
-		}
-		if err := f.SetCellInt(HolderSheet, ordinal, int64(ticket.Ordinal)); err != nil {
-			return nil, err
-		}
-
-		if roster.Assignment {
-			if err := writeHolderState(f, cols, ticket, row); err != nil {
-				return nil, err
-			}
-		}
-
-		// What this Ticket said, in cells. Which cells those are — including
-		// whether an unanswered question leaves its whole block blank and how a
-		// multiple-choice Answer fans out across its Options — is CellsFor's
-		// decision and not this sheet's, because the Sales Export's per-Ticket
-		// sheet makes it identically.
-		for _, cell := range questions.CellsFor(ticket.Answers) {
-			if err := writeAnswer(f, HolderSheet, cols, cell, row, answerDateStyle); err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	// Wide enough that an email address — the longest thing on the sheet — is
-	// readable without the recipient widening every column first. The same 22 both
-	// of the Sales Export's sheets use.
-	first, err := excelize.ColumnNumberToName(1)
-	if err != nil {
-		return nil, err
-	}
-	last, err := excelize.ColumnNumberToName(len(cols.headers))
-	if err != nil {
-		return nil, err
-	}
-	if err := f.SetColWidth(HolderSheet, first, last, 22); err != nil {
-		return nil, err
-	}
-
-	// Last, so the row count it states is the number of rows that were written.
-	if err := addInfoSheet(f, HolderSheet, holderInfoLines(info, loc, len(roster.Tickets), roster)); err != nil {
-		return nil, err
-	}
-
-	buf, err := f.WriteToBuffer()
-	if err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return &HolderExport{
+		stream:    stream,
+		columns:   columns,
+		cols:      cols,
+		questions: BuildQuestionColumns(columns.Questions),
+		loc:       loc,
+		row:       make([]Cell, len(cols.headers)),
+	}, nil
 }
 
-// writeHolderState writes the five Holder columns for one Ticket.
+// Append writes one Ticket's row.
+func (h *HolderExport) Append(ticket HolderRow) error {
+	clear(h.row) // every cell back to CellBlank
+
+	for _, col := range []struct {
+		key   string
+		value string
+	}{
+		{colConfirmationRef, ticket.ConfirmationRef},
+		{colChannel, ticket.Channel},
+		{colTicketTypeName, ticket.TicketTypeName},
+		{colCustomerFirstName, ticket.CustomerFirstName},
+		{colCustomerLastName, ticket.CustomerLastName},
+		{colCustomerEmail, ticket.CustomerEmail},
+	} {
+		h.text(col.key, col.value)
+	}
+
+	// A real date cell, drawn in the Event's timezone: the writer reads the
+	// wall clock off the time itself, so converting first is what puts the
+	// Event's clock in the cell. The same format the Sales Export stamps sold_at
+	// with, because it is the same fact about the same sale.
+	h.set(colSoldAt, Cell{Kind: CellMoment, Date: ticket.SoldAt.In(h.loc)})
+
+	// A REAL NUMBER and not text, so "10" sorts after "9" rather than before
+	// it. It is the only number on the sheet and it is a counter, not money.
+	h.set(colTicketOrdinal, Cell{Kind: CellNumber, Number: float64(ticket.Ordinal)})
+
+	if h.columns.Assignment {
+		h.holderState(ticket)
+	}
+
+	// What this Ticket said, in cells. Which cells those are - including whether
+	// an unanswered question leaves its whole block blank and how a
+	// multiple-choice Answer fans out across its Options - is CellsFor's
+	// decision, and what each one holds is Answer.Cell's; the Sales Export's
+	// per-Ticket sheet makes both identically.
+	for _, cell := range h.questions.CellsFor(ticket.Answers) {
+		h.set(cell.Key, cell.Value.Cell())
+	}
+
+	return h.stream.Append(h.row)
+}
+
+// holderState fills the five Holder columns for one Ticket.
 //
 // EVERY BLANK HERE IS DELIBERATE AND NONE OF THEM IS A ZERO. An empty value is
 // left unwritten rather than written as "", so the cell is genuinely blank and a
-// reader filtering on "is blank" gets the rows nobody has accepted — which is the
+// reader filtering on "is blank" gets the rows nobody has accepted - which is the
 // question they are asking. NOTHING HERE TESTS THE STATE to decide that: the
 // three person values are already empty unless the Ticket is `accepted`, because
 // the caller filled them from the view fillHolderListEntry wrote. A test on the
 // word would be a second copy of ADR 0047's rule.
 //
 // The never-accepted marker is the exception and is written on EVERY row, as a
-// real boolean. It is a derived fact that is total — every Ticket either was
-// named and never claimed or was not — so a blank would be an absence with no
+// real boolean. It is a derived fact that is total - every Ticket either was
+// named and never claimed or was not - so a blank would be an absence with no
 // meaning, and a column of blanks and TRUEs cannot be counted: "how many did I
 // name who never claimed" is a COUNTIF, and a pivot over a column that is half
 // empty counts neither half.
-func writeHolderState(f *excelize.File, cols layout, ticket HolderRow, row int) error {
-	for _, col := range []struct {
-		key   string
-		value string
-	}{
-		{colAssignmentState, ticket.AssignmentState},
-		{colHolderFirstName, ticket.HolderFirstName},
-		{colHolderLastName, ticket.HolderLastName},
-		{colHolderEmail, ticket.HolderEmail},
-	} {
-		if col.value == "" {
-			continue
-		}
-		if err := setStr(f, HolderSheet, cols, col.key, row, col.value); err != nil {
-			return err
-		}
+func (h *HolderExport) holderState(ticket HolderRow) {
+	h.text(colAssignmentState, ticket.AssignmentState)
+	h.set(colNeverAccepted, Cell{Kind: CellBool, Bool: ticket.NeverAccepted})
+	h.text(colHolderFirstName, ticket.HolderFirstName)
+	h.text(colHolderLastName, ticket.HolderLastName)
+	h.text(colHolderEmail, ticket.HolderEmail)
+}
+
+// text sets a text cell, leaving an empty value genuinely blank.
+func (h *HolderExport) text(key, value string) {
+	if value != "" {
+		h.set(key, Cell{Kind: CellText, Text: value})
 	}
-	marker, err := cellRef(cols, colNeverAccepted, row)
-	if err != nil {
-		return err
+}
+
+// set places a cell by column key. Every key comes from the slices the layout
+// was built from, so a miss is unreachable.
+func (h *HolderExport) set(key string, c Cell) {
+	if column, ok := h.cols.index[key]; ok {
+		h.row[column-1] = c
 	}
-	return f.SetCellBool(HolderSheet, marker, ticket.NeverAccepted)
+}
+
+// Rows is how many Tickets have been written.
+func (h *HolderExport) Rows() int { return h.stream.Rows() }
+
+// Finish writes the Info sheet - last, so the row count it states is the number
+// of rows that were written - and completes the file. Until it returns nil the
+// output cannot be opened.
+func (h *HolderExport) Finish(info HolderInfo) error {
+	return h.stream.Finish(holderInfoLines(info, h.loc, h.stream.Rows(), h.columns))
 }
 
 // holderInfoLines is the Holder Export's Info sheet copy: one line per row, in
@@ -576,11 +546,9 @@ func writeHolderState(f *excelize.File, cols layout, ticket HolderRow, row int) 
 // it.
 //
 // rowCount is the number of rows the file actually carries, so a reader can check
-// nothing was truncated between the screen and the file. It is the rows WRITTEN
-// and never a total from elsewhere, so the claim and the sheet cannot disagree —
-// and over the cap there is no file at all, because the export refuses rather
-// than truncating.
-func holderInfoLines(info HolderInfo, loc *time.Location, rowCount int, roster HolderRoster) []string {
+// nothing was lost between the screen and the file. It is the rows WRITTEN and
+// never a total from elsewhere, so the claim and the sheet cannot disagree.
+func holderInfoLines(info HolderInfo, loc *time.Location, rowCount int, columns HolderColumns) []string {
 	lines := []string{
 		"Holder Export",
 		"",
@@ -624,7 +592,7 @@ func holderInfoLines(info HolderInfo, loc *time.Location, rowCount int, roster H
 	// and cannot find it in the file would otherwise report the export as broken,
 	// and the answer is that the address is not theirs to see until the person it
 	// belongs to has said so.
-	if roster.Assignment {
+	if columns.Assignment {
 		lines = append(lines,
 			"",
 			"Each row's "+colAssignmentState+" says where the Ticket stands with its holder: "+
@@ -644,7 +612,7 @@ func holderInfoLines(info HolderInfo, loc *time.Location, rowCount int, roster H
 
 	// The question columns, and what a blank one means — the one thing about them
 	// that cannot be read off them.
-	if roster.asked() {
+	if columns.asked() {
 		lines = append(lines,
 			"",
 			"The remaining columns are this Event's Ticket Questions — one column each, and "+

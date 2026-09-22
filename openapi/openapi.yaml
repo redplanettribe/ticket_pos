@@ -16760,25 +16760,27 @@ paths:
         duplicating every sale. It carries nothing above its header row, so select-all,
         autofilter and pivot source ranges work without deleting a preamble — which
         is why the stamp is a sheet of its own. The filename is set by Content-Disposition
-        as `holders-{event-slug}-{YYYY-MM-DD}.xlsx`. Generation is synchronous and
-        the workbook is buffered in memory, so the file is CAPPED at 2,000 Tickets
-        — a measured ceiling (#530): at the widest plausible question set a fifty-thousand-row
-        file needed 6.9 GiB of process memory, and memory rather than the request
-        timeout is what bounds this — its own ceiling with its own reason, and deliberately
-        not the Sales Export''s cap, which exists to mirror what a Sale Import would
-        take back and does not transfer to a file nobody imports. A request whose
-        filters match MORE than the cap builds nothing and is refused with the standard
-        VALIDATION_FAILED envelope, carrying one field error on `filters` whose message
-        names how many TICKETS matched and how many may be downloaded at once; nothing
-        is ever truncated, and exactly the cap succeeds. One structured log line is
-        written per generated file — the acting Member, Organization, Event, the honoured
-        structural filters, the sort and the row count — because this is the platform''s
-        densest concentration of attendee personal data and "who pulled the guest
-        list" cannot be answered retroactively. The search is recorded in it as a
-        boolean only, for the reason it is absent from the file. Restricted to Org
-        Admins and Event Owners, the same gate as the Holder List read; Event Staff
-        are refused. 404 while BOTH the Ticket Assignment and the Ticket Question
-        feature flags are dark, exactly as the list is.'
+        as `holders-{event-slug}-{YYYY-MM-DD}.xlsx`. THERE IS NO SIZE LIMIT (ADR 0075):
+        whatever the view holds downloads as one file, however many Tickets that is.
+        The file is STREAMED — rows are read from one read-only REPEATABLE READ snapshot
+        through a database cursor and written, compressed and sent as they are produced
+        — so it is exactly the roster at the moment the Info sheet''s generated-at
+        line names, and a sale or reassignment made while it downloads neither appears
+        in it nor moves anybody out of it. Every refusal is decided BEFORE THE FIRST
+        BYTE and arrives as the ordinary JSON envelope. A failure AFTER streaming
+        has begun — the database, the client going away, or the export''s own deadline
+        just inside the request timeout — cannot change the 200 already sent: the
+        response is ABORTED rather than ended, never an envelope, and the file is
+        never finished, so it has no zip central directory and no spreadsheet program
+        will open it; a roster silently missing its last people cannot be produced.
+        One structured log line is written per generated file — the acting Member,
+        Organization, Event, the honoured structural filters, the sort and the row
+        count — because this is the platform''s densest concentration of attendee
+        personal data and "who pulled the guest list" cannot be answered retroactively.
+        The search is recorded in it as a boolean only, for the reason it is absent
+        from the file. Restricted to Org Admins and Event Owners, the same gate as
+        the Holder List read; Event Staff are refused. 404 while BOTH the Ticket Assignment
+        and the Ticket Question feature flags are dark, exactly as the list is.'
       parameters:
       - description: Event ID
         in: path

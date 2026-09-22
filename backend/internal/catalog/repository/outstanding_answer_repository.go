@@ -553,7 +553,7 @@ var holderSortColumns = map[string][]string{
 // list under `NULLS LAST`, and would make the option look broken on exactly the
 // Events that use it. The CASE tests what the reader sees is blank, which is the
 // property this rule is actually about; `hc.last_name IS NULL` (an unaccepted
-// Ticket, and the common case) and `hc.last_name = ''` (an accepted Holder who
+// Ticket, and the common case) and `hc.last_name = ”` (an accepted Holder who
 // never named themselves) both answer 1.
 //
 // ONLY `holder` IS IN THIS MAP, AND THE OTHER FOUR WERE CHECKED RATHER THAN
@@ -1070,39 +1070,13 @@ func (r *Repository) ListHolderTickets(
 		return []HolderTicket{}, 0, nil
 	}
 
-	// THE ORDER, AND THE ONE JOIN THAT ONLY AN ORDER NEEDS (#527). holderOrderBy
-	// resolves the sort against its allowlist — an unrecognised key is the
-	// default order, never an error — and says whether the debt-count join has
-	// to be added for it. That join goes on the PAGE ALONE: nothing in the WHERE
-	// reads it, and it can change no count, being LEFT and on the Ticket's
-	// primary key over a grouped derivation (see holderRosterOwesJoin). The
-	// COUNT above therefore still describes exactly the view this page shows.
-	orderBy, needsOwesJoin := holderOrderBy(q.Sort, q.Dir)
-	owesJoin := ""
-	if needsOwesJoin {
-		// The scope re-stated with the same two arguments the filters already
-		// bound, in their known positions — its aliases shadow the roster's, so
-		// an unscoped derivation would count another Organization's debts.
-		owesJoin = fmt.Sprintf(holderRosterOwesJoin, holderRosterScopeEventArg, holderRosterScopeOrgArg)
-	}
-
 	// The page's own two arguments, appended AFTER the filters' so the numbering
 	// depends on how many filters were active rather than on a constant nobody
-	// remembers to update. The owes join binds nothing of its own, for
-	// holderRosterOwingOnly's reason: it re-states arguments already in args.
+	// remembers to update.
+	roster, _ := holderRosterSelect(q)
 	pageArgs := append(append([]any{}, args...), q.Limit, q.Offset)
-	rows, err := r.db.Pool.QueryContext(ctx, fmt.Sprintf(`
-		SELECT tk.id, tk.ordinal, l.ticket_type_id, tt.name,
-		       s.id, s.confirmation_ref, s.channel,
-		       s.customer_first_name, s.customer_last_name, s.customer_email, s.sold_at,
-		       tk.holder_email, tk.assigned_at, tk.accepted_at, tk.holder_address_purged_at,
-		       hc.first_name, hc.last_name,
-		       s.customer_id, tk.holder_customer_id
-	`+holderRosterFrom+holderRosterHolderJoin+owesJoin+`
-		WHERE `+where+`
-		`+orderBy+`
-		LIMIT $%d OFFSET $%d
-	`, len(args)+1, len(args)+2), pageArgs...)
+	rows, err := r.db.Pool.QueryContext(ctx,
+		roster+fmt.Sprintf("\n\t\tLIMIT $%d OFFSET $%d", len(args)+1, len(args)+2), pageArgs...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1110,20 +1084,66 @@ func (r *Repository) ListHolderTickets(
 
 	tickets := make([]HolderTicket, 0)
 	for rows.Next() {
-		var t HolderTicket
-		if err := rows.Scan(
-			&t.ID, &t.Ordinal, &t.TicketTypeID, &t.TicketTypeName,
-			&t.TicketSaleID, &t.ConfirmationRef, &t.Channel,
-			&t.CustomerFirstName, &t.CustomerLastName, &t.CustomerEmail, &t.SoldAt,
-			&t.HolderEmail, &t.AssignedAt, &t.AcceptedAt, &t.HolderAddressPurgedAt,
-			&t.HolderFirstName, &t.HolderLastName,
-			&t.CustomerID, &t.HolderCustomerID,
-		); err != nil {
+		t, err := scanHolderTicket(rows)
+		if err != nil {
 			return nil, 0, err
 		}
 		tickets = append(tickets, t)
 	}
 	return tickets, total, rows.Err()
+}
+
+// holderRosterSelect is the roster's whole read - its columns, its joins, its
+// WHERE and its ORDER BY - with no page on it, and the arguments it binds.
+//
+// ONE STATEMENT FOR THE SCREEN AND THE FILE. The Holder List pages it and the
+// Holder Export reads it through a cursor to the end (ADR 0075), and neither
+// assembles a second copy: "the file mirrors the view" is a promise only one
+// query can keep.
+func holderRosterSelect(q ListHolderTicketsQuery) (string, []any) {
+	where, args := holderRosterFilters(q)
+
+	// THE ORDER, AND THE ONE JOIN THAT ONLY AN ORDER NEEDS (#527). holderOrderBy
+	// resolves the sort against its allowlist — an unrecognised key is the
+	// default order, never an error — and says whether the debt-count join has
+	// to be added for it. That join goes on the ROWS ALONE: nothing in the WHERE
+	// reads it, and it can change no count, being LEFT and on the Ticket's
+	// primary key over a grouped derivation (see holderRosterOwesJoin). The
+	// list's COUNT therefore still describes exactly the view a page shows.
+	orderBy, needsOwesJoin := holderOrderBy(q.Sort, q.Dir)
+	owesJoin := ""
+	if needsOwesJoin {
+		// The scope re-stated with the same two arguments the filters already
+		// bound, in their known positions — its aliases shadow the roster's, so
+		// an unscoped derivation would count another Organization's debts. It
+		// binds nothing of its own, for holderRosterOwingOnly's reason.
+		owesJoin = fmt.Sprintf(holderRosterOwesJoin, holderRosterScopeEventArg, holderRosterScopeOrgArg)
+	}
+
+	return `
+		SELECT tk.id, tk.ordinal, l.ticket_type_id, tt.name,
+		       s.id, s.confirmation_ref, s.channel,
+		       s.customer_first_name, s.customer_last_name, s.customer_email, s.sold_at,
+		       tk.holder_email, tk.assigned_at, tk.accepted_at, tk.holder_address_purged_at,
+		       hc.first_name, hc.last_name,
+		       s.customer_id, tk.holder_customer_id
+	` + holderRosterFrom + holderRosterHolderJoin + owesJoin + `
+		WHERE ` + where + `
+		` + orderBy, args
+}
+
+// scanHolderTicket reads one row of holderRosterSelect.
+func scanHolderTicket(rows *sql.Rows) (HolderTicket, error) {
+	var t HolderTicket
+	err := rows.Scan(
+		&t.ID, &t.Ordinal, &t.TicketTypeID, &t.TicketTypeName,
+		&t.TicketSaleID, &t.ConfirmationRef, &t.Channel,
+		&t.CustomerFirstName, &t.CustomerLastName, &t.CustomerEmail, &t.SoldAt,
+		&t.HolderEmail, &t.AssignedAt, &t.AcceptedAt, &t.HolderAddressPurgedAt,
+		&t.HolderFirstName, &t.HolderLastName,
+		&t.CustomerID, &t.HolderCustomerID,
+	)
+	return t, err
 }
 
 // ListOutstandingQuestionsForTickets names which required questions each of the
