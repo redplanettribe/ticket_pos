@@ -22,8 +22,8 @@ type ticketQuestion struct {
 	ReviewStatus string  `json:"review_status"`
 	ApprovedBy   *string `json:"approved_by"`
 	// RefusalReason and RevocationReason are the Operator's reasons (#407, #410).
-	RefusalReason    *string `json:"refusal_reason"`
-	RevocationReason *string `json:"revocation_reason"`
+	RefusalReason    *string                `json:"refusal_reason"`
+	RevocationReason *string                `json:"revocation_reason"`
 	Options          []ticketQuestionOption `json:"options"`
 }
 
