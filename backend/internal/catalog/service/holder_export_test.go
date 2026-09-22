@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -22,5 +24,32 @@ func TestTheHolderExportDeadlineIsInsideTheRequestTimeout(t *testing.T) {
 	if margin := requestTimeout - holderExportDeadline; margin < 5*time.Second {
 		t.Fatalf("holderExportDeadline = %v, Cloud Run's request timeout = %v: the export must expire at least 5s first, or the platform cuts it off before it can say why",
 			holderExportDeadline, requestTimeout)
+	}
+}
+
+// An aborted export's "finished" line says why: the deadline before its
+// symptoms, then a client that went away, and only then the database.
+func TestHolderExportAbortReason(t *testing.T) {
+	live := context.Background()
+	gone, cancel := context.WithCancel(live)
+	cancel()
+	expired, cancelExpired := context.WithDeadline(live, time.Now().Add(-time.Second))
+	defer cancelExpired()
+	brokenPipe := errors.New("write: broken pipe")
+
+	for _, tc := range []struct {
+		name     string
+		ctx      context.Context
+		writeErr error
+		want     string
+	}{
+		{"deadline, even with the client gone too", expired, brokenPipe, "deadline"},
+		{"request cancelled", gone, nil, "client_gone"},
+		{"a write to the response failed", live, brokenPipe, "client_gone"},
+		{"nothing else went wrong", live, nil, "database_error"},
+	} {
+		if got := holderExportAbortReason(tc.ctx, tc.writeErr); got != tc.want {
+			t.Errorf("%s: reason = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }

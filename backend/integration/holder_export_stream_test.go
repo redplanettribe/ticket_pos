@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -250,6 +252,7 @@ func TestTheHolderExportAbortsRatherThanFinishingAShortFile(t *testing.T) {
 	ticketTypeID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 2000, tickets+100)
 	seedHolderExportBenchFixture(t, env, eventID, ticketTypeID, tickets)
 
+	logs := withCatalogLogger(t)
 	killed := false
 	withHolderExportPause(t, func(_ context.Context, rowsWritten int) {
 		if rowsWritten != 500 {
@@ -288,5 +291,109 @@ func TestTheHolderExportAbortsRatherThanFinishingAShortFile(t *testing.T) {
 	if f, openErr := excelize.OpenReader(bytes.NewReader(body)); openErr == nil {
 		_ = f.Close()
 		t.Fatal("the bytes of an aborted download open as a workbook")
+	}
+
+	// And the record says so, with its own reason (#659).
+	finished := waitForLine(t, logs, "holder export finished")
+	if got := finished.arg(t, "outcome"); got != "aborted" {
+		t.Errorf("finished outcome = %v, want aborted", got)
+	}
+	if got := finished.arg(t, "reason"); got != "database_error" {
+		t.Errorf("finished reason = %v, want database_error", got)
+	}
+}
+
+// waitForLine polls the captured log until a line containing fragment appears:
+// an aborted export logs from the server's goroutine after the client has gone.
+func waitForLine(t *testing.T, logs *captureLogger, fragment string) capturedLine {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, line := range logs.snapshot() {
+			if strings.Contains(line.msg, fragment) {
+				return line
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("no %q line was logged; log was:\n%s", fragment, logs.rendered())
+	return capturedLine{}
+}
+
+// A CLIENT THAT GOES AWAY MID-STREAM is recorded as an abort, with the rows
+// that had gone and the reason, after a started line that carried the search
+// as a boolean and never its term (#659).
+func TestTheHolderExportLogsAClientThatWentAway(t *testing.T) {
+	const tickets = 1_200
+	env := setupTest(t)
+	enableTicketAssignment(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Gone Fest", "gone-fest")
+	ticketTypeID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 2000, tickets+100)
+	seedHolderExportBenchFixture(t, env, eventID, ticketTypeID, tickets)
+	logs := withCatalogLogger(t)
+
+	// Every buyer's address contains it, so the search narrows nothing and the
+	// file streams long enough to be walked away from.
+	const term = "bench-buyer"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	paused := make(chan struct{})
+	withHolderExportPause(t, func(exportCtx context.Context, rowsWritten int) {
+		if rowsWritten != 500 {
+			return
+		}
+		close(paused)
+		select {
+		case <-exportCtx.Done():
+		case <-time.After(10 * time.Second):
+			t.Errorf("the export never noticed its client had gone")
+		}
+	})
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		env.server.URL+holderExportPath(eventID)+"?q="+term, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+sessionID)
+	done := make(chan error, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			_, err = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+		}
+		done <- err
+	}()
+	select {
+	case <-paused:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the export never reached its first batch")
+	}
+	cancel()
+	if err := <-done; err == nil {
+		t.Fatal("the download completed although its client walked away")
+	}
+
+	finished := waitForLine(t, logs, "holder export finished")
+	if got := finished.arg(t, "outcome"); got != "aborted" {
+		t.Errorf("finished outcome = %v, want aborted", got)
+	}
+	if got := finished.arg(t, "row_count"); got != 500 {
+		t.Errorf("finished row_count = %v, want the 500 rows sent before the client went", got)
+	}
+	if got := finished.arg(t, "reason"); got != "client_gone" {
+		t.Errorf("finished reason = %v, want client_gone", got)
+	}
+	lines := logs.snapshot()
+	if len(lines) == 0 || lines[0].msg != "holder export started" {
+		t.Fatalf("the started line must precede the finished one; log was:\n%s", logs.rendered())
+	}
+	if got := lines[0].arg(t, "search"); got != true {
+		t.Errorf("started search = %v, want the boolean true", got)
+	}
+	if strings.Contains(logs.rendered(), term) {
+		t.Fatalf("the search term reached the log:\n%s", logs.rendered())
 	}
 }

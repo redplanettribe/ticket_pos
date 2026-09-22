@@ -16773,14 +16773,18 @@ paths:
         response is ABORTED rather than ended, never an envelope, and the file is
         never finished, so it has no zip central directory and no spreadsheet program
         will open it; a roster silently missing its last people cannot be produced.
-        One structured log line is written per generated file — the acting Member,
-        Organization, Event, the honoured structural filters, the sort and the row
-        count — because this is the platform''s densest concentration of attendee
-        personal data and "who pulled the guest list" cannot be answered retroactively.
-        The search is recorded in it as a boolean only, for the reason it is absent
-        from the file. Restricted to Org Admins and Event Owners, the same gate as
-        the Holder List read; Event Staff are refused. 404 while BOTH the Ticket Assignment
-        and the Ticket Question feature flags are dark, exactly as the list is.'
+        Two structured log lines are written per export, because this is the platform''s
+        densest concentration of attendee personal data and "who pulled the guest
+        list" cannot be answered retroactively: `holder export started` before the
+        first byte, naming the acting Member, Organization, Event, the honoured structural
+        filters and the sort, and `holder export finished` when the stream ends, with
+        the outcome (completed or aborted), the rows sent and, for an abort, why (client_gone,
+        deadline or database_error). A request refused before streaming begins writes
+        neither. The search is recorded as a boolean only, on both, for the reason
+        it is absent from the file. Restricted to Org Admins and Event Owners, the
+        same gate as the Holder List read; Event Staff are refused. 404 while BOTH
+        the Ticket Assignment and the Ticket Question feature flags are dark, exactly
+        as the list is.'
       parameters:
       - description: Event ID
         in: path

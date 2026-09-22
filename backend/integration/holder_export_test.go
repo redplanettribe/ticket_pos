@@ -583,7 +583,7 @@ func TestTheHolderExportNeverDescribesAnIgnoredFilter(t *testing.T) {
 	}
 
 	// THE AUDIT LINE MAKES THE SAME CALL, from the same honoured set.
-	line := logs.only(t, "holder export")
+	line := logs.only(t, "holder export started")
 	if got := line.arg(t, "outstanding"); got != false {
 		t.Errorf("log outstanding = %v, want false — the filter was dropped", got)
 	}
@@ -621,7 +621,7 @@ func TestTheHolderExportReportsASearchAndNeverTheTerm(t *testing.T) {
 	}
 	assertAbsentFromExport(t, file.raw, term)
 
-	line := logs.only(t, "holder export")
+	line := logs.only(t, "holder export started")
 	if got := line.arg(t, "search"); got != true {
 		t.Errorf("log search = %v, want the boolean true", got)
 	}
@@ -673,15 +673,18 @@ func TestTheHolderExportDataSheetIsNeverNamedSales(t *testing.T) {
 	}
 }
 
-// AN AUDIT LINE IS WRITTEN PER GENERATED FILE, naming who took it, from which
-// Organization and Event, under which structural filters, and how many rows.
+// TWO AUDIT LINES ARE WRITTEN PER EXPORT (ADR 0075): "started" before the first
+// byte, naming who took it, from which Organization and Event and under which
+// structural filters; "finished" when the stream ends, with the outcome and how
+// many rows went.
 //
 // This file is the platform's densest concentration of attendee personal data,
-// and "who pulled the guest list" cannot be answered retroactively: the line is
-// written here or it is never written. There is no audit table behind it on
-// purpose — that implies a reading surface, a retention policy and an access
-// rule, and should be designed once across the platform rather than growing out
-// of this feature.
+// and "who pulled the guest list" cannot be answered retroactively. Personal
+// data leaves with the first chunk, which is why the record of who asked is
+// written before it rather than after the last. There is no audit table behind
+// it on purpose — that implies a reading surface, a retention policy and an
+// access rule, and should be designed once across the platform rather than
+// growing out of this feature.
 func TestTheHolderExportLogsWhoTookWhatAndHowMuch(t *testing.T) {
 	env := setupTest(t)
 	enableTicketAssignment(t)
@@ -691,17 +694,14 @@ func TestTheHolderExportLogsWhoTookWhatAndHowMuch(t *testing.T) {
 	file := openHolderExport(t, env, f.sessionID, f.eventID,
 		"channel=online&ticket_type_id="+f.vipID+"&assignment_state=unassigned&sold_from=2026-06-01&sort=buyer&dir=asc")
 
-	line := logs.only(t, "holder export")
+	started := logs.only(t, "holder export started")
 	for _, key := range []string{"member_id", "organization_id", "event_id"} {
-		if got, _ := line.arg(t, key).(string); got == "" {
-			t.Fatalf("log line %s is blank; it is how the file is traced back", key)
+		if got, _ := started.arg(t, key).(string); got == "" {
+			t.Fatalf("started line %s is blank; it is how the file is traced back", key)
 		}
 	}
-	if got, _ := line.arg(t, "event_id").(string); got != f.eventID {
-		t.Errorf("log event_id = %q, want the exported Event %q", got, f.eventID)
-	}
-	if got := line.arg(t, "row_count"); got != file.dataRows {
-		t.Errorf("log row_count = %v, want the %d rows handed over", got, file.dataRows)
+	if got, _ := started.arg(t, "event_id").(string); got != f.eventID {
+		t.Errorf("started event_id = %q, want the exported Event %q", got, f.eventID)
 	}
 	// The structural filters, which say what was asked for without saying
 	// anything about any one person.
@@ -713,12 +713,27 @@ func TestTheHolderExportLogsWhoTookWhatAndHowMuch(t *testing.T) {
 		{"sort", "buyer"},
 		{"dir", "asc"},
 	} {
-		if got, _ := line.arg(t, tc.key).(string); got != tc.want {
-			t.Errorf("log %s = %q, want %q", tc.key, got, tc.want)
+		if got, _ := started.arg(t, tc.key).(string); got != tc.want {
+			t.Errorf("started %s = %q, want %q", tc.key, got, tc.want)
 		}
 	}
-	if got := line.arg(t, "search"); got != false {
-		t.Errorf("log search = %v, want false on an unsearched export", got)
+	if got := started.arg(t, "search"); got != false {
+		t.Errorf("started search = %v, want false on an unsearched export", got)
+	}
+
+	finished := logs.only(t, "holder export finished")
+	if got, _ := finished.arg(t, "event_id").(string); got != f.eventID {
+		t.Errorf("finished event_id = %q, want %q", got, f.eventID)
+	}
+	if got := finished.arg(t, "outcome"); got != "completed" {
+		t.Errorf("finished outcome = %v, want completed", got)
+	}
+	if got := finished.arg(t, "row_count"); got != file.dataRows {
+		t.Errorf("finished row_count = %v, want the %d rows handed over", got, file.dataRows)
+	}
+	lines := logs.snapshot()
+	if len(lines) < 2 || lines[0].msg != "holder export started" {
+		t.Errorf("the started line must come first; log was:\n%s", logs.rendered())
 	}
 
 	// AN EXPORT THAT MATCHED NOTHING STILL SAYS SO: the record of who asked is
@@ -728,17 +743,17 @@ func TestTheHolderExportLogsWhoTookWhatAndHowMuch(t *testing.T) {
 	if empty.dataRows != 0 {
 		t.Fatalf("that view holds %d rows, want none", empty.dataRows)
 	}
-	if got := logs.only(t, "holder export").arg(t, "row_count"); got != 0 {
+	logs.only(t, "holder export started")
+	if got := logs.only(t, "holder export finished").arg(t, "row_count"); got != 0 {
 		t.Errorf("empty export logged row_count = %v, want 0", got)
 	}
 
-	// AND A REFUSAL LOGS NOTHING, because no file was taken. The line claims a
-	// file that was actually handed over.
+	// AND A REFUSAL LOGS NOTHING, because no file was taken.
 	logs.reset()
 	if resp, data := downloadHolderExport(t, env, f.sessionID, f.eventID, "channel=carrier_pigeon"); resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("refused export status=%d, want 400; body=%s", resp.StatusCode, string(data))
 	}
-	for _, logged := range logs.lines {
+	for _, logged := range logs.snapshot() {
 		if strings.Contains(logged.msg, "holder export") {
 			t.Fatalf("a refused export logged a line claiming a file: %s", logs.rendered())
 		}

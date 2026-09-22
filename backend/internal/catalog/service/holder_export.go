@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strconv"
 	"strings"
@@ -210,83 +211,39 @@ func (s *Service) ExportHolderList(
 		},
 	}
 
-	// THE FIRST BYTE. Everything above could still be refused with an envelope;
-	// from here on, a failure can only abort.
-	export, err := exportfile.BeginHolderExport(start(holderExportFilename(event.Slug, generatedAt.In(loc))), exportfile.HolderColumns{
-		Questions: columns,
-		// THE FLAG AND NOT THE DATA decides whether the file carries the Holder
-		// block, exactly as it decides whether the Sales Export's per-Ticket sheet
-		// carries its four (ADR 0045). With assignment closed the columns are
-		// absent on every Event, not merely empty.
-		Assignment: s.ticketAssignmentEnabled,
-	}, loc)
-	if err != nil {
-		return err
-	}
-	s.pauseHolderExport(ctx, 0)
-
-	for len(batch) > 0 {
-		// What this batch's Tickets have ANSWERED, read at the snapshot's moment.
-		// The screen reads what each still OWES, which is the opposite half of the
-		// same fact and not a substitute for it. Skipped entirely when nothing is
-		// asked, so an Event with no questions makes no such query at all.
-		answersByTicket := map[string][]repository.TicketAnswer{}
-		if len(questions) > 0 {
-			ticketIDs := make([]string, 0, len(batch))
-			for _, ticket := range batch {
-				ticketIDs = append(ticketIDs, ticket.ID)
-			}
-			answers, err := snapshot.ListTicketAnswers(ctx, ticketIDs)
-			if err != nil {
-				return err
-			}
-			for _, answer := range answers {
-				answersByTicket[answer.TicketID] = append(answersByTicket[answer.TicketID], answer)
-			}
-		}
-		for _, row := range s.buildHolderExportRows(batch, answersByTicket, fansOut, optionLabels) {
-			if err := export.Append(row); err != nil {
-				return err
-			}
-		}
-		s.pauseHolderExport(ctx, export.Rows())
-		if batch, err = snapshot.NextTickets(ctx); err != nil {
-			return err
-		}
-	}
-
-	// Last, so the row count the Info sheet states is the rows written.
-	if err := export.Finish(info); err != nil {
-		return err
-	}
-
-	// THE ONE RECORD THAT A COPY OF THIS EVENT'S ATTENDEES LEFT THE BUILDING.
+	// THE ONE RECORD THAT A COPY OF THIS EVENT'S ATTENDEES LEFT THE BUILDING,
+	// now in two lines (ADR 0075).
 	//
-	// There is no audit table behind it — that implies a reading surface, a
+	// There is no audit table behind them — that implies a reading surface, a
 	// retention policy and an access rule, and should be designed once across the
 	// platform's personal-data reads rather than growing out of this feature. So
-	// this line is the whole answer to "who pulled the guest list", and it is not
-	// a question that can be answered retroactively: it is written here or it is
-	// never written.
+	// these lines are the whole answer to "who pulled the guest list", and it is
+	// not a question that can be answered retroactively.
+	//
+	// "STARTED" IS WRITTEN BEFORE THE FIRST BYTE, because personal data leaves
+	// with the first chunk and not with the last, and it is the only line that
+	// survives every way a stream can die - a deploy, a scale-down, the process
+	// killed under it. A request refused before this point writes neither line,
+	// because nothing was taken. "FINISHED" says how it ended and how many rows
+	// went.
 	//
 	// THE FILTERS ARE THE HONOURED ONES, for the reason the Info sheet's are: a
-	// line naming `assignment_state=accepted` beside a row count that is the whole
+	// line naming `assignment_state=accepted` beside a roster that is the whole
 	// Event would be a false record of what was taken, and an audit line that can
 	// be wrong is worse than none.
 	//
-	// THE FREE-TEXT SEARCH IS A BOOLEAN AND NEVER ITS VALUE. It matches a buyer's
-	// name and email address, the Sale Confirmation reference and an accepted
-	// Holder's name and address, so a support lookup for one attendee puts that
-	// attendee's address into the filter — and a log aggregator typically has
-	// broader access and longer retention than the database it would be copied out
-	// of. The structural filters below say what was asked for without saying
-	// anything about any one person, which is exactly the line the Info sheet draws
-	// in the file itself.
-	s.logger.Info("holder export generated",
+	// THE FREE-TEXT SEARCH IS A BOOLEAN AND NEVER ITS VALUE, on either line. It
+	// matches a buyer's name and email address, the Sale Confirmation reference
+	// and an accepted Holder's name and address, so a support lookup for one
+	// attendee puts that attendee's address into the filter — and a log
+	// aggregator typically has broader access and longer retention than the
+	// database it would be copied out of.
+	who := []any{
 		"member_id", actor.MemberID,
 		"organization_id", actor.OrganizationID,
 		"event_id", eventID,
-		"row_count", export.Rows(),
+	}
+	s.logger.Info("holder export started", append(who,
 		"ticket_type_id", honoured.TicketTypeID,
 		"channel", honoured.Channel,
 		"assignment_state", honoured.AssignmentState,
@@ -297,8 +254,129 @@ func (s *Service) ExportHolderList(
 		"sort", honoured.Sort,
 		"dir", honoured.Dir,
 		"search", searched,
-	)
+	)...)
+
+	// THE FIRST BYTE. Everything above could still be refused with an envelope;
+	// from here on, a failure can only abort. The sink remembers whether a write
+	// to the response failed, which is how a client that went away is told apart
+	// from a database that did.
+	sink := &holderExportSink{w: start(holderExportFilename(event.Slug, generatedAt.In(loc)))}
+	rows, err := s.streamHolderExport(ctx, snapshot, sink, batch, exportfile.HolderColumns{
+		Questions: columns,
+		// THE FLAG AND NOT THE DATA decides whether the file carries the Holder
+		// block, exactly as it decides whether the Sales Export's per-Ticket sheet
+		// carries its four (ADR 0045). With assignment closed the columns are
+		// absent on every Event, not merely empty.
+		Assignment: s.ticketAssignmentEnabled,
+	}, len(questions) > 0, fansOut, optionLabels, loc, info)
+	if err != nil {
+		s.logger.Info("holder export finished", append(who,
+			"outcome", "aborted",
+			"row_count", rows,
+			"reason", holderExportAbortReason(ctx, sink.err),
+			"error", err.Error(),
+		)...)
+		return err
+	}
+	s.logger.Info("holder export finished", append(who,
+		"outcome", "completed",
+		"row_count", rows,
+	)...)
 	return nil
+}
+
+// streamHolderExport writes the file from the roster's first batch to the end
+// and returns how many rows it wrote, whether or not it finished.
+func (s *Service) streamHolderExport(
+	ctx context.Context,
+	snapshot *repository.HolderRosterSnapshot,
+	w io.Writer,
+	batch []repository.HolderTicket,
+	columns exportfile.HolderColumns,
+	asked bool,
+	fansOut map[string]bool,
+	optionLabels map[string]string,
+	loc *time.Location,
+	info exportfile.HolderInfo,
+) (int, error) {
+	export, err := exportfile.BeginHolderExport(w, columns, loc)
+	if err != nil {
+		return 0, err
+	}
+	s.pauseHolderExport(ctx, 0)
+
+	for len(batch) > 0 {
+		// What this batch's Tickets have ANSWERED, read at the snapshot's moment.
+		// The screen reads what each still OWES, which is the opposite half of the
+		// same fact and not a substitute for it. Skipped entirely when nothing is
+		// asked, so an Event with no questions makes no such query at all.
+		answersByTicket := map[string][]repository.TicketAnswer{}
+		if asked {
+			ticketIDs := make([]string, 0, len(batch))
+			for _, ticket := range batch {
+				ticketIDs = append(ticketIDs, ticket.ID)
+			}
+			answers, err := snapshot.ListTicketAnswers(ctx, ticketIDs)
+			if err != nil {
+				return export.Rows(), err
+			}
+			for _, answer := range answers {
+				answersByTicket[answer.TicketID] = append(answersByTicket[answer.TicketID], answer)
+			}
+		}
+		for _, row := range s.buildHolderExportRows(batch, answersByTicket, fansOut, optionLabels) {
+			if err := export.Append(row); err != nil {
+				return export.Rows(), err
+			}
+		}
+		s.pauseHolderExport(ctx, export.Rows())
+		if batch, err = snapshot.NextTickets(ctx); err != nil {
+			return export.Rows(), err
+		}
+	}
+
+	// Last, so the row count the Info sheet states is the rows written.
+	return export.Rows(), export.Finish(info)
+}
+
+// holderExportSink is the response, remembering the first write that failed.
+type holderExportSink struct {
+	w   io.Writer
+	err error
+}
+
+func (s *holderExportSink) Write(p []byte) (int, error) {
+	n, err := s.w.Write(p)
+	if err != nil && s.err == nil {
+		s.err = err
+	}
+	return n, err
+}
+
+// The reasons a "holder export finished" line gives for an abort.
+const (
+	holderExportAbortClientGone = "client_gone"
+	holderExportAbortDeadline   = "deadline"
+	holderExportAbortDatabase   = "database_error"
+)
+
+// holderExportAbortReason says why a stream that had begun did not finish,
+// from the export's own context and the first failed write to the response.
+//
+// THE DEADLINE IS ASKED FIRST, because once it passes every read fails with
+// it and the client may be gone too; it is the cause and they are symptoms.
+// Then the client: a cancelled request is one the client abandoned, and a write
+// that failed is one whose reader is no longer there. Anything else broke on
+// the database side, which is the only other thing the stream reads from.
+func holderExportAbortReason(ctx context.Context, writeErr error) string {
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return holderExportAbortDeadline
+	case ctx.Err() != nil, writeErr != nil:
+		return holderExportAbortClientGone
+	default:
+		return holderExportAbortDatabase
+	}
 }
 
 // pauseHolderExport calls the test-only pause, if one is installed.
