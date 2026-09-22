@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -35,10 +36,12 @@ type pathIDs map[string]func(value string) error
 // the handler reads its body, because no body can make the id name something.
 //
 // The rule is enforced here, once, rather than in each handler, so that a route
-// added tomorrow inherits it. TestEveryRouteRefusesAMalformedPathIDAsNotFound
-// walks the registered route table and fails for any id wildcard of any route
-// that answers a malformed id with a 5xx, which is what catches a wildcard
-// missing from these tables.
+// added tomorrow inherits it. It fails closed: every wildcard of a staff or
+// operator route must be either an id in these tables or a non-id in the
+// exemption tables below, or registering the route panics and the server does
+// not start (RequireDeclaredPathIDs). TestEveryRouteRefusesAMalformedPathIDAsNotFound
+// then walks the registered route table and holds every id wildcard of every
+// route to the answer a well-formed unknown id gets.
 
 // staffPathIDs are the id wildcards under /api/v1/staff.
 var staffPathIDs = pathIDs{
@@ -49,9 +52,9 @@ var staffPathIDs = pathIDs{
 	"options/{optionId}":          func(string) error { return catalog.ErrTicketQuestionOptionNotFound() },
 	"tickets/{ticketId}":          func(string) error { return catalog.ErrTicketNotFound() },
 	"answers/{questionId}":        func(string) error { return catalog.ErrTicketQuestionNotFound() },
-	// NOT "ticket-sales/{ticketSaleId}": the one route under it is a read
-	// whose answer for a Sale it cannot find is an empty list, not a 404, and
-	// its service gives a malformed id that same empty list itself.
+	// Removing an Answer reports the Answer missing, not the question: an
+	// unknown question id simply has no Answer on the Ticket to remove.
+	"DELETE answers/{questionId}": func(string) error { return catalog.ErrAnswerNotFound() },
 	"sales/{saleId}":              func(v string) error { return sales.ErrTicketSaleIDNotFound(v) },
 	"sale-imports/{batchId}":      func(v string) error { return sales.ErrImportBatchNotFound(v) },
 	"affiliate-links/{linkId}":    func(string) error { return affiliates.ErrAffiliateLinkNotFound() },
@@ -73,6 +76,100 @@ var operatorPathIDs = pathIDs{
 	"payout-requests/{requestID}":   func(string) error { return sales.ErrPayoutRequestNotFound() },
 	"question-reviews/{reviewID}":   func(string) error { return catalog.ErrQuestionReviewNotFound() },
 	"ticket-questions/{questionID}": func(string) error { return catalog.ErrTicketQuestionNotFound() },
+}
+
+// staffNonIDWildcards are the wildcards under /api/v1/staff that the guard
+// deliberately does not check, keyed as pathIDs are. Each says why.
+var staffNonIDWildcards = map[string]bool{
+	// A Sale id, but the one route under it is a read whose answer for a Sale
+	// it cannot find is an empty list, not a 404, and its service gives a
+	// malformed id that same empty list itself: malformed already equals
+	// unknown there, and a 404 from the guard would break that.
+	"ticket-sales/{ticketSaleId}": true,
+}
+
+// operatorNonIDWildcards are the wildcards under /api/v1/operator that are
+// not ids at all, keyed as pathIDs are. Each says why.
+var operatorNonIDWildcards = map[string]bool{
+	// A Sale Confirmation reference, the human-readable code a buyer quotes,
+	// not a uuid; the service looks it up as text.
+	"sales/{confirmationRef}": true,
+	// A legal document's name ("terms", "policy"), a closed set the handler
+	// validates.
+	"documents/{document}": true,
+	// The same document name, on the Customer and Staff acceptance browsers.
+	"customers/{document}": true,
+	"staff/{document}":     true,
+	// An edition's version number, an integer the handler parses.
+	"publications/{version}": true,
+	// The opaque keyed digest of a staff member's email that the Staff legal
+	// record and its Evidence Pack are looked up by, not a uuid.
+	"staff/{digest}": true,
+}
+
+// RequireDeclaredPathIDs returns mux wrapped so that registering a staff or
+// operator route panics unless every wildcard in its path is declared: an id in
+// that namespace's pathIDs table, or a non-id in its exemption table.
+//
+// It makes the guard fail closed. Without it, a route added with an id wildcard
+// nobody put in the table would pass a malformed id straight through to a uuid
+// column, and nothing would say so until a request 500ed. RegisterRoutes
+// registers every route through it, so the server cannot start with such a
+// route. Routes outside /api/v1/staff and /api/v1/operator pass through
+// unchecked: those namespaces have no guard, and their handlers answer a
+// malformed id themselves.
+func RequireDeclaredPathIDs(mux Router) Router {
+	return declaredPathIDsRouter{next: mux}
+}
+
+type declaredPathIDsRouter struct{ next Router }
+
+func (d declaredPathIDsRouter) Handle(pattern string, handler http.Handler) {
+	mustDeclarePathIDs(pattern)
+	d.next.Handle(pattern, handler)
+}
+
+func (d declaredPathIDsRouter) HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request)) {
+	mustDeclarePathIDs(pattern)
+	d.next.HandleFunc(pattern, handler)
+}
+
+// mustDeclarePathIDs panics, naming the route and the wildcard, when a staff or
+// operator pattern has a wildcard neither its ids nor its exemptions declare.
+func mustDeclarePathIDs(pattern string) {
+	method, path, hasMethod := strings.Cut(pattern, " ")
+	if !hasMethod {
+		method, path = "", pattern
+	}
+	var ids pathIDs
+	var nonIDs map[string]bool
+	switch {
+	case strings.HasPrefix(path, "/api/v1/staff/"):
+		ids, nonIDs = staffPathIDs, staffNonIDWildcards
+	case strings.HasPrefix(path, "/api/v1/operator/"):
+		ids, nonIDs = operatorPathIDs, operatorNonIDWildcards
+	default:
+		return
+	}
+	segments := strings.Split(path, "/")
+	for i := 1; i < len(segments); i++ {
+		wildcard := segments[i]
+		if !strings.HasPrefix(wildcard, "{") || !strings.HasSuffix(wildcard, "}") {
+			continue
+		}
+		key := segments[i-1] + "/" + wildcard
+		_, isMethodID := ids[method+" "+key]
+		_, isID := ids[key]
+		if isMethodID || isID || nonIDs[key] {
+			continue
+		}
+		panic(fmt.Sprintf(
+			"route %q: path wildcard %s (keyed %q) is not declared; add it to the "+
+				"namespace's pathIDs table in internal/server/path_ids.go with the "+
+				"error its unknown id answers, or, if it is not an id, to the "+
+				"namespace's non-id exemptions with a comment saying why",
+			pattern, wildcard, key))
+	}
 }
 
 // requireWellFormedPathIDs refuses a request whose path carries a malformed

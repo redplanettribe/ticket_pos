@@ -213,6 +213,13 @@ func (s *Service) answerTicketQuestion(
 	ticketID, ticketTypeID, questionID string,
 	input AnswerInput,
 ) error {
+	// A malformed question id names no question, and is answered exactly as a
+	// well-formed one that names nothing is (ADR 0035), here after the Ticket
+	// has been resolved so the Ticket's own not-found still comes first. It must
+	// never reach the uuid column, where Postgres refuses it as a 500.
+	if !catalog.IsUUID(questionID) {
+		return catalog.ErrTicketQuestionNotFound()
+	}
 	question, err := s.repo.GetTicketQuestionByID(ctx, ticketTypeID, questionID)
 	if err != nil {
 		return err
