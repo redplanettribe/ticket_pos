@@ -101,6 +101,7 @@ The guard fails closed: a staff or operator route with a wildcard that is neithe
 `TestEveryRouteRefusesAMalformedPathIDAsNotFound` walks every registered route, fails on a 5xx, and on a read or a delete whose other ids are real requires a malformed id to get exactly the status and code a well-formed unknown one gets.
 A route whose "not found" is an empty list is left out of the guard's table and gives a malformed id that same empty list where its unknown id gets one.
 For the staff Ticket Sale answers read that is the service, after the Event is resolved, on the same ordering argument as `INVALID_HOLDER_EMAIL` above.
+The customer and Assignment Link answer writes have no guard, and their question id is checked the same way: the shared answer step refuses a malformed one as `TICKET_QUESTION_NOT_FOUND` after the Ticket is resolved, so the Ticket's own not-found still comes first.
 Ids in the query string or body stay ordinary validation: `400 VALIDATION_FAILED`, field code `INVALID_ID`.
 
 Validation `details` shape:

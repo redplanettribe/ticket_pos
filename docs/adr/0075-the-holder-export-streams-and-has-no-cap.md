@@ -66,7 +66,7 @@ ADR 0065 accepted two overlapping files and refused two implementations; that st
 The rule also decides the three values a spreadsheet cannot take literally, the same way for both files:
 
 - Empty text is an absent cell, never a text cell holding nothing, so a reader filtering on "is blank" finds it.
-  That covers an empty Answer and an empty buyer or Holder name alike.
+  That covers an empty Answer and an empty Holder name in both files, and an empty buyer name on the Holder Export.
 - Text is cut to 32,767 UTF-16 code units, which is Excel's limit and what Excel counts.
   A character outside the Basic Multilingual Plane counts as two, and the cut never splits a surrogate pair.
 - A date Answer before 1900-01-01, which Excel's 1900 date system has no serial for, is written as its ISO date text, such as `1850-01-01`, rather than as a timestamp.

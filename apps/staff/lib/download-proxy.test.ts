@@ -181,8 +181,10 @@ test("a reader who goes away before the file starts aborts the upstream fetch", 
   assert.equal(response.status, 499);
 });
 
-test("an upstream fetch rejected with an AbortError resolves quietly, with nothing logged", async () => {
-  const request = new Request("http://staff.example/api/operator/invoicing/archive");
+test("an upstream fetch rejected because the browser gave up resolves quietly, with nothing logged", async () => {
+  const browser = new AbortController();
+  const request = new Request("http://staff.example/api/operator/invoicing/archive", { signal: browser.signal });
+  browser.abort();
   const logged: unknown[] = [];
   const originalError = console.error;
   console.error = (...args: unknown[]) => {
@@ -201,6 +203,22 @@ test("an upstream fetch rejected with an AbortError resolves quietly, with nothi
     console.error = originalError;
   }
   assert.deepEqual(logged, []);
+});
+
+// Quiet is for a reader who is gone. An AbortError while the browser is still
+// waiting is somebody else's abort, and hiding it would hand that browser an
+// empty answer.
+test("an AbortError while the browser is still waiting still fails", async () => {
+  const request = new Request("http://staff.example/api/events/e1/sales/export");
+
+  await assert.rejects(
+    proxyDownload(
+      request,
+      () => Promise.reject(new DOMException("The operation was aborted.", "AbortError")),
+      XLSX_CONTENT_TYPE,
+    ),
+    /aborted/,
+  );
 });
 
 test("an upstream fetch that fails for any other reason still fails", async () => {
