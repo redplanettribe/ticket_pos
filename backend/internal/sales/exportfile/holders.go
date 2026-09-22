@@ -424,12 +424,19 @@ type HolderExport struct {
 //
 // loc is the EVENT's timezone, which every date is drawn in and which the Info
 // sheet names outright, since an Excel date cell carries no timezone of its own.
-func BeginHolderExport(w io.Writer, columns HolderColumns, loc *time.Location) (*HolderExport, error) {
+// generatedAt is the moment the export was taken, which every part of the zip
+// is stamped with, on the Event's clock like every other time in the file.
+func BeginHolderExport(w io.Writer, columns HolderColumns, loc *time.Location, generatedAt time.Time) (*HolderExport, error) {
 	cols := holderLayoutFor(columns)
-	// Wide enough that an email address - the longest thing on the sheet - is
-	// readable without the recipient widening every column first. The same 22
-	// both of the Sales Export's sheets use.
-	stream, err := BeginStream(w, SheetLayout{Name: HolderSheet, Headings: cols.headers, Width: 22})
+	stream, err := BeginStream(w, SheetLayout{
+		Name:     HolderSheet,
+		Headings: cols.headers,
+		// Wide enough that an email address - the longest thing on the sheet -
+		// is readable without the recipient widening every column first. The
+		// same 22 both of the Sales Export's sheets use.
+		Width:    22,
+		Modified: generatedAt.In(loc),
+	})
 	if err != nil {
 		return nil, err
 	}

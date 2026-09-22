@@ -37,6 +37,7 @@ Paging without a snapshot was rejected: a sale, reassignment or acceptance mid-e
 
 **Concurrent exports are bounded per instance, at two.**
 A streaming export holds one of the instance's ten database connections for as long as the client takes to download, up to the request timeout.
+The export's own deadline sits just inside that timeout, and it is also set as the connection's write deadline, so a client that stops reading is let go when the export's time is up rather than holding its slot for as long as TCP keeps retrying.
 A third concurrent export is refused at once with a retryable "an export is already being prepared" - a refusal about capacity, never about size.
 
 **A failure mid-stream aborts the connection.**
@@ -45,8 +46,12 @@ The zip's central directory is never written, so a truncated file cannot be open
 A file silently missing its last rows - the reason ADR 0065 refused rather than truncated - still cannot occur.
 
 **The audit line becomes two.**
-`holder export started` is written before the first byte, naming who took it, from which Organization and Event, under which honoured filters.
-`holder export finished` records whether it completed or aborted, how many rows were sent, and why it aborted.
+`holder export started` is written before the first row, naming who took it, from which Organization and Event, under which honoured filters.
+`holder export finished` records whether it completed or aborted, how many rows were produced, and why it aborted.
+It is written on every way out once `started` has been, a panic included.
+The row count is the rows handed to the file's encoder, not the rows the client received: on an abort, the last of them may never have left the process.
+An abort is recorded as a reason and an error class, never the error's own text, which for a client that went away names its address and port.
+A completed export is logged at INFO and an aborted one at WARN, and both lines carry the request id, the key that joins them.
 The start line is the only record that survives every way a stream can die - a deploy, a scale-down, the timeout - and personal data leaves with the first chunk, not with the last.
 The search term is still never logged, on either line.
 
@@ -70,4 +75,7 @@ ADR 0065 accepted two overlapping files and refused two implementations; that st
 - The Holder Export and the Sales Export no longer share a workbook library. A change to the file's look is now made in two writers; a change to what an answer means is still made once.
 - The "narrow your filters" refusal, its field error and its handling on the Holder List are deleted, along with the `COUNT(*)` that existed to produce it.
 - A failed export is visible only as a failed download and the `finished` line; there is no error envelope to show once streaming has begun.
-- The Sales Export keeps its 10,000-row cap, whose reason is symmetry with the Sale Import, not memory. That cap's memory cost has never been measured, and a benchmark of it is a separate piece of work.
+- The Sales Export keeps its 10,000-row cap, whose reason is symmetry with the Sale Import, not memory.
+  That cap's memory cost has since been measured (#661): at the cap, with the widest plausible question set, one export peaked at 5,727 MiB resident, about 5.6 GiB, against an `api_memory` of 512Mi.
+  A tenth of the cap does not fit either, at 590 MiB resident.
+  What to do about it is still open, and this ADR does not decide it.

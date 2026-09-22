@@ -1,12 +1,16 @@
 package exportfile
 
 import (
+	"archive/zip"
 	"bytes"
 	"fmt"
 	"io"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -283,4 +287,77 @@ func liveHeapAfterStreaming(tb testing.TB, rows int) uint64 {
 		tb.Fatalf("finish: %v", err)
 	}
 	return stats.HeapAlloc
+}
+
+// TEXT IS CUT WHERE EXCEL CUTS IT, which is 32,767 UTF-16 code units and not
+// 32,767 characters: a character outside the Basic Multilingual Plane - most
+// emoji, some CJK - is two units to Excel and one rune to Go, so a rune count
+// lets through a cell Excel refuses. The cut never splits a surrogate pair,
+// because half of one is not a character at all.
+func TestStreamCutsTextAtExcelsLimitInUTF16Units(t *testing.T) {
+	const astral = "\U0001F600" // one rune, two UTF-16 code units
+	for _, tc := range []struct {
+		name, text, want string
+	}{
+		{"astral characters count as two",
+			strings.Repeat(astral, 20_000), strings.Repeat(astral, 16_383)},
+		{"a pair that would straddle the limit is left out whole",
+			strings.Repeat("a", 32_766) + astral, strings.Repeat("a", 32_766)},
+		{"a pair that ends exactly on the limit is kept",
+			strings.Repeat("a", 32_765) + astral, strings.Repeat("a", 32_765) + astral},
+		{"text inside the Basic Multilingual Plane is one unit a character",
+			strings.Repeat("é", 40_000), strings.Repeat("é", 32_767)},
+		{"text at the limit is untouched",
+			strings.Repeat("a", 32_767), strings.Repeat("a", 32_767)},
+	} {
+		data := writeStream(t, streamLayout(), [][]Cell{{{Kind: CellText, Text: tc.text}}}, []string{"Info"})
+		got, err := openStream(t, data).GetCellValue("Ticket Holders", "A2")
+		if err != nil {
+			t.Fatalf("%s: read: %v", tc.name, err)
+		}
+		if got != tc.want {
+			t.Errorf("%s: cell holds %d UTF-16 units (%d runes), want %d units (%d runes)", tc.name,
+				len(utf16.Encode([]rune(got))), utf8.RuneCountInString(got),
+				len(utf16.Encode([]rune(tc.want))), utf8.RuneCountInString(tc.want))
+		}
+	}
+}
+
+// AN EMPTY STRING IS AN EMPTY CELL. A text value with nothing in it - an
+// Answer somebody cleared - is written as no cell at all, exactly as a
+// CellBlank is, so a reader filtering on "is blank" finds it.
+func TestStreamWritesEmptyTextAsNoCell(t *testing.T) {
+	data := writeStream(t, streamLayout(), [][]Cell{{
+		{Kind: CellText, Text: ""},
+		{Kind: CellText, Text: "x"},
+	}}, []string{"Info"})
+	f := openStream(t, data)
+	if got, _ := f.GetCellType("Ticket Holders", "A2"); got != excelize.CellTypeUnset {
+		t.Fatalf("an empty text value was written as a cell of type %v, want no cell", got)
+	}
+	if got, _ := f.GetCellValue("Ticket Holders", "B2"); got != "x" {
+		t.Fatalf("the cell after it reads %q, want %q", got, "x")
+	}
+}
+
+// EVERY PART CARRIES THE WORKBOOK'S OWN TIME, not the zip format's zero date,
+// so an archive tool listing the file shows when it was generated.
+func TestStreamStampsEveryPartWithItsModifiedTime(t *testing.T) {
+	generatedAt := time.Date(2026, time.July, 1, 9, 30, 0, 0, time.FixedZone("ECT", -5*60*60))
+	layout := streamLayout()
+	layout.Modified = generatedAt
+	data := writeStream(t, layout, [][]Cell{{{Kind: CellText, Text: "x"}}}, []string{"Info"})
+
+	archive, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("open zip: %v", err)
+	}
+	if len(archive.File) == 0 {
+		t.Fatal("the workbook has no parts")
+	}
+	for _, part := range archive.File {
+		if !part.Modified.Equal(generatedAt) {
+			t.Errorf("%s modified %v, want %v", part.Name, part.Modified, generatedAt)
+		}
+	}
 }

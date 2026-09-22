@@ -1077,7 +1077,7 @@ type HolderExportButtonProps = {
  * IT FETCHES A BLOB RATHER THAN LINKING to the endpoint, because the endpoint
  * answers with a FILE on success and a JSON error envelope on failure: a plain
  * link would send the browser to raw JSON on a refusal, and the error would go
- * unseen. The busy state and the inline message both follow from that — a
+ * unseen. The busy state and the inline message both follow from that - a
  * large roster takes a moment to stream, and a download that fails part way
  * saves nothing and says so here.
  *

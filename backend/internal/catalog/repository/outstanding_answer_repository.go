@@ -553,8 +553,8 @@ var holderSortColumns = map[string][]string{
 // list under `NULLS LAST`, and would make the option look broken on exactly the
 // Events that use it. The CASE tests what the reader sees is blank, which is the
 // property this rule is actually about; `hc.last_name IS NULL` (an unaccepted
-// Ticket, and the common case) and `hc.last_name = ”` (an accepted Holder who
-// never named themselves) both answer 1.
+// Ticket, and the common case) and `hc.last_name` holding an empty string (an
+// accepted Holder who never named themselves) both answer 1.
 //
 // ONLY `holder` IS IN THIS MAP, AND THE OTHER FOUR WERE CHECKED RATHER THAN
 // ASSUMED. `sold_at` and `ticket_type` are NOT NULL columns of rows that must

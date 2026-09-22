@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,6 +16,9 @@ import (
 	"time"
 
 	"github.com/xuri/excelize/v2"
+
+	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/server"
 )
 
 // The Holder Export STREAMS AND HAS NO CAP (#658, parent #655, ADR 0075).
@@ -143,6 +148,11 @@ func TestTheHolderExportCarriesEveryTicketWellAboveTheOldCap(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("export %q status=%d body=%s", query, resp.StatusCode, string(data[:min(len(data), 500)]))
 		}
+		// The file is attendee personal data: no cache between here and the
+		// browser may keep a copy of it.
+		if got := resp.Header.Get("Cache-Control"); got != "no-store" {
+			t.Errorf("export %q Cache-Control = %q, want no-store", query, got)
+		}
 		assertSameTickets(t, holderExportTicketKeys(t, data), want)
 
 		f, err := excelize.OpenReader(bytes.NewReader(data))
@@ -182,6 +192,15 @@ func TestTheHolderExportIsOneSnapshot(t *testing.T) {
 	seedHolderExportBenchFixture(t, env, eventID, ticketTypeID, tickets)
 	before := seededHolderKeys(t, env, eventID)
 
+	// A CHANGE OF HOLDER IS WRITTEN IN SQL BECAUSE THE API'S WAY TO ONE IS A
+	// JOURNEY, NOT A REQUEST: the buyer signs in with a passcode, names the new
+	// Holder, and the Holder accepts through the link the Assignment mail
+	// carries. The bench fixture's buyers are seeded straight into the database
+	// and have no way to sign in, and the pause this runs in holds the export
+	// open on the server's goroutine, where a passcode round trip per Ticket
+	// would only add mail and rate limits to a test whose subject is the
+	// snapshot. What it needs is that a Ticket's holder sort key moves across
+	// the export's position, and one UPDATE is exactly that.
 	reassign := func(holderLastName, toLastName string) {
 		t.Helper()
 		var customerID string
@@ -302,6 +321,33 @@ func TestTheHolderExportAbortsRatherThanFinishingAShortFile(t *testing.T) {
 	if got := finished.arg(t, "reason"); got != "database_error" {
 		t.Errorf("finished reason = %v, want database_error", got)
 	}
+	assertAbortLineIsSanitized(t, logs, finished)
+}
+
+// assertAbortLineIsSanitized holds an aborted export's finished line to what an
+// abort record may carry: WARN, because somebody may have to look at it; an
+// error CLASS, never the error's own text, which for a client that went away
+// names the peer's address and port and for a wrapped error could name anyone;
+// and a request id, the key it is joined to its started line on.
+func assertAbortLineIsSanitized(t *testing.T, logs *captureLogger, finished capturedLine) {
+	t.Helper()
+	if finished.level != "warn" {
+		t.Errorf("an aborted export's finished line is %s, want warn", finished.level)
+	}
+	if class, _ := finished.arg(t, "error_class").(string); class == "" {
+		t.Error("an aborted export's finished line names no error class")
+	}
+	for i := 0; i+1 < len(finished.args); i += 2 {
+		if finished.args[i] == "error" {
+			t.Errorf("the finished line carries the raw error %v; it must carry its class only", finished.args[i+1])
+		}
+	}
+	if strings.Contains(logs.rendered(), "127.0.0.1") {
+		t.Errorf("a peer address reached the log:\n%s", logs.rendered())
+	}
+	if id, _ := finished.arg(t, "request_id").(string); id == "" {
+		t.Error("the finished line carries no request id")
+	}
 }
 
 // waitForLine polls the captured log until a line containing fragment appears:
@@ -358,6 +404,8 @@ func TestTheHolderExportLogsAClientThatWentAway(t *testing.T) {
 		t.Fatalf("new request: %v", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+sessionID)
+	const requestID = "gone-fest-download"
+	req.Header.Set("X-Request-ID", requestID)
 	done := make(chan error, 1)
 	go func() {
 		resp, err := http.DefaultClient.Do(req)
@@ -397,6 +445,12 @@ func TestTheHolderExportLogsAClientThatWentAway(t *testing.T) {
 	if strings.Contains(logs.rendered(), term) {
 		t.Fatalf("the search term reached the log:\n%s", logs.rendered())
 	}
+	assertAbortLineIsSanitized(t, logs, finished)
+	for _, line := range []capturedLine{lines[0], finished} {
+		if got := line.arg(t, "request_id"); got != requestID {
+			t.Errorf("%s request_id = %v, want the request's own %q", line.msg, got, requestID)
+		}
+	}
 }
 
 // AT MOST TWO HOLDER EXPORTS STREAM AT ONCE on an instance (#660, ADR 0075).
@@ -424,18 +478,42 @@ func TestTheHolderExportRefusesAThirdAtOnceAndNotAfter(t *testing.T) {
 		case <-time.After(30 * time.Second):
 		}
 	})
-	download := func() <-chan int {
-		result := make(chan int, 1)
+	// Each download runs on its own goroutine and hands its outcome back, and
+	// the test's goroutine does the failing: t.Fatal from any other goroutine
+	// stops only that goroutine.
+	type outcome struct {
+		status int
+		err    error
+	}
+	download := func() <-chan outcome {
+		result := make(chan outcome, 1)
 		go func() {
-			resp, data := downloadHolderExport(t, env, f.sessionID, f.eventID, "")
-			if resp.StatusCode == http.StatusOK {
-				if _, err := excelize.OpenReader(bytes.NewReader(data)); err != nil {
-					t.Errorf("a released export is not a workbook: %v", err)
-				}
+			resp, data, err := fetchHolderExport(env.server.URL, f.sessionID, f.eventID, "")
+			if err != nil {
+				result <- outcome{err: err}
+				return
 			}
-			result <- resp.StatusCode
+			if resp.StatusCode == http.StatusOK {
+				wb, err := excelize.OpenReader(bytes.NewReader(data))
+				if err != nil {
+					result <- outcome{status: resp.StatusCode, err: fmt.Errorf("a released export is not a workbook: %w", err)}
+					return
+				}
+				_ = wb.Close()
+			}
+			result <- outcome{status: resp.StatusCode}
 		}()
 		return result
+	}
+	awaitOK := func(name string, result <-chan outcome) {
+		t.Helper()
+		got := <-result
+		if got.err != nil {
+			t.Fatalf("the %s export failed: %v", name, got.err)
+		}
+		if got.status != http.StatusOK {
+			t.Fatalf("the %s export ended %d, want 200", name, got.status)
+		}
 	}
 	awaitHeld := func() chan struct{} {
 		t.Helper()
@@ -466,16 +544,36 @@ func TestTheHolderExportRefusesAThirdAtOnceAndNotAfter(t *testing.T) {
 	if strings.HasPrefix(string(data), "PK") {
 		t.Fatal("the busy refusal carried file bytes")
 	}
-	if got := resp.Header.Get("Retry-After"); got == "" {
-		t.Error("the busy refusal says nothing about when to retry")
+	// Most exports finish in seconds, so a few seconds is when trying again is
+	// worth it.
+	if got := resp.Header.Get("Retry-After"); got != "5" {
+		t.Errorf("busy refusal Retry-After = %q, want 5", got)
 	}
+	// The standard error envelope, whole: data null, the error's code and a
+	// message a person can read, and the request id the header carries.
 	var envelope struct {
-		Error struct {
-			Code string `json:"code"`
+		Data  json.RawMessage `json:"data"`
+		Error *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
 		} `json:"error"`
+		RequestID string `json:"request_id"`
 	}
-	if err := json.Unmarshal(data, &envelope); err != nil || envelope.Error.Code != "HOLDER_EXPORT_BUSY" {
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		t.Fatalf("busy refusal %s is not an envelope: %v", string(data), err)
+	}
+	if string(envelope.Data) != "null" {
+		t.Errorf("busy refusal data = %s, want null", string(envelope.Data))
+	}
+	if envelope.Error == nil || envelope.Error.Code != "HOLDER_EXPORT_BUSY" {
 		t.Fatalf("busy refusal = %s, want the HOLDER_EXPORT_BUSY envelope", string(data))
+	}
+	if envelope.Error.Message == "" {
+		t.Error("busy refusal carries no message")
+	}
+	if envelope.RequestID == "" || envelope.RequestID != resp.Header.Get("X-Request-ID") {
+		t.Errorf("busy refusal request_id = %q, X-Request-ID = %q; want the same non-empty id",
+			envelope.RequestID, resp.Header.Get("X-Request-ID"))
 	}
 	// Two exports started; the refused third wrote no audit line.
 	started := 0
@@ -489,19 +587,238 @@ func TestTheHolderExportRefusesAThirdAtOnceAndNotAfter(t *testing.T) {
 	}
 
 	close(releaseFirst)
-	if status := <-first; status != http.StatusOK {
-		t.Fatalf("the first export ended %d, want 200", status)
-	}
+	awaitOK("first", first)
 	// One slot is free again: a new export is admitted while the second is still
 	// held, and completes once let go.
 	fourth := download()
 	close(awaitHeld())
-	if status := <-fourth; status != http.StatusOK {
-		t.Fatalf("an export after one finished ended %d, want 200", status)
-	}
+	awaitOK("fourth", fourth)
 	close(releaseSecond)
 	secondReleased = true
-	if status := <-second; status != http.StatusOK {
-		t.Fatalf("the second export ended %d, want 200", status)
+	awaitOK("second", second)
+}
+
+// productionChainServer serves the app behind the same middleware cmd/server
+// wraps it in - panic recovery, the request log and the request id - which the
+// shared harness server leaves out. Two things about a streamed export are only
+// true or false through that chain: whether a write deadline reaches the
+// connection through the request log's ResponseWriter wrapper, and whether a
+// panic part way through a file is turned into an envelope glued onto a 200.
+//
+// EVERY CONNECTION IT ACCEPTS HAS A TINY SEND BUFFER, so a client that stops
+// reading stalls the export's writes after a few KiB rather than after the
+// several MiB the kernel would otherwise buffer on its behalf.
+func productionChainServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	server.RegisterRoutes(mux, sharedApp)
+	srv := httptest.NewUnstartedServer(platform.RecoverMiddleware(sharedApp.Logger,
+		platform.LoggingMiddleware(sharedApp.Logger,
+			platform.RequestIDMiddleware(mux),
+		),
+	))
+	srv.Listener = smallSendBufferListener{srv.Listener}
+	srv.Start()
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+type smallSendBufferListener struct{ net.Listener }
+
+func (l smallSendBufferListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		_ = tcp.SetWriteBuffer(4 << 10)
+	}
+	return conn, err
+}
+
+// stalledDownload starts a Holder Export whose client reads the response's
+// headers and then nothing more, the way a phone on a dead network does. The
+// returned body is never read until the test chooses to.
+func stalledDownload(t *testing.T, serverURL, sessionID, eventID, requestID string) *http.Response {
+	t.Helper()
+	client := &http.Client{Transport: &http.Transport{
+		DisableCompression: true,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+			if tcp, ok := conn.(*net.TCPConn); ok {
+				_ = tcp.SetReadBuffer(4 << 10)
+			}
+			return conn, err
+		},
+	}}
+	t.Cleanup(client.CloseIdleConnections)
+	req, err := http.NewRequest(http.MethodGet, serverURL+holderExportPath(eventID), nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+sessionID)
+	req.Header.Set("X-Request-ID", requestID)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("stalled download %s: %v", requestID, err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("stalled download %s status=%d, want the file to have begun", requestID, resp.StatusCode)
+	}
+	return resp
+}
+
+// A CLIENT THAT STOPS READING IS LET GO AT THE EXPORT'S DEADLINE (ADR 0075).
+//
+// Without a write deadline a write blocked on a full TCP window outlives the
+// export's own deadline, because nothing but the peer can unblock it - and the
+// export keeps its database connection and its slot for as long as the client
+// stays silent. Two clients that stop reading fill both slots and a third
+// export is refused; at the deadline both are cut off, each writes its finished
+// line with reason `deadline`, and an export after them is admitted and
+// completes.
+func TestTheHolderExportLetsAStalledClientGoAtTheDeadline(t *testing.T) {
+	const tickets = 1_200
+	env := setupTest(t)
+	enableTicketAssignment(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Stall Fest", "stall-fest")
+	ticketTypeID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 2000, tickets+100)
+	seedHolderExportBenchFixture(t, env, eventID, ticketTypeID, tickets)
+	srv := productionChainServer(t)
+	logs := withCatalogLogger(t)
+
+	const deadline = 3 * time.Second
+	sharedApp.CatalogService.WithHolderExportDeadline(deadline)
+	t.Cleanup(func() { sharedApp.CatalogService.WithHolderExportDeadline(0) })
+
+	began := time.Now()
+	first := stalledDownload(t, srv.URL, sessionID, eventID, "stalled-one")
+	second := stalledDownload(t, srv.URL, sessionID, eventID, "stalled-two")
+
+	// Both slots are held by clients that are reading nothing.
+	resp, data, err := fetchHolderExport(srv.URL, sessionID, eventID, "")
+	if err != nil {
+		t.Fatalf("third export: %v", err)
+	}
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("third export status=%d with both slots stalled, want 503; body=%.300s", resp.StatusCode, data)
+	}
+	var busy struct {
+		Data  json.RawMessage `json:"data"`
+		Error *struct {
+			Code string `json:"code"`
+		} `json:"error"`
+		RequestID string `json:"request_id"`
+	}
+	if err := json.Unmarshal(data, &busy); err != nil || string(busy.Data) != "null" ||
+		busy.Error == nil || busy.Error.Code != "HOLDER_EXPORT_BUSY" || busy.RequestID == "" {
+		t.Fatalf("third export refusal = %.300s, want the HOLDER_EXPORT_BUSY envelope", data)
+	}
+	if time.Since(began) >= deadline {
+		t.Fatal("the stalled exports reached their deadline before the refusal was checked; the test proves nothing")
+	}
+
+	finished := map[string]capturedLine{}
+	waitUntil := time.Now().Add(deadline + 15*time.Second)
+	for len(finished) < 2 && time.Now().Before(waitUntil) {
+		for _, line := range logs.snapshot() {
+			if line.msg == "holder export finished" {
+				id, _ := line.arg(t, "request_id").(string)
+				finished[id] = line
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	for _, id := range []string{"stalled-one", "stalled-two"} {
+		line, ok := finished[id]
+		if !ok {
+			t.Fatalf("export %s never logged its finished line: a stalled client held it past the deadline; log was:\n%s",
+				id, logs.rendered())
+		}
+		if got := line.arg(t, "outcome"); got != "aborted" {
+			t.Errorf("%s outcome = %v, want aborted", id, got)
+		}
+		if got := line.arg(t, "reason"); got != "deadline" {
+			t.Errorf("%s reason = %v, want deadline", id, got)
+		}
+		assertAbortLineIsSanitized(t, logs, line)
+	}
+	if elapsed := time.Since(began); elapsed < deadline {
+		t.Errorf("the stalled exports ended after %v, before their %v deadline", elapsed, deadline)
+	}
+
+	// The stalled bodies were cut, not finished.
+	for name, stalled := range map[string]*http.Response{"first": first, "second": second} {
+		if body, err := io.ReadAll(stalled.Body); err == nil {
+			t.Errorf("the %s stalled download ended cleanly (%d bytes) after its deadline", name, len(body))
+		}
+	}
+
+	// Their slots are free again.
+	sharedApp.CatalogService.WithHolderExportDeadline(0)
+	resp, data, err = fetchHolderExport(srv.URL, sessionID, eventID, "")
+	if err != nil {
+		t.Fatalf("export after the deadline: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export after the stalled ones were let go status=%d, want 200; body=%.300s", resp.StatusCode, data)
+	}
+	if got := holderExportTicketKeys(t, data); len(got) != tickets {
+		t.Fatalf("export after the deadline carries %d rows, want %d", len(got), tickets)
+	}
+}
+
+// A PANIC PART WAY THROUGH A FILE STILL WRITES THE FINISHED LINE, and still
+// aborts the download rather than ending it: behind the production middleware
+// a recovered panic would otherwise become a JSON envelope appended to a 200
+// that then ends cleanly, which a browser saves as a file.
+func TestTheHolderExportRecordsAndAbortsOnAPanicMidStream(t *testing.T) {
+	const tickets = 1_200
+	env := setupTest(t)
+	enableTicketAssignment(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Panic Fest", "panic-fest")
+	ticketTypeID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 2000, tickets+100)
+	seedHolderExportBenchFixture(t, env, eventID, ticketTypeID, tickets)
+	srv := productionChainServer(t)
+	logs := withCatalogLogger(t)
+
+	withHolderExportPause(t, func(_ context.Context, rowsWritten int) {
+		if rowsWritten == 500 {
+			panic("injected mid-stream failure")
+		}
+	})
+
+	resp, body, err := fetchHolderExport(srv.URL, sessionID, eventID, "")
+	if resp != nil && resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d; the panic must come after streaming began", resp.StatusCode)
+	}
+	if err == nil {
+		t.Fatalf("the download ended cleanly after a panic mid-stream (%d bytes)", len(body))
+	}
+
+	finished := waitForLine(t, logs, "holder export finished")
+	if got := finished.arg(t, "outcome"); got != "aborted" {
+		t.Errorf("finished outcome = %v, want aborted", got)
+	}
+	if got := finished.arg(t, "reason"); got != "panic" {
+		t.Errorf("finished reason = %v, want panic", got)
+	}
+	if got := finished.arg(t, "row_count"); got != 500 {
+		t.Errorf("finished row_count = %v, want the 500 rows produced before the panic", got)
+	}
+	assertAbortLineIsSanitized(t, logs, finished)
+	if strings.Contains(logs.rendered(), "injected mid-stream failure") {
+		t.Errorf("the panic's own message reached the log; only a runtime panic's is logged:\n%s", logs.rendered())
+	}
+	// The panic is still diagnosable: its stack is logged under the request id.
+	panicked := logs.only(t, "holder export panicked")
+	if panicked.level != "error" {
+		t.Errorf("the panic line is %s, want error", panicked.level)
+	}
+	if stack, _ := panicked.arg(t, "stack").(string); !strings.Contains(stack, "streamHolderExport") {
+		t.Errorf("the panic line's stack does not reach the export:\n%s", stack)
+	}
+	if got := panicked.arg(t, "request_id"); got != finished.arg(t, "request_id") {
+		t.Errorf("the panic line's request_id = %v, the finished line's = %v", got, finished.arg(t, "request_id"))
 	}
 }

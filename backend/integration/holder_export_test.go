@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -46,27 +47,39 @@ func holderExportPath(eventID string) string {
 // body.
 func downloadHolderExport(t *testing.T, env *testEnv, sessionID, eventID, query string) (*http.Response, []byte) {
 	t.Helper()
-	target := env.server.URL + holderExportPath(eventID)
+	resp, body, err := fetchHolderExport(env.server.URL, sessionID, eventID, query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp, body
+}
+
+// fetchHolderExport is downloadHolderExport against any server, returning its
+// failure rather than failing the test, so it can run on a goroutine other than
+// the test's own: t.Fatal there stops only that goroutine and leaves the test
+// waiting on a result that never comes.
+func fetchHolderExport(serverURL, sessionID, eventID, query string) (*http.Response, []byte, error) {
+	target := serverURL + holderExportPath(eventID)
 	if query != "" {
 		target += "?" + query
 	}
 	req, err := http.NewRequest(http.MethodGet, target, nil)
 	if err != nil {
-		t.Fatalf("new request: %v", err)
+		return nil, nil, fmt.Errorf("new request: %w", err)
 	}
 	if sessionID != "" {
 		req.Header.Set("Authorization", "Bearer "+sessionID)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("do request: %v", err)
+		return nil, nil, fmt.Errorf("do request: %w", err)
 	}
 	defer resp.Body.Close()
 	var buf bytes.Buffer
 	if _, err := buf.ReadFrom(resp.Body); err != nil {
-		t.Fatalf("read body: %v", err)
+		return resp, nil, fmt.Errorf("read body: %w", err)
 	}
-	return resp, buf.Bytes()
+	return resp, buf.Bytes(), nil
 }
 
 // holderExportFile is a downloaded roster, indexed by its header row. Every
@@ -463,7 +476,7 @@ func assertPresentInExport(t *testing.T, data []byte, needle string) {
 }
 
 // exportZipEntries reads every entry of an .xlsx zip into memory, by name, and
-// insists xl/sharedStrings.xml is among them — a workbook without one is not the
+// insists xl/sharedStrings.xml is among them - a workbook without one is not the
 // file the search was written against. Since ADR 0075 the data sheet's text is
 // inline in the sheet part and the shared table holds the Info sheet's, and the
 // search reads every entry, so it misses neither.
@@ -682,7 +695,7 @@ func TestTheHolderExportDataSheetIsNeverNamedSales(t *testing.T) {
 // and "who pulled the guest list" cannot be answered retroactively. Personal
 // data leaves with the first chunk, which is why the record of who asked is
 // written before it rather than after the last. There is no audit table behind
-// it on purpose — that implies a reading surface, a retention policy and an
+// it on purpose - that implies a reading surface, a retention policy and an
 // access rule, and should be designed once across the platform rather than
 // growing out of this feature.
 func TestTheHolderExportLogsWhoTookWhatAndHowMuch(t *testing.T) {
@@ -730,6 +743,21 @@ func TestTheHolderExportLogsWhoTookWhatAndHowMuch(t *testing.T) {
 	}
 	if got := finished.arg(t, "row_count"); got != file.dataRows {
 		t.Errorf("finished row_count = %v, want the %d rows handed over", got, file.dataRows)
+	}
+	// A completed export is routine, so INFO; an aborted one is WARN (see the
+	// streaming tests).
+	if started.level != "info" || finished.level != "info" {
+		t.Errorf("a completed export logged started at %s and finished at %s, want info for both",
+			started.level, finished.level)
+	}
+	// THE REQUEST ID JOINS THE TWO LINES, and each to the request line, on the
+	// day somebody has to say which download a "started" line belongs to.
+	startedID, _ := started.arg(t, "request_id").(string)
+	if startedID == "" {
+		t.Error("started request_id is blank; it is the key the two lines are joined on")
+	}
+	if finishedID, _ := finished.arg(t, "request_id").(string); finishedID != startedID {
+		t.Errorf("finished request_id = %q, started = %q; one export must carry one id", finishedID, startedID)
 	}
 	lines := logs.snapshot()
 	if len(lines) < 2 || lines[0].msg != "holder export started" {
