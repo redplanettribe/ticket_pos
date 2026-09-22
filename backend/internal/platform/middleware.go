@@ -1,68 +1,152 @@
 package platform
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"log/slog"
 	"net"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
-// RequestIDMiddleware assigns or forwards X-Request-ID and attaches it to the request context.
-func RequestIDMiddleware(next http.Handler) http.Handler {
+// RequestPipeline wraps the API's route handler in the middleware every request
+// passes through, in the one order that works:
+//
+//  1. the request id, outermost, so everything inside can report it: the
+//     request log line, a recovered panic's log line and its 500 envelope;
+//  2. the request log, which sees the request only after the id is on its
+//     context, and which writes its line even when the handler aborts;
+//  3. panic recovery, innermost, so the 500 it writes is the status the request
+//     log records.
+//
+// The three are unexported so that nothing can assemble them in another order.
+// That is how the request log came to read `"request_id":""` for every request:
+// the log wrapped the id middleware, so the id was attached to a request the log
+// line never saw.
+func RequestPipeline(logger *slog.Logger, next http.Handler) http.Handler {
+	return requestIDMiddleware(loggingMiddleware(logger, recoverMiddleware(logger, next)))
+}
+
+// RequestIDHeader carries a request's id, inbound from a BFF and outbound on
+// every response.
+const RequestIDHeader = "X-Request-ID"
+
+// maxRequestIDLength bounds an inbound id; the BFFs send 36-character UUIDs.
+const maxRequestIDLength = 128
+
+// requestIDMiddleware gives every request an id, puts it on the request context
+// (read it back with RequestID) and echoes it in X-Request-ID.
+//
+// An inbound X-Request-ID is adopted when it looks like an id: the BFFs mint one
+// per call so their logs and ours join up, and per ADR 0008 nothing but a BFF
+// reaches this process. Anything else, a blank header included, is replaced by a
+// fresh UUID rather than repaired, because the id is written into every log line
+// and echoed in a response header.
+func requestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestID := strings.TrimSpace(r.Header.Get("X-Request-ID"))
-		if requestID == "" {
-			requestID = newRequestID()
+		requestID := strings.TrimSpace(r.Header.Get(RequestIDHeader))
+		if !wellFormedRequestID(requestID) {
+			requestID = uuid.NewString()
 		}
 
 		ctx := WithRequestID(r.Context(), requestID)
-		w.Header().Set("X-Request-ID", requestID)
+		w.Header().Set(RequestIDHeader, requestID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
-// LoggingMiddleware logs each request with method, path, status, and duration.
-func LoggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
+// wellFormedRequestID accepts 1 to maxRequestIDLength characters drawn from
+// ASCII letters, digits and "-_.:".
+func wellFormedRequestID(id string) bool {
+	if id == "" || len(id) > maxRequestIDLength {
+		return false
+	}
+	for _, c := range id {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == '-', c == '_', c == '.', c == ':':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// loggingMiddleware writes one "request" line per request with its id, method,
+// path, status and duration.
+//
+// The line is written even when the handler aborts with http.ErrAbortHandler,
+// which is how a streamed download that fails after its first byte ends: at
+// WARN, with aborted=true and the status that had already been sent (0 when
+// nothing had). The abort is then passed on so the server still drops the
+// connection. Otherwise a 5xx is logged at ERROR and everything else at INFO.
+func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		rec := &statusRecorder{ResponseWriter: w}
+		defer func() {
+			aborted := recover()
+			level := slog.LevelInfo
+			status := rec.status
+			switch {
+			case aborted != nil:
+				// WARN whatever status went out: the abort is the event.
+				level = slog.LevelWarn
+			case status == 0:
+				// A handler that returns without writing sends an implicit 200.
+				status = http.StatusOK
+				fallthrough
+			default:
+				if status >= http.StatusInternalServerError {
+					level = slog.LevelError
+				}
+			}
+			attrs := []any{
+				"request_id", RequestID(r.Context()),
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", status,
+				"duration_ms", time.Since(start).Milliseconds(),
+			}
+			if aborted != nil {
+				attrs = append(attrs, "aborted", true)
+			}
+			logger.Log(r.Context(), level, "request", attrs...)
+			if aborted != nil {
+				panic(aborted)
+			}
+		}()
 		next.ServeHTTP(rec, r)
-		logger.Info("request",
-			"request_id", RequestID(r.Context()),
-			"method", r.Method,
-			"path", r.URL.Path,
-			"status", rec.status,
-			"duration_ms", time.Since(start).Milliseconds(),
-		)
 	})
 }
 
+// statusRecorder remembers the status a handler sent; 0 means none yet.
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
 }
 
 func (r *statusRecorder) WriteHeader(status int) {
-	r.status = status
+	// 1xx responses are interim; the status worth logging is the final one.
+	if r.status == 0 && status >= http.StatusOK {
+		r.status = status
+	}
 	r.ResponseWriter.WriteHeader(status)
 }
 
-// Unwrap hands http.ResponseController the connection's own writer, without
-// which a handler behind this middleware cannot set a write deadline or flush:
-// the Holder Export sets one so a client that stops reading is let go (ADR 0075).
-func (r *statusRecorder) Unwrap() http.ResponseWriter {
-	return r.ResponseWriter
+func (r *statusRecorder) Write(b []byte) (int, error) {
+	if r.status == 0 {
+		r.status = http.StatusOK
+	}
+	return r.ResponseWriter.Write(b)
 }
 
-func newRequestID() string {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return hex.EncodeToString([]byte(time.Now().Format(time.RFC3339Nano)))
-	}
-	return hex.EncodeToString(b[:])
+// Unwrap lets http.ResponseController reach the writer underneath, so a
+// streaming handler can still flush and set deadlines through this wrapper: the
+// Holder Export sets one so a client that stops reading is let go (ADR 0075).
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
 }
 
 // ClientIPHeader carries the end user's IP address as derived by the BFF that
@@ -128,8 +212,8 @@ func BearerToken(r *http.Request) string {
 	return strings.TrimSpace(strings.TrimPrefix(auth, prefix))
 }
 
-// RecoverMiddleware converts panics into 500 responses.
-func RecoverMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
+// recoverMiddleware converts panics into 500 responses.
+func recoverMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {

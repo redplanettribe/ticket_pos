@@ -55,9 +55,7 @@ func startAppWithSaleInvoicingClosed(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("new app with sale invoicing closed: %v", err)
 	}
-	mux := http.NewServeMux()
-	server.RegisterRoutes(mux, app)
-	srv := httptest.NewServer(platform.RequestIDMiddleware(mux))
+	srv := httptest.NewServer(server.NewHandler(app))
 	t.Cleanup(func() {
 		srv.Close()
 		_ = app.Close()

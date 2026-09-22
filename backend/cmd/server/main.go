@@ -50,14 +50,7 @@ func main() {
 	defer app.Close()
 	slog.SetDefault(app.Logger)
 
-	mux := http.NewServeMux()
-	server.RegisterRoutes(mux, app)
-
-	handler := platform.RecoverMiddleware(app.Logger,
-		platform.LoggingMiddleware(app.Logger,
-			platform.RequestIDMiddleware(mux),
-		),
-	)
+	handler := server.NewHandler(app)
 
 	app.Logger.Info("listening", "addr", cfg.HTTPAddr, "swagger", "http://localhost"+cfg.HTTPAddr+"/swagger/index.html")
 	httpServer := &http.Server{

@@ -170,8 +170,10 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
 
 ### Logging and request correlation
 
-- Every HTTP request gets a unique **`X-Request-ID`** (generated if not present).
-- Middleware attaches the request ID to the request-scoped logger.
+- Every HTTP request gets a unique **`X-Request-ID`** (a UUID is generated when the inbound header is absent or not id-shaped).
+- `platform.RequestPipeline` is the one middleware stack: the request id outermost, then the request log, then panic recovery.
+  The id is on the request context (`platform.RequestID(ctx)`), in the `request` log line, and in every envelope's `request_id`.
+- The `request` log line is written for every request, at ERROR for a 5xx and at WARN with `aborted=true` when a streamed download aborts after its first byte (`panic(http.ErrAbortHandler)`), carrying the status already sent.
 - Staff and Storefront Next apps forward `X-Request-ID` on server-side calls to the Go API.
 - Metrics, distributed tracing, and error reporting SaaS are **deferred** until production hosting is chosen.
 
@@ -368,6 +370,14 @@ Validation failures return `400` with code `VALIDATION_FAILED`:
 ```
 
 Other handler-level codes include `INVALID_JSON`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `METHOD_NOT_ALLOWED`, and `INTERNAL_ERROR`.
+
+**A malformed id in the path is not a validation failure.**
+A path id names a resource, and one that is not a UUID names a resource that cannot exist.
+It is answered as a well-formed id that names nothing is: `404` with that resource's own code (`EVENT_NOT_FOUND`, `TICKET_TYPE_NOT_FOUND`, ...), or the empty list on the few reads whose "not found" is an empty list.
+It must never reach a uuid column, where Postgres refuses it and the request becomes a `500`.
+It is checked after the route's gate has admitted the caller and before the body is read.
+On the staff and operator namespaces one guard does this for every route (`internal/server/path_ids.go`), and `TestEveryRouteRefusesAMalformedPathIDAsNotFound` walks the registered route table to hold every route to it.
+An id in the query string or the body is ordinary validation: `400 VALIDATION_FAILED` with field code `INVALID_ID`.
 
 #### Domain errors
 

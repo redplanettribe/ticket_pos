@@ -5,11 +5,29 @@ import (
 
 	customersmiddleware "github.com/peter/ticket_pos/backend/internal/customers/middleware"
 	identitymiddleware "github.com/peter/ticket_pos/backend/internal/identity/middleware"
+	"github.com/peter/ticket_pos/backend/internal/platform"
 	platformhandler "github.com/peter/ticket_pos/backend/internal/platform/handler"
 )
 
+// Router is what the routes are registered on. *http.ServeMux is the one that
+// serves; the interface exists so a test can list every registered pattern.
+type Router interface {
+	Handle(pattern string, handler http.Handler)
+	HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request))
+}
+
+// NewHandler is the API's whole HTTP handler: every route, wrapped in the
+// request pipeline (request id, request log, panic recovery). The server and
+// the integration suites serve this same value, so the suites exercise the
+// middleware production runs.
+func NewHandler(app *App) http.Handler {
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, app)
+	return platform.RequestPipeline(app.Logger, mux)
+}
+
 // RegisterRoutes wires all HTTP routes onto mux.
-func RegisterRoutes(mux *http.ServeMux, app *App) {
+func RegisterRoutes(mux Router, app *App) {
 	mux.HandleFunc("GET /health", platformhandler.Health)
 	mux.Handle("GET /swagger/", SwaggerHandler())
 
@@ -48,7 +66,7 @@ func RegisterRoutes(mux *http.ServeMux, app *App) {
 // time, with no arguments worth trusting. Nothing here takes a body or a path
 // parameter, so a caller cannot aim it: WHAT is worked on is a property of the
 // queue in the database, never of the request.
-func registerInternalRoutes(mux *http.ServeMux, app *App) {
+func registerInternalRoutes(mux Router, app *App) {
 	// The Reversal Reconciler's tick (ADR 0024). Cloud Scheduler calls it (#159)
 	// and a Platform Operator can curl it, which is the order this shipped in:
 	// the runbook before the automation.
@@ -140,13 +158,16 @@ func registerInternalRoutes(mux *http.ServeMux, app *App) {
 // LoadActiveMember in the chain — operator authority is orthogonal to
 // Membership, so an operator who belongs to no Organization is served, and an
 // Org Admin who is not on the allowlist is refused (ADR 0015).
-func registerOperatorRoutes(mux *http.ServeMux, app *App) {
+func registerOperatorRoutes(mux Router, app *App) {
 	h := app.OperatorHandler
 	svc := app.IdentityService
 
+	// A malformed id in an operator path is refused as its resource's 404 once
+	// the caller is known to be an operator (path_ids.go).
+	operatorIDs := requireWellFormedPathIDs(operatorPathIDs)
 	operator := func(handler http.Handler) http.Handler {
 		return identitymiddleware.SessionAuth(svc)(
-			identitymiddleware.RequirePlatformOperator(svc)(handler),
+			identitymiddleware.RequirePlatformOperator(svc)(operatorIDs(handler)),
 		)
 	}
 
@@ -509,7 +530,7 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 // Staff Session token presented on these routes authenticates nothing, and a
 // Customer Session token presented on a staff route authenticates nothing
 // (ADR 0010).
-func registerCustomerRoutes(mux *http.ServeMux, app *App) {
+func registerCustomerRoutes(mux Router, app *App) {
 	h := app.CustomersHandler
 	svc := app.CustomersService
 
@@ -794,7 +815,7 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("DELETE /api/v1/customer/follows/tags/{canonicalKey}", signedIn(http.HandlerFunc(h.UnfollowTag)))
 }
 
-func registerPublicRoutes(mux *http.ServeMux, app *App) {
+func registerPublicRoutes(mux Router, app *App) {
 	h := app.IdentityHandler
 	ch := app.CatalogHandler
 	sh := app.SalesHandler
@@ -942,7 +963,7 @@ func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	mux.HandleFunc("POST /api/v1/public/re-addressing-link", app.SalesHandler.AcceptReAddressingLink)
 }
 
-func registerAuthRoutes(mux *http.ServeMux, app *App) {
+func registerAuthRoutes(mux Router, app *App) {
 	h := app.IdentityHandler
 	mux.HandleFunc("POST /api/v1/auth/otp/request", h.RequestOTP)
 	mux.HandleFunc("POST /api/v1/auth/otp/verify", h.VerifyOTP)
@@ -961,7 +982,7 @@ func registerAuthRoutes(mux *http.ServeMux, app *App) {
 	mux.HandleFunc("POST /api/v1/auth/logout", h.Logout)
 }
 
-func registerStaffRoutes(mux *http.ServeMux, app *App) {
+func registerStaffRoutes(mux Router, app *App) {
 	h := app.IdentityHandler
 	ch := app.CatalogHandler
 	sh := app.SalesHandler
@@ -1005,10 +1026,14 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 		identitymiddleware.SessionAuth(svc)(http.HandlerFunc(h.AcceptStaffTermsOnSession)),
 	)
 
+	// Each gate below refuses a malformed id in the path as its resource's 404,
+	// after the gate itself has admitted the caller (path_ids.go).
+	staffIDs := requireWellFormedPathIDs(staffPathIDs)
+
 	orgAdmin := func(handler http.Handler) http.Handler {
 		return identitymiddleware.SessionAuth(svc)(
 			identitymiddleware.LoadActiveMember(svc)(
-				identitymiddleware.RequireOrgAdmin(handler),
+				identitymiddleware.RequireOrgAdmin(staffIDs(handler)),
 			),
 		)
 	}
@@ -1016,7 +1041,7 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// member gates a route to any active Member of the organization, regardless of role.
 	member := func(handler http.Handler) http.Handler {
 		return identitymiddleware.SessionAuth(svc)(
-			identitymiddleware.LoadActiveMember(svc)(handler),
+			identitymiddleware.LoadActiveMember(svc)(staffIDs(handler)),
 		)
 	}
 
@@ -1025,7 +1050,7 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	eventOwnerOrAdmin := func(handler http.Handler) http.Handler {
 		return identitymiddleware.SessionAuth(svc)(
 			identitymiddleware.LoadActiveMember(svc)(
-				identitymiddleware.RequireEventOwnerOrAdmin(handler),
+				identitymiddleware.RequireEventOwnerOrAdmin(staffIDs(handler)),
 			),
 		)
 	}

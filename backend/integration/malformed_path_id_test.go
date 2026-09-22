@@ -1,0 +1,289 @@
+package integration
+
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"sort"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/google/uuid"
+
+	"github.com/peter/ticket_pos/backend/internal/server"
+)
+
+// A malformed id in a route's path names a resource that cannot exist, so it is
+// answered exactly as an id that names nothing is: 404 with the resource's own
+// *_NOT_FOUND code. It is never a 500, and it is never told apart from an
+// unknown id (the id-oracle rule, ADR 0035).
+//
+// The sweep walks the REGISTERED route table rather than a list kept here, so a
+// route added later is covered the day it lands. For every id wildcard of every
+// route it sends a request with that wildcard malformed and every other id
+// wildcard a well-formed id that names nothing, from a caller the route's gate
+// admits.
+
+// nonIDWildcards are path wildcards that are not UUIDs, each with a value that
+// is well-formed for it.
+var nonIDWildcards = map[string]string{
+	"slug":                "test-org",
+	"eventSlug":           "no-such-event",
+	"locale":              "en",
+	"document":            "policy",
+	"version":             "1",
+	"digest":              "0000000000000000000000000000000000000000000000000000000000000000",
+	"confirmationRef":     "NOSUCHREF",
+	"canonicalKey":        "no-such-tag",
+	"purpose":             "marketing",
+	"clientTransactionId": "no-such-transaction",
+}
+
+// patternRecorder lists every pattern RegisterRoutes registers.
+type patternRecorder struct{ patterns []string }
+
+func (p *patternRecorder) Handle(pattern string, _ http.Handler) {
+	p.patterns = append(p.patterns, pattern)
+}
+
+func (p *patternRecorder) HandleFunc(pattern string, _ func(http.ResponseWriter, *http.Request)) {
+	p.patterns = append(p.patterns, pattern)
+}
+
+// registeredPatterns returns every "METHOD /path" pattern the API serves.
+func registeredPatterns(t *testing.T) []string {
+	t.Helper()
+	rec := &patternRecorder{}
+	server.RegisterRoutes(rec, sharedApp)
+	sort.Strings(rec.patterns)
+	return rec.patterns
+}
+
+// patternWildcards returns the names of pattern's {wildcards}, in order.
+func patternWildcards(path string) []string {
+	var names []string
+	for _, segment := range strings.Split(path, "/") {
+		if strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}") {
+			names = append(names, strings.TrimSuffix(strings.TrimPrefix(segment, "{"), "}"))
+		}
+	}
+	return names
+}
+
+// fillPattern substitutes each wildcard: probed gets probeValue, the other id
+// wildcards the fixed ids in others, the rest their nonIDWildcards value.
+func fillPattern(path, probed, probeValue string, others map[string]string) string {
+	segments := strings.Split(path, "/")
+	for i, segment := range segments {
+		if !strings.HasPrefix(segment, "{") || !strings.HasSuffix(segment, "}") {
+			continue
+		}
+		name := strings.TrimSuffix(strings.TrimPrefix(segment, "{"), "}")
+		switch value, isNonID := nonIDWildcards[name]; {
+		case name == probed:
+			segments[i] = probeValue
+		case isNonID:
+			segments[i] = value
+		default:
+			segments[i] = others[name]
+		}
+	}
+	return strings.Join(segments, "/")
+}
+
+type routeAnswer struct {
+	status    int
+	code      string
+	requestID string
+}
+
+func (a routeAnswer) String() string {
+	return strconv.Itoa(a.status) + " " + a.code
+}
+
+// callRoute sends method path as the holder of token, with an empty JSON object
+// as the body of a write.
+func callRoute(t *testing.T, env *testEnv, method, path, token string) routeAnswer {
+	t.Helper()
+	var body io.Reader
+	if method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch {
+		body = strings.NewReader("{}")
+	}
+	req, err := http.NewRequest(method, env.server.URL+path, body)
+	if err != nil {
+		t.Fatalf("new request %s %s: %v", method, path, err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, path, err)
+	}
+	defer resp.Body.Close()
+	var decoded envelope
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatalf("%s %s: status %d with a body that is not an envelope: %v", method, path, resp.StatusCode, err)
+	}
+	answer := routeAnswer{status: resp.StatusCode, requestID: decoded.RequestID}
+	if decoded.Error != nil {
+		answer.code = decoded.Error.Code
+	}
+	return answer
+}
+
+// bodyGatedRoutes read their credential from the request body, so a request
+// without one is refused before any path id is looked at. The sweep holds them
+// to "never a 5xx" only.
+var bodyGatedRoutes = map[string]string{
+	// The signed Assignment Link token travels in the body (#336).
+	"PUT /api/v1/public/assignment-link/questions/{questionId}": "the Assignment Link token is in the body",
+}
+
+// TestEveryRouteRefusesAMalformedPathIDAsNotFound: a malformed id in any
+// route's path is a client error and never a 500.
+//
+// On a read or a delete it is answered exactly as a well-formed id that names
+// nothing: the same status and the same code, whether that is a 404 or, on the
+// two Customer lists where "not yours" and "not there" are one empty answer, a
+// 200. On a write it is refused as 404 *_NOT_FOUND before the body is read,
+// because no body can make a resource that cannot exist into one that does.
+func TestEveryRouteRefusesAMalformedPathIDAsNotFound(t *testing.T) {
+	env := setupTest(t)
+	// Every flag-gated surface open, so no route answers "this feature is dark"
+	// before it has looked at its path.
+	enableTicketQuestions(t)
+	enableTicketAssignment(t)
+	// One staff session serves the staff and operator namespaces: an Org Admin
+	// of an Organization who is also on the operator allowlist.
+	staff := orgAdminSession(t, env)
+	seedPlatformOperator(t, env, "admin@example.com")
+	customer := customerSignIn(t, env, "buyer@example.com")
+	// A real Event and Ticket Type, so that a probe of an id nested beneath them
+	// is answered about that id and not about an unknown parent.
+	eventID := createDraftEvent(t, env, staff, "Sweep Event", "sweep-event")
+	ticketTypeID := createTicketType(t, env, staff, eventID)
+	real := map[string]string{"id": eventID, "eventID": eventID, "ticketTypeId": ticketTypeID}
+
+	tested := 0
+	var failures []string
+	for _, pattern := range registeredPatterns(t) {
+		method, path, ok := strings.Cut(pattern, " ")
+		if !ok {
+			continue
+		}
+		var token string
+		switch {
+		case strings.HasPrefix(path, "/api/v1/staff/"), strings.HasPrefix(path, "/api/v1/operator/"):
+			token = staff
+		case strings.HasPrefix(path, "/api/v1/customer/"):
+			token = customer
+		}
+		// Staff event routes nest under the real Event and Ticket Type; every
+		// other id is a well-formed one naming nothing.
+		staffEventRoute := strings.HasPrefix(path, "/api/v1/staff/events/{")
+		others := map[string]string{}
+		for _, name := range patternWildcards(path) {
+			if id, ok := real[name]; ok && staffEventRoute && (name != "id" || strings.HasPrefix(path, "/api/v1/staff/events/{id}")) {
+				others[name] = id
+			} else {
+				others[name] = uuid.NewString()
+			}
+		}
+		for _, name := range patternWildcards(path) {
+			if _, isNonID := nonIDWildcards[name]; isNonID {
+				continue
+			}
+			// Whether every OTHER id in the path names something real. Only then
+			// is the unknown-id answer about this wildcard rather than a parent.
+			othersReal := true
+			for _, other := range patternWildcards(path) {
+				if _, isNonID := nonIDWildcards[other]; other != name && !isNonID && others[other] != real[other] {
+					othersReal = false
+				}
+			}
+			tested++
+			malformed := callRoute(t, env, method, fillPattern(path, name, "not-a-uuid", others), token)
+			unknown := callRoute(t, env, method, fillPattern(path, name, uuid.NewString(), others), token)
+
+			report := func(want string) {
+				failures = append(failures, pattern+" {"+name+"}: malformed answered "+malformed.String()+
+					", a well-formed unknown id "+unknown.String()+"; want "+want)
+			}
+			switch _, bodyGated := bodyGatedRoutes[pattern]; {
+			case malformed.status >= http.StatusInternalServerError || unknown.status >= http.StatusInternalServerError:
+				report("no 5xx")
+			case malformed.requestID == "":
+				report("a request_id in the envelope")
+			case bodyGated:
+			case (method == http.MethodGet || method == http.MethodDelete) && othersReal:
+				if malformed.status != unknown.status || malformed.code != unknown.code {
+					report("the same answer")
+				}
+			case method == http.MethodGet || method == http.MethodDelete:
+				// An unknown parent answers first for a well-formed id; the
+				// malformed one is refused as itself. Both are a 404.
+				if malformed.status != unknown.status || (malformed.status == http.StatusNotFound && !strings.HasSuffix(malformed.code, "_NOT_FOUND")) {
+					report("the same status")
+				}
+			default:
+				if malformed.status != http.StatusNotFound || !strings.HasSuffix(malformed.code, "_NOT_FOUND") {
+					report("404 *_NOT_FOUND")
+				}
+			}
+		}
+	}
+	if tested < 100 {
+		t.Fatalf("swept only %d route wildcards; the route table walk has gone wrong", tested)
+	}
+	if len(failures) > 0 {
+		t.Fatalf("%d of %d path ids answered wrongly:\n%s", len(failures), tested, strings.Join(failures, "\n"))
+	}
+}
+
+// The report that opened this: the Holder List and the Holder Export answered a
+// malformed Event id with 500 INTERNAL_ERROR. Both now answer it exactly as an
+// Event id that names nothing, message and all.
+func TestAMalformedEventIDOnTheHolderListAndExportIsEventNotFound(t *testing.T) {
+	env := setupTest(t)
+	enableTicketQuestions(t)
+	enableTicketAssignment(t)
+	sessionID := orgAdminSession(t, env)
+
+	for _, route := range []struct {
+		name string
+		path func(eventID string) string
+	}{
+		{"holder list", holderListPath},
+		{"holder export", holderExportPath},
+	} {
+		t.Run(route.name, func(t *testing.T) {
+			resp, unknown := env.get(t, route.path(uuid.NewString()), authHeader(sessionID))
+			assertAPIError(t, resp, unknown, http.StatusNotFound, "EVENT_NOT_FOUND")
+
+			resp, malformed := env.get(t, route.path("not-a-uuid"), authHeader(sessionID))
+			assertAPIError(t, resp, malformed, http.StatusNotFound, "EVENT_NOT_FOUND")
+			if malformed.Error.Message != unknown.Error.Message {
+				t.Fatalf("malformed message %q, want the unknown Event's %q", malformed.Error.Message, unknown.Error.Message)
+			}
+		})
+	}
+}
+
+// The path is looked at only once the gate has admitted the caller: without a
+// Session a malformed id is 401 as any other request is, and a Member the gate
+// refuses hears 403, not whether the id could have named something.
+func TestAMalformedPathIDIsRefusedOnlyAfterTheGate(t *testing.T) {
+	env := setupTest(t)
+	enableTicketQuestions(t)
+
+	resp, body := env.get(t, holderListPath("not-a-uuid"), nil)
+	assertAPIError(t, resp, body, http.StatusUnauthorized, "UNAUTHORIZED")
+
+	resp, body = env.get(t, "/api/v1/operator/organizations/not-a-uuid", authHeader(orgAdminSession(t, env)))
+	assertAPIError(t, resp, body, http.StatusForbidden, "FORBIDDEN")
+}

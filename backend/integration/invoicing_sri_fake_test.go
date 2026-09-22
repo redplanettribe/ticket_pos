@@ -308,9 +308,7 @@ func startSRIEnv(ctx context.Context, connStr string, email *platform.CaptureEma
 	app.InvoicingService.WithPollSchedule(testPollDelays, testPollBudget).WithSaleInvoiceKick(false)
 	sriApp = app
 
-	mux := http.NewServeMux()
-	server.RegisterRoutes(mux, app)
-	sriSrv = httptest.NewServer(platform.RequestIDMiddleware(mux))
+	sriSrv = httptest.NewServer(server.NewHandler(app))
 	sriEnv = &testEnv{
 		server:     sriSrv,
 		db:         app.DB.Pool,

@@ -92,6 +92,16 @@ Reject before calling the service.
 **Validation is always handler responsibility.**
 Shape, required fields, types, and formats (`price: -5`, bad UUID) never reach the service.
 
+**Path ids are the exception to "bad UUID is `VALIDATION_FAILED`".**
+A malformed id in the PATH names a resource that cannot exist, so it is answered as a well-formed id naming nothing: `404` with the resource's own code (`EVENT_NOT_FOUND`, ...), or the empty list on a read whose "not found" is an empty list.
+It never reaches a uuid column (Postgres would refuse it and the request would 500).
+It is refused after the route's gate admits the caller and before the body is read.
+Staff and operator routes get this from one guard, `internal/server/path_ids.go`: a new id wildcard there goes in its table.
+`TestEveryRouteRefusesAMalformedPathIDAsNotFound` walks every registered route and fails on a 5xx.
+A route whose "not found" is an empty list is left out of the guard's table and gives a malformed id that same empty list where its unknown id gets one.
+For the staff Ticket Sale answers read that is the service, after the Event is resolved, on the same ordering argument as `INVALID_HOLDER_EMAIL` above.
+Ids in the query string or body stay ordinary validation: `400 VALIDATION_FAILED`, field code `INVALID_ID`.
+
 Validation `details` shape:
 
 ```json

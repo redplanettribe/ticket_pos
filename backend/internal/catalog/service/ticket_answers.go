@@ -122,6 +122,13 @@ func (s *Service) ListTicketSaleAnswers(ctx context.Context, actor ActorContext,
 	if err := s.ticketAnswersAvailable(ctx, actor, eventID); err != nil {
 		return nil, err
 	}
+	// A malformed Sale id names no Sale, so it gets the empty list a Sale this
+	// Organization cannot see gets (below), rather than reaching the uuid
+	// column as text Postgres refuses. It is checked here and not in the
+	// handler because the Event is answered for first.
+	if !catalog.IsUUID(ticketSaleID) {
+		return []TicketAnswersView{}, nil
+	}
 
 	tickets, err := s.repo.ListAnswerableTicketsByTicketSale(ctx, actor.OrganizationID, eventID, ticketSaleID)
 	if err != nil {

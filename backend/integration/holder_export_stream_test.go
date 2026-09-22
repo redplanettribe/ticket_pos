@@ -6,18 +6,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/xuri/excelize/v2"
 
-	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/server"
 )
 
@@ -598,29 +599,94 @@ func TestTheHolderExportRefusesAThirdAtOnceAndNotAfter(t *testing.T) {
 	awaitOK("second", second)
 }
 
-// productionChainServer serves the app behind the same middleware cmd/server
-// wraps it in - panic recovery, the request log and the request id - which the
-// shared harness server leaves out. Two things about a streamed export are only
-// true or false through that chain: whether a write deadline reaches the
+// productionChainServer serves the app through server.NewHandler, the handler
+// cmd/server serves: the request pipeline (request id, request log, panic
+// recovery) around every route. Two things about a streamed export are only
+// true or false through that pipeline: whether a write deadline reaches the
 // connection through the request log's ResponseWriter wrapper, and whether a
 // panic part way through a file is turned into an envelope glued onto a 200.
 //
-// EVERY CONNECTION IT ACCEPTS HAS A TINY SEND BUFFER, so a client that stops
-// reading stalls the export's writes after a few KiB rather than after the
-// several MiB the kernel would otherwise buffer on its behalf.
-func productionChainServer(t *testing.T) *httptest.Server {
+// It differs from the shared harness server in two ways. EVERY CONNECTION IT
+// ACCEPTS HAS A TINY SEND BUFFER, so a client that stops reading stalls the
+// export's writes after a few KiB rather than after the several MiB the kernel
+// would otherwise buffer on its behalf. And the pipeline logs to the returned
+// capture, so a test can read the request log line an aborted export leaves.
+func productionChainServer(t *testing.T) (*httptest.Server, *requestLogCapture) {
 	t.Helper()
-	mux := http.NewServeMux()
-	server.RegisterRoutes(mux, sharedApp)
-	srv := httptest.NewUnstartedServer(platform.RecoverMiddleware(sharedApp.Logger,
-		platform.LoggingMiddleware(sharedApp.Logger,
-			platform.RequestIDMiddleware(mux),
-		),
-	))
+	requestLog := &requestLogCapture{}
+	// NewHandler reads the app's logger once, when it builds the pipeline, so
+	// the swap is in force for this handler only and undone before any other
+	// test can build one.
+	appLogger := sharedApp.Logger
+	sharedApp.Logger = slog.New(slog.NewJSONHandler(requestLog, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	handler := server.NewHandler(sharedApp)
+	sharedApp.Logger = appLogger
+
+	srv := httptest.NewUnstartedServer(handler)
 	srv.Listener = smallSendBufferListener{srv.Listener}
 	srv.Start()
 	t.Cleanup(srv.Close)
-	return srv
+	return srv, requestLog
+}
+
+// requestLogCapture collects the JSON lines the request pipeline writes.
+type requestLogCapture struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (c *requestLogCapture) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf.Write(p)
+}
+
+func (c *requestLogCapture) rendered() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf.String()
+}
+
+// awaitRequestLine waits for the request log's "request" line for requestID.
+// The line is written as the handler unwinds, which for an aborted download is
+// after the client has already seen the connection break.
+func (c *requestLogCapture) awaitRequestLine(t *testing.T, requestID string) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, raw := range strings.Split(c.rendered(), "\n") {
+			if raw == "" {
+				continue
+			}
+			var line map[string]any
+			if err := json.Unmarshal([]byte(raw), &line); err != nil {
+				t.Fatalf("request log line %q is not JSON: %v", raw, err)
+			}
+			if line["msg"] == "request" && line["request_id"] == requestID {
+				return line
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("no request log line for %q; the request log was:\n%s", requestID, c.rendered())
+	return nil
+}
+
+// assertRequestLineAborted holds the request log line of an export that broke
+// its connection part way through a file to what the pipeline promises for an
+// http.ErrAbortHandler: WARN, aborted=true, and the 200 that had gone out.
+func assertRequestLineAborted(t *testing.T, requestLog *requestLogCapture, requestID string) {
+	t.Helper()
+	line := requestLog.awaitRequestLine(t, requestID)
+	if line["level"] != "WARN" {
+		t.Errorf("request line for %s is at %v, want WARN", requestID, line["level"])
+	}
+	if line["aborted"] != true {
+		t.Errorf("request line for %s has aborted=%v, want true", requestID, line["aborted"])
+	}
+	if status, _ := line["status"].(float64); status != http.StatusOK {
+		t.Errorf("request line for %s has status %v, want the 200 that had been sent", requestID, line["status"])
+	}
 }
 
 type smallSendBufferListener struct{ net.Listener }
@@ -683,7 +749,7 @@ func TestTheHolderExportLetsAStalledClientGoAtTheDeadline(t *testing.T) {
 	eventID := createDraftEvent(t, env, sessionID, "Stall Fest", "stall-fest")
 	ticketTypeID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 2000, tickets+100)
 	seedHolderExportBenchFixture(t, env, eventID, ticketTypeID, tickets)
-	srv := productionChainServer(t)
+	srv, requestLog := productionChainServer(t)
 	logs := withCatalogLogger(t)
 
 	const deadline = 3 * time.Second
@@ -741,6 +807,7 @@ func TestTheHolderExportLetsAStalledClientGoAtTheDeadline(t *testing.T) {
 			t.Errorf("%s reason = %v, want deadline", id, got)
 		}
 		assertAbortLineIsSanitized(t, logs, line)
+		assertRequestLineAborted(t, requestLog, id)
 	}
 	if elapsed := time.Since(began); elapsed < deadline {
 		t.Errorf("the stalled exports ended after %v, before their %v deadline", elapsed, deadline)
@@ -779,7 +846,7 @@ func TestTheHolderExportRecordsAndAbortsOnAPanicMidStream(t *testing.T) {
 	eventID := createDraftEvent(t, env, sessionID, "Panic Fest", "panic-fest")
 	ticketTypeID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 2000, tickets+100)
 	seedHolderExportBenchFixture(t, env, eventID, ticketTypeID, tickets)
-	srv := productionChainServer(t)
+	srv, requestLog := productionChainServer(t)
 	logs := withCatalogLogger(t)
 
 	withHolderExportPause(t, func(_ context.Context, rowsWritten int) {
@@ -820,5 +887,12 @@ func TestTheHolderExportRecordsAndAbortsOnAPanicMidStream(t *testing.T) {
 	}
 	if got := panicked.arg(t, "request_id"); got != finished.arg(t, "request_id") {
 		t.Errorf("the panic line's request_id = %v, the finished line's = %v", got, finished.arg(t, "request_id"))
+	}
+	// The request log still writes its line, as an abort and not as the 500 a
+	// recovered panic would otherwise be recorded as.
+	requestID, _ := finished.arg(t, "request_id").(string)
+	assertRequestLineAborted(t, requestLog, requestID)
+	if strings.Contains(requestLog.rendered(), "panic recovered") {
+		t.Errorf("the abort reached the recover middleware as a panic to report:\n%s", requestLog.rendered())
 	}
 }
