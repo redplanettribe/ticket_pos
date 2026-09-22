@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
-	"database/sql/driver"
 	"errors"
 	"fmt"
 	"io"
@@ -12,10 +10,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/catalog/repository"
@@ -183,13 +178,15 @@ func (s *Service) ExportHolderList(
 	}
 	defer s.releaseHolderExport()
 
-	ctx, cancel := context.WithTimeout(ctx, s.holderExportTimeout())
+	ctx, cancel := context.WithTimeout(ctx, s.HolderExportDeadline())
 	defer cancel()
 	deadline, _ := ctx.Deadline()
 
-	// ONE SNAPSHOT FOR THE WHOLE FILE. The generation time is taken as it opens,
-	// and it is what the Info sheet and the filename state: the file is the
-	// roster at that moment, whatever is sold or reassigned while it downloads.
+	// ONE SNAPSHOT FOR THE WHOLE FILE. The generation time is taken once it is
+	// fixed - Open runs the transaction's first statement, which is what takes a
+	// REPEATABLE READ snapshot - and it is what the Info sheet and the filename
+	// state: the file is the roster at that moment, whatever is sold or
+	// reassigned while it downloads.
 	snapshot, err := s.repo.OpenHolderRosterSnapshot(ctx)
 	if err != nil {
 		return err
@@ -376,8 +373,9 @@ func (s *Service) ExportHolderList(
 	return s.streamHolderExport(ctx, snapshot, export, batch, len(questions) > 0, fansOut, optionLabels, info)
 }
 
-// holderExportTimeout is how long this service lets one Holder Export stream.
-func (s *Service) holderExportTimeout() time.Duration {
+// HolderExportDeadline is how long this service lets one Holder Export stream:
+// holderExportDeadline, unless a test has overridden it.
+func (s *Service) HolderExportDeadline() time.Duration {
 	if s.holderExportDeadlineOverride > 0 {
 		return s.holderExportDeadlineOverride
 	}
@@ -395,7 +393,9 @@ func (s *Service) holderExportTimeout() time.Duration {
 // row_count IS ROWS PRODUCED, NOT ROWS DELIVERED. It counts the rows handed to
 // the file's encoder, and a row is in there before it has been compressed,
 // flushed or read by anybody; on an abort some of the last of them never left
-// this process. For a completed export the two are the same.
+// this process. "completed" is the same kind of fact: the whole file was handed
+// to the connection, and kernel, Cloud Run and proxy buffers can still hold a
+// tail the reader never receives.
 //
 // AN ABORT RECORDS A REASON AND A CLASS, NEVER THE ERROR'S TEXT. The text of a
 // failed write names the client's address and port, and an error wrapped
@@ -411,7 +411,7 @@ func (s *Service) logHolderExportFinished(
 		)...)
 		return
 	}
-	reason, class := holderExportAbortReason(ctx, writeErr), holderExportErrorClass(err)
+	reason, class := holderExportAbortReason(ctx, writeErr), platform.ErrorClass(err)
 	if recovered != nil {
 		reason, class = holderExportAbortPanic, fmt.Sprintf("panic %T", recovered)
 		// A PANIC STILL HAS TO BE DIAGNOSABLE, and after the file has begun the
@@ -527,42 +527,6 @@ func holderExportAbortReason(ctx context.Context, writeErr error) string {
 		return holderExportAbortClientGone
 	default:
 		return holderExportAbortDatabase
-	}
-}
-
-// holderExportErrorClass names the kind of error an export ended on, in words
-// that carry nothing of the error's own text: a context's end, a connection's
-// deadline, reset or closed pipe, a Postgres SQLSTATE, or - for anything it does
-// not recognise - the Go type of the innermost error, which is a name in this
-// program's source and never data.
-func holderExportErrorClass(err error) string {
-	var pgErr *pgconn.PgError
-	switch {
-	case err == nil:
-		return "none"
-	case errors.Is(err, context.DeadlineExceeded):
-		return "context_deadline_exceeded"
-	case errors.Is(err, context.Canceled):
-		return "context_canceled"
-	case errors.Is(err, os.ErrDeadlineExceeded):
-		return "write_deadline_exceeded"
-	case errors.Is(err, syscall.EPIPE):
-		return "broken_pipe"
-	case errors.Is(err, syscall.ECONNRESET):
-		return "connection_reset"
-	case errors.As(err, &pgErr):
-		return "postgres " + pgErr.Code
-	case errors.Is(err, driver.ErrBadConn), errors.Is(err, sql.ErrConnDone):
-		return "database_connection_lost"
-	case errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, io.EOF):
-		return "unexpected_eof"
-	}
-	for {
-		inner := errors.Unwrap(err)
-		if inner == nil {
-			return fmt.Sprintf("%T", err)
-		}
-		err = inner
 	}
 }
 

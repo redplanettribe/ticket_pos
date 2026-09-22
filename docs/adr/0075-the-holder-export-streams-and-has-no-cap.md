@@ -28,7 +28,7 @@ The only ceiling left is Cloud Run's 300s request timeout, which the #530 measur
 
 **The workbook is written by a minimal xlsx writer of our own, not excelize.**
 An xlsx file is a zip of a few XML parts, and writing them directly is the only way the output reaches the response without a buffer.
-The file is unchanged: the same sheets, columns, number formats and widths.
+The file is unchanged: the same sheets, columns, number formats and widths - apart from the three cells the shared answer rule below now decides for both files.
 The Info sheet still opens first - sheet order is `workbook.xml`'s, not the zip's - and it is written last, so the row count it states is the number of rows actually streamed.
 
 **One snapshot.**
@@ -49,7 +49,10 @@ A file silently missing its last rows - the reason ADR 0065 refused rather than 
 `holder export started` is written before the first row, naming who took it, from which Organization and Event, under which honoured filters.
 `holder export finished` records whether it completed or aborted, how many rows were produced, and why it aborted.
 It is written on every way out once `started` has been, a panic included.
-The row count is the rows handed to the file's encoder, not the rows the client received: on an abort, the last of them may never have left the process.
+Both "completed" and the row count record what the server handed to the transport, not what the reader received.
+The row count is the rows handed to the file's encoder: on an abort, the last of them may never have left the process.
+"Completed" means the last byte of the file was handed to the connection, and nothing more.
+Kernel, Cloud Run and proxy buffers can still hold a tail the reader never receives, so a completed line beside a download the reader saw fail is possible, and is not a contradiction.
 An abort is recorded as a reason and an error class, never the error's own text, which for a client that went away names its address and port.
 A completed export is logged at INFO and an aborted one at WARN, and both lines carry the request id, the key that joins them.
 The start line is the only record that survives every way a stream can die - a deploy, a scale-down, the timeout - and personal data leaves with the first chunk, not with the last.
@@ -59,6 +62,18 @@ The search term is still never logged, on either line.
 The step that turns a Ticket Answer into a typed cell value - text, date, boolean or blank - becomes writer-independent and shared by both files, beside the already-shared question column builder.
 The Holder Export and the Sales Export's per-Ticket sheet each keep only a thin serializer.
 ADR 0065 accepted two overlapping files and refused two implementations; that still holds at the level of the rule, and only the bytes are written twice.
+
+The rule also decides the three values a spreadsheet cannot take literally, the same way for both files:
+
+- Empty text is an absent cell, never a text cell holding nothing, so a reader filtering on "is blank" finds it.
+  That covers an empty Answer and an empty Holder name in both files, and an empty buyer name on the Holder Export.
+- Text is cut to 32,767 UTF-16 code units, which is Excel's limit and what Excel counts.
+  A character outside the Basic Multilingual Plane counts as two, and the cut never splits a surrogate pair.
+- A date Answer before 1900-01-01, which Excel's 1900 date system has no serial for, is written as its ISO date text, such as `1850-01-01`, rather than as a timestamp.
+
+This deliberately changes the file, against #658's "the file does not change".
+Before it, the Sales Export's per-Ticket sheet wrote an empty text Answer as an empty-string cell, and a pre-1900 date in either file as a timestamp text such as `1850-01-01T00:00:00Z`.
+Two files that disagree about whether a cell is blank are worse than one small change to both.
 
 ## Considered options
 
@@ -72,7 +87,8 @@ ADR 0065 accepted two overlapping files and refused two implementations; that st
 
 ## Consequences
 
-- The Holder Export and the Sales Export no longer share a workbook library. A change to the file's look is now made in two writers; a change to what an answer means is still made once.
+- The Holder Export and the Sales Export no longer share a workbook library.
+  A change to the file's look is now made in two writers; a change to what an answer means is still made once.
 - The "narrow your filters" refusal, its field error and its handling on the Holder List are deleted, along with the `COUNT(*)` that existed to produce it.
 - A failed export is visible only as a failed download and the `finished` line; there is no error envelope to show once streaming has begun.
 - The Sales Export keeps its 10,000-row cap, whose reason is symmetry with the Sale Import, not memory.

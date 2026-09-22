@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -21,9 +22,13 @@ import (
 //
 // The sweep walks the REGISTERED route table rather than a list kept here, so a
 // route added later is covered the day it lands. For every id wildcard of every
-// route it sends a request with that wildcard malformed and every other id
-// wildcard a well-formed id that names nothing, from a caller the route's gate
-// admits.
+// route it sends two requests from a caller the route's gate admits: one with
+// that wildcard malformed and one with it a well-formed id that names nothing.
+// Every other id wildcard is a real id wherever the sweep has one (a real Event,
+// Ticket Type, question, option, Sale, Ticket, Customer, Affiliate Link and
+// Member), so that on a read or a delete the two answers are both about the
+// probed id and must be the same; elsewhere it is a well-formed id naming
+// nothing.
 
 // nonIDWildcards are path wildcards that are not UUIDs, each with a value that
 // is well-formed for it.
@@ -163,11 +168,63 @@ func TestEveryRouteRefusesAMalformedPathIDAsNotFound(t *testing.T) {
 	staff := orgAdminSession(t, env)
 	seedPlatformOperator(t, env, "admin@example.com")
 	customer := customerSignIn(t, env, "buyer@example.com")
-	// A real Event and Ticket Type, so that a probe of an id nested beneath them
-	// is answered about that id and not about an unknown parent.
+	// A real Event and everything an id can name beneath it, so that a probe of
+	// an id nested beneath real parents is answered about that id and not about
+	// an unknown parent, and is held to "the same answer" rather than only "the
+	// same status".
 	eventID := createDraftEvent(t, env, staff, "Sweep Event", "sweep-event")
 	ticketTypeID := createTicketType(t, env, staff, eventID)
-	real := map[string]string{"id": eventID, "eventID": eventID, "ticketTypeId": ticketTypeID}
+	question := createTicketQuestion(t, env, staff, eventID, ticketTypeID, map[string]any{
+		"label": "Pick one", "kind": "single_choice", "option_labels": []string{"A", "B"},
+	})
+	sale := recordManualSaleOK(t, env, staff, eventID, manualSaleBody(
+		"buyer@example.com", "Ana", "Lopez", ticketTypeID, 1, "cash", env.fixedClock.Add(-time.Hour).Format(time.RFC3339)))
+	resp, body := createAffiliateLink(t, env, staff, eventID, map[string]any{"name": "Sweep link"})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create affiliate link status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	linkID := decodeAffiliateLink(t, body.Data).ID
+	resp, body = env.post(t, "/api/v1/staff/members", map[string]string{
+		"email": "owner@example.com", "role": "event_owner",
+	}, authHeader(staff))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("add member status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	var member struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body.Data, &member); err != nil {
+		t.Fatalf("decode member: %v", err)
+	}
+	real := map[string]string{
+		"id":           eventID,
+		"eventID":      eventID,
+		"ticketTypeId": ticketTypeID,
+		"questionId":   question.ID,
+		"optionId":     question.Options[0].ID,
+		"ticketSaleId": sale.SaleID,
+		"saleId":       sale.SaleID,
+		"ticketId":     ticketIDsOfSale(t, env, sale.SaleID)[0],
+		"customerId":   customerIDOnSalesList(t, env, staff, eventID, "buyer@example.com", "active"),
+		"linkId":       linkID,
+		"memberID":     member.ID,
+	}
+	// realFor reports the real id a wildcard of path names, if the sweep has
+	// one: the staff Event routes nest under the real Event, and the signed-in
+	// Customer is the buyer of the real Sale. A name means one thing only there
+	// ("{id}" is an Event under /staff/events and a Tax Invoice elsewhere).
+	realFor := func(path, name string) (string, bool) {
+		id, ok := real[name]
+		switch {
+		case !ok:
+			return "", false
+		case strings.HasPrefix(path, "/api/v1/staff/events/{"):
+			return id, name != "id" || strings.HasPrefix(path, "/api/v1/staff/events/{id}")
+		case strings.HasPrefix(path, "/api/v1/customer/"):
+			return id, name == "ticketSaleId" || name == "ticketId"
+		}
+		return "", false
+	}
 
 	tested := 0
 	var failures []string
@@ -183,12 +240,11 @@ func TestEveryRouteRefusesAMalformedPathIDAsNotFound(t *testing.T) {
 		case strings.HasPrefix(path, "/api/v1/customer/"):
 			token = customer
 		}
-		// Staff event routes nest under the real Event and Ticket Type; every
-		// other id is a well-formed one naming nothing.
-		staffEventRoute := strings.HasPrefix(path, "/api/v1/staff/events/{")
+		// Every id the sweep has a real one for is that; every other id is a
+		// well-formed one naming nothing.
 		others := map[string]string{}
 		for _, name := range patternWildcards(path) {
-			if id, ok := real[name]; ok && staffEventRoute && (name != "id" || strings.HasPrefix(path, "/api/v1/staff/events/{id}")) {
+			if id, ok := realFor(path, name); ok {
 				others[name] = id
 			} else {
 				others[name] = uuid.NewString()

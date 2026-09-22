@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 	"unicode/utf16"
-	"unicode/utf8"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -289,54 +288,19 @@ func liveHeapAfterStreaming(tb testing.TB, rows int) uint64 {
 	return stats.HeapAlloc
 }
 
-// TEXT IS CUT WHERE EXCEL CUTS IT, which is 32,767 UTF-16 code units and not
-// 32,767 characters: a character outside the Basic Multilingual Plane - most
-// emoji, some CJK - is two units to Excel and one rune to Go, so a rune count
-// lets through a cell Excel refuses. The cut never splits a surrogate pair,
-// because half of one is not a character at all.
-func TestStreamCutsTextAtExcelsLimitInUTF16Units(t *testing.T) {
+// A CELL AS LONG AS EXCEL ALLOWS READS BACK WHOLE. How long text may be is the
+// cell rule's decision (TextCell); this is that the stream carries the longest
+// text the rule lets through, astral characters and all, intact.
+func TestStreamCarriesTextAtExcelsLimit(t *testing.T) {
 	const astral = "\U0001F600" // one rune, two UTF-16 code units
-	for _, tc := range []struct {
-		name, text, want string
-	}{
-		{"astral characters count as two",
-			strings.Repeat(astral, 20_000), strings.Repeat(astral, 16_383)},
-		{"a pair that would straddle the limit is left out whole",
-			strings.Repeat("a", 32_766) + astral, strings.Repeat("a", 32_766)},
-		{"a pair that ends exactly on the limit is kept",
-			strings.Repeat("a", 32_765) + astral, strings.Repeat("a", 32_765) + astral},
-		{"text inside the Basic Multilingual Plane is one unit a character",
-			strings.Repeat("é", 40_000), strings.Repeat("é", 32_767)},
-		{"text at the limit is untouched",
-			strings.Repeat("a", 32_767), strings.Repeat("a", 32_767)},
-	} {
-		data := writeStream(t, streamLayout(), [][]Cell{{{Kind: CellText, Text: tc.text}}}, []string{"Info"})
-		got, err := openStream(t, data).GetCellValue("Ticket Holders", "A2")
-		if err != nil {
-			t.Fatalf("%s: read: %v", tc.name, err)
-		}
-		if got != tc.want {
-			t.Errorf("%s: cell holds %d UTF-16 units (%d runes), want %d units (%d runes)", tc.name,
-				len(utf16.Encode([]rune(got))), utf8.RuneCountInString(got),
-				len(utf16.Encode([]rune(tc.want))), utf8.RuneCountInString(tc.want))
-		}
+	want := strings.Repeat(astral, 16_383) + "a"
+	data := writeStream(t, streamLayout(), [][]Cell{{TextCell(want + astral)}}, []string{"Info"})
+	got, err := openStream(t, data).GetCellValue("Ticket Holders", "A2")
+	if err != nil {
+		t.Fatalf("read: %v", err)
 	}
-}
-
-// AN EMPTY STRING IS AN EMPTY CELL. A text value with nothing in it - an
-// Answer somebody cleared - is written as no cell at all, exactly as a
-// CellBlank is, so a reader filtering on "is blank" finds it.
-func TestStreamWritesEmptyTextAsNoCell(t *testing.T) {
-	data := writeStream(t, streamLayout(), [][]Cell{{
-		{Kind: CellText, Text: ""},
-		{Kind: CellText, Text: "x"},
-	}}, []string{"Info"})
-	f := openStream(t, data)
-	if got, _ := f.GetCellType("Ticket Holders", "A2"); got != excelize.CellTypeUnset {
-		t.Fatalf("an empty text value was written as a cell of type %v, want no cell", got)
-	}
-	if got, _ := f.GetCellValue("Ticket Holders", "B2"); got != "x" {
-		t.Fatalf("the cell after it reads %q, want %q", got, "x")
+	if got != want {
+		t.Errorf("cell holds %d UTF-16 units, want %d", len(utf16.Encode([]rune(got))), len(utf16.Encode([]rune(want))))
 	}
 }
 

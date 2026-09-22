@@ -92,6 +92,11 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
   const t = useTranslations("affiliateTrends");
   const errorCopy = useMessages().errors;
   const [trends, setTrends] = useState<AffiliateTrends | null>(null);
+  // "Now" is pinned per payload rather than read per render, so the axis is a
+  // statement about the data's moment and a re-render cannot shift the window
+  // an hour while the reader is looking at it. It is set in the same update as
+  // the payload it belongs to.
+  const [now, setNow] = useState(() => new Date());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Which series are drawn. Everything starts selected — the first look is the
@@ -130,6 +135,7 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
           return;
         }
         setTrends(data);
+        setNow(new Date());
         setSelected([ALL_PAGE_VIEWS_ID, ...data.links.map((link) => link.id)]);
       })
       .catch((error: unknown) => {
@@ -150,12 +156,6 @@ export function AffiliateTrendsSection({ eventId }: AffiliateTrendsSectionProps)
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
-
-  // "Now" is pinned per payload rather than read per render, so the axis is a
-  // statement about the data's moment and a re-render cannot shift the window
-  // an hour while the reader is looking at it.
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- re-pinned per payload, on purpose
-  const now = useMemo(() => new Date(), [trends]);
 
   // The drawable order: the whole page first, then the links as the API sends
   // them (newest first, deactivated included, so the legend never changes

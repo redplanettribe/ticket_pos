@@ -3,11 +3,14 @@ package platform
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/peter/ticket_pos/backend/internal/platform/apperror"
 )
 
 // logLine is one JSON line the request pipeline's logger wrote.
@@ -255,6 +258,77 @@ func TestRequestPipelineLogsAnAbortAtWarnWhateverStatusWasSent(t *testing.T) {
 	line := requestLogLine(t, buf)
 	if line.str("level") != "WARN" || line.status() != http.StatusServiceUnavailable {
 		t.Fatalf("request log = %v, want WARN with status 503", line)
+	}
+}
+
+// unwrappingWriter stands for a middleware between the pipeline and a handler
+// that wraps the response writer the way the pipeline's own recorder does.
+type unwrappingWriter struct{ http.ResponseWriter }
+
+func (u unwrappingWriter) Unwrap() http.ResponseWriter { return u.ResponseWriter }
+
+// AN EXPECTED DOMAIN REFUSAL IS NEVER AN ERROR IN THE LOG, whatever its status.
+// A response written from a mapped domain error - a 503 HOLDER_EXPORT_BUSY, a
+// 404 EVENT_NOT_FOUND - is the platform answering as designed, so the request
+// line is WARN, also through a middleware that wraps the writer.
+func TestRequestPipelineLogsAMappedDomainErrorAtWarnWhateverItsStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		code   string
+		status int
+		wrap   bool
+	}{
+		{"a 503 capacity refusal", "HOLDER_EXPORT_BUSY", http.StatusServiceUnavailable, false},
+		{"a 503 capacity refusal through a wrapped writer", "HOLDER_EXPORT_BUSY", http.StatusServiceUnavailable, true},
+		{"a 404", "EVENT_NOT_FOUND", http.StatusNotFound, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.wrap {
+					w = unwrappingWriter{w}
+				}
+				_ = WriteDomainError(w, RequestID(r.Context()), apperror.New(tc.code, "refused", nil))
+			}))
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/export", nil))
+
+			if rec.Code != tc.status {
+				t.Fatalf("status = %d, want %d", rec.Code, tc.status)
+			}
+			line := requestLogLine(t, buf)
+			if line.str("level") != "WARN" || line.status() != tc.status {
+				t.Fatalf("request log = %v, want WARN with status %d", line, tc.status)
+			}
+		})
+	}
+}
+
+// An error that is not a mapped domain error is a 500 nobody designed, and that
+// IS an error: WriteDomainError's INTERNAL_ERROR, and a 5xx a handler writes
+// itself, both log at ERROR.
+func TestRequestPipelineLogsAnUnmappedFailureAtError(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		write func(w http.ResponseWriter, r *http.Request)
+	}{
+		{"an unmapped error", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()), errors.New("connection refused"))
+		}},
+		{"a 500 written by hand", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, buf := pipelineUnderTest(http.HandlerFunc(tc.write))
+
+			handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/export", nil))
+
+			line := requestLogLine(t, buf)
+			if line.str("level") != "ERROR" || line.status() != http.StatusInternalServerError {
+				t.Fatalf("request log = %v, want ERROR with status 500", line)
+			}
+		})
 	}
 }
 

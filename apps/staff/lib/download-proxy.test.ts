@@ -8,7 +8,8 @@ import { forwardDownload, proxyDownload, XLSX_CONTENT_TYPE } from "./download-pr
 // the API's Retry-After and Cache-Control (a busy export says when to come
 // back); on a file the same headers plus the file's own, and the body as a
 // stream that is never buffered. A reader who goes away stops the upstream
-// work, before the file starts and while it flows.
+// work, before the file starts and while it flows, and the route then returns
+// quietly instead of failing.
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -173,5 +174,58 @@ test("a reader who goes away before the file starts aborts the upstream fetch", 
   await aborted;
 
   assert.equal(upstreamSignal?.aborted, true);
-  await assert.rejects(proxied);
+  // Nobody is left to read the answer, so the route returns quietly: no
+  // rejection for Next to log as an unhandled route error and a 500.
+  const response = await proxied;
+  assert.equal(response.body, null);
+  assert.equal(response.status, 499);
+});
+
+test("an upstream fetch rejected because the browser gave up resolves quietly, with nothing logged", async () => {
+  const browser = new AbortController();
+  const request = new Request("http://staff.example/api/operator/invoicing/archive", { signal: browser.signal });
+  browser.abort();
+  const logged: unknown[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => {
+    logged.push(args);
+  };
+  try {
+    const response = await proxyDownload(
+      request,
+      () => Promise.reject(new DOMException("The operation was aborted.", "AbortError")),
+      "application/zip",
+    );
+
+    assert.equal(response.status, 499);
+    assert.equal(response.body, null);
+  } finally {
+    console.error = originalError;
+  }
+  assert.deepEqual(logged, []);
+});
+
+// Quiet is for a reader who is gone. An AbortError while the browser is still
+// waiting is somebody else's abort, and hiding it would hand that browser an
+// empty answer.
+test("an AbortError while the browser is still waiting still fails", async () => {
+  const request = new Request("http://staff.example/api/events/e1/sales/export");
+
+  await assert.rejects(
+    proxyDownload(
+      request,
+      () => Promise.reject(new DOMException("The operation was aborted.", "AbortError")),
+      XLSX_CONTENT_TYPE,
+    ),
+    /aborted/,
+  );
+});
+
+test("an upstream fetch that fails for any other reason still fails", async () => {
+  const request = new Request("http://staff.example/api/events/e1/sales/export");
+
+  await assert.rejects(
+    proxyDownload(request, () => Promise.reject(new TypeError("fetch failed")), XLSX_CONTENT_TYPE),
+    /fetch failed/,
+  );
 });

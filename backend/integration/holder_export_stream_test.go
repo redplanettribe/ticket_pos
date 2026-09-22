@@ -322,6 +322,14 @@ func TestTheHolderExportAbortsRatherThanFinishingAShortFile(t *testing.T) {
 	if got := finished.arg(t, "reason"); got != "database_error" {
 		t.Errorf("finished reason = %v, want database_error", got)
 	}
+	// A killed backend reaches the driver as Postgres's own refusal or as the
+	// connection lost under it, depending on which it reads first; either way
+	// the class names the database, never the error's text.
+	switch got := finished.arg(t, "error_class"); got {
+	case "postgres 57P01", "database_connection_lost", "unexpected_eof":
+	default:
+		t.Errorf("finished error_class = %v, want a database class", got)
+	}
 	assertAbortLineIsSanitized(t, logs, finished)
 }
 
@@ -335,8 +343,14 @@ func assertAbortLineIsSanitized(t *testing.T, logs *captureLogger, finished capt
 	if finished.level != "warn" {
 		t.Errorf("an aborted export's finished line is %s, want warn", finished.level)
 	}
-	if class, _ := finished.arg(t, "error_class").(string); class == "" {
+	class, _ := finished.arg(t, "error_class").(string)
+	if class == "" {
 		t.Error("an aborted export's finished line names no error class")
+	}
+	for _, leak := range []string{"127.0.0.1", "@", "bench-buyer"} {
+		if strings.Contains(class, leak) {
+			t.Errorf("the error class %q carries %q; it must name a kind, never an address or a person", class, leak)
+		}
 	}
 	for i := 0; i+1 < len(finished.args); i += 2 {
 		if finished.args[i] == "error" {
@@ -869,6 +883,10 @@ func TestTheHolderExportRecordsAndAbortsOnAPanicMidStream(t *testing.T) {
 	}
 	if got := finished.arg(t, "reason"); got != "panic" {
 		t.Errorf("finished reason = %v, want panic", got)
+	}
+	// A panic's class is the panic value's type, never its message.
+	if got := finished.arg(t, "error_class"); got != "panic string" {
+		t.Errorf("finished error_class = %v, want the panic's type, panic string", got)
 	}
 	if got := finished.arg(t, "row_count"); got != 500 {
 		t.Errorf("finished row_count = %v, want the 500 rows produced before the panic", got)

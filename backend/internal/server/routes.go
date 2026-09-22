@@ -27,7 +27,12 @@ func NewHandler(app *App) http.Handler {
 }
 
 // RegisterRoutes wires all HTTP routes onto mux.
+//
+// Every route goes through RequireDeclaredPathIDs, so a staff or operator
+// route whose path wildcard the path-id guard does not know panics here, at
+// construction, rather than 500ing on its first malformed id.
 func RegisterRoutes(mux Router, app *App) {
+	mux = RequireDeclaredPathIDs(mux)
 	mux.HandleFunc("GET /health", platformhandler.Health)
 	mux.Handle("GET /swagger/", SwaggerHandler())
 

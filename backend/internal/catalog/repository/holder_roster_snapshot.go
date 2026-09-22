@@ -47,10 +47,19 @@ type HolderRosterSnapshot struct {
 }
 
 // OpenHolderRosterSnapshot begins the export's read-only REPEATABLE READ
-// transaction. The snapshot itself is taken by the first statement run in it.
+// transaction and fixes its snapshot before returning.
+//
+// Postgres takes a REPEATABLE READ snapshot at the transaction's first
+// statement, not at BEGIN, so this runs one. That makes the moment Open returns
+// the snapshot's moment: a caller that reads the time right after it has the
+// generation time the file is a picture of, whichever read it makes first.
 func (r *Repository) OpenHolderRosterSnapshot(ctx context.Context) (*HolderRosterSnapshot, error) {
 	tx, err := r.db.Pool.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `SELECT 1`); err != nil {
+		_ = tx.Rollback()
 		return nil, err
 	}
 	return &HolderRosterSnapshot{tx: tx}, nil
@@ -75,7 +84,8 @@ func (s *HolderRosterSnapshot) OpenRoster(ctx context.Context, q ListHolderTicke
 	if s.cursor {
 		return errors.New("catalog: the Holder Export roster is already open")
 	}
-	roster, args := holderRosterSelect(q)
+	where, args := holderRosterFilters(q)
+	roster := holderRosterSelect(q, where)
 	if _, err := s.tx.ExecContext(ctx, `DECLARE holder_export NO SCROLL CURSOR FOR `+roster, args...); err != nil {
 		return err
 	}

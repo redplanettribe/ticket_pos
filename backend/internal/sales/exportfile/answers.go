@@ -401,10 +401,13 @@ func writeHolder(f *excelize.File, cols layout, ticket TicketRow, row int) error
 		{colHolderLastName, ticket.HolderLastName},
 		{colHolderEmail, ticket.HolderEmail},
 	} {
-		if col.value == "" {
+		// Through the cell rule, which leaves an empty value genuinely blank,
+		// exactly as the Holder Export writes the same four columns.
+		value := TextCell(col.value)
+		if value.Kind == CellBlank {
 			continue
 		}
-		if err := setStr(f, AnswersSheet, cols, col.key, row, col.value); err != nil {
+		if err := setStr(f, AnswersSheet, cols, col.key, row, value.Text); err != nil {
 			return err
 		}
 	}

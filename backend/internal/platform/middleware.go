@@ -80,7 +80,13 @@ func wellFormedRequestID(id string) bool {
 // which is how a streamed download that fails after its first byte ends: at
 // WARN, with aborted=true and the status that had already been sent (0 when
 // nothing had). The abort is then passed on so the server still drops the
-// connection. Otherwise a 5xx is logged at ERROR and everything else at INFO.
+// connection.
+//
+// A response written from a mapped domain error (WriteDomainError marks it) is
+// logged at WARN whatever its status: a 503 HOLDER_EXPORT_BUSY is the platform
+// refusing as designed, and an ERROR line is a page nobody should get for it.
+// Otherwise a 5xx - an unmapped failure, INTERNAL_ERROR, a recovered panic - is
+// logged at ERROR and everything else at INFO.
 func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -92,6 +98,8 @@ func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 			switch {
 			case aborted != nil:
 				// WARN whatever status went out: the abort is the event.
+				level = slog.LevelWarn
+			case rec.domainError:
 				level = slog.LevelWarn
 			case status == 0:
 				// A handler that returns without writing sends an implicit 200.
@@ -125,6 +133,33 @@ func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
+	// domainError is set when the response was written from a mapped domain
+	// error, which the request line logs at WARN whatever its status.
+	domainError bool
+}
+
+func (r *statusRecorder) markDomainError() { r.domainError = true }
+
+// domainErrorMarker is a response writer that records a response was written
+// from a mapped domain error; the request log's recorder is one.
+type domainErrorMarker interface{ markDomainError() }
+
+// markDomainError tells the request log that w's response is a mapped domain
+// error. It looks through writers that wrap w, the way http.ResponseController
+// does, so a middleware wrapping the writer does not hide the mark; a writer
+// with no recorder underneath (a test's bare recorder) is left alone.
+func markDomainError(w http.ResponseWriter) {
+	for {
+		switch rw := w.(type) {
+		case domainErrorMarker:
+			rw.markDomainError()
+			return
+		case interface{ Unwrap() http.ResponseWriter }:
+			w = rw.Unwrap()
+		default:
+			return
+		}
+	}
 }
 
 func (r *statusRecorder) WriteHeader(status int) {

@@ -58,15 +58,36 @@ export async function forwardDownload(upstream: Response, fileContentType: strin
  * nobody. Once the file is flowing, a reader who goes away cancels this
  * response's body, which is the upstream body, and that cancels the upstream
  * fetch in turn.
+ *
+ * A reader who gives up before the upstream fetch resolves makes that fetch
+ * reject. Nobody is left to read the answer, so that is returned quietly as an
+ * empty 499 (client closed request) rather than thrown, which Next would log as
+ * an unhandled route error and a 500. It is keyed on the browser's own signal,
+ * not on the error's name: an abort nobody asked for while the browser is still
+ * waiting is a failure, and is thrown as any other failure is.
  */
 export async function proxyDownload(
   request: Request,
   fetchUpstream: (signal: AbortSignal) => Promise<Response>,
   fileContentType: string,
 ): Promise<Response> {
-  const upstream = await fetchUpstream(request.signal);
+  let upstream: Response;
+  try {
+    upstream = await fetchUpstream(request.signal);
+  } catch (error) {
+    if (request.signal.aborted) {
+      return new Response(null, { status: CLIENT_CLOSED_REQUEST });
+    }
+    throw error;
+  }
   return forwardDownload(upstream, fileContentType);
 }
+
+/**
+ * The status a download answers when its reader went away first. No browser
+ * sees it; it is what the server's own request log records.
+ */
+const CLIENT_CLOSED_REQUEST = 499;
 
 /** The .xlsx media type both exports fall back to. */
 export const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
