@@ -82,11 +82,12 @@ func wellFormedRequestID(id string) bool {
 // nothing had). The abort is then passed on so the server still drops the
 // connection.
 //
-// A response written from a mapped domain error (WriteDomainError marks it) is
-// logged at WARN whatever its status: a 503 HOLDER_EXPORT_BUSY is the platform
-// refusing as designed, and an ERROR line is a page nobody should get for it.
-// Otherwise a 5xx - an unmapped failure, INTERNAL_ERROR, a recovered panic - is
-// logged at ERROR and everything else at INFO.
+// Otherwise a 5xx is logged at ERROR, except a 5xx carrying a Retry-After: that
+// is a capacity refusal the platform makes as designed, such as the 503
+// HOLDER_EXPORT_BUSY, and is logged at WARN. The only source of a Retry-After is
+// a domain error that declares one (domainRetryAfter), so a mapped 5xx that
+// declares none - a deployment fault, a failed commit - is still an ERROR.
+// Everything else, a 4xx included, is logged at INFO.
 func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -99,14 +100,16 @@ func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 			case aborted != nil:
 				// WARN whatever status went out: the abort is the event.
 				level = slog.LevelWarn
-			case rec.domainError:
-				level = slog.LevelWarn
 			case status == 0:
 				// A handler that returns without writing sends an implicit 200.
 				status = http.StatusOK
 				fallthrough
 			default:
-				if status >= http.StatusInternalServerError {
+				switch {
+				case status < http.StatusInternalServerError:
+				case rec.Header().Get("Retry-After") != "":
+					level = slog.LevelWarn
+				default:
 					level = slog.LevelError
 				}
 			}
@@ -133,33 +136,6 @@ func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
-	// domainError is set when the response was written from a mapped domain
-	// error, which the request line logs at WARN whatever its status.
-	domainError bool
-}
-
-func (r *statusRecorder) markDomainError() { r.domainError = true }
-
-// domainErrorMarker is a response writer that records a response was written
-// from a mapped domain error; the request log's recorder is one.
-type domainErrorMarker interface{ markDomainError() }
-
-// markDomainError tells the request log that w's response is a mapped domain
-// error. It looks through writers that wrap w, the way http.ResponseController
-// does, so a middleware wrapping the writer does not hide the mark; a writer
-// with no recorder underneath (a test's bare recorder) is left alone.
-func markDomainError(w http.ResponseWriter) {
-	for {
-		switch rw := w.(type) {
-		case domainErrorMarker:
-			rw.markDomainError()
-			return
-		case interface{ Unwrap() http.ResponseWriter }:
-			w = rw.Unwrap()
-		default:
-			return
-		}
-	}
 }
 
 func (r *statusRecorder) WriteHeader(status int) {
