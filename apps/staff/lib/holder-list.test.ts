@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
+
+import { apiErrorMessage, type ErrorCatalog } from "./api-errors.ts";
+import { ApiError } from "./events-api.ts";
 
 import {
   ASSIGNMENT_STATE_KEYS,
@@ -829,4 +833,41 @@ test("a download cut part way rejects and saves no file", async (t) => {
   const saved = stubDownloadBrowser(t, new Response(body, { status: 200 }));
   await assert.rejects(downloadHolderExport("evt_1", EMPTY_HOLDER_LIST_FILTERS));
   assert.deepEqual(saved, []);
+});
+
+// A BUSY REFUSAL (#660) arrives before any byte, as an envelope: it saves no
+// file, and the reader is told in their own language to try again in a moment -
+// never that anything about their Event or filters is wrong.
+test("a busy refusal saves no file and reads as try again, in both languages", async (t) => {
+  const saved = stubDownloadBrowser(
+    t,
+    new Response(
+      JSON.stringify({
+        error: { code: "HOLDER_EXPORT_BUSY", message: "An export is already being prepared. Try again in a moment." },
+      }),
+      { status: 503, headers: { "Content-Type": "application/json", "Retry-After": "5" } },
+    ),
+  );
+  const refusal = await downloadHolderExport("evt_1", EMPTY_HOLDER_LIST_FILTERS).then(
+    () => assert.fail("a busy refusal resolved as a download"),
+    (error: unknown) => error,
+  );
+  assert.deepEqual(saved, []);
+  assert.ok(refusal instanceof ApiError);
+  assert.equal(refusal.code, "HOLDER_EXPORT_BUSY");
+
+  const errorsOf = (locale: string) =>
+    (
+      JSON.parse(readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8")) as {
+        errors: ErrorCatalog;
+      }
+    ).errors;
+  assert.equal(
+    apiErrorMessage(errorsOf("en"), refusal),
+    "An export is already being prepared. Try again in a moment.",
+  );
+  assert.equal(
+    apiErrorMessage(errorsOf("es"), refusal),
+    "Ya se está preparando una exportación. Vuelva a intentarlo en un momento.",
+  );
 });

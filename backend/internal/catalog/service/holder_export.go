@@ -47,6 +47,37 @@ import (
 // TestTheHolderExportDeadlineIsInsideTheRequestTimeout holds the relationship.
 const holderExportDeadline = 290 * time.Second
 
+// holderExportConcurrency is how many Holder Exports one API instance streams at
+// once (ADR 0075).
+//
+// EACH ONE HOLDS A DATABASE CONNECTION for as long as its client downloads, up
+// to holderExportDeadline, and the instance has ten (platform.OpenDB). Two
+// leaves eight for every other request on the instance however slow the
+// downloaders' phones are, and makes a second colleague downloading at the same
+// moment an ordinary case rather than a refused one. A third is refused at once,
+// before anything is read, rather than queued: a queued export would hold its
+// request open with no bytes flowing, and the reader would see a spinner that
+// means nothing.
+const holderExportConcurrency = 2
+
+// acquireHolderExport takes one of the instance's export slots, or reports that
+// none is free. The caller releases it with releaseHolderExport.
+func (s *Service) acquireHolderExport() bool {
+	s.holderExports.Lock()
+	defer s.holderExports.Unlock()
+	if s.holderExports.streaming >= holderExportConcurrency {
+		return false
+	}
+	s.holderExports.streaming++
+	return true
+}
+
+func (s *Service) releaseHolderExport() {
+	s.holderExports.Lock()
+	defer s.holderExports.Unlock()
+	s.holderExports.streaming--
+}
+
 // WithLogger overrides where this service's audit lines go (tests).
 //
 // It exists for the Holder Export's audit line, which is the one thing on this
@@ -119,6 +150,14 @@ func (s *Service) ExportHolderList(
 
 	loc := resolveEventLocation(event.Timezone.String)
 	soldFrom, soldTo := dateRangeBounds(honoured.SoldFrom, honoured.SoldTo, loc)
+
+	// BUSY IS DECIDED AFTER ACCESS AND BEFORE ANY READ: somebody who may not
+	// have the roster is told so rather than told to wait, and a refused export
+	// has touched nothing and logs nothing.
+	if !s.acquireHolderExport() {
+		return catalog.ErrHolderExportBusy()
+	}
+	defer s.releaseHolderExport()
 
 	ctx, cancel := context.WithTimeout(ctx, holderExportDeadline)
 	defer cancel()

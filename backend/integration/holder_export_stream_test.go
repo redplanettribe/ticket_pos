@@ -3,6 +3,7 @@ package integration
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -395,5 +396,112 @@ func TestTheHolderExportLogsAClientThatWentAway(t *testing.T) {
 	}
 	if strings.Contains(logs.rendered(), term) {
 		t.Fatalf("the search term reached the log:\n%s", logs.rendered())
+	}
+}
+
+// AT MOST TWO HOLDER EXPORTS STREAM AT ONCE on an instance (#660, ADR 0075).
+// With two held open, a third is refused before any file byte with a retryable
+// busy refusal that is not VALIDATION_FAILED, and once one of the two finishes
+// a new export succeeds.
+func TestTheHolderExportRefusesAThirdAtOnceAndNotAfter(t *testing.T) {
+	env := setupTest(t)
+	enableTicketAssignment(t)
+	f := newHolderFilterFixture(t, env)
+	logs := withCatalogLogger(t)
+
+	// Each export pauses as its file begins and hands the test the channel that
+	// lets it go on.
+	held := make(chan chan struct{}, 4)
+	withHolderExportPause(t, func(ctx context.Context, rowsWritten int) {
+		if rowsWritten != 0 {
+			return
+		}
+		release := make(chan struct{})
+		held <- release
+		select {
+		case <-release:
+		case <-ctx.Done():
+		case <-time.After(30 * time.Second):
+		}
+	})
+	download := func() <-chan int {
+		result := make(chan int, 1)
+		go func() {
+			resp, data := downloadHolderExport(t, env, f.sessionID, f.eventID, "")
+			if resp.StatusCode == http.StatusOK {
+				if _, err := excelize.OpenReader(bytes.NewReader(data)); err != nil {
+					t.Errorf("a released export is not a workbook: %v", err)
+				}
+			}
+			result <- resp.StatusCode
+		}()
+		return result
+	}
+	awaitHeld := func() chan struct{} {
+		t.Helper()
+		select {
+		case release := <-held:
+			return release
+		case <-time.After(30 * time.Second):
+			t.Fatal("an export never began streaming")
+			return nil
+		}
+	}
+
+	first := download()
+	releaseFirst := awaitHeld()
+	second := download()
+	releaseSecond := awaitHeld()
+	secondReleased := false
+	t.Cleanup(func() {
+		if !secondReleased {
+			close(releaseSecond)
+		}
+	})
+
+	resp, data := downloadHolderExport(t, env, f.sessionID, f.eventID, "")
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("third export status=%d, want 503; body=%s", resp.StatusCode, string(data))
+	}
+	if strings.HasPrefix(string(data), "PK") {
+		t.Fatal("the busy refusal carried file bytes")
+	}
+	if got := resp.Header.Get("Retry-After"); got == "" {
+		t.Error("the busy refusal says nothing about when to retry")
+	}
+	var envelope struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil || envelope.Error.Code != "HOLDER_EXPORT_BUSY" {
+		t.Fatalf("busy refusal = %s, want the HOLDER_EXPORT_BUSY envelope", string(data))
+	}
+	// Two exports started; the refused third wrote no audit line.
+	started := 0
+	for _, line := range logs.snapshot() {
+		if line.msg == "holder export started" {
+			started++
+		}
+	}
+	if started != 2 {
+		t.Errorf("logged %d started lines, want the two admitted exports only", started)
+	}
+
+	close(releaseFirst)
+	if status := <-first; status != http.StatusOK {
+		t.Fatalf("the first export ended %d, want 200", status)
+	}
+	// One slot is free again: a new export is admitted while the second is still
+	// held, and completes once let go.
+	fourth := download()
+	close(awaitHeld())
+	if status := <-fourth; status != http.StatusOK {
+		t.Fatalf("an export after one finished ended %d, want 200", status)
+	}
+	close(releaseSecond)
+	secondReleased = true
+	if status := <-second; status != http.StatusOK {
+		t.Fatalf("the second export ended %d, want 200", status)
 	}
 }

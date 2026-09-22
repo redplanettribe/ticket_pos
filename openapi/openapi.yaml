@@ -16780,11 +16780,15 @@ paths:
         filters and the sort, and `holder export finished` when the stream ends, with
         the outcome (completed or aborted), the rows sent and, for an abort, why (client_gone,
         deadline or database_error). A request refused before streaming begins writes
-        neither. The search is recorded as a boolean only, on both, for the reason
-        it is absent from the file. Restricted to Org Admins and Event Owners, the
-        same gate as the Holder List read; Event Staff are refused. 404 while BOTH
-        the Ticket Assignment and the Ticket Question feature flags are dark, exactly
-        as the list is.'
+        neither. AT MOST TWO Holder Exports stream at once on one API instance, because
+        each holds a database connection while its client downloads: a third is refused
+        at once, before any file byte, with 503 HOLDER_EXPORT_BUSY and a Retry-After
+        header. That refusal is about capacity and never about the request or its
+        size, it is not VALIDATION_FAILED, and the same request a moment later succeeds.
+        The search is recorded as a boolean only, on both, for the reason it is absent
+        from the file. Restricted to Org Admins and Event Owners, the same gate as
+        the Holder List read; Event Staff are refused. 404 while BOTH the Ticket Assignment
+        and the Ticket Question feature flags are dark, exactly as the list is.'
       parameters:
       - description: Event ID
         in: path
@@ -16896,6 +16900,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/platform.Envelope'
           description: Not Found
+        "503":
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Service Unavailable
       security:
       - BearerAuth: []
       summary: Export an Event's Holder List as a spreadsheet

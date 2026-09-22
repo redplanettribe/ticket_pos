@@ -561,6 +561,11 @@ func domainHTTPStatus(code string) int {
 	// retrying is exactly the right response.
 	case "SALE_REVERSAL_IN_PROGRESS":
 		return http.StatusServiceUnavailable
+	// Every Holder Export slot on this API instance is streaming (ADR 0075). A
+	// 503 with a retry for SALE_REVERSAL_IN_PROGRESS's reason: it says nothing
+	// about the request, and trying again in a moment is exactly right.
+	case "HOLDER_EXPORT_BUSY":
+		return http.StatusServiceUnavailable
 	// The three refusals about an Operator Reversal's money memo: a refund larger
 	// than the Ticket Sale ever collected (#125), money stated about a sale that
 	// collected none, and money left out of a sale that collected some (#126).

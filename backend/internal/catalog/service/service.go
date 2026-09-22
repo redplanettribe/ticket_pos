@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
@@ -334,6 +335,12 @@ type Service struct {
 	// holderExportPause is the Holder Export's test-only pause point; see
 	// WithHolderExportPause. Nil in production.
 	holderExportPause func(ctx context.Context, rowsWritten int)
+	// holderExports counts the Holder Exports streaming on this instance; see
+	// holderExportConcurrency. The zero value is none.
+	holderExports struct {
+		sync.Mutex
+		streaming int
+	}
 	// revocationMailer and revocationRecipients deliver the one mail an
 	// Organization gets when a Platform Operator revokes an approved Ticket
 	// Question (#410, ADR 0056): every Org Admin, each in their Staff Locale.
