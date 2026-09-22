@@ -1,8 +1,8 @@
 import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
 
 import { fetchBackendRaw } from "@/lib/api";
 import { unauthorizedResponse } from "@/lib/bff";
+import { proxyDownload, XLSX_CONTENT_TYPE } from "@/lib/download-proxy";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 type RouteContext = {
@@ -30,30 +30,16 @@ export async function GET(request: Request, context: RouteContext) {
 
   const { id } = await context.params;
   const query = new URL(request.url).search;
-  const upstream = await fetchBackendRaw(`/api/v1/staff/events/${id}/sales/export${query}`, {
-    method: "GET",
-    sessionToken: token,
-  });
-
-  if (!upstream.ok) {
-    // The API returns a JSON envelope on error; pass it through unchanged so
-    // the caller can show the reason rather than a broken download.
-    const body = await upstream.text();
-    return new NextResponse(body, {
-      status: upstream.status,
-      headers: { "Content-Type": upstream.headers.get("Content-Type") ?? "application/json" },
-    });
-  }
-
-  const headers = new Headers();
-  headers.set(
-    "Content-Type",
-    upstream.headers.get("Content-Type") ??
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  // The same pass-through as the Holder Export: a refusal is the API's envelope
+  // with its Retry-After and Cache-Control, a file is streamed unbuffered.
+  return proxyDownload(
+    request,
+    (signal) =>
+      fetchBackendRaw(`/api/v1/staff/events/${id}/sales/export${query}`, {
+        method: "GET",
+        sessionToken: token,
+        signal,
+      }),
+    XLSX_CONTENT_TYPE,
   );
-  const disposition = upstream.headers.get("Content-Disposition");
-  if (disposition) {
-    headers.set("Content-Disposition", disposition);
-  }
-  return new NextResponse(upstream.body, { status: 200, headers });
 }
