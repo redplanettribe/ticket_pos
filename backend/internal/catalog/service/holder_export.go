@@ -393,7 +393,9 @@ func (s *Service) HolderExportDeadline() time.Duration {
 // row_count IS ROWS PRODUCED, NOT ROWS DELIVERED. It counts the rows handed to
 // the file's encoder, and a row is in there before it has been compressed,
 // flushed or read by anybody; on an abort some of the last of them never left
-// this process. For a completed export the two are the same.
+// this process. "completed" is the same kind of fact: the whole file was handed
+// to the connection, and kernel, Cloud Run and proxy buffers can still hold a
+// tail the reader never receives.
 //
 // AN ABORT RECORDS A REASON AND A CLASS, NEVER THE ERROR'S TEXT. The text of a
 // failed write names the client's address and port, and an error wrapped
