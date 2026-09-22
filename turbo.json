@@ -2,7 +2,10 @@
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
+      // After the package's own typecheck: in a Next app both write .next
+      // (typecheck runs `next typegen`, and `next build` wipes .next first),
+      // so run concurrently the typecheck reads route types mid-deletion.
+      "dependsOn": ["^build", "typecheck"],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"]
     },
     "lint": {},
