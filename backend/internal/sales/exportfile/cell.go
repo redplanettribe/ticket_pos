@@ -32,6 +32,11 @@ const (
 	CellDate
 	// CellBool is a real TRUE or FALSE.
 	CellBool
+	// CellMoment is a date AND time, formatted dateFormat and written as the
+	// wall clock of the time's own location - so a caller puts the Event's clock
+	// on it by converting first. The answer rule never produces one; it is what
+	// the Holder Export's sold_at is.
+	CellMoment
 )
 
 // Cell is one typed spreadsheet value. Only the field its Kind names is read.
@@ -39,8 +44,9 @@ type Cell struct {
 	Kind   CellKind
 	Text   string
 	Number float64
-	// Date is the calendar day at midnight UTC, so a writer reads no offset off
-	// it and a birthday cannot move a day. See Answer.Cell.
+	// Date is the calendar day at midnight UTC for a CellDate, so a writer reads
+	// no offset off it and a birthday cannot move a day (see Answer.Cell), and
+	// the moment itself for a CellMoment.
 	Date time.Time
 	Bool bool
 }
