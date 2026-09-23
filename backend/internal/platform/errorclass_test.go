@@ -64,6 +64,15 @@ func TestErrorClassNamesTheKindAndCarriesNoErrorText(t *testing.T) {
 		{"a lookup the reader gave up on, which is a DNS error too",
 			&net.OpError{Op: "dial", Net: "tcp", Err: canceledLookup(t, "ana.example.com")},
 			"context_canceled"},
+		{"a lookup a deadline cut off, which is a DNS error too",
+			&net.OpError{Op: "dial", Net: "tcp", Err: deadlineLookup(t, "ana.example.com")},
+			"context_deadline_exceeded"},
+		{"a cancellation beside a refusal",
+			errors.Join(
+				&net.OpError{Op: "dial", Net: "tcp", Addr: peer, Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)},
+				fmt.Errorf("fetch: %w", context.Canceled),
+			),
+			"context_canceled"},
 		{"a dial that failed otherwise",
 			&net.OpError{Op: "dial", Net: "tcp", Addr: peer, Err: errors.New("network unreachable 203.0.113.7")},
 			"dial_failed"},
@@ -207,6 +216,27 @@ func TestErrorClassNamesADatabaseThatCannotBeReached(t *testing.T) {
 		assertClass(t, err, "context_canceled")
 	})
 
+	// A LOOKUP A DEADLINE CUT OFF is a *net.DNSError too, one that unwraps to
+	// context.DeadlineExceeded. The name was never found to be missing: the
+	// connect ran out of time while looking it up.
+	t.Run("a lookup a deadline cut off", func(t *testing.T) {
+		cfg := pgconnConfig(t, refused)
+		cfg.Host = "localhost"
+		cfg.LookupFunc = func(_ context.Context, host string) ([]string, error) {
+			return nil, deadlineLookup(t, host)
+		}
+		_, err := pgconn.ConnectConfig(ctx, cfg)
+		var connectErr *pgconn.ConnectError
+		if !errors.As(err, &connectErr) {
+			t.Fatalf("error is not a pgconn.ConnectError: %T %v", err, err)
+		}
+		var dnsErr *net.DNSError
+		if !errors.As(err, &dnsErr) {
+			t.Fatalf("error carries no *net.DNSError: %T %v", err, err)
+		}
+		assertClass(t, err, "db_connect_timeout")
+	})
+
 	t.Run("a host name that does not resolve", func(t *testing.T) {
 		_, err := pgconn.ConnectConfig(ctx, pgconnConfig(t, func(_ context.Context, network, _ string) (net.Conn, error) {
 			return nil, &net.OpError{Op: "dial", Net: network, Err: &net.DNSError{Err: "no such host", Name: "tickets.internal", IsNotFound: true}}
@@ -242,7 +272,8 @@ func TestErrorClassNamesADatabaseThatCannotBeReached(t *testing.T) {
 // is the truth about why the connect failed, whatever the other addresses said
 // on the way. Then a refusal, a name that does not resolve, and last running
 // out of time, which says the least about why the database could not be
-// reached.
+// reached. A lookup a deadline cut off is running out of time, not a name that
+// does not resolve, so it never hides a genuine one beside it.
 func TestErrorClassNamesAConnectToSeveralAddressesByItsMostTellingFailure(t *testing.T) {
 	const url = "postgres://ana%40example.com@10.0.0.1:5432,10.0.0.2:5432/tickets?sslmode=disable&connect_timeout=5"
 	timedOut := &net.OpError{Op: "dial", Net: "tcp", Err: os.ErrDeadlineExceeded}
@@ -251,6 +282,7 @@ func TestErrorClassNamesAConnectToSeveralAddressesByItsMostTellingFailure(t *tes
 	reset := &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNRESET}
 	canceled := &net.OpError{Op: "dial", Net: "tcp", Err: netCanceledError(t)}
 	lookupCanceled := &net.OpError{Op: "dial", Net: "tcp", Err: canceledLookup(t, "tickets.internal")}
+	lookupTimedOut := &net.OpError{Op: "dial", Net: "tcp", Err: deadlineLookup(t, "tickets.internal")}
 
 	for _, tc := range []struct {
 		name          string
@@ -261,6 +293,11 @@ func TestErrorClassNamesAConnectToSeveralAddressesByItsMostTellingFailure(t *tes
 		{"a timeout beside a refusal", dialFailingWith(timedOut), dialFailingWith(refused), "db_connect_refused"},
 		{"a refusal beside a reset", dialFailingWith(reset), dialFailingWith(refused), "db_connect_refused"},
 		{"a name that does not resolve beside a timeout", dialFailingWith(timedOut), dialFailingWith(unresolved), "db_dns_unresolved"},
+		{"a refusal beside a name that does not resolve", dialFailingWith(unresolved), dialFailingWith(refused), "db_connect_refused"},
+		{"a name that does not resolve beside a refusal", dialFailingWith(refused), dialFailingWith(unresolved), "db_connect_refused"},
+		{"a lookup a deadline cut off at every address", dialFailingWith(lookupTimedOut), dialFailingWith(lookupTimedOut), "db_connect_timeout"},
+		{"a lookup a deadline cut off beside a name that does not resolve", dialFailingWith(lookupTimedOut), dialFailingWith(unresolved), "db_dns_unresolved"},
+		{"a lookup a deadline cut off beside a refusal", dialFailingWith(lookupTimedOut), dialFailingWith(refused), "db_connect_refused"},
 		{"a server's SQLSTATE beside a timeout", func() (net.Conn, error) { return startingUpServer(), nil }, dialFailingWith(timedOut), "postgres 57P03"},
 		{"a server's SQLSTATE beside a refusal", dialFailingWith(refused), func() (net.Conn, error) { return startingUpServer(), nil }, "postgres 57P03"},
 		{"a server's SQLSTATE beside a cancellation", dialFailingWith(canceled), func() (net.Conn, error) { return startingUpServer(), nil }, "postgres 57P03"},
@@ -322,6 +359,16 @@ func canceledLookup(t *testing.T, host string) *net.DNSError {
 	return &net.DNSError{UnwrapErr: canceled, Err: canceled.Error(), Name: host}
 }
 
+// deadlineLookup is the error net's resolver gives for a lookup of host whose
+// context's deadline passed, built as canceledLookup is: newDNSError keeps
+// mapErr(context.DeadlineExceeded), net's errTimeout, as UnwrapErr and reads
+// IsTimeout and IsTemporary off it, both true for errTimeout.
+func deadlineLookup(t *testing.T, host string) *net.DNSError {
+	t.Helper()
+	timedOut := netTimeoutError(t)
+	return &net.DNSError{UnwrapErr: timedOut, Err: timedOut.Error(), Name: host, IsTimeout: true, IsTemporary: true}
+}
+
 // netCanceledError is net's unexported errCanceled, the value mapErr gives
 // for context.Canceled. It is read off a dial of a literal address whose
 // context has already ended, which dialSerial refuses before any socket is
@@ -331,10 +378,26 @@ func netCanceledError(t *testing.T) error {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
+	return netContextError(t, ctx, context.Canceled)
+}
+
+// netTimeoutError is net's unexported errTimeout, the value mapErr gives for
+// context.DeadlineExceeded, read off a dial the same way.
+func netTimeoutError(t *testing.T) error {
+	t.Helper()
+	ctx, cancel := context.WithDeadline(context.Background(), time.Unix(0, 0))
+	defer cancel()
+	return netContextError(t, ctx, context.DeadlineExceeded)
+}
+
+// netContextError is the error net maps ctx's end to, read off a dial of a
+// literal address with ctx, which has already ended with want.
+func netContextError(t *testing.T, ctx context.Context, want error) error {
+	t.Helper()
 	_, err := (&net.Dialer{}).DialContext(ctx, "tcp", "127.0.0.1:9")
 	var opErr *net.OpError
-	if !errors.As(err, &opErr) || !errors.Is(opErr.Err, context.Canceled) || opErr.Err == context.Canceled {
-		t.Fatalf("a cancelled dial did not give net's canceledError: %T %v", err, err)
+	if !errors.As(err, &opErr) || !errors.Is(opErr.Err, want) || opErr.Err == want {
+		t.Fatalf("a dial whose context ended with %v did not give net's own error for it: %T %v", want, err, err)
 	}
 	return opErr.Err
 }

@@ -92,9 +92,12 @@ There it deliberately goes against #658's "the file does not change" and #656's 
 It already left an empty Holder name and email blank.
 A roster whose blanks mean one thing everywhere is worth one small change to it, and since no current way of making a Sale leaves a buyer name empty or stores an empty text Answer, the change reaches only a row written before or around those checks, if one exists.
 
-The Sales Export's file is unchanged: every cell's value, cell type and number format is what it was before #655.
+The Sales Export's file is unchanged: its layout and every cell are what they were before #655.
 #655's story 34 requires it, so the Sales Export is not brought into line with the Holder Export's blanks, and on a row holding empty text the two files disagree.
-`TestSalesExportIsCellIdenticalToTheSalesExportBefore655` pins every sheet of the workbook cell by cell against the file the Sales Export wrote before #655 (5afd8a0), an empty text Answer and a date before 1900 included.
+`TestSalesExportIsIdenticalToTheSalesExportBefore655` pins every sheet of the workbook against the file the Sales Export wrote before #655 (5afd8a0), an empty text Answer and a date before 1900 included.
+For the workbook it pins the sheets' order and which sheet is active.
+For each sheet it pins the view, which tab is selected, the frozen or split panes, the merged ranges, and every column width and row height the sheet sets.
+For each cell it pins the value, the cell type, the number format, and the alignment, font, fill and border.
 
 **The Sales Export response now sends `Cache-Control: no-store`.**
 The Holder Export always has, since its file is attendee personal data.
