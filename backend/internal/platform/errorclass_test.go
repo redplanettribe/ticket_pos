@@ -214,26 +214,85 @@ func TestErrorClassNamesADatabaseThatCannotBeReached(t *testing.T) {
 	})
 
 	t.Run("a server that refuses the connect, by its SQLSTATE", func(t *testing.T) {
-		// The server end of an in-memory connection reads the startup message
-		// and answers it as a Postgres that is still starting up does.
 		_, err := pgconn.ConnectConfig(ctx, pgconnConfig(t, func(context.Context, string, string) (net.Conn, error) {
-			client, server := net.Pipe()
-			go func() {
-				defer func() { _ = server.Close() }()
-				backend := pgproto3.NewBackend(server, server)
-				if _, err := backend.ReceiveStartupMessage(); err != nil {
-					return
-				}
-				backend.Send(&pgproto3.ErrorResponse{
-					Severity: "FATAL", Code: "57P03", Message: "the database system is starting up",
-				})
-				_ = backend.Flush()
-			}()
-			return client, nil
+			return startingUpServer(), nil
 		}))
 		assertConnectError(t, err)
 		assertClass(t, err, "postgres 57P03")
 	})
+}
+
+// A CONNECT TO SEVERAL ADDRESSES IS NAMED BY ITS MOST TELLING FAILURE. pgconn
+// tries every address a host resolves to and joins one error per address, so
+// one join can hold a refusal, a timeout and a server's own SQLSTATE at once.
+// The server's answer outranks a refusal, a refusal a name that does not
+// resolve, and all three outrank running out of time, which says the least
+// about why the database could not be reached.
+func TestErrorClassNamesAConnectToSeveralAddressesByItsMostTellingFailure(t *testing.T) {
+	const url = "postgres://ana%40example.com@10.0.0.1:5432,10.0.0.2:5432/tickets?sslmode=disable&connect_timeout=5"
+	timedOut := &net.OpError{Op: "dial", Net: "tcp", Err: os.ErrDeadlineExceeded}
+	refused := &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
+	unresolved := &net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{Err: "no such host", Name: "tickets.internal", IsNotFound: true}}
+	reset := &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNRESET}
+
+	for _, tc := range []struct {
+		name          string
+		first, second func() (net.Conn, error)
+		want          string
+	}{
+		{"a refusal beside a timeout", fail(refused), fail(timedOut), "db_connect_refused"},
+		{"a timeout beside a refusal", fail(timedOut), fail(refused), "db_connect_refused"},
+		{"a refusal beside a reset", fail(reset), fail(refused), "db_connect_refused"},
+		{"a name that does not resolve beside a timeout", fail(timedOut), fail(unresolved), "db_dns_unresolved"},
+		{"a server's SQLSTATE beside a timeout", func() (net.Conn, error) { return startingUpServer(), nil }, fail(timedOut), "postgres 57P03"},
+		{"a server's SQLSTATE beside a refusal", fail(refused), func() (net.Conn, error) { return startingUpServer(), nil }, "postgres 57P03"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := pgconn.ParseConfig(url)
+			if err != nil {
+				t.Fatalf("parse config: %v", err)
+			}
+			cfg.DialFunc = func(_ context.Context, _, addr string) (net.Conn, error) {
+				if strings.HasPrefix(addr, "10.0.0.1:") {
+					return tc.first()
+				}
+				return tc.second()
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_, err = pgconn.ConnectConfig(ctx, cfg)
+			var connectErr *pgconn.ConnectError
+			if !errors.As(err, &connectErr) {
+				t.Fatalf("error is not a pgconn.ConnectError: %T %v", err, err)
+			}
+			if got := ErrorClass(err); got != tc.want {
+				t.Fatalf("class = %q, want %q (error: %v)", got, tc.want, err)
+			}
+		})
+	}
+}
+
+func fail(err error) func() (net.Conn, error) {
+	return func() (net.Conn, error) { return nil, err }
+}
+
+// startingUpServer is the client end of an in-memory connection whose server
+// end reads the startup message and answers it as a Postgres that is still
+// starting up does.
+func startingUpServer() net.Conn {
+	client, server := net.Pipe()
+	go func() {
+		defer func() { _ = server.Close() }()
+		backend := pgproto3.NewBackend(server, server)
+		if _, err := backend.ReceiveStartupMessage(); err != nil {
+			return
+		}
+		backend.Send(&pgproto3.ErrorResponse{
+			Severity: "FATAL", Code: "57P03", Message: "the database system is starting up",
+		})
+		_ = backend.Flush()
+	}()
+	return client
 }
 
 // A connect that fails for a reason the class has no word for is still named

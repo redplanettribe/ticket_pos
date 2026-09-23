@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"reflect"
-	"strings"
 	"syscall"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -66,27 +65,29 @@ func knownClass(err error) (string, bool) {
 // check looks through the whole tree, wraps and joins alike, so the first that
 // matches anywhere in it wins.
 func failureClass(err error) (string, bool) {
-	var pgErr *pgconn.PgError
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		return "context_deadline_exceeded", true
-	case errors.Is(err, context.Canceled):
-		return "context_canceled", true
+	case isCanceled(err):
+		return canceledClass, true
 	case errors.Is(err, os.ErrDeadlineExceeded):
 		return "write_deadline_exceeded", true
 	case errors.Is(err, syscall.EPIPE):
 		return "broken_pipe", true
 	case errors.Is(err, syscall.ECONNRESET):
 		return "connection_reset", true
-	case errors.As(err, &pgErr):
-		return "postgres " + pgErr.Code, true
+	}
+	if class, ok := postgresClass(err); ok {
+		return class, true
+	}
+	switch {
 	case errors.Is(err, driver.ErrBadConn), errors.Is(err, sql.ErrConnDone):
 		return "db_connection_lost", true
 	case errors.Is(err, errDatabaseClosed):
 		return "db_closed", true
 	case errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, io.EOF):
 		return "unexpected_eof", true
-	case errors.Is(err, syscall.ECONNREFUSED):
+	case isRefused(err):
 		return "connection_refused", true
 	case isDNSError(err):
 		return "dns_unresolved", true
@@ -97,30 +98,59 @@ func failureClass(err error) (string, bool) {
 }
 
 // databaseConnectClass is the class of a failed connect to Postgres: why the
-// database could not be reached, never where it is. It is failureClass's
-// answer renamed for a connect, so the two cannot disagree on what a refusal,
-// a name that does not resolve or a deadline is.
+// database could not be reached, never where it is. It asks the same
+// questions failureClass does, through the same predicates, so the two cannot
+// disagree on what a SQLSTATE, a refusal, a name that does not resolve or a
+// cancellation is.
+//
+// ITS ORDER IS ITS OWN. pgconn joins one error per address it tried, so one
+// connect can fail several ways at once, and the class names the most telling:
+// a server's own answer, then a refusal, then a name that does not resolve,
+// and running out of time last, since that says least about why. failureClass
+// ranks a deadline first, which is right for a write and wrong here.
 func databaseConnectClass(err error) string {
-	class, _ := failureClass(err)
-	switch {
 	// The server answered and refused, for example while starting up (57P03)
 	// or on a bad password (28P01). Its SQLSTATE says which.
-	case strings.HasPrefix(class, "postgres "):
+	if class, ok := postgresClass(err); ok {
 		return class
+	}
+	switch {
+	case isRefused(err):
+		return "db_connect_refused"
+	case isDNSError(err):
+		return "db_dns_unresolved"
 	// The reader leaving while the connect was still dialling is the reader's
 	// doing, and is named as every other cancellation is.
-	case class == "context_canceled":
-		return class
-	case class == "connection_refused":
-		return "db_connect_refused"
-	case class == "dns_unresolved":
-		return "db_dns_unresolved"
+	case isCanceled(err):
+		return canceledClass
 	// A dial that ran out of time, whether its own connect timeout or the
 	// request's deadline ended it.
-	case class == "context_deadline_exceeded", class == "write_deadline_exceeded", isTimeout(err):
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, os.ErrDeadlineExceeded), isTimeout(err):
 		return "db_connect_timeout"
 	}
 	return "db_unavailable"
+}
+
+// canceledClass is a context's cancellation, the same class wherever it ends
+// the work.
+const canceledClass = "context_canceled"
+
+// postgresClass is "postgres " and the SQLSTATE of a Postgres error in err's
+// tree, and false when there is none.
+func postgresClass(err error) (string, bool) {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return "postgres " + pgErr.Code, true
+	}
+	return "", false
+}
+
+func isCanceled(err error) bool {
+	return errors.Is(err, context.Canceled)
+}
+
+func isRefused(err error) bool {
+	return errors.Is(err, syscall.ECONNREFUSED)
 }
 
 func isDNSError(err error) bool {

@@ -277,7 +277,7 @@ func TestSalesExportIsCellIdenticalToTheSalesExportBefore655(t *testing.T) {
 // absent cell, and I3, the date before 1900, is an inline string that keeps the
 // yyyy-mm-dd style. D3, the accepted Holder's empty first name, was already
 // absent before #655. The Info sheet's own copy holds em dashes, written here
-// as —.
+// as the Go escape for U+2014.
 var salesExportBefore655 = []string{
 	"sheets|Info|Ticket Sales|Ticket Answers",
 	"Info!A1|s|Sales Export|0",
