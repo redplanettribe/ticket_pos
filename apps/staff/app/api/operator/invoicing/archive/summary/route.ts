@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { callBackend } from "@/lib/api";
 import { jsonFromAPIError, unauthorizedResponse } from "@/lib/bff";
+import { proxyRead } from "@/lib/reader-abort";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 import type { TaxDocumentArchiveSummary } from "@/lib/tax-document-archive";
 
@@ -18,13 +19,15 @@ export async function GET(request: Request) {
   }
   const incoming = new URL(request.url).searchParams;
   const params = new URLSearchParams({ from: incoming.get("from") ?? "", to: incoming.get("to") ?? "" });
-  try {
-    const envelope = await callBackend<TaxDocumentArchiveSummary>(
-      `/api/v1/operator/invoicing/archive/summary?${params.toString()}`,
-      { method: "GET", sessionToken: token },
-    );
-    return NextResponse.json(envelope);
-  } catch (error) {
-    return jsonFromAPIError(error);
-  }
+  return proxyRead(
+    request,
+    async (signal) => {
+      const envelope = await callBackend<TaxDocumentArchiveSummary>(
+        `/api/v1/operator/invoicing/archive/summary?${params.toString()}`,
+        { method: "GET", sessionToken: token, signal },
+      );
+      return NextResponse.json(envelope);
+    },
+    jsonFromAPIError,
+  );
 }

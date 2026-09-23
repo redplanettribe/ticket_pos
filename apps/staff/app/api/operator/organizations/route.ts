@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { callBackend } from "@/lib/api";
 import { jsonFromAPIError, unauthorizedResponse } from "@/lib/bff";
 import type { OperatorOrganizationsPage } from "@/lib/operator-api";
+import { proxyRead } from "@/lib/reader-abort";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 // GET returns a page of every Organization on the platform with its signed
@@ -17,13 +18,15 @@ export async function GET(request: Request) {
   }
 
   const search = new URL(request.url).search;
-  try {
-    const envelope = await callBackend<OperatorOrganizationsPage>(
-      `/api/v1/operator/organizations${search}`,
-      { method: "GET", sessionToken: token },
-    );
-    return NextResponse.json(envelope);
-  } catch (error) {
-    return jsonFromAPIError(error);
-  }
+  return proxyRead(
+    request,
+    async (signal) => {
+      const envelope = await callBackend<OperatorOrganizationsPage>(
+        `/api/v1/operator/organizations${search}`,
+        { method: "GET", sessionToken: token, signal },
+      );
+      return NextResponse.json(envelope);
+    },
+    jsonFromAPIError,
+  );
 }

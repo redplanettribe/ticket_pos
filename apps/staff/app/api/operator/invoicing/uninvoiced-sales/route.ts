@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { callBackend } from "@/lib/api";
 import { jsonFromAPIError, unauthorizedResponse } from "@/lib/bff";
 import type { OperatorUninvoicedHouseSalePage } from "@/lib/operator-api";
+import { proxyRead } from "@/lib/reader-abort";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 // GET lists the Uninvoiced House Sales platform-wide, oldest sale first, in
@@ -21,13 +22,16 @@ export async function GET(request: Request) {
     return unauthorizedResponse();
   }
   const search = new URL(request.url).search;
-  try {
-    const envelope = await callBackend<OperatorUninvoicedHouseSalePage>(`${BACKEND_PATH}${search}`, {
-      method: "GET",
-      sessionToken: token,
-    });
-    return NextResponse.json(envelope);
-  } catch (error) {
-    return jsonFromAPIError(error);
-  }
+  return proxyRead(
+    request,
+    async (signal) => {
+      const envelope = await callBackend<OperatorUninvoicedHouseSalePage>(`${BACKEND_PATH}${search}`, {
+        method: "GET",
+        sessionToken: token,
+        signal,
+      });
+      return NextResponse.json(envelope);
+    },
+    jsonFromAPIError,
+  );
 }

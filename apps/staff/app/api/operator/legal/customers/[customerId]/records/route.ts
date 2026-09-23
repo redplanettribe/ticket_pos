@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { callBackend } from "@/lib/api";
 import { jsonFromAPIError, unauthorizedResponse } from "@/lib/bff";
 import type { ConsentActPage } from "@/lib/legal-records";
+import { proxyRead } from "@/lib/reader-abort";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 type RouteContext = {
@@ -29,13 +30,15 @@ export async function GET(request: Request, context: RouteContext) {
 
   const { customerId } = await context.params;
   const search = new URL(request.url).search;
-  try {
-    const envelope = await callBackend<ConsentActPage>(
-      `/api/v1/operator/legal/customers/${encodeURIComponent(customerId)}/records${search}`,
-      { method: "GET", sessionToken: token },
-    );
-    return NextResponse.json(envelope);
-  } catch (error) {
-    return jsonFromAPIError(error);
-  }
+  return proxyRead(
+    request,
+    async (signal) => {
+      const envelope = await callBackend<ConsentActPage>(
+        `/api/v1/operator/legal/customers/${encodeURIComponent(customerId)}/records${search}`,
+        { method: "GET", sessionToken: token, signal },
+      );
+      return NextResponse.json(envelope);
+    },
+    jsonFromAPIError,
+  );
 }
