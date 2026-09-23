@@ -182,13 +182,22 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
   A connect that failed can also read `postgres <SQLSTATE>`, when the server answered and refused it, or `context_canceled`, when the request was cancelled while it was still resolving or dialling.
   One connect tries every address its host resolves to and can fail a different way at each, so its class is the most telling of them, in this order: `postgres <SQLSTATE>`, `context_canceled`, `db_connect_refused`, `db_dns_unresolved`, `db_connect_timeout`, and `db_unavailable` for anything else.
   A lookup that a deadline cut off is `db_connect_timeout` and one that was cancelled is `context_canceled`, never `db_dns_unresolved`, since the name was never found to be missing.
+  Any other error that holds a Postgres error is classed by its `postgres <SQLSTATE>` even when a socket timeout, reset or closed pipe is found beside it, and only a context's end outranks it.
   A recovered panic's 500 is written by the recovery middleware, not through `WriteDomainError`, so its line carries neither `error_code` nor `error_class`, unless the handler had already reported an error through `WriteDomainError` before it panicked.
   The one exception is a capacity refusal, a domain error that declares a `Retry-After` (`domainRetryAfter`, today only the 503 `HOLDER_EXPORT_BUSY`), which is logged at WARN because the platform refuses as designed.
   The declaration decides, not the header read back off the response, so a handler setting `Retry-After` by hand cannot quieten a failure, and a mapped deployment fault or failed commit such as `PAYMENT_SALE_COMMIT_FAILED` stays an ERROR.
 - A client that gives up is not a server error, but a client leaving never downgrades what happened.
   The line is INFO with status 499 and `client_gone=true` in exactly two cases.
-  The first is when the error the handler reported is itself the cancellation (`errors.Is(err, context.Canceled)`), the client is gone (the request's context is cancelled), and no status has been decided yet.
+  The first is when the error the handler reported is itself the cancellation, the client is gone (the request's context is cancelled), and no status has been decided yet.
+  The cancellation is either `context.Canceled` or pgconn interrupting its own connection's I/O, because pgconn interrupts a query it is writing by setting the connection's deadline in the past when its context is cancelled, and that error carries no `context.Canceled`.
+  The interrupt is recognised as an error of pgx's own, marked by the `SafeToRetry() bool` method that `pgconn.SafeToRetry` reads, whose cause is `os.ErrDeadlineExceeded` (`isPgconnInterrupt`).
+  The error pgx returns for a failed write is unexported and `pgconn.Timeout` is false for it, so that method is the most specific marker it carries, and no other error in the program's dependencies has it.
+  Any other timeout is a genuine failure and is never the cancellation, even when the client has gone, because a client often leaves precisely because an upstream is slow: an `http.Client` call to SRI, PayPhone or Resend that timed out stays an ERROR 500 with its real `error_class`.
+  A context's deadline, a failed connect to Postgres, a timeout `pgconn.Timeout` reports and an error holding a Postgres error are never the cancellation either (`clientCancellationClass`).
+  pgconn's interrupt does not say which context ended, so a service that puts its own deadline on a query must report `context.DeadlineExceeded` with the error when that deadline is the cause, or a client that also left turns it into a 499.
   Only in that case does `platform.WriteDomainError` write no envelope, since nobody is reading and nothing else happened, and the line carries `error_class=context_canceled`.
+  With the client still connected pgconn's interrupt is a real timeout, an ERROR 500 with `error_class=write_deadline_exceeded`.
+  The Holder Export's own write deadline fails only after its 200 went out, so it is never a 499, and its finished line still gives reason `deadline`.
   The second is when the handler reported no error, wrote nothing, and the client had gone by the time it returned.
   Nothing was written at all, and the line carries neither `error_code` nor `error_class`.
   Any other outcome keeps the handler's real status and the level that status earns, with `client_gone=true` added when the client had gone by the time the status was decided: a Postgres failure is still ERROR 500 with its `error_class`, a committed mutation is still INFO 201, a busy 503 is still WARN.

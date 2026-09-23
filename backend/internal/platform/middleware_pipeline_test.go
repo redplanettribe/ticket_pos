@@ -6,14 +6,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
+	"github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/peter/ticket_pos/backend/internal/platform/apperror"
 )
@@ -247,6 +254,43 @@ func TestRequestPipelineLogsAnAbortBeforeTheFirstByteWithNoStatus(t *testing.T) 
 	}
 }
 
+// A TIMEOUT AFTER THE STATUS WENT OUT IS NOT A 499. The Holder Export's write
+// to a client that stopped reading times out on the deadline the export set,
+// after its 200 went out, and a failed write cancels the request, so by then
+// the context reads as cancelled and the error is a socket's i/o timeout. The
+// status was decided before either, so the line keeps the 200 it sent, never
+// the client's cancellation. So does pgconn's interrupt of a query the export
+// was still reading from, which would otherwise be the cancellation.
+func TestRequestPipelineKeepsTheStatusSentWhenATimeoutFollowsIt(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"the response's own write deadline", responseWriteTimeout()},
+		{"pgconn's interrupt of the query", pgconnCancelInterrupt(t)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, cancel := cancelledRequest(http.MethodGet)
+			handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte("PK partial"))
+				cancel() // the write that timed out cancels the request
+				_ = WriteDomainError(w, RequestID(r.Context()), tc.err)
+			}))
+
+			handler.ServeHTTP(httptest.NewRecorder(), req)
+
+			line := requestLogLine(t, buf)
+			if line.str("level") != "INFO" || line.status() != http.StatusOK || line["client_gone"] != nil {
+				t.Fatalf("request log = %v, want INFO with the 200 sent and without client_gone", line)
+			}
+			if line.str("error_class") != "write_deadline_exceeded" {
+				t.Fatalf("request log error_class = %q, want write_deadline_exceeded", line.str("error_class"))
+			}
+		})
+	}
+}
+
 // An abort is logged at WARN even when the status already sent was a 5xx: the
 // abort is the event the line reports.
 func TestRequestPipelineLogsAnAbortAtWarnWhateverStatusWasSent(t *testing.T) {
@@ -344,13 +388,146 @@ func cancelledRequest(method string) (*http.Request, context.CancelFunc) {
 	return httptest.NewRequest(method, "/api/v1/staff/events", nil).WithContext(ctx), cancel
 }
 
+// pgconnCancelInterrupt is the error a query gives when its context is
+// cancelled while pgconn is still writing it, captured from pgx itself through
+// database/sql as the application's pool runs it, against a fake Postgres on
+// an in-memory connection. The fake takes the first byte of the query and
+// reads no more, so the write is in progress when the context is cancelled.
+// pgconn then sets the connection's deadline in the past, and what comes back
+// is the write's i/o timeout inside pgx's own error, with no context.Canceled
+// anywhere in it. The error is wrapped as a repository would wrap it.
+func pgconnCancelInterrupt(t *testing.T) error {
+	t.Helper()
+	client, server := net.Pipe()
+	partlyRead := make(chan struct{})
+	queryDone := make(chan struct{})
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		defer func() { _ = server.Close() }()
+		backend := pgproto3.NewBackend(server, server)
+		if _, err := backend.ReceiveStartupMessage(); err != nil {
+			return
+		}
+		backend.Send(&pgproto3.AuthenticationOk{})
+		backend.Send(&pgproto3.BackendKeyData{ProcessID: 1, SecretKey: []byte{0, 0, 0, 1}})
+		backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+		if err := backend.Flush(); err != nil {
+			return
+		}
+		if _, err := io.ReadFull(server, make([]byte, 1)); err != nil {
+			return
+		}
+		close(partlyRead)
+		<-queryDone // read nothing more until the query has failed
+	}()
+
+	cfg, err := pgx.ParseConfig("postgres://ana@127.0.0.1:5432/tickets?sslmode=disable")
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	cfg.DialFunc = func(context.Context, string, string) (net.Conn, error) { return client, nil }
+	db := stdlib.OpenDB(*cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-partlyRead:
+			cancel()
+		case <-serverDone:
+		}
+	}()
+
+	_, err = db.ExecContext(ctx, "SELECT holder FROM tickets")
+	close(queryDone)
+	_ = db.Close()
+	_ = client.Close() // a fake still waiting for a connect that never came
+	<-serverDone
+
+	if err == nil || errors.Is(err, context.Canceled) || !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("a cancelled write gave %T %v, want pgconn's i/o timeout without context.Canceled", err, err)
+	}
+	return fmt.Errorf("list holders: %w", err)
+}
+
+// httpClientTimeout is the error an http.Client gives when the TLS handshake
+// with an upstream such as SRI, PayPhone or Resend runs out of time, captured
+// from net/http against a listener that accepts and never answers. It is a
+// *url.Error around a net.Error whose Timeout() is true, and it is neither a
+// context's deadline nor pgconn's.
+func httpClientTimeout(t *testing.T) error {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+	var accepted []net.Conn
+	acceptDone := make(chan struct{})
+	go func() {
+		defer close(acceptDone)
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			accepted = append(accepted, conn)
+		}
+	}()
+	client := &http.Client{Transport: &http.Transport{TLSHandshakeTimeout: 20 * time.Millisecond}}
+
+	_, err = client.Get("https://" + ln.Addr().String() + "/invoices")
+	_ = ln.Close()
+	<-acceptDone
+	for _, conn := range accepted {
+		_ = conn.Close()
+	}
+
+	var urlErr *url.Error
+	if !errors.As(err, &urlErr) || !urlErr.Timeout() || errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("the handshake gave %T %v, want a *url.Error timeout that is not a context's deadline", err, err)
+	}
+	return fmt.Errorf("authorize invoice: %w", err)
+}
+
+// httpSocketTimeout is an http.Client's read that ran into a deadline on its
+// own socket: os.ErrDeadlineExceeded, the same cause pgconn's interrupt has,
+// but not inside pgx's error.
+func httpSocketTimeout() error {
+	peer := &net.TCPAddr{IP: net.IPv4(10, 0, 0, 7), Port: 443}
+	return fmt.Errorf("send mail: %w", &url.Error{Op: "Post", URL: "https://api.resend.com/emails",
+		Err: &net.OpError{Op: "read", Net: "tcp", Addr: peer, Err: os.ErrDeadlineExceeded}})
+}
+
+// responseWriteTimeout is a write to the client that ran into the deadline
+// the handler set on its response.
+func responseWriteTimeout() error {
+	peer := &net.TCPAddr{IP: net.IPv4(10, 0, 0, 7), Port: 51234}
+	return fmt.Errorf("stream export: %w",
+		&net.OpError{Op: "write", Net: "tcp", Addr: peer, Err: os.ErrDeadlineExceeded})
+}
+
+// socketTimeout is a net.Error whose Timeout() is true and which is not
+// os.ErrDeadlineExceeded.
+type socketTimeout struct{}
+
+func (socketTimeout) Error() string   { return "i/o timeout" }
+func (socketTimeout) Timeout() bool   { return true }
+func (socketTimeout) Temporary() bool { return true }
+
 // A CLIENT THAT GIVES UP IS NOT A SERVER ERROR, but only when giving up is all
 // that happened. The request line is INFO with client_gone=true and the 499
 // that says the client closed the request when the error the handler reports is
 // that cancellation itself, surfacing from the database call it failed, or when
 // the handler reports nothing and writes nothing. Nobody is reading, so no
 // envelope is written.
+//
+// The cancellation can surface as a socket's i/o timeout inside pgx's own
+// error, which is how pgconn interrupts a write when its context is cancelled;
+// once the client has gone that is the cancellation too, and its class is
+// context_canceled.
 func TestRequestPipelineLogsAClientThatOnlyGaveUpAtInfoAs499(t *testing.T) {
+	interrupt := pgconnCancelInterrupt(t)
 	for _, tc := range []struct {
 		name      string
 		respond   func(w http.ResponseWriter, r *http.Request)
@@ -358,6 +535,9 @@ func TestRequestPipelineLogsAClientThatOnlyGaveUpAtInfoAs499(t *testing.T) {
 	}{
 		{"the cancellation reported as the error", func(w http.ResponseWriter, r *http.Request) {
 			_ = WriteDomainError(w, RequestID(r.Context()), fmt.Errorf("list sales: %w", r.Context().Err()))
+		}, "context_canceled"},
+		{"pgconn's cancellation as a write's i/o timeout", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()), interrupt)
 		}, "context_canceled"},
 		{"nothing reported and nothing written", func(http.ResponseWriter, *http.Request) {}, ""},
 	} {
@@ -401,6 +581,21 @@ func TestRequestPipelineKeepsTheRealOutcomeOfARequestWhoseClientLeft(t *testing.
 			_ = WriteDomainError(w, RequestID(r.Context()), apperror.New(code, "refused", nil))
 		}
 	}
+	// The http.Client's timeout is classed by the type of the net.Error inside
+	// its *url.Error, an unexported type of net/http's that is read off the
+	// captured error rather than written out, so a rename there cannot fail
+	// this test for no reason of ours.
+	httpTimeout := httpClientTimeout(t)
+	var urlErr *url.Error
+	if !errors.As(httpTimeout, &urlErr) {
+		t.Fatalf("the http.Client's timeout %T holds no *url.Error", httpTimeout)
+	}
+	httpTimeoutClass := fmt.Sprintf("%T", urlErr.Err)
+	failWith := func(err error) func(http.ResponseWriter, *http.Request) {
+		return func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()), err)
+		}
+	}
 	for _, tc := range []struct {
 		name         string
 		respond      func(w http.ResponseWriter, r *http.Request)
@@ -410,9 +605,26 @@ func TestRequestPipelineKeepsTheRealOutcomeOfARequestWhoseClientLeft(t *testing.
 		wantBodyCode string
 		wantLineCode string
 	}{
-		{"a Postgres failure", func(w http.ResponseWriter, r *http.Request) {
-			_ = WriteDomainError(w, RequestID(r.Context()), fmt.Errorf("commit: %w", &pgconn.PgError{Code: "23505"}))
-		}, http.StatusInternalServerError, "ERROR", "postgres 23505", "INTERNAL_ERROR", ""},
+		{"a Postgres failure", failWith(fmt.Errorf("commit: %w", &pgconn.PgError{Code: "23505"})),
+			http.StatusInternalServerError, "ERROR", "postgres 23505", "INTERNAL_ERROR", ""},
+		// A context's deadline also reports Timeout(), but it is the server's
+		// own clock running out, never the client's cancellation.
+		{"the server's own deadline", failWith(fmt.Errorf("list holders: %w", context.DeadlineExceeded)),
+			http.StatusInternalServerError, "ERROR", "context_deadline_exceeded", "INTERNAL_ERROR", ""},
+		// A Postgres error found beside pgconn's interrupt is still the
+		// Postgres error, and its SQLSTATE is the class.
+		{"a Postgres failure beside pgconn's interrupt",
+			failWith(errors.Join(&pgconn.PgError{Code: "23505"}, pgconnCancelInterrupt(t))),
+			http.StatusInternalServerError, "ERROR", "postgres 23505", "INTERNAL_ERROR", ""},
+		// An upstream that timed out is a genuine failure, even though the
+		// client may have left because it was slow. Only pgconn's own
+		// interrupt is the cancellation.
+		{"an http.Client's timeout", failWith(httpTimeout),
+			http.StatusInternalServerError, "ERROR", httpTimeoutClass, "INTERNAL_ERROR", ""},
+		{"an http.Client's socket deadline", failWith(httpSocketTimeout()),
+			http.StatusInternalServerError, "ERROR", "write_deadline_exceeded", "INTERNAL_ERROR", ""},
+		{"any other net.Error timeout", failWith(fmt.Errorf("fetch avatar: %w", socketTimeout{})),
+			http.StatusInternalServerError, "ERROR", "platform.socketTimeout", "INTERNAL_ERROR", ""},
 		{"a mapped 500 failed commit", domainError("PAYMENT_SALE_COMMIT_FAILED"),
 			http.StatusInternalServerError, "ERROR", "", "PAYMENT_SALE_COMMIT_FAILED", "PAYMENT_SALE_COMMIT_FAILED"},
 		{"a mapped 500 unavailable link", domainError("CONFIRMATION_LINK_UNAVAILABLE"),
@@ -532,6 +744,7 @@ func TestRequestPipelineKeepsTheStatusDecidedBeforeTheClientLeft(t *testing.T) {
 func TestRequestPipelineLogsAnUnmappedErrorAtErrorWithItsClass(t *testing.T) {
 	expired, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
+	interrupt := pgconnCancelInterrupt(t)
 	for _, tc := range []struct {
 		name      string
 		ctx       context.Context
@@ -545,6 +758,15 @@ func TestRequestPipelineLogsAnUnmappedErrorAtErrorWithItsClass(t *testing.T) {
 			fmt.Errorf("list for ana@example.com: %w", errors.New("connection refused")), "*errors.errorString"},
 		{"the server's own deadline", expired,
 			fmt.Errorf("list for ana@example.com: %w", context.DeadlineExceeded), "context_deadline_exceeded"},
+		// Only a client that has gone turns pgconn's interrupt into its
+		// cancellation. With the client still there it is a real timeout, and
+		// so it is after the server's own deadline.
+		{"pgconn's interrupt with the client still there", context.Background(),
+			interrupt, "write_deadline_exceeded"},
+		{"pgconn's interrupt after the server's own deadline", expired,
+			interrupt, "write_deadline_exceeded"},
+		{"a net.Error timeout with the client still there", context.Background(),
+			fmt.Errorf("list holders: %w", socketTimeout{}), "platform.socketTimeout"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

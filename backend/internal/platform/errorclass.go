@@ -94,9 +94,12 @@ func knownClass(err error) (string, bool) {
 // check looks through the whole tree, wraps and joins alike, so the first that
 // matches anywhere in it wins. A context's end ranks above everything else,
 // so a cancellation outranks a refusal here as it does in
-// databaseConnectClass. A lookup that a context ended is never a name that
-// does not resolve, here or there, because isDNSError does not count it: net
-// reports such a lookup as a *net.DNSError that unwraps to the context's error.
+// databaseConnectClass. A Postgres SQLSTATE ranks next, above every socket
+// failure, as it ranks first in databaseConnectClass: the server's own answer
+// says more than a timeout or reset found beside it. A lookup that a context
+// ended is never a name that does not resolve, here or there, because
+// isDNSError does not count it: net reports such a lookup as a *net.DNSError
+// that unwraps to the context's error.
 func failureClass(err error) (string, bool) {
 	var pgErr *pgconn.PgError
 	switch {
@@ -104,14 +107,14 @@ func failureClass(err error) (string, bool) {
 		return deadlineClass, true
 	case errors.Is(err, context.Canceled):
 		return canceledClass, true
+	case errors.As(err, &pgErr):
+		return postgresClassPrefix + pgErr.Code, true
 	case errors.Is(err, os.ErrDeadlineExceeded):
 		return writeDeadlineClass, true
 	case errors.Is(err, syscall.EPIPE):
 		return brokenPipeClass, true
 	case errors.Is(err, syscall.ECONNRESET):
 		return connectionResetClass, true
-	case errors.As(err, &pgErr):
-		return postgresClassPrefix + pgErr.Code, true
 	case errors.Is(err, driver.ErrBadConn), errors.Is(err, sql.ErrConnDone):
 		return dbConnectionLostClass, true
 	case errors.Is(err, errDatabaseClosed):
