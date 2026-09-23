@@ -70,13 +70,7 @@ export async function proxyDownload(
   fetchUpstream: (signal: AbortSignal) => Promise<Response>,
   fileContentType: string,
 ): Promise<Response> {
-  return proxyRead(
-    request,
-    async (signal) => forwardDownload(await fetchUpstream(signal), fileContentType),
-    (error) => {
-      throw error;
-    },
-  );
+  return proxyRead(request, async (signal) => forwardDownload(await fetchUpstream(signal), fileContentType));
 }
 
 /** The .xlsx media type both exports fall back to. */

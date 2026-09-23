@@ -9,6 +9,8 @@ import (
 	"io"
 	"net"
 	"os"
+	"reflect"
+	"strings"
 	"syscall"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -19,7 +21,8 @@ import (
 // pipe, a Postgres SQLSTATE, a database that cannot be reached, a lost database
 // connection, a cut read, or - for anything it does not recognise - the Go type
 // of the most specific error inside it, which is a name in this program's
-// source and never data. "none" for nil.
+// source and never data. "none" for nil. Every class about the database
+// itself, other than a SQLSTATE, starts "db_".
 //
 // IT EXISTS FOR LOG LINES THAT ARE KEPT. The text of a failed write names the
 // client's address and port, the text of a failed connect names the database's
@@ -44,20 +47,27 @@ func ErrorClass(err error) string {
 }
 
 // knownClass is the class of an error ErrorClass recognises, and false for
-// one it does not. Order is priority: every check looks through the whole tree,
-// wraps and joins alike, so the first that matches anywhere in it wins.
+// one it does not.
+//
+// A failed connect to Postgres is checked first, because it carries the same
+// socket and deadline errors a failed write or a request's end does - net's
+// dial timeout even reads as context.DeadlineExceeded - and "the database could
+// not be reached" is the fact a reader needs.
 func knownClass(err error) (string, bool) {
-	var (
-		pgErr      *pgconn.PgError
-		connectErr *pgconn.ConnectError
-	)
-	switch {
-	// First, because a failed connect carries the same socket and deadline
-	// errors a failed write or a request's end does - net's dial timeout even
-	// reads as context.DeadlineExceeded - and "the database could not be
-	// reached" is the fact a reader needs.
-	case errors.As(err, &connectErr):
+	var connectErr *pgconn.ConnectError
+	if errors.As(err, &connectErr) {
 		return databaseConnectClass(err), true
+	}
+	return failureClass(err)
+}
+
+// failureClass is the class of any recognised error but a failed connect to
+// Postgres, and false for one it does not recognise. Order is priority: every
+// check looks through the whole tree, wraps and joins alike, so the first that
+// matches anywhere in it wins.
+func failureClass(err error) (string, bool) {
+	var pgErr *pgconn.PgError
+	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		return "context_deadline_exceeded", true
 	case errors.Is(err, context.Canceled):
@@ -71,7 +81,7 @@ func knownClass(err error) (string, bool) {
 	case errors.As(err, &pgErr):
 		return "postgres " + pgErr.Code, true
 	case errors.Is(err, driver.ErrBadConn), errors.Is(err, sql.ErrConnDone):
-		return "database_connection_lost", true
+		return "db_connection_lost", true
 	case errors.Is(err, errDatabaseClosed):
 		return "db_closed", true
 	case errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, io.EOF):
@@ -87,25 +97,27 @@ func knownClass(err error) (string, bool) {
 }
 
 // databaseConnectClass is the class of a failed connect to Postgres: why the
-// database could not be reached, never where it is.
+// database could not be reached, never where it is. It is failureClass's
+// answer renamed for a connect, so the two cannot disagree on what a refusal,
+// a name that does not resolve or a deadline is.
 func databaseConnectClass(err error) string {
-	var pgErr *pgconn.PgError
+	class, _ := failureClass(err)
 	switch {
-	case errors.As(err, &pgErr):
-		// The server answered and refused, for example while starting up
-		// (57P03) or on a bad password (28P01). Its SQLSTATE says which.
-		return "postgres " + pgErr.Code
-	case errors.Is(err, syscall.ECONNREFUSED):
+	// The server answered and refused, for example while starting up (57P03)
+	// or on a bad password (28P01). Its SQLSTATE says which.
+	case strings.HasPrefix(class, "postgres "):
+		return class
+	// The reader leaving while the connect was still dialling is the reader's
+	// doing, and is named as every other cancellation is.
+	case class == "context_canceled":
+		return class
+	case class == "connection_refused":
 		return "db_connect_refused"
-	case isDNSError(err):
+	case class == "dns_unresolved":
 		return "db_dns_unresolved"
-	// The reader leaving while the connect was still dialling is the
-	// reader's doing, and is named as every other cancellation is.
-	case errors.Is(err, context.Canceled):
-		return "context_canceled"
 	// A dial that ran out of time, whether its own connect timeout or the
 	// request's deadline ended it.
-	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, os.ErrDeadlineExceeded), isTimeout(err):
+	case class == "context_deadline_exceeded", class == "write_deadline_exceeded", isTimeout(err):
 		return "db_connect_timeout"
 	}
 	return "db_unavailable"
@@ -146,43 +158,50 @@ func (refusingConnector) Connect(context.Context) (driver.Conn, error) {
 
 func (refusingConnector) Driver() driver.Driver { return nil }
 
-// specificType is the Go type of the most specific error in err's tree. Down a
-// chain of single wraps that is the innermost one. At a join, it is the first
-// member whose own specific type is not one of the standard library's generic
+// specificType is the Go type of the most specific error in err's tree.
+func specificType(err error) string {
+	return fmt.Sprintf("%T", specificError(err))
+}
+
+// specificError is the most specific error in err's tree. Down a chain of
+// single wraps that is the innermost one. At a join, it is the first member
+// whose own most specific error is not one of the standard library's generic
 // wrappers, so a join of a wrapped sentinel and a typed error is named by the
 // type; failing that, the first member's.
-func specificType(err error) string {
+func specificError(err error) error {
 	switch e := err.(type) {
 	case interface{ Unwrap() []error }:
-		var first string
+		var first error
 		for _, member := range e.Unwrap() {
 			if member == nil {
 				continue
 			}
-			class := specificType(member)
-			if !genericTypes[class] {
-				return class
+			specific := specificError(member)
+			if !genericTypes[reflect.TypeOf(specific)] {
+				return specific
 			}
-			if first == "" {
-				first = class
+			if first == nil {
+				first = specific
 			}
 		}
-		if first != "" {
+		if first != nil {
 			return first
 		}
 	case interface{ Unwrap() error }:
 		if inner := e.Unwrap(); inner != nil {
-			return specificType(inner)
+			return specificError(inner)
 		}
 	}
-	return fmt.Sprintf("%T", err)
+	return err
 }
 
 // genericTypes are the standard library's anonymous error types, which say
-// nothing about what failed.
-var genericTypes = map[string]bool{
-	"*errors.errorString": true,
-	"*errors.joinError":   true,
-	"*fmt.wrapError":      true,
-	"*fmt.wrapErrors":     true,
+// nothing about what failed. They are read off values the standard library
+// builds rather than written out as type names, so a rename there cannot
+// quietly leave this set matching nothing.
+var genericTypes = map[reflect.Type]bool{
+	reflect.TypeOf(errors.New("")):                                      true, // *errors.errorString
+	reflect.TypeOf(errors.Join(errors.New(""))):                         true, // *errors.joinError
+	reflect.TypeOf(fmt.Errorf("%w", errors.New(""))):                    true, // *fmt.wrapError
+	reflect.TypeOf(fmt.Errorf("%w %w", errors.New(""), errors.New(""))): true, // *fmt.wrapErrors
 }

@@ -27,11 +27,14 @@ export const CLIENT_CLOSED_REQUEST = 499;
  * Next would log as an unhandled route error. It is keyed on the browser's own
  * signal, not on the error's name: an abort nobody asked for while the browser
  * is still waiting is a failure, and goes to `fail` as any other failure does.
+ *
+ * Without a `fail`, any other failure is thrown as it came, for the route's
+ * caller to answer.
  */
 export async function proxyRead(
   request: Request,
   read: (signal: AbortSignal) => Promise<Response>,
-  fail: (error: unknown) => Response,
+  fail?: (error: unknown) => Response,
 ): Promise<Response> {
   try {
     return await read(request.signal);
@@ -39,11 +42,14 @@ export async function proxyRead(
     if (request.signal.aborted) {
       return readerGone();
     }
+    if (!fail) {
+      throw error;
+    }
     return fail(error);
   }
 }
 
 /** readerGone is the empty 499 a route answers a reader who has left. */
-export function readerGone(): Response {
+function readerGone(): Response {
   return new Response(null, { status: CLIENT_CLOSED_REQUEST });
 }

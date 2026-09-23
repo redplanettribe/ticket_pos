@@ -77,11 +77,7 @@ func assertXMLDownload(t *testing.T, resp *http.Response, body []byte, filename 
 	if cd := resp.Header.Get("Content-Disposition"); cd != `attachment; filename="`+filename+`"` {
 		t.Fatalf("Content-Disposition=%q, want attachment; filename=%q", cd, filename)
 	}
-	// The document carries the buyer's name, Tax ID and purchase: no cache on
-	// the way may keep a copy of it.
-	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
-		t.Fatalf("Cache-Control=%q, want no-store", cc)
-	}
+	assertNoStore(t, resp.Header)
 	if !bytes.Equal(body, want) {
 		t.Fatalf("downloaded bytes differ from the stored document:\n got %d bytes: %.200s\nwant %d bytes: %.200s", len(body), body, len(want), want)
 	}
@@ -238,11 +234,7 @@ func TestDownloadRIDEIsAPDFNamedAfterTheClave(t *testing.T) {
 	if cd, want := resp.Header.Get("Content-Disposition"), `attachment; filename="`+view.Ecuador.AccessKey+`.pdf"`; cd != want {
 		t.Fatalf("Content-Disposition=%q, want %q", cd, want)
 	}
-	// The document carries the buyer's name, Tax ID and purchase: no cache on
-	// the way may keep a copy of it.
-	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
-		t.Fatalf("Cache-Control=%q, want no-store", cc)
-	}
+	assertNoStore(t, resp.Header)
 	if !bytes.HasPrefix(body, []byte("%PDF-")) {
 		t.Fatalf("body is not a PDF: %.40q", body)
 	}

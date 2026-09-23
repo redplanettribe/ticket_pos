@@ -286,12 +286,9 @@ func TestSalesExportAccess(t *testing.T) {
 	if !regexp.MustCompile(`\d{4}-\d{2}-\d{2}\.xlsx`).MatchString(disposition) {
 		t.Fatalf("content-disposition = %q, want a YYYY-MM-DD dated .xlsx filename", disposition)
 	}
-	// Every buyer's email and Tax ID for the Event: no cache, browser or proxy,
-	// may keep a copy. A response header and not the file, so the file itself
-	// is unchanged (#655 story 34).
-	if got := resp.Header.Get("Cache-Control"); got != "no-store" {
-		t.Fatalf("Cache-Control = %q, want no-store", got)
-	}
+	// A response header and not the file, so the file itself is unchanged
+	// (#655 story 34).
+	assertNoStore(t, resp.Header)
 
 	addMember := func(email, role string) string {
 		t.Helper()

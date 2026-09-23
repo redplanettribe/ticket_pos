@@ -14,8 +14,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5/pgproto3"
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 // An error is logged as a CLASS and never as its text where the text could
@@ -41,8 +43,8 @@ func TestErrorClassNamesTheKindAndCarriesNoErrorText(t *testing.T) {
 		{"a Postgres refusal",
 			fmt.Errorf("fetch ana@example.com: %w", &pgconn.PgError{Code: "57P01", Message: "terminating ana@example.com"}),
 			"postgres 57P01"},
-		{"a bad driver connection", fmt.Errorf("fetch ana@example.com: %w", driver.ErrBadConn), "database_connection_lost"},
-		{"a connection already closed", fmt.Errorf("fetch: %w", sql.ErrConnDone), "database_connection_lost"},
+		{"a bad driver connection", fmt.Errorf("fetch ana@example.com: %w", driver.ErrBadConn), "db_connection_lost"},
+		{"a connection already closed", fmt.Errorf("fetch: %w", sql.ErrConnDone), "db_connection_lost"},
 		{"a cut read", fmt.Errorf("read 203.0.113.7:51234: %w", io.ErrUnexpectedEOF), "unexpected_eof"},
 		{"an end of file", fmt.Errorf("read: %w", io.EOF), "unexpected_eof"},
 		{"anything else, by its innermost type",
@@ -96,19 +98,56 @@ func (customErr) Error() string { return "boom ana@example.com 203.0.113.7:51234
 // A DATABASE THAT IS DOWN IS NAMED, NOT CALLED A JOIN. pgconn joins one error
 // per address it tried, and a walk by errors.Unwrap stops at the join, so every
 // request logged error_class="*errors.joinError" while Postgres was down. These
-// connect for real, through the pgx driver the API itself uses, to a port
-// nothing listens on, so the error has the exact shape production sees - and
-// the database's host, port and user are in its text, and never in its class.
+// connect through the pgx driver the API itself uses, with the dial answered by
+// the exact error the kernel gives a closed port, so the error still passes
+// through pgconn's ConnectError and its join as production's does - and the
+// database's host, port and user are in its text, and never in its class.
+//
+// The refusal is injected rather than provoked by dialing a port just closed:
+// another process may take that port between the close and the dial.
 func TestErrorClassNamesADatabaseThatCannotBeReached(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
+	const (
+		port = "54329"
+		url  = "postgres://ana%40example.com@127.0.0.1:" + port + "/tickets?sslmode=disable&connect_timeout=5"
+	)
+	refused := func(ctx context.Context, network, _ string) (net.Conn, error) {
+		// As net.Dialer does, a connect whose context has already ended is
+		// not attempted.
+		if err := ctx.Err(); err != nil {
+			return nil, &net.OpError{Op: "dial", Net: network, Err: err}
+		}
+		return nil, &net.OpError{Op: "dial", Net: network, Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
 	}
-	port := fmt.Sprint(ln.Addr().(*net.TCPAddr).Port)
-	if err := ln.Close(); err != nil {
-		t.Fatalf("close: %v", err)
+	pgconnConfig := func(t *testing.T, dial pgconn.DialFunc) *pgconn.Config {
+		t.Helper()
+		cfg, err := pgconn.ParseConfig(url)
+		if err != nil {
+			t.Fatalf("parse config: %v", err)
+		}
+		cfg.DialFunc = dial
+		return cfg
 	}
-	url := "postgres://ana%40example.com@127.0.0.1:" + port + "/tickets?sslmode=disable&connect_timeout=5"
+	openDB := func(t *testing.T) *sql.DB {
+		t.Helper()
+		cfg, err := pgx.ParseConfig(url)
+		if err != nil {
+			t.Fatalf("parse config: %v", err)
+		}
+		cfg.DialFunc = refused
+		return stdlib.OpenDB(*cfg)
+	}
+	// The error keeps production's shape: pgconn's ConnectError around the
+	// join of one error per address tried, which the class must see through.
+	assertConnectError := func(t *testing.T, err error) {
+		t.Helper()
+		var connectErr *pgconn.ConnectError
+		if !errors.As(err, &connectErr) {
+			t.Fatalf("error is not a pgconn.ConnectError: %T %v", err, err)
+		}
+		if _, ok := connectErr.Unwrap().(interface{ Unwrap() []error }); !ok {
+			t.Fatalf("ConnectError does not wrap a join: %T", connectErr.Unwrap())
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -129,39 +168,71 @@ func TestErrorClassNamesADatabaseThatCannotBeReached(t *testing.T) {
 	}
 
 	t.Run("through database/sql, wrapped by a repository", func(t *testing.T) {
-		db, err := sql.Open("pgx", url)
-		if err != nil {
-			t.Fatalf("open: %v", err)
-		}
+		db := openDB(t)
 		defer func() { _ = db.Close() }()
-		_, err = db.ExecContext(ctx, "SELECT 1")
-		var connectErr *pgconn.ConnectError
-		if !errors.As(err, &connectErr) {
-			t.Fatalf("error is not a pgconn.ConnectError: %T %v", err, err)
-		}
+		_, err := db.ExecContext(ctx, "SELECT 1")
+		assertConnectError(t, err)
 		assertClass(t, fmt.Errorf("fetch sales for ana@example.com: %w", err), "db_connect_refused")
 	})
 
 	t.Run("straight from pgconn", func(t *testing.T) {
-		_, err := pgconn.Connect(ctx, url)
+		_, err := pgconn.ConnectConfig(ctx, pgconnConfig(t, refused))
+		assertConnectError(t, err)
 		assertClass(t, err, "db_connect_refused")
 	})
 
 	t.Run("a pool already closed", func(t *testing.T) {
-		db, err := sql.Open("pgx", url)
-		if err != nil {
-			t.Fatalf("open: %v", err)
-		}
+		db := openDB(t)
 		_ = db.Close()
-		_, err = db.ExecContext(ctx, "SELECT 1")
+		_, err := db.ExecContext(ctx, "SELECT 1")
 		assertClass(t, fmt.Errorf("fetch: %w", err), "db_closed")
 	})
 
 	t.Run("a connect the reader gave up on", func(t *testing.T) {
 		gone, cancel := context.WithCancel(ctx)
 		cancel()
-		_, err := pgconn.Connect(gone, url)
+		_, err := pgconn.ConnectConfig(gone, pgconnConfig(t, refused))
 		assertClass(t, err, "context_canceled")
+	})
+
+	t.Run("a host name that does not resolve", func(t *testing.T) {
+		_, err := pgconn.ConnectConfig(ctx, pgconnConfig(t, func(_ context.Context, network, _ string) (net.Conn, error) {
+			return nil, &net.OpError{Op: "dial", Net: network, Err: &net.DNSError{Err: "no such host", Name: "tickets.internal", IsNotFound: true}}
+		}))
+		assertConnectError(t, err)
+		assertClass(t, err, "db_dns_unresolved")
+	})
+
+	t.Run("a connect that ran out of time", func(t *testing.T) {
+		short, cancel := context.WithTimeout(ctx, time.Millisecond)
+		defer cancel()
+		_, err := pgconn.ConnectConfig(short, pgconnConfig(t, func(ctx context.Context, network, _ string) (net.Conn, error) {
+			<-ctx.Done()
+			return nil, &net.OpError{Op: "dial", Net: network, Err: ctx.Err()}
+		}))
+		assertClass(t, err, "db_connect_timeout")
+	})
+
+	t.Run("a server that refuses the connect, by its SQLSTATE", func(t *testing.T) {
+		// The server end of an in-memory connection reads the startup message
+		// and answers it as a Postgres that is still starting up does.
+		_, err := pgconn.ConnectConfig(ctx, pgconnConfig(t, func(context.Context, string, string) (net.Conn, error) {
+			client, server := net.Pipe()
+			go func() {
+				defer func() { _ = server.Close() }()
+				backend := pgproto3.NewBackend(server, server)
+				if _, err := backend.ReceiveStartupMessage(); err != nil {
+					return
+				}
+				backend.Send(&pgproto3.ErrorResponse{
+					Severity: "FATAL", Code: "57P03", Message: "the database system is starting up",
+				})
+				_ = backend.Flush()
+			}()
+			return client, nil
+		}))
+		assertConnectError(t, err)
+		assertClass(t, err, "postgres 57P03")
 	})
 }
 
@@ -191,5 +262,23 @@ func TestErrorClassNamesAnyOtherFailedConnectAsUnavailable(t *testing.T) {
 	}
 	if got := ErrorClass(err); got != "db_unavailable" {
 		t.Fatalf("class = %q, want db_unavailable (error: %v)", got, err)
+	}
+}
+
+// The generic wrappers a join is looked past are four distinct standard
+// library types; were two of the values building the set to share a type, one
+// wrapper would silently name a join again.
+func TestGenericTypesAreTheFourStandardWrappers(t *testing.T) {
+	got := map[string]bool{}
+	for typ := range genericTypes {
+		got[typ.String()] = true
+	}
+	for _, want := range []string{"*errors.errorString", "*errors.joinError", "*fmt.wrapError", "*fmt.wrapErrors"} {
+		if !got[want] {
+			t.Errorf("genericTypes lacks %s (has %v)", want, got)
+		}
+	}
+	if len(got) != 4 {
+		t.Errorf("genericTypes has %d types, want 4: %v", len(got), got)
 	}
 }

@@ -422,6 +422,16 @@ func authHeader(token string) map[string]string {
 	return map[string]string{"Authorization": "Bearer " + token}
 }
 
+// assertNoStore fails the test unless a download of somebody's personal or tax
+// data came marked so that no cache on the way may keep a copy of it
+// (platform.NoStore).
+func assertNoStore(t *testing.T, header http.Header) {
+	t.Helper()
+	if got := header.Values("Cache-Control"); len(got) != 1 || got[0] != "no-store" {
+		t.Fatalf("Cache-Control = %q, want exactly [no-store]", got)
+	}
+}
+
 func (env *testEnv) patch(t *testing.T, path string, body any, headers map[string]string) (*http.Response, envelope) {
 	t.Helper()
 	return env.doJSON(t, http.MethodPatch, path, body, headers)

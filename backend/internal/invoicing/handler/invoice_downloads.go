@@ -17,7 +17,7 @@ import (
 // DownloadSignedXML hands over the signed factura.
 //
 // @Summary      Download a Tax Invoice's signed XML
-// @Description  Returns the factura exactly as it was signed and sent to the SRI — byte for byte the stored document — as `application/xml` with `Content-Disposition: attachment; filename="<clave de acceso>.xml"`. Available in every status, since the document exists from the moment the number was consumed. INVOICE_NOT_FOUND (404) otherwise. Platform Operator only. The response carries `Cache-Control: no-store`, since the document is buyer personal and tax data.
+// @Description  Returns the factura exactly as it was signed and sent to the SRI - byte for byte the stored document - as `application/xml` with `Content-Disposition: attachment; filename="<clave de acceso>.xml"`. Available in every status, since the document exists from the moment the number was consumed. INVOICE_NOT_FOUND (404) otherwise. Platform Operator only. The response carries `Cache-Control: no-store`, since the document is buyer personal and tax data.
 // @Tags         operator
 // @Produce      application/xml
 // @Security     BearerAuth
@@ -34,7 +34,7 @@ func (h *Handler) DownloadSignedXML(w http.ResponseWriter, r *http.Request) {
 // DownloadAuthorizationXML hands over the SRI's authorization.
 //
 // @Summary      Download a Tax Invoice's authorization XML
-// @Description  Returns the SRI's `<autorizacion>` document for an authorized invoice — the legal proof: number, date, ambiente and the comprobante — exactly as the SRI returned it, as `application/xml` with `Content-Disposition: attachment; filename="<clave de acceso>-autorizacion.xml"`. An invoice that is pending, rejected or not authorized has no such document and answers AUTHORIZATION_XML_NOT_FOUND (404); INVOICE_NOT_FOUND (404) when there is no such invoice. Platform Operator only. The response carries `Cache-Control: no-store`, since the document is buyer personal and tax data.
+// @Description  Returns the SRI's `<autorizacion>` document for an authorized invoice - the legal proof: number, date, ambiente and the comprobante - exactly as the SRI returned it, as `application/xml` with `Content-Disposition: attachment; filename="<clave de acceso>-autorizacion.xml"`. An invoice that is pending, rejected or not authorized has no such document and answers AUTHORIZATION_XML_NOT_FOUND (404); INVOICE_NOT_FOUND (404) when there is no such invoice. Platform Operator only. The response carries `Cache-Control: no-store`, since the document is buyer personal and tax data.
 // @Tags         operator
 // @Produce      application/xml
 // @Security     BearerAuth
@@ -51,7 +51,7 @@ func (h *Handler) DownloadAuthorizationXML(w http.ResponseWriter, r *http.Reques
 // DownloadRIDE hands over the RIDE (#494, ADR 0062).
 //
 // @Summary      Download a Tax Invoice's RIDE (PDF)
-// @Description  Renders the RIDE — the Representación Impresa del Documento Electrónico — of an authorized document from its stored data, as `application/pdf` with `Content-Disposition: attachment; filename="<clave de acceso>.pdf"`. It carries the authorization number and date the SRI granted, and is rendered afresh on every request: nothing is stored, and two downloads are byte-identical. A document that is not authorized has no RIDE and answers RIDE_NOT_FOUND (404); INVOICE_NOT_FOUND (404) when there is no such invoice. Platform Operator only. The response carries `Cache-Control: no-store`, since the document is buyer personal and tax data.
+// @Description  Renders the RIDE - the Representación Impresa del Documento Electrónico - of an authorized document from its stored data, as `application/pdf` with `Content-Disposition: attachment; filename="<clave de acceso>.pdf"`. It carries the authorization number and date the SRI granted, and is rendered afresh on every request: nothing is stored, and two downloads are byte-identical. A document that is not authorized has no RIDE and answers RIDE_NOT_FOUND (404); INVOICE_NOT_FOUND (404) when there is no such invoice. Platform Operator only. The response carries `Cache-Control: no-store`, since the document is buyer personal and tax data.
 // @Tags         operator
 // @Produce      application/pdf
 // @Security     BearerAuth
@@ -79,9 +79,7 @@ func (h *Handler) serveDocument(w http.ResponseWriter, r *http.Request, load fun
 	}
 	w.Header().Set("Content-Type", doc.ContentType)
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+doc.Filename+"\"")
-	// A tax document carries the buyer's name, Tax ID and purchase: no cache
-	// on the way may keep a copy of it.
-	w.Header().Set("Cache-Control", "no-store")
+	platform.NoStore(w)
 	w.Header().Set("X-Request-ID", reqID)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(doc.Body)

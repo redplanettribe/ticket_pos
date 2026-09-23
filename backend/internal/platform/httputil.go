@@ -44,6 +44,16 @@ type ValidationErrorDetails struct {
 	Fields []FieldError `json:"fields"`
 }
 
+// NoStore marks a response `Cache-Control: no-store`, so that no cache between
+// the API and the reader - a CDN, a proxy, the browser's own - may keep a copy.
+// Every download of somebody's personal or tax data sets it before its first
+// byte: the Holder and Sales Exports' attendee and buyer data, a Tax
+// Document's buyer name, Tax ID and purchase, and the Tax Document Archive's
+// whole period of them.
+func NoStore(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+}
+
 // WriteJSON encodes v as JSON and writes it with the given status code.
 func WriteJSON(w http.ResponseWriter, status int, v any) error {
 	w.Header().Set("Content-Type", "application/json")
