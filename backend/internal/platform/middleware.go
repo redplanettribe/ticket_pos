@@ -285,21 +285,25 @@ func clientCancellationClass(err error) (string, bool) {
 	}
 	var connectErr *pgconn.ConnectError
 	var pgErr *pgconn.PgError
-	switch {
-	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &connectErr), errors.As(err, &pgErr), pgconn.Timeout(err):
+	if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &connectErr) || errors.As(err, &pgErr) || pgconn.Timeout(err) {
 		return "", false
-	case isPgconnInterrupt(err):
-		return canceledClass, true
 	}
-	return "", false
+	return canceledClass, isPgconnInterrupt(err)
 }
 
 // isPgconnInterrupt reports whether err is pgconn's own connection I/O cut
 // short by a deadline: an error of pgx's whose cause is os.ErrDeadlineExceeded.
 // That is the only way a deadline reaches pgconn's connection mid-query, since
-// its context watcher sets one only when the context is cancelled
+// its context watcher sets one only when the query's context is done
 // (DeadlineContextWatcherHandler, the default, and the fallback deadline of
 // CancelRequestContextWatcherHandler).
+//
+// ITS ONE BLIND SPOT: the error does not say which context ended. A deadline a
+// service put on a child of the request's context (context.WithTimeout)
+// interrupts the write the same way, and if the client has also gone by then
+// and no status is decided, the line reads as the client's cancellation. Only
+// the call site can tell them apart, by reporting context.DeadlineExceeded
+// with the error, which this rule never downgrades.
 //
 // pgx's error is recognised by SafeToRetry() bool, the method
 // pgconn.SafeToRetry reads. What a failed write returns is pgproto3's

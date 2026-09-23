@@ -194,6 +194,7 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
   The error pgx returns for a failed write is unexported and `pgconn.Timeout` is false for it, so that method is the most specific marker it carries, and no other error in the program's dependencies has it.
   Any other timeout is a genuine failure and is never the cancellation, even when the client has gone, because a client often leaves precisely because an upstream is slow: an `http.Client` call to SRI, PayPhone or Resend that timed out stays an ERROR 500 with its real `error_class`.
   A context's deadline, a failed connect to Postgres, a timeout `pgconn.Timeout` reports and an error holding a Postgres error are never the cancellation either (`clientCancellationClass`).
+  pgconn's interrupt does not say which context ended, so a service that puts its own deadline on a query must report `context.DeadlineExceeded` with the error when that deadline is the cause, or a client that also left turns it into a 499.
   Only in that case does `platform.WriteDomainError` write no envelope, since nobody is reading and nothing else happened, and the line carries `error_class=context_canceled`.
   With the client still connected pgconn's interrupt is a real timeout, an ERROR 500 with `error_class=write_deadline_exceeded`.
   The Holder Export's own write deadline fails only after its 200 went out, so it is never a 499, and its finished line still gives reason `deadline`.

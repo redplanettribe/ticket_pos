@@ -581,6 +581,16 @@ func TestRequestPipelineKeepsTheRealOutcomeOfARequestWhoseClientLeft(t *testing.
 			_ = WriteDomainError(w, RequestID(r.Context()), apperror.New(code, "refused", nil))
 		}
 	}
+	// The http.Client's timeout is classed by the type of the net.Error inside
+	// its *url.Error, an unexported type of net/http's that is read off the
+	// captured error rather than written out, so a rename there cannot fail
+	// this test for no reason of ours.
+	httpTimeout := httpClientTimeout(t)
+	var urlErr *url.Error
+	if !errors.As(httpTimeout, &urlErr) {
+		t.Fatalf("the http.Client's timeout %T holds no *url.Error", httpTimeout)
+	}
+	httpTimeoutClass := fmt.Sprintf("%T", urlErr.Err)
 	failWith := func(err error) func(http.ResponseWriter, *http.Request) {
 		return func(w http.ResponseWriter, r *http.Request) {
 			_ = WriteDomainError(w, RequestID(r.Context()), err)
@@ -609,8 +619,8 @@ func TestRequestPipelineKeepsTheRealOutcomeOfARequestWhoseClientLeft(t *testing.
 		// An upstream that timed out is a genuine failure, even though the
 		// client may have left because it was slow. Only pgconn's own
 		// interrupt is the cancellation.
-		{"an http.Client's timeout", failWith(httpClientTimeout(t)),
-			http.StatusInternalServerError, "ERROR", "http.tlsHandshakeTimeoutError", "INTERNAL_ERROR", ""},
+		{"an http.Client's timeout", failWith(httpTimeout),
+			http.StatusInternalServerError, "ERROR", httpTimeoutClass, "INTERNAL_ERROR", ""},
 		{"an http.Client's socket deadline", failWith(httpSocketTimeout()),
 			http.StatusInternalServerError, "ERROR", "write_deadline_exceeded", "INTERNAL_ERROR", ""},
 		{"any other net.Error timeout", failWith(fmt.Errorf("fetch avatar: %w", socketTimeout{})),
