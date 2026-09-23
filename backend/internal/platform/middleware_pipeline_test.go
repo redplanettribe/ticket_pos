@@ -337,96 +337,191 @@ func TestRequestPipelineLeavesTheResponseControllerWorking(t *testing.T) {
 	}
 }
 
-// A CLIENT THAT GIVES UP IS NOT A SERVER ERROR. When the request's context has
-// been cancelled by the client by the time the response is decided, the
-// handler's database call fails with the cancellation and reaches
-// WriteDomainError as an unmapped error. Nobody is reading, so the request line
-// is INFO with client_gone=true and the 499 that says the client closed the
-// request, whatever the handler went on to write.
-func TestRequestPipelineLogsAClientThatGaveUpAtInfoAs499(t *testing.T) {
+// cancelledRequest is a request whose client has gone once cancel is called,
+// as the server cancels a request's context when its connection closes.
+func cancelledRequest(method string) (*http.Request, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	return httptest.NewRequest(method, "/api/v1/staff/events", nil).WithContext(ctx), cancel
+}
+
+// A CLIENT THAT GIVES UP IS NOT A SERVER ERROR, but only when giving up is all
+// that happened. The request line is INFO with client_gone=true and the 499
+// that says the client closed the request when the error the handler reports is
+// that cancellation itself, surfacing from the database call it failed, or when
+// the handler reports nothing and writes nothing. Nobody is reading, so no
+// envelope is written.
+func TestRequestPipelineLogsAClientThatOnlyGaveUpAtInfoAs499(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		respond func(w http.ResponseWriter, r *http.Request)
+		name      string
+		respond   func(w http.ResponseWriter, r *http.Request)
+		wantClass string
 	}{
-		{"an unmapped error from the cancelled context", func(w http.ResponseWriter, r *http.Request) {
+		{"the cancellation reported as the error", func(w http.ResponseWriter, r *http.Request) {
 			_ = WriteDomainError(w, RequestID(r.Context()), fmt.Errorf("list sales: %w", r.Context().Err()))
-		}},
-		{"a mapped domain error", func(w http.ResponseWriter, r *http.Request) {
-			_ = WriteDomainError(w, RequestID(r.Context()), apperror.New("EVENT_NOT_FOUND", "refused", nil))
-		}},
-		{"a 500 written by hand", func(w http.ResponseWriter, r *http.Request) {
-			_ = WriteHandlerError(w, RequestID(r.Context()), http.StatusInternalServerError, "INTERNAL_ERROR", "failed", nil)
-		}},
-		{"nothing written at all", func(http.ResponseWriter, *http.Request) {}},
+		}, "context_canceled"},
+		{"nothing reported and nothing written", func(http.ResponseWriter, *http.Request) {}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
+			req, cancel := cancelledRequest(http.MethodGet)
 			handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				cancel() // the client goes away while the handler is working
 				tc.respond(w, r)
 			}))
+			rec := httptest.NewRecorder()
 
-			handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/staff/events", nil).WithContext(ctx))
+			handler.ServeHTTP(rec, req)
 
+			if rec.Body.Len() != 0 {
+				t.Fatalf("body = %q, want nothing written to a client that has gone", rec.Body.String())
+			}
 			line := requestLogLine(t, buf)
-			if line.str("level") != "INFO" || line.status() != 499 {
+			if line.str("level") != "INFO" || line.status() != statusClientClosedRequest {
 				t.Fatalf("request log = %v, want INFO with status 499", line)
 			}
 			if gone, _ := line["client_gone"].(bool); !gone {
 				t.Fatalf("request log = %v, want client_gone=true", line)
 			}
+			if line.str("error_class") != tc.wantClass {
+				t.Fatalf("request log error_class = %q, want %q", line.str("error_class"), tc.wantClass)
+			}
 		})
 	}
 }
 
-// WriteDomainError writes nothing for a client that has gone: a 500 envelope
-// nobody reads is only noise on a dead connection.
-func TestRequestPipelineWritesNoEnvelopeToAClientThatGaveUp(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	handler, _ := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cancel()
-		_ = WriteDomainError(w, RequestID(r.Context()), r.Context().Err())
+// A CLIENT LEAVING NEVER DOWNGRADES WHAT HAPPENED. When the handler's outcome
+// is anything other than the cancellation itself, the line keeps the status the
+// handler really chose and the level that status earns, and client_gone=true is
+// one more fact on it: a genuine failure that met a departed client is still an
+// ERROR with its class, a mapped 5xx still names its code, a committed mutation
+// still reads as the 201 it was, and a capacity refusal is still a WARN. The
+// envelope is written as usual; a write to a gone client fails harmlessly.
+func TestRequestPipelineKeepsTheRealOutcomeOfARequestWhoseClientLeft(t *testing.T) {
+	domainError := func(code string) func(http.ResponseWriter, *http.Request) {
+		return func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()), apperror.New(code, "refused", nil))
+		}
+	}
+	for _, tc := range []struct {
+		name         string
+		respond      func(w http.ResponseWriter, r *http.Request)
+		wantStatus   int
+		wantLevel    string
+		wantClass    string
+		wantBodyCode string
+		wantLineCode string
+	}{
+		{"a Postgres failure", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()), fmt.Errorf("commit: %w", &pgconn.PgError{Code: "23505"}))
+		}, http.StatusInternalServerError, "ERROR", "postgres 23505", "INTERNAL_ERROR", ""},
+		{"a mapped 500 failed commit", domainError("PAYMENT_SALE_COMMIT_FAILED"),
+			http.StatusInternalServerError, "ERROR", "", "PAYMENT_SALE_COMMIT_FAILED", "PAYMENT_SALE_COMMIT_FAILED"},
+		{"a mapped 500 unavailable link", domainError("CONFIRMATION_LINK_UNAVAILABLE"),
+			http.StatusInternalServerError, "ERROR", "", "CONFIRMATION_LINK_UNAVAILABLE", "CONFIRMATION_LINK_UNAVAILABLE"},
+		{"a mapped 503 deployment fault", domainError("CERTIFICATE_KEY_NOT_CONFIGURED"),
+			http.StatusServiceUnavailable, "ERROR", "", "CERTIFICATE_KEY_NOT_CONFIGURED", "CERTIFICATE_KEY_NOT_CONFIGURED"},
+		{"a mapped 503 capacity refusal", domainError("HOLDER_EXPORT_BUSY"),
+			http.StatusServiceUnavailable, "WARN", "", "HOLDER_EXPORT_BUSY", "HOLDER_EXPORT_BUSY"},
+		{"a mapped 404", domainError("EVENT_NOT_FOUND"),
+			http.StatusNotFound, "INFO", "", "EVENT_NOT_FOUND", "EVENT_NOT_FOUND"},
+		{"a committed mutation", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteSuccess(w, RequestID(r.Context()), http.StatusCreated, map[string]string{"id": "sale"})
+		}, http.StatusCreated, "INFO", "", "", ""},
+		// A handler-layer error has no domain code to put on the line; its
+		// status and level are what identify it.
+		{"a 500 written by hand", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteHandlerError(w, RequestID(r.Context()), http.StatusInternalServerError, "INTERNAL_ERROR", "failed", nil)
+		}, http.StatusInternalServerError, "ERROR", "", "INTERNAL_ERROR", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, cancel := cancelledRequest(http.MethodPost)
+			handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				cancel() // the client goes away before the handler answers
+				tc.respond(w, r)
+			}))
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status written = %d, want %d", rec.Code, tc.wantStatus)
+			}
+			if tc.wantBodyCode != "" {
+				var env Envelope
+				if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || env.Error == nil || env.Error.Code != tc.wantBodyCode {
+					t.Fatalf("body = %q, want the %s envelope written as usual", rec.Body.String(), tc.wantBodyCode)
+				}
+			}
+			line := requestLogLine(t, buf)
+			if line.str("level") != tc.wantLevel || line.status() != tc.wantStatus {
+				t.Fatalf("request log = %v, want %s with status %d", line, tc.wantLevel, tc.wantStatus)
+			}
+			if gone, _ := line["client_gone"].(bool); !gone {
+				t.Fatalf("request log = %v, want client_gone=true", line)
+			}
+			if line.str("error_class") != tc.wantClass {
+				t.Fatalf("request log error_class = %q, want %q", line.str("error_class"), tc.wantClass)
+			}
+			if line.str("error_code") != tc.wantLineCode {
+				t.Fatalf("request log error_code = %q, want %q", line.str("error_code"), tc.wantLineCode)
+			}
+		})
+	}
+}
+
+// A cancellation the server made itself, with the client still connected, is
+// not the client's departure: it is an unmapped 500 at ERROR like any other.
+func TestRequestPipelineLogsACancellationWithTheClientStillThereAtError(t *testing.T) {
+	handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = WriteDomainError(w, RequestID(r.Context()), fmt.Errorf("fan out: %w", context.Canceled))
 	}))
 	rec := httptest.NewRecorder()
 
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/staff/events", nil).WithContext(ctx))
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/staff/events", nil))
 
-	if rec.Body.Len() != 0 {
-		t.Fatalf("body = %q, want nothing written to a client that has gone", rec.Body.String())
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
 	}
-}
-
-// The line for a client that gave up still names the error's class, so a
-// failure the client simply did not wait for is not lost.
-func TestRequestPipelineNamesTheErrorAClientThatGaveUpDidNotWaitFor(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cancel()
-		_ = WriteDomainError(w, RequestID(r.Context()), fmt.Errorf("commit: %w", &pgconn.PgError{Code: "23505"}))
-	}))
-
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/v1/staff/events", nil).WithContext(ctx))
-
 	line := requestLogLine(t, buf)
-	if line.status() != 499 || line.str("error_class") != "postgres 23505" {
-		t.Fatalf("request log = %v, want status 499 with error_class postgres 23505", line)
+	if line.str("level") != "ERROR" || line.status() != http.StatusInternalServerError || line["client_gone"] != nil {
+		t.Fatalf("request log = %v, want ERROR 500 without client_gone", line)
+	}
+	if line.str("error_class") != "context_canceled" {
+		t.Fatalf("request log error_class = %q, want context_canceled", line.str("error_class"))
 	}
 }
 
-// A request whose response was decided before the client left keeps its
-// status: the connection closing afterwards does not re-read it as abandoned.
+// THE STATUS IS DECIDED ONCE, WHEN IT IS CHOSEN. A response written before the
+// client left keeps its status and its level, and does not carry client_gone:
+// the connection closing afterwards, before the line is written, cannot re-read
+// a 200 as abandoned or a 500 as a client that gave up.
 func TestRequestPipelineKeepsTheStatusDecidedBeforeTheClientLeft(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		cancel()
-	}))
+	for _, tc := range []struct {
+		name       string
+		respond    func(w http.ResponseWriter, r *http.Request)
+		wantStatus int
+		wantLevel  string
+	}{
+		{"a 200", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}, http.StatusOK, "INFO"},
+		{"an unmapped 500", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()), errors.New("connection refused"))
+		}, http.StatusInternalServerError, "ERROR"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, cancel := cancelledRequest(http.MethodGet)
+			handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				tc.respond(w, r)
+				cancel() // the connection closes just after the status went out
+			}))
 
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/staff/events", nil).WithContext(ctx))
+			handler.ServeHTTP(httptest.NewRecorder(), req)
 
-	line := requestLogLine(t, buf)
-	if line.str("level") != "INFO" || line.status() != http.StatusOK || line["client_gone"] != nil {
-		t.Fatalf("request log = %v, want INFO 200 without client_gone", line)
+			line := requestLogLine(t, buf)
+			if line.str("level") != tc.wantLevel || line.status() != tc.wantStatus || line["client_gone"] != nil {
+				t.Fatalf("request log = %v, want %s %d without client_gone", line, tc.wantLevel, tc.wantStatus)
+			}
+		})
 	}
 }
 

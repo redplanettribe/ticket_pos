@@ -152,12 +152,16 @@ Each domain module owns its types (e.g. `catalog.ErrEventNotFound`, `sales.ErrCa
 A refusal about capacity, where the same request a moment later is expected to succeed, also declares a `Retry-After` in `domainRetryAfter` beside the status table (today only `HOLDER_EXPORT_BUSY`).
 The declaration decides the request log level too: a 5xx is logged at ERROR, mapped or not, unless its domain error declares a `Retry-After`, which makes it a designed refusal logged at WARN.
 It is the declaration and never the header: a `Retry-After` a handler sets by hand does not quieten a 5xx.
+A mapped domain error's request line carries its `error_code`, so a mapped 5xx is identifiable.
 An unmapped error's request line carries `error_class` (`platform.ErrorClass`), never the error's text.
-A 4xx is logged at INFO.
+A 2xx, 3xx or 4xx is logged at INFO.
 
-A client that gives up is not a server error.
-If the client had cancelled the request (`r.Context().Err() == context.Canceled`) when the response is decided, `WriteDomainError` writes nothing, since nobody is reading, and the request line is INFO with `client_gone=true` and status 499.
-This lives in the platform pipeline and `WriteDomainError`; a handler never checks for it.
+A client that gives up is not a server error, but a client leaving never downgrades what happened.
+The request line is INFO with status 499 and `client_gone=true`, and `WriteDomainError` writes nothing, only when the error the handler reported is itself the cancellation (`errors.Is(err, context.Canceled)` with the request's context cancelled), or when the handler reported no error, wrote nothing, and the client had gone.
+Any other outcome keeps the handler's real status and the level that status earns, and adds `client_gone=true` when the client had gone as the status was decided: a Postgres failure stays ERROR 500 with `error_class`, a mapped 5xx stays ERROR with its `error_code`, a 201 stays INFO 201, a busy 503 stays WARN.
+The envelope is written as usual then; a write to a gone client fails harmlessly.
+The status is decided once, when it is chosen, so a 500 written just before the connection closes is never re-read as a 499.
+This lives in the platform pipeline's recorder (`statusRecorder.noteError`, `decide`, `outcome`); a handler never checks for it.
 
 Handlers stay thin:
 

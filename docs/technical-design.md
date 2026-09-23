@@ -174,14 +174,19 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
 - `platform.RequestPipeline` is the one middleware stack: the request id outermost, then the request log, then panic recovery.
   The id is on the request context (`platform.RequestID(ctx)`), in the `request` log line, and in every envelope's `request_id`.
 - The `request` log line is written for every request, at WARN with `aborted=true` when a streamed download aborts after its first byte (`panic(http.ErrAbortHandler)`), carrying the status already sent.
-- A client that gives up is not a server error.
-  When the client had already cancelled the request (`r.Context().Err() == context.Canceled`) by the time its response was decided, the line is INFO with `client_gone=true` and status 499, whatever the handler wrote.
-  Its database call fails with the cancelled context, and `platform.WriteDomainError` writes no envelope for it, since nobody is reading.
-  A deadline the server imposed is `context.DeadlineExceeded`, not a cancellation, and stays a server error.
-- Otherwise a 2xx, 3xx or 4xx is logged at INFO, and a 5xx at ERROR whether or not it was mapped from a domain error.
+- The line's status and level follow what actually happened.
+  A 2xx, 3xx or 4xx is logged at INFO, and a 5xx at ERROR whether or not it was mapped from a domain error.
+  A mapped domain error's line carries its `error_code`, so a mapped 5xx such as `PAYMENT_SALE_COMMIT_FAILED` is identifiable.
   An unmapped error's line carries `error_class` (`platform.ErrorClass`), naming the kind of failure, such as `postgres 22P02`, without the error's text.
   The one exception is a capacity refusal, a domain error that declares a `Retry-After` (`domainRetryAfter`, today only the 503 `HOLDER_EXPORT_BUSY`), which is logged at WARN because the platform refuses as designed.
   The declaration decides, not the header read back off the response, so a handler setting `Retry-After` by hand cannot quieten a failure, and a mapped deployment fault or failed commit such as `PAYMENT_SALE_COMMIT_FAILED` stays an ERROR.
+- A client that gives up is not a server error, but a client leaving never downgrades what happened.
+  The line is INFO with status 499 and `client_gone=true` only when the error the handler reported is itself the cancellation (`errors.Is(err, context.Canceled)`, with the request's context cancelled), or when the handler reported no error and wrote nothing and the client had gone.
+  Only in that case does `platform.WriteDomainError` write no envelope, since nobody is reading and nothing else happened.
+  Any other outcome keeps the handler's real status and the level that status earns, with `client_gone=true` added when the client had gone by the time the status was decided: a Postgres failure is still ERROR 500 with its `error_class`, a committed mutation is still INFO 201, a busy 503 is still WARN.
+  The envelope is then written as usual; a write to a gone client fails harmlessly.
+  The status, and whether the client had gone, are decided once, when the status is chosen, so a 500 written just before the connection closes stays an ERROR 500.
+  A `context.Canceled` with the client still connected is the server's own cancellation, and a deadline the server imposed is `context.DeadlineExceeded`; both stay server errors.
 - All of this is the pipeline's and `WriteDomainError`'s to decide; a handler only passes its error on.
 - Staff and Storefront Next apps forward `X-Request-ID` on server-side calls to the Go API.
 - Metrics, distributed tracing, and error reporting SaaS are **deferred** until production hosting is chosen.

@@ -75,33 +75,18 @@ func registeredPatterns(t *testing.T) []string {
 	return rec.patterns
 }
 
-// wildcardName returns the name a path segment's wildcard is read by, as the
-// guard reads it: "{path...}" is "path", and "{$}", which only anchors the end
-// of a path, is no wildcard at all.
-func wildcardName(segment string) (string, bool) {
-	if segment == "{$}" || !strings.HasPrefix(segment, "{") || !strings.HasSuffix(segment, "}") {
-		return "", false
+// fillPattern substitutes each of pattern's wildcards, as the guard walks them
+// (server.PatternWildcards): probed gets probeValue, the other id wildcards the
+// fixed ids in others, the rest their nonIDValue.
+func fillPattern(pattern, probed, probeValue string, others map[string]string) string {
+	_, path, wildcards := server.PatternWildcards(pattern)
+	nameOf := make(map[string]string, len(wildcards))
+	for _, wc := range wildcards {
+		nameOf[wc.Segment] = wc.Name
 	}
-	return strings.TrimSuffix(strings.TrimSuffix(strings.TrimPrefix(segment, "{"), "}"), "..."), true
-}
-
-// patternWildcards returns the names of pattern's {wildcards}, in order.
-func patternWildcards(path string) []string {
-	var names []string
-	for _, segment := range strings.Split(path, "/") {
-		if name, ok := wildcardName(segment); ok {
-			names = append(names, name)
-		}
-	}
-	return names
-}
-
-// fillPattern substitutes each wildcard: probed gets probeValue, the other id
-// wildcards the fixed ids in others, the rest their nonIDValue.
-func fillPattern(pattern, path, probed, probeValue string, others map[string]string) string {
 	segments := strings.Split(path, "/")
 	for i, segment := range segments {
-		name, ok := wildcardName(segment)
+		name, ok := nameOf[segment]
 		if !ok {
 			continue
 		}
@@ -249,9 +234,13 @@ func TestEveryRouteRefusesAMalformedPathIDAsNotFound(t *testing.T) {
 	tested := 0
 	var failures []string
 	for _, pattern := range registeredPatterns(t) {
-		method, path, ok := strings.Cut(pattern, " ")
-		if !ok {
+		method, path, wildcards := server.PatternWildcards(pattern)
+		if method == "" {
 			continue
+		}
+		names := make([]string, 0, len(wildcards))
+		for _, wc := range wildcards {
+			names = append(names, wc.Name)
 		}
 		var token string
 		switch {
@@ -263,28 +252,28 @@ func TestEveryRouteRefusesAMalformedPathIDAsNotFound(t *testing.T) {
 		// Every id the sweep has a real one for is that; every other id is a
 		// well-formed one naming nothing.
 		others := map[string]string{}
-		for _, name := range patternWildcards(path) {
+		for _, name := range names {
 			if id, ok := realFor(path, name); ok {
 				others[name] = id
 			} else {
 				others[name] = uuid.NewString()
 			}
 		}
-		for _, name := range patternWildcards(path) {
+		for _, name := range names {
 			if _, isNonID := nonIDValue(pattern, name); isNonID {
 				continue
 			}
 			// Whether every OTHER id in the path names something real. Only then
 			// is the unknown-id answer about this wildcard rather than a parent.
 			othersReal := true
-			for _, other := range patternWildcards(path) {
+			for _, other := range names {
 				if _, isNonID := nonIDValue(pattern, other); other != name && !isNonID && others[other] != real[other] {
 					othersReal = false
 				}
 			}
 			tested++
-			malformed := callRoute(t, env, method, fillPattern(pattern, path, name, "not-a-uuid", others), token)
-			unknown := callRoute(t, env, method, fillPattern(pattern, path, name, uuid.NewString(), others), token)
+			malformed := callRoute(t, env, method, fillPattern(pattern, name, "not-a-uuid", others), token)
+			unknown := callRoute(t, env, method, fillPattern(pattern, name, uuid.NewString(), others), token)
 
 			report := func(want string) {
 				failures = append(failures, pattern+" {"+name+"}: malformed answered "+malformed.String()+
