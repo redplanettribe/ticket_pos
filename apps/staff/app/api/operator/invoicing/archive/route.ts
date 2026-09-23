@@ -16,5 +16,5 @@ export async function GET(request: Request) {
   }
   const incoming = new URL(request.url).searchParams;
   const params = new URLSearchParams({ from: incoming.get("from") ?? "", to: incoming.get("to") ?? "" });
-  return proxyInvoiceDocument(`/api/v1/operator/invoicing/archive?${params.toString()}`, token);
+  return proxyInvoiceDocument(request, `/api/v1/operator/invoicing/archive?${params.toString()}`, token);
 }

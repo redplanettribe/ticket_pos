@@ -66,7 +66,13 @@ type EventTicketQuestionOption struct {
 // type's questions in the order it asks them. That is the order the form reads
 // in, and therefore the order an Organizer already has in their head.
 func (r *Repository) ListEventTicketQuestions(ctx context.Context, orgID, eventID string) ([]EventTicketQuestion, error) {
-	rows, err := r.db.Pool.QueryContext(ctx, `
+	return listEventTicketQuestions(ctx, r.db.Pool, orgID, eventID)
+}
+
+// listEventTicketQuestions is ListEventTicketQuestions against any querier, so
+// the Holder Export reads its columns inside its snapshot (ADR 0075).
+func listEventTicketQuestions(ctx context.Context, db querier, orgID, eventID string) ([]EventTicketQuestion, error) {
+	rows, err := db.QueryContext(ctx, `
 		SELECT q.id, q.label, q.kind
 		FROM ticket_questions q
 		JOIN ticket_types tt ON tt.id = q.ticket_type_id
@@ -98,7 +104,7 @@ func (r *Repository) ListEventTicketQuestions(ctx context.Context, orgID, eventI
 		return nil, nil
 	}
 
-	optionRows, err := r.db.Pool.QueryContext(ctx, `
+	optionRows, err := db.QueryContext(ctx, `
 		SELECT o.ticket_question_id, o.id, o.label
 		FROM ticket_question_options o
 		WHERE o.ticket_question_id = ANY($1)

@@ -2235,6 +2235,15 @@ type holderSearchFixture struct {
 	neverAccepted string
 }
 
+// EVERY TERM THESE TESTS SEARCH FOR CARRIES A CHARACTER NO REFERENCE CAN HOLD.
+// `q` also matches the Sale Confirmation reference, which is `TP-` and eight
+// random base32 characters (A-Z and 2-7), so a short all-letter term such as
+// "Rui" turns up inside a random reference about once in 5,500 Sales and the
+// search returns a row nobody asked for. Hence the accented surnames below,
+// searched by an accented fragment, and address fragments that keep their `@`.
+// No API mints a reference of the caller's choosing, so the term is the side
+// that has to be made unambiguous.
+//
 // The addresses the fixture stands up, named here because three of the four are
 // assertions in themselves: Carla's is disclosed and therefore searchable,
 // Diego's is stored and must never match, Elena's has been purged and is gone.
@@ -2265,7 +2274,7 @@ func newHolderSearchFixture(t *testing.T, env *testEnv) holderSearchFixture {
 		"ticket_type_id": f.gaID, "quantity": 4, "payment_method": "cash",
 		"sold_at": "2026-07-01T10:00:00Z",
 	}, {
-		"customer_email": "bruno@example.com", "customer_first_name": "Bruno", "customer_last_name": "Diaz",
+		"customer_email": "bruno@example.com", "customer_first_name": "Bruno", "customer_last_name": "Díaz",
 		"ticket_type_id": f.vipID, "quantity": 1, "payment_method": "cash",
 		"sold_at": "2026-07-02T10:00:00Z",
 	}})
@@ -2285,7 +2294,7 @@ func newHolderSearchFixture(t *testing.T, env *testEnv) holderSearchFixture {
 	token := assignmentTokenFrom(t, assignmentMailFor(t, env, holderSearchAcceptedEmail))
 	acceptAssignmentOK(t, env, token)
 	resp, body, _ := publicLinkRequest(t, env, http.MethodPut, assignmentLinkNamePath, map[string]any{
-		"token": token, "first_name": "Carla", "last_name": "Ruiz",
+		"token": token, "first_name": "Carla", "last_name": "Muñoz",
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("holder name status=%d error=%+v", resp.StatusCode, body.Error)
@@ -2372,8 +2381,8 @@ func TestTheHolderListSearchesTheBuyerAndTheReference(t *testing.T) {
 	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, "Ana Lopez", ""),
 		anaTickets, "Ana Lopez")
 	// Half a surname, which is what a search box is actually used for.
-	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, "iaz", ""),
-		[]string{brunoTicket}, "iaz")
+	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, "íaz", ""),
+		[]string{brunoTicket}, "íaz")
 
 	// THE SALE CONFIRMATION REFERENCE, which is how a roster is joined back to
 	// the receipt in somebody's inbox.
@@ -2407,18 +2416,18 @@ func TestTheHolderListSearchesAnAcceptedHolder(t *testing.T) {
 	// legitimate — this test's premise, asserted rather than assumed.
 	row := guestRow(t, holderRoster(t, env, f.sessionID, f.eventID, ""), f.accepted)
 	if row.state != "accepted" || row.email != holderSearchAcceptedEmail || row.firstName != "Carla" {
-		t.Fatalf("the accepted row reads %+v, want Carla Ruiz at %s — the fixture is not set up",
+		t.Fatalf("the accepted row reads %+v, want Carla Muñoz at %s - the fixture is not set up",
 			row, holderSearchAcceptedEmail)
 	}
 
 	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, holderSearchAcceptedEmail, ""),
 		[]string{f.accepted}, holderSearchAcceptedEmail)
-	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, "Carla Ruiz", ""),
-		[]string{f.accepted}, "Carla Ruiz")
+	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, "Carla Muñoz", ""),
+		[]string{f.accepted}, "Carla Muñoz")
 	// The Holder's surname alone, to prove the name is matched as a substring of
 	// the joined pair and not by equality on either half.
-	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, "Rui", ""),
-		[]string{f.accepted}, "Rui")
+	assertSearchFinds(t, holderSearch(t, env, f.sessionID, f.eventID, "Muñ", ""),
+		[]string{f.accepted}, "Muñ")
 }
 
 // THE LOAD-BEARING TEST OF THIS FEATURE. Read the whole comment before changing
@@ -2481,7 +2490,7 @@ func TestSearchingAnUnacceptedHoldersAddressReturnsZeroRows(t *testing.T) {
 
 	// Part of the address, too: a substring match must not be a way round the
 	// rule that whole-address equality would have blocked.
-	assertNoRows(t, holderSearch(t, env, f.sessionID, f.eventID, "diego", ""), "diego",
+	assertNoRows(t, holderSearch(t, env, f.sessionID, f.eventID, "diego@", ""), "diego@",
 		"A FRAGMENT of an unaccepted address must not match either — the disclosure is the same one.")
 
 	// And the row is still reachable the way ADR 0065 says it must be: by its

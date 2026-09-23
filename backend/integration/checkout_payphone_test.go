@@ -473,9 +473,7 @@ func startPayPhoneEnv(ctx context.Context, connStr string, email *platform.Captu
 	app.InvoicingService.WithPollSchedule(testPollDelays, testPollBudget).WithSaleInvoiceKick(false)
 	payphoneApp = app
 
-	mux := http.NewServeMux()
-	server.RegisterRoutes(mux, app)
-	payphoneSrv = httptest.NewServer(platform.RequestIDMiddleware(mux))
+	payphoneSrv = httptest.NewServer(server.NewHandler(app))
 	payphoneEnv = &testEnv{
 		server:     payphoneSrv,
 		db:         app.DB.Pool,

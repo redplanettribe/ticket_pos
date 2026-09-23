@@ -11,12 +11,12 @@ type RouteContext = {
 // GET streams a Tax Invoice's signed XML from the Go API through the BFF
 // (#456), preserving the download headers so the browser saves the file under
 // the clave. Available in every status.
-export async function GET(_request: Request, context: RouteContext) {
+export async function GET(request: Request, context: RouteContext) {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
   if (!token) {
     return unauthorizedResponse();
   }
   const { id } = await context.params;
-  return proxyInvoiceDocument(`/api/v1/operator/invoicing/invoices/${encodeURIComponent(id)}/xml`, token);
+  return proxyInvoiceDocument(request, `/api/v1/operator/invoicing/invoices/${encodeURIComponent(id)}/xml`, token);
 }

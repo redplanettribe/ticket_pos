@@ -1,8 +1,8 @@
 import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
 
 import { fetchBackendRaw } from "@/lib/api";
 import { unauthorizedResponse } from "@/lib/bff";
+import { proxyDownload, XLSX_CONTENT_TYPE } from "@/lib/download-proxy";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 type RouteContext = {
@@ -16,8 +16,9 @@ async function sessionToken() {
 
 // GET streams the Holder Export .xlsx from the Go API through the BFF,
 // preserving the download headers so the browser saves the file — the same shape
-// as the Sales Export proxy next door, and deliberately so: two blob proxies
-// that differed would differ in which errors reach the reader.
+// as the Sales Export proxy next door, and deliberately so: both go through
+// lib/download-proxy, because two blob proxies that differed would differ in
+// which errors reach the reader.
 //
 // The Holder List's filter query is forwarded VERBATIM rather than picked apart
 // here: the API parses it with the Holder List's own parser, and a second reading
@@ -31,32 +32,19 @@ export async function GET(request: Request, context: RouteContext) {
 
   const { id } = await context.params;
   const query = new URL(request.url).search;
-  const upstream = await fetchBackendRaw(
-    `/api/v1/staff/events/${id}/holder-list/export${query}`,
-    { method: "GET", sessionToken: token },
+  // A refusal is the API's envelope with its Retry-After and Cache-Control, so
+  // the caller can show the reason, read the code the catalog words it by, and
+  // know when a busy export will take it. A file is streamed and never buffered
+  // (ADR 0075): see forwardDownload for why that is also what carries a failure
+  // part way through to the reader.
+  return proxyDownload(
+    request,
+    (signal) =>
+      fetchBackendRaw(`/api/v1/staff/events/${id}/holder-list/export${query}`, {
+        method: "GET",
+        sessionToken: token,
+        signal,
+      }),
+    XLSX_CONTENT_TYPE,
   );
-
-  if (!upstream.ok) {
-    // The API returns a JSON envelope on error; pass it through unchanged so the
-    // caller can show the reason rather than a broken download. The row-cap
-    // refusal is the case that matters — its message names how many tickets
-    // matched, and rewriting it here would delete the one actionable fact.
-    const body = await upstream.text();
-    return new NextResponse(body, {
-      status: upstream.status,
-      headers: { "Content-Type": upstream.headers.get("Content-Type") ?? "application/json" },
-    });
-  }
-
-  const headers = new Headers();
-  headers.set(
-    "Content-Type",
-    upstream.headers.get("Content-Type") ??
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  );
-  const disposition = upstream.headers.get("Content-Disposition");
-  if (disposition) {
-    headers.set("Content-Disposition", disposition);
-  }
-  return new NextResponse(upstream.body, { status: 200, headers });
 }

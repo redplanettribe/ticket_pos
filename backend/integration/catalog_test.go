@@ -381,13 +381,13 @@ func TestTicketTypeCRUDOnDraftEvent(t *testing.T) {
 	}
 
 	var created struct {
-		ID         string  `json:"id"`
-		Name       string  `json:"name"`
-		PriceCents int     `json:"price_cents"`
-		Currency   string  `json:"currency"`
-		Capacity   int     `json:"capacity"`
-		SoldCount  int     `json:"sold_count"`
-		SortOrder  int     `json:"sort_order"`
+		ID          string  `json:"id"`
+		Name        string  `json:"name"`
+		PriceCents  int     `json:"price_cents"`
+		Currency    string  `json:"currency"`
+		Capacity    int     `json:"capacity"`
+		SoldCount   int     `json:"sold_count"`
+		SortOrder   int     `json:"sort_order"`
 		Description *string `json:"description"`
 	}
 	if err := json.Unmarshal(body.Data, &created); err != nil {

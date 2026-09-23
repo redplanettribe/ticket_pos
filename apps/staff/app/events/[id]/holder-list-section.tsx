@@ -26,11 +26,6 @@ import { SortableHeader } from "@/components/sortable-header";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { dossierHref } from "@/lib/customer-dossier";
 import { ApiError } from "@/lib/events-api";
-// The Sales Export's field-error reader, REUSED rather than re-coined: both
-// downloads refuse over a row cap with a VALIDATION_FAILED whose useful sentence
-// is the field error underneath the generic top-level message, and two readers
-// of one envelope shape is how one of them comes to show boilerplate.
-import { exportFieldMessage } from "@/lib/sales-api";
 import { formatDate, formatNumber } from "@/lib/format";
 import {
   EMPTY_HOLDER_LIST_FILTERS,
@@ -1077,14 +1072,14 @@ type HolderExportButtonProps = {
 
 /**
  * Downloads the Holder Export for the view currently on screen (#529, ADR
- * 0065).
+ * 0065), whatever its size (ADR 0075).
  *
  * IT FETCHES A BLOB RATHER THAN LINKING to the endpoint, because the endpoint
  * answers with a FILE on success and a JSON error envelope on failure: a plain
  * link would send the browser to raw JSON on a refusal, and the error would go
- * unseen. The busy state and the inline message both follow from that —
- * generating a roster takes a moment, and the complaint belongs beside the
- * filters that are the way to fix it.
+ * unseen. The busy state and the inline message both follow from that - a
+ * large roster takes a moment to stream, and a download that fails part way
+ * saves nothing and says so here.
  *
  * It follows `SalesExportButton` deliberately and almost line for line: two
  * download buttons on two tabs of one screen that behaved differently would be
@@ -1111,24 +1106,15 @@ function HolderExportButton({ eventId, filters, sort, dir }: HolderExportButtonP
       await downloadHolderExport(eventId, filters, sort, dir);
     } catch (downloadError: unknown) {
       /*
-        Three rungs, in this order and for a reason.
-
-        THE FIELD ERROR'S OWN SENTENCE COMES FIRST, and it is the one message on
-        this surface that deliberately stays the API's English: the row-cap
-        refusal names how many TICKETS matched and how many may travel at once,
-        and those numbers reach this app only inside that prose — the field error
-        carries no details a Spanish sentence could be filled from. A translated
-        "narrow your filters" would therefore be Spanish with the one actionable
-        fact deleted, which is worse for the reader than English with it (ADR
-        0023's floor exists for exactly this). Then the catalog by code, then
-        this surface's own words for a request that never reached the API.
+        Two rungs. The catalog by code first: the one refusal this download
+        still has before its first byte is a busy server, and that sentence is
+        the catalog's, in the reader's language. Then this surface's own words,
+        which are also what a download cut part way reads as - there is no
+        envelope once the file has begun to stream, only a failed read (ADR
+        0075).
       */
       const apiError = downloadError instanceof ApiError ? downloadError : null;
-      setError(
-        exportFieldMessage(apiError?.details) ??
-          apiErrorMessage(errorCopy, apiError) ??
-          t("exportFailed"),
-      );
+      setError(apiErrorMessage(errorCopy, apiError) ?? t("exportFailed"));
     } finally {
       setDownloading(false);
     }
@@ -1136,11 +1122,9 @@ function HolderExportButton({ eventId, filters, sort, dir }: HolderExportButtonP
 
   return (
     <>
-      {/* Its own full-width line inside the wrapping row: the refusal that
-          matters here is a whole sentence naming a count and pointing back at
-          the filters, and squeezed beside the button it would be a column of two
-          words. It stays in this row so it reads as an answer to the button,
-          right where the filters that caused it are. */}
+      {/* Its own full-width line inside the wrapping row: a whole sentence
+          squeezed beside the button would be a column of two words. It stays in
+          this row so it reads as an answer to the button. */}
       {error ? (
         <span role="alert" className="basis-full text-right text-sm text-destructive">
           {error}

@@ -17,7 +17,7 @@ import (
 // These tests are about the FILE and not about the query behind it: which
 // columns exist, what a cell holds, what the Info sheet says, and — the
 // load-bearing one — that an address the builder was never handed is nowhere in
-// the bytes. The service's own rules (which filters were honoured, the row cap,
+// the bytes. The service's own rules (which filters were honoured, the snapshot,
 // the disclosure decision) are asserted where they live, in the integration
 // suite.
 
@@ -557,6 +557,48 @@ func TestBuildHolderExportQuestionColumnsComeFromTheSharedBuilder(t *testing.T) 
 	}
 	if got := holderCell(t, f, 0, "Flight number"); got != "" {
 		t.Errorf("unanswered question cell = %q, want blank", got)
+	}
+}
+
+// The Holder Export writes the same cells as the Sales Export for the two
+// answers a spreadsheet cannot take literally, because both come from the one
+// cell rule: empty text is no cell, and a date before 1900 is its ISO date text.
+func TestBuildHolderExportWritesWhatTheCellRuleDecides(t *testing.T) {
+	longAgo := time.Date(1850, time.January, 1, 0, 0, 0, 0, time.UTC)
+	roster := holderFixture()
+	roster.Questions = []QuestionColumn{
+		{ID: "q-notes", Label: "Notes"},
+		{ID: "q-birthday", Label: "Birthday"},
+	}
+	roster.Tickets[0].Answers = map[string]Answer{
+		"q-notes":    {Text: ptr("")},
+		"q-birthday": {Date: &longAgo},
+	}
+	_, f := buildHolders(t, roster, holderInfoFixture())
+
+	header := holderHeader(t, f)
+	ref := func(heading string) string {
+		t.Helper()
+		for i, h := range header {
+			if h == heading {
+				name, err := excelize.CoordinatesToCellName(i+1, 2)
+				if err != nil {
+					t.Fatalf("cell name: %v", err)
+				}
+				return name
+			}
+		}
+		t.Fatalf("no %q column in %v", heading, header)
+		return ""
+	}
+	if got, _ := f.GetCellType(HolderSheet, ref("Notes")); got != excelize.CellTypeUnset {
+		t.Fatalf("empty text answer written as a cell of type %v, want no cell", got)
+	}
+	if v, _ := f.GetCellValue(HolderSheet, ref("Notes"), excelize.Options{RawCellValue: true}); v != "" {
+		t.Fatalf("empty text answer holds %q, want nothing", v)
+	}
+	if got := holderCell(t, f, 0, "Birthday"); got != "1850-01-01" {
+		t.Fatalf("pre-1900 date answer reads %q, want the ISO date 1850-01-01", got)
 	}
 }
 

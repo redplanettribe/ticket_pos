@@ -14,12 +14,12 @@ import (
 
 // OrganizationView is the public organization profile.
 type OrganizationView struct {
-	ID             string    `json:"id"`
-	Name           string    `json:"name"`
-	Slug           string    `json:"slug"`
-	Currency       string    `json:"currency"`
-	CurrencyLocked bool      `json:"currency_locked"`
-	LogoURL        *string   `json:"logo_url"`
+	ID             string  `json:"id"`
+	Name           string  `json:"name"`
+	Slug           string  `json:"slug"`
+	Currency       string  `json:"currency"`
+	CurrencyLocked bool    `json:"currency_locked"`
+	LogoURL        *string `json:"logo_url"`
 	// SupportWhatsApp is the Organization's Support WhatsApp number in canonical
 	// E.164 form, null when it has none. Shown here so an Org Admin can see,
 	// correct and withdraw the number the platform publishes on their behalf.

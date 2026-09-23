@@ -756,3 +756,16 @@ func ErrQuestionReviewUnknownItem(itemID string) apperror.DomainError {
 		map[string]any{"item_id": itemID},
 	)
 }
+
+// ErrHolderExportBusy is returned when a Holder Export is asked for while this
+// API instance is already streaming as many Holder Exports as it allows at
+// once (ADR 0075).
+//
+// IT IS ABOUT CAPACITY AND NEVER ABOUT THE REQUEST: nothing about the Event or
+// the filters is wrong, and the same request a moment later succeeds. So it is
+// its own code and a 503 with a retry, and never VALIDATION_FAILED, which would
+// send the reader to change filters that are not the problem.
+func ErrHolderExportBusy() apperror.DomainError {
+	return apperror.New("HOLDER_EXPORT_BUSY",
+		"An export is already being prepared. Try again in a moment.", nil)
+}

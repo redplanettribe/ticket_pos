@@ -2209,6 +2209,7 @@
       "SALE_NOT_IMPORTED": "Aquí solo se puede revertir una venta importada. Una venta en línea la revierte el comprador dentro del plazo de reversión, o la plataforma.",
       "SALE_NOT_REVERSIBLE": "Aquí solo se puede revertir una venta en línea: el dinero de esta venta nunca pasó por la plataforma. Una venta importada se deshace desde su importación de ventas.",
       "SALE_REVERSAL_IN_PROGRESS": "Ya se está procesando una reversión de esta venta. Vuelva a intentarlo en un momento.",
+      "HOLDER_EXPORT_BUSY": "Ya se está preparando una exportación. Vuelva a intentarlo en un momento.",
       "REFUNDED_AMOUNT_EXCEEDS_COLLECTED": "El monto reembolsado es mayor de lo que cobró esta venta.",
       "REFUNDED_AMOUNT_REQUIRED": "Esta venta cobró dinero. Indique qué se le devolvió al comprador y si la plataforma retuvo su comisión.",
       "NOTHING_TO_REFUND": "Esta venta no cobró nada, así que no había nada que reembolsar. Registre la reversión sin monto reembolsado ni decisión sobre la comisión.",

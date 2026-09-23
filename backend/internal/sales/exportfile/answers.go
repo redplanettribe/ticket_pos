@@ -401,67 +401,54 @@ func writeHolder(f *excelize.File, cols layout, ticket TicketRow, row int) error
 		{colHolderLastName, ticket.HolderLastName},
 		{colHolderEmail, ticket.HolderEmail},
 	} {
-		if col.value == "" {
+		// Through the cell rule, which leaves an empty value genuinely blank,
+		// exactly as the Holder Export writes the same four columns.
+		value := TextCell(col.value)
+		if value.Kind == CellBlank {
 			continue
 		}
-		if err := setStr(f, AnswersSheet, cols, col.key, row, col.value); err != nil {
+		if err := setStr(f, AnswersSheet, cols, col.key, row, value.Text); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// writeAnswer writes one AnswerCell to this sheet, in whichever shape the value
-// takes.
+// writeAnswer writes one AnswerCell to a sheet: the thin excelize serializer of
+// the answer rule.
 //
-// IT NO LONGER DECIDES WHICH CELLS EXIST — CellsFor does, for this sheet and the
-// Holder Export both. What is left here is the part that is genuinely about
-// writing to a spreadsheet: which excelize call a text, a number, a date or a
-// boolean takes, and the date style. A multiple-choice Option arrives as an
-// ordinary Checked Answer and goes down the same boolean branch as a checkbox,
-// which is why there is no fan-out in sight.
+// IT DECIDES NOTHING. Which cells exist is CellsFor's decision and what each
+// one holds is Answer.Cell's, both shared with the Holder Export (ADR 0075).
+// What is left here is genuinely about excelize: which call a text, a number, a
+// date or a boolean takes, and the date style.
 //
-// THE SHEET IS A PARAMETER SINCE #529, and it has to be: the Holder Export writes
-// its Answers onto its own sheet through this same function, so that the two
-// files cannot come to disagree about how a number, a date or a FALSE is spelled
-// in a cell. Nothing else about the function differs between the two callers.
+// THE SHEET IS A PARAMETER because it writes onto whichever sheet the caller is
+// building; nothing else about the function differs between callers.
 func writeAnswer(f *excelize.File, sheet string, cols layout, ac AnswerCell, row int, dateStyle int) error {
-	answer := ac.Value
+	value := ac.Value.Cell()
+	if value.Kind == CellBlank {
+		return nil
+	}
 	cell, err := cellRef(cols, ac.Key, row)
 	if err != nil {
 		return err
 	}
-	switch {
-	case answer.Text != nil:
-		return f.SetCellStr(sheet, cell, *answer.Text)
-	case answer.Number != nil:
-		// A real number, at the precision it was given. Not SetCellFloat with a
-		// fixed scale: a `number` question may be asked for a headcount or for a
-		// measurement, and the schema stores it as unconstrained NUMERIC rather
-		// than round somebody's answer away.
-		return f.SetCellValue(sheet, cell, *answer.Number)
-	case answer.Date != nil:
-		// A real date cell, and pointedly NOT converted into the Event's
-		// timezone the way sold_at is. A date Answer is a CALENDAR DATE — a
-		// birthday, a travel day — and it has no moment to move: shifting it
-		// into a zone is how a birthday comes back a day early, which is the
-		// bug migration 073's DATE column exists to prevent. The value is
-		// rebuilt at midnight UTC so excelize reads no offset off it at all.
-		d := *answer.Date
-		midnight := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC)
-		if err := f.SetCellValue(sheet, cell, midnight); err != nil {
+	switch value.Kind {
+	case CellText:
+		return f.SetCellStr(sheet, cell, value.Text)
+	case CellNumber:
+		// Not SetCellFloat with a fixed scale: the rule hands over the precision
+		// it was given, and this writes it as given.
+		return f.SetCellValue(sheet, cell, value.Number)
+	case CellDate:
+		if err := f.SetCellValue(sheet, cell, value.Date); err != nil {
 			return err
 		}
 		// Set after the value: excelize stamps a default date-and-time style of
 		// its own when writing a time, and this replaces it with the date alone.
 		return f.SetCellStyle(sheet, cell, cell, dateStyle)
-	case answer.Checked != nil:
-		return f.SetCellBool(sheet, cell, *answer.Checked)
+	case CellBool:
+		return f.SetCellBool(sheet, cell, value.Bool)
 	}
-	// An Answer with nothing set writes nothing. The write path cannot produce
-	// one — migration 073's CHECK refuses a row claiming to be two kinds at once
-	// and the service refuses one claiming to be none — so this is the shape of
-	// a bug elsewhere, and leaving the cell blank keeps it looking like the
-	// Outstanding Answer it would be indistinguishable from anyway.
 	return nil
 }

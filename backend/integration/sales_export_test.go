@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1856,7 +1857,11 @@ func TestSalesExportCapIsTheSaleImportRowLimit(t *testing.T) {
 
 // captureLogger records what a service logged during one test, so the log line
 // can be read back the way a log aggregator would see it.
+//
+// It is safe for concurrent use: a streamed export logs from the server's
+// goroutine while the test reads, and two exports may log at once.
 type captureLogger struct {
+	mu    sync.Mutex
 	lines []capturedLine
 }
 
@@ -1867,25 +1872,42 @@ type capturedLine struct {
 }
 
 func (l *captureLogger) Info(msg string, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.lines = append(l.lines, capturedLine{level: "info", msg: msg, args: args})
 }
 
 func (l *captureLogger) Warn(msg string, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.lines = append(l.lines, capturedLine{level: "warn", msg: msg, args: args})
 }
 
 func (l *captureLogger) Error(msg string, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.lines = append(l.lines, capturedLine{level: "error", msg: msg, args: args})
 }
 
-func (l *captureLogger) reset() { l.lines = nil }
+func (l *captureLogger) reset() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = nil
+}
+
+// snapshot is a copy of what has been logged so far.
+func (l *captureLogger) snapshot() []capturedLine {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]capturedLine(nil), l.lines...)
+}
 
 // rendered is everything logged, flattened — the message and every key and
 // value — which is the shape the assertion "no buyer PII reaches the
 // aggregator" needs.
 func (l *captureLogger) rendered() string {
 	var b strings.Builder
-	for _, line := range l.lines {
+	for _, line := range l.snapshot() {
 		b.WriteString(line.level)
 		b.WriteString(" ")
 		b.WriteString(line.msg)
@@ -1901,7 +1923,7 @@ func (l *captureLogger) rendered() string {
 func (l *captureLogger) only(t *testing.T, fragment string) capturedLine {
 	t.Helper()
 	var found []capturedLine
-	for _, line := range l.lines {
+	for _, line := range l.snapshot() {
 		if strings.Contains(line.msg, fragment) {
 			found = append(found, line)
 		}

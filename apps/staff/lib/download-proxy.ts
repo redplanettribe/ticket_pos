@@ -1,0 +1,93 @@
+/**
+ * The file-download proxies' one shape: the Holder Export, the Sales Export and
+ * the Tax Invoice documents each hand the Go API's answer to the browser through
+ * here, so they cannot differ in which headers, errors or bytes reach the
+ * reader.
+ *
+ * It imports nothing from Next or from the app's aliases, which is what lets
+ * `node --test` exercise it directly.
+ */
+
+/**
+ * The headers passed on from the API as they came, on a refusal and on a file
+ * alike when the API sent them. Retry-After is how a busy export tells the
+ * reader when to try again; Cache-Control is how the API keeps a roster out of
+ * shared caches. Content-Type is not here because each path has its own
+ * fallback for it.
+ */
+const FORWARDED_HEADERS = ["Content-Disposition", "Retry-After", "Cache-Control"] as const;
+
+/**
+ * forwardDownload turns the API's response into the browser's.
+ *
+ * A refusal is the API's JSON envelope passed through unchanged, with its status,
+ * so the caller can show the reason rather than a broken download.
+ *
+ * A file is passed through AS A STREAM AND NEVER BUFFERED (ADR 0075): the
+ * Holder Export has no size limit, so buffering it here would put the whole
+ * roster in this process's memory. The stream is also what carries a failure
+ * through: when the API aborts a download part way, the upstream body errors,
+ * this response errors with it, and the browser sees a broken connection rather
+ * than a clean end, so its blob() rejects and no file is saved.
+ */
+export async function forwardDownload(upstream: Response, fileContentType: string): Promise<Response> {
+  const headers = new Headers();
+  for (const name of FORWARDED_HEADERS) {
+    const value = upstream.headers.get(name);
+    if (value !== null) {
+      headers.set(name, value);
+    }
+  }
+
+  if (!upstream.ok) {
+    headers.set("Content-Type", upstream.headers.get("Content-Type") ?? "application/json");
+    return new Response(await upstream.text(), { status: upstream.status, headers });
+  }
+
+  headers.set("Content-Type", upstream.headers.get("Content-Type") ?? fileContentType);
+  return new Response(upstream.body, { status: 200, headers });
+}
+
+/**
+ * proxyDownload fetches a download from the API on behalf of the browser's
+ * request and forwards it.
+ *
+ * The upstream fetch is handed the browser request's abort signal, so a reader
+ * who gives up while the API is still preparing the file (opening the snapshot,
+ * reading the first batch) stops that work instead of leaving it running for
+ * nobody. Once the file is flowing, a reader who goes away cancels this
+ * response's body, which is the upstream body, and that cancels the upstream
+ * fetch in turn.
+ *
+ * A reader who gives up before the upstream fetch resolves makes that fetch
+ * reject. Nobody is left to read the answer, so that is returned quietly as an
+ * empty 499 (client closed request) rather than thrown, which Next would log as
+ * an unhandled route error and a 500. It is keyed on the browser's own signal,
+ * not on the error's name: an abort nobody asked for while the browser is still
+ * waiting is a failure, and is thrown as any other failure is.
+ */
+export async function proxyDownload(
+  request: Request,
+  fetchUpstream: (signal: AbortSignal) => Promise<Response>,
+  fileContentType: string,
+): Promise<Response> {
+  let upstream: Response;
+  try {
+    upstream = await fetchUpstream(request.signal);
+  } catch (error) {
+    if (request.signal.aborted) {
+      return new Response(null, { status: CLIENT_CLOSED_REQUEST });
+    }
+    throw error;
+  }
+  return forwardDownload(upstream, fileContentType);
+}
+
+/**
+ * The status a download answers when its reader went away first. No browser
+ * sees it; it is what the server's own request log records.
+ */
+const CLIENT_CLOSED_REQUEST = 499;
+
+/** The .xlsx media type both exports fall back to. */
+export const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";

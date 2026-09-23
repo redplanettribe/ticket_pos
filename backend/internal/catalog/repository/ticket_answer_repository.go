@@ -268,11 +268,17 @@ func (r *Repository) ListAnswerableTicketsForBuyer(ctx context.Context, customer
 // their chosen Options, which is the same shape
 // ListTicketQuestionOptionsByTicketTypeID uses for the same reason.
 func (r *Repository) ListTicketAnswers(ctx context.Context, ticketIDs []string) ([]TicketAnswer, error) {
+	return listTicketAnswers(ctx, r.db.Pool, ticketIDs)
+}
+
+// listTicketAnswers is ListTicketAnswers against any querier, so the Holder
+// Export can read its Answers inside its snapshot (ADR 0075).
+func listTicketAnswers(ctx context.Context, db querier, ticketIDs []string) ([]TicketAnswer, error) {
 	if len(ticketIDs) == 0 {
 		return nil, nil
 	}
 
-	rows, err := r.db.Pool.QueryContext(ctx, `
+	rows, err := db.QueryContext(ctx, `
 		SELECT id, ticket_id, ticket_question_id,
 		       text_value, number_value::text, date_value::text, boolean_value,
 		       created_at, updated_at
@@ -315,7 +321,7 @@ func (r *Repository) ListTicketAnswers(ctx context.Context, ticketIDs []string) 
 	// the export header and every list say `Chicken (halal)` while the person
 	// who ticked it read `Chicken`, and a surface that can show only one of
 	// those cannot answer what somebody actually agreed to.
-	optionRows, err := r.db.Pool.QueryContext(ctx, `
+	optionRows, err := db.QueryContext(ctx, `
 		SELECT ao.ticket_answer_id, ao.ticket_question_option_id,
 		       ao.option_label_snapshot, o.label, o.retired_at IS NOT NULL,
 		       ao.sort_order

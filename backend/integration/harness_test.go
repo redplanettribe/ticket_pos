@@ -151,10 +151,7 @@ func TestMain(m *testing.M) {
 	sharedDB = app.DB.Pool
 	sharedEmail = email
 
-	mux := http.NewServeMux()
-	server.RegisterRoutes(mux, app)
-	handler := platform.RequestIDMiddleware(mux)
-	srv := httptest.NewServer(handler)
+	srv := httptest.NewServer(server.NewHandler(app))
 	sharedEnv = &testEnv{
 		server:     srv,
 		db:         app.DB.Pool,

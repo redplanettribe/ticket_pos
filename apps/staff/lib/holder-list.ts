@@ -622,14 +622,19 @@ function holderExportFilenameFrom(disposition: string | null): string {
  * IT FETCHES A BLOB RATHER THAN NAVIGATING TO THE URL, and that is required
  * rather than cosmetic: the endpoint returns a FILE on success and a JSON error
  * envelope on failure, so a plain link would send the browser to raw JSON
- * whenever the export was refused — and the row-cap refusal, which is the one
- * message in this feature that has to be read, would be invisible. Fetching also
- * lets the caller show a spinner while a large roster is built.
+ * whenever the export was refused. Fetching also lets the caller show a spinner
+ * while a large roster streams in.
+ *
+ * AND READING THE WHOLE BLOB BEFORE SAVING IS WHAT MAKES A CUT DOWNLOAD SAVE
+ * NOTHING (ADR 0075). The export streams with no size limit, so a failure part
+ * way arrives as a broken connection rather than an envelope, and `blob()`
+ * rejects on it. That rejection propagates from here before any link exists, so
+ * no file is saved and the caller shows a failed download - a roster missing
+ * its last people can never reach anybody's Downloads folder.
  *
  * The envelope is re-thrown WHOLE — message, code and details — rather than
- * pre-worded here. Choosing the sentence is the call site's job: it reads
- * `exportFieldMessage` first, then the catalog by code, then its own copy, and
- * none of those three answers can be spelled in lib/.
+ * pre-worded here. Choosing the sentence is the call site's job: it reads the
+ * catalog by code, then its own copy, and neither answer can be spelled in lib/.
  */
 export async function downloadHolderExport(
   eventId: string,

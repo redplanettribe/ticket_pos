@@ -2209,6 +2209,7 @@
       "SALE_NOT_IMPORTED": "Only an imported sale can be reversed here. An online sale is reversed by the buyer within the Reversal Window, or by the platform.",
       "SALE_NOT_REVERSIBLE": "Only an Online Sale can be reversed here — no money for this sale passed through the platform. An imported sale is undone through its Sale Import.",
       "SALE_REVERSAL_IN_PROGRESS": "A reversal of this sale is already being processed. Try again in a moment.",
+      "HOLDER_EXPORT_BUSY": "An export is already being prepared. Try again in a moment.",
       "REFUNDED_AMOUNT_EXCEEDS_COLLECTED": "The refunded amount is more than this sale collected.",
       "REFUNDED_AMOUNT_REQUIRED": "This sale collected money. State what the buyer got back and whether the platform kept its fee.",
       "NOTHING_TO_REFUND": "This sale collected nothing, so there was nothing to refund. Record the reversal without a refunded amount or a fee decision.",

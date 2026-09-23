@@ -2,6 +2,7 @@ package integration
 
 import (
 	"net/http"
+	"net/url"
 	"strconv"
 	"testing"
 )
@@ -342,9 +343,12 @@ func TestASortedTaxInvoicesListNarrowsAndPagesInThatOrder(t *testing.T) {
 		"total asc + authorized: the filter removes a document; it does not reorder the rest")
 
 	// And with the search (#595) and the Emission Date range (#596), which
-	// narrow inside the order rather than replacing it.
-	assertListOrder(t, invoicesSorted(t, f.operatorSessionID, "number", "desc", "&q=MERIDIAN"),
-		[]string{f.tiedLate, f.tiedEarly}, "number desc + MERIDIAN")
+	// narrow inside the order rather than replacing it. The term carries a space
+	// because the search also matches the owed document's Sale Confirmation
+	// reference, `TP-` and eight base32 characters, and an all-letter term could
+	// be that reference.
+	assertListOrder(t, invoicesSorted(t, f.operatorSessionID, "number", "desc", "&q="+url.QueryEscape("MERIDIAN INDUSTRIAL")),
+		[]string{f.tiedLate, f.tiedEarly}, "number desc + MERIDIAN INDUSTRIAL")
 	assertListOrder(t, invoicesSorted(t, f.operatorSessionID, "date", "asc", "&issued_from="+sortDayEarliest+"&issued_to="+sortDayMiddle),
 		[]string{f.bolivar, f.tiedEarly, f.tiedLate}, "date asc + the first two days")
 

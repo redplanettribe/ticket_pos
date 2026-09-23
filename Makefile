@@ -78,14 +78,18 @@ test-parity:
 # must not restate how to invoke it: stated twice, the split was fixed here and
 # missed there, and the branch that introduced the second container owner went
 # green locally and red on the runner.
+#
+# `go vet` runs first: make stops at the first failing command, so vet after
+# the tests would never report on a branch whose tests fail.
 ci-go:
+	cd backend && go vet ./...
 	cd backend && go test $$(go list ./... | grep -v '/integration$$')
 	cd backend && go test ./integration/...
-	cd backend && go vet ./...
 
 # The JS job, step for step: a frozen-lockfile install (CI's first step, which
 # a plain `pnpm turbo ...` skips and then fails on a missing module), lint,
-# typecheck and build in one turbo invocation as the runner does, then every
+# typecheck and build in one turbo invocation as the runner does (turbo.json
+# runs each app's build after its typecheck, as both write .next), then every
 # workspace's unit tests minus the Playwright suite, which needs a stack already
 # serving that neither a runner nor this target has.
 ci-js: ci-preflight
@@ -109,9 +113,10 @@ ci: ci-go ci-js ci-openapi
 # Fail fast on what makes a local run diverge from the runner. The `make dev`
 # containers run `next dev` as root against the mounted repo, so they own and
 # keep rewriting apps/*/.next, and a container-side install leaves root-owned
-# pnpm symlinks and .bin shims under node_modules. `pnpm install` and `next
-# build` then die EACCES minutes into the run. Check up front, name the topmost
-# offenders, and print the fix -- through a throwaway container, never sudo.
+# pnpm symlinks and .bin shims under node_modules. `pnpm install`, the
+# typecheck's `next typegen` and `next build` then die EACCES into the run.
+# Check up front, name the topmost offenders, and print the fix -- through a
+# throwaway container, never sudo.
 # Stop the two Next.js containers first or .next comes straight back.
 ci-preflight:
 	@bad=$$(find apps/*/.next apps/*/node_modules packages/*/node_modules -maxdepth 2 ! -user $$(id -un) -prune -print 2>/dev/null); \

@@ -92,6 +92,18 @@ Reject before calling the service.
 **Validation is always handler responsibility.**
 Shape, required fields, types, and formats (`price: -5`, bad UUID) never reach the service.
 
+**Path ids are the exception to "bad UUID is `VALIDATION_FAILED`".**
+A malformed id in the PATH names a resource that cannot exist, so it is answered as a well-formed id naming nothing: `404` with the resource's own code (`EVENT_NOT_FOUND`, ...), or the empty list on a read whose "not found" is an empty list.
+It never reaches a uuid column (Postgres would refuse it and the request would 500).
+It is refused after the route's gate admits the caller and before the body is read.
+Staff and operator routes get this from one guard, `internal/server/path_ids.go`: a new id wildcard there goes in its table, with the error its unknown id answers (method-specific where one verb answers about something else, as `DELETE answers/{questionId}` answers `ANSWER_NOT_FOUND`).
+The guard fails closed: a staff or operator route with a wildcard that is neither in the table nor in the commented non-id exemptions panics at `RegisterRoutes`, so the server does not start.
+`TestEveryRouteRefusesAMalformedPathIDAsNotFound` walks every registered route, fails on a 5xx, and on a read or a delete whose other ids are real requires a malformed id to get exactly the status and code a well-formed unknown one gets.
+A route whose "not found" is an empty list is left out of the guard's table and gives a malformed id that same empty list where its unknown id gets one.
+For the staff Ticket Sale answers read that is the service, after the Event is resolved, on the same ordering argument as `INVALID_HOLDER_EMAIL` above.
+The customer and Assignment Link answer writes have no guard, and their question id is checked the same way: the shared answer step refuses a malformed one as `TICKET_QUESTION_NOT_FOUND` after the Ticket is resolved, so the Ticket's own not-found still comes first.
+Ids in the query string or body stay ordinary validation: `400 VALIDATION_FAILED`, field code `INVALID_ID`.
+
 Validation `details` shape:
 
 ```json
@@ -134,6 +146,10 @@ Each domain module owns its types (e.g. `catalog.ErrEventNotFound`, `sales.ErrCa
 | Not found in org | 404 | `EVENT_NOT_FOUND` |
 | Conflict / state violation | 409 | `CAPACITY_EXCEEDED` |
 | Permission (domain) | 403 | `FORBIDDEN` |
+
+A refusal about capacity, where the same request a moment later is expected to succeed, also declares a `Retry-After` in `domainRetryAfter` beside the status table (today only `HOLDER_EXPORT_BUSY`).
+The declaration decides the request log level too: a 5xx is logged at ERROR, mapped or not, unless it carries a `Retry-After`, which makes it a designed refusal logged at WARN.
+A 4xx is logged at INFO.
 
 Handlers stay thin:
 

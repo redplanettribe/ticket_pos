@@ -22,6 +22,12 @@ import (
 // manual facturas, told apart by their Recipient's name, Tax ID and number,
 // and one owed Sale Invoice, which has no number at all and is reachable only
 // by its Sale's Confirmation reference.
+//
+// That reference is `TP-` and eight random base32 characters (A-Z and 2-7),
+// and the search matches it, so a term that is only letters can turn up inside
+// it and pull the owed document into a list it has no place in: "ZEBRA" does
+// once in about 8 million references, rare but not never. A term that has to leave the owed
+// document out therefore carries a space or a dot, which no reference holds.
 type invoiceSearchFixture struct {
 	operatorSessionID string
 	// byName is the factura to "FUNDACION ZEBRA S.A." — number ...0000001.
@@ -155,8 +161,8 @@ func TestSearchingTheTaxInvoicesListFindsADocumentByAnyOfItsFourFields(t *testin
 		[]string{f.byName}, "000000001")
 
 	// The Recipient's legal name — the document's OWN snapshot.
-	assertFinds(t, searchInvoices(t, f.operatorSessionID, "ZEBRA", ""),
-		[]string{f.byName}, "ZEBRA")
+	assertFinds(t, searchInvoices(t, f.operatorSessionID, "ZEBRA S.A.", ""),
+		[]string{f.byName}, "ZEBRA S.A.")
 	// The buyer of the House sale is found by the name the Sale Invoice
 	// declares her under, which is what the SRI will hold.
 	assertFinds(t, searchInvoices(t, f.operatorSessionID, "Ana Lopez", ""),
@@ -187,7 +193,7 @@ func TestTheTaxInvoicesSearchIsCaseInsensitiveAndTreatsWildcardsAsLiterals(t *te
 	env := setupTest(t)
 	f := newInvoiceSearchFixture(t, env)
 
-	for _, term := range []string{"zebra", "ZeBrA", "fundacion zebra s.a."} {
+	for _, term := range []string{"zebra s.a.", "ZeBrA S.a.", "fundacion zebra s.a."} {
 		assertFinds(t, searchInvoices(t, f.operatorSessionID, term, ""), []string{f.byName}, term)
 	}
 	assertFinds(t, searchInvoices(t, f.operatorSessionID, "ana lopez", ""), []string{f.owed}, "ana lopez")
@@ -214,8 +220,8 @@ func TestTheTaxInvoicesSearchCombinesWithTheKindAndStatusFilters(t *testing.T) {
 	env := setupTest(t)
 	f := newInvoiceSearchFixture(t, env)
 
-	assertFinds(t, searchInvoices(t, f.operatorSessionID, "ZEBRA", "&kind=manual"), []string{f.byName}, "ZEBRA + manual")
-	assertFindsNothing(t, searchInvoices(t, f.operatorSessionID, "ZEBRA", "&kind=sale"), "ZEBRA + sale",
+	assertFinds(t, searchInvoices(t, f.operatorSessionID, "ZEBRA S.A.", "&kind=manual"), []string{f.byName}, "ZEBRA S.A. + manual")
+	assertFindsNothing(t, searchInvoices(t, f.operatorSessionID, "ZEBRA S.A.", "&kind=sale"), "ZEBRA S.A. + sale",
 		"The search and the kind INTERSECT; neither wins.")
 
 	assertFinds(t, searchInvoices(t, f.operatorSessionID, "Lopez", "&status=owed"), []string{f.owed}, "Lopez + owed")

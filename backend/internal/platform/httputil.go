@@ -80,9 +80,35 @@ func WriteDomainError(w http.ResponseWriter, requestID string, err error) error 
 	var domainErr apperror.DomainError
 	if errors.As(err, &domainErr) {
 		status := domainHTTPStatus(domainErr.Code())
+		if after := domainRetryAfter(domainErr.Code()); after != "" {
+			w.Header().Set(retryAfterHeader, after)
+		}
 		return WriteHandlerError(w, requestID, status, domainErr.Code(), domainErr.Message(), domainErr.Details())
 	}
 	return WriteHandlerError(w, requestID, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred", nil)
+}
+
+// retryAfterHeader is set only from domainRetryAfter, and the request log reads
+// it back to tell a capacity refusal from a failure.
+const retryAfterHeader = "Retry-After"
+
+// domainRetryAfter is the Retry-After, in seconds, a domain refusal carries, or
+// "" for one that carries none.
+//
+// ONLY A REFUSAL ABOUT CAPACITY GETS ONE, where the same request a moment later
+// is expected to succeed and saying when is useful to the caller. It lives
+// beside the status mapping so a handler never special-cases a code to add it.
+//
+// It also decides how the request is logged: a 5xx carrying a Retry-After is an
+// expected refusal and logs at WARN, every other 5xx at ERROR (loggingMiddleware).
+func domainRetryAfter(code string) string {
+	switch code {
+	// Every Holder Export slot on the instance is streaming (ADR 0075). Most
+	// exports finish in seconds, so a few seconds is when a retry is worth it.
+	case "HOLDER_EXPORT_BUSY":
+		return "5"
+	}
+	return ""
 }
 
 func domainHTTPStatus(code string) int {
@@ -560,6 +586,11 @@ func domainHTTPStatus(code string) int {
 	// asking for a moment while it finds out what the Payment Provider did, and
 	// retrying is exactly the right response.
 	case "SALE_REVERSAL_IN_PROGRESS":
+		return http.StatusServiceUnavailable
+	// Every Holder Export slot on this API instance is streaming (ADR 0075). A
+	// 503 with a retry for SALE_REVERSAL_IN_PROGRESS's reason: it says nothing
+	// about the request, and trying again in a moment is exactly right.
+	case "HOLDER_EXPORT_BUSY":
 		return http.StatusServiceUnavailable
 	// The three refusals about an Operator Reversal's money memo: a refund larger
 	// than the Ticket Sale ever collected (#125), money stated about a sale that

@@ -1295,6 +1295,32 @@ type SalesExport struct {
 // in memory, so an unbounded Event would produce a request that hangs and then
 // either times out at the proxy or takes the process down — on the busiest day
 // of the Event, which is exactly when somebody reaches for this.
+//
+// THE CAP WAS CHOSEN FOR SYMMETRY, NOT MEMORY, AND AT ITS HEIGHT IT DOES NOT FIT
+// in 512Mi (#661, measured 2026-09-22 by TestSalesExportAtTheCap in
+// integration/sales_export_bench_test.go). The cap counts Sales; the per-Ticket
+// sheet counts Tickets, and that sheet is what the memory goes on. The shape
+// measured, end to end over HTTP against seeded Postgres:
+//
+//   - 10,000 Sales, one in a hundred for 40 Tickets and the rest for 1 to 8:
+//     48,700 Tickets, every one accepted by a Holder of its own.
+//   - The Holder benchmark's question set: eight multi_choice questions of 25
+//     Options (5 retired) and six one-column questions, every one answered.
+//   - "Ticket Sales": 10,000 rows x 21 columns, 210,000 cells.
+//   - "Ticket Answers": 48,700 rows x 212 columns, 10,324,400 cells.
+//   - A 25.2 MiB .xlsx, about 14.35 GiB allocated per export.
+//
+// As deployed (no GOMEMLIMIT, GOGC=100), three runs took 22.7-23.2s and peaked
+// at 5,151 MiB of live Go heap and 5,727 MiB resident. With GOMEMLIMIT=480MiB,
+// so the collector squeezes as hard as it can, two runs took 98-104s and still
+// peaked at 3,039 MiB of heap and 3,127 MiB resident: that is the working set
+// itself, roughly 300 bytes per cell, and six times the instance. Only the time
+// fits, and only without a memory limit. A tenth of the height does not fit
+// either: 1,000 Sales of the same mix (4,870 Tickets, 1,032,440 cells on the
+// per-Ticket sheet) took 2.1s and peaked at 494 MiB of heap and 590 MiB
+// resident, as deployed. At this width the limit binds below a million cells,
+// which is under 1,000 Sales. The number is recorded here, not acted on: the cap
+// is unchanged, and what to do about it is the ticket's to decide.
 const defaultExportRowCap = importfile.MaxRows
 
 // WithExportRowCap narrows how many Ticket Sales a Sales Export may carry.

@@ -1,5 +1,7 @@
 # The Holder List filters and downloads itself, and an Event Owner may read it
 
+**Superseded in part by [ADR 0075](./0075-the-holder-export-streams-and-has-no-cap.md):** the Holder Export's 2,000-Ticket cap and its refusal are gone; the export streams with no cap.
+
 Specified as issue #518.
 Widens [ADR 0047](./0047-the-organization-sees-the-holders-address.md) in one direction and pins it
 shut in another: the Organization's sight of a Holder's address now reaches an Event Owner, and the

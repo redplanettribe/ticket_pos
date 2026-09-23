@@ -12,6 +12,16 @@ import (
 // search can only match one of the two sales.
 const taxIDPassport = "XZ998877"
 
+// searchedCedula is the cédula the seeded buyer carries, and it is not
+// validCedula because a fragment of that one can sit inside a Sale Confirmation
+// reference. The search matches the reference too, and a reference is `TP-`
+// plus eight base32 characters (A-Z and 2-7), which validCedula's "5675" tail
+// is made of entirely: one random reference in about 200,000 held it and the
+// "last four digits" search found a second buyer. Every two adjacent digits of
+// this one include a 0, 1, 8 or 9, none of which a reference can hold, so no
+// fragment of it a test types can ever match one. The check digit is real.
+const searchedCedula = "1708394158"
+
 // The Tax ID on the staff Sales list (#100, ADR 0016): the unified search box
 // gains a fourth branch over the sale's immutable Tax ID snapshot — an organizer
 // pastes the full cédula/RUC/passport read off an ID card, or door staff type
@@ -64,7 +74,7 @@ func taxIDSeedEvent(t *testing.T, env *testEnv, sessionID, name, slug string) st
 		{"customer_email": "bea@example.com", "customer_first_name": "Bea", "customer_last_name": "Mora", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-02T10:00:00Z"},
 		{"customer_email": "cara@example.com", "customer_first_name": "Cara", "customer_last_name": "Diaz", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-03T10:00:00Z"},
 	})
-	stampSaleTaxID(t, env, eventID, "ana@example.com", "cedula", validCedula)
+	stampSaleTaxID(t, env, eventID, "ana@example.com", "cedula", searchedCedula)
 	stampSaleTaxID(t, env, eventID, "bea@example.com", "passport", taxIDPassport)
 	// cara's sale keeps the null pair: the legacy/imported case.
 	return eventID
@@ -145,22 +155,23 @@ func TestSalesListSearchesByTaxID(t *testing.T) {
 	eventID := taxIDSeedEvent(t, env, sessionID, "Search Tax Fest", "search-tax-fest")
 
 	// Full number, as pasted from an ID card.
-	onlyEmail(t, salesSearch(t, env, sessionID, eventID, validCedula), validCedula, "ana@example.com")
+	onlyEmail(t, salesSearch(t, env, sessionID, eventID, searchedCedula), searchedCedula, "ana@example.com")
 
 	// Partial: the last four digits read off the card at the door.
-	last4 := validCedula[len(validCedula)-4:]
+	last4 := searchedCedula[len(searchedCedula)-4:]
 	onlyEmail(t, salesSearch(t, env, sessionID, eventID, last4), last4, "ana@example.com")
 
 	// Partial from the middle of the number.
-	mid := validCedula[2:6]
+	mid := searchedCedula[2:6]
 	onlyEmail(t, salesSearch(t, env, sessionID, eventID, mid), mid, "ana@example.com")
 
 	// Passport, matched case-insensitively like every other search branch.
 	onlyEmail(t, salesSearch(t, env, sessionID, eventID, "xz9988"), "xz9988", "bea@example.com")
 
-	// The pre-existing branches still work alongside it.
+	// The pre-existing branches still work alongside it. Each term carries a
+	// character no reference can hold (`@`, a space), for searchedCedula's reason.
 	onlyEmail(t, salesSearch(t, env, sessionID, eventID, "cara@"), "cara@", "cara@example.com")
-	onlyEmail(t, salesSearch(t, env, sessionID, eventID, "Mora"), "Mora", "bea@example.com")
+	onlyEmail(t, salesSearch(t, env, sessionID, eventID, "Bea Mora"), "Bea Mora", "bea@example.com")
 
 	// A number nobody bought under matches nothing — including the sale with no
 	// Tax ID, which a null must never make match.
@@ -179,7 +190,7 @@ func TestSalesListTaxIDSearchEscapesLikeMetacharacters(t *testing.T) {
 
 	// `_` is the single-character wildcard: unescaped, this would match Ana's
 	// cédula. Escaped, it is a literal underscore no Tax ID contains.
-	underscore := validCedula[:len(validCedula)-1] + "_"
+	underscore := searchedCedula[:len(searchedCedula)-1] + "_"
 	if rows := salesSearch(t, env, sessionID, eventID, underscore); len(rows) != 0 {
 		t.Fatalf("q=%q matched %v, want none (underscore must be literal)", underscore, emailsOf(rows))
 	}
@@ -190,8 +201,8 @@ func TestSalesListTaxIDSearchEscapesLikeMetacharacters(t *testing.T) {
 	}
 
 	// A backslash is the escape character itself; it must not corrupt the pattern.
-	if rows := salesSearch(t, env, sessionID, eventID, `1712\3456`); len(rows) != 0 {
-		t.Fatalf(`q=1712\3456 matched %v, want none`, emailsOf(rows))
+	if rows := salesSearch(t, env, sessionID, eventID, `1708\3941`); len(rows) != 0 {
+		t.Fatalf(`q=1708\3941 matched %v, want none`, emailsOf(rows))
 	}
 }
 
@@ -281,7 +292,7 @@ func TestSalesListWithoutTaxIDStillSortsAndPaginates(t *testing.T) {
 	// The searched-for sale pages too: a Tax ID search returning one row reports
 	// a single-page result, not the unfiltered total.
 	resp, body = env.get(t,
-		"/api/v1/staff/events/"+eventID+"/sales?page_size=2&q="+url.QueryEscape(validCedula),
+		"/api/v1/staff/events/"+eventID+"/sales?page_size=2&q="+url.QueryEscape(searchedCedula),
 		authHeader(sessionID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("searched page status=%d error=%+v", resp.StatusCode, body.Error)

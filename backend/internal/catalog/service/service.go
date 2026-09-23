@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
@@ -331,14 +332,18 @@ type Service struct {
 	questionReviewMail QuestionReviewMail
 	operators          PlatformOperators
 	staffLocales       StaffLocales
-	// holderExportRowCap is how many Tickets one Holder Export may carry (#529).
-	//
-	// ZERO MEANS THE DEPLOYED DEFAULT, read through HolderExportRowCap, and never
-	// "export nothing": a service nobody configured must produce the shipped
-	// behaviour, and a zero here reaching a LIMIT would be an empty file that
-	// looked like an Event with nobody coming. Only WithHolderExportRowCap sets
-	// it, and only a test calls that.
-	holderExportRowCap int
+	// holderExportPause is the Holder Export's test-only pause point; see
+	// WithHolderExportPause. Nil in production.
+	holderExportPause func(ctx context.Context, rowsWritten int)
+	// holderExportDeadlineOverride replaces holderExportDeadline when non-zero;
+	// see WithHolderExportDeadline. Zero in production.
+	holderExportDeadlineOverride time.Duration
+	// holderExports counts the Holder Exports streaming on this instance; see
+	// holderExportConcurrency. The zero value is none.
+	holderExports struct {
+		sync.Mutex
+		streaming int
+	}
 	// revocationMailer and revocationRecipients deliver the one mail an
 	// Organization gets when a Platform Operator revokes an approved Ticket
 	// Question (#410, ADR 0056): every Org Admin, each in their Staff Locale.

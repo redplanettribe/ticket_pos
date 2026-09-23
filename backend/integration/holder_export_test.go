@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -46,27 +47,39 @@ func holderExportPath(eventID string) string {
 // body.
 func downloadHolderExport(t *testing.T, env *testEnv, sessionID, eventID, query string) (*http.Response, []byte) {
 	t.Helper()
-	target := env.server.URL + holderExportPath(eventID)
+	resp, body, err := fetchHolderExport(env.server.URL, sessionID, eventID, query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp, body
+}
+
+// fetchHolderExport is downloadHolderExport against any server, returning its
+// failure rather than failing the test, so it can run on a goroutine other than
+// the test's own: t.Fatal there stops only that goroutine and leaves the test
+// waiting on a result that never comes.
+func fetchHolderExport(serverURL, sessionID, eventID, query string) (*http.Response, []byte, error) {
+	target := serverURL + holderExportPath(eventID)
 	if query != "" {
 		target += "?" + query
 	}
 	req, err := http.NewRequest(http.MethodGet, target, nil)
 	if err != nil {
-		t.Fatalf("new request: %v", err)
+		return nil, nil, fmt.Errorf("new request: %w", err)
 	}
 	if sessionID != "" {
 		req.Header.Set("Authorization", "Bearer "+sessionID)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("do request: %v", err)
+		return nil, nil, fmt.Errorf("do request: %w", err)
 	}
 	defer resp.Body.Close()
 	var buf bytes.Buffer
 	if _, err := buf.ReadFrom(resp.Body); err != nil {
-		t.Fatalf("read body: %v", err)
+		return resp, nil, fmt.Errorf("read body: %w", err)
 	}
-	return resp, buf.Bytes()
+	return resp, buf.Bytes(), nil
 }
 
 // holderExportFile is a downloaded roster, indexed by its header row. Every
@@ -188,21 +201,6 @@ func holderExportRefusal(t *testing.T, resp *http.Response, data []byte) []platf
 		t.Fatalf("refusal carries no fields: %s", string(data))
 	}
 	return body.Error.Details.Fields
-}
-
-// withHolderExportCap lowers the Holder Export's row cap for one test and
-// restores the deployed one afterwards.
-//
-// Reaching the real cap would mean seeding fifty thousand and one Tickets, which
-// takes minutes and buys nothing: what is under test is the behaviour AT the
-// bound, and the bound is configuration. This mirrors withSalesExportCap next
-// door, and the deployed default is pinned separately by
-// TestHolderExportCapIsItsOwnNumber so the two can never quietly become one.
-func withHolderExportCap(t *testing.T, rows int) {
-	t.Helper()
-	original := sharedApp.CatalogService.HolderExportRowCap()
-	sharedApp.CatalogService.WithHolderExportRowCap(rows)
-	t.Cleanup(func() { sharedApp.CatalogService.WithHolderExportRowCap(original) })
 }
 
 // withCatalogLogger captures what the catalog service logs for one test, so the
@@ -478,9 +476,10 @@ func assertPresentInExport(t *testing.T, data []byte, needle string) {
 }
 
 // exportZipEntries reads every entry of an .xlsx zip into memory, by name, and
-// insists xl/sharedStrings.xml is among them — that is where every text cell's
-// value lives, so a search that missed it would miss the thing it is looking
-// for.
+// insists xl/sharedStrings.xml is among them - a workbook without one is not the
+// file the search was written against. Since ADR 0075 the data sheet's text is
+// inline in the sheet part and the shared table holds the Info sheet's, and the
+// search reads every entry, so it misses neither.
 func exportZipEntries(t *testing.T, data []byte) map[string]string {
 	t.Helper()
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
@@ -597,7 +596,7 @@ func TestTheHolderExportNeverDescribesAnIgnoredFilter(t *testing.T) {
 	}
 
 	// THE AUDIT LINE MAKES THE SAME CALL, from the same honoured set.
-	line := logs.only(t, "holder export")
+	line := logs.only(t, "holder export started")
 	if got := line.arg(t, "outstanding"); got != false {
 		t.Errorf("log outstanding = %v, want false — the filter was dropped", got)
 	}
@@ -635,7 +634,7 @@ func TestTheHolderExportReportsASearchAndNeverTheTerm(t *testing.T) {
 	}
 	assertAbsentFromExport(t, file.raw, term)
 
-	line := logs.only(t, "holder export")
+	line := logs.only(t, "holder export started")
 	if got := line.arg(t, "search"); got != true {
 		t.Errorf("log search = %v, want the boolean true", got)
 	}
@@ -687,96 +686,18 @@ func TestTheHolderExportDataSheetIsNeverNamedSales(t *testing.T) {
 	}
 }
 
-// OVER THE CAP THE REQUEST IS REFUSED, NAMING HOW MANY TICKETS MATCHED, and
-// nothing is truncated. Exactly the cap still succeeds.
-//
-// The refusal is the feature: generation is synchronous and the workbook is
-// buffered whole, so an unbounded Event is a request that hangs and then takes
-// something down — on the busiest day of the Event, which is exactly when
-// somebody reaches for this. A TRUNCATED file would be the one failure nobody
-// can detect from the file itself, so the answer is "narrow your filters", and
-// the message names the count because that is how the person knows how much
-// narrower to go.
-func TestTheHolderExportRefusesOverTheCapRatherThanTruncating(t *testing.T) {
-	env := setupTest(t)
-	enableTicketAssignment(t)
-	f := newHolderFilterFixture(t, env)
-
-	withHolderExportCap(t, 3)
-	resp, data := downloadHolderExport(t, env, f.sessionID, f.eventID, "")
-	fields := holderExportRefusal(t, resp, data)
-	if len(fields) != 1 {
-		t.Fatalf("refusal carries %d fields, want one: %+v", len(fields), fields)
-	}
-	// The field is `filters` and not any one parameter: no single filter is at
-	// fault, and blaming sold_from would be wrong for somebody whose lever is the
-	// channel.
-	if fields[0].Field != "filters" {
-		t.Errorf("refusal field = %q, want filters", fields[0].Field)
-	}
-	if fields[0].Code != platform.CodeTooManyItems {
-		t.Errorf("refusal code = %q, want %q", fields[0].Code, platform.CodeTooManyItems)
-	}
-	// THE COUNT IS THE MATCHED TOTAL and not the cap: the roster holds four, and
-	// a person told only "too many" cannot tell whether to narrow a little or a
-	// lot.
-	if !strings.Contains(fields[0].Message, "4 tickets") {
-		t.Errorf("refusal message = %q, want it to name the 4 matching tickets", fields[0].Message)
-	}
-	if !strings.Contains(fields[0].Message, "3") {
-		t.Errorf("refusal message = %q, want it to name the cap", fields[0].Message)
-	}
-
-	// NOTHING WAS TRUNCATED: no file at all came back.
-	if strings.HasPrefix(string(data), "PK") {
-		t.Fatalf("a refusal returned a workbook; it must build nothing")
-	}
-
-	// THE FILTERS ARE THE LEVER, and they work: the same Event narrowed to one
-	// channel is under the cap and downloads.
-	if file := openHolderExport(t, env, f.sessionID, f.eventID, "channel=online"); file.dataRows != 2 {
-		t.Fatalf("narrowed export = %d rows, want 2", file.dataRows)
-	}
-
-	// EXACTLY THE CAP SUCCEEDS. The bound is inclusive, which is the off-by-one
-	// worth a test of its own.
-	withHolderExportCap(t, 4)
-	file := openHolderExport(t, env, f.sessionID, f.eventID, "")
-	if file.dataRows != 4 {
-		t.Fatalf("at exactly the cap the export has %d rows, want 4", file.dataRows)
-	}
-}
-
-// THE CAP IS ITS OWN NUMBER WITH ITS OWN REASON — 2,000 Tickets, a synchronous
-// generation ceiling — and deliberately NOT the Sales Export's, whose reason is
-// symmetry with what a Sale Import would take back and does not transfer to a
-// file nobody imports.
-//
-// This pins the two apart. Referencing the other constant is the obvious wrong
-// move, and it would pass every other test in this file.
-//
-// THE NUMBER CAME DOWN FROM FIFTY THOUSAND ON A MEASUREMENT (#530): at the worst
-// plausible width a fifty-thousand-row file took 6.9 GiB against an api_memory
-// of 512Mi, where it took 22 seconds against a 300s timeout — memory binds, not
-// time. This test is what stops it drifting back up without one.
-func TestTheHolderExportCapIsItsOwnNumber(t *testing.T) {
-	if got := sharedApp.CatalogService.HolderExportRowCap(); got != 2_000 {
-		t.Fatalf("deployed Holder Export cap = %d, want 2,000 Tickets", got)
-	}
-	if sharedApp.CatalogService.HolderExportRowCap() == sharedApp.SalesService.ExportRowCap() {
-		t.Fatal("the Holder Export and the Sales Export share a cap; they count different things for different reasons")
-	}
-}
-
-// AN AUDIT LINE IS WRITTEN PER GENERATED FILE, naming who took it, from which
-// Organization and Event, under which structural filters, and how many rows.
+// TWO AUDIT LINES ARE WRITTEN PER EXPORT (ADR 0075): "started" before the first
+// byte, naming who took it, from which Organization and Event and under which
+// structural filters; "finished" when the stream ends, with the outcome and how
+// many rows went.
 //
 // This file is the platform's densest concentration of attendee personal data,
-// and "who pulled the guest list" cannot be answered retroactively: the line is
-// written here or it is never written. There is no audit table behind it on
-// purpose — that implies a reading surface, a retention policy and an access
-// rule, and should be designed once across the platform rather than growing out
-// of this feature.
+// and "who pulled the guest list" cannot be answered retroactively. Personal
+// data leaves with the first chunk, which is why the record of who asked is
+// written before it rather than after the last. There is no audit table behind
+// it on purpose - that implies a reading surface, a retention policy and an
+// access rule, and should be designed once across the platform rather than
+// growing out of this feature.
 func TestTheHolderExportLogsWhoTookWhatAndHowMuch(t *testing.T) {
 	env := setupTest(t)
 	enableTicketAssignment(t)
@@ -786,17 +707,14 @@ func TestTheHolderExportLogsWhoTookWhatAndHowMuch(t *testing.T) {
 	file := openHolderExport(t, env, f.sessionID, f.eventID,
 		"channel=online&ticket_type_id="+f.vipID+"&assignment_state=unassigned&sold_from=2026-06-01&sort=buyer&dir=asc")
 
-	line := logs.only(t, "holder export")
+	started := logs.only(t, "holder export started")
 	for _, key := range []string{"member_id", "organization_id", "event_id"} {
-		if got, _ := line.arg(t, key).(string); got == "" {
-			t.Fatalf("log line %s is blank; it is how the file is traced back", key)
+		if got, _ := started.arg(t, key).(string); got == "" {
+			t.Fatalf("started line %s is blank; it is how the file is traced back", key)
 		}
 	}
-	if got, _ := line.arg(t, "event_id").(string); got != f.eventID {
-		t.Errorf("log event_id = %q, want the exported Event %q", got, f.eventID)
-	}
-	if got := line.arg(t, "row_count"); got != file.dataRows {
-		t.Errorf("log row_count = %v, want the %d rows handed over", got, file.dataRows)
+	if got, _ := started.arg(t, "event_id").(string); got != f.eventID {
+		t.Errorf("started event_id = %q, want the exported Event %q", got, f.eventID)
 	}
 	// The structural filters, which say what was asked for without saying
 	// anything about any one person.
@@ -808,12 +726,42 @@ func TestTheHolderExportLogsWhoTookWhatAndHowMuch(t *testing.T) {
 		{"sort", "buyer"},
 		{"dir", "asc"},
 	} {
-		if got, _ := line.arg(t, tc.key).(string); got != tc.want {
-			t.Errorf("log %s = %q, want %q", tc.key, got, tc.want)
+		if got, _ := started.arg(t, tc.key).(string); got != tc.want {
+			t.Errorf("started %s = %q, want %q", tc.key, got, tc.want)
 		}
 	}
-	if got := line.arg(t, "search"); got != false {
-		t.Errorf("log search = %v, want false on an unsearched export", got)
+	if got := started.arg(t, "search"); got != false {
+		t.Errorf("started search = %v, want false on an unsearched export", got)
+	}
+
+	finished := logs.only(t, "holder export finished")
+	if got, _ := finished.arg(t, "event_id").(string); got != f.eventID {
+		t.Errorf("finished event_id = %q, want %q", got, f.eventID)
+	}
+	if got := finished.arg(t, "outcome"); got != "completed" {
+		t.Errorf("finished outcome = %v, want completed", got)
+	}
+	if got := finished.arg(t, "row_count"); got != file.dataRows {
+		t.Errorf("finished row_count = %v, want the %d rows handed over", got, file.dataRows)
+	}
+	// A completed export is routine, so INFO; an aborted one is WARN (see the
+	// streaming tests).
+	if started.level != "info" || finished.level != "info" {
+		t.Errorf("a completed export logged started at %s and finished at %s, want info for both",
+			started.level, finished.level)
+	}
+	// THE REQUEST ID JOINS THE TWO LINES, and each to the request line, on the
+	// day somebody has to say which download a "started" line belongs to.
+	startedID, _ := started.arg(t, "request_id").(string)
+	if startedID == "" {
+		t.Error("started request_id is blank; it is the key the two lines are joined on")
+	}
+	if finishedID, _ := finished.arg(t, "request_id").(string); finishedID != startedID {
+		t.Errorf("finished request_id = %q, started = %q; one export must carry one id", finishedID, startedID)
+	}
+	lines := logs.snapshot()
+	if len(lines) < 2 || lines[0].msg != "holder export started" {
+		t.Errorf("the started line must come first; log was:\n%s", logs.rendered())
 	}
 
 	// AN EXPORT THAT MATCHED NOTHING STILL SAYS SO: the record of who asked is
@@ -823,18 +771,17 @@ func TestTheHolderExportLogsWhoTookWhatAndHowMuch(t *testing.T) {
 	if empty.dataRows != 0 {
 		t.Fatalf("that view holds %d rows, want none", empty.dataRows)
 	}
-	if got := logs.only(t, "holder export").arg(t, "row_count"); got != 0 {
+	logs.only(t, "holder export started")
+	if got := logs.only(t, "holder export finished").arg(t, "row_count"); got != 0 {
 		t.Errorf("empty export logged row_count = %v, want 0", got)
 	}
 
-	// AND A REFUSAL LOGS NOTHING, because no file was taken. The line claims a
-	// file that was actually handed over.
+	// AND A REFUSAL LOGS NOTHING, because no file was taken.
 	logs.reset()
-	withHolderExportCap(t, 1)
-	if resp, data := downloadHolderExport(t, env, f.sessionID, f.eventID, ""); resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("over-cap status=%d, want 400; body=%s", resp.StatusCode, string(data))
+	if resp, data := downloadHolderExport(t, env, f.sessionID, f.eventID, "channel=carrier_pigeon"); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("refused export status=%d, want 400; body=%s", resp.StatusCode, string(data))
 	}
-	for _, logged := range logs.lines {
+	for _, logged := range logs.snapshot() {
 		if strings.Contains(logged.msg, "holder export") {
 			t.Fatalf("a refused export logged a line claiming a file: %s", logs.rendered())
 		}
