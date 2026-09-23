@@ -1,10 +1,6 @@
 import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
 
-import { callBackend } from "@/lib/api";
-import { jsonFromAPIError, unauthorizedResponse } from "@/lib/bff";
-import type { OperatorSummary } from "@/lib/operator-api";
-import { proxyRead } from "@/lib/reader-abort";
+import { proxyJSONRead, unauthorizedResponse } from "@/lib/bff";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 // GET returns platform revenue totals grouped by currency. The Go API is the
@@ -17,16 +13,5 @@ export async function GET(request: Request) {
     return unauthorizedResponse();
   }
 
-  return proxyRead(
-    request,
-    async (signal) => {
-      const envelope = await callBackend<OperatorSummary>("/api/v1/operator/summary", {
-        method: "GET",
-        sessionToken: token,
-        signal,
-      });
-      return NextResponse.json(envelope);
-    },
-    jsonFromAPIError,
-  );
+  return proxyJSONRead(request, "/api/v1/operator/summary", token);
 }

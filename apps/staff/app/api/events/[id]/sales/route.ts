@@ -2,8 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { callBackend } from "@/lib/api";
-import { jsonFromAPIError, unauthorizedResponse } from "@/lib/bff";
-import { proxyRead } from "@/lib/reader-abort";
+import { jsonFromAPIError, proxyJSONRead, unauthorizedResponse } from "@/lib/bff";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 type RouteContext = {
@@ -26,18 +25,7 @@ export async function GET(request: Request, context: RouteContext) {
 
   const { id } = await context.params;
   const search = new URL(request.url).search;
-  return proxyRead(
-    request,
-    async (signal) => {
-      const envelope = await callBackend<unknown>(`/api/v1/staff/events/${id}/sales${search}`, {
-        method: "GET",
-        sessionToken: token,
-        signal,
-      });
-      return NextResponse.json(envelope);
-    },
-    jsonFromAPIError,
-  );
+  return proxyJSONRead(request, `/api/v1/staff/events/${id}/sales${search}`, token);
 }
 
 // POST records one Manually Recorded Sale (#369, ADR 0052): the Sale Import

@@ -1,9 +1,6 @@
 import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
 
-import { callBackend } from "@/lib/api";
-import { jsonFromAPIError, unauthorizedResponse } from "@/lib/bff";
-import { proxyRead } from "@/lib/reader-abort";
+import { proxyJSONRead, unauthorizedResponse } from "@/lib/bff";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 type RouteContext = {
@@ -25,16 +22,5 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   const { id } = await context.params;
-  return proxyRead(
-    request,
-    async (signal) => {
-      const envelope = await callBackend<unknown>(`/api/v1/staff/events/${id}/sales/summary`, {
-        method: "GET",
-        sessionToken: token,
-        signal,
-      });
-      return NextResponse.json(envelope);
-    },
-    jsonFromAPIError,
-  );
+  return proxyJSONRead(request, `/api/v1/staff/events/${id}/sales/summary`, token);
 }

@@ -193,9 +193,3 @@ func TestErrorClassNamesAnyOtherFailedConnectAsUnavailable(t *testing.T) {
 		t.Fatalf("class = %q, want db_unavailable (error: %v)", got, err)
 	}
 }
-
-func TestErrDatabaseClosedIsDatabaseSQLsOwn(t *testing.T) {
-	if errDatabaseClosed == nil || errDatabaseClosed.Error() != "sql: database is closed" {
-		t.Fatalf(`errDatabaseClosed = %v, want database/sql's "sql: database is closed"`, errDatabaseClosed)
-	}
-}

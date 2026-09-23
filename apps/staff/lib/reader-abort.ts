@@ -1,6 +1,7 @@
 /**
- * What a BFF route does when the reader it is proxying for goes away: the JSON
- * reads and the file downloads alike hand the API the browser request's abort
+ * What a BFF route does when the reader it is proxying for goes away: the file
+ * downloads (proxyDownload) and the JSON routes that pass a slow read straight
+ * through (proxyJSONRead, in bff.ts) hand the API the browser request's abort
  * signal, and answer a reader who left quietly.
  *
  * It imports nothing from Next or from the app's aliases, which is what lets

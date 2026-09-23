@@ -2,9 +2,8 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { callBackend } from "@/lib/api";
-import { jsonFromAPIError, unauthorizedResponse } from "@/lib/bff";
-import type { OperatorInvoiceDetail, OperatorInvoiceListPage } from "@/lib/operator-api";
-import { proxyRead } from "@/lib/reader-abort";
+import { jsonFromAPIError, proxyJSONRead, unauthorizedResponse } from "@/lib/bff";
+import type { OperatorInvoiceDetail } from "@/lib/operator-api";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 // The Tax Invoices (#454, ADR 0059). The Go API is the gate: a session whose
@@ -22,18 +21,7 @@ export async function GET(request: Request) {
     return unauthorizedResponse();
   }
   const search = new URL(request.url).search;
-  return proxyRead(
-    request,
-    async (signal) => {
-      const envelope = await callBackend<OperatorInvoiceListPage>(`${BACKEND_PATH}${search}`, {
-        method: "GET",
-        sessionToken: token,
-        signal,
-      });
-      return NextResponse.json(envelope);
-    },
-    jsonFromAPIError,
-  );
+  return proxyJSONRead(request, `${BACKEND_PATH}${search}`, token);
 }
 
 export async function POST(request: Request) {

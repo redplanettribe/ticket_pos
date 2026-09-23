@@ -1,10 +1,6 @@
 import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
 
-import type { AccessLogPage } from "@/lib/access-log";
-import { callBackend } from "@/lib/api";
-import { jsonFromAPIError, unauthorizedResponse } from "@/lib/bff";
-import { proxyRead } from "@/lib/reader-abort";
+import { proxyJSONRead, unauthorizedResponse } from "@/lib/bff";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 // One page of the consent access log (#569).
@@ -25,16 +21,5 @@ export async function GET(request: Request) {
   }
 
   const search = new URL(request.url).search;
-  return proxyRead(
-    request,
-    async (signal) => {
-      const envelope = await callBackend<AccessLogPage>(`/api/v1/operator/legal/access-log${search}`, {
-        method: "GET",
-        sessionToken: token,
-        signal,
-      });
-      return NextResponse.json(envelope);
-    },
-    jsonFromAPIError,
-  );
+  return proxyJSONRead(request, `/api/v1/operator/legal/access-log${search}`, token);
 }
