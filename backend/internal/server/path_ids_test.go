@@ -3,6 +3,7 @@ package server_test
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -43,6 +44,10 @@ func TestARouteWithAnUndeclaredWildcardCannotBeRegistered(t *testing.T) {
 		// A declared name under a segment it is not declared for is not declared:
 		// "{id}" is an Event under events/ and says nothing about gadgets/.
 		{"GET /api/v1/operator/gadgets/{id}", "{id}", false},
+		// ServeMux takes any run of spaces or tabs after the method, and so
+		// does the guard: the route is still in its namespace.
+		{"GET\t/api/v1/staff/events/{id}/widgets/{widgetId}", "{widgetId}", false},
+		{"GET   /api/v1/staff/events/{id}/widgets/{widgetId}", "{widgetId}", false},
 	} {
 		t.Run(tc.pattern, func(t *testing.T) {
 			recovered := registerPanic(tc.pattern, tc.viaFunc)
@@ -50,7 +55,7 @@ func TestARouteWithAnUndeclaredWildcardCannotBeRegistered(t *testing.T) {
 				t.Fatal("registered, want a panic")
 			}
 			message := fmt.Sprint(recovered)
-			if !strings.Contains(message, tc.pattern) || !strings.Contains(message, tc.wildcard) {
+			if !strings.Contains(message, strconv.Quote(tc.pattern)) || !strings.Contains(message, tc.wildcard) {
 				t.Fatalf("panic %q does not name the route %q and the wildcard %s", message, tc.pattern, tc.wildcard)
 			}
 		})

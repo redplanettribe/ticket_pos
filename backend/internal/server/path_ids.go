@@ -158,9 +158,12 @@ type pathWildcard struct {
 // "{$}" is not a wildcard. It only anchors a pattern to the end of the path
 // and matches nothing, so there is nothing to declare or check.
 func routeWildcards(pattern string) (method, path string, wildcards []pathWildcard) {
-	method, path, hasMethod := strings.Cut(pattern, " ")
-	if !hasMethod {
-		method, path = "", pattern
+	// Split as ServeMux does: any run of spaces or tabs ends the method, so a
+	// pattern written with two spaces or a tab is not read as having no
+	// namespace and waved through.
+	method, path = "", pattern
+	if i := strings.IndexAny(pattern, " \t"); i >= 0 {
+		method, path = pattern[:i], strings.TrimLeft(pattern[i+1:], " \t")
 	}
 	segments := strings.Split(path, "/")
 	for i := 1; i < len(segments); i++ {

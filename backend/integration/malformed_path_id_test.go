@@ -75,12 +75,22 @@ func registeredPatterns(t *testing.T) []string {
 	return rec.patterns
 }
 
+// wildcardName returns the name a path segment's wildcard is read by, as the
+// guard reads it: "{path...}" is "path", and "{$}", which only anchors the end
+// of a path, is no wildcard at all.
+func wildcardName(segment string) (string, bool) {
+	if segment == "{$}" || !strings.HasPrefix(segment, "{") || !strings.HasSuffix(segment, "}") {
+		return "", false
+	}
+	return strings.TrimSuffix(strings.TrimSuffix(strings.TrimPrefix(segment, "{"), "}"), "..."), true
+}
+
 // patternWildcards returns the names of pattern's {wildcards}, in order.
 func patternWildcards(path string) []string {
 	var names []string
 	for _, segment := range strings.Split(path, "/") {
-		if strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}") {
-			names = append(names, strings.TrimSuffix(strings.TrimPrefix(segment, "{"), "}"))
+		if name, ok := wildcardName(segment); ok {
+			names = append(names, name)
 		}
 	}
 	return names
@@ -91,10 +101,10 @@ func patternWildcards(path string) []string {
 func fillPattern(pattern, path, probed, probeValue string, others map[string]string) string {
 	segments := strings.Split(path, "/")
 	for i, segment := range segments {
-		if !strings.HasPrefix(segment, "{") || !strings.HasSuffix(segment, "}") {
+		name, ok := wildcardName(segment)
+		if !ok {
 			continue
 		}
-		name := strings.TrimSuffix(strings.TrimPrefix(segment, "{"), "}")
 		switch value, isNonID := nonIDValue(pattern, name); {
 		case name == probed:
 			segments[i] = probeValue
