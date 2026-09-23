@@ -66,29 +66,33 @@ ADR 0065 accepted two overlapping files and refused two implementations; that st
 The rule also decides the two values a spreadsheet cannot take literally, the same way for both files:
 
 - Empty text is an absent cell, never a text cell holding nothing, so a reader filtering on "is blank" finds it.
-  It applies to every text cell of the Holder Export, and on the Sales Export only to the cells the shared rule writes: the per-Ticket sheet's Holder columns and its Answers.
+  It applies to every text cell of the Holder Export.
+  On the Sales Export it applies only to the cells the shared rule writes: the per-Ticket sheet's Answers, and its Holder columns while Ticket Assignment is open.
   The rest of the Sales Export - its data sheet, and the per-Ticket sheet's `confirmation_ref` and `ticket_type_name` - still writes through excelize's `SetCellStr`, which writes empty text as an empty-string cell, exactly as before.
-  The empty text that actually reaches a file is:
-  - a Holder's first name, last name and email (`holder_email`), empty on every Ticket without an accepted Holder, and a name possibly empty on an accepted one; these are columns of both files, and both files already left them absent before, because both writers skipped an empty Holder value;
-  - a buyer's first or last name (`customer_first_name`, `customer_last_name`), one of which a Manually Recorded Sale may leave empty; these are columns of the Holder Export and of the Sales Export's data sheet, not of its per-Ticket sheet.
+  The empty text that can reach a file is:
+  - a Holder's first name, last name and email (`holder_email`), empty on every Ticket without an accepted Holder, and a name possibly empty on an accepted one.
+    These are columns of both files while Ticket Assignment is open, and both files already left them absent before #655, because both writers skipped an empty Holder value.
+  - a buyer's first or last name (`customer_first_name`, `customer_last_name`), read off the Sale's snapshot.
+    These are columns of the Holder Export and of the Sales Export's data sheet, not of its per-Ticket sheet.
+    Every way a Sale is made today requires both halves (online checkout, Sale Import, a Manually Recorded Sale and a Sale Correction), so only a Sale written before those checks could hold an empty one.
   The other text columns are never empty: `assignment_state` is always one of its three states, a buyer's email is required on every way a Sale is made, `confirmation_ref`, `channel` and `ticket_type_name` always hold a value, and an empty text Answer is never stored, because `parseTextAnswer` refuses empty text.
 - Text is cut to 32,767 UTF-16 code units, which is Excel's limit and what Excel counts.
   A character outside the Basic Multilingual Plane counts as two, and the cut never splits a surrogate pair.
-  excelize's `SetCellStr` already cut text exactly this way, so this changes no cell's value; `TestTextCellCutsExactlyAsExcelizeDoes` pins it.
+  excelize's `SetCellStr` already cut text exactly this way, so this changes no cell's value.
+  `TestTextCellCutsExactlyAsExcelizeDoes` pins it.
 
-Only the empty-text rule changes a value a user downloads, only on the Holder Export, and only for an empty buyer first or last name.
+Only the empty-text rule can change a value a user downloads, only on the Holder Export, and only for an empty buyer first or last name.
 There it deliberately goes against #658's "the file does not change" and #656's "Nothing a user downloads changes": before it, the Holder Export wrote an empty buyer first or last name as an empty-string cell, and it now leaves the cell absent.
 It already left an empty Holder name and email blank.
-A roster whose blanks mean one thing everywhere is worth one small change to it.
-The Sales Export's data sheet is not brought into line: it still writes an empty buyer name as an empty-string cell, because #655's story 34 requires that file unchanged, so on buyer names the two files still disagree.
-The Sales Export's values are unchanged, as story 34 requires.
-Its per-Ticket sheet already left an empty Holder name and email blank.
+A roster whose blanks mean one thing everywhere is worth one small change to it, and since no current way of making a Sale leaves a buyer name empty, the change reaches only a Sale from before those checks, if one exists.
+The Sales Export's data sheet is not brought into line: it still writes an empty buyer name as an empty-string cell, because #655's story 34 requires that file unchanged, so on such a Sale the two files would disagree.
+Every value in the Sales Export is unchanged, and its per-Ticket sheet already left an empty Holder name and email blank.
 One cell changes its encoding but not its value: a date Answer before 1900, which Excel has no serial for, is the text `1850-01-01T00:00:00Z` either way, but it was an inline string stamped with the date style and is now a shared string with no style.
 Excel shows a text cell's text whatever number format it carries, so a reader sees the same thing.
 
 **The Sales Export response now sends `Cache-Control: no-store`.**
 The Holder Export always has, since its file is attendee personal data.
-The Sales Export's file carries every buyer's name, email address and Tax ID, and, when it has a per-Ticket sheet, every accepted Holder's name and email address and every Ticket Answer.
+The Sales Export's file carries every buyer's name and email address, the buyer's Tax ID wherever the Sale has one, and, on its per-Ticket sheet, every Ticket Answer and, while Ticket Assignment is open, every accepted Holder's name and email address.
 This is a response header, not file content, so it changes nothing in the file.
 
 ## Considered options

@@ -367,9 +367,10 @@ func (h *Handler) ExportSales(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+export.Filename+"\"")
-	// Every buyer's name, email address and Tax ID for the Event and, when the
-	// file has a per-Ticket sheet, every accepted Holder's name and email
-	// address and every Ticket Answer, like the Holder Export's attendee data:
+	// Every buyer's name and email address for the Event, the buyer's Tax ID
+	// wherever the Sale has one and, on the per-Ticket sheet, every Ticket
+	// Answer and, while Ticket Assignment is open, every accepted Holder's name
+	// and email address (ADR 0075). Like the Holder Export's attendee data,
 	// nothing between here and the reader may keep a copy.
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Request-ID", reqID)

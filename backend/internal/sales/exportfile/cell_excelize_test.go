@@ -22,6 +22,8 @@ func TestTextCellCutsExactlyAsExcelizeDoes(t *testing.T) {
 	}{
 		{"astral characters only", strings.Repeat(astral, 20_000)},
 		{"a pair that would straddle the limit", strings.Repeat("a", 32_766) + astral},
+		// The trailing "b" puts the text over the limit, so there is a cut to
+		// compare: the pair ending on the limit is kept and the "b" goes.
 		{"a pair that ends exactly on the limit", strings.Repeat("a", 32_765) + astral + "b"},
 		{"astral characters after an odd prefix", "x" + strings.Repeat(astral, 20_000)},
 		{"text inside the Basic Multilingual Plane", strings.Repeat("é", 40_000)},
