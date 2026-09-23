@@ -562,10 +562,12 @@ var holderSortColumns = map[string][]string{
 // nothing is a ZERO and not an absence, and zero is a meaningful end of that
 // scale — pushing it last would hide precisely the Tickets a reader sorting
 // ascending is looking for. `buyer` is the near miss and is deliberately left
-// out: `ticket_sales.customer_first_name`/`customer_last_name` are NOT NULL and
-// a Manually Recorded Sale may leave one half empty, but never both — a sale has
-// a buyer by construction, so the column is not blank-heavy and a handful of
-// half-names is not worth breaking the convention twice.
+// out: `ticket_sales.customer_first_name`/`customer_last_name` are NOT NULL, and
+// every way a Sale is made today (online checkout, Sale Import, a Manually
+// Recorded Sale and a Sale Correction) requires both halves, so only a Sale
+// written before those checks could hold an empty one. A sale has a buyer by
+// construction, so the column is not blank-heavy, and such a leftover is not
+// worth breaking the convention twice.
 var holderSortBlanksLast = map[string]string{
 	"holder": `CASE WHEN COALESCE(hc.last_name, '') = '' AND COALESCE(hc.first_name, '') = ''
 			THEN 1 ELSE 0 END`,
