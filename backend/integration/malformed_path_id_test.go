@@ -31,19 +31,28 @@ import (
 // probed id and must be the same; elsewhere it is a well-formed id naming
 // nothing.
 
-// nonIDWildcards are path wildcards that are not UUIDs, each with a value that
-// is well-formed for it.
-var nonIDWildcards = map[string]string{
+// unguardedNonIDWildcards are the path wildcards that are not UUIDs on the
+// namespaces the path-id guard does not cover (public, storefront, customer,
+// partner), each with a value that is well-formed for it. On the staff and
+// operator namespaces the guard's own exemptions say which wildcards are not
+// ids (server.NonIDPathWildcard), and this file keeps no copy of them.
+var unguardedNonIDWildcards = map[string]string{
 	"slug":                "test-org",
 	"eventSlug":           "no-such-event",
 	"locale":              "en",
-	"document":            "policy",
-	"version":             "1",
-	"digest":              "0000000000000000000000000000000000000000000000000000000000000000",
-	"confirmationRef":     "NOSUCHREF",
 	"canonicalKey":        "no-such-tag",
 	"purpose":             "marketing",
 	"clientTransactionId": "no-such-transaction",
+}
+
+// nonIDValue reports whether the wildcard named name in pattern is not an id,
+// and a well-formed value for it if so.
+func nonIDValue(pattern, name string) (string, bool) {
+	if example, nonID, guarded := server.NonIDPathWildcard(pattern, name); guarded {
+		return example, nonID
+	}
+	value, ok := unguardedNonIDWildcards[name]
+	return value, ok
 }
 
 // patternRecorder lists every pattern RegisterRoutes registers.
@@ -78,15 +87,15 @@ func patternWildcards(path string) []string {
 }
 
 // fillPattern substitutes each wildcard: probed gets probeValue, the other id
-// wildcards the fixed ids in others, the rest their nonIDWildcards value.
-func fillPattern(path, probed, probeValue string, others map[string]string) string {
+// wildcards the fixed ids in others, the rest their nonIDValue.
+func fillPattern(pattern, path, probed, probeValue string, others map[string]string) string {
 	segments := strings.Split(path, "/")
 	for i, segment := range segments {
 		if !strings.HasPrefix(segment, "{") || !strings.HasSuffix(segment, "}") {
 			continue
 		}
 		name := strings.TrimSuffix(strings.TrimPrefix(segment, "{"), "}")
-		switch value, isNonID := nonIDWildcards[name]; {
+		switch value, isNonID := nonIDValue(pattern, name); {
 		case name == probed:
 			segments[i] = probeValue
 		case isNonID:
@@ -252,20 +261,20 @@ func TestEveryRouteRefusesAMalformedPathIDAsNotFound(t *testing.T) {
 			}
 		}
 		for _, name := range patternWildcards(path) {
-			if _, isNonID := nonIDWildcards[name]; isNonID {
+			if _, isNonID := nonIDValue(pattern, name); isNonID {
 				continue
 			}
 			// Whether every OTHER id in the path names something real. Only then
 			// is the unknown-id answer about this wildcard rather than a parent.
 			othersReal := true
 			for _, other := range patternWildcards(path) {
-				if _, isNonID := nonIDWildcards[other]; other != name && !isNonID && others[other] != real[other] {
+				if _, isNonID := nonIDValue(pattern, other); other != name && !isNonID && others[other] != real[other] {
 					othersReal = false
 				}
 			}
 			tested++
-			malformed := callRoute(t, env, method, fillPattern(path, name, "not-a-uuid", others), token)
-			unknown := callRoute(t, env, method, fillPattern(path, name, uuid.NewString(), others), token)
+			malformed := callRoute(t, env, method, fillPattern(pattern, path, name, "not-a-uuid", others), token)
+			unknown := callRoute(t, env, method, fillPattern(pattern, path, name, uuid.NewString(), others), token)
 
 			report := func(want string) {
 				failures = append(failures, pattern+" {"+name+"}: malformed answered "+malformed.String()+

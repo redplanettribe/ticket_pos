@@ -37,9 +37,9 @@ type pathIDs map[string]func(value string) error
 //
 // The rule is enforced here, once, rather than in each handler, so that a route
 // added tomorrow inherits it. It fails closed: every wildcard of a staff or
-// operator route must be either an id in these tables or a non-id in the
-// exemption tables below, or registering the route panics and the server does
-// not start (RequireDeclaredPathIDs). TestEveryRouteRefusesAMalformedPathIDAsNotFound
+// operator route must be an id in these tables, a uuid deliberately left to its
+// service, or a non-id in the exemption tables below, or registering the route
+// panics and the server does not start (RequireDeclaredPathIDs). TestEveryRouteRefusesAMalformedPathIDAsNotFound
 // then walks the registered route table and holds every id wildcard of every
 // route to the answer a well-formed unknown id gets.
 
@@ -78,9 +78,9 @@ var operatorPathIDs = pathIDs{
 	"ticket-questions/{questionID}": func(string) error { return catalog.ErrTicketQuestionNotFound() },
 }
 
-// staffNonIDWildcards are the wildcards under /api/v1/staff that the guard
-// deliberately does not check, keyed as pathIDs are. Each says why.
-var staffNonIDWildcards = map[string]bool{
+// staffUnguardedIDs are uuid wildcards under /api/v1/staff that the guard
+// deliberately leaves to their service, keyed as pathIDs are. Each says why.
+var staffUnguardedIDs = map[string]bool{
 	// A Sale id, but the one route under it is a read whose answer for a Sale
 	// it cannot find is an empty list, not a 404, and its service gives a
 	// malformed id that same empty list itself: malformed already equals
@@ -88,28 +88,111 @@ var staffNonIDWildcards = map[string]bool{
 	"ticket-sales/{ticketSaleId}": true,
 }
 
+// nonIDWildcard is a wildcard that is not an id at all, with a well-formed
+// example of what it holds. The example documents the wildcard and is the
+// value the integration sweep fills it with (NonIDPathWildcard).
+type nonIDWildcard struct{ example string }
+
+// staffNonIDWildcards are the wildcards under /api/v1/staff that are not ids
+// at all, keyed as pathIDs are. There are none today.
+var staffNonIDWildcards = map[string]nonIDWildcard{}
+
 // operatorNonIDWildcards are the wildcards under /api/v1/operator that are
 // not ids at all, keyed as pathIDs are. Each says why.
-var operatorNonIDWildcards = map[string]bool{
+var operatorNonIDWildcards = map[string]nonIDWildcard{
 	// A Sale Confirmation reference, the human-readable code a buyer quotes,
 	// not a uuid; the service looks it up as text.
-	"sales/{confirmationRef}": true,
+	"sales/{confirmationRef}": {example: "NOSUCHREF"},
 	// A legal document's name ("terms", "policy"), a closed set the handler
 	// validates.
-	"documents/{document}": true,
+	"documents/{document}": {example: "policy"},
 	// The same document name, on the Customer and Staff acceptance browsers.
-	"customers/{document}": true,
-	"staff/{document}":     true,
+	"customers/{document}": {example: "policy"},
+	"staff/{document}":     {example: "policy"},
 	// An edition's version number, an integer the handler parses.
-	"publications/{version}": true,
+	"publications/{version}": {example: "1"},
 	// The opaque keyed digest of a staff member's email that the Staff legal
 	// record and its Evidence Pack are looked up by, not a uuid.
-	"staff/{digest}": true,
+	"staff/{digest}": {example: strings.Repeat("0", 64)},
+}
+
+// pathIDNamespace is one guarded namespace's declarations: its ids, the uuids
+// it leaves to their service, and its non-id wildcards.
+type pathIDNamespace struct {
+	ids          pathIDs
+	unguardedIDs map[string]bool
+	nonIDs       map[string]nonIDWildcard
+}
+
+// guardedNamespace returns the declarations for a route path, or nil for a
+// path outside /api/v1/staff and /api/v1/operator. Those namespaces have no
+// guard, and their handlers answer a malformed id themselves.
+func guardedNamespace(path string) *pathIDNamespace {
+	switch {
+	case strings.HasPrefix(path, "/api/v1/staff/"):
+		return &pathIDNamespace{ids: staffPathIDs, unguardedIDs: staffUnguardedIDs, nonIDs: staffNonIDWildcards}
+	case strings.HasPrefix(path, "/api/v1/operator/"):
+		return &pathIDNamespace{ids: operatorPathIDs, nonIDs: operatorNonIDWildcards}
+	}
+	return nil
+}
+
+// pathWildcard is one wildcard of a route pattern.
+type pathWildcard struct {
+	// segment is the wildcard as the pattern writes it: "{id}", "{path...}".
+	segment string
+	// name is what r.PathValue reads it by: "id", "path".
+	name string
+	// key is the literal segment in front of it and the wildcard, which is how
+	// every table here is keyed: "events/{id}".
+	key string
+	// rest is whether it is a "{name...}" wildcard, which matches the whole
+	// remainder of the path and so can never be one id.
+	rest bool
+}
+
+// routeWildcards splits a route pattern into its method ("" when it has none),
+// its path and its wildcards, left to right. It is the one walk of a pattern
+// here: the registration check and the request guard both read it.
+//
+// "{$}" is not a wildcard. It only anchors a pattern to the end of the path
+// and matches nothing, so there is nothing to declare or check.
+func routeWildcards(pattern string) (method, path string, wildcards []pathWildcard) {
+	method, path, hasMethod := strings.Cut(pattern, " ")
+	if !hasMethod {
+		method, path = "", pattern
+	}
+	segments := strings.Split(path, "/")
+	for i := 1; i < len(segments); i++ {
+		segment := segments[i]
+		if segment == "{$}" || !strings.HasPrefix(segment, "{") || !strings.HasSuffix(segment, "}") {
+			continue
+		}
+		name, rest := strings.CutSuffix(strings.TrimSuffix(strings.TrimPrefix(segment, "{"), "}"), "...")
+		wildcards = append(wildcards, pathWildcard{
+			segment: segment,
+			name:    name,
+			key:     segments[i-1] + "/" + segment,
+			rest:    rest,
+		})
+	}
+	return method, path, wildcards
+}
+
+// notFoundFor returns the not-found error of the id keyed key under method:
+// the method-specific entry where there is one, else the bare one.
+func (ids pathIDs) notFoundFor(method, key string) (func(value string) error, bool) {
+	if notFound, ok := ids[method+" "+key]; ok {
+		return notFound, true
+	}
+	notFound, ok := ids[key]
+	return notFound, ok
 }
 
 // RequireDeclaredPathIDs returns mux wrapped so that registering a staff or
 // operator route panics unless every wildcard in its path is declared: an id in
-// that namespace's pathIDs table, or a non-id in its exemption table.
+// that namespace's pathIDs table, a uuid it leaves to its service, or a non-id
+// in its exemption table.
 //
 // It makes the guard fail closed. Without it, a route added with an id wildcard
 // nobody put in the table would pass a malformed id straight through to a uuid
@@ -135,41 +218,67 @@ func (d declaredPathIDsRouter) HandleFunc(pattern string, handler func(http.Resp
 }
 
 // mustDeclarePathIDs panics, naming the route and the wildcard, when a staff or
-// operator pattern has a wildcard neither its ids nor its exemptions declare.
+// operator pattern has a wildcard its namespace does not declare.
 func mustDeclarePathIDs(pattern string) {
-	method, path, hasMethod := strings.Cut(pattern, " ")
-	if !hasMethod {
-		method, path = "", pattern
-	}
-	var ids pathIDs
-	var nonIDs map[string]bool
-	switch {
-	case strings.HasPrefix(path, "/api/v1/staff/"):
-		ids, nonIDs = staffPathIDs, staffNonIDWildcards
-	case strings.HasPrefix(path, "/api/v1/operator/"):
-		ids, nonIDs = operatorPathIDs, operatorNonIDWildcards
-	default:
+	method, path, wildcards := routeWildcards(pattern)
+	ns := guardedNamespace(path)
+	if ns == nil {
 		return
 	}
-	segments := strings.Split(path, "/")
-	for i := 1; i < len(segments); i++ {
-		wildcard := segments[i]
-		if !strings.HasPrefix(wildcard, "{") || !strings.HasSuffix(wildcard, "}") {
+	for _, wc := range wildcards {
+		_, isID := ns.ids.notFoundFor(method, wc.key)
+		_, isNonID := ns.nonIDs[wc.key]
+		switch {
+		case wc.rest && (isID || ns.unguardedIDs[wc.key]):
+			panic(fmt.Sprintf(
+				"route %q: path wildcard %s (keyed %q) matches the rest of the path, "+
+					"so it can never be one id; take it out of the namespace's id tables "+
+					"in internal/server/path_ids.go and declare it in its non-id exemptions",
+				pattern, wc.segment, wc.key))
+		case isID, isNonID, ns.unguardedIDs[wc.key]:
 			continue
+		case wc.rest:
+			panic(fmt.Sprintf(
+				"route %q: path wildcard %s (keyed %q) is not declared. It matches the "+
+					"rest of the path, so it can never be one id the guard could check; "+
+					"declare it in the namespace's non-id exemptions in "+
+					"internal/server/path_ids.go with a comment saying why",
+				pattern, wc.segment, wc.key))
+		default:
+			panic(fmt.Sprintf(
+				"route %q: path wildcard %s (keyed %q) is not declared; add it to the "+
+					"namespace's pathIDs table in internal/server/path_ids.go with the "+
+					"error its unknown id answers, or, if it is not an id, to the "+
+					"namespace's non-id exemptions with a comment saying why",
+				pattern, wc.segment, wc.key))
 		}
-		key := segments[i-1] + "/" + wildcard
-		_, isMethodID := ids[method+" "+key]
-		_, isID := ids[key]
-		if isMethodID || isID || nonIDs[key] {
-			continue
-		}
-		panic(fmt.Sprintf(
-			"route %q: path wildcard %s (keyed %q) is not declared; add it to the "+
-				"namespace's pathIDs table in internal/server/path_ids.go with the "+
-				"error its unknown id answers, or, if it is not an id, to the "+
-				"namespace's non-id exemptions with a comment saying why",
-			pattern, wildcard, key))
 	}
+}
+
+// NonIDPathWildcard reports how the guard declares the wildcard named name in
+// a route pattern. guarded is whether the pattern is in a guarded namespace at
+// all (staff or operator); nonID is whether that namespace declares the
+// wildcard not an id, and example is then a well-formed value for it.
+//
+// It is exported for the integration sweep, which probes every id wildcard of
+// every route and must read which ones are not ids from here rather than keep
+// a second copy of these tables.
+func NonIDPathWildcard(pattern, name string) (example string, nonID, guarded bool) {
+	_, path, wildcards := routeWildcards(pattern)
+	ns := guardedNamespace(path)
+	if ns == nil {
+		return "", false, false
+	}
+	for _, wc := range wildcards {
+		if wc.name != name {
+			continue
+		}
+		if declared, ok := ns.nonIDs[wc.key]; ok {
+			return declared.example, true, true
+		}
+		break
+	}
+	return "", false, true
 }
 
 // requireWellFormedPathIDs refuses a request whose path carries a malformed
@@ -189,29 +298,16 @@ func requireWellFormedPathIDs(ids pathIDs) func(http.Handler) http.Handler {
 	}
 }
 
-// notFoundForMalformed returns the not-found error of the leftmost id wildcard in r's
-// matched pattern whose value is not a UUID, or nil.
+// notFoundForMalformed returns the not-found error of the leftmost id wildcard
+// in r's matched pattern whose value is not a UUID, or nil.
 func (ids pathIDs) notFoundForMalformed(r *http.Request) error {
-	path := r.Pattern
-	if _, afterMethod, hasMethod := strings.Cut(path, " "); hasMethod {
-		path = afterMethod
-	}
-	segments := strings.Split(path, "/")
-	for i := 1; i < len(segments); i++ {
-		wildcard := segments[i]
-		if !strings.HasPrefix(wildcard, "{") || !strings.HasSuffix(wildcard, "}") {
-			continue
-		}
-		key := segments[i-1] + "/" + wildcard
-		notFound, isID := ids[r.Method+" "+key]
-		if !isID {
-			notFound, isID = ids[key]
-		}
+	_, _, wildcards := routeWildcards(r.Pattern)
+	for _, wc := range wildcards {
+		notFound, isID := ids.notFoundFor(r.Method, wc.key)
 		if !isID {
 			continue
 		}
-		value := r.PathValue(strings.TrimSuffix(strings.TrimPrefix(wildcard, "{"), "}"))
-		if !catalog.IsUUID(value) {
+		if value := r.PathValue(wc.name); !catalog.IsUUID(value) {
 			return notFound(value)
 		}
 	}
