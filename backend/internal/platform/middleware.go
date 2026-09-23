@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -200,14 +201,17 @@ func (r *statusRecorder) decide(status int) {
 // harmlessly. A context.Canceled with the client still there is the server's
 // own cancellation, a failure like any other.
 //
-// THE CANCELLATION CAN ARRIVE AS A SOCKET TIMEOUT. pgconn interrupts a query
-// it is writing when its context is cancelled by setting the connection's
-// deadline in the past, and the error that comes back carries no
-// context.Canceled: it is only the write's i/o timeout. Once the client has
-// gone, such a timeout is that cancellation and is recorded as one, class
-// context_canceled (clientCancellationClass). With the client still there it
-// is a real timeout, an unmapped 500 at ERROR with its own ErrorClass
-// (write_deadline_exceeded for a socket's deadline).
+// THE CANCELLATION CAN ARRIVE AS A SOCKET TIMEOUT, BUT ONLY FROM PGCONN.
+// pgconn interrupts a query it is writing when its context is cancelled by
+// setting the connection's deadline in the past, and the error that comes back
+// carries no context.Canceled: it is only the write's i/o timeout, inside
+// pgx's own error. Once the client has gone, that timeout is that
+// cancellation and is recorded as one, class context_canceled
+// (clientCancellationClass). With the client still there it is a real
+// timeout, an unmapped 500 at ERROR with its own ErrorClass
+// (write_deadline_exceeded). Any other timeout, such as an HTTP call to SRI,
+// PayPhone or Resend running out of time, is a genuine failure whether or not
+// the client stayed: a client often leaves because such a call is slow.
 //
 // A nil recorder (a handler not served through RequestPipeline) records
 // nothing and always writes.
@@ -262,16 +266,19 @@ func (r *statusRecorder) outcome() (slog.Level, int) {
 // how a cancelled request's context surfaces from the call it cut short, and
 // false when it is not; it is asked only once the client is known to have gone
 // (noteError). That is context.Canceled itself, classed by ErrorClass as it
-// always was, or a socket's i/o timeout (isTimeout: os.ErrDeadlineExceeded or
-// any error whose Timeout() is true), which is how pgconn interrupts a write
-// when its context is cancelled, and which is classed context_canceled
-// because that is what it is.
+// always was, or pgconn interrupting its own connection's I/O
+// (isPgconnInterrupt), which is classed context_canceled because that is what
+// it is.
 //
-// IT IS NARROW ON PURPOSE. A context's deadline also reports Timeout(), and is
-// the server's own failure however the client fared, so it is never this; nor
-// is a failed connect to Postgres, whose timeout is the database's
-// (databaseConnectClass). A Postgres error, such as a 23505, keeps its real
-// outcome even when a timeout is found beside it.
+// IT IS NARROW ON PURPOSE, because a genuine server-side fault is never
+// downgraded because the client left. A socket timeout from anything but
+// pgconn, such as an http.Client's, is never this. Nor is a context's
+// deadline, the server's own clock running out; nor a failed connect to
+// Postgres, whose timeout is the database's (databaseConnectClass); nor a
+// timeout pgconn itself has judged not to be a cancellation (pgconn.Timeout:
+// pgconn wraps a timeout that way only when its context was not cancelled). A
+// Postgres error, such as a 23505, keeps its real outcome even when a timeout
+// is found beside it.
 func clientCancellationClass(err error) (string, bool) {
 	if errors.Is(err, context.Canceled) {
 		return ErrorClass(err), true
@@ -279,12 +286,37 @@ func clientCancellationClass(err error) (string, bool) {
 	var connectErr *pgconn.ConnectError
 	var pgErr *pgconn.PgError
 	switch {
-	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &connectErr), errors.As(err, &pgErr):
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &connectErr), errors.As(err, &pgErr), pgconn.Timeout(err):
 		return "", false
-	case isTimeout(err):
+	case isPgconnInterrupt(err):
 		return canceledClass, true
 	}
 	return "", false
+}
+
+// isPgconnInterrupt reports whether err is pgconn's own connection I/O cut
+// short by a deadline: an error of pgx's whose cause is os.ErrDeadlineExceeded.
+// That is the only way a deadline reaches pgconn's connection mid-query, since
+// its context watcher sets one only when the context is cancelled
+// (DeadlineContextWatcherHandler, the default, and the fallback deadline of
+// CancelRequestContextWatcherHandler).
+//
+// pgx's error is recognised by SafeToRetry() bool, the method
+// pgconn.SafeToRetry reads. What a failed write returns is pgproto3's
+// writeError, which is unexported and which pgconn hands back unwrapped, so no
+// exported type names it and pgconn.Timeout is false for it; the method is the
+// marker it carries. No other error in this program's dependencies has that
+// method (pgconn and pgproto3 define every one), so an http.Client's timeout,
+// a net.Error that may hold the very same os.ErrDeadlineExceeded, is never
+// mistaken for it. A net.Error whose Timeout() is true for another reason,
+// such as ETIMEDOUT from the kernel, is not a deadline pgconn set, so it is
+// not matched either.
+func isPgconnInterrupt(err error) bool {
+	var pgxErr interface {
+		error
+		SafeToRetry() bool
+	}
+	return errors.As(err, &pgxErr) && errors.Is(pgxErr, os.ErrDeadlineExceeded)
 }
 
 // clientCancelled reports whether the client has cancelled the request. The

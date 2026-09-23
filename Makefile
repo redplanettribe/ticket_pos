@@ -57,7 +57,7 @@ test:
 	pnpm turbo test
 
 test-integration:
-	cd backend && go test ./integration/...
+	cd backend && go test -timeout 30m ./integration/...
 
 # Browser smoke tests against the production-parity stack. Requires `make prod`
 # to be up: these run against the shipped container images, not dev servers.
@@ -81,10 +81,14 @@ test-parity:
 #
 # `go vet` runs first: make stops at the first failing command, so vet after
 # the tests would never report on a branch whose tests fail.
+#
+# The integration package states its own -timeout. It is one package, so Go's
+# default 10 minutes is a budget for the whole suite, and the suite took 466 s
+# on CI and ran out of it locally under load.
 ci-go:
 	cd backend && go vet ./...
 	cd backend && go test $$(go list ./... | grep -v '/integration$$')
-	cd backend && go test ./integration/...
+	cd backend && go test -timeout 30m ./integration/...
 
 # The JS job, step for step: a frozen-lockfile install (CI's first step, which
 # a plain `pnpm turbo ...` skips and then fails on a missing module), lint,
