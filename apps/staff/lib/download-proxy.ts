@@ -5,7 +5,10 @@
  * reader.
  *
  * It imports nothing from Next or from the app's aliases, which is what lets
- * `node --test` exercise it directly.
+ * `node --test` exercise it directly. It forwards the same headers as the
+ * storefront's `forwardDocument` (apps/storefront/lib/document-download.ts) and,
+ * like it, streams both a refusal and a file; the two apps share no library
+ * code.
  */
 
 import { proxyRead } from "./reader-abort.ts";
@@ -23,7 +26,9 @@ const FORWARDED_HEADERS = ["Content-Disposition", "Retry-After", "Cache-Control"
  * forwardDownload turns the API's response into the browser's.
  *
  * A refusal is the API's JSON envelope passed through unchanged, with its status,
- * so the caller can show the reason rather than a broken download.
+ * so the caller can show the reason rather than a broken download. It is
+ * streamed as a file is, under the API's content type or `application/json`
+ * when the API sent none.
  *
  * A file is passed through AS A STREAM AND NEVER BUFFERED (ADR 0075): the
  * Holder Export has no size limit, so buffering it here would put the whole
@@ -32,7 +37,7 @@ const FORWARDED_HEADERS = ["Content-Disposition", "Retry-After", "Cache-Control"
  * this response errors with it, and the browser sees a broken connection rather
  * than a clean end, so its blob() rejects and no file is saved.
  */
-export async function forwardDownload(upstream: Response, fileContentType: string): Promise<Response> {
+export function forwardDownload(upstream: Response, fileContentType: string): Response {
   const headers = new Headers();
   for (const name of FORWARDED_HEADERS) {
     const value = upstream.headers.get(name);
@@ -43,7 +48,7 @@ export async function forwardDownload(upstream: Response, fileContentType: strin
 
   if (!upstream.ok) {
     headers.set("Content-Type", upstream.headers.get("Content-Type") ?? "application/json");
-    return new Response(await upstream.text(), { status: upstream.status, headers });
+    return new Response(upstream.body, { status: upstream.status, headers });
   }
 
   headers.set("Content-Type", upstream.headers.get("Content-Type") ?? fileContentType);

@@ -4,8 +4,8 @@
  *
  * It imports nothing from Next or from the app's aliases, which is what lets
  * `node --test` exercise it directly. It forwards the same headers as the staff
- * app's `forwardDownload` (apps/staff/lib/download-proxy.ts); the two apps share
- * no library code.
+ * app's `forwardDownload` (apps/staff/lib/download-proxy.ts) and, like it,
+ * streams both a refusal and a file; the two apps share no library code.
  */
 
 /**
@@ -21,9 +21,10 @@ const FORWARDED_HEADERS = ["Content-Disposition", "Retry-After", "Cache-Control"
  * forwardDocument turns the API's response into the browser's.
  *
  * A refusal is the API's JSON envelope passed through unchanged, with its
- * status, so the page can show the reason rather than save a broken file. A
- * file is passed through as a stream, never buffered, under the API's content
- * type, or `fileContentType` when the API sent none.
+ * status, so the page can show the reason rather than save a broken file, under
+ * the API's content type or `application/json` when the API sent none. A file
+ * is passed through under the API's content type, or `fileContentType` when the
+ * API sent none. Both are streamed, never buffered.
  */
 export function forwardDocument(upstream: Response, fileContentType: string): Response {
   const headers = new Headers();
