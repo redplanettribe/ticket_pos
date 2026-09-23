@@ -399,6 +399,11 @@ func TestTheTaxDocumentArchiveHoldsExactlyThePeriodsStandingProductionDocuments(
 	if want := "comprobantes-" + taxArchiveRUC + "-" + taxArchiveFrom + "-" + taxArchiveTo + ".zip"; pack.Filename != want {
 		t.Fatalf("filename = %q; want %q", pack.Filename, want)
 	}
+	// Every buyer's name and Tax ID of a period: no cache on the way may keep
+	// a copy of it.
+	if pack.CacheControl != "no-store" {
+		t.Fatalf("Cache-Control = %q; want no-store", pack.CacheControl)
+	}
 
 	expected := expectedArchive(t, f.operatorSessionID, f.included())
 	wantNames := make([]string, 0, len(expected)+1)
