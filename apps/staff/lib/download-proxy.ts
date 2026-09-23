@@ -8,6 +8,8 @@
  * `node --test` exercise it directly.
  */
 
+import { proxyRead } from "./reader-abort.ts";
+
 /**
  * The headers passed on from the API as they came, on a refusal and on a file
  * alike when the API sent them. Retry-After is how a busy export tells the
@@ -59,35 +61,23 @@ export async function forwardDownload(upstream: Response, fileContentType: strin
  * response's body, which is the upstream body, and that cancels the upstream
  * fetch in turn.
  *
- * A reader who gives up before the upstream fetch resolves makes that fetch
- * reject. Nobody is left to read the answer, so that is returned quietly as an
- * empty 499 (client closed request) rather than thrown, which Next would log as
- * an unhandled route error and a 500. It is keyed on the browser's own signal,
- * not on the error's name: an abort nobody asked for while the browser is still
- * waiting is a failure, and is thrown as any other failure is.
+ * A reader who gives up before the upstream fetch resolves is answered as every
+ * proxied read answers one (see proxyRead): quietly, with an empty 499. Any
+ * other failure is thrown.
  */
 export async function proxyDownload(
   request: Request,
   fetchUpstream: (signal: AbortSignal) => Promise<Response>,
   fileContentType: string,
 ): Promise<Response> {
-  let upstream: Response;
-  try {
-    upstream = await fetchUpstream(request.signal);
-  } catch (error) {
-    if (request.signal.aborted) {
-      return new Response(null, { status: CLIENT_CLOSED_REQUEST });
-    }
-    throw error;
-  }
-  return forwardDownload(upstream, fileContentType);
+  return proxyRead(
+    request,
+    async (signal) => forwardDownload(await fetchUpstream(signal), fileContentType),
+    (error) => {
+      throw error;
+    },
+  );
 }
-
-/**
- * The status a download answers when its reader went away first. No browser
- * sees it; it is what the server's own request log records.
- */
-const CLIENT_CLOSED_REQUEST = 499;
 
 /** The .xlsx media type both exports fall back to. */
 export const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";

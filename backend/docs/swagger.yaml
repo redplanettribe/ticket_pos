@@ -10079,7 +10079,8 @@ paths:
         Link session naming it. Any other Customer, any other Sale, a document that
         is not this Sale''s, and a document not yet authorized all answer INVOICE_NOT_FOUND
         (404), one refusal for every case so that ids cannot be probed. No session
-        at all is 401.'
+        at all is 401. The response carries `Cache-Control: no-store`, since the document
+        is buyer personal and tax data.'
       parameters:
       - description: Ticket Sale id
         in: path
@@ -10127,7 +10128,8 @@ paths:
         Sale in the path, or be a Confirmation Link session naming it. Any other Customer,
         any other Sale, a document that is not this Sale''s, and a document not yet
         authorized all answer INVOICE_NOT_FOUND (404), one refusal for every case
-        so that ids cannot be probed. No session at all is 401.'
+        so that ids cannot be probed. No session at all is 401. The response carries
+        `Cache-Control: no-store`, since the document is buyer personal and tax data.'
       parameters:
       - description: Ticket Sale id
         in: path
@@ -10782,7 +10784,8 @@ paths:
         or `from` after `to`, is refused under VALIDATION_FAILED exactly as the list''s
         `issued_from`/`issued_to` are. ISSUER_NOT_FOUND (404) when no Ecuador Issuer
         has been recorded. Every archive taken writes one log line naming the operator,
-        the range and the counts. Platform Operator only.'
+        the range and the counts. Platform Operator only. The response carries `Cache-Control:
+        no-store`, since the archive is buyer personal and tax data.'
       parameters:
       - description: First Emission Date of the range (YYYY-MM-DD, inclusive)
         in: query
@@ -11354,7 +11357,8 @@ paths:
         filename="<clave de acceso>-autorizacion.xml"`. An invoice that is pending,
         rejected or not authorized has no such document and answers AUTHORIZATION_XML_NOT_FOUND
         (404); INVOICE_NOT_FOUND (404) when there is no such invoice. Platform Operator
-        only.'
+        only. The response carries `Cache-Control: no-store`, since the document is
+        buyer personal and tax data.'
       parameters:
       - description: Tax Invoice id
         in: path
@@ -11726,7 +11730,9 @@ paths:
         the authorization number and date the SRI granted, and is rendered afresh
         on every request: nothing is stored, and two downloads are byte-identical.
         A document that is not authorized has no RIDE and answers RIDE_NOT_FOUND (404);
-        INVOICE_NOT_FOUND (404) when there is no such invoice. Platform Operator only.'
+        INVOICE_NOT_FOUND (404) when there is no such invoice. Platform Operator only.
+        The response carries `Cache-Control: no-store`, since the document is buyer
+        personal and tax data.'
       parameters:
       - description: Tax Invoice id
         in: path
@@ -11771,7 +11777,8 @@ paths:
         — byte for byte the stored document — as `application/xml` with `Content-Disposition:
         attachment; filename="<clave de acceso>.xml"`. Available in every status,
         since the document exists from the moment the number was consumed. INVOICE_NOT_FOUND
-        (404) otherwise. Platform Operator only.'
+        (404) otherwise. Platform Operator only. The response carries `Cache-Control:
+        no-store`, since the document is buyer personal and tax data.'
       parameters:
       - description: Tax Invoice id
         in: path

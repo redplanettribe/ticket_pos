@@ -177,7 +177,7 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
 - The line's status and level follow what actually happened.
   A 2xx, 3xx or 4xx is logged at INFO, and a 5xx at ERROR whether or not it was mapped from a domain error.
   Every mapped domain error's line carries its `error_code`, whatever its status, so a mapped 5xx such as `PAYMENT_SALE_COMMIT_FAILED` is identifiable.
-  Every unmapped error's line carries `error_class` (`platform.ErrorClass`), whatever its status and not only on a 5xx, naming the kind of failure, such as `postgres 22P02`, without the error's text.
+  Every unmapped error's line carries `error_class` (`platform.ErrorClass`), whatever its status and not only on a 5xx, naming the kind of failure, such as `postgres 22P02` or, with the database down, `db_connect_refused`, without the error's text.
   A recovered panic's 500 is written by the recovery middleware, not through `WriteDomainError`, so its line carries neither `error_code` nor `error_class`, unless the handler had already reported an error through `WriteDomainError` before it panicked.
   The one exception is a capacity refusal, a domain error that declares a `Retry-After` (`domainRetryAfter`, today only the 503 `HOLDER_EXPORT_BUSY`), which is logged at WARN because the platform refuses as designed.
   The declaration decides, not the header read back off the response, so a handler setting `Retry-After` by hand cannot quieten a failure, and a mapped deployment fault or failed commit such as `PAYMENT_SALE_COMMIT_FAILED` stays an ERROR.
@@ -191,7 +191,8 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
   The envelope is then written as usual; a write to a gone client fails harmlessly.
   The status, and whether the client had gone, are decided once, when the status is chosen, so a 500 written just before the connection closes stays an ERROR 500.
   A `context.Canceled` with the client still connected is the server's own cancellation, and a deadline the server imposed is `context.DeadlineExceeded`; both stay server errors.
-- All of this is the pipeline's and `WriteDomainError`'s to decide; a handler only passes its error on.
+- All of this is the pipeline's and `WriteDomainError`'s to decide, in the pipeline's status recorder (`statusRecorder.noteError`, `decide`, `outcome`); a handler only passes its error on.
+- This section is the one owner of these rules; the [api-errors skill](../.cursor/skills/api-errors/SKILL.md) points here rather than restating them.
 - Staff and Storefront Next apps forward `X-Request-ID` on server-side calls to the Go API.
 - Metrics, distributed tracing, and error reporting SaaS are **deferred** until production hosting is chosen.
 

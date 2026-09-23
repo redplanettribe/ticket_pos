@@ -88,6 +88,11 @@ func assertRIDEDownload(t *testing.T, resp *http.Response, body []byte, filename
 	if cd := resp.Header.Get("Content-Disposition"); cd != `attachment; filename="`+filename+`"` {
 		t.Fatalf("Content-Disposition=%q, want attachment; filename=%q", cd, filename)
 	}
+	// The document carries the buyer's name, Tax ID and purchase: no cache on
+	// the way may keep a copy of it.
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Fatalf("Cache-Control=%q, want no-store", cc)
+	}
 	if !bytes.HasPrefix(body, []byte("%PDF-")) {
 		t.Fatalf("body is not a PDF: %.40q", body)
 	}

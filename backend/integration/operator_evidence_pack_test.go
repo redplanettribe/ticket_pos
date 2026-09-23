@@ -50,11 +50,12 @@ func staffEvidencePackPath(digest string) string {
 
 // downloadPack fetches a pack and reads the archive back.
 type downloadedPack struct {
-	Filename string
-	SHA256   string
-	Body     []byte
-	Names    []string
-	Files    map[string][]byte
+	Filename     string
+	SHA256       string
+	CacheControl string
+	Body         []byte
+	Names        []string
+	Files        map[string][]byte
 }
 
 func downloadPack(t *testing.T, env *testEnv, sessionID, path string) downloadedPack {
@@ -77,10 +78,11 @@ func downloadPack(t *testing.T, env *testEnv, sessionID, path string) downloaded
 		t.Fatalf("the pack is not a readable ZIP: %v", err)
 	}
 	pack := downloadedPack{
-		Filename: filename,
-		SHA256:   resp.Header.Get("X-Pack-SHA256"),
-		Body:     body,
-		Files:    map[string][]byte{},
+		Filename:     filename,
+		SHA256:       resp.Header.Get("X-Pack-SHA256"),
+		CacheControl: resp.Header.Get("Cache-Control"),
+		Body:         body,
+		Files:        map[string][]byte{},
 	}
 	for _, file := range reader.File {
 		pack.Names = append(pack.Names, file.Name)

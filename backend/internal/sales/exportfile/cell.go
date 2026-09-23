@@ -81,7 +81,8 @@ func (a Answer) Cell() Cell {
 			// date cell. It is the text excelize has always written for such a
 			// time, `1850-01-01T00:00:00Z`, and deliberately not a tidier
 			// `1850-01-01`: both files wrote this before they shared a rule,
-			// and nothing a user downloads changes (#656, #655 story 34).
+			// and no value a user downloads changes (#656, #655 story 34).
+			// How the text is encoded is each writer's: see writeAnswer.
 			return TextCell(day.Format(time.RFC3339Nano))
 		}
 		return Cell{Kind: CellDate, Date: day}
@@ -103,8 +104,10 @@ var firstSerialDay = time.Date(1900, time.January, 1, 0, 0, 0, 0, time.UTC)
 //
 // EMPTY TEXT IS A BLANK, not a text cell holding nothing: an empty string reads
 // as a value to "is blank", and a reader filtering on "is blank" is asking who
-// left it empty. A Holder's name, a buyer's and an Answer somebody cleared are
-// all written this way, by both writers.
+// left it empty. The Holder Export writes every empty text this way. The Sales
+// Export writes an empty Holder value this way too, as it always did, but
+// encodes an empty text Answer as the empty-string cell it always wrote,
+// because that file is left exactly as it is (see writeAnswer).
 //
 // Anything longer than Excel's limit is cut to it (see cutCellText), rather
 // than written into a file Excel refuses to open.

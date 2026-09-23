@@ -149,25 +149,11 @@ Each domain module owns its types (e.g. `catalog.ErrEventNotFound`, `sales.ErrCa
 | Conflict / state violation | 409 | `CAPACITY_EXCEEDED` |
 | Permission (domain) | 403 | `FORBIDDEN` |
 
-A refusal about capacity, where the same request a moment later is expected to succeed, also declares a `Retry-After` in `domainRetryAfter` beside the status table (today only `HOLDER_EXPORT_BUSY`).
-The declaration decides the request log level too: a 5xx is logged at ERROR, mapped or not, unless its domain error declares a `Retry-After`, which makes it a designed refusal logged at WARN.
-It is the declaration and never the header: a `Retry-After` a handler sets by hand does not quieten a 5xx.
-Every mapped domain error's request line carries its `error_code`, whatever its status, so a mapped 5xx is identifiable.
-Every unmapped error's request line carries `error_class` (`platform.ErrorClass`), whatever its status, never the error's text.
-A recovered panic's 500 is written by the recovery middleware, not by `WriteDomainError`, so its line carries neither `error_code` nor `error_class`, unless the handler had already reported an error through `WriteDomainError` before it panicked.
-A 2xx, 3xx or 4xx is logged at INFO.
-A streamed download that aborts after its first byte (`panic(http.ErrAbortHandler)`) is logged at WARN with `aborted=true`, whatever status had already been sent.
+A refusal about capacity, where the same request a moment later is expected to succeed, declares its `Retry-After` in `domainRetryAfter`, beside the status table (today only `HOLDER_EXPORT_BUSY`).
 
-A client that gives up is not a server error, but a client leaving never downgrades what happened.
-The request line is INFO with status 499 and `client_gone=true` in exactly two cases.
-The first is when the error the handler reported is itself the cancellation (`errors.Is(err, context.Canceled)`), the client is gone (the request's context is cancelled), and no status has been decided yet.
-Only then does `WriteDomainError` write nothing, and the line also carries `error_class=context_canceled`.
-The second is when the handler reported no error and wrote nothing, and the client had gone by the time it returned (`outcome`).
-Nothing was written at all, and the line carries no `error_code` or `error_class`.
-Any other outcome keeps the handler's real status and the level that status earns, and adds `client_gone=true` when the client had gone as the status was decided: a Postgres failure stays ERROR 500 with `error_class`, a mapped 5xx stays ERROR with its `error_code`, a 201 stays INFO 201, a busy 503 stays WARN.
-The envelope is written as usual then; a write to a gone client fails harmlessly.
-The status is decided once, when it is chosen, so a 500 written just before the connection closes is never re-read as a 499.
-This lives in the platform pipeline's recorder (`statusRecorder.noteError`, `decide`, `outcome`); a handler never checks for it.
+The request log's rules - its level, `error_code`, `error_class`, `aborted`, and the 499 with `client_gone` for a client that gave up - have one owner: [docs/technical-design.md, Logging and request correlation](../../../docs/technical-design.md#logging-and-request-correlation).
+Read them there; they are deliberately not repeated here.
+A handler's only part in them is to pass every error it gets to `platform.WriteDomainError`, and never to check for a gone client, pick a log level, or write a 499 or a `Retry-After` itself.
 
 Handlers stay thin:
 
