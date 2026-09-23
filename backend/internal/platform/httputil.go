@@ -80,8 +80,9 @@ func WriteHandlerError(w http.ResponseWriter, requestID string, status int, code
 // Served through RequestPipeline, it first tells the request log about the
 // error (statusRecorder.noteError): a mapped error's code, whether it declares
 // a Retry-After, an unmapped error's ErrorClass. The one error it writes
-// nothing for is the client's own cancellation once the client has gone, which
-// the request log records as a 499; everything else is written as usual.
+// nothing for is the client's own cancellation, once the client has gone and
+// while no status has been decided yet, which the request log records as a
+// 499; everything else is written as usual.
 func WriteDomainError(w http.ResponseWriter, requestID string, err error) error {
 	if !requestRecorder(w).noteError(err) {
 		return nil
