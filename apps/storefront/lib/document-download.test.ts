@@ -9,7 +9,8 @@ import { forwardDocument } from "./document-download.ts";
 // to the browser with the headers the reader needs. The API marks both files
 // `Cache-Control: no-store` so a buyer's invoice never sits in a shared cache,
 // and a relay that drops that header quietly undoes it. A refusal is the API's
-// JSON envelope with its status; a file is its bytes, streamed.
+// JSON envelope with its status; a file is its bytes. Both are streamed, as the
+// staff app's forwardDownload streams them.
 
 test("a file keeps its type, its filename and Cache-Control, and nothing else", async () => {
   const upstream = new Response("<factura/>", {
@@ -85,6 +86,29 @@ test("a file streams: the first bytes reach the reader before the API has finish
   controller.enqueue(encoder.encode("%PDF first"));
   const first = await reader.read();
   assert.equal(decoder.decode(first.value), "%PDF first");
+
+  controller.close();
+  assert.equal((await reader.read()).done, true);
+});
+
+test("a refusal streams too: its first bytes reach the reader before the API has finished", async () => {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const body = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c;
+    },
+  });
+  const response = forwardDocument(new Response(body, { status: 503 }), "application/pdf");
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get("Content-Type"), "application/json");
+  assert.ok(response.body);
+  const reader = response.body.getReader();
+
+  controller.enqueue(encoder.encode('{"data":null,'));
+  const first = await reader.read();
+  assert.equal(decoder.decode(first.value), '{"data":null,');
 
   controller.close();
   assert.equal((await reader.read()).done, true);
