@@ -191,7 +191,8 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
   The envelope is then written as usual; a write to a gone client fails harmlessly.
   The status, and whether the client had gone, are decided once, when the status is chosen, so a 500 written just before the connection closes stays an ERROR 500.
   A `context.Canceled` with the client still connected is the server's own cancellation, and a deadline the server imposed is `context.DeadlineExceeded`; both stay server errors.
-- All of this is the pipeline's and `WriteDomainError`'s to decide; a handler only passes its error on.
+- All of this is the pipeline's and `WriteDomainError`'s to decide, in the pipeline's status recorder (`statusRecorder.noteError`, `decide`, `outcome`); a handler only passes its error on.
+- This section is the one owner of these rules; the [api-errors skill](../.cursor/skills/api-errors/SKILL.md) points here rather than restating them.
 - Staff and Storefront Next apps forward `X-Request-ID` on server-side calls to the Go API.
 - Metrics, distributed tracing, and error reporting SaaS are **deferred** until production hosting is chosen.
 
