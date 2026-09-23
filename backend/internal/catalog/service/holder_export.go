@@ -374,7 +374,9 @@ func (s *Service) ExportHolderList(
 }
 
 // HolderExportDeadline is how long this service lets one Holder Export stream:
-// holderExportDeadline, unless a test has overridden it.
+// holderExportDeadline, unless a test has overridden it. It is exported for
+// TestTheHolderExportDeadlineIsInsideTheRequestTimeout, which reads it from
+// outside the package, beside the Terraform variable it must stay inside.
 func (s *Service) HolderExportDeadline() time.Duration {
 	if s.holderExportDeadlineOverride > 0 {
 		return s.holderExportDeadlineOverride

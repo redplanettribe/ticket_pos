@@ -76,21 +76,45 @@ func WriteHandlerError(w http.ResponseWriter, requestID string, status int, code
 }
 
 // WriteDomainError maps a domain error to HTTP and writes the envelope.
+//
+// Served through RequestPipeline, it also tells the request log what it knows
+// about the error (loggingMiddleware):
+//
+//   - A CLIENT THAT HAS GONE gets nothing written at all. Its request's context
+//     was cancelled, so the error is almost always that cancellation surfacing
+//     from the database; the line is INFO, status 499, client_gone=true, and a
+//     500 envelope would be written to nobody.
+//   - A domain error that declares a Retry-After is a capacity refusal, logged
+//     at WARN, as the declaration and not the header decides.
+//   - An unmapped error is logged at ERROR with its ErrorClass, which names the
+//     kind of failure without the error's text.
 func WriteDomainError(w http.ResponseWriter, requestID string, err error) error {
+	rec := requestRecorder(w)
 	var domainErr apperror.DomainError
+	if rec != nil && rec.status == 0 && rec.clientCancelled() {
+		rec.clientGone = true
+		// The class still goes on the line: almost always context_canceled, and
+		// when it is not, the failure the client did not wait for is on record.
+		if !errors.As(err, &domainErr) {
+			rec.errorClass = ErrorClass(err)
+		}
+		return nil
+	}
 	if errors.As(err, &domainErr) {
 		status := domainHTTPStatus(domainErr.Code())
 		if after := domainRetryAfter(domainErr.Code()); after != "" {
-			w.Header().Set(retryAfterHeader, after)
+			w.Header().Set("Retry-After", after)
+			if rec != nil {
+				rec.capacityRefusal = true
+			}
 		}
 		return WriteHandlerError(w, requestID, status, domainErr.Code(), domainErr.Message(), domainErr.Details())
 	}
+	if rec != nil {
+		rec.errorClass = ErrorClass(err)
+	}
 	return WriteHandlerError(w, requestID, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred", nil)
 }
-
-// retryAfterHeader is set only from domainRetryAfter, and the request log reads
-// it back to tell a capacity refusal from a failure.
-const retryAfterHeader = "Retry-After"
 
 // domainRetryAfter is the Retry-After, in seconds, a domain refusal carries, or
 // "" for one that carries none.
@@ -99,8 +123,9 @@ const retryAfterHeader = "Retry-After"
 // is expected to succeed and saying when is useful to the caller. It lives
 // beside the status mapping so a handler never special-cases a code to add it.
 //
-// It also decides how the request is logged: a 5xx carrying a Retry-After is an
-// expected refusal and logs at WARN, every other 5xx at ERROR (loggingMiddleware).
+// It also decides how the request is logged: a 5xx whose domain error declares
+// a Retry-After here is an expected refusal and logs at WARN, every other 5xx
+// at ERROR, whatever headers a handler set by hand (loggingMiddleware).
 func domainRetryAfter(code string) string {
 	switch code {
 	// Every Holder Export slot on the instance is streaming (ADR 0075). Most

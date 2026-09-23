@@ -1,9 +1,11 @@
-package service
+package service_test
 
 import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/catalog/service"
 )
 
 // TestTheHolderExportDeadlineIsInsideTheRequestTimeout holds the Holder Export's
@@ -24,7 +26,7 @@ func TestTheHolderExportDeadlineIsInsideTheRequestTimeout(t *testing.T) {
 	requestTimeout := terraformSecondsVariable(t,
 		filepath.Join(holderPurgeModuleDir(), "variables.tf"), "api_request_timeout_seconds")
 
-	deadline := (&Service{}).HolderExportDeadline()
+	deadline := (&service.Service{}).HolderExportDeadline()
 	if margin := requestTimeout - deadline; margin < 5*time.Second {
 		t.Fatalf("the Holder Export deadline = %v, Cloud Run's request timeout = %v: the export must expire at least 5s first, or the platform cuts it off before it can say why",
 			deadline, requestTimeout)

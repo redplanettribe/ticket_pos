@@ -2,13 +2,18 @@ package platform
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/peter/ticket_pos/backend/internal/platform/apperror"
 )
@@ -329,5 +334,179 @@ func TestRequestPipelineLeavesTheResponseControllerWorking(t *testing.T) {
 	}
 	if !rec.Flushed {
 		t.Fatal("the recorder underneath was never flushed")
+	}
+}
+
+// A CLIENT THAT GIVES UP IS NOT A SERVER ERROR. When the request's context has
+// been cancelled by the client by the time the response is decided, the
+// handler's database call fails with the cancellation and reaches
+// WriteDomainError as an unmapped error. Nobody is reading, so the request line
+// is INFO with client_gone=true and the 499 that says the client closed the
+// request, whatever the handler went on to write.
+func TestRequestPipelineLogsAClientThatGaveUpAtInfoAs499(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		respond func(w http.ResponseWriter, r *http.Request)
+	}{
+		{"an unmapped error from the cancelled context", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()), fmt.Errorf("list sales: %w", r.Context().Err()))
+		}},
+		{"a mapped domain error", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()), apperror.New("EVENT_NOT_FOUND", "refused", nil))
+		}},
+		{"a 500 written by hand", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteHandlerError(w, RequestID(r.Context()), http.StatusInternalServerError, "INTERNAL_ERROR", "failed", nil)
+		}},
+		{"nothing written at all", func(http.ResponseWriter, *http.Request) {}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				cancel() // the client goes away while the handler is working
+				tc.respond(w, r)
+			}))
+
+			handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/staff/events", nil).WithContext(ctx))
+
+			line := requestLogLine(t, buf)
+			if line.str("level") != "INFO" || line.status() != 499 {
+				t.Fatalf("request log = %v, want INFO with status 499", line)
+			}
+			if gone, _ := line["client_gone"].(bool); !gone {
+				t.Fatalf("request log = %v, want client_gone=true", line)
+			}
+		})
+	}
+}
+
+// WriteDomainError writes nothing for a client that has gone: a 500 envelope
+// nobody reads is only noise on a dead connection.
+func TestRequestPipelineWritesNoEnvelopeToAClientThatGaveUp(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	handler, _ := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cancel()
+		_ = WriteDomainError(w, RequestID(r.Context()), r.Context().Err())
+	}))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/staff/events", nil).WithContext(ctx))
+
+	if rec.Body.Len() != 0 {
+		t.Fatalf("body = %q, want nothing written to a client that has gone", rec.Body.String())
+	}
+}
+
+// The line for a client that gave up still names the error's class, so a
+// failure the client simply did not wait for is not lost.
+func TestRequestPipelineNamesTheErrorAClientThatGaveUpDidNotWaitFor(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cancel()
+		_ = WriteDomainError(w, RequestID(r.Context()), fmt.Errorf("commit: %w", &pgconn.PgError{Code: "23505"}))
+	}))
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/v1/staff/events", nil).WithContext(ctx))
+
+	line := requestLogLine(t, buf)
+	if line.status() != 499 || line.str("error_class") != "postgres 23505" {
+		t.Fatalf("request log = %v, want status 499 with error_class postgres 23505", line)
+	}
+}
+
+// A request whose response was decided before the client left keeps its
+// status: the connection closing afterwards does not re-read it as abandoned.
+func TestRequestPipelineKeepsTheStatusDecidedBeforeTheClientLeft(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		cancel()
+	}))
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/staff/events", nil).WithContext(ctx))
+
+	line := requestLogLine(t, buf)
+	if line.str("level") != "INFO" || line.status() != http.StatusOK || line["client_gone"] != nil {
+		t.Fatalf("request log = %v, want INFO 200 without client_gone", line)
+	}
+}
+
+// A GENUINE UNMAPPED 500 IS AN ERROR, AND SAYS WHAT KIND. The request line
+// carries the error's class from ErrorClass, never its text, which could name
+// a client's address or a buyer's email. A request that ran out of its own
+// deadline is the server's failure, not a client that gave up.
+func TestRequestPipelineLogsAnUnmappedErrorAtErrorWithItsClass(t *testing.T) {
+	expired, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	for _, tc := range []struct {
+		name      string
+		ctx       context.Context
+		err       error
+		wantClass string
+	}{
+		{"a Postgres refusal", context.Background(),
+			fmt.Errorf("list for ana@example.com: %w", &pgconn.PgError{Code: "22P02", Message: "invalid input syntax"}),
+			"postgres 22P02"},
+		{"an error of no known kind", context.Background(),
+			fmt.Errorf("list for ana@example.com: %w", errors.New("connection refused")), "*errors.errorString"},
+		{"the server's own deadline", expired,
+			fmt.Errorf("list for ana@example.com: %w", context.DeadlineExceeded), "context_deadline_exceeded"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = WriteDomainError(w, RequestID(r.Context()), tc.err)
+			}))
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/staff/events", nil).WithContext(tc.ctx))
+
+			if rec.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d, want 500", rec.Code)
+			}
+			line := requestLogLine(t, buf)
+			if line.str("level") != "ERROR" || line.status() != http.StatusInternalServerError {
+				t.Fatalf("request log = %v, want ERROR with status 500", line)
+			}
+			if line.str("error_class") != tc.wantClass {
+				t.Fatalf("request log error_class = %q, want %q", line.str("error_class"), tc.wantClass)
+			}
+			if strings.Contains(buf.String(), "ana@example.com") {
+				t.Fatalf("the log carries the error's text: %s", buf.String())
+			}
+		})
+	}
+}
+
+// THE CAPACITY REFUSAL'S LEVEL IS THE DOMAIN ERROR'S DECLARATION, not a header
+// read back off the response. A handler that sets Retry-After by hand on a
+// failure has declared nothing, and its 5xx is still an ERROR.
+func TestRequestPipelineIgnoresAHandSetRetryAfterWhenChoosingTheLevel(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		respond func(w http.ResponseWriter, r *http.Request)
+		status  int
+	}{
+		{"an unmapped error", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()), errors.New("connection refused"))
+		}, http.StatusInternalServerError},
+		{"a mapped 5xx that declares none", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()), apperror.New("PAYMENT_SALE_COMMIT_FAILED", "failed", nil))
+		}, http.StatusInternalServerError},
+		{"a 503 written by hand", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}, http.StatusServiceUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Retry-After", "5")
+				tc.respond(w, r)
+			}))
+
+			handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/export", nil))
+
+			line := requestLogLine(t, buf)
+			if line.str("level") != "ERROR" || line.status() != tc.status {
+				t.Fatalf("request log = %v, want ERROR with status %d", line, tc.status)
+			}
+		})
 	}
 }

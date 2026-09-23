@@ -336,8 +336,8 @@ func TestAnswersSheetTypesItsCells(t *testing.T) {
 // TestAnswersSheetWritesWhatTheCellRuleDecides: the Sales Export's per-Ticket
 // sheet agrees with the Holder Export about the two answers a spreadsheet
 // cannot take literally (ADR 0075). Empty text is no cell at all, not an empty
-// string, and a date before 1900 - which Excel has no serial for - is its ISO
-// date as text.
+// string, and a date before 1900 - which Excel has no serial for - is the
+// timestamp text this sheet has always written for it.
 func TestAnswersSheetWritesWhatTheCellRuleDecides(t *testing.T) {
 	longAgo := time.Date(1850, time.January, 1, 0, 0, 0, 0, time.UTC)
 	f := openBuilt(t, oneSale(), gaColumn(), Answers{
@@ -361,8 +361,8 @@ func TestAnswersSheetWritesWhatTheCellRuleDecides(t *testing.T) {
 	if v, _ := f.GetCellValue(AnswersSheet, "C2", excelize.Options{RawCellValue: true}); v != "" {
 		t.Fatalf("empty text answer holds %q, want nothing", v)
 	}
-	if got, _ := f.GetCellValue(AnswersSheet, "D2"); got != "1850-01-01" {
-		t.Fatalf("pre-1900 date answer reads %q, want the ISO date 1850-01-01", got)
+	if got, _ := f.GetCellValue(AnswersSheet, "D2"); got != "1850-01-01T00:00:00Z" {
+		t.Fatalf("pre-1900 date answer reads %q, want the unchanged 1850-01-01T00:00:00Z", got)
 	}
 }
 

@@ -562,7 +562,8 @@ func TestBuildHolderExportQuestionColumnsComeFromTheSharedBuilder(t *testing.T) 
 
 // The Holder Export writes the same cells as the Sales Export for the two
 // answers a spreadsheet cannot take literally, because both come from the one
-// cell rule: empty text is no cell, and a date before 1900 is its ISO date text.
+// cell rule: empty text is no cell, and a date before 1900 is the timestamp
+// text both files have always written for it.
 func TestBuildHolderExportWritesWhatTheCellRuleDecides(t *testing.T) {
 	longAgo := time.Date(1850, time.January, 1, 0, 0, 0, 0, time.UTC)
 	roster := holderFixture()
@@ -597,8 +598,8 @@ func TestBuildHolderExportWritesWhatTheCellRuleDecides(t *testing.T) {
 	if v, _ := f.GetCellValue(HolderSheet, ref("Notes"), excelize.Options{RawCellValue: true}); v != "" {
 		t.Fatalf("empty text answer holds %q, want nothing", v)
 	}
-	if got := holderCell(t, f, 0, "Birthday"); got != "1850-01-01" {
-		t.Fatalf("pre-1900 date answer reads %q, want the ISO date 1850-01-01", got)
+	if got := holderCell(t, f, 0, "Birthday"); got != "1850-01-01T00:00:00Z" {
+		t.Fatalf("pre-1900 date answer reads %q, want the unchanged 1850-01-01T00:00:00Z", got)
 	}
 }
 

@@ -174,9 +174,15 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
 - `platform.RequestPipeline` is the one middleware stack: the request id outermost, then the request log, then panic recovery.
   The id is on the request context (`platform.RequestID(ctx)`), in the `request` log line, and in every envelope's `request_id`.
 - The `request` log line is written for every request, at WARN with `aborted=true` when a streamed download aborts after its first byte (`panic(http.ErrAbortHandler)`), carrying the status already sent.
-  Otherwise a 2xx, 3xx or 4xx is logged at INFO, and a 5xx at ERROR whether or not it was mapped from a domain error.
-  The one exception is a capacity refusal, a 5xx carrying a `Retry-After`, which is logged at WARN because the platform refuses as designed.
-  A `Retry-After` is only ever set by `platform.WriteDomainError` from the domain error's own declaration (`domainRetryAfter`, today only the 503 `HOLDER_EXPORT_BUSY`), so a mapped deployment fault or failed commit such as `PAYMENT_SALE_COMMIT_FAILED` stays an ERROR.
+- A client that gives up is not a server error.
+  When the client had already cancelled the request (`r.Context().Err() == context.Canceled`) by the time its response was decided, the line is INFO with `client_gone=true` and status 499, whatever the handler wrote.
+  Its database call fails with the cancelled context, and `platform.WriteDomainError` writes no envelope for it, since nobody is reading.
+  A deadline the server imposed is `context.DeadlineExceeded`, not a cancellation, and stays a server error.
+- Otherwise a 2xx, 3xx or 4xx is logged at INFO, and a 5xx at ERROR whether or not it was mapped from a domain error.
+  An unmapped error's line carries `error_class` (`platform.ErrorClass`), naming the kind of failure, such as `postgres 22P02`, without the error's text.
+  The one exception is a capacity refusal, a domain error that declares a `Retry-After` (`domainRetryAfter`, today only the 503 `HOLDER_EXPORT_BUSY`), which is logged at WARN because the platform refuses as designed.
+  The declaration decides, not the header read back off the response, so a handler setting `Retry-After` by hand cannot quieten a failure, and a mapped deployment fault or failed commit such as `PAYMENT_SALE_COMMIT_FAILED` stays an ERROR.
+- All of this is the pipeline's and `WriteDomainError`'s to decide; a handler only passes its error on.
 - Staff and Storefront Next apps forward `X-Request-ID` on server-side calls to the Go API.
 - Metrics, distributed tracing, and error reporting SaaS are **deferred** until production hosting is chosen.
 
