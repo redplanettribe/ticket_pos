@@ -70,12 +70,14 @@ export function forwardDownload(upstream: Response, fileContentType: string): Re
  * proxied read answers one (see proxyRead): quietly, with an empty 499. Any
  * other failure is thrown.
  */
-export async function proxyDownload(
+export function proxyDownload(
   request: Request,
   fetchUpstream: (signal: AbortSignal) => Promise<Response>,
   fileContentType: string,
 ): Promise<Response> {
-  return proxyRead(request, async (signal) => forwardDownload(await fetchUpstream(signal), fileContentType));
+  return proxyRead(request, (signal) =>
+    fetchUpstream(signal).then((upstream) => forwardDownload(upstream, fileContentType)),
+  );
 }
 
 /** The .xlsx media type both exports fall back to. */

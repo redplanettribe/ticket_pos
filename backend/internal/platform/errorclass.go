@@ -92,9 +92,11 @@ func knownClass(err error) (string, bool) {
 // failureClass is the class of any recognised error but a failed connect to
 // Postgres, and false for one it does not recognise. Order is priority: every
 // check looks through the whole tree, wraps and joins alike, so the first that
-// matches anywhere in it wins. A cancellation ranks above a refusal and a DNS
-// error, as it does in databaseConnectClass: net reports a lookup whose
-// context was cancelled as a *net.DNSError.
+// matches anywhere in it wins. A context's end ranks above everything else,
+// so a cancellation outranks a refusal here as it does in
+// databaseConnectClass. A lookup that a context ended is never a name that
+// does not resolve, here or there, because isDNSError does not count it: net
+// reports such a lookup as a *net.DNSError that unwraps to the context's error.
 func failureClass(err error) (string, bool) {
 	var pgErr *pgconn.PgError
 	switch {
@@ -130,8 +132,8 @@ func failureClass(err error) (string, bool) {
 // database could not be reached, never where it is. Each of its checks is one
 // failureClass also makes, written the same way (the same errors.Is target,
 // the same errors.As type, the same isDNSError), so the two agree on what a
-// SQLSTATE, a refusal, a name that does not resolve or a cancellation is; keep
-// them written alike. A check that is a single errors.Is or errors.As is
+// SQLSTATE, a refusal, a name that does not resolve, a cancellation or a
+// deadline is; keep them written alike. A check that is a single errors.Is or errors.As is
 // written inline; one that needs more has a predicate below.
 //
 // ITS ORDER IS ITS OWN. pgconn joins one error per address it tried, so one
@@ -147,26 +149,51 @@ func databaseConnectClass(err error) string {
 		return postgresClassPrefix + pgErr.Code
 	// The request itself was cancelled: the reader left while the connect was
 	// still resolving or dialling, and that is the truth about why it failed,
-	// whatever else the other addresses said. It outranks a DNS error in
-	// particular, because net reports a lookup whose context was cancelled as
-	// a *net.DNSError that unwraps to context.Canceled.
+	// whatever else the other addresses said.
 	case errors.Is(err, context.Canceled):
 		return canceledClass
+	// A refusal outranks a name that does not resolve: the server's address
+	// was known and something there answered no.
 	case errors.Is(err, syscall.ECONNREFUSED):
 		return dbConnectRefusedClass
+	// Only a lookup that finished and failed. One a deadline cut off is a
+	// timeout below, because the name was never found to be missing.
 	case isDNSError(err):
 		return dbDNSUnresolvedClass
-	// A dial that ran out of time, whether its own connect timeout or the
-	// request's deadline ended it. Last, since it says least about why.
+	// A dial or a lookup that ran out of time, whether its own connect timeout
+	// or the request's deadline ended it. Last, since it says least about why.
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, os.ErrDeadlineExceeded), isTimeout(err):
 		return dbConnectTimeoutClass
 	}
 	return dbUnavailableClass
 }
 
+// isDNSError reports whether err's tree, wraps and joins alike, holds a
+// *net.DNSError for a lookup that finished and failed. A lookup a context
+// ended is not one: net builds it as newDNSError(mapErr(ctx.Err()), ...), a
+// *net.DNSError that unwraps to context.Canceled or context.DeadlineExceeded,
+// and the name it looked for was never found to be missing. errors.As cannot
+// ask this, since it stops at the first *net.DNSError, and a join may hold a
+// lookup that timed out before one that found no such host.
 func isDNSError(err error) bool {
-	var dnsErr *net.DNSError
-	return errors.As(err, &dnsErr)
+	if dnsErr, ok := err.(*net.DNSError); ok && dnsErr != nil && !isContextEnd(dnsErr) {
+		return true
+	}
+	switch e := err.(type) {
+	case interface{ Unwrap() []error }:
+		for _, member := range e.Unwrap() {
+			if isDNSError(member) {
+				return true
+			}
+		}
+	case interface{ Unwrap() error }:
+		return isDNSError(e.Unwrap())
+	}
+	return false
+}
+
+func isContextEnd(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func isDialError(err error) bool {
