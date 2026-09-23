@@ -81,21 +81,23 @@ func TestAnswerCellReadsEveryFannedOutOptionAsABoolean(t *testing.T) {
 	}
 }
 
-// A DATE EXCEL CANNOT HOLD IS WRITTEN AS ITS ISO DATE TEXT. Excel's 1900 date
-// system has no serial before 1900-01-01, so a date Answer before then - a
-// great-grandparent's birthday, a typo - is the calendar date as text, rather
-// than a wrong date or a timestamp with a time and a zone nobody typed.
-func TestAnswerCellDateBefore1900IsItsISODateAsText(t *testing.T) {
+// A DATE EXCEL CANNOT HOLD IS WRITTEN AS EXCELIZE HAS ALWAYS WRITTEN IT. Excel's
+// 1900 date system has no serial before 1900-01-01, so a date Answer before
+// then - a great-grandparent's birthday, a typo - is text, and the text is the
+// midnight-UTC timestamp excelize wrote for such a time before either file had
+// a rule of its own. Nothing a user downloads changes (#656, #655 story 34), so
+// the rule pins that text rather than choosing a nicer one.
+func TestAnswerCellDateBefore1900IsTheTimestampTextExcelizeWrote(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		date time.Time
 		want Cell
 	}{
 		{"before 1900", time.Date(1850, time.January, 1, 0, 0, 0, 0, time.UTC),
-			Cell{Kind: CellText, Text: "1850-01-01"}},
+			Cell{Kind: CellText, Text: "1850-01-01T00:00:00Z"}},
 		{"the last day before 1900, late in a zone behind UTC",
 			time.Date(1899, time.December, 31, 23, 30, 0, 0, time.FixedZone("ECT", -5*60*60)),
-			Cell{Kind: CellText, Text: "1899-12-31"}},
+			Cell{Kind: CellText, Text: "1899-12-31T00:00:00Z"}},
 		{"the first day Excel has a serial for",
 			time.Date(1900, time.January, 1, 0, 0, 0, 0, time.UTC),
 			Cell{Kind: CellDate, Date: time.Date(1900, time.January, 1, 0, 0, 0, 0, time.UTC)}},

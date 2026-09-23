@@ -28,7 +28,7 @@ The only ceiling left is Cloud Run's 300s request timeout, which the #530 measur
 
 **The workbook is written by a minimal xlsx writer of our own, not excelize.**
 An xlsx file is a zip of a few XML parts, and writing them directly is the only way the output reaches the response without a buffer.
-The file is unchanged: the same sheets, columns, number formats and widths - apart from the three cells the shared answer rule below now decides for both files.
+The file is unchanged: the same sheets, columns, number formats and widths - apart from the empty cells the shared answer rule below now leaves blank on the Holder Export.
 The Info sheet still opens first - sheet order is `workbook.xml`'s, not the zip's - and it is written last, so the row count it states is the number of rows actually streamed.
 
 **One snapshot.**
@@ -63,17 +63,19 @@ The step that turns a Ticket Answer into a typed cell value - text, date, boolea
 The Holder Export and the Sales Export's per-Ticket sheet each keep only a thin serializer.
 ADR 0065 accepted two overlapping files and refused two implementations; that still holds at the level of the rule, and only the bytes are written twice.
 
-The rule also decides the three values a spreadsheet cannot take literally, the same way for both files:
+The rule also decides the two values a spreadsheet cannot take literally, the same way for both files:
 
 - Empty text is an absent cell, never a text cell holding nothing, so a reader filtering on "is blank" finds it.
   That covers an empty Answer and an empty Holder name in both files, and an empty buyer name on the Holder Export.
 - Text is cut to 32,767 UTF-16 code units, which is Excel's limit and what Excel counts.
   A character outside the Basic Multilingual Plane counts as two, and the cut never splits a surrogate pair.
-- A date Answer before 1900-01-01, which Excel's 1900 date system has no serial for, is written as its ISO date text, such as `1850-01-01`, rather than as a timestamp.
+  excelize already cut text exactly this way, so this changes no file.
 
-This deliberately changes the file, against #658's "the file does not change".
-Before it, the Sales Export's per-Ticket sheet wrote an empty text Answer as an empty-string cell, and a pre-1900 date in either file as a timestamp text such as `1850-01-01T00:00:00Z`.
-Two files that disagree about whether a cell is blank are worse than one small change to both.
+Only the empty-text rule changes anything a user downloads, and only on the Holder Export.
+There it deliberately goes against #658's "the file does not change" and #656's "Nothing a user downloads changes": before it, the Holder Export wrote an empty buyer name, or an empty text Answer, as an empty-string cell.
+Two files that disagree about whether a cell is blank are worse than one small change to one of them.
+The Sales Export's output is unchanged, as #655's story 34 requires.
+Its per-Ticket sheet already left an empty Holder name blank, and it never meets an empty text Answer, because none is ever stored: `parseTextAnswer` refuses empty text.
 
 ## Considered options
 

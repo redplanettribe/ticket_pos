@@ -78,9 +78,11 @@ func (a Answer) Cell() Cell {
 		day := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC)
 		if day.Before(firstSerialDay) {
 			// Excel's 1900 date system has no serial for it, so it cannot be a
-			// date cell. It is the calendar date as ISO text: what was typed,
-			// with no time and no zone that nobody typed.
-			return TextCell(day.Format(time.DateOnly))
+			// date cell. It is the text excelize has always written for such a
+			// time, `1850-01-01T00:00:00Z`, and deliberately not a tidier
+			// `1850-01-01`: both files wrote this before they shared a rule,
+			// and nothing a user downloads changes (#656, #655 story 34).
+			return TextCell(day.Format(time.RFC3339Nano))
 		}
 		return Cell{Kind: CellDate, Date: day}
 	case a.Checked != nil:
