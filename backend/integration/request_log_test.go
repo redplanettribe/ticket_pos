@@ -14,8 +14,9 @@ import (
 // client goes away while the list is still being read used to surface as an
 // unmapped 500 logged at ERROR with no cause: the cancelled request context
 // failed the database read, and the failure was written up as the server's.
-// It is logged at INFO with client_gone=true and the 499 that says the client
-// closed the request.
+// The error that read reports is the cancellation itself, so the request is
+// logged at INFO with client_gone=true and the 499 that says the client closed
+// the request.
 //
 // The list is held on a table lock so the client's timeout is certain to pass
 // while the handler is inside its database read, which is where a slow list
@@ -62,5 +63,10 @@ func TestACancelledListRequestIsLoggedAsAClientThatGaveUp(t *testing.T) {
 	}
 	if line["client_gone"] != true {
 		t.Fatalf("request line = %v, want client_gone=true", line)
+	}
+	// The 499 is earned only because the error the handler reported is the
+	// cancellation itself; any other failure keeps its 500 at ERROR.
+	if line["error_class"] != "context_canceled" {
+		t.Fatalf("request line = %v, want error_class context_canceled", line)
 	}
 }

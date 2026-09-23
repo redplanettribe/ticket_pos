@@ -182,6 +182,26 @@ func routeWildcards(pattern string) (method, path string, wildcards []pathWildca
 	return method, path, wildcards
 }
 
+// PatternWildcard is one {wildcard} of a route pattern, as the path-id guard
+// reads it.
+type PatternWildcard struct {
+	// Segment is the wildcard as the pattern writes it: "{id}", "{path...}".
+	Segment string
+	// Name is what r.PathValue reads it by: "id", "path".
+	Name string
+}
+
+// PatternWildcards is routeWildcards for the route sweep in backend/integration,
+// so the sweep splits a pattern's method and walks its wildcards exactly as the
+// guard does instead of keeping a second walk that could drift from this one.
+func PatternWildcards(pattern string) (method, path string, wildcards []PatternWildcard) {
+	method, path, walked := routeWildcards(pattern)
+	for _, wc := range walked {
+		wildcards = append(wildcards, PatternWildcard{Segment: wc.segment, Name: wc.name})
+	}
+	return method, path, wildcards
+}
+
 // notFoundFor returns the not-found error of the id keyed key under method:
 // the method-specific entry where there is one, else the bare one.
 func (ids pathIDs) notFoundFor(method, key string) (func(value string) error, bool) {
