@@ -173,7 +173,7 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
 - Every HTTP request gets a unique **`X-Request-ID`** (a UUID is generated when the inbound header is absent or not id-shaped).
 - `platform.RequestPipeline` is the one middleware stack: the request id outermost, then the request log, then panic recovery.
   The id is on the request context (`platform.RequestID(ctx)`), in the `request` log line, and in every envelope's `request_id`.
-- The `request` log line is written for every request, at WARN with `aborted=true` when a streamed download aborts after its first byte (`panic(http.ErrAbortHandler)`), carrying the status already sent.
+- The `request` log line is written for every request, at WARN with `aborted=true` when a streamed download aborts after its first byte (`panic(http.ErrAbortHandler)`), carrying the status already sent, and `client_gone=true` when the client had already gone as that status was decided.
 - The line's status and level follow what actually happened.
   A 2xx, 3xx or 4xx is logged at INFO, and a 5xx at ERROR whether or not it was mapped from a domain error.
   A mapped domain error's line carries its `error_code`, so a mapped 5xx such as `PAYMENT_SALE_COMMIT_FAILED` is identifiable.

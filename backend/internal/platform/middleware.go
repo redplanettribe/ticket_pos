@@ -83,8 +83,9 @@ func wellFormedRequestID(id string) bool {
 // The line is written even when the handler aborts with http.ErrAbortHandler,
 // which is how a streamed download that fails after its first byte ends: at
 // WARN, with aborted=true and the status that had already been sent (0 when
-// nothing had). The abort is then passed on so the server still drops the
-// connection.
+// nothing had), and client_gone=true when the client had already gone as that
+// status was decided. The abort is then passed on so the server still drops
+// the connection.
 //
 // Otherwise the status and the level are what the statusRecorder decided
 // (outcome): the handler's real status, at the level that status earns, with
