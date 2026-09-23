@@ -187,11 +187,12 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
   The declaration decides, not the header read back off the response, so a handler setting `Retry-After` by hand cannot quieten a failure, and a mapped deployment fault or failed commit such as `PAYMENT_SALE_COMMIT_FAILED` stays an ERROR.
 - A client that gives up is not a server error, but a client leaving never downgrades what happened.
   The line is INFO with status 499 and `client_gone=true` in exactly two cases.
-  The first is when the error the handler reported is itself the cancellation (`errors.Is(err, context.Canceled)`), the client is gone (the request's context is cancelled), and no status has been decided yet.
+  The first is when the error the handler reported is itself the cancellation, the client is gone (the request's context is cancelled), and no status has been decided yet.
+  The cancellation is either `context.Canceled` or a socket's i/o timeout (`os.ErrDeadlineExceeded`, or any error whose `Timeout()` is true), because pgconn interrupts a query it is writing by setting the connection's deadline in the past when its context is cancelled, and that error carries no `context.Canceled`.
+  A context's deadline, a failed connect to Postgres and an error holding a Postgres error are never the cancellation, even though they may also report a timeout (`clientCancellationClass`).
   Only in that case does `platform.WriteDomainError` write no envelope, since nobody is reading and nothing else happened, and the line carries `error_class=context_canceled`.
-  The cancellation can also surface as a socket's i/o timeout (`os.ErrDeadlineExceeded`, or a `net.Error` whose `Timeout()` is true) with no `context.Canceled` in it, because pgconn interrupts a query it is writing by setting the connection's deadline in the past when its context is cancelled.
-  Once the client is gone such a timeout is treated as the cancellation, with `error_class=context_canceled`; a context's deadline and a failed connect to Postgres never are, even though they also report a timeout.
-  With the client still connected a socket timeout is a real one, an ERROR 500 with `error_class=write_deadline_exceeded`, and the Holder Export's own write deadline, which fails only after its 200 went out, is still an aborted download whose finished line gives reason `deadline`.
+  With the client still connected a socket timeout is a real one, an ERROR 500 with its own `error_class`, `write_deadline_exceeded` for a socket's deadline.
+  The Holder Export's own write deadline fails only after its 200 went out, so it is never a 499, and its finished line still gives reason `deadline`.
   The second is when the handler reported no error, wrote nothing, and the client had gone by the time it returned.
   Nothing was written at all, and the line carries neither `error_code` nor `error_class`.
   Any other outcome keeps the handler's real status and the level that status earns, with `client_gone=true` added when the client had gone by the time the status was decided: a Postgres failure is still ERROR 500 with its `error_class`, a committed mutation is still INFO 201, a busy 503 is still WARN.

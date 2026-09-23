@@ -249,31 +249,29 @@ func TestRequestPipelineLogsAnAbortBeforeTheFirstByteWithNoStatus(t *testing.T) 
 	}
 }
 
-// THE HOLDER EXPORT'S WRITE DEADLINE IS NOT A CLIENT'S CANCELLATION. The write
-// that times out on the deadline the export set fails after its 200 went out,
-// and a failed write cancels the request, so by then the context reads as
-// cancelled. The export aborts, and its line is still the WARN abort with the
-// 200 that was sent: no 499 and no context_canceled.
-func TestRequestPipelineLogsTheHolderExportsWriteDeadlineAsAnAbort(t *testing.T) {
+// A TIMEOUT AFTER THE STATUS WENT OUT IS NOT A 499. The Holder Export's write
+// to a client that stopped reading times out on the deadline the export set,
+// after its 200 went out, and a failed write cancels the request, so by then
+// the context reads as cancelled and the error is a socket's i/o timeout. The
+// status was decided before either, so the line keeps the 200 it sent, never
+// the client's cancellation.
+func TestRequestPipelineKeepsTheStatusSentWhenATimeoutFollowsIt(t *testing.T) {
 	req, cancel := cancelledRequest(http.MethodGet)
-	handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("PK partial"))
 		cancel() // the write that timed out cancels the request
-		panic(http.ErrAbortHandler)
+		_ = WriteDomainError(w, RequestID(r.Context()), pgconnWriteTimeout())
 	}))
 
-	func() {
-		defer func() { _ = recover() }()
-		handler.ServeHTTP(httptest.NewRecorder(), req)
-	}()
+	handler.ServeHTTP(httptest.NewRecorder(), req)
 
 	line := requestLogLine(t, buf)
-	if line.str("level") != "WARN" || line.status() != http.StatusOK || line["client_gone"] != nil {
-		t.Fatalf("request log = %v, want WARN with the 200 sent and without client_gone", line)
+	if line.str("level") != "INFO" || line.status() != http.StatusOK || line["client_gone"] != nil {
+		t.Fatalf("request log = %v, want INFO with the 200 sent and without client_gone", line)
 	}
-	if line.str("error_class") != "" {
-		t.Fatalf("request log error_class = %q, want none", line.str("error_class"))
+	if line.str("error_class") != "write_deadline_exceeded" {
+		t.Fatalf("request log error_class = %q, want write_deadline_exceeded", line.str("error_class"))
 	}
 }
 
@@ -385,7 +383,7 @@ func pgconnWriteTimeout() error {
 }
 
 // socketTimeout is a net.Error whose Timeout() is true and which is not
-// os.ErrDeadlineExceeded, as another driver's socket might return.
+// os.ErrDeadlineExceeded.
 type socketTimeout struct{}
 
 func (socketTimeout) Error() string   { return "i/o timeout" }
@@ -476,6 +474,11 @@ func TestRequestPipelineKeepsTheRealOutcomeOfARequestWhoseClientLeft(t *testing.
 		{"the server's own deadline", func(w http.ResponseWriter, r *http.Request) {
 			_ = WriteDomainError(w, RequestID(r.Context()), fmt.Errorf("list holders: %w", context.DeadlineExceeded))
 		}, http.StatusInternalServerError, "ERROR", "context_deadline_exceeded", "INTERNAL_ERROR", ""},
+		// A Postgres error found beside a timeout is still the Postgres error.
+		{"a Postgres failure beside a socket timeout", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()),
+				errors.Join(&pgconn.PgError{Code: "23505"}, pgconnWriteTimeout()))
+		}, http.StatusInternalServerError, "ERROR", "write_deadline_exceeded", "INTERNAL_ERROR", ""},
 		{"a mapped 500 failed commit", domainError("PAYMENT_SALE_COMMIT_FAILED"),
 			http.StatusInternalServerError, "ERROR", "", "PAYMENT_SALE_COMMIT_FAILED", "PAYMENT_SALE_COMMIT_FAILED"},
 		{"a mapped 500 unavailable link", domainError("CONFIRMATION_LINK_UNAVAILABLE"),
@@ -615,6 +618,8 @@ func TestRequestPipelineLogsAnUnmappedErrorAtErrorWithItsClass(t *testing.T) {
 			pgconnWriteTimeout(), "write_deadline_exceeded"},
 		{"a write's i/o timeout after the server's own deadline", expired,
 			pgconnWriteTimeout(), "write_deadline_exceeded"},
+		{"a net.Error timeout with the client still there", context.Background(),
+			fmt.Errorf("list holders: %w", socketTimeout{}), "platform.socketTimeout"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

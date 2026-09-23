@@ -93,7 +93,7 @@ func WriteHandlerError(w http.ResponseWriter, requestID string, status int, code
 // nothing for is the client's own cancellation, once the client has gone and
 // while no status has been decided yet, which the request log records as a
 // 499; that includes the socket i/o timeout pgconn turns a cancellation into
-// (isClientCancellation). Everything else is written as usual.
+// (clientCancellationClass). Everything else is written as usual.
 func WriteDomainError(w http.ResponseWriter, requestID string, err error) error {
 	if !requestRecorder(w).noteError(err) {
 		return nil
