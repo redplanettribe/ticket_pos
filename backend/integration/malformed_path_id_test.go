@@ -18,7 +18,8 @@ import (
 // A malformed id in a route's path names a resource that cannot exist, so it is
 // answered exactly as an id that names nothing is: 404 with the resource's own
 // *_NOT_FOUND code. It is never a 500, and it is never told apart from an
-// unknown id (the id-oracle rule, ADR 0035).
+// unknown id (the path-id rule: the api-errors skill and
+// docs/technical-design.md, "Handler errors").
 //
 // The sweep walks the REGISTERED route table rather than a list kept here, so a
 // route added later is covered the day it lands. For every id wildcard of every
