@@ -1,6 +1,8 @@
 package platform
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -82,37 +84,48 @@ func wellFormedRequestID(id string) bool {
 // nothing had). The abort is then passed on so the server still drops the
 // connection.
 //
-// Otherwise a 5xx is logged at ERROR, except a 5xx carrying a Retry-After: that
-// is a capacity refusal the platform makes as designed, such as the 503
-// HOLDER_EXPORT_BUSY, and is logged at WARN. The only source of a Retry-After is
-// a domain error that declares one (domainRetryAfter), so a mapped 5xx that
-// declares none - a deployment fault, a failed commit - is still an ERROR.
-// Everything else, a 4xx included, is logged at INFO.
+// A CLIENT THAT GAVE UP IS NOT A SERVER ERROR. When the client had already
+// cancelled the request by the time its response was decided - its first
+// status written, or the handler returning without one - the line is INFO with
+// client_gone=true and status 499, whatever the handler wrote. Its database
+// call fails with the cancelled context and would otherwise read as a 500 at
+// ERROR with no cause, for a request nobody was waiting on. WriteDomainError
+// writes no envelope at all then.
+//
+// Otherwise a 5xx is logged at ERROR, except a capacity refusal the platform
+// makes as designed, such as the 503 HOLDER_EXPORT_BUSY: a domain error that
+// declares a Retry-After (domainRetryAfter), logged at WARN. The declaration
+// is what decides, never the header read back off the response, so a handler
+// setting Retry-After by hand cannot quieten a failure. An unmapped error's
+// line carries error_class (ErrorClass), so an ERROR says what kind of failure
+// it was without carrying the error's text. Everything else, a 4xx included,
+// is logged at INFO.
 func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		rec := &statusRecorder{ResponseWriter: w}
+		rec := &statusRecorder{ResponseWriter: w, ctx: r.Context()}
 		defer func() {
 			aborted := recover()
 			level := slog.LevelInfo
 			status := rec.status
+			clientGone := false
 			switch {
 			case aborted != nil:
 				// WARN whatever status went out: the abort is the event.
 				level = slog.LevelWarn
+			case rec.clientGone || (status == 0 && rec.clientCancelled()):
+				// INFO, as set above.
+				clientGone = true
+				status = statusClientClosedRequest
 			case status == 0:
 				// A handler that returns without writing sends an implicit 200.
 				status = http.StatusOK
-				fallthrough
+			case status < http.StatusInternalServerError:
+				// INFO, as set above.
+			case rec.capacityRefusal:
+				level = slog.LevelWarn
 			default:
-				switch {
-				case status < http.StatusInternalServerError:
-					// INFO, as set above.
-				case rec.Header().Get(retryAfterHeader) != "":
-					level = slog.LevelWarn
-				default:
-					level = slog.LevelError
-				}
+				level = slog.LevelError
 			}
 			attrs := []any{
 				"request_id", RequestID(r.Context()),
@@ -124,6 +137,12 @@ func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 			if aborted != nil {
 				attrs = append(attrs, "aborted", true)
 			}
+			if clientGone {
+				attrs = append(attrs, "client_gone", true)
+			}
+			if rec.errorClass != "" {
+				attrs = append(attrs, "error_class", rec.errorClass)
+			}
 			logger.Log(r.Context(), level, "request", attrs...)
 			if aborted != nil {
 				panic(aborted)
@@ -133,25 +152,57 @@ func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	})
 }
 
-// statusRecorder remembers the status a handler sent; 0 means none yet.
+// statusClientClosedRequest is the status the request log records for a
+// request whose client went away before its response was decided. It is
+// nginx's 499, which no client ever receives: it names what happened, since
+// no status was sent to anybody.
+const statusClientClosedRequest = 499
+
+// statusRecorder remembers what the request log needs to know about a
+// response: the status a handler sent (0 means none yet), and what
+// WriteDomainError learned about the error behind it.
 type statusRecorder struct {
 	http.ResponseWriter
+	// ctx is the request's, to tell whether the client has gone.
+	ctx    context.Context
 	status int
+	// clientGone is whether the client had cancelled the request when its
+	// status was decided.
+	clientGone bool
+	// capacityRefusal is set by WriteDomainError for a domain error that
+	// declares a Retry-After (domainRetryAfter).
+	capacityRefusal bool
+	// errorClass is set by WriteDomainError for an unmapped error.
+	errorClass string
 }
 
 func (r *statusRecorder) WriteHeader(status int) {
 	// 1xx responses are interim; the status worth logging is the final one.
 	if r.status == 0 && status >= http.StatusOK {
-		r.status = status
+		r.decide(status)
 	}
 	r.ResponseWriter.WriteHeader(status)
 }
 
 func (r *statusRecorder) Write(b []byte) (int, error) {
 	if r.status == 0 {
-		r.status = http.StatusOK
+		r.decide(http.StatusOK)
 	}
 	return r.ResponseWriter.Write(b)
+}
+
+// decide records the response's status, and whether its client had already
+// gone when it was chosen.
+func (r *statusRecorder) decide(status int) {
+	r.status = status
+	r.clientGone = r.clientCancelled()
+}
+
+// clientCancelled reports whether the client has cancelled the request. The
+// server cancels a request's context when its connection closes; a deadline
+// the server itself imposed is context.DeadlineExceeded, and is not this.
+func (r *statusRecorder) clientCancelled() bool {
+	return r.ctx != nil && errors.Is(r.ctx.Err(), context.Canceled)
 }
 
 // Unwrap lets http.ResponseController reach the writer underneath, so a
@@ -159,6 +210,21 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 // Holder Export sets one so a client that stops reading is let go (ADR 0075).
 func (r *statusRecorder) Unwrap() http.ResponseWriter {
 	return r.ResponseWriter
+}
+
+// requestRecorder finds the request log's recorder under w, or nil when w is
+// not served through RequestPipeline (a handler unit test's recorder).
+func requestRecorder(w http.ResponseWriter) *statusRecorder {
+	for {
+		if rec, ok := w.(*statusRecorder); ok {
+			return rec
+		}
+		unwrapper, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return nil
+		}
+		w = unwrapper.Unwrap()
+	}
 }
 
 // ClientIPHeader carries the end user's IP address as derived by the BFF that
