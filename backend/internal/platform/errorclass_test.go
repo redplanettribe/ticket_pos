@@ -62,7 +62,7 @@ func TestErrorClassNamesTheKindAndCarriesNoErrorText(t *testing.T) {
 			&net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{Err: "no such host", Name: "ana.example.com"}},
 			"dns_unresolved"},
 		{"a lookup the reader gave up on, which is a DNS error too",
-			&net.OpError{Op: "dial", Net: "tcp", Err: canceledLookup("ana.example.com")},
+			&net.OpError{Op: "dial", Net: "tcp", Err: canceledLookup(t, "ana.example.com")},
 			"context_canceled"},
 		{"a dial that failed otherwise",
 			&net.OpError{Op: "dial", Net: "tcp", Addr: peer, Err: errors.New("network unreachable 203.0.113.7")},
@@ -197,7 +197,7 @@ func TestErrorClassNamesADatabaseThatCannotBeReached(t *testing.T) {
 		cfg := pgconnConfig(t, refused)
 		cfg.Host = "localhost"
 		cfg.LookupFunc = func(_ context.Context, host string) ([]string, error) {
-			return nil, canceledLookup(host)
+			return nil, canceledLookup(t, host)
 		}
 		_, err := pgconn.ConnectConfig(gone, cfg)
 		var dnsErr *net.DNSError
@@ -249,8 +249,8 @@ func TestErrorClassNamesAConnectToSeveralAddressesByItsMostTellingFailure(t *tes
 	refused := &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
 	unresolved := &net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{Err: "no such host", Name: "tickets.internal", IsNotFound: true}}
 	reset := &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNRESET}
-	canceled := &net.OpError{Op: "dial", Net: "tcp", Err: netCanceledError()}
-	lookupCanceled := &net.OpError{Op: "dial", Net: "tcp", Err: canceledLookup("tickets.internal")}
+	canceled := &net.OpError{Op: "dial", Net: "tcp", Err: netCanceledError(t)}
+	lookupCanceled := &net.OpError{Op: "dial", Net: "tcp", Err: canceledLookup(t, "tickets.internal")}
 
 	for _, tc := range []struct {
 		name          string
@@ -316,8 +316,9 @@ func assertConnectError(t *testing.T, err error) {
 // IsTemporary off it, both false for net's canceledError. It is built by hand,
 // not provoked, because a real cancelled lookup races the lookup itself: a
 // name in /etc/hosts may resolve before the cancellation is seen.
-func canceledLookup(host string) *net.DNSError {
-	canceled := netCanceledError()
+func canceledLookup(t *testing.T, host string) *net.DNSError {
+	t.Helper()
+	canceled := netCanceledError(t)
 	return &net.DNSError{UnwrapErr: canceled, Err: canceled.Error(), Name: host}
 }
 
@@ -326,13 +327,14 @@ func canceledLookup(host string) *net.DNSError {
 // context has already ended, which dialSerial refuses before any socket is
 // opened with &OpError{Op: "dial", Err: mapErr(ctx.Err())}: deterministic,
 // and no network is touched.
-func netCanceledError() error {
+func netCanceledError(t *testing.T) error {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := (&net.Dialer{}).DialContext(ctx, "tcp", "127.0.0.1:9")
 	var opErr *net.OpError
 	if !errors.As(err, &opErr) || !errors.Is(opErr.Err, context.Canceled) || opErr.Err == context.Canceled {
-		panic(fmt.Sprintf("a cancelled dial did not give net's canceledError: %T %v", err, err))
+		t.Fatalf("a cancelled dial did not give net's canceledError: %T %v", err, err)
 	}
 	return opErr.Err
 }

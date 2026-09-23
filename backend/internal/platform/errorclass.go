@@ -127,9 +127,12 @@ func failureClass(err error) (string, bool) {
 }
 
 // databaseConnectClass is the class of a failed connect to Postgres: why the
-// database could not be reached, never where it is. It asks the same
-// questions failureClass does, so the two cannot disagree on what a SQLSTATE,
-// a refusal, a name that does not resolve or a cancellation is.
+// database could not be reached, never where it is. Each of its checks is one
+// failureClass also makes, written the same way (the same errors.Is target,
+// the same errors.As type, the same isDNSError), so the two agree on what a
+// SQLSTATE, a refusal, a name that does not resolve or a cancellation is; keep
+// them written alike. A check that is a single errors.Is or errors.As is
+// written inline; one that needs more has a predicate below.
 //
 // ITS ORDER IS ITS OWN. pgconn joins one error per address it tried, so one
 // connect can fail several ways at once, and the class names the most
