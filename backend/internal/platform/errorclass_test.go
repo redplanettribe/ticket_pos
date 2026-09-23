@@ -295,7 +295,7 @@ func TestErrorClassNamesAConnectToSeveralAddressesByItsMostTellingFailure(t *tes
 		{"a name that does not resolve beside a timeout", dialFailingWith(timedOut), dialFailingWith(unresolved), "db_dns_unresolved"},
 		{"a refusal beside a name that does not resolve", dialFailingWith(unresolved), dialFailingWith(refused), "db_connect_refused"},
 		{"a name that does not resolve beside a refusal", dialFailingWith(refused), dialFailingWith(unresolved), "db_connect_refused"},
-		{"a lookup a deadline cut off, alone", dialFailingWith(lookupTimedOut), dialFailingWith(lookupTimedOut), "db_connect_timeout"},
+		{"a lookup a deadline cut off at every address", dialFailingWith(lookupTimedOut), dialFailingWith(lookupTimedOut), "db_connect_timeout"},
 		{"a lookup a deadline cut off beside a name that does not resolve", dialFailingWith(lookupTimedOut), dialFailingWith(unresolved), "db_dns_unresolved"},
 		{"a lookup a deadline cut off beside a refusal", dialFailingWith(lookupTimedOut), dialFailingWith(refused), "db_connect_refused"},
 		{"a server's SQLSTATE beside a timeout", func() (net.Conn, error) { return startingUpServer(), nil }, dialFailingWith(timedOut), "postgres 57P03"},

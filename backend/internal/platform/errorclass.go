@@ -132,9 +132,12 @@ func failureClass(err error) (string, bool) {
 // database could not be reached, never where it is. Each of its checks is one
 // failureClass also makes, written the same way (the same errors.Is target,
 // the same errors.As type, the same isDNSError), so the two agree on what a
-// SQLSTATE, a refusal, a name that does not resolve, a cancellation or a
-// deadline is; keep them written alike. A check that is a single errors.Is or errors.As is
-// written inline; one that needs more has a predicate below.
+// SQLSTATE, a refusal, a name that does not resolve or a cancellation is; keep
+// them written alike. A check that is a single errors.Is or errors.As is
+// written inline; one that needs more has a predicate below. Its timeout check
+// is the one exception: it folds a context's deadline, a socket's deadline and
+// any Timeout() error into one class, where failureClass tells a context's
+// deadline from a write's.
 //
 // ITS ORDER IS ITS OWN. pgconn joins one error per address it tried, so one
 // connect can fail several ways at once, and the class names the most
