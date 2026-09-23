@@ -396,6 +396,23 @@ func TestRequestPipelineWritesNoEnvelopeToAClientThatGaveUp(t *testing.T) {
 	}
 }
 
+// The line for a client that gave up still names the error's class, so a
+// failure the client simply did not wait for is not lost.
+func TestRequestPipelineNamesTheErrorAClientThatGaveUpDidNotWaitFor(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cancel()
+		_ = WriteDomainError(w, RequestID(r.Context()), fmt.Errorf("commit: %w", &pgconn.PgError{Code: "23505"}))
+	}))
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/v1/staff/events", nil).WithContext(ctx))
+
+	line := requestLogLine(t, buf)
+	if line.status() != 499 || line.str("error_class") != "postgres 23505" {
+		t.Fatalf("request log = %v, want status 499 with error_class postgres 23505", line)
+	}
+}
+
 // A request whose response was decided before the client left keeps its
 // status: the connection closing afterwards does not re-read it as abandoned.
 func TestRequestPipelineKeepsTheStatusDecidedBeforeTheClientLeft(t *testing.T) {

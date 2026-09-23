@@ -90,11 +90,16 @@ func WriteHandlerError(w http.ResponseWriter, requestID string, status int, code
 //     kind of failure without the error's text.
 func WriteDomainError(w http.ResponseWriter, requestID string, err error) error {
 	rec := requestRecorder(w)
+	var domainErr apperror.DomainError
 	if rec != nil && rec.status == 0 && rec.clientCancelled() {
 		rec.clientGone = true
+		// The class still goes on the line: almost always context_canceled, and
+		// when it is not, the failure the client did not wait for is on record.
+		if !errors.As(err, &domainErr) {
+			rec.errorClass = ErrorClass(err)
+		}
 		return nil
 	}
-	var domainErr apperror.DomainError
 	if errors.As(err, &domainErr) {
 		status := domainHTTPStatus(domainErr.Code())
 		if after := domainRetryAfter(domainErr.Code()); after != "" {
