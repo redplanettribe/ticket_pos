@@ -149,11 +149,7 @@ func TestTheHolderExportCarriesEveryTicketWellAboveTheOldCap(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("export %q status=%d body=%s", query, resp.StatusCode, string(data[:min(len(data), 500)]))
 		}
-		// The file is attendee personal data: no cache between here and the
-		// browser may keep a copy of it.
-		if got := resp.Header.Get("Cache-Control"); got != "no-store" {
-			t.Errorf("export %q Cache-Control = %q, want no-store", query, got)
-		}
+		assertNoStore(t, resp.Header)
 		assertSameTickets(t, holderExportTicketKeys(t, data), want)
 
 		f, err := excelize.OpenReader(bytes.NewReader(data))
@@ -326,7 +322,7 @@ func TestTheHolderExportAbortsRatherThanFinishingAShortFile(t *testing.T) {
 	// connection lost under it, depending on which it reads first; either way
 	// the class names the database, never the error's text.
 	switch got := finished.arg(t, "error_class"); got {
-	case "postgres 57P01", "database_connection_lost", "unexpected_eof":
+	case "postgres 57P01", "db_connection_lost", "unexpected_eof":
 	default:
 		t.Errorf("finished error_class = %v, want a database class", got)
 	}

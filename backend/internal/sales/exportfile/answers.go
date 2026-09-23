@@ -427,7 +427,8 @@ func writeHolder(f *excelize.File, cols layout, ticket TicketRow, row int) error
 //     SetCellValue wrote for such a time, and SetCellDefault writes the same
 //     inline string from the rule's text.
 //
-// TestSalesExportPerTicketSheetIsCellIdenticalToMain pins both, cell by cell.
+// TestSalesExportIsCellIdenticalToTheSalesExportBefore655 pins both, cell by
+// cell, with every other cell of the workbook.
 //
 // THE SHEET IS A PARAMETER because it writes onto whichever sheet the caller is
 // building; nothing else about the function differs between callers.

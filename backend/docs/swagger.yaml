@@ -10068,8 +10068,8 @@ paths:
       - customer
   /api/v1/customer/ticket-sales/{ticketSaleId}/tax-documents/{id}/ride:
     get:
-      description: 'The buyer''s download of the RIDE — the Representación Impresa
-        del Documento Electrónico — of an authorized factura or nota de crédito, as
+      description: 'The buyer''s download of the RIDE - the Representación Impresa
+        del Documento Electrónico - of an authorized factura or nota de crédito, as
         `application/pdf` with `Content-Disposition: attachment; filename="<clave
         de acceso>.pdf"`: the same bytes the operator route serves and the delivery
         mail carries, rendered afresh from the stored document on every request and
@@ -10123,7 +10123,7 @@ paths:
     get:
       description: 'The buyer''s download (ADR 0060): the factura or nota de crédito
         exactly as it was signed and authorized, as `application/xml` with `Content-Disposition:
-        attachment; filename="<clave de acceso>.xml"` — the same bytes the operator
+        attachment; filename="<clave de acceso>.xml"` - the same bytes the operator
         route serves. Gated on the Sale: the Customer Session must own the Ticket
         Sale in the path, or be a Confirmation Link session naming it. Any other Customer,
         any other Sale, a document that is not this Sale''s, and a document not yet
@@ -10764,17 +10764,17 @@ paths:
     get:
       description: 'Streams one ZIP, `application/zip` with `Content-Disposition:
         attachment; filename="comprobantes-<RUC>-<from>-<to>.zip"`, holding every
-        document of the Ecuador Issuer — manual Tax Invoices, Sale Invoices (Superseded
-        ones included) and Credit Notes — whose status is `authorized` and whose environment
+        document of the Ecuador Issuer - manual Tax Invoices, Sale Invoices (Superseded
+        ones included) and Credit Notes - whose status is `authorized` and whose environment
         is `production`, with an Emission Date from `from` to `to`, BOTH ENDS INCLUDED,
         compared as calendar days in the Issuer''s country. Each document is its stored
         signed XML, byte for byte what the single-document XML download serves, named
         `<clave de acceso>.xml` at the top level of the ZIP, ordered by Emission Date
         then clave. Pending, needs_attention, not_authorized, rejected, withdrawn,
         annulled, abandoned and owed documents are never in it, nor are test-environment
-        documents. The LAST entry is a readme — `LEEME.txt` in Spanish or `README.txt`
+        documents. The LAST entry is a readme - `LEEME.txt` in Spanish or `README.txt`
         in English, following the requesting operator''s Staff Locale and English
-        when none is stated — naming the Issuer, the period and the moment it was
+        when none is stated - naming the Issuer, the period and the moment it was
         generated, the count of facturas and of Credit Notes actually written, and
         the count of production documents emitted in the range that are still `pending`
         or `needs_attention`. An empty range is not an error: the ZIP holds the readme
@@ -11352,7 +11352,7 @@ paths:
   /api/v1/operator/invoicing/invoices/{id}/authorization-xml:
     get:
       description: 'Returns the SRI''s `<autorizacion>` document for an authorized
-        invoice — the legal proof: number, date, ambiente and the comprobante — exactly
+        invoice - the legal proof: number, date, ambiente and the comprobante - exactly
         as the SRI returned it, as `application/xml` with `Content-Disposition: attachment;
         filename="<clave de acceso>-autorizacion.xml"`. An invoice that is pending,
         rejected or not authorized has no such document and answers AUTHORIZATION_XML_NOT_FOUND
@@ -11724,8 +11724,8 @@ paths:
       - operator
   /api/v1/operator/invoicing/invoices/{id}/ride:
     get:
-      description: 'Renders the RIDE — the Representación Impresa del Documento Electrónico
-        — of an authorized document from its stored data, as `application/pdf` with
+      description: 'Renders the RIDE - the Representación Impresa del Documento Electrónico
+        - of an authorized document from its stored data, as `application/pdf` with
         `Content-Disposition: attachment; filename="<clave de acceso>.pdf"`. It carries
         the authorization number and date the SRI granted, and is rendered afresh
         on every request: nothing is stored, and two downloads are byte-identical.
@@ -11774,7 +11774,7 @@ paths:
   /api/v1/operator/invoicing/invoices/{id}/xml:
     get:
       description: 'Returns the factura exactly as it was signed and sent to the SRI
-        — byte for byte the stored document — as `application/xml` with `Content-Disposition:
+        - byte for byte the stored document - as `application/xml` with `Content-Disposition:
         attachment; filename="<clave de acceso>.xml"`. Available in every status,
         since the document exists from the moment the number was consumed. INVOICE_NOT_FOUND
         (404) otherwise. Platform Operator only. The response carries `Cache-Control:

@@ -564,7 +564,7 @@ func TestBuildHolderExportQuestionColumnsComeFromTheSharedBuilder(t *testing.T) 
 // spreadsheet cannot take literally: empty text is no cell, and a date before
 // 1900 is the timestamp text both files have always written for it. The Sales
 // Export takes the same values but keeps its own encoding of them (see
-// TestSalesExportPerTicketSheetIsCellIdenticalToMain).
+// TestSalesExportIsCellIdenticalToTheSalesExportBefore655).
 func TestBuildHolderExportWritesWhatTheCellRuleDecides(t *testing.T) {
 	longAgo := time.Date(1850, time.January, 1, 0, 0, 0, 0, time.UTC)
 	roster := holderFixture()

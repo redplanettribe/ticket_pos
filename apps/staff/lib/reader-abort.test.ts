@@ -101,3 +101,27 @@ test("any other failure, an abort nobody asked for included, is the route's erro
     assert.equal(handed, failure);
   }
 });
+
+test("without a fail answer, any other failure is thrown as it came", async () => {
+  const { request } = browserRequest();
+  const failure = new Error("API down");
+
+  await assert.rejects(
+    proxyRead(request, async () => {
+      throw failure;
+    }),
+    (error) => error === failure,
+  );
+});
+
+test("without a fail answer, a reader who left is still answered quietly", async () => {
+  const { request, leave } = browserRequest();
+  leave();
+
+  const response = await proxyRead(request, async (signal) => {
+    signal.throwIfAborted();
+    return Response.json({});
+  });
+
+  assert.equal(response.status, CLIENT_CLOSED_REQUEST);
+});
