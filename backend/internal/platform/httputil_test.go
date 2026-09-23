@@ -7,6 +7,19 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/platform/apperror"
 )
 
+// A download of somebody's personal or tax data is marked so that no cache on
+// the way to the reader keeps a copy.
+func TestNoStoreForbidsEveryCache(t *testing.T) {
+	rec := httptest.NewRecorder()
+	rec.Header().Set("Cache-Control", "public, max-age=60")
+
+	NoStore(rec)
+
+	if got := rec.Header().Values("Cache-Control"); len(got) != 1 || got[0] != "no-store" {
+		t.Fatalf("Cache-Control = %q, want exactly [no-store]", got)
+	}
+}
+
 // A refusal about capacity says when to try again, from the mapper and not
 // from any one handler; every other refusal says nothing about retrying.
 func TestWriteDomainErrorSetsRetryAfterOnlyOnCapacityRefusals(t *testing.T) {

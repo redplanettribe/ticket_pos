@@ -173,10 +173,39 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
 - Every HTTP request gets a unique **`X-Request-ID`** (a UUID is generated when the inbound header is absent or not id-shaped).
 - `platform.RequestPipeline` is the one middleware stack: the request id outermost, then the request log, then panic recovery.
   The id is on the request context (`platform.RequestID(ctx)`), in the `request` log line, and in every envelope's `request_id`.
-- The `request` log line is written for every request, at WARN with `aborted=true` when a streamed download aborts after its first byte (`panic(http.ErrAbortHandler)`), carrying the status already sent.
-  Otherwise a 2xx, 3xx or 4xx is logged at INFO, and a 5xx at ERROR whether or not it was mapped from a domain error.
-  The one exception is a capacity refusal, a 5xx carrying a `Retry-After`, which is logged at WARN because the platform refuses as designed.
-  A `Retry-After` is only ever set by `platform.WriteDomainError` from the domain error's own declaration (`domainRetryAfter`, today only the 503 `HOLDER_EXPORT_BUSY`), so a mapped deployment fault or failed commit such as `PAYMENT_SALE_COMMIT_FAILED` stays an ERROR.
+- The `request` log line is written for every request, at WARN with `aborted=true` when a streamed download aborts after its first byte (`panic(http.ErrAbortHandler)`), carrying the status already sent, and `client_gone=true` when the client had already gone as that status was decided.
+- The line's status and level follow what actually happened.
+  A 2xx, 3xx or 4xx is logged at INFO, and a 5xx at ERROR whether or not it was mapped from a domain error.
+  Every mapped domain error's line carries its `error_code`, whatever its status, so a mapped 5xx such as `PAYMENT_SALE_COMMIT_FAILED` is identifiable.
+  Every unmapped error's line carries `error_class` (`platform.ErrorClass`), whatever its status and not only on a 5xx, naming the kind of failure, such as `postgres 22P02` or, with the database down, `db_connect_refused`, without the error's text.
+  Every class about the database itself, other than a Postgres SQLSTATE, starts `db_`: `db_connect_refused`, `db_dns_unresolved`, `db_connect_timeout` and `db_unavailable` for a connect that failed, `db_connection_lost` for a connection that broke, and `db_closed` for a pool already closed.
+  A connect that failed can also read `postgres <SQLSTATE>`, when the server answered and refused it, or `context_canceled`, when the request was cancelled while it was still resolving or dialling.
+  One connect tries every address its host resolves to and can fail a different way at each, so its class is the most telling of them, in this order: `postgres <SQLSTATE>`, `context_canceled`, `db_connect_refused`, `db_dns_unresolved`, `db_connect_timeout`, and `db_unavailable` for anything else.
+  A lookup that a deadline cut off is `db_connect_timeout` and one that was cancelled is `context_canceled`, never `db_dns_unresolved`, since the name was never found to be missing.
+  Any other error that holds a Postgres error is classed by its `postgres <SQLSTATE>` even when a socket timeout, reset or closed pipe is found beside it, and only a context's end outranks it.
+  A recovered panic's 500 is written by the recovery middleware, not through `WriteDomainError`, so its line carries neither `error_code` nor `error_class`, unless the handler had already reported an error through `WriteDomainError` before it panicked.
+  The one exception is a capacity refusal, a domain error that declares a `Retry-After` (`domainRetryAfter`, today only the 503 `HOLDER_EXPORT_BUSY`), which is logged at WARN because the platform refuses as designed.
+  The declaration decides, not the header read back off the response, so a handler setting `Retry-After` by hand cannot quieten a failure, and a mapped deployment fault or failed commit such as `PAYMENT_SALE_COMMIT_FAILED` stays an ERROR.
+- A client that gives up is not a server error, but a client leaving never downgrades what happened.
+  The line is INFO with status 499 and `client_gone=true` in exactly two cases.
+  The first is when the error the handler reported is itself the cancellation, the client is gone (the request's context is cancelled), and no status has been decided yet.
+  The cancellation is either `context.Canceled` or pgconn interrupting its own connection's I/O, because pgconn interrupts a query it is writing by setting the connection's deadline in the past when its context is cancelled, and that error carries no `context.Canceled`.
+  The interrupt is recognised as an error of pgx's own, marked by the `SafeToRetry() bool` method that `pgconn.SafeToRetry` reads, whose cause is `os.ErrDeadlineExceeded` (`isPgconnInterrupt`).
+  The error pgx returns for a failed write is unexported and `pgconn.Timeout` is false for it, so that method is the most specific marker it carries, and no other error in the program's dependencies has it.
+  Any other timeout is a genuine failure and is never the cancellation, even when the client has gone, because a client often leaves precisely because an upstream is slow: an `http.Client` call to SRI, PayPhone or Resend that timed out stays an ERROR 500 with its real `error_class`.
+  A context's deadline, a failed connect to Postgres, a timeout `pgconn.Timeout` reports and an error holding a Postgres error are never the cancellation either (`clientCancellationClass`).
+  pgconn's interrupt does not say which context ended, so a service that puts its own deadline on a query must report `context.DeadlineExceeded` with the error when that deadline is the cause, or a client that also left turns it into a 499.
+  Only in that case does `platform.WriteDomainError` write no envelope, since nobody is reading and nothing else happened, and the line carries `error_class=context_canceled`.
+  With the client still connected pgconn's interrupt is a real timeout, an ERROR 500 with `error_class=write_deadline_exceeded`.
+  The Holder Export's own write deadline fails only after its 200 went out, so it is never a 499, and its finished line still gives reason `deadline`.
+  The second is when the handler reported no error, wrote nothing, and the client had gone by the time it returned.
+  Nothing was written at all, and the line carries neither `error_code` nor `error_class`.
+  Any other outcome keeps the handler's real status and the level that status earns, with `client_gone=true` added when the client had gone by the time the status was decided: a Postgres failure is still ERROR 500 with its `error_class`, a committed mutation is still INFO 201, a busy 503 is still WARN.
+  The envelope is then written as usual; a write to a gone client fails harmlessly.
+  The status, and whether the client had gone, are decided once, when the status is chosen, so a 500 written just before the connection closes stays an ERROR 500.
+  A `context.Canceled` with the client still connected is the server's own cancellation, and a deadline the server imposed is `context.DeadlineExceeded`; both stay server errors.
+- All of this is decided by the pipeline and `WriteDomainError`, whose status recorder notes the error a handler reports, fixes the status and whether the client had gone the moment the status is chosen, and derives the line's level from that status and from whether the error was a capacity refusal; a handler only passes its error on.
+- This section is the one owner of these rules; the [api-errors skill](../.cursor/skills/api-errors/SKILL.md) points here rather than restating them.
 - Staff and Storefront Next apps forward `X-Request-ID` on server-side calls to the Go API.
 - Metrics, distributed tracing, and error reporting SaaS are **deferred** until production hosting is chosen.
 

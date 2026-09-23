@@ -1,9 +1,6 @@
 import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
 
-import { callBackend } from "@/lib/api";
-import { jsonFromAPIError, unauthorizedResponse } from "@/lib/bff";
-import type { OperatorPayoutRequestQueuePage } from "@/lib/operator-api";
+import { proxyJSONRead, unauthorizedResponse } from "@/lib/bff";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 // GET returns the cross-organization queue of outstanding payout requests,
@@ -18,13 +15,5 @@ export async function GET(request: Request) {
   }
 
   const search = new URL(request.url).search;
-  try {
-    const envelope = await callBackend<OperatorPayoutRequestQueuePage>(
-      `/api/v1/operator/payout-requests${search}`,
-      { method: "GET", sessionToken: token },
-    );
-    return NextResponse.json(envelope);
-  } catch (error) {
-    return jsonFromAPIError(error);
-  }
+  return proxyJSONRead(request, `/api/v1/operator/payout-requests${search}`, token);
 }

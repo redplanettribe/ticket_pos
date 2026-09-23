@@ -97,7 +97,9 @@ A malformed id in the PATH names a resource that cannot exist, so it is answered
 It never reaches a uuid column (Postgres would refuse it and the request would 500).
 It is refused after the route's gate admits the caller and before the body is read.
 Staff and operator routes get this from one guard, `internal/server/path_ids.go`: a new id wildcard there goes in its table, with the error its unknown id answers (method-specific where one verb answers about something else, as `DELETE answers/{questionId}` answers `ANSWER_NOT_FOUND`).
-The guard fails closed: a staff or operator route with a wildcard that is neither in the table nor in the commented non-id exemptions panics at `RegisterRoutes`, so the server does not start.
+The guard fails closed: a staff or operator route with a wildcard that is neither in the table, nor a uuid the table deliberately leaves to its service, nor in the commented non-id exemptions panics at `RegisterRoutes`, so the server does not start.
+A `{rest...}` wildcard can only ever be a non-id exemption, and `{$}` is not a wildcard at all.
+The route sweep reads the non-id exemptions through `server.NonIDPathWildcard` rather than keeping its own copy.
 `TestEveryRouteRefusesAMalformedPathIDAsNotFound` walks every registered route, fails on a 5xx, and on a read or a delete whose other ids are real requires a malformed id to get exactly the status and code a well-formed unknown one gets.
 A route whose "not found" is an empty list is left out of the guard's table and gives a malformed id that same empty list where its unknown id gets one.
 For the staff Ticket Sale answers read that is the service, after the Event is resolved, on the same ordering argument as `INVALID_HOLDER_EMAIL` above.
@@ -147,9 +149,11 @@ Each domain module owns its types (e.g. `catalog.ErrEventNotFound`, `sales.ErrCa
 | Conflict / state violation | 409 | `CAPACITY_EXCEEDED` |
 | Permission (domain) | 403 | `FORBIDDEN` |
 
-A refusal about capacity, where the same request a moment later is expected to succeed, also declares a `Retry-After` in `domainRetryAfter` beside the status table (today only `HOLDER_EXPORT_BUSY`).
-The declaration decides the request log level too: a 5xx is logged at ERROR, mapped or not, unless it carries a `Retry-After`, which makes it a designed refusal logged at WARN.
-A 4xx is logged at INFO.
+A refusal about capacity, where the same request a moment later is expected to succeed, declares its `Retry-After` in `domainRetryAfter`, beside the status table (today only `HOLDER_EXPORT_BUSY`).
+
+The request log's rules - its level, `error_code`, `error_class`, `aborted`, and the 499 with `client_gone` for a client that gave up - have one owner: [docs/technical-design.md, Logging and request correlation](../../../docs/technical-design.md#logging-and-request-correlation).
+Read them there; they are deliberately not repeated here.
+A handler's only part in them is to pass every error it gets to `platform.WriteDomainError`, and never to check for a gone client, pick a log level, or write a 499 or a `Retry-After` itself.
 
 Handlers stay thin:
 

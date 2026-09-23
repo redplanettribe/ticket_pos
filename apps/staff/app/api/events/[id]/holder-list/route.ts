@@ -1,8 +1,6 @@
 import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
 
-import { callBackend } from "@/lib/api";
-import { jsonFromAPIError, unauthorizedResponse } from "@/lib/bff";
+import { proxyJSONRead, unauthorizedResponse } from "@/lib/bff";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 type RouteContext = {
@@ -31,6 +29,10 @@ async function sessionToken() {
 // of them here could only ever disagree with the first — the BFF's job on this
 // route is to attach the session and get out of the way.
 //
+// The reader's abort signal goes upstream with the session (proxyJSONRead): a
+// Holder List page can be a slow read, and a reader who has left should not
+// keep the API working on it.
+//
 // Nothing here knows about the feature flags either. The API answers 404 to
 // this while both TICKET_ASSIGNMENT_ENABLED and TICKET_QUESTIONS_ENABLED are
 // off (ADR 0045), and one answer to whether a feature is on is the whole point
@@ -45,13 +47,5 @@ export async function GET(request: Request, context: RouteContext) {
   const query = new URL(request.url).searchParams.toString();
   const suffix = query ? `?${query}` : "";
 
-  try {
-    const envelope = await callBackend<unknown>(
-      `/api/v1/staff/events/${id}/holder-list${suffix}`,
-      { method: "GET", sessionToken: token },
-    );
-    return NextResponse.json(envelope);
-  } catch (error) {
-    return jsonFromAPIError(error);
-  }
+  return proxyJSONRead(request, `/api/v1/staff/events/${id}/holder-list${suffix}`, token);
 }

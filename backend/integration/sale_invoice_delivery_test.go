@@ -88,6 +88,7 @@ func assertRIDEDownload(t *testing.T, resp *http.Response, body []byte, filename
 	if cd := resp.Header.Get("Content-Disposition"); cd != `attachment; filename="`+filename+`"` {
 		t.Fatalf("Content-Disposition=%q, want attachment; filename=%q", cd, filename)
 	}
+	assertNoStore(t, resp.Header)
 	if !bytes.HasPrefix(body, []byte("%PDF-")) {
 		t.Fatalf("body is not a PDF: %.40q", body)
 	}

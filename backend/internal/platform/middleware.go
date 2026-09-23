@@ -1,13 +1,19 @@
 package platform
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/peter/ticket_pos/backend/internal/platform/apperror"
 )
 
 // RequestPipeline wraps the API's route handler in the middleware every request
@@ -79,40 +85,28 @@ func wellFormedRequestID(id string) bool {
 // The line is written even when the handler aborts with http.ErrAbortHandler,
 // which is how a streamed download that fails after its first byte ends: at
 // WARN, with aborted=true and the status that had already been sent (0 when
-// nothing had). The abort is then passed on so the server still drops the
-// connection.
+// nothing had), and client_gone=true when the client had already gone as that
+// status was decided. The abort is then passed on so the server still drops
+// the connection.
 //
-// Otherwise a 5xx is logged at ERROR, except a 5xx carrying a Retry-After: that
-// is a capacity refusal the platform makes as designed, such as the 503
-// HOLDER_EXPORT_BUSY, and is logged at WARN. The only source of a Retry-After is
-// a domain error that declares one (domainRetryAfter), so a mapped 5xx that
-// declares none - a deployment fault, a failed commit - is still an ERROR.
-// Everything else, a 4xx included, is logged at INFO.
+// Otherwise the status and the level are what the statusRecorder decided
+// (outcome): the handler's real status, at the level that status earns, with
+// client_gone=true added when the client had gone by the time it was decided.
+// A client that gave up is only a 499 at INFO when giving up is all that
+// happened (noteError, outcome). A mapped domain error puts its code on the
+// line as error_code, and an unmapped one its class as error_class
+// (ErrorClass), so an ERROR says what kind of failure it was without carrying
+// the error's text.
 func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		rec := &statusRecorder{ResponseWriter: w}
+		rec := &statusRecorder{ResponseWriter: w, ctx: r.Context()}
 		defer func() {
 			aborted := recover()
-			level := slog.LevelInfo
-			status := rec.status
-			switch {
-			case aborted != nil:
-				// WARN whatever status went out: the abort is the event.
-				level = slog.LevelWarn
-			case status == 0:
-				// A handler that returns without writing sends an implicit 200.
-				status = http.StatusOK
-				fallthrough
-			default:
-				switch {
-				case status < http.StatusInternalServerError:
-					// INFO, as set above.
-				case rec.Header().Get(retryAfterHeader) != "":
-					level = slog.LevelWarn
-				default:
-					level = slog.LevelError
-				}
+			// WARN whatever status went out: the abort is the event.
+			level, status := slog.LevelWarn, rec.status
+			if aborted == nil {
+				level, status = rec.outcome()
 			}
 			attrs := []any{
 				"request_id", RequestID(r.Context()),
@@ -124,6 +118,15 @@ func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 			if aborted != nil {
 				attrs = append(attrs, "aborted", true)
 			}
+			if rec.clientGone {
+				attrs = append(attrs, "client_gone", true)
+			}
+			if rec.errorCode != "" {
+				attrs = append(attrs, "error_code", rec.errorCode)
+			}
+			if rec.errorClass != "" {
+				attrs = append(attrs, "error_class", rec.errorClass)
+			}
 			logger.Log(r.Context(), level, "request", attrs...)
 			if aborted != nil {
 				panic(aborted)
@@ -133,25 +136,198 @@ func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	})
 }
 
-// statusRecorder remembers the status a handler sent; 0 means none yet.
+// statusClientClosedRequest is the status the request log records for a
+// request whose client went away and nothing else happened. It is nginx's 499,
+// which no client ever receives: it names what happened, since no status was
+// sent to anybody.
+const statusClientClosedRequest = 499
+
+// statusRecorder remembers what the request log needs to know about a
+// response: the status decided for it (0 means none yet), whether its client
+// had gone when it was decided, and what WriteDomainError told it about the
+// error behind it (noteError).
+//
+// THE STATUS IS DECIDED ONCE, at the moment it is chosen, and whether the
+// client had gone is read at that same moment. A client leaving afterwards,
+// before the line is written, changes nothing: a 500 that went out just before
+// the connection closed is still a 500 at ERROR.
 type statusRecorder struct {
 	http.ResponseWriter
+	// ctx is the request's, to tell whether the client has gone.
+	ctx    context.Context
 	status int
+	// clientGone is whether the client had cancelled the request when its
+	// status was decided.
+	clientGone bool
+	// capacityRefusal is set for a domain error that declares a Retry-After
+	// (domainRetryAfter).
+	capacityRefusal bool
+	// errorCode is a mapped domain error's code.
+	errorCode string
+	// errorClass is an unmapped error's ErrorClass.
+	errorClass string
 }
 
 func (r *statusRecorder) WriteHeader(status int) {
 	// 1xx responses are interim; the status worth logging is the final one.
 	if r.status == 0 && status >= http.StatusOK {
-		r.status = status
+		r.decide(status)
 	}
 	r.ResponseWriter.WriteHeader(status)
 }
 
 func (r *statusRecorder) Write(b []byte) (int, error) {
 	if r.status == 0 {
-		r.status = http.StatusOK
+		r.decide(http.StatusOK)
 	}
 	return r.ResponseWriter.Write(b)
+}
+
+// decide records the response's status, and whether its client had already
+// gone when it was chosen.
+func (r *statusRecorder) decide(status int) {
+	r.status = status
+	r.clientGone = r.clientCancelled()
+}
+
+// noteError records the error a handler is answering with, before its response
+// is written, and reports whether that response should be written at all.
+//
+// A CLIENT LEAVING NEVER DOWNGRADES WHAT HAPPENED. Only when the error is the
+// client's own cancellation, surfacing from the call it failed, and nothing has
+// been decided yet, is the status decided as 499 and nothing written, since
+// nobody is reading and nothing else happened. Any other error keeps the
+// status it maps to and is written as usual; a write to a gone client fails
+// harmlessly. A context.Canceled with the client still there is the server's
+// own cancellation, a failure like any other.
+//
+// THE CANCELLATION CAN ARRIVE AS A SOCKET TIMEOUT, BUT ONLY FROM PGCONN.
+// pgconn interrupts a query it is writing when its context is cancelled by
+// setting the connection's deadline in the past, and the error that comes back
+// carries no context.Canceled: it is only the write's i/o timeout, inside
+// pgx's own error. Once the client has gone, that timeout is that
+// cancellation and is recorded as one, class context_canceled
+// (clientCancellationClass). With the client still there it is a real
+// timeout, an unmapped 500 at ERROR with its own ErrorClass
+// (write_deadline_exceeded). Any other timeout, such as an HTTP call to SRI,
+// PayPhone or Resend running out of time, is a genuine failure whether or not
+// the client stayed: a client often leaves because such a call is slow.
+//
+// A nil recorder (a handler not served through RequestPipeline) records
+// nothing and always writes.
+func (r *statusRecorder) noteError(err error) (write bool) {
+	if r == nil {
+		return true
+	}
+	if class, ok := clientCancellationClass(err); ok && r.status == 0 && r.clientCancelled() {
+		r.decide(statusClientClosedRequest)
+		r.errorClass = class
+		return false
+	}
+	var domainErr apperror.DomainError
+	if errors.As(err, &domainErr) {
+		r.errorCode = domainErr.Code()
+		r.capacityRefusal = domainRetryAfter(domainErr.Code()) != ""
+		return true
+	}
+	r.errorClass = ErrorClass(err)
+	return true
+}
+
+// outcome is the status and level a request that returned normally is logged
+// with.
+//
+// A handler that returns without writing sends an implicit 200, decided now;
+// if its client had gone by then, nothing was sent to anybody and nothing else
+// happened, so it is a 499. Then the status earns the level: a 2xx, 3xx or 4xx
+// (the 499 included) is INFO; a 5xx is ERROR, mapped or not, except a
+// capacity refusal the platform makes as designed, such as the 503
+// HOLDER_EXPORT_BUSY, which is WARN. It is the domain error's declaration that
+// decides (domainRetryAfter), never a Retry-After header read back off the
+// response, so a handler setting one by hand cannot quieten a failure.
+func (r *statusRecorder) outcome() (slog.Level, int) {
+	if r.status == 0 {
+		r.decide(http.StatusOK)
+		if r.clientGone {
+			r.status = statusClientClosedRequest
+		}
+	}
+	switch {
+	case r.status < http.StatusInternalServerError:
+		return slog.LevelInfo, r.status
+	case r.capacityRefusal:
+		return slog.LevelWarn, r.status
+	default:
+		return slog.LevelError, r.status
+	}
+}
+
+// clientCancellationClass is the class a request line gives err when err is
+// how a cancelled request's context surfaces from the call it cut short, and
+// false when it is not; it is asked only once the client is known to have gone
+// (noteError). That is context.Canceled itself, classed by ErrorClass as it
+// always was, or pgconn interrupting its own connection's I/O
+// (isPgconnInterrupt), which is classed context_canceled because that is what
+// it is.
+//
+// IT IS NARROW ON PURPOSE, because a genuine server-side fault is never
+// downgraded because the client left. A socket timeout from anything but
+// pgconn, such as an http.Client's, is never this. Nor is a context's
+// deadline, the server's own clock running out; nor a failed connect to
+// Postgres, whose timeout is the database's (databaseConnectClass); nor a
+// timeout pgconn itself has judged not to be a cancellation (pgconn.Timeout:
+// pgconn wraps a timeout that way only when its context was not cancelled). A
+// Postgres error, such as a 23505, keeps its real outcome even when a timeout
+// is found beside it.
+func clientCancellationClass(err error) (string, bool) {
+	if errors.Is(err, context.Canceled) {
+		return ErrorClass(err), true
+	}
+	var connectErr *pgconn.ConnectError
+	var pgErr *pgconn.PgError
+	if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &connectErr) || errors.As(err, &pgErr) || pgconn.Timeout(err) {
+		return "", false
+	}
+	return canceledClass, isPgconnInterrupt(err)
+}
+
+// isPgconnInterrupt reports whether err is pgconn's own connection I/O cut
+// short by a deadline: an error of pgx's whose cause is os.ErrDeadlineExceeded.
+// That is the only way a deadline reaches pgconn's connection mid-query, since
+// its context watcher sets one only when the query's context is done
+// (DeadlineContextWatcherHandler, the default, and the fallback deadline of
+// CancelRequestContextWatcherHandler).
+//
+// ITS ONE BLIND SPOT: the error does not say which context ended. A deadline a
+// service put on a child of the request's context (context.WithTimeout)
+// interrupts the write the same way, and if the client has also gone by then
+// and no status is decided, the line reads as the client's cancellation. Only
+// the call site can tell them apart, by reporting context.DeadlineExceeded
+// with the error, which this rule never downgrades.
+//
+// pgx's error is recognised by SafeToRetry() bool, the method
+// pgconn.SafeToRetry reads. What a failed write returns is pgproto3's
+// writeError, which is unexported and which pgconn hands back unwrapped, so no
+// exported type names it and pgconn.Timeout is false for it; the method is the
+// marker it carries. No other error in this program's dependencies has that
+// method (pgconn and pgproto3 define every one), so an http.Client's timeout,
+// a net.Error that may hold the very same os.ErrDeadlineExceeded, is never
+// mistaken for it. A net.Error whose Timeout() is true for another reason,
+// such as ETIMEDOUT from the kernel, is not a deadline pgconn set, so it is
+// not matched either.
+func isPgconnInterrupt(err error) bool {
+	var pgxErr interface {
+		error
+		SafeToRetry() bool
+	}
+	return errors.As(err, &pgxErr) && errors.Is(pgxErr, os.ErrDeadlineExceeded)
+}
+
+// clientCancelled reports whether the client has cancelled the request. The
+// server cancels a request's context when its connection closes; a deadline
+// the server itself imposed is context.DeadlineExceeded, and is not this.
+func (r *statusRecorder) clientCancelled() bool {
+	return r.ctx != nil && errors.Is(r.ctx.Err(), context.Canceled)
 }
 
 // Unwrap lets http.ResponseController reach the writer underneath, so a
@@ -159,6 +335,21 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 // Holder Export sets one so a client that stops reading is let go (ADR 0075).
 func (r *statusRecorder) Unwrap() http.ResponseWriter {
 	return r.ResponseWriter
+}
+
+// requestRecorder finds the request log's recorder under w, or nil when w is
+// not served through RequestPipeline (a handler unit test's recorder).
+func requestRecorder(w http.ResponseWriter) *statusRecorder {
+	for {
+		if rec, ok := w.(*statusRecorder); ok {
+			return rec
+		}
+		unwrapper, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return nil
+		}
+		w = unwrapper.Unwrap()
+	}
 }
 
 // ClientIPHeader carries the end user's IP address as derived by the BFF that

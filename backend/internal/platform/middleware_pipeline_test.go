@@ -2,13 +2,25 @@ package platform
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
+	"github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/peter/ticket_pos/backend/internal/platform/apperror"
 )
@@ -242,6 +254,43 @@ func TestRequestPipelineLogsAnAbortBeforeTheFirstByteWithNoStatus(t *testing.T) 
 	}
 }
 
+// A TIMEOUT AFTER THE STATUS WENT OUT IS NOT A 499. The Holder Export's write
+// to a client that stopped reading times out on the deadline the export set,
+// after its 200 went out, and a failed write cancels the request, so by then
+// the context reads as cancelled and the error is a socket's i/o timeout. The
+// status was decided before either, so the line keeps the 200 it sent, never
+// the client's cancellation. So does pgconn's interrupt of a query the export
+// was still reading from, which would otherwise be the cancellation.
+func TestRequestPipelineKeepsTheStatusSentWhenATimeoutFollowsIt(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"the response's own write deadline", responseWriteTimeout()},
+		{"pgconn's interrupt of the query", pgconnCancelInterrupt(t)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, cancel := cancelledRequest(http.MethodGet)
+			handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte("PK partial"))
+				cancel() // the write that timed out cancels the request
+				_ = WriteDomainError(w, RequestID(r.Context()), tc.err)
+			}))
+
+			handler.ServeHTTP(httptest.NewRecorder(), req)
+
+			line := requestLogLine(t, buf)
+			if line.str("level") != "INFO" || line.status() != http.StatusOK || line["client_gone"] != nil {
+				t.Fatalf("request log = %v, want INFO with the 200 sent and without client_gone", line)
+			}
+			if line.str("error_class") != "write_deadline_exceeded" {
+				t.Fatalf("request log error_class = %q, want write_deadline_exceeded", line.str("error_class"))
+			}
+		})
+	}
+}
+
 // An abort is logged at WARN even when the status already sent was a 5xx: the
 // abort is the event the line reports.
 func TestRequestPipelineLogsAnAbortAtWarnWhateverStatusWasSent(t *testing.T) {
@@ -329,5 +378,452 @@ func TestRequestPipelineLeavesTheResponseControllerWorking(t *testing.T) {
 	}
 	if !rec.Flushed {
 		t.Fatal("the recorder underneath was never flushed")
+	}
+}
+
+// cancelledRequest is a request whose client has gone once cancel is called,
+// as the server cancels a request's context when its connection closes.
+func cancelledRequest(method string) (*http.Request, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	return httptest.NewRequest(method, "/api/v1/staff/events", nil).WithContext(ctx), cancel
+}
+
+// pgconnCancelInterrupt is the error a query gives when its context is
+// cancelled while pgconn is still writing it, captured from pgx itself through
+// database/sql as the application's pool runs it, against a fake Postgres on
+// an in-memory connection. The fake takes the first byte of the query and
+// reads no more, so the write is in progress when the context is cancelled.
+// pgconn then sets the connection's deadline in the past, and what comes back
+// is the write's i/o timeout inside pgx's own error, with no context.Canceled
+// anywhere in it. The error is wrapped as a repository would wrap it.
+func pgconnCancelInterrupt(t *testing.T) error {
+	t.Helper()
+	client, server := net.Pipe()
+	partlyRead := make(chan struct{})
+	queryDone := make(chan struct{})
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		defer func() { _ = server.Close() }()
+		backend := pgproto3.NewBackend(server, server)
+		if _, err := backend.ReceiveStartupMessage(); err != nil {
+			return
+		}
+		backend.Send(&pgproto3.AuthenticationOk{})
+		backend.Send(&pgproto3.BackendKeyData{ProcessID: 1, SecretKey: []byte{0, 0, 0, 1}})
+		backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+		if err := backend.Flush(); err != nil {
+			return
+		}
+		if _, err := io.ReadFull(server, make([]byte, 1)); err != nil {
+			return
+		}
+		close(partlyRead)
+		<-queryDone // read nothing more until the query has failed
+	}()
+
+	cfg, err := pgx.ParseConfig("postgres://ana@127.0.0.1:5432/tickets?sslmode=disable")
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	cfg.DialFunc = func(context.Context, string, string) (net.Conn, error) { return client, nil }
+	db := stdlib.OpenDB(*cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-partlyRead:
+			cancel()
+		case <-serverDone:
+		}
+	}()
+
+	_, err = db.ExecContext(ctx, "SELECT holder FROM tickets")
+	close(queryDone)
+	_ = db.Close()
+	_ = client.Close() // a fake still waiting for a connect that never came
+	<-serverDone
+
+	if err == nil || errors.Is(err, context.Canceled) || !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("a cancelled write gave %T %v, want pgconn's i/o timeout without context.Canceled", err, err)
+	}
+	return fmt.Errorf("list holders: %w", err)
+}
+
+// httpClientTimeout is the error an http.Client gives when the TLS handshake
+// with an upstream such as SRI, PayPhone or Resend runs out of time, captured
+// from net/http against a listener that accepts and never answers. It is a
+// *url.Error around a net.Error whose Timeout() is true, and it is neither a
+// context's deadline nor pgconn's.
+func httpClientTimeout(t *testing.T) error {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+	var accepted []net.Conn
+	acceptDone := make(chan struct{})
+	go func() {
+		defer close(acceptDone)
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			accepted = append(accepted, conn)
+		}
+	}()
+	client := &http.Client{Transport: &http.Transport{TLSHandshakeTimeout: 20 * time.Millisecond}}
+
+	_, err = client.Get("https://" + ln.Addr().String() + "/invoices")
+	_ = ln.Close()
+	<-acceptDone
+	for _, conn := range accepted {
+		_ = conn.Close()
+	}
+
+	var urlErr *url.Error
+	if !errors.As(err, &urlErr) || !urlErr.Timeout() || errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("the handshake gave %T %v, want a *url.Error timeout that is not a context's deadline", err, err)
+	}
+	return fmt.Errorf("authorize invoice: %w", err)
+}
+
+// httpSocketTimeout is an http.Client's read that ran into a deadline on its
+// own socket: os.ErrDeadlineExceeded, the same cause pgconn's interrupt has,
+// but not inside pgx's error.
+func httpSocketTimeout() error {
+	peer := &net.TCPAddr{IP: net.IPv4(10, 0, 0, 7), Port: 443}
+	return fmt.Errorf("send mail: %w", &url.Error{Op: "Post", URL: "https://api.resend.com/emails",
+		Err: &net.OpError{Op: "read", Net: "tcp", Addr: peer, Err: os.ErrDeadlineExceeded}})
+}
+
+// responseWriteTimeout is a write to the client that ran into the deadline
+// the handler set on its response.
+func responseWriteTimeout() error {
+	peer := &net.TCPAddr{IP: net.IPv4(10, 0, 0, 7), Port: 51234}
+	return fmt.Errorf("stream export: %w",
+		&net.OpError{Op: "write", Net: "tcp", Addr: peer, Err: os.ErrDeadlineExceeded})
+}
+
+// socketTimeout is a net.Error whose Timeout() is true and which is not
+// os.ErrDeadlineExceeded.
+type socketTimeout struct{}
+
+func (socketTimeout) Error() string   { return "i/o timeout" }
+func (socketTimeout) Timeout() bool   { return true }
+func (socketTimeout) Temporary() bool { return true }
+
+// A CLIENT THAT GIVES UP IS NOT A SERVER ERROR, but only when giving up is all
+// that happened. The request line is INFO with client_gone=true and the 499
+// that says the client closed the request when the error the handler reports is
+// that cancellation itself, surfacing from the database call it failed, or when
+// the handler reports nothing and writes nothing. Nobody is reading, so no
+// envelope is written.
+//
+// The cancellation can surface as a socket's i/o timeout inside pgx's own
+// error, which is how pgconn interrupts a write when its context is cancelled;
+// once the client has gone that is the cancellation too, and its class is
+// context_canceled.
+func TestRequestPipelineLogsAClientThatOnlyGaveUpAtInfoAs499(t *testing.T) {
+	interrupt := pgconnCancelInterrupt(t)
+	for _, tc := range []struct {
+		name      string
+		respond   func(w http.ResponseWriter, r *http.Request)
+		wantClass string
+	}{
+		{"the cancellation reported as the error", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()), fmt.Errorf("list sales: %w", r.Context().Err()))
+		}, "context_canceled"},
+		{"pgconn's cancellation as a write's i/o timeout", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()), interrupt)
+		}, "context_canceled"},
+		{"nothing reported and nothing written", func(http.ResponseWriter, *http.Request) {}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, cancel := cancelledRequest(http.MethodGet)
+			handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				cancel() // the client goes away while the handler is working
+				tc.respond(w, r)
+			}))
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Body.Len() != 0 {
+				t.Fatalf("body = %q, want nothing written to a client that has gone", rec.Body.String())
+			}
+			line := requestLogLine(t, buf)
+			if line.str("level") != "INFO" || line.status() != statusClientClosedRequest {
+				t.Fatalf("request log = %v, want INFO with status 499", line)
+			}
+			if gone, _ := line["client_gone"].(bool); !gone {
+				t.Fatalf("request log = %v, want client_gone=true", line)
+			}
+			if line.str("error_class") != tc.wantClass {
+				t.Fatalf("request log error_class = %q, want %q", line.str("error_class"), tc.wantClass)
+			}
+		})
+	}
+}
+
+// A CLIENT LEAVING NEVER DOWNGRADES WHAT HAPPENED. When the handler's outcome
+// is anything other than the cancellation itself, the line keeps the status the
+// handler really chose and the level that status earns, and client_gone=true is
+// one more fact on it: a genuine failure that met a departed client is still an
+// ERROR with its class, a mapped 5xx still names its code, a committed mutation
+// still reads as the 201 it was, and a capacity refusal is still a WARN. The
+// envelope is written as usual; a write to a gone client fails harmlessly.
+func TestRequestPipelineKeepsTheRealOutcomeOfARequestWhoseClientLeft(t *testing.T) {
+	domainError := func(code string) func(http.ResponseWriter, *http.Request) {
+		return func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()), apperror.New(code, "refused", nil))
+		}
+	}
+	// The http.Client's timeout is classed by the type of the net.Error inside
+	// its *url.Error, an unexported type of net/http's that is read off the
+	// captured error rather than written out, so a rename there cannot fail
+	// this test for no reason of ours.
+	httpTimeout := httpClientTimeout(t)
+	var urlErr *url.Error
+	if !errors.As(httpTimeout, &urlErr) {
+		t.Fatalf("the http.Client's timeout %T holds no *url.Error", httpTimeout)
+	}
+	httpTimeoutClass := fmt.Sprintf("%T", urlErr.Err)
+	failWith := func(err error) func(http.ResponseWriter, *http.Request) {
+		return func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()), err)
+		}
+	}
+	for _, tc := range []struct {
+		name         string
+		respond      func(w http.ResponseWriter, r *http.Request)
+		wantStatus   int
+		wantLevel    string
+		wantClass    string
+		wantBodyCode string
+		wantLineCode string
+	}{
+		{"a Postgres failure", failWith(fmt.Errorf("commit: %w", &pgconn.PgError{Code: "23505"})),
+			http.StatusInternalServerError, "ERROR", "postgres 23505", "INTERNAL_ERROR", ""},
+		// A context's deadline also reports Timeout(), but it is the server's
+		// own clock running out, never the client's cancellation.
+		{"the server's own deadline", failWith(fmt.Errorf("list holders: %w", context.DeadlineExceeded)),
+			http.StatusInternalServerError, "ERROR", "context_deadline_exceeded", "INTERNAL_ERROR", ""},
+		// A Postgres error found beside pgconn's interrupt is still the
+		// Postgres error, and its SQLSTATE is the class.
+		{"a Postgres failure beside pgconn's interrupt",
+			failWith(errors.Join(&pgconn.PgError{Code: "23505"}, pgconnCancelInterrupt(t))),
+			http.StatusInternalServerError, "ERROR", "postgres 23505", "INTERNAL_ERROR", ""},
+		// An upstream that timed out is a genuine failure, even though the
+		// client may have left because it was slow. Only pgconn's own
+		// interrupt is the cancellation.
+		{"an http.Client's timeout", failWith(httpTimeout),
+			http.StatusInternalServerError, "ERROR", httpTimeoutClass, "INTERNAL_ERROR", ""},
+		{"an http.Client's socket deadline", failWith(httpSocketTimeout()),
+			http.StatusInternalServerError, "ERROR", "write_deadline_exceeded", "INTERNAL_ERROR", ""},
+		{"any other net.Error timeout", failWith(fmt.Errorf("fetch avatar: %w", socketTimeout{})),
+			http.StatusInternalServerError, "ERROR", "platform.socketTimeout", "INTERNAL_ERROR", ""},
+		{"a mapped 500 failed commit", domainError("PAYMENT_SALE_COMMIT_FAILED"),
+			http.StatusInternalServerError, "ERROR", "", "PAYMENT_SALE_COMMIT_FAILED", "PAYMENT_SALE_COMMIT_FAILED"},
+		{"a mapped 500 unavailable link", domainError("CONFIRMATION_LINK_UNAVAILABLE"),
+			http.StatusInternalServerError, "ERROR", "", "CONFIRMATION_LINK_UNAVAILABLE", "CONFIRMATION_LINK_UNAVAILABLE"},
+		{"a mapped 503 deployment fault", domainError("CERTIFICATE_KEY_NOT_CONFIGURED"),
+			http.StatusServiceUnavailable, "ERROR", "", "CERTIFICATE_KEY_NOT_CONFIGURED", "CERTIFICATE_KEY_NOT_CONFIGURED"},
+		{"a mapped 503 capacity refusal", domainError("HOLDER_EXPORT_BUSY"),
+			http.StatusServiceUnavailable, "WARN", "", "HOLDER_EXPORT_BUSY", "HOLDER_EXPORT_BUSY"},
+		{"a mapped 404", domainError("EVENT_NOT_FOUND"),
+			http.StatusNotFound, "INFO", "", "EVENT_NOT_FOUND", "EVENT_NOT_FOUND"},
+		{"a committed mutation", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteSuccess(w, RequestID(r.Context()), http.StatusCreated, map[string]string{"id": "sale"})
+		}, http.StatusCreated, "INFO", "", "", ""},
+		// A handler-layer error has no domain code to put on the line; its
+		// status and level are what identify it.
+		{"a 500 written by hand", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteHandlerError(w, RequestID(r.Context()), http.StatusInternalServerError, "INTERNAL_ERROR", "failed", nil)
+		}, http.StatusInternalServerError, "ERROR", "", "INTERNAL_ERROR", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, cancel := cancelledRequest(http.MethodPost)
+			handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				cancel() // the client goes away before the handler answers
+				tc.respond(w, r)
+			}))
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status written = %d, want %d", rec.Code, tc.wantStatus)
+			}
+			if tc.wantBodyCode != "" {
+				var env Envelope
+				if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || env.Error == nil || env.Error.Code != tc.wantBodyCode {
+					t.Fatalf("body = %q, want the %s envelope written as usual", rec.Body.String(), tc.wantBodyCode)
+				}
+			}
+			line := requestLogLine(t, buf)
+			if line.str("level") != tc.wantLevel || line.status() != tc.wantStatus {
+				t.Fatalf("request log = %v, want %s with status %d", line, tc.wantLevel, tc.wantStatus)
+			}
+			if gone, _ := line["client_gone"].(bool); !gone {
+				t.Fatalf("request log = %v, want client_gone=true", line)
+			}
+			if line.str("error_class") != tc.wantClass {
+				t.Fatalf("request log error_class = %q, want %q", line.str("error_class"), tc.wantClass)
+			}
+			if line.str("error_code") != tc.wantLineCode {
+				t.Fatalf("request log error_code = %q, want %q", line.str("error_code"), tc.wantLineCode)
+			}
+		})
+	}
+}
+
+// A cancellation the server made itself, with the client still connected, is
+// not the client's departure: it is an unmapped 500 at ERROR like any other.
+func TestRequestPipelineLogsACancellationWithTheClientStillThereAtError(t *testing.T) {
+	handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = WriteDomainError(w, RequestID(r.Context()), fmt.Errorf("fan out: %w", context.Canceled))
+	}))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/staff/events", nil))
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	line := requestLogLine(t, buf)
+	if line.str("level") != "ERROR" || line.status() != http.StatusInternalServerError || line["client_gone"] != nil {
+		t.Fatalf("request log = %v, want ERROR 500 without client_gone", line)
+	}
+	if line.str("error_class") != "context_canceled" {
+		t.Fatalf("request log error_class = %q, want context_canceled", line.str("error_class"))
+	}
+}
+
+// THE STATUS IS DECIDED ONCE, WHEN IT IS CHOSEN. A response written before the
+// client left keeps its status and its level, and does not carry client_gone:
+// the connection closing afterwards, before the line is written, cannot re-read
+// a 200 as abandoned or a 500 as a client that gave up.
+func TestRequestPipelineKeepsTheStatusDecidedBeforeTheClientLeft(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		respond    func(w http.ResponseWriter, r *http.Request)
+		wantStatus int
+		wantLevel  string
+	}{
+		{"a 200", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}, http.StatusOK, "INFO"},
+		{"an unmapped 500", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()), errors.New("connection refused"))
+		}, http.StatusInternalServerError, "ERROR"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, cancel := cancelledRequest(http.MethodGet)
+			handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				tc.respond(w, r)
+				cancel() // the connection closes just after the status went out
+			}))
+
+			handler.ServeHTTP(httptest.NewRecorder(), req)
+
+			line := requestLogLine(t, buf)
+			if line.str("level") != tc.wantLevel || line.status() != tc.wantStatus || line["client_gone"] != nil {
+				t.Fatalf("request log = %v, want %s %d without client_gone", line, tc.wantLevel, tc.wantStatus)
+			}
+		})
+	}
+}
+
+// A GENUINE UNMAPPED 500 IS AN ERROR, AND SAYS WHAT KIND. The request line
+// carries the error's class from ErrorClass, never its text, which could name
+// a client's address or a buyer's email. A request that ran out of its own
+// deadline is the server's failure, not a client that gave up.
+func TestRequestPipelineLogsAnUnmappedErrorAtErrorWithItsClass(t *testing.T) {
+	expired, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	interrupt := pgconnCancelInterrupt(t)
+	for _, tc := range []struct {
+		name      string
+		ctx       context.Context
+		err       error
+		wantClass string
+	}{
+		{"a Postgres refusal", context.Background(),
+			fmt.Errorf("list for ana@example.com: %w", &pgconn.PgError{Code: "22P02", Message: "invalid input syntax"}),
+			"postgres 22P02"},
+		{"an error of no known kind", context.Background(),
+			fmt.Errorf("list for ana@example.com: %w", errors.New("connection refused")), "*errors.errorString"},
+		{"the server's own deadline", expired,
+			fmt.Errorf("list for ana@example.com: %w", context.DeadlineExceeded), "context_deadline_exceeded"},
+		// Only a client that has gone turns pgconn's interrupt into its
+		// cancellation. With the client still there it is a real timeout, and
+		// so it is after the server's own deadline.
+		{"pgconn's interrupt with the client still there", context.Background(),
+			interrupt, "write_deadline_exceeded"},
+		{"pgconn's interrupt after the server's own deadline", expired,
+			interrupt, "write_deadline_exceeded"},
+		{"a net.Error timeout with the client still there", context.Background(),
+			fmt.Errorf("list holders: %w", socketTimeout{}), "platform.socketTimeout"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = WriteDomainError(w, RequestID(r.Context()), tc.err)
+			}))
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/staff/events", nil).WithContext(tc.ctx))
+
+			if rec.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d, want 500", rec.Code)
+			}
+			line := requestLogLine(t, buf)
+			if line.str("level") != "ERROR" || line.status() != http.StatusInternalServerError {
+				t.Fatalf("request log = %v, want ERROR with status 500", line)
+			}
+			if line.str("error_class") != tc.wantClass {
+				t.Fatalf("request log error_class = %q, want %q", line.str("error_class"), tc.wantClass)
+			}
+			if strings.Contains(buf.String(), "ana@example.com") {
+				t.Fatalf("the log carries the error's text: %s", buf.String())
+			}
+		})
+	}
+}
+
+// THE CAPACITY REFUSAL'S LEVEL IS THE DOMAIN ERROR'S DECLARATION, not a header
+// read back off the response. A handler that sets Retry-After by hand on a
+// failure has declared nothing, and its 5xx is still an ERROR.
+func TestRequestPipelineIgnoresAHandSetRetryAfterWhenChoosingTheLevel(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		respond func(w http.ResponseWriter, r *http.Request)
+		status  int
+	}{
+		{"an unmapped error", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()), errors.New("connection refused"))
+		}, http.StatusInternalServerError},
+		{"a mapped 5xx that declares none", func(w http.ResponseWriter, r *http.Request) {
+			_ = WriteDomainError(w, RequestID(r.Context()), apperror.New("PAYMENT_SALE_COMMIT_FAILED", "failed", nil))
+		}, http.StatusInternalServerError},
+		{"a 503 written by hand", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}, http.StatusServiceUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Retry-After", "5")
+				tc.respond(w, r)
+			}))
+
+			handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/export", nil))
+
+			line := requestLogLine(t, buf)
+			if line.str("level") != "ERROR" || line.status() != tc.status {
+				t.Fatalf("request log = %v, want ERROR with status %d", line, tc.status)
+			}
+		})
 	}
 }

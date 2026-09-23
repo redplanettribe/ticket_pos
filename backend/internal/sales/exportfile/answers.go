@@ -403,33 +403,66 @@ func writeHolder(f *excelize.File, cols layout, ticket TicketRow, row int) error
 	} {
 		// Through the cell rule, which leaves an empty value genuinely blank,
 		// exactly as the Holder Export writes the same four columns.
-		value := TextCell(col.value)
-		if value.Kind == CellBlank {
-			continue
-		}
-		if err := setStr(f, AnswersSheet, cols, col.key, row, value.Text); err != nil {
+		if err := writeCell(f, AnswersSheet, cols, col.key, row, TextCell(col.value), 0); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// writeAnswer writes one AnswerCell to a sheet: the thin excelize serializer of
-// the answer rule.
+// writeAnswer writes one AnswerCell to a sheet, through the answer rule.
 //
-// IT DECIDES NOTHING. Which cells exist is CellsFor's decision and what each
+// IT DECIDES NO VALUE. Which cells exist is CellsFor's decision and what each
 // one holds is Answer.Cell's, both shared with the Holder Export (ADR 0075).
-// What is left here is genuinely about excelize: which call a text, a number, a
-// date or a boolean takes, and the date style.
+//
+// IT DOES DECIDE THE ENCODING, and keeps this file's exactly as it was before
+// the shared rule (#655 story 34: the Sales Export is left exactly as it is).
+// Two of the rule's answers are encoded here as this sheet always encoded them,
+// not as the Holder Export encodes them:
+//
+//   - Empty text is an empty-string cell, not an absent one. The rule's blank
+//     is the Holder Export's choice; this file wrote SetCellStr("") before it.
+//   - A date before 1900, which Excel has no serial for, is the rule's text in
+//     an inline string that keeps the date style. That is what excelize's
+//     SetCellValue wrote for such a time, and SetCellDefault writes the same
+//     inline string from the rule's text.
+//
+// TestSalesExportIsIdenticalToTheSalesExportBefore655 pins both, cell by
+// cell, with every other cell of the workbook.
 //
 // THE SHEET IS A PARAMETER because it writes onto whichever sheet the caller is
 // building; nothing else about the function differs between callers.
 func writeAnswer(f *excelize.File, sheet string, cols layout, ac AnswerCell, row int, dateStyle int) error {
 	value := ac.Value.Cell()
+	switch {
+	case ac.Value.Text != nil && value.Kind == CellBlank:
+		cell, err := cellRef(cols, ac.Key, row)
+		if err != nil {
+			return err
+		}
+		return f.SetCellStr(sheet, cell, "")
+	case ac.Value.Date != nil && value.Kind == CellText:
+		cell, err := cellRef(cols, ac.Key, row)
+		if err != nil {
+			return err
+		}
+		if err := f.SetCellDefault(sheet, cell, value.Text); err != nil {
+			return err
+		}
+		return f.SetCellStyle(sheet, cell, cell, dateStyle)
+	}
+	return writeCell(f, sheet, cols, ac.Key, row, value, dateStyle)
+}
+
+// writeCell is the thin excelize serializer of a Cell: which call a text, a
+// number, a date or a boolean takes, and the date style. A blank writes
+// nothing, so the cell is genuinely empty. dateStyle is read only for a
+// CellDate.
+func writeCell(f *excelize.File, sheet string, cols layout, key string, row int, value Cell, dateStyle int) error {
 	if value.Kind == CellBlank {
 		return nil
 	}
-	cell, err := cellRef(cols, ac.Key, row)
+	cell, err := cellRef(cols, key, row)
 	if err != nil {
 		return err
 	}

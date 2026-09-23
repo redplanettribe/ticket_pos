@@ -467,9 +467,7 @@ func (h *Handler) ExportHolderList(w http.ResponseWriter, r *http.Request) {
 			started = true
 			w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 			w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
-			// The file is attendee personal data: no cache between here and the
-			// browser may keep a copy.
-			w.Header().Set("Cache-Control", "no-store")
+			platform.NoStore(w)
 			w.WriteHeader(http.StatusOK)
 			return w, nil
 		})

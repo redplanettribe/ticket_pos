@@ -44,6 +44,16 @@ type ValidationErrorDetails struct {
 	Fields []FieldError `json:"fields"`
 }
 
+// NoStore marks a response `Cache-Control: no-store`, so that no cache between
+// the API and the reader - a CDN, a proxy, the browser's own - may keep a copy.
+// Every download of somebody's personal or tax data sets it before its first
+// byte: the Holder and Sales Exports' attendee, buyer and Holder data and
+// Ticket Answers (ADR 0075), a Tax Document's buyer name, Tax ID and
+// purchase, and the Tax Document Archive's whole period of them.
+func NoStore(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+}
+
 // WriteJSON encodes v as JSON and writes it with the given status code.
 func WriteJSON(w http.ResponseWriter, status int, v any) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -76,21 +86,28 @@ func WriteHandlerError(w http.ResponseWriter, requestID string, status int, code
 }
 
 // WriteDomainError maps a domain error to HTTP and writes the envelope.
+//
+// Served through RequestPipeline, it first tells the request log about the
+// error (statusRecorder.noteError): a mapped error's code, whether it declares
+// a Retry-After, an unmapped error's ErrorClass. The one error it writes
+// nothing for is the client's own cancellation, once the client has gone and
+// while no status has been decided yet, which the request log records as a
+// 499; that includes the socket i/o timeout pgconn turns a cancellation into
+// (clientCancellationClass). Everything else is written as usual.
 func WriteDomainError(w http.ResponseWriter, requestID string, err error) error {
+	if !requestRecorder(w).noteError(err) {
+		return nil
+	}
 	var domainErr apperror.DomainError
 	if errors.As(err, &domainErr) {
 		status := domainHTTPStatus(domainErr.Code())
 		if after := domainRetryAfter(domainErr.Code()); after != "" {
-			w.Header().Set(retryAfterHeader, after)
+			w.Header().Set("Retry-After", after)
 		}
 		return WriteHandlerError(w, requestID, status, domainErr.Code(), domainErr.Message(), domainErr.Details())
 	}
 	return WriteHandlerError(w, requestID, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred", nil)
 }
-
-// retryAfterHeader is set only from domainRetryAfter, and the request log reads
-// it back to tell a capacity refusal from a failure.
-const retryAfterHeader = "Retry-After"
 
 // domainRetryAfter is the Retry-After, in seconds, a domain refusal carries, or
 // "" for one that carries none.
@@ -99,8 +116,9 @@ const retryAfterHeader = "Retry-After"
 // is expected to succeed and saying when is useful to the caller. It lives
 // beside the status mapping so a handler never special-cases a code to add it.
 //
-// It also decides how the request is logged: a 5xx carrying a Retry-After is an
-// expected refusal and logs at WARN, every other 5xx at ERROR (loggingMiddleware).
+// It also decides how the request is logged: a 5xx whose domain error declares
+// a Retry-After here is an expected refusal and logs at WARN, every other 5xx
+// at ERROR, whatever headers a handler set by hand (loggingMiddleware).
 func domainRetryAfter(code string) string {
 	switch code {
 	// Every Holder Export slot on the instance is streaming (ADR 0075). Most

@@ -16,6 +16,9 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: "1.26.5"
+          # The module is in backend/, not at the repository root, where
+          # setup-go looks by default; without this the cache never restores.
+          cache-dependency-path: backend/go.sum
 
       # Deliberately `make ci-go` and not `go test ./...`: two packages own a
       # Postgres testcontainer and cannot be in flight at once. The target holds
@@ -59,6 +62,13 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: "1.26.5"
+          # No Go cache here. setup-go keys its cache on go.sum alone, so this
+          # job and Go test would share one key, and this job finishes first:
+          # it would save a cache holding only modules and its swag build, and
+          # Go test's much larger build and test cache would then fail to
+          # reserve the key and be thrown away on every run. Go test owns the
+          # key; this job is short enough to download its modules afresh.
+          cache: false
 
       - uses: pnpm/action-setup@v6
 

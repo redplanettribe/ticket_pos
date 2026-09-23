@@ -399,6 +399,7 @@ func TestTheTaxDocumentArchiveHoldsExactlyThePeriodsStandingProductionDocuments(
 	if want := "comprobantes-" + taxArchiveRUC + "-" + taxArchiveFrom + "-" + taxArchiveTo + ".zip"; pack.Filename != want {
 		t.Fatalf("filename = %q; want %q", pack.Filename, want)
 	}
+	assertNoStore(t, pack.Header)
 
 	expected := expectedArchive(t, f.operatorSessionID, f.included())
 	wantNames := make([]string, 0, len(expected)+1)

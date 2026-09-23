@@ -6,7 +6,7 @@ import { forwardDownload, proxyDownload, XLSX_CONTENT_TYPE } from "./download-pr
 // WHAT THESE ASSERT. The export proxies hand the API's answer to the browser
 // with the headers the reader needs: on a refusal the envelope, its status and
 // the API's Retry-After and Cache-Control (a busy export says when to come
-// back); on a file the same headers plus the file's own, and the body as a
+// back); on a file the same headers plus the file's own. Either body is a
 // stream that is never buffered. A reader who goes away stops the upstream
 // work, before the file starts and while it flows, and the route then returns
 // quietly instead of failing.
@@ -25,7 +25,7 @@ test("a refusal passes the envelope, its status, Retry-After and Cache-Control t
     headers: { "Content-Type": "application/json", "Retry-After": "30", "Cache-Control": "no-store" },
   });
 
-  const response = await forwardDownload(upstream, XLSX_CONTENT_TYPE);
+  const response = forwardDownload(upstream, XLSX_CONTENT_TYPE);
 
   assert.equal(response.status, 503);
   assert.equal(await response.text(), envelope);
@@ -38,7 +38,7 @@ test("a refusal without a Content-Type is still read as JSON, and adds no header
   const upstream = new Response("{}", { status: 404 });
   upstream.headers.delete("Content-Type");
 
-  const response = await forwardDownload(upstream, XLSX_CONTENT_TYPE);
+  const response = forwardDownload(upstream, XLSX_CONTENT_TYPE);
 
   assert.equal(response.status, 404);
   assert.equal(response.headers.get("Content-Type"), "application/json");
@@ -58,7 +58,7 @@ test("a file keeps its type, its filename, Cache-Control and Retry-After", async
     },
   });
 
-  const response = await forwardDownload(upstream, "application/octet-stream");
+  const response = forwardDownload(upstream, "application/octet-stream");
 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("Content-Type"), XLSX_CONTENT_TYPE);
@@ -72,14 +72,14 @@ test("a file without a Content-Type falls back to the one the route names", asyn
   const upstream = new Response(new Uint8Array([1]), { status: 200 });
   upstream.headers.delete("Content-Type");
 
-  const response = await forwardDownload(upstream, XLSX_CONTENT_TYPE);
+  const response = forwardDownload(upstream, XLSX_CONTENT_TYPE);
 
   assert.equal(response.headers.get("Content-Type"), XLSX_CONTENT_TYPE);
 });
 
 // A controllable upstream body: bytes are pushed by the test, and nothing closes
 // it unless the test says so.
-function controlledUpstream() {
+function controlledUpstream(status = 200, headers: HeadersInit = { "Content-Type": XLSX_CONTENT_TYPE }) {
   let controller!: ReadableStreamDefaultController<Uint8Array>;
   let cancelled: unknown = undefined;
   let wasCancelled = false;
@@ -92,7 +92,7 @@ function controlledUpstream() {
       cancelled = reason;
     },
   });
-  const response = new Response(body, { status: 200, headers: { "Content-Type": XLSX_CONTENT_TYPE } });
+  const response = new Response(body, { status, headers });
   return {
     response,
     push: (text: string) => controller.enqueue(encoder.encode(text)),
@@ -104,7 +104,7 @@ function controlledUpstream() {
 
 test("a file streams: the first bytes reach the reader before the API has finished", async () => {
   const upstream = controlledUpstream();
-  const response = await forwardDownload(upstream.response, XLSX_CONTENT_TYPE);
+  const response = forwardDownload(upstream.response, XLSX_CONTENT_TYPE);
   const reader = response.body!.getReader();
 
   upstream.push("PK first batch");
@@ -120,9 +120,27 @@ test("a file streams: the first bytes reach the reader before the API has finish
   assert.equal((await reader.read()).done, true);
 });
 
+// A refusal is streamed as a file is, not read into memory first, so the two
+// relays (this and the storefront's forwardDocument) handle it the same way.
+test("a refusal streams too: its first bytes reach the reader before the API has finished", async () => {
+  const upstream = controlledUpstream(503, { "Retry-After": "30" });
+  const response = forwardDownload(upstream.response, XLSX_CONTENT_TYPE);
+
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get("Content-Type"), "application/json");
+  assert.equal(response.headers.get("Retry-After"), "30");
+  const reader = response.body!.getReader();
+  upstream.push('{"data":null,');
+  const first = await reader.read();
+  assert.equal(decoder.decode(first.value), '{"data":null,');
+
+  upstream.close();
+  assert.equal((await reader.read()).done, true);
+});
+
 test("a download the API aborts part way fails for the reader instead of ending cleanly", async () => {
   const upstream = controlledUpstream();
-  const response = await forwardDownload(upstream.response, XLSX_CONTENT_TYPE);
+  const response = forwardDownload(upstream.response, XLSX_CONTENT_TYPE);
   const reader = response.body!.getReader();
 
   upstream.push("PK partial");
@@ -134,7 +152,7 @@ test("a download the API aborts part way fails for the reader instead of ending 
 
 test("a reader who goes away while the file flows cancels the upstream body", async () => {
   const upstream = controlledUpstream();
-  const response = await forwardDownload(upstream.response, XLSX_CONTENT_TYPE);
+  const response = forwardDownload(upstream.response, XLSX_CONTENT_TYPE);
   const reader = response.body!.getReader();
 
   upstream.push("PK partial");

@@ -5,8 +5,13 @@
  * reader.
  *
  * It imports nothing from Next or from the app's aliases, which is what lets
- * `node --test` exercise it directly.
+ * `node --test` exercise it directly. It forwards the same headers as the
+ * storefront's `forwardDocument` (apps/storefront/lib/document-download.ts) and,
+ * like it, streams both a refusal and a file; the two apps share no library
+ * code.
  */
+
+import { proxyRead } from "./reader-abort.ts";
 
 /**
  * The headers passed on from the API as they came, on a refusal and on a file
@@ -21,7 +26,9 @@ const FORWARDED_HEADERS = ["Content-Disposition", "Retry-After", "Cache-Control"
  * forwardDownload turns the API's response into the browser's.
  *
  * A refusal is the API's JSON envelope passed through unchanged, with its status,
- * so the caller can show the reason rather than a broken download.
+ * so the caller can show the reason rather than a broken download. It is
+ * streamed as a file is, under the API's content type or `application/json`
+ * when the API sent none.
  *
  * A file is passed through AS A STREAM AND NEVER BUFFERED (ADR 0075): the
  * Holder Export has no size limit, so buffering it here would put the whole
@@ -30,7 +37,7 @@ const FORWARDED_HEADERS = ["Content-Disposition", "Retry-After", "Cache-Control"
  * this response errors with it, and the browser sees a broken connection rather
  * than a clean end, so its blob() rejects and no file is saved.
  */
-export async function forwardDownload(upstream: Response, fileContentType: string): Promise<Response> {
+export function forwardDownload(upstream: Response, fileContentType: string): Response {
   const headers = new Headers();
   for (const name of FORWARDED_HEADERS) {
     const value = upstream.headers.get(name);
@@ -41,7 +48,7 @@ export async function forwardDownload(upstream: Response, fileContentType: strin
 
   if (!upstream.ok) {
     headers.set("Content-Type", upstream.headers.get("Content-Type") ?? "application/json");
-    return new Response(await upstream.text(), { status: upstream.status, headers });
+    return new Response(upstream.body, { status: upstream.status, headers });
   }
 
   headers.set("Content-Type", upstream.headers.get("Content-Type") ?? fileContentType);
@@ -59,35 +66,19 @@ export async function forwardDownload(upstream: Response, fileContentType: strin
  * response's body, which is the upstream body, and that cancels the upstream
  * fetch in turn.
  *
- * A reader who gives up before the upstream fetch resolves makes that fetch
- * reject. Nobody is left to read the answer, so that is returned quietly as an
- * empty 499 (client closed request) rather than thrown, which Next would log as
- * an unhandled route error and a 500. It is keyed on the browser's own signal,
- * not on the error's name: an abort nobody asked for while the browser is still
- * waiting is a failure, and is thrown as any other failure is.
+ * A reader who gives up before the upstream fetch resolves is answered as every
+ * proxied read answers one (see proxyRead): quietly, with an empty 499. Any
+ * other failure is thrown.
  */
-export async function proxyDownload(
+export function proxyDownload(
   request: Request,
   fetchUpstream: (signal: AbortSignal) => Promise<Response>,
   fileContentType: string,
 ): Promise<Response> {
-  let upstream: Response;
-  try {
-    upstream = await fetchUpstream(request.signal);
-  } catch (error) {
-    if (request.signal.aborted) {
-      return new Response(null, { status: CLIENT_CLOSED_REQUEST });
-    }
-    throw error;
-  }
-  return forwardDownload(upstream, fileContentType);
+  return proxyRead(request, (signal) =>
+    fetchUpstream(signal).then((upstream) => forwardDownload(upstream, fileContentType)),
+  );
 }
-
-/**
- * The status a download answers when its reader went away first. No browser
- * sees it; it is what the server's own request log records.
- */
-const CLIENT_CLOSED_REQUEST = 499;
 
 /** The .xlsx media type both exports fall back to. */
 export const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";

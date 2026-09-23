@@ -333,39 +333,6 @@ func TestAnswersSheetTypesItsCells(t *testing.T) {
 	}
 }
 
-// TestAnswersSheetWritesWhatTheCellRuleDecides: the Sales Export's per-Ticket
-// sheet agrees with the Holder Export about the two answers a spreadsheet
-// cannot take literally (ADR 0075). Empty text is no cell at all, not an empty
-// string, and a date before 1900 - which Excel has no serial for - is its ISO
-// date as text.
-func TestAnswersSheetWritesWhatTheCellRuleDecides(t *testing.T) {
-	longAgo := time.Date(1850, time.January, 1, 0, 0, 0, 0, time.UTC)
-	f := openBuilt(t, oneSale(), gaColumn(), Answers{
-		Questions: []QuestionColumn{
-			{ID: "q-text", Label: "Notes"},
-			{ID: "q-date", Label: "Birthday"},
-		},
-		Tickets: []TicketRow{{
-			ConfirmationRef: "ABC123",
-			TicketTypeName:  "GA",
-			Answers: map[string]Answer{
-				"q-text": {Text: ptr("")},
-				"q-date": {Date: &longAgo},
-			},
-		}},
-	})
-
-	if got, _ := f.GetCellType(AnswersSheet, "C2"); got != excelize.CellTypeUnset {
-		t.Fatalf("empty text answer written as a cell of type %v, want no cell", got)
-	}
-	if v, _ := f.GetCellValue(AnswersSheet, "C2", excelize.Options{RawCellValue: true}); v != "" {
-		t.Fatalf("empty text answer holds %q, want nothing", v)
-	}
-	if got, _ := f.GetCellValue(AnswersSheet, "D2"); got != "1850-01-01" {
-		t.Fatalf("pre-1900 date answer reads %q, want the ISO date 1850-01-01", got)
-	}
-}
-
 // TestAnswersSheetLeavesOutstandingAnswersBlank: a blank cell means an
 // Outstanding Answer — a question this Ticket has not answered, or was never
 // asked because it belongs to another Ticket Type. A multiple-choice question

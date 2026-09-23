@@ -53,7 +53,7 @@ func (h *Handler) ListCustomerSaleDocuments(w http.ResponseWriter, r *http.Reque
 // DownloadCustomerSaleDocumentXML hands the buyer the signed XML.
 //
 // @Summary      Download the signed XML of one of the Customer's Tax Documents
-// @Description  The buyer's download (ADR 0060): the factura or nota de crédito exactly as it was signed and authorized, as `application/xml` with `Content-Disposition: attachment; filename="<clave de acceso>.xml"` — the same bytes the operator route serves. Gated on the Sale: the Customer Session must own the Ticket Sale in the path, or be a Confirmation Link session naming it. Any other Customer, any other Sale, a document that is not this Sale's, and a document not yet authorized all answer INVOICE_NOT_FOUND (404), one refusal for every case so that ids cannot be probed. No session at all is 401.
+// @Description  The buyer's download (ADR 0060): the factura or nota de crédito exactly as it was signed and authorized, as `application/xml` with `Content-Disposition: attachment; filename="<clave de acceso>.xml"` - the same bytes the operator route serves. Gated on the Sale: the Customer Session must own the Ticket Sale in the path, or be a Confirmation Link session naming it. Any other Customer, any other Sale, a document that is not this Sale's, and a document not yet authorized all answer INVOICE_NOT_FOUND (404), one refusal for every case so that ids cannot be probed. No session at all is 401. The response carries `Cache-Control: no-store`, since the document is buyer personal and tax data.
 // @Tags         customer
 // @Produce      application/xml
 // @Security     BearerAuth
@@ -70,7 +70,7 @@ func (h *Handler) DownloadCustomerSaleDocumentXML(w http.ResponseWriter, r *http
 // DownloadCustomerSaleDocumentRIDE hands the buyer the RIDE (#497, ADR 0062).
 //
 // @Summary      Download the RIDE (PDF) of one of the Customer's Tax Documents
-// @Description  The buyer's download of the RIDE — the Representación Impresa del Documento Electrónico — of an authorized factura or nota de crédito, as `application/pdf` with `Content-Disposition: attachment; filename="<clave de acceso>.pdf"`: the same bytes the operator route serves and the delivery mail carries, rendered afresh from the stored document on every request and stored nowhere. A document authorized before the RIDE existed renders on its first request; nothing is re-mailed. Gated exactly as the XML download: the Customer Session must own the Ticket Sale in the path, or be a Confirmation Link session naming it. Any other Customer, any other Sale, a document that is not this Sale's, and a document not yet authorized all answer INVOICE_NOT_FOUND (404), one refusal for every case so that ids cannot be probed. No session at all is 401.
+// @Description  The buyer's download of the RIDE - the Representación Impresa del Documento Electrónico - of an authorized factura or nota de crédito, as `application/pdf` with `Content-Disposition: attachment; filename="<clave de acceso>.pdf"`: the same bytes the operator route serves and the delivery mail carries, rendered afresh from the stored document on every request and stored nowhere. A document authorized before the RIDE existed renders on its first request; nothing is re-mailed. Gated exactly as the XML download: the Customer Session must own the Ticket Sale in the path, or be a Confirmation Link session naming it. Any other Customer, any other Sale, a document that is not this Sale's, and a document not yet authorized all answer INVOICE_NOT_FOUND (404), one refusal for every case so that ids cannot be probed. No session at all is 401. The response carries `Cache-Control: no-store`, since the document is buyer personal and tax data.
 // @Tags         customer
 // @Produce      application/pdf
 // @Security     BearerAuth
@@ -113,6 +113,7 @@ func (h *Handler) serveCustomerDocument(w http.ResponseWriter, r *http.Request, 
 	}
 	w.Header().Set("Content-Type", doc.ContentType)
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+doc.Filename+"\"")
+	platform.NoStore(w)
 	w.Header().Set("X-Request-ID", reqID)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(doc.Body)

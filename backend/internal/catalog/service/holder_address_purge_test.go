@@ -1,4 +1,4 @@
-package service
+package service_test
 
 import (
 	"encoding/json"
@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/catalog/service"
 )
 
 // The Holder Address Purge's deployment contract (#331, parent #322, ADR 0046).
@@ -203,7 +205,7 @@ func TestTheHolderAddressPurgeDeadlineIsInsideTheRequestTimeout(t *testing.T) {
 // an address, a Ticket, a Sale or an Event would publish what the deletion
 // exists to remove, and this is where somebody adding one would be stopped.
 func TestTheHolderAddressPurgeResultIsCountsAndAnInstant(t *testing.T) {
-	encoded, err := json.Marshal(HolderAddressPurgeResult{
+	encoded, err := json.Marshal(service.HolderAddressPurgeResult{
 		AddressesPurged: 2, EventsPurged: 1, PurgedAt: "2026-07-07T12:00:00Z",
 		AddressesHeld: 3, CorrectedAddressesPurged: 1,
 	})

@@ -52,6 +52,7 @@ func staffEvidencePackPath(digest string) string {
 type downloadedPack struct {
 	Filename string
 	SHA256   string
+	Header   http.Header
 	Body     []byte
 	Names    []string
 	Files    map[string][]byte
@@ -79,6 +80,7 @@ func downloadPack(t *testing.T, env *testEnv, sessionID, path string) downloaded
 	pack := downloadedPack{
 		Filename: filename,
 		SHA256:   resp.Header.Get("X-Pack-SHA256"),
+		Header:   resp.Header,
 		Body:     body,
 		Files:    map[string][]byte{},
 	}
