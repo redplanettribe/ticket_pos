@@ -668,7 +668,9 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	// of the commit, from this one source - see CommitTerms.NamedHolders. Empty
 	// on every checkout the requirement did not bind at begin, which is how
 	// "judged once" reaches this leg without re-reading the Event's setting.
-	terms.NamedHolders, err = listHeldHoldersByPayment(ctx, tx, paymentID)
+	// Taken off the Payment as they are read: the Tickets are where they live
+	// from this commit on (see takeHeldHoldersByPayment).
+	terms.NamedHolders, err = takeHeldHoldersByPayment(ctx, tx, paymentID)
 	if err != nil {
 		return nil, err
 	}

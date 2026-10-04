@@ -466,6 +466,17 @@ func heldAnswerColumns(value catalog.AnswerValue) struct {
 // One predicate written once is what keeps the two from ever drifting - a
 // second job would be a second place to get 'expired' wrong.
 //
+// AN APPROVED PAYMENT LOSES ITS ADDRESSES ON THE NEXT RUN, AT ANY AGE, AND
+// KEEPS ITS ANSWERS. The commit already takes the addresses off the Payment it
+// approves (takeHeldHoldersByPayment), so on this path the clause only finds a
+// row a commit from before that fix left behind; without it such a row would
+// be a third party's address kept forever, past the Holder Address Purge that
+// takes the Ticket's own copy at Event start. The held Answers on an approved
+// Payment are a different, deliberate record (#321): what the buyer typed at
+// checkout, as distinct from what the Ticket says now, kept as long as the
+// Ticket's own Answers are, which is to say outliving no purge. Answers have
+// no time-bound purge for a held copy to escape; addresses do.
+//
 // IT DELETES ONLY THE HELD ROWS. The Payment and its `payment_lines` are
 // untouched and are kept forever: the platform is entitled to remember an
 // attempt to transact, and what it may not keep is the reply to a question, or
@@ -500,7 +511,7 @@ func (r *Repository) PurgeAbandonedCheckoutAnswers(ctx context.Context, cutoff t
 			FROM payment_ticket_holders h
 			JOIN payment_lines l ON l.id = h.payment_line_id
 			JOIN payments p ON p.id = l.payment_id
-			WHERE `+abandonedPaymentSQL+`
+			WHERE p.status = 'approved' OR (`+abandonedPaymentSQL+`)
 		),
 		purged_answers AS (
 			DELETE FROM payment_ticket_answers

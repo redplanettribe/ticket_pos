@@ -222,6 +222,12 @@ func TestANamedCheckoutWritesItsAssignmentsOnEveryCommit(t *testing.T) {
 			saleID := saleIDOfPayment(t, env, begun.ClientTransactionID)
 			assertNamedAsTyped(t, env, f, saleID)
 			assertEveryTicketAnswered(t, env, f, saleID)
+
+			// The addresses are now the Tickets', and the Payment's copy is
+			// gone with the same commit: a held address left behind would sit
+			// on an approved Payment forever, out of reach of the Holder
+			// Address Purge that takes the Ticket's own at Event start.
+			assertHeld(t, env, begun.ClientTransactionID, map[string]map[int]string{})
 		})
 	}
 }
