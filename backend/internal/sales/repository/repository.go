@@ -498,6 +498,13 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 	if in.Terms.UpsertCustomer == nil {
 		return nil, errors.New("sales: UpsertCustomer is required — every Ticket Sale must reference a Customer")
 	}
+	// The Holders a Named Tickets checkout named are keyed by Ticket Type and
+	// index, which name a Ticket only within one Sale (see
+	// CommitTerms.NamedHolders). Refused before anything is written rather than
+	// guessed at: no route commits them beside a second Sale.
+	if len(in.Terms.NamedHolders) > 0 && len(in.Sales) != 1 {
+		return nil, errors.New("sales: NamedHolders bind exactly one Ticket Sale")
+	}
 	// Native channels never record a sale without its Tax ID (ADR 0016). The
 	// entry points validate this against the user; the spine asserts it so a
 	// future channel cannot skip the rule by never having heard of it.
@@ -735,6 +742,11 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		// happened when there were no earlier qualifying Sales, and the count
 		// this leaves at zero then meets a zero on the other side of the sum.
 		freeTicketsInBasket := 0
+		// Every Ticket this Sale mints, by Ticket Type and ordinal, for the
+		// Holders a Named Tickets checkout named (#670). One line per Ticket
+		// Type is the online checkout's invariant (see
+		// paymentLineIDsByTicketType), and it is the only route that names any.
+		minted := make(map[string]map[int]string, len(lines))
 		for lineIndex, line := range lines {
 			// The one definition of "what is this line sold at", shared with the
 			// Upgrade's free/paid split beside it (#649) and the seating rule
@@ -773,6 +785,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			if err != nil {
 				return nil, err
 			}
+			minted[line.TicketTypeID] = ticketIDs
 			if seated && lineIndex == seat.Line {
 				seatTicketID = ticketIDs[seat.TicketIndex]
 				seatUnitPriceCents = unitPrice
@@ -845,6 +858,17 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 					return nil, err
 				}
 			}
+		}
+
+		// The Tickets the buyer named at a Named Tickets checkout, each written
+		// as the Ticket Assignment it was named as (ADR 0076, #670). After the
+		// seat, so the buyer holds their own Ticket before anybody else is
+		// named, and so the seat is kept out of reach of any held row.
+		if err := assignNamedTickets(ctx, tx,
+			namedTicketsOf(in.Terms.NamedHolders, minted, seatTicketID),
+			customerID, s.Customer.Email, in.Terms.Now,
+		); err != nil {
+			return nil, err
 		}
 
 		recorded = append(recorded, RecordedSale{
