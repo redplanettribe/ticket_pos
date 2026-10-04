@@ -31,6 +31,13 @@ import (
 // the sweep skipped before asking the provider anything — no address, no
 // link — costs no pause at all. Nothing precedes the first request: a run of
 // one mail is as quick as it ever was.
+//
+// A THIRD SWEEP SHARES IT: the Owed Assignment Mail sweep (#671, ADR 0076),
+// which sends what a Named Tickets checkout owes - nine mails from one
+// checkout is exactly the burst this gap exists to spread. That sweep claims
+// one mail at a time rather than reading a list, so it cannot know a request
+// was its last until the next claim finds nothing: its final request is
+// followed by one gap too.
 
 // reminderSendGap is the pause between consecutive provider requests. Eight
 // a second against a limit of ten, leaving room for whatever else the

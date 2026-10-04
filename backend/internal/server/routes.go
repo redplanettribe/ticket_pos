@@ -137,6 +137,13 @@ func registerInternalRoutes(mux Router, app *App) {
 	// who bought before Ticket Assignment existed.
 	mux.HandleFunc("POST /api/v1/internal/assignment-reminders/sweep", app.SalesHandler.SweepAssignmentReminders)
 
+	// The Owed Assignment Mail sweep (#671, parent #665, ADR 0076): the
+	// Assignment mails a Named Tickets checkout owes, sent paced and retried
+	// after the commit that owed them. The Assignment Reminder's route on every
+	// one of its terms, ticking every minute rather than daily because the
+	// Holder was named a minute ago.
+	mux.HandleFunc("POST /api/v1/internal/owed-assignment-mails/sweep", app.SalesHandler.SweepOwedAssignmentMails)
+
 	// The Holder Address Purge (#331, parent #322, ADR 0046): the address a
 	// buyer typed for a friend who never accepted it, taken once the Event has
 	// started. Served by the CATALOG handler, unlike the purge above it, because

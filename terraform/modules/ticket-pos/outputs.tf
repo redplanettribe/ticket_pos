@@ -309,3 +309,8 @@ output "assignment_reminder_job_name" {
   description = "Name of the Cloud Scheduler job driving the Assignment Reminder sweep (ADR 0051). It ships PAUSED (assignment_reminder_enabled defaults false); the launch is the tfvar plus an apply and then one forced run — `gcloud scheduler jobs run <name> --location <region>` — per docs/runbook-assignment-reminder.md. `gcloud scheduler jobs resume` is not the way to start it, because a console resume and the Terraform state then disagree. It presents its own service account, google_service_account.assignment_reminder."
   value       = google_cloud_scheduler_job.assignment_reminder.name
 }
+
+output "owed_assignment_mail_job_name" {
+  description = "Name of the per-minute Cloud Scheduler job driving the Owed Assignment Mail sweep (ADR 0076): the Assignment mails a Named Tickets checkout owes. Paused unless owed_assignment_mail_enabled is true, and production sets it true in terraform.tfvars. A run can be forced with `gcloud scheduler jobs run <name> --location <region>`; pause it through the tfvar and an apply, never the console. It presents its own service account, google_service_account.owed_assignment_mail."
+  value       = google_cloud_scheduler_job.owed_assignment_mail.name
+}

@@ -244,12 +244,16 @@ func (r *Repository) CountAssignmentMailsForTicket(ctx context.Context, ticketID
 // derives the cutoff from its own clock rather than accepting one from a
 // request — a caller who could name the window's start could name one a second
 // ago and lift the limit entirely.
+//
+// A MAIL OWED BY A NAMED TICKETS CHECKOUT IS NOT COUNTED (migration 128, ADR
+// 0076): it spends its Ticket's lifetime allowance and never the buyer's
+// window, which rations what the buyer does after the sale.
 func (r *Repository) CountAssignmentMailsForBuyer(ctx context.Context, buyerCustomerID string, since time.Time) (int, error) {
 	var count int
 	err := r.db.Pool.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM ticket_assignment_mails
-		WHERE buyer_customer_id = $1 AND sent_at >= $2
+		WHERE buyer_customer_id = $1 AND sent_at >= $2 AND NOT checkout_named
 	`, buyerCustomerID, since).Scan(&count)
 	return count, err
 }

@@ -7,5 +7,6 @@ ticket_assignment_enabled    = true
 holder_address_purge_enabled = true
 answer_reminder_enabled      = true
 assignment_reminder_enabled  = true
+owed_assignment_mail_enabled = true
 sale_invoicing_enabled       = true
 sale_invoice_drainer_enabled = true

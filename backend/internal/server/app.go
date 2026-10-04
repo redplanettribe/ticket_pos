@@ -440,6 +440,13 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// Cloud Scheduler job that drives it is created paused.
 	salesService = salesService.WithAssignmentReminders(catalogService)
 
+	// The Assignment mails a Named Tickets checkout owes (#671, ADR 0076) run on
+	// the same shape: the catalog claims, judges, composes, sends and records
+	// each one, since the Ticket, its Assignment Link and the ledger are its;
+	// sales paces the run with the pacer the Reminder sweeps share. The far side
+	// holds everything while TICKET_ASSIGNMENT_ENABLED is closed.
+	salesService = salesService.WithOwedAssignmentMails(catalogService)
+
 	// A Sale Reversal takes every Holder on the Sale with it, and they are told
 	// (#327, parent #322, ADR 0046). Tied on here for the same reason and at the
 	// same moment as the two above it, and pointing the same way: sales knows a
