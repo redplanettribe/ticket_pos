@@ -485,6 +485,11 @@ export type PublicEventDetail = {
   // also the answer while Ticket Assignment is dark, since nothing is self-held
   // in that build and so nothing can be given up.
   surrenderable_free_tickets: number | null;
+  // Whether this Event requires Named Tickets (ADR 0076): its checkout names a
+  // Holder for every Ticket beyond the buyer's own and answers every required
+  // question on every Ticket. The setting, not a verdict on one checkout -
+  // begin-checkout judges that once. Always false on an external Event.
+  requires_named_tickets: boolean;
   tags: PublicTag[];
   // Whether the Event advertises itself. It gates nothing about rendering or
   // selling — a published Event is reachable by direct link either way (ADR

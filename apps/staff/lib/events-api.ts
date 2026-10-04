@@ -67,6 +67,11 @@ export type EventDetail = {
   /** Hand-offs to the Registration Link. Clicks — never registrations, never
    * people: the platform loses sight of the buyer at the link. */
   registration_click_count: number;
+  /** Named Tickets (ADR 0076): a Storefront checkout must name a Holder and
+   * answer the required questions for every Ticket. On for a new Event, off for
+   * one that predates the setting. Stored even on an external Event, where it
+   * is ignored and the form does not offer it. */
+  requires_named_tickets: boolean;
   /** The platform's Ticket Question feature flag, not a property of this Event
    * — it rides here for the same reason the fee rates do, because the Ticket
    * Type editor is composed from this payload (#309, ADR 0045). False is the
@@ -105,6 +110,9 @@ export type EventPatchBody = {
    */
   registration_mode?: RegistrationMode;
   registration_url?: string;
+  /** Named Tickets. Optional for the same reason: absent leaves it alone, so
+   * the cover side-saves never touch it. */
+  requires_named_tickets?: boolean;
 };
 
 export type TicketType = {
