@@ -1,9 +1,5 @@
-import { NextResponse } from "next/server";
-
-import { callBackend } from "@/lib/api";
-import { apiErrorResponse, notSignedInResponse } from "@/lib/bff";
+import { relayCustomerPut } from "@/lib/bff";
 import type { BuyerTicket } from "@/lib/buyer-answers";
-import { customerSessionToken } from "@/lib/customer-session";
 
 // Reads the session cookie and writes through it; never cached.
 export const dynamic = "force-dynamic";
@@ -33,41 +29,11 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ ticketSaleId: string; ticketId: string; questionId: string }> },
 ) {
-  const token = await customerSessionToken();
-  if (!token) {
-    return notSignedInResponse();
-  }
-
   const { ticketSaleId, ticketId, questionId } = await params;
-
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    // A body this hop cannot even parse never left the browser we serve, so it
-    // is refused here rather than forwarded for the API to reject.
-    return NextResponse.json(
-      {
-        data: null,
-        error: { code: "INVALID_JSON", message: "Malformed request body" },
-        request_id: crypto.randomUUID(),
-      },
-      { status: 400 },
-    );
-  }
-
-  try {
-    const backend = await callBackend<BuyerTicket[]>(
-      `/api/v1/customer/ticket-sales/${encodeURIComponent(ticketSaleId)}` +
-        `/tickets/${encodeURIComponent(ticketId)}` +
-        `/provisional-answers/${encodeURIComponent(questionId)}`,
-      { method: "PUT", body: JSON.stringify(body), sessionToken: token },
-    );
-    return NextResponse.json(
-      { data: backend.data, error: null, request_id: crypto.randomUUID() },
-      { status: backend.status },
-    );
-  } catch (error) {
-    return apiErrorResponse(error);
-  }
+  return relayCustomerPut<BuyerTicket[]>(
+    request,
+    `/api/v1/customer/ticket-sales/${encodeURIComponent(ticketSaleId)}` +
+      `/tickets/${encodeURIComponent(ticketId)}` +
+      `/provisional-answers/${encodeURIComponent(questionId)}`,
+  );
 }
