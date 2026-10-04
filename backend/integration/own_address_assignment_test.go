@@ -221,3 +221,69 @@ func TestResubmittingTheBuyersOwnAddressAcceptsATicketLeftAssigned(t *testing.T)
 		t.Errorf("sent %d Assignment mail(s)", got)
 	}
 }
+
+// ON EVERY EVENT, NAMED TICKETS OR NOT. The setting decides what checkout asks
+// for (#665); it has no say over how an assignment after the sale treats the
+// buyer's own address, which the session has already proven either way. Both
+// routes are walked on both settings: a Customer Session takes one Ticket, a
+// Confirmation Link session the other.
+func TestOwnAddressAssignmentIsAcceptedAtOnceWithAndWithoutNamedTickets(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		requires bool
+	}{
+		{"named tickets on", true},
+		{"named tickets off", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := setupTest(t)
+			f := newAssignmentFixture(t, env)
+			setBuyerFestNamedTickets(t, env, f, tc.requires)
+			mailBefore := captureMailBaseline(env)
+
+			returned := assignTicketOK(t, env, f.ana, f.anaSaleID, f.anaTicketIDs[0], " ana@EXAMPLE.com")
+			assertOwnAddressAccepted(t, findBuyerRow(t, returned, f.anaTicketIDs[0]), "ana@example.com")
+
+			// The second Ticket is written at its own instant, so the two
+			// acceptances are never told apart by a coin toss on the clock.
+			holdClocksAt(fixedClock.Add(time.Minute))
+			_, linkSession := redeemConfirmationLinkOK(t, env, confirmationLinkTokenForRef(t, env, f.anaRef), "")
+			returned = assignTicketOK(t, env, linkSession, f.anaSaleID, f.anaTicketIDs[1], "Ana@Example.com")
+			assertOwnAddressAccepted(t, findBuyerRow(t, returned, f.anaTicketIDs[1]), "ana@example.com")
+
+			if got := assignmentMailCount(env); got != 0 {
+				t.Errorf("own-address assignment sent %d Assignment mail(s) with requires_named_tickets=%v, want none",
+					got, tc.requires)
+			}
+			assertNoAssignmentMailWasSent(t, env, mailBefore)
+
+			guests := listOutstanding(t, env, f.staffSession, f.eventID)
+			for _, ticketID := range f.anaTicketIDs {
+				got := guestRow(t, guests, ticketID)
+				if got.state != "accepted" || got.firstName != "Ana" || got.lastName != "Lopez" {
+					t.Errorf("Holder List row %s reads %+v, want accepted under Ana Lopez", ticketID, got)
+				}
+			}
+		})
+	}
+}
+
+// setBuyerFestNamedTickets sets the fixture Event's Named Tickets setting
+// explicitly, through the Org Admin's Event update, and reads it back so the
+// test cannot pass on a default it never meant to rely on.
+func setBuyerFestNamedTickets(t *testing.T, env *testEnv, f assignmentFixture, requires bool) {
+	t.Helper()
+	resp, body := env.patch(t, "/api/v1/staff/events/"+f.eventID, map[string]any{
+		"name":                   "Buyer Fest",
+		"slug":                   "buyer-fest",
+		"starts_at":              env.fixedClock.Add(30 * 24 * time.Hour).Format(time.RFC3339),
+		"timezone":               "Europe/Madrid",
+		"requires_named_tickets": requires,
+	}, authHeader(f.staffSession))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("set requires_named_tickets=%v status=%d error=%+v", requires, resp.StatusCode, body.Error)
+	}
+	if got := getEventNamedTickets(t, env, f.staffSession, f.eventID); got != requires {
+		t.Fatalf("the Event reads requires_named_tickets=%v after setting %v", got, requires)
+	}
+}
