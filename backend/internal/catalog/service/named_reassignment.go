@@ -21,11 +21,14 @@ import (
 // records a transaction that already happened, while this is the buyer acting
 // now, on an Event whose Organization chose the friction.
 //
-// EVERY CALL WHILE IT BINDS, not only the ones that turn out to change the
-// address. Whether a call changes anything is decided under the row lock, and a
-// rule judged before it on a guess about that would leave a window in which a
-// concurrent reassignment turned this call into a change made without Answers.
-// A same-address resubmission is still a no-op: its Answers are not written.
+// ONLY A CHANGE OF ADDRESS OWES ANSWERS. A same-address resubmission names
+// nobody new, so it is a no-op success that needs no Answers and writes none:
+// on an accepted Ticket the buyer cannot even see the Answers it carries (ADR
+// 0049). Whether a call changes the address is decided under the row lock, so
+// the service judges the Answers here into a verdict and the repository applies
+// it there (repository.NamedTicketsVerdict) - a rule applied on the service's
+// earlier read would leave a window in which a concurrent reassignment turned a
+// same-address call into a change made without Answers.
 
 // AssignmentAnswerInput is one Answer the buyer gives with a Holder's address:
 // which Ticket Question, and the reply in the shape its kind takes.
@@ -43,7 +46,10 @@ func (s *Service) namedTicketsBind(ticket *repository.AnswerableTicket) bool {
 }
 
 // namedTicketAnswers judges the Answers given with an address against the Named
-// Tickets requirement, and returns the ones to write with the assignment.
+// Tickets requirement: the ones to write with the assignment, or what is still
+// owed. Either way it is a verdict and not a refusal, because only a change of
+// address owes anything, and that is the repository's to decide under the lock.
+// Its error is a failed read and nothing else.
 //
 // NIL AND NO ERROR WHERE THE REQUIREMENT DOES NOT BIND - the setting is off,
 // Ticket Assignment is dark, or the doors have opened - and then any Answers in
@@ -63,7 +69,7 @@ func (s *Service) namedTicketAnswers(
 	ticket *repository.AnswerableTicket,
 	holderEmail string,
 	given []AssignmentAnswerInput,
-) ([]repository.AssignedAnswer, error) {
+) (*repository.NamedTicketsVerdict, error) {
 	if !s.namedTicketsBind(ticket) {
 		return nil, nil
 	}
@@ -76,19 +82,15 @@ func (s *Service) namedTicketAnswers(
 		if err != nil {
 			return nil, err
 		}
+		// AnswerInput IS the domain's SubmittedAnswer, so the reply travels
+		// as given; only its place in the basket is added.
 		submitted := make([]catalog.SubmittedCheckoutAnswer, 0, len(given))
 		for _, answer := range given {
 			submitted = append(submitted, catalog.SubmittedCheckoutAnswer{
 				TicketTypeID:     ticket.TicketTypeID,
 				TicketIndex:      ticket.Ordinal,
 				TicketQuestionID: answer.TicketQuestionID,
-				Answer: catalog.SubmittedAnswer{
-					Text:      answer.Answer.Text,
-					Number:    answer.Answer.Number,
-					Date:      answer.Answer.Date,
-					Checked:   answer.Answer.Checked,
-					OptionIDs: answer.Answer.OptionIDs,
-				},
+				Answer:           answer.Answer,
 			})
 		}
 		held = catalog.HoldableCheckoutAnswers(asked, map[string]int{ticket.TicketTypeID: ticket.Ordinal}, submitted)
@@ -100,7 +102,7 @@ func (s *Service) namedTicketAnswers(
 		HolderEmail:  holderEmail,
 	}}, asked, held)
 	if len(owed) > 0 {
-		return nil, catalog.ErrNamedTicketsIncomplete(owed)
+		return &repository.NamedTicketsVerdict{Owed: owed}, nil
 	}
 
 	assigned := make([]repository.AssignedAnswer, 0, len(held))
@@ -117,7 +119,7 @@ func (s *Service) namedTicketAnswers(
 			Params:           upsertParams(answer.Value, options),
 		})
 	}
-	return assigned, nil
+	return &repository.NamedTicketsVerdict{Answers: assigned}, nil
 }
 
 // reassignmentQuestions reads, for the buyer's rows that may be reassigned

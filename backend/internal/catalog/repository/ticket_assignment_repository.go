@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/catalog"
 )
 
 // The one write path into a Ticket Assignment (#324, parent #322).
@@ -79,6 +81,40 @@ type AssignedAnswer struct {
 	Params           UpsertTicketAnswerParams
 }
 
+// AssignTicketInput is one "this Ticket's Holder address is now X", with
+// everything the write needs to decide, under the row lock, what that means.
+type AssignTicketInput struct {
+	// TicketID is a Ticket the caller has ALREADY resolved through a scoped
+	// read; see AssignTicketToHolder.
+	TicketID string
+	// HolderEmail is the address, already parsed and normalised
+	// (catalog.ParseHolderEmail).
+	HolderEmail string
+	// BuyerCustomerID is the Sale's own Customer, the session's.
+	BuyerCustomerID string
+	// OwnAddress says HolderEmail is the Sale's own address
+	// (catalog.IsBuyersOwnAddress): the Ticket is then accepted at once with
+	// the buyer as its Holder, through catalog.AcceptForBuyer, and is never
+	// left `assigned` waiting on a link nobody will mail (ADR 0076).
+	OwnAddress bool
+	// NamedTickets is the Named Tickets requirement's verdict on the Answers
+	// given with the address, and nil wherever the requirement does not bind
+	// (#673, ADR 0076). It is consulted only if the address CHANGES.
+	NamedTickets *NamedTicketsVerdict
+	Now          time.Time
+}
+
+// NamedTicketsVerdict is what the Named Tickets requirement says of one
+// reassignment's Answers, judged by the service against the questions the
+// checkout asks: the Answers to write if the address changes, or what is still
+// owed, which refuses a change of address outright.
+type NamedTicketsVerdict struct {
+	Answers []AssignedAnswer
+	// Owed is non-empty when a required Answer is missing. Refused in the
+	// shared NAMED_TICKETS_INCOMPLETE shape, and only when the address changes.
+	Owed []catalog.OwedTicket
+}
+
 // AssignTicketToHolder names the address that holds one Ticket, creating the
 // assignment or replacing the one that was there.
 //
@@ -104,37 +140,32 @@ type AssignedAnswer struct {
 // ACCEPTANCE IS CLEARED WITH THE ADDRESS. A Ticket handed to somebody new has
 // not been accepted by them, so accepted_at and holder_customer_id go together
 // with the old address — otherwise the database's own CHECK would be describing
-// a Customer who proved a different address entirely. Unreachable in #324, where
-// nothing ever sets them; correct from the day #325 does.
+// a Customer who proved a different address entirely.
 //
-// THE BUYER'S OWN ADDRESS IS ACCEPTED IN THE SAME STATEMENT (ADR 0076). When
-// acceptingCustomerID is set - the caller has matched the address to the Sale's
-// own, through catalog.IsBuyersOwnAddress - the Ticket is written `accepted`
-// with that Customer as Holder, exactly the row shape the Self-held Ticket is
-// written in at commit. Not a second call afterwards: a Ticket must never be
-// observable as `assigned` to the buyer, waiting on a link nobody will mail.
-// Empty for every other address, which is assigned and left to be accepted by
-// its Assignment Link.
+// THE BUYER'S OWN ADDRESS IS ACCEPTED IN THE SAME TRANSACTION (ADR 0076), by
+// catalog.AcceptForBuyer: the one write the commit spine also seats the
+// Self-held Ticket with, so the two cannot write different rows. Not a second
+// call afterwards: a Ticket must never be observable as `assigned` to the
+// buyer, waiting on a link nobody will mail.
 //
-// THE NEW HOLDER'S ANSWERS ARE WRITTEN IN THE SAME TRANSACTION TOO (#673, ADR
-// 0076). On an Event that requires Named Tickets the buyer gives them with the
-// address, and the clearing above and these writes commit together: there is
-// no instant at which the Ticket is named for somebody new with the roster's
-// required Answers gone. They are written only when the address CHANGED. A
-// no-op names nobody new, and writing them then would let the buyer overwrite
-// Answers that may already be an accepted Holder's own (ADR 0049).
+// THE NAMED TICKETS REQUIREMENT IS DECIDED HERE, UNDER THE LOCK (#673, ADR
+// 0076). Whether a call names somebody new is only knowable once the row is
+// locked, and so is whether it owes the new Holder's Answers: a same-address
+// call is a no-op that needs none and writes none (the Ticket's Answers may
+// already be an accepted Holder's own, ADR 0049), while a change of address
+// with a required Answer missing is refused and writes nothing. A rule judged
+// before the lock on the caller's earlier read would leave a window in which
+// a concurrent reassignment turned a same-address call into a change made
+// without Answers. On a change, the clearing above and the new Holder's
+// Answers commit together: there is no instant at which the Ticket is named
+// for somebody new with the roster's required Answers gone.
 //
 // NO ORGANIZATION, EVENT OR CUSTOMER CLAUSE HERE. This takes a Ticket id that
 // the caller has ALREADY resolved through a scoped read — ListAnswerableTickets
 // ForBuyer and its customer_id clause — exactly as UpsertTicketAnswer does. A
 // second, differently-worded scope on the write is a second place for it to be
 // wrong, and the two would eventually disagree.
-func (r *Repository) AssignTicketToHolder(
-	ctx context.Context,
-	ticketID, holderEmail, acceptingCustomerID string,
-	answers []AssignedAnswer,
-	now time.Time,
-) (AssignTicketResult, error) {
+func (r *Repository) AssignTicketToHolder(ctx context.Context, in AssignTicketInput) (AssignTicketResult, error) {
 	var result AssignTicketResult
 
 	tx, err := r.db.Pool.BeginTx(ctx, nil)
@@ -155,7 +186,7 @@ func (r *Repository) AssignTicketToHolder(
 	var previouslyAccepted sql.NullTime
 	if err := tx.QueryRowContext(ctx, `
 		SELECT holder_email, accepted_at FROM tickets WHERE id = $1 FOR UPDATE
-	`, ticketID).Scan(&previous, &previouslyAccepted); err != nil {
+	`, in.TicketID).Scan(&previous, &previouslyAccepted); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			// The caller resolved this Ticket a moment ago through its own scoped
 			// read; it is gone now. Reported as "nothing changed" rather than as an
@@ -165,17 +196,15 @@ func (r *Repository) AssignTicketToHolder(
 		return result, err
 	}
 
-	if previous.Valid && previous.String == holderEmail {
+	if previous.Valid && previous.String == in.HolderEmail {
 		// The same address again. Nothing is written at all — see Changed —
-		// unless it is the buyer's own address on a Ticket still waiting to be
-		// accepted, which is accepted now: the same person, so no Answer goes and
-		// assigned_at stands.
-		if acceptingCustomerID == "" || previouslyAccepted.Valid {
+		// and no Answers are asked for or written, unless it is the buyer's own
+		// address on a Ticket still waiting to be accepted, which is accepted
+		// now: the same person, so no Answer goes and assigned_at stands.
+		if !in.OwnAddress || previouslyAccepted.Valid {
 			return result, nil
 		}
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE tickets SET accepted_at = $2, holder_customer_id = $3 WHERE id = $1
-		`, ticketID, now, acceptingCustomerID); err != nil {
+		if _, err := catalog.AcceptForBuyer(ctx, tx, in.TicketID, in.BuyerCustomerID, in.HolderEmail, in.Now); err != nil {
 			return result, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -183,6 +212,13 @@ func (r *Repository) AssignTicketToHolder(
 		}
 		result.Accepted = true
 		return result, nil
+	}
+
+	// A CHANGE OF ADDRESS, so the Named Tickets requirement binds this call.
+	// Refused before anything is written; the deferred rollback releases the
+	// lock having changed nothing.
+	if in.NamedTickets != nil && len(in.NamedTickets.Owed) > 0 {
+		return AssignTicketResult{}, catalog.ErrNamedTicketsIncomplete(in.NamedTickets.Owed)
 	}
 	result.Changed = true
 
@@ -193,32 +229,36 @@ func (r *Repository) AssignTicketToHolder(
 		result.DisplacedHolderEmail = previous.String
 	}
 
-	// RETURNING the stored timestamp rather than trusting the one sent in: it
-	// comes back rounded to the column's microseconds, and #325 signs the
+	// Both writes return the stored timestamp rather than trusting the one sent
+	// in: it comes back rounded to the column's microseconds, and #325 signs the
 	// Assignment Link over exactly that value.
-	if err := tx.QueryRowContext(ctx, `
+	if in.OwnAddress {
+		result.AssignedAt, err = catalog.AcceptForBuyer(ctx, tx, in.TicketID, in.BuyerCustomerID, in.HolderEmail, in.Now)
+		if err != nil {
+			return result, err
+		}
+		result.Accepted = true
+	} else if err := tx.QueryRowContext(ctx, `
 		UPDATE tickets
 		SET holder_email = $2,
 		    assigned_at = $3,
-		    -- Both replaced with the address, always. A Ticket handed to somebody
+		    -- Both cleared with the address, always. A Ticket handed to somebody
 		    -- new has not been accepted by them, and every Assignment Link mailed
 		    -- to the previous address dies here, because assigned_at is what
-		    -- those links were signed over. The one exception is the buyer's own
-		    -- address, accepted in the same instant it is named (ADR 0076).
-		    accepted_at = CASE WHEN $4 = '' THEN NULL ELSE $3::timestamptz END,
-		    holder_customer_id = NULLIF($4, '')::uuid
+		    -- those links were signed over.
+		    accepted_at = NULL,
+		    holder_customer_id = NULL
 		WHERE id = $1
 		RETURNING assigned_at
-	`, ticketID, holderEmail, now, acceptingCustomerID).Scan(&result.AssignedAt); err != nil {
+	`, in.TicketID, in.HolderEmail, in.Now).Scan(&result.AssignedAt); err != nil {
 		return result, err
 	}
-	result.Accepted = acceptingCustomerID != ""
 
 	// The Answers go only when there WAS a previous Holder — a change of person
 	// rather than the naming of one. The Options a choice Answer chose follow by
 	// the ON DELETE CASCADE on ticket_answer_options (migration 073).
 	if previous.Valid {
-		res, err := tx.ExecContext(ctx, `DELETE FROM ticket_answers WHERE ticket_id = $1`, ticketID)
+		res, err := tx.ExecContext(ctx, `DELETE FROM ticket_answers WHERE ticket_id = $1`, in.TicketID)
 		if err != nil {
 			return result, err
 		}
@@ -227,9 +267,11 @@ func (r *Repository) AssignTicketToHolder(
 
 	// Upserted rather than inserted: a first assignment cleared nothing, and
 	// the Ticket may already carry an Answer the buyer is now restating.
-	for _, answer := range answers {
-		if err := writeTicketAnswer(ctx, tx, ticketID, answer.TicketQuestionID, answer.Params, now); err != nil {
-			return result, err
+	if in.NamedTickets != nil {
+		for _, answer := range in.NamedTickets.Answers {
+			if err := writeTicketAnswer(ctx, tx, in.TicketID, answer.TicketQuestionID, answer.Params, in.Now); err != nil {
+				return result, err
+			}
 		}
 	}
 

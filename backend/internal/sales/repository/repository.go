@@ -835,12 +835,17 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		// ever set under in.Terms.SelfHeld, so a dark build cannot reach this line
 		// and needs no second check to be safe.
 		//
-		// AFTER holdOwnTicket AND NOT BEFORE. The buyer must be holding the paid
+		// AFTER THE SEAT IS ACCEPTED AND NOT BEFORE. The buyer must be holding the paid
 		// Ticket before the free one is taken away, so that no instant inside this
 		// transaction exists in which they hold neither.
 		var upgradedOutOfSaleID string
 		if seatTicketID != "" {
-			if err := holdOwnTicket(ctx, tx, seatTicketID, customerID, s.Customer.Email, in.Terms.Now); err != nil {
+			// The one write that accepts a Ticket for its buyer, shared with the
+			// assign route after the sale (catalog.AcceptForBuyer). THE WARRANT
+			// DIFFERS BY CHANNEL AND THE WRITE DOES NOT: a payment is a proof and
+			// a transcription is a presumption (ADR 0055), but the roster's
+			// question is who is coming, so there is one row shape only.
+			if _, err := catalog.AcceptForBuyer(ctx, tx, seatTicketID, customerID, s.Customer.Email, in.Terms.Now); err != nil {
 				return nil, err
 			}
 			if in.Terms.UpgradeElected {
@@ -950,39 +955,6 @@ func mintTickets(ctx context.Context, tx *sql.Tx, ticketSaleLineID string, quant
 		ticketIDs[ordinal] = id
 	}
 	return ticketIDs, rows.Err()
-}
-
-// holdOwnTicket makes one freshly minted Ticket the buyer's own Self-held
-// Ticket: assigned to the buyer's address and accepted at once, in the caller's
-// transaction (ADR 0048).
-//
-// ACCEPTED BY PURCHASE OR BY TRANSCRIPTION, NEVER BY LINK. Checking out is the
-// buyer's own act, and an imported Sale transcribes a transaction the buyer
-// already made somewhere else (ADR 0055), so on neither route does "who is this
-// one for" need asking and on neither is an Assignment mail written. It writes
-// holder_customer_id and accepted_at together, as migration 080's CHECK
-// requires, and touches nothing on the customers row — neither a payment nor a
-// transcription is Proof of Email Ownership, and whether the buyer is Verified
-// stays the sign-in module's authority. The Organization sees an ordinary
-// accepted Ticket under the name and address the Sale was made with, which it
-// already sees on the Sale.
-//
-// THE WARRANT DIFFERS BY CHANNEL AND THE WRITE DOES NOT. A payment is a proof
-// and a transcription is a presumption, which ADR 0055 states plainly rather
-// than dressing up; what it refused was a fourth assignment state saying "we
-// think so", because the roster's question is who is coming and not how they
-// came to hold the Ticket. So there is one row shape here and one only.
-//
-// Like mintTickets it takes a transaction and not a pool: a Ticket that is
-// the buyer's own from the start must be so in the commit that minted it, or
-// a crash in between leaves a Sale whose buyer holds nothing.
-func holdOwnTicket(ctx context.Context, tx *sql.Tx, ticketID, customerID, email string, now time.Time) error {
-	_, err := tx.ExecContext(ctx, `
-		UPDATE tickets
-		SET holder_email = $2, holder_customer_id = $3, assigned_at = $4, accepted_at = $4
-		WHERE id = $1
-	`, ticketID, platform.NormalizeEmail(email), customerID, now)
-	return err
 }
 
 // liveHoldsForUpdate returns the quantities live Capacity Holds claim per

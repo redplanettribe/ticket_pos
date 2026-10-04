@@ -1,13 +1,17 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
+	catalogrepo "github.com/peter/ticket_pos/backend/internal/catalog/repository"
 	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/platform/apperror"
 )
 
 // REASSIGNMENT KEEPS THE NAMED TICKETS RULE (#673, spec #665, ADR 0076).
@@ -457,5 +461,95 @@ func TestResubmittingTheSameAddressWithAnswersWritesNothing(t *testing.T) {
 	}
 	if got := assignmentMailCount(env); got != mailBefore {
 		t.Errorf("a same-address resubmission sent %d Assignment mail(s)", got-mailBefore)
+	}
+}
+
+// THE VERDICT IS APPLIED UNDER THE LOCK. The service judges the Answers on its
+// own earlier read of the Ticket; if a concurrent save moved the address in
+// between, that read is stale, and only the locked row says whether this call
+// is a change. Driven at the repository, because no request can be made to
+// interleave there: the same verdict refuses a call that turns out to change
+// the address, and is ignored by one that turns out not to.
+func TestTheNamedTicketsVerdictIsDecidedUnderTheRowLock(t *testing.T) {
+	env := setupTest(t)
+	f := newNamedAssignmentFixture(t, env)
+	repo := catalogrepo.New(&platform.DB{Pool: env.db})
+	before := readTicketAssignment(t, env, f.carlaTicketID)
+	var anaCustomerID string
+	if err := env.db.QueryRow(`SELECT customer_id FROM ticket_sales WHERE id = $1`, f.anaSaleID).Scan(&anaCustomerID); err != nil {
+		t.Fatalf("read the Sale's Customer: %v", err)
+	}
+	owing := &catalogrepo.NamedTicketsVerdict{Owed: []catalog.OwedTicket{{
+		TicketTypeID:       f.ticketTypeID,
+		TicketIndex:        1,
+		MissingQuestionIDs: []string{f.sizeQuestion.ID},
+	}}}
+	assign := func(address string) (catalogrepo.AssignTicketResult, error) {
+		return repo.AssignTicketToHolder(context.Background(), catalogrepo.AssignTicketInput{
+			TicketID:        f.carlaTicketID,
+			HolderEmail:     address,
+			BuyerCustomerID: anaCustomerID,
+			NamedTickets:    owing,
+			Now:             fixedClock.Add(time.Hour),
+		})
+	}
+
+	// The service read the Ticket as already Diego's; it is Carla's.
+	_, err := assign("diego@example.com")
+	var refusal apperror.DomainError
+	if !errors.As(err, &refusal) || refusal.Code() != "NAMED_TICKETS_INCOMPLETE" {
+		t.Fatalf("a change of address owing its Answers returned %v, want NAMED_TICKETS_INCOMPLETE", err)
+	}
+	if after := readTicketAssignment(t, env, f.carlaTicketID); after.holderEmail != before.holderEmail ||
+		!after.assignedAt.Time.Equal(before.assignedAt.Time) {
+		t.Errorf("a refused change moved the assignment: %+v then %+v", before, after)
+	}
+	if got := answersOnTicket(t, env, f.carlaTicketID); got != 1 {
+		t.Errorf("a refused change left %d Answer(s), want Carla's 1", got)
+	}
+
+	// The service read the Ticket as somebody else's; it is already Carla's.
+	result, err := assign("carla@example.com")
+	if err != nil || result.Changed {
+		t.Fatalf("a same-address call owing Answers returned %+v, %v, want a no-op", result, err)
+	}
+}
+
+// THE SAME ADDRESS ASKS FOR NO ANSWERS. Whether a call names somebody new is
+// decided under the row lock, and a call that does not is a no-op success
+// whether or not it carries Answers - a buyer pressing save twice, or saving an
+// accepted Holder's address back unchanged, owes nothing and is shown nothing
+// of that Holder's Answers (ADR 0049).
+func TestResubmittingTheSameAddressWithoutAnswersIsANoOp(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		accept bool
+	}{
+		{"while Carla has not accepted", false},
+		{"after Carla accepted", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := setupTest(t)
+			f := newNamedAssignmentFixture(t, env)
+			if tc.accept {
+				acceptAssignmentOK(t, env, assignmentTokenFrom(t, assignmentMailFor(t, env, "carla@example.com")))
+			}
+			before := readTicketAssignment(t, env, f.carlaTicketID)
+			mailBefore := assignmentMailCount(env)
+
+			holdClocksAt(fixedClock.Add(time.Hour))
+			assignTicketOK(t, env, f.ana, f.anaSaleID, f.carlaTicketID, " Carla@Example.com ")
+
+			after := readTicketAssignment(t, env, f.carlaTicketID)
+			if !after.assignedAt.Time.Equal(before.assignedAt.Time) || after.acceptedAt.Valid != before.acceptedAt.Valid {
+				t.Errorf("a same-address resubmission moved the assignment: %+v then %+v", before, after)
+			}
+			if got := staffAnswerText(t, env, f.staffSession, f.eventID, f.carlaTicketID, f.sizeQuestion.ID); got == nil || *got != "M" {
+				t.Errorf("a same-address resubmission left the size at %v, want M", got)
+			}
+			if got := assignmentMailCount(env); got != mailBefore {
+				t.Errorf("a same-address resubmission sent %d Assignment mail(s)", got-mailBefore)
+			}
+		})
 	}
 }

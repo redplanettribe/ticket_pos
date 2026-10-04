@@ -100,8 +100,8 @@ func namedTicketsOf(held []HeldHolder, minted map[string]map[int]string, seatTic
 // Assignment, in the commit's transaction (ADR 0076).
 //
 //   - THE BUYER'S OWN ADDRESS is `accepted` at once with the buyer as Holder,
-//     by holdOwnTicket - the very write that seats the Self-held Ticket, and the
-//     row shape catalog's own-address assignment writes after the sale. Whether
+//     by catalog.AcceptForBuyer - the very write that seats the Self-held
+//     Ticket, and the one the own-address assignment after the sale makes. Whether
 //     an address is the buyer's is catalog.IsBuyersOwnAddress's answer and
 //     nobody else's. It owes no mail.
 //   - ANY OTHER ADDRESS is `assigned`, and an Assignment mail is OWED for it:
@@ -126,7 +126,7 @@ func assignNamedTickets(
 ) error {
 	for _, ticket := range named {
 		if catalog.IsBuyersOwnAddress(ticket.holderEmail, buyerEmail) {
-			if err := holdOwnTicket(ctx, tx, ticket.ticketID, customerID, buyerEmail, now); err != nil {
+			if _, err := catalog.AcceptForBuyer(ctx, tx, ticket.ticketID, customerID, buyerEmail, now); err != nil {
 				return err
 			}
 			continue

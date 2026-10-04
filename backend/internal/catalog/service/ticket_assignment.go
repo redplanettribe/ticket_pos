@@ -109,18 +109,26 @@ func (s *Service) AssignOwnTicket(
 	//
 	// The Holder is the session's Customer, which the scoped read above has
 	// already proven is the Sale's own.
-	acceptingCustomerID := ""
-	if catalog.IsBuyersOwnAddress(email, ticket.BuyerEmail) {
-		acceptingCustomerID = customerID
-	}
+	ownAddress := catalog.IsBuyersOwnAddress(email, ticket.BuyerEmail)
 
-	// ON AN EVENT THAT REQUIRES NAMED TICKETS, THE ADDRESS COMES WITH ITS
+	// ON AN EVENT THAT REQUIRES NAMED TICKETS, A NEW ADDRESS COMES WITH ITS
 	// ANSWERS (#673, ADR 0076), the buyer's own address included: their own
-	// Ticket owes its Answers at checkout too. Judged before the rationing, so
-	// a form that is merely incomplete never reads as an allowance spent.
-	assignedAnswers, err := s.namedTicketAnswers(ctx, ticket, email, answers)
+	// Ticket owes its Answers at checkout too. The same address again owes
+	// none. The verdict is judged here and applied by the repository under the
+	// row lock, which is where "is this a change" is decided for good.
+	namedTickets, err := s.namedTicketAnswers(ctx, ticket, email, answers)
 	if err != nil {
 		return nil, err
+	}
+
+	// REFUSED HERE TOO, ON THE READ IN HAND, so that a form that is merely
+	// incomplete never reads as an allowance spent: the rationing below
+	// decides on this same read. Only ever a refusal the lock would also
+	// reach, short of a concurrent save landing this very address first, and
+	// then the buyer's retry is the no-op it should be.
+	changesAddress := !ticket.HolderEmail.Valid || ticket.HolderEmail.String != email
+	if changesAddress && namedTickets != nil && len(namedTickets.Owed) > 0 {
+		return nil, catalog.ErrNamedTicketsIncomplete(namedTickets.Owed)
 	}
 
 	// THE RATIONING, BEFORE THE WRITE AND NEVER AFTER IT (#332). See
@@ -128,13 +136,20 @@ func (s *Service) AssignOwnTicket(
 	// not merely the mail. Never for the buyer's own address: the rationing
 	// stops the platform writing to strangers, and that assignment writes to
 	// nobody, so it is neither refused by an allowance nor spends one.
-	if acceptingCustomerID == "" {
+	if !ownAddress {
 		if err := s.assignmentMailAllowed(ctx, customerID, ticket, email); err != nil {
 			return nil, err
 		}
 	}
 
-	assignment, err := s.repo.AssignTicketToHolder(ctx, ticket.ID, email, acceptingCustomerID, assignedAnswers, s.now())
+	assignment, err := s.repo.AssignTicketToHolder(ctx, repository.AssignTicketInput{
+		TicketID:        ticket.ID,
+		HolderEmail:     email,
+		BuyerCustomerID: customerID,
+		OwnAddress:      ownAddress,
+		NamedTickets:    namedTickets,
+		Now:             s.now(),
+	})
 	if err != nil {
 		return nil, err
 	}
