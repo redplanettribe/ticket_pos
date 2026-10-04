@@ -51,6 +51,9 @@ func publishEventStarting(
 		"starts_at":  startsAt.Format(time.RFC3339),
 		"timezone":   timezone,
 		"venue_name": "The Hall",
+		// Off, for publishCheckoutEvent's reason: nothing here is about
+		// Named Tickets.
+		"requires_named_tickets": false,
 	}, authHeader(sessionID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("patch event status=%d error=%+v", resp.StatusCode, body.Error)

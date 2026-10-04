@@ -24,25 +24,41 @@ import (
 
 // publishCheckoutEvent creates and publishes an Event with one Ticket Type,
 // returning both ids. The event gets a future start so it is publishable.
+//
+// IT SWITCHES NAMED TICKETS OFF, although a new Event is born with it on
+// (#667). Almost every checkout in this package is about something else - a
+// price, a hold, a reminder chasing an unassigned Ticket - and was written
+// against a checkout that asks for nobody's address, which is what every Event
+// that existed before ADR 0076 still sells with. A test whose subject is Named
+// Tickets switches it back on (requireNamedTickets) and says so; the product
+// default is asserted on its own in event_named_tickets_test.go.
 func publishCheckoutEvent(t *testing.T, env *testEnv, sessionID, name, slug string, priceCents, capacity int) (eventID, ticketTypeID string) {
 	t.Helper()
 	eventID = createDraftEvent(t, env, sessionID, name, slug)
-	resp, body := env.patch(t, "/api/v1/staff/events/"+eventID, map[string]any{
-		"name":       name,
-		"slug":       slug,
-		"starts_at":  env.fixedClock.Add(72 * time.Hour).Format(time.RFC3339),
-		"timezone":   "America/Guayaquil",
-		"venue_name": "The Hall",
-	}, authHeader(sessionID))
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("patch event status=%d error=%+v", resp.StatusCode, body.Error)
-	}
+	patchCheckoutEvent(t, env, sessionID, eventID, name, slug, false)
 	ticketTypeID = createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", priceCents, capacity)
-	resp, body = env.post(t, "/api/v1/staff/events/"+eventID+"/publish", nil, authHeader(sessionID))
+	resp, body := env.post(t, "/api/v1/staff/events/"+eventID+"/publish", nil, authHeader(sessionID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("publish event status=%d error=%+v", resp.StatusCode, body.Error)
 	}
 	return eventID, ticketTypeID
+}
+
+// patchCheckoutEvent sends publishCheckoutEvent's Event form, with the Named
+// Tickets setting as given: the doors open 72 hours after the fixed clock.
+func patchCheckoutEvent(t *testing.T, env *testEnv, sessionID, eventID, name, slug string, requiresNamedTickets bool) {
+	t.Helper()
+	resp, body := env.patch(t, "/api/v1/staff/events/"+eventID, map[string]any{
+		"name":                   name,
+		"slug":                   slug,
+		"starts_at":              env.fixedClock.Add(72 * time.Hour).Format(time.RFC3339),
+		"timezone":               "America/Guayaquil",
+		"venue_name":             "The Hall",
+		"requires_named_tickets": requiresNamedTickets,
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("patch event status=%d error=%+v", resp.StatusCode, body.Error)
+	}
 }
 
 // buyerEmailKey is where these helpers keep WHO is buying.

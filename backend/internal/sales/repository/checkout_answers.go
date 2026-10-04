@@ -69,6 +69,10 @@ func (r *Repository) ListCheckoutQuestions(ctx context.Context, ticketTypeIDs []
 // and answers later by Answer Link, which is the fallback the whole feature is
 // built around. All-or-nothing WITHIN the answers, though: a half-written set is
 // a form that silently lost three of its four fields.
+//
+// A NAMED TICKETS CHECKOUT DOES NOT COME HERE (ADR 0076). Its Answers are a
+// condition of the sale rather than a convenience, so CreatePayment writes them
+// with the Payment, in its own transaction (CreatePaymentInput.Named).
 func (r *Repository) HoldCheckoutAnswers(ctx context.Context, paymentID string, held []catalog.HeldAnswer, now time.Time) error {
 	if len(held) == 0 {
 		return nil
@@ -85,6 +89,20 @@ func (r *Repository) HoldCheckoutAnswers(ctx context.Context, paymentID string, 
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := holdAnswers(ctx, tx, lineIDs, held, now); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// holdAnswers writes held Answers onto a Payment's lines in the caller's
+// transaction: HoldCheckoutAnswers' own for an ordinary checkout, and
+// CreatePayment's for a Named Tickets one, where the Answers are part of what
+// the checkout was allowed to proceed on (ADR 0076).
+//
+// `lineIDs` maps each Ticket Type to the Payment Line it became. An Answer for
+// a Ticket Type with no line is skipped, as HoldCheckoutAnswers documents.
+func holdAnswers(ctx context.Context, tx *sql.Tx, lineIDs map[string]string, held []catalog.HeldAnswer, now time.Time) error {
 	for _, answer := range held {
 		lineID, ok := lineIDs[answer.TicketTypeID]
 		if !ok {
@@ -138,8 +156,32 @@ func (r *Repository) HoldCheckoutAnswers(ctx context.Context, paymentID string, 
 			}
 		}
 	}
+	return nil
+}
 
-	return tx.Commit()
+// holdHolders writes the Holder addresses a Named Tickets checkout named onto
+// its Payment's lines, in CreatePayment's transaction (ADR 0076, #669). One row
+// per (line, index), the key `payment_ticket_answers` uses, so the address and
+// the Answers for one Ticket meet on the same pair at commit (#670).
+//
+// A plain INSERT: the Payment was created moments ago in this same transaction
+// and can hold no address yet, and the caller already kept one address per
+// Ticket. An address for a Ticket Type with no line is skipped, as an Answer
+// is; the rule that produced these already checked the basket.
+func holdHolders(ctx context.Context, tx *sql.Tx, lineIDs map[string]string, holders []HeldHolder, now time.Time) error {
+	for _, held := range holders {
+		lineID, ok := lineIDs[held.TicketTypeID]
+		if !ok {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO payment_ticket_holders (payment_line_id, ticket_index, holder_email, created_at)
+			VALUES ($1, $2, $3, $4)
+		`, lineID, held.TicketIndex, held.HolderEmail, now); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // paymentLineIDsByTicketType maps a Payment's Ticket Types to its line ids.
@@ -417,10 +459,17 @@ func heldAnswerColumns(value catalog.AnswerValue) struct {
 // one statement and not two, and it is worth knowing that deleting the Answers
 // without it would leave the option labels — the words somebody picked — behind.
 //
-// IT DELETES ONLY FROM `payment_ticket_answers`. The Payment and its
-// `payment_lines` are untouched and are kept forever: the platform is entitled
-// to remember an attempt to transact, and what it may not keep is the reply to a
-// question about a Ticket that will never exist.
+// THE HOLDER ADDRESSES GO IN THE SAME STATEMENT, ON THE SAME PREDICATE (ADR
+// 0076, #669). A Named Tickets checkout holds `payment_ticket_holders` beside
+// its Answers, and ADR 0076's promise about a third party's address on an
+// abandoned checkout is exactly this one: 30 days, never on 'expired' alone.
+// One predicate written once is what keeps the two from ever drifting - a
+// second job would be a second place to get 'expired' wrong.
+//
+// IT DELETES ONLY THE HELD ROWS. The Payment and its `payment_lines` are
+// untouched and are kept forever: the platform is entitled to remember an
+// attempt to transact, and what it may not keep is the reply to a question, or
+// the address of a person, about a Ticket that will never exist.
 //
 // IDEMPOTENT BY CONSTRUCTION, because it is a DELETE of rows matched by a
 // predicate rather than a state machine: a second run finds the rows gone and
@@ -428,31 +477,68 @@ func heldAnswerColumns(value catalog.AnswerValue) struct {
 // no lock and claims nothing — there is no queue here and no per-row bookkeeping
 // to leave behind, which is what distinguishes it from the Reversal Reconciler's
 // drain.
-func (r *Repository) PurgeAbandonedCheckoutAnswers(ctx context.Context, cutoff time.Time) (answers, payments int64, err error) {
-	// One statement, in two CTEs. `doomed` names the rows and the Payments they
-	// belong to BEFORE the delete, which is the only moment the Payment can still
-	// be counted — a DELETE ... RETURNING gives back the answer rows, and by then
-	// there is nothing left to join to the line that says whose they were.
-	err = r.db.Pool.QueryRowContext(ctx, `
-		WITH doomed AS (
+func (r *Repository) PurgeAbandonedCheckoutAnswers(ctx context.Context, cutoff time.Time) (PurgedCheckoutData, error) {
+	// One statement. The two `doomed` CTEs name the rows and the Payments they
+	// belong to BEFORE the deletes, which is the only moment the Payment can
+	// still be counted - a DELETE ... RETURNING gives back the held rows, and by
+	// then there is nothing left to join to the line that says whose they were.
+	//
+	// Each is driven FROM ITS HELD ROWS, which are few, and not from the
+	// Payments, which are kept forever and only grow; the predicate they share
+	// is abandonedPaymentSQL, so it is still written once.
+	var purged PurgedCheckoutData
+	err := r.db.Pool.QueryRowContext(ctx, `
+		WITH doomed_answers AS (
 			SELECT a.id, l.payment_id
 			FROM payment_ticket_answers a
 			JOIN payment_lines l ON l.id = a.payment_line_id
 			JOIN payments p ON p.id = l.payment_id
-			WHERE p.status IS DISTINCT FROM 'approved'
-			  AND p.created_at <= $1
+			WHERE `+abandonedPaymentSQL+`
 		),
-		purged AS (
+		doomed_holders AS (
+			SELECT h.id, l.payment_id
+			FROM payment_ticket_holders h
+			JOIN payment_lines l ON l.id = h.payment_line_id
+			JOIN payments p ON p.id = l.payment_id
+			WHERE `+abandonedPaymentSQL+`
+		),
+		purged_answers AS (
 			DELETE FROM payment_ticket_answers
-			WHERE id IN (SELECT id FROM doomed)
+			WHERE id IN (SELECT id FROM doomed_answers)
+			RETURNING id
+		),
+		purged_holders AS (
+			DELETE FROM payment_ticket_holders
+			WHERE id IN (SELECT id FROM doomed_holders)
 			RETURNING id
 		)
-		SELECT (SELECT COUNT(*) FROM purged), (SELECT COUNT(DISTINCT payment_id) FROM doomed)
-	`, cutoff).Scan(&answers, &payments)
+		SELECT (SELECT COUNT(*) FROM purged_answers),
+		       (SELECT COUNT(*) FROM purged_holders),
+		       (SELECT COUNT(*) FROM (
+		           SELECT payment_id FROM doomed_answers
+		           UNION
+		           SELECT payment_id FROM doomed_holders
+		       ) touched)
+	`, cutoff).Scan(&purged.Answers, &purged.Holders, &purged.Payments)
 	if err != nil {
-		return 0, 0, err
+		return PurgedCheckoutData{}, err
 	}
-	return answers, payments, nil
+	return purged, nil
+}
+
+// abandonedPaymentSQL is the purge's predicate over a Payment aliased `p`,
+// with the cutoff as `$1`: not approved, and begun at or before the cutoff.
+// See PurgeAbandonedCheckoutAnswers for why it is exactly this.
+const abandonedPaymentSQL = `p.status IS DISTINCT FROM 'approved' AND p.created_at <= $1`
+
+// PurgedCheckoutData is what one purge took off abandoned Payments.
+type PurgedCheckoutData struct {
+	// Answers is how many held Answers went.
+	Answers int64
+	// Holders is how many held Holder addresses went.
+	Holders int64
+	// Payments is how many Payments lost anything, counted once each.
+	Payments int64
 }
 
 // CountHeldCheckoutAnswers is how many Answers are riding Payments right now,
@@ -466,5 +552,13 @@ func (r *Repository) PurgeAbandonedCheckoutAnswers(ctx context.Context, cutoff t
 func (r *Repository) CountHeldCheckoutAnswers(ctx context.Context) (int64, error) {
 	var n int64
 	err := r.db.Pool.QueryRowContext(ctx, `SELECT COUNT(*) FROM payment_ticket_answers`).Scan(&n)
+	return n, err
+}
+
+// CountHeldCheckoutHolders is CountHeldCheckoutAnswers for the Holder addresses
+// Named Tickets checkouts hold, reported beside it for the same reason.
+func (r *Repository) CountHeldCheckoutHolders(ctx context.Context) (int64, error) {
+	var n int64
+	err := r.db.Pool.QueryRowContext(ctx, `SELECT COUNT(*) FROM payment_ticket_holders`).Scan(&n)
 	return n, err
 }
