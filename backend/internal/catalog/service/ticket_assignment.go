@@ -56,6 +56,7 @@ func (s *Service) AssignOwnTicket(
 	ctx context.Context,
 	customerID, sessionTicketSaleID, ticketSaleID, ticketID string,
 	holderEmail string,
+	answers []AssignmentAnswerInput,
 ) ([]BuyerTicketAnswersView, error) {
 	// THE FLAG FIRST, before anything is read and before the address is so much
 	// as parsed, so that a closed build answers exactly as a build that never
@@ -113,6 +114,15 @@ func (s *Service) AssignOwnTicket(
 		acceptingCustomerID = customerID
 	}
 
+	// ON AN EVENT THAT REQUIRES NAMED TICKETS, THE ADDRESS COMES WITH ITS
+	// ANSWERS (#673, ADR 0076), the buyer's own address included: their own
+	// Ticket owes its Answers at checkout too. Judged before the rationing, so
+	// a form that is merely incomplete never reads as an allowance spent.
+	assignedAnswers, err := s.namedTicketAnswers(ctx, ticket, email, answers)
+	if err != nil {
+		return nil, err
+	}
+
 	// THE RATIONING, BEFORE THE WRITE AND NEVER AFTER IT (#332). See
 	// assignmentMailAllowed for why a refusal here refuses the ASSIGNMENT and
 	// not merely the mail. Never for the buyer's own address: the rationing
@@ -124,7 +134,7 @@ func (s *Service) AssignOwnTicket(
 		}
 	}
 
-	assignment, err := s.repo.AssignTicketToHolder(ctx, ticket.ID, email, acceptingCustomerID, s.now())
+	assignment, err := s.repo.AssignTicketToHolder(ctx, ticket.ID, email, acceptingCustomerID, assignedAnswers, s.now())
 	if err != nil {
 		return nil, err
 	}

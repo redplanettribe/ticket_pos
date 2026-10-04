@@ -103,6 +103,13 @@ type BuyerTicketAnswersView struct {
 	// buyer holds is answered on the held-ticket routes. See
 	// buyer_provisional_answers.go.
 	ProvisionalAnswers *ProvisionalAnswersView `json:"provisional_answers,omitempty"`
+	// ReassignmentQuestions are the Ticket Questions an assignment of this
+	// Ticket must be given Answers to, with the address (ADR 0076, #673): the
+	// Event requires Named Tickets, the Ticket may be assigned right now, and
+	// its Ticket Type asks something. The questions as the checkout form asks
+	// them, required ones marked, and NEVER an Answer: what anybody said is not
+	// on this field. Absent on every other row.
+	ReassignmentQuestions []PublicTicketQuestion `json:"reassignment_questions,omitempty"`
 }
 
 // ListBuyerTicketAnswers returns every Ticket of one of the buyer's own Ticket
@@ -150,7 +157,8 @@ func (s *Service) ListBuyerTicketAnswers(
 // catalog.BuyerAnswersProvisional, the same one the provisional write asks, so
 // what the buyer is shown and what they may correct cannot drift apart.
 // Anything else the buyer may answer is on the held-ticket routes, behind the
-// one "is this Ticket held by the caller" check.
+// one "is this Ticket held by the caller" check. The reassignment questions a
+// Named Tickets row carries (#673) are questions alone, with no Answer.
 func (s *Service) buyerTicketAnswersViews(
 	ctx context.Context,
 	customerID string,
@@ -166,6 +174,10 @@ func (s *Service) buyerTicketAnswersViews(
 	if err != nil {
 		return nil, err
 	}
+	reassignment, err := s.reassignmentQuestions(ctx, tickets)
+	if err != nil {
+		return nil, err
+	}
 
 	views := make([]BuyerTicketAnswersView, 0, len(tickets))
 	for _, ticket := range tickets {
@@ -176,6 +188,7 @@ func (s *Service) buyerTicketAnswersViews(
 		}
 		s.fillBuyerAssignment(&view, customerID, ticket)
 		view.ProvisionalAnswers = provisionalViews[ticket.ID]
+		view.ReassignmentQuestions = reassignment[ticket.ID]
 		views = append(views, view)
 	}
 	return views, nil

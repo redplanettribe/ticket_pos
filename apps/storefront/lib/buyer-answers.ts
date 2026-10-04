@@ -48,6 +48,7 @@
 // Relative and with its extension so the test runner (node --test, no path
 // aliases) can resolve the one runtime import, as lib/held-ticket-panel.ts does.
 import { visibleQuestionsOf, type QuestionAnswer } from "./ticket-questions.ts";
+import type { CheckoutQuestion } from "./checkout-answers.ts";
 
 export type { Answer, AnswerBody, Question, QuestionAnswer, QuestionKind } from "@/lib/ticket-questions";
 
@@ -58,7 +59,8 @@ export type { Answer, AnswerBody, Question, QuestionAnswer, QuestionKind } from 
  * IT CARRIES NO QUESTION, NO ANSWER, NO OUTSTANDING COUNT AND NO LINK, for any
  * row — the Self-held one included. The API dropped them (ADR 0049), and this
  * type dropping them too is what keeps a row the buyer does not hold from ever
- * being asked to render a question it was never sent.
+ * being asked to render a question it was never sent. The two exceptions are
+ * Named Tickets' (ADR 0076), each documented on its field below.
  */
 export type BuyerTicket = {
   ticket_id: string;
@@ -103,6 +105,14 @@ export type BuyerTicket = {
    * then the Answers are theirs. Read through `provisionalRowFor`.
    */
   provisional_answers?: ProvisionalAnswers;
+  /**
+   * The questions a reassignment of this Ticket must answer with the address
+   * (#673, ADR 0076): on an Event that requires Named Tickets, while the
+   * Ticket may be assigned, when its Ticket Type asks something. The questions
+   * as the checkout form asks them, and NEVER an Answer - what anybody said is
+   * not on this field. Read through lib/reassignment.ts.
+   */
+  reassignment_questions?: CheckoutQuestion[];
 };
 
 /**

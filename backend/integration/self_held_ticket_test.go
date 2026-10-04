@@ -562,7 +562,9 @@ func TestTheImportedBuyerAnswersAndReassignsTheirSelfHeldTicket(t *testing.T) {
 	enableTicketAssignment(t)
 	sessionID := orgAdminSession(t, env)
 	eventID := createDraftEvent(t, env, sessionID, "Presumed Fest", "presumed-fest")
-	scheduleEvent(t, env, sessionID, eventID, "Presumed Fest", "presumed-fest",
+	// Without Named Tickets, so giving the Ticket away is an address alone; the
+	// same remedy on a Named Tickets Event is named_reassignment_test.go's.
+	scheduleEventWithoutNamedTickets(t, env, sessionID, eventID, "Presumed Fest", "presumed-fest",
 		env.fixedClock.Add(30*24*time.Hour))
 	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
 	size := createTicketQuestion(t, env, sessionID, eventID, gaID, map[string]any{

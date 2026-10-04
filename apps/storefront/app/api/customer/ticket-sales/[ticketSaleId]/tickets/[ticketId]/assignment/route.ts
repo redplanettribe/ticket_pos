@@ -21,7 +21,10 @@ export const dynamic = "force-dynamic";
  * nothing. That is why the form on the other side of this hop tells the buyer,
  * before they submit, that the address will be mailed and shown to the
  * Organization: this handler cannot enforce that notice and does not try to.
- * What it can do is carry nothing else. No name, no answer, no token.
+ * What it can do is carry nothing else: no name and no token. The one thing
+ * beside the address is, on an Event that requires Named Tickets, that
+ * Ticket's Answers (#673, ADR 0076), which the API judges and ignores on
+ * every other Event.
  *
  * THE BODY IS RELAYED WITHOUT A SECOND OPINION, as its Answer neighbour's is.
  * `catalog.ParseHolderEmail` is the platform's one definition of a Holder

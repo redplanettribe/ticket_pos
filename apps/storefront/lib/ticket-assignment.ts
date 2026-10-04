@@ -29,6 +29,7 @@
  */
 
 import type { BuyerTicket } from "@/lib/buyer-answers";
+import type { ReassignmentAnswerBody } from "@/lib/reassignment";
 
 /**
  * The three states of one Ticket, as the API spells them.
@@ -52,12 +53,15 @@ export type AssignmentState = "unassigned" | "assigned" | "accepted";
 export type AssignmentRefusal = "channel_unsupported" | "sale_reversed" | "event_started";
 
 /**
- * The body of an assignment write. One field, because the buyer names an ADDRESS
- * and nothing else — a name they typed would be a fact about a person recorded
- * from somebody else's memory, and it would go straight into the Organization's
- * guest list.
+ * The body of an assignment write: an ADDRESS, and never a name: a name the
+ * buyer typed would be a fact about a person recorded from somebody else's
+ * memory, and it would go straight into the Organization's guest list.
+ *
+ * On an Event that requires Named Tickets the Ticket's Answers travel with it
+ * (#673, ADR 0076), because a reassignment clears the old Holder's and the
+ * Organization chose to have every Ticket answered. See lib/reassignment.ts.
  */
-export type AssignmentBody = { holder_email: string };
+export type AssignmentBody = { holder_email: string; answers?: ReassignmentAnswerBody[] };
 
 /**
  * The longest a Holder address may be (RFC 5321's forward path), matching

@@ -104,9 +104,9 @@ func rawBuyerRow(t *testing.T, env *testEnv, session, ticketSaleID, ticketID str
 }
 
 // namedAssignmentFixture is newAssignmentFixture on an Event requiring Named
-// Tickets, with Ana's first Ticket assigned to Carla and sized by Event Staff
-// standing in for the checkout: an `assigned`, unaccepted Ticket carrying an
-// Answer, and Carla's Assignment Link in the captured inbox.
+// Tickets, with Ana's first Ticket assigned to Carla and sized as the buyer
+// sizes it, with the address (#673): an `assigned`, unaccepted Ticket carrying
+// an Answer, and Carla's Assignment Link in the captured inbox.
 type namedAssignmentFixture struct {
 	assignmentFixture
 	carlaTicketID string
@@ -117,8 +117,8 @@ func newNamedAssignmentFixture(t *testing.T, env *testEnv) namedAssignmentFixtur
 	f := namedAssignmentFixture{assignmentFixture: newAssignmentFixture(t, env)}
 	setBuyerFestNamedTickets(t, env, f.assignmentFixture, true)
 	f.carlaTicketID = f.anaTicketIDs[0]
-	assignTicketOK(t, env, f.ana, f.anaSaleID, f.carlaTicketID, "carla@example.com")
-	putAnswer(t, env, f.staffSession, f.eventID, f.carlaTicketID, f.sizeQuestion.ID, map[string]any{"text": "M"})
+	assignWithAnswersOK(t, env, f.ana, f.anaSaleID, f.carlaTicketID, "carla@example.com",
+		givenAnswer(f.sizeQuestion.ID, map[string]any{"text": "M"}))
 	return f
 }
 
@@ -259,7 +259,9 @@ func TestOnceTheHolderAcceptsTheAnswersAreTheirsAndTheBuyerLosesThem(t *testing.
 	if !strings.Contains(raw, `"assignment_state":"accepted"`) {
 		t.Fatalf("Carla's Ticket reads %s, want accepted", raw)
 	}
-	for _, leaked := range []string{"provisional_answers", "questions", `"S"`, "Arriving late"} {
+	// `"questions"` as a key: the row still lists reassignment_questions, the
+	// questions a reassignment would have to answer (#673), and no Answer.
+	for _, leaked := range []string{"provisional_answers", `"questions"`, `"S"`, "Arriving late"} {
 		if strings.Contains(raw, leaked) {
 			t.Errorf("the buyer's row for an accepted Ticket carries %s: %s", leaked, raw)
 		}

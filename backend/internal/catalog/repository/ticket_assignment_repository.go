@@ -71,6 +71,14 @@ type AssignTicketResult struct {
 	Accepted bool
 }
 
+// AssignedAnswer is one Answer written onto a Ticket in the transaction that
+// names its new Holder (#673): already validated and its Options resolved by
+// the caller, as UpsertTicketAnswer's are.
+type AssignedAnswer struct {
+	TicketQuestionID string
+	Params           UpsertTicketAnswerParams
+}
+
 // AssignTicketToHolder names the address that holds one Ticket, creating the
 // assignment or replacing the one that was there.
 //
@@ -108,6 +116,14 @@ type AssignTicketResult struct {
 // Empty for every other address, which is assigned and left to be accepted by
 // its Assignment Link.
 //
+// THE NEW HOLDER'S ANSWERS ARE WRITTEN IN THE SAME TRANSACTION TOO (#673, ADR
+// 0076). On an Event that requires Named Tickets the buyer gives them with the
+// address, and the clearing above and these writes commit together: there is
+// no instant at which the Ticket is named for somebody new with the roster's
+// required Answers gone. They are written only when the address CHANGED. A
+// no-op names nobody new, and writing them then would let the buyer overwrite
+// Answers that may already be an accepted Holder's own (ADR 0049).
+//
 // NO ORGANIZATION, EVENT OR CUSTOMER CLAUSE HERE. This takes a Ticket id that
 // the caller has ALREADY resolved through a scoped read — ListAnswerableTickets
 // ForBuyer and its customer_id clause — exactly as UpsertTicketAnswer does. A
@@ -116,6 +132,7 @@ type AssignTicketResult struct {
 func (r *Repository) AssignTicketToHolder(
 	ctx context.Context,
 	ticketID, holderEmail, acceptingCustomerID string,
+	answers []AssignedAnswer,
 	now time.Time,
 ) (AssignTicketResult, error) {
 	var result AssignTicketResult
@@ -206,6 +223,14 @@ func (r *Repository) AssignTicketToHolder(
 			return result, err
 		}
 		result.AnswersCleared, _ = res.RowsAffected()
+	}
+
+	// Upserted rather than inserted: a first assignment cleared nothing, and
+	// the Ticket may already carry an Answer the buyer is now restating.
+	for _, answer := range answers {
+		if err := writeTicketAnswer(ctx, tx, ticketID, answer.TicketQuestionID, answer.Params, now); err != nil {
+			return result, err
+		}
 	}
 
 	if err := tx.Commit(); err != nil {

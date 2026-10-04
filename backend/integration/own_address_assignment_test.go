@@ -241,14 +241,18 @@ func TestOwnAddressAssignmentIsAcceptedAtOnceWithAndWithoutNamedTickets(t *testi
 			setBuyerFestNamedTickets(t, env, f, tc.requires)
 			mailBefore := captureMailBaseline(env)
 
-			returned := assignTicketOK(t, env, f.ana, f.anaSaleID, f.anaTicketIDs[0], " ana@EXAMPLE.com")
+			// The size travels with the address on both settings: on a Named
+			// Tickets Event the buyer's own Ticket owes its Answers too (#673),
+			// and without the setting they are ignored.
+			size := givenAnswer(f.sizeQuestion.ID, map[string]any{"text": "M"})
+			returned := assignWithAnswersOK(t, env, f.ana, f.anaSaleID, f.anaTicketIDs[0], " ana@EXAMPLE.com", size)
 			assertOwnAddressAccepted(t, findBuyerRow(t, returned, f.anaTicketIDs[0]), "ana@example.com")
 
 			// The second Ticket is written at its own instant, so the two
 			// acceptances are never told apart by a coin toss on the clock.
 			holdClocksAt(fixedClock.Add(time.Minute))
 			_, linkSession := redeemConfirmationLinkOK(t, env, confirmationLinkTokenForRef(t, env, f.anaRef), "")
-			returned = assignTicketOK(t, env, linkSession, f.anaSaleID, f.anaTicketIDs[1], "Ana@Example.com")
+			returned = assignWithAnswersOK(t, env, linkSession, f.anaSaleID, f.anaTicketIDs[1], "Ana@Example.com", size)
 			assertOwnAddressAccepted(t, findBuyerRow(t, returned, f.anaTicketIDs[1]), "ana@example.com")
 
 			if got := assignmentMailCount(env); got != 0 {
@@ -273,17 +277,38 @@ func TestOwnAddressAssignmentIsAcceptedAtOnceWithAndWithoutNamedTickets(t *testi
 // test cannot pass on a default it never meant to rely on.
 func setBuyerFestNamedTickets(t *testing.T, env *testEnv, f assignmentFixture, requires bool) {
 	t.Helper()
-	resp, body := env.patch(t, "/api/v1/staff/events/"+f.eventID, map[string]any{
-		"name":                   "Buyer Fest",
-		"slug":                   "buyer-fest",
-		"starts_at":              env.fixedClock.Add(30 * 24 * time.Hour).Format(time.RFC3339),
+	setEventNamedTickets(t, env, f.staffSession, f.eventID, "Buyer Fest", "buyer-fest",
+		env.fixedClock.Add(30*24*time.Hour), requires)
+}
+
+// scheduleEventWithoutNamedTickets is scheduleEvent on an Event that does not
+// require Named Tickets, which a new Event does (ADR 0076). For the fixtures
+// whose tests are about assignment as ADR 0046 has it: an address given alone,
+// and the Holder answering for themself.
+func scheduleEventWithoutNamedTickets(
+	t *testing.T, env *testEnv, staffSession, eventID, name, slug string, startsAt time.Time,
+) {
+	t.Helper()
+	setEventNamedTickets(t, env, staffSession, eventID, name, slug, startsAt, false)
+}
+
+// setEventNamedTickets schedules an Event and sets its Named Tickets setting in
+// one Org Admin update, reading the setting back.
+func setEventNamedTickets(
+	t *testing.T, env *testEnv, staffSession, eventID, name, slug string, startsAt time.Time, requires bool,
+) {
+	t.Helper()
+	resp, body := env.patch(t, "/api/v1/staff/events/"+eventID, map[string]any{
+		"name":                   name,
+		"slug":                   slug,
+		"starts_at":              startsAt.Format(time.RFC3339),
 		"timezone":               "Europe/Madrid",
 		"requires_named_tickets": requires,
-	}, authHeader(f.staffSession))
+	}, authHeader(staffSession))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("set requires_named_tickets=%v status=%d error=%+v", requires, resp.StatusCode, body.Error)
 	}
-	if got := getEventNamedTickets(t, env, f.staffSession, f.eventID); got != requires {
+	if got := getEventNamedTickets(t, env, staffSession, eventID); got != requires {
 		t.Fatalf("the Event reads requires_named_tickets=%v after setting %v", got, requires)
 	}
 }
