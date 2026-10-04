@@ -376,6 +376,12 @@ export default async function EventPage({ params, searchParams }: EventPageProps
                 // it arrived: null is "we do not know who is asking", and this
                 // page must not be the one that turns it into a zero.
                 surrenderableFreeTickets={event.surrenderable_free_tickets}
+                // Whether the checkout must name every Ticket's Holder and
+                // answer its required questions (ADR 0076), and the start it
+                // falls silent at. The setting and not the verdict: the dialog
+                // judges it against the server's clock below.
+                requiresNamedTickets={event.requires_named_tickets}
+                startsAt={event.starts_at}
                 priceIncludesFee={event.price_includes_fee}
                 timezone={event.timezone}
                 // Every Ticket Type past its Sales Cutoff (ADR 0070). The

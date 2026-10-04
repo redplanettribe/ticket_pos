@@ -290,6 +290,22 @@
       "optionalLabel": "{question} · Optional",
       "noAnswer": "No answer"
     },
+    "named": {
+      "ticketTitle": "{ticketType} · ticket {number}",
+      "ownHint": "Yours, so it needs no email address.",
+      "notice": "Once you've paid, we'll email each address below about its ticket, and the organizer will see it beside that ticket's answers. Only give an address whose owner is happy for you to.",
+      "noticeOwnAddress": "That's your own address, so this ticket will be yours too, and nothing is emailed.",
+      "emailLabel": "Email address of whoever will use this ticket",
+      "emailPlaceholder": "name@example.com",
+      "emailNeeded": "Needed before you can pay.",
+      "emailInvalid": "That doesn't look like an email address.",
+      "answerNeeded": "Needed before you can pay.",
+      "answerInvalid": "This answer can't be used. Check it and try again.",
+      "owedTitle": "Still needed before you can pay",
+      "owedLine": "{ticket}: {missing}",
+      "owedEmail": "an email address",
+      "owedEmailInvalid": "a valid email address"
+    },
     "upgrade": {
       "title": "Your free ticket",
       "inBasket": "You're buying a free ticket and a paid one. Tick the box and we'll leave the free one out of your order — you can come back for it later, while tickets last.",
@@ -633,6 +649,7 @@
       "TICKET_ASSIGNMENT_UNAVAILABLE": "We couldn't find that ticket.",
       "TICKET_NOT_FOUND": "We couldn't find that ticket.",
       "INVALID_HOLDER_EMAIL": "That doesn't look like an email address. Check it and try again.",
+      "NAMED_TICKETS_INCOMPLETE": "Some tickets still need an email address or an answer. They're marked below.",
       "ASSIGNMENT_CHANNEL_UNSUPPORTED": "This purchase was made at the door, so an address can't be given here. The organizer can help.",
       "ASSIGNMENT_SALE_REVERSED": "This purchase was undone, so these tickets aren't going to anyone.",
       "ASSIGNMENT_EVENT_STARTED": "The event has started, so addresses are closed. What was given is kept as it was.",
