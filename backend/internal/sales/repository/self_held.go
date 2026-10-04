@@ -26,7 +26,7 @@ type SelfHeldSeat struct {
 
 // CatalogEntry is what the Event's catalog contributes to a line's claim on
 // the seat: the List Price a line with no override is sold at, and the two keys
-// that break a tie on price.
+// that break a tie on price before the Ticket Type's id does.
 type CatalogEntry struct {
 	PriceCents int
 	SortOrder  int
@@ -83,7 +83,7 @@ func SelfHeldSeatOf(lines []CommitLine, catalog CatalogLookup) (SelfHeldSeat, bo
 }
 
 // seatClaim is one line's claim to carry the Self-held Ticket: the line, how
-// many Tickets it mints, and the three facts that decide whether it beats the
+// many Tickets it mints, and the four facts that decide whether it beats the
 // line before it.
 //
 // THE SEAT IS THE DEAREST LINE'S (ADR 0074, #646). A buyer is presumed to attend
