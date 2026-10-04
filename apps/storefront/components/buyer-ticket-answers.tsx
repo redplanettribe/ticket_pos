@@ -5,9 +5,10 @@ import { useMessages, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 
 import { AnswerPanel, HeldTicketAnswers, type AnswerSubmitResult } from "@/components/held-ticket-answers";
-import { TicketAssignmentRow } from "@/components/ticket-assignment-row";
+import { TicketAssignmentRow, type AssignmentSaveFailure } from "@/components/ticket-assignment-row";
 import { visibleQuestionsOf, type AnswerBody } from "@/lib/ticket-questions";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { refusedQuestionIds } from "@/lib/reassignment";
 import {
   hasAnythingToShow,
   heldListMissesAHeldTicket,
@@ -335,7 +336,7 @@ function TicketBlock({
    * the buyer just gave away is redrawn as an ordinary row at once — its held
    * row no longer matches anything on the sale, and its questions go with it.
    */
-  async function assign(body: AssignmentBody): Promise<string | null> {
+  async function assign(body: AssignmentBody): Promise<AssignmentSaveFailure | null> {
     try {
       const response = await fetch(
         `/api/customer/ticket-sales/${encodeURIComponent(ticketSaleId)}` +
@@ -351,12 +352,24 @@ function TicketBlock({
         error: { code: string; message: string; details?: unknown } | null;
       };
       if (!response.ok || envelope.error || !envelope.data) {
-        return apiErrorMessage(errorCopy, envelope.error) ?? t("assignment.saveFailed");
+        // A Named Tickets refusal (#673) is said in this row's words and
+        // points at the questions it names: the catalog's sentence for the
+        // code is the checkout's, about several tickets.
+        if (envelope.error?.code === "NAMED_TICKETS_INCOMPLETE") {
+          return {
+            message: t("assignment.answersNeeded"),
+            missingQuestionIds: refusedQuestionIds(envelope.error.details),
+          };
+        }
+        return {
+          message: apiErrorMessage(errorCopy, envelope.error) ?? t("assignment.saveFailed"),
+          missingQuestionIds: [],
+        };
       }
       onAssigned(envelope.data);
       return null;
     } catch {
-      return t("assignment.networkFailed");
+      return { message: t("assignment.networkFailed"), missingQuestionIds: [] };
     }
   }
 

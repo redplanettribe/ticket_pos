@@ -4,8 +4,12 @@ import { Button, FormField, Input } from "@ticket-pos/ui";
 import { useMessages, useTranslations } from "next-intl";
 import { useState } from "react";
 
+import { CheckoutAnswers } from "@/components/checkout-answers";
 import { apiErrorMessage } from "@/lib/api-errors";
 import type { BuyerTicket } from "@/lib/buyer-answers";
+import { answerKey, statedReply, type AnswerValue, type AnswerValues } from "@/lib/checkout-answers";
+import { answerIsUsable } from "@/lib/named-tickets";
+import { reassignmentAnswerBodies, reassignmentOwed, reassignmentSlot } from "@/lib/reassignment";
 import {
   assignmentBodyFor,
   assignmentRefusalOf,
@@ -37,11 +41,18 @@ import {
  * When what is typed is the buyer's own address, the notice says instead that
  * the Ticket is theirs at once and nothing is mailed (ADR 0076).
  *
- * IT ASKS FOR AN ADDRESS AND NOTHING ELSE. No name field, deliberately. What the
- * platform knows about a Holder is what the HOLDER said when they accepted
- * (#325); a name the buyer typed would be a fact about a person recorded from
- * somebody else's memory, and it would go straight into the Organization's guest
- * list.
+ * IT ASKS FOR AN ADDRESS, AND NEVER A NAME. What the platform knows about a
+ * Holder's name is what the HOLDER said when they accepted (#325); a name the
+ * buyer typed would be a fact about a person recorded from somebody else's
+ * memory, and it would go straight into the Organization's guest list.
+ *
+ * ON A NAMED TICKETS EVENT IT ASKS FOR THE TICKET'S ANSWERS TOO (#673, ADR
+ * 0076), because a new address clears the old Holder's and the Organization
+ * chose to have every Ticket answered. The API says so by sending the row's
+ * `reassignment_questions`; the fields are the checkout's own, drawn under the
+ * address once it differs from the one the Ticket carries, and the press is
+ * held until the required ones are given. A NAMED_TICKETS_INCOMPLETE refusal
+ * marks the fields it names, as the checkout's does.
  *
  * IT USES ITS OWN NAMESPACE rather than taking copy as props, which is where it
  * differs from TicketQuestionRow beside it. That one is shared between the
@@ -59,12 +70,18 @@ export type TicketAssignmentRowProps = {
    */
   buyerEmail?: string | null;
   /**
-   * Writes the address, and returns null on success or a sentence to show on
+   * Writes the address, and returns null on success or what to show on
    * failure. The CALLER owns the request and owns turning an API error code into
    * words, exactly as it does for an Answer.
    */
-  save: (body: AssignmentBody) => Promise<string | null>;
+  save: (body: AssignmentBody) => Promise<AssignmentSaveFailure | null>;
 };
+
+/**
+ * A save that did not land: the sentence for the row, and the questions a
+ * NAMED_TICKETS_INCOMPLETE refusal says are still owed, to be marked.
+ */
+export type AssignmentSaveFailure = { message: string; missingQuestionIds: string[] };
 
 export function TicketAssignmentRow({ ticket, buyerEmail = null, save }: TicketAssignmentRowProps) {
   const t = useTranslations("customerArea");
@@ -76,12 +93,24 @@ export function TicketAssignmentRow({ ticket, buyerEmail = null, save }: TicketA
   const [value, setValue] = useState(() => holderEmailOf(ticket));
   const [state, setState] = useState<"idle" | "busy" | "saved">("idle");
   const [failure, setFailure] = useState<string | null>(null);
+  // The new Holder's Answers, on a Named Tickets Event (#673): what is typed,
+  // which fields the buyer has left (an invalid reply is said only then), and
+  // the required ones a press or the API found owed.
+  const [answers, setAnswers] = useState<AnswerValues>({});
+  const [leftFields, setLeftFields] = useState<Record<string, boolean>>({});
+  const [owedIds, setOwedIds] = useState<string[]>([]);
 
   const current = holderEmailOf(ticket);
   const assignmentState = assignmentStateOf(ticket);
   const open = canAssign(ticket);
   const refusal = assignmentRefusalOf(ticket);
   const fieldId = `assignment-${ticket.ticket_id}`;
+  const slot = reassignmentSlot(ticket);
+  // THE QUESTIONS ARE ASKED ONCE THE ADDRESS IS A CHANGE. The field starts on
+  // the address the Ticket carries, and a second copy of its questions under
+  // it would only stand beside the panel that already shows them; an
+  // unassigned Ticket's field starts empty, so they are there at once.
+  const asking = slot !== null && !isUnchangedAssignment(ticket, value);
   // THE NOTICE FOLLOWS WHAT IS TYPED, so it is true before the press in both
   // cases: somebody else's address is mailed, the buyer's own is not.
   const notice =
@@ -106,83 +135,160 @@ export function TicketAssignmentRow({ ticket, buyerEmail = null, save }: TicketA
       setFailure(t("assignment.unchanged"));
       return;
     }
-    const body = assignmentBodyFor(value);
-    if (body === null) {
+    const address = assignmentBodyFor(value);
+    if (address === null) {
       // Unreachable: the pre-flight above is the same verdict. Kept because the
       // alternative is a non-null assertion on a value the type system is right
       // to doubt.
       setFailure(t("assignment.saveFailed"));
       return;
     }
+    let body: AssignmentBody = address;
+    if (asking && slot !== null) {
+      // THE SAME VERDICT THE API WILL REACH, reached first so the buyer is
+      // pointed at the fields before a request goes anywhere.
+      const owed = reassignmentOwed(slot, answers);
+      if (owed.length > 0) {
+        setOwedIds(owed);
+        setFailure(t("assignment.answersNeeded"));
+        return;
+      }
+      body = { ...address, answers: reassignmentAnswerBodies(slot, answers) };
+    }
 
     setState("busy");
     setFailure(null);
-    const message = await save(body);
-    if (message !== null) {
+    const refused = await save(body);
+    if (refused !== null) {
       setState("idle");
-      setFailure(message);
+      setFailure(refused.message);
+      setOwedIds(refused.missingQuestionIds);
       return;
     }
+    // The next change of address is a new person, asked afresh.
+    setAnswers({});
+    setLeftFields({});
+    setOwedIds([]);
     setState("saved");
   }
+
+  function changeAnswer(key: string, answer: AnswerValue) {
+    setAnswers((current) => ({ ...current, [key]: answer }));
+    setState("idle");
+    setFailure(null);
+  }
+
+  /** The sentence under each question that has one, by question id. */
+  function questionErrors(): Record<string, string> {
+    const errors: Record<string, string> = {};
+    if (slot === null) return errors;
+    for (const question of slot.questions) {
+      const key = answerKey(slot.ticketTypeId, slot.index, question.id);
+      const reply = answers[key];
+      if (owedIds.includes(question.id) && !answerIsUsable(question, reply)) {
+        errors[question.id] = t("assignment.answerNeeded");
+      } else if (leftFields[key] && statedReply(reply) !== null && !answerIsUsable(question, reply)) {
+        errors[question.id] = t("assignment.answerInvalid");
+      }
+    }
+    return errors;
+  }
+
+  const addressField = (
+    <FormField
+      id={fieldId}
+      label={
+        assignmentState === "accepted" ?
+          t("assignment.stateAccepted", { email: current })
+        : assignmentState === "assigned" ?
+          t("assignment.stateAssigned", { email: current })
+        : t("assignment.emailLabel")
+      }
+      description={
+        current === "" ? notice
+        : slot !== null ? `${notice} ${t("assignment.changeNeedsAnswers")}`
+        : `${notice} ${t("assignment.changeClearsAnswers")}`
+      }
+    >
+      {/* FormField clones its child with the id and aria-describedby, so
+          the input, not a wrapper, must be that child. */}
+      <Input
+        type="email"
+        inputMode="email"
+        autoComplete="off"
+        maxLength={MAX_HOLDER_EMAIL_LENGTH}
+        placeholder={t("assignment.emailPlaceholder")}
+        value={value}
+        disabled={state === "busy"}
+        onChange={(event) => {
+          setValue(event.target.value);
+          setState("idle");
+          setFailure(null);
+        }}
+      />
+    </FormField>
+  );
+
+  const saveButton = (
+    <Button
+      variant="outline"
+      className="w-full shrink-0 sm:w-auto"
+      onClick={submit}
+      disabled={state === "busy"}
+    >
+      {state === "saved" ?
+        t("assignment.saved")
+      : current === "" ?
+        t("assignment.assign")
+      : t("assignment.reassign")}
+    </Button>
+  );
 
   return (
     <div className="space-y-2">
       {open ?
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end [&>*:first-child]:min-w-0 [&>*:first-child]:flex-1">
-          {/* ONE LINE at `sm` and above: label, field, button. Below it the form
-              STACKS — label, full-width field, full-width button, the notice
-              under — because a phone cannot hold a label, an address and a
-              button side by side without the notice squeezed into a sliver
-              beside a button pushed off the screen (#353). The notice (what
-              happens to the address, and to whom it is shown) rides
-              on the field as its `description`, so it is `aria-describedby`
-              the input and is heard BEFORE THEY SUBMIT in the only sense that
-              matters; #324's last acceptance criterion, and the one the API
-              cannot cover. */}
-          <FormField
-            id={fieldId}
-            label={
-              assignmentState === "accepted" ?
-                t("assignment.stateAccepted", { email: current })
-              : assignmentState === "assigned" ?
-                t("assignment.stateAssigned", { email: current })
-              : t("assignment.emailLabel")
-            }
-            description={
-              current !== "" ? `${notice} ${t("assignment.changeClearsAnswers")}` : notice
-            }
-          >
-            {/* FormField clones its child with the id and aria-describedby, so
-                the input — not the flex wrapper — must be that child; the
-                button is a sibling OUTSIDE the field, aligned by the grid. */}
-            <Input
-                type="email"
-                inputMode="email"
-                autoComplete="off"
-                maxLength={MAX_HOLDER_EMAIL_LENGTH}
-                placeholder={t("assignment.emailPlaceholder")}
-                value={value}
-                disabled={state === "busy"}
-                onChange={(event) => {
-                  setValue(event.target.value);
-                  setState("idle");
-                  setFailure(null);
+        <div className="space-y-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end [&>*:first-child]:min-w-0 [&>*:first-child]:flex-1">
+            {/* ONE LINE at `sm` and above: label, field, button. Below it the
+                form STACKS (label, full-width field, full-width button, the
+                notice under) because a phone cannot hold a label, an address
+                and a button side by side without the notice squeezed into a
+                sliver beside a button pushed off the screen (#353). The notice
+                (what happens to the address, and to whom it is shown) rides on
+                the field as its `description`, so it is `aria-describedby` the
+                input and is heard BEFORE THEY SUBMIT in the only sense that
+                matters; #324's last acceptance criterion, and the one the API
+                cannot cover.
+
+                THE FIELD KEEPS ITS PLACE IN THE TREE whether or not the
+                questions below are drawn, so the first keystroke that makes
+                the address a change does not remount the input and take the
+                focus with it. */}
+            {addressField}
+            {asking ? null : saveButton}
+          </div>
+          {asking && slot !== null ?
+            // THE ADDRESS, ITS ANSWERS, THEN THE PRESS (#673): the questions
+            // are part of what is being saved, so the button follows them
+            // rather than standing beside the address.
+            <>
+              <CheckoutAnswers
+                slot={slot}
+                values={answers}
+                onChange={changeAnswer}
+                onBlur={(key) => setLeftFields((current) => ({ ...current, [key]: true }))}
+                questionErrors={questionErrors()}
+                labels={{
+                  title: t("assignment.answersTitle"),
+                  hint: t("assignment.answersHint"),
+                  optional: t("assignment.optional"),
+                  optionalLabel: (question: string) => t("assignment.optionalLabel", { question }),
+                  noAnswer: t("assignment.noAnswer"),
                 }}
               />
-          </FormField>
-          <Button
-            variant="outline"
-            className="w-full shrink-0 sm:w-auto"
-            onClick={submit}
-            disabled={state === "busy"}
-          >
-            {state === "saved" ?
-              t("assignment.saved")
-            : current === "" ?
-              t("assignment.assign")
-            : t("assignment.reassign")}
-          </Button>
+              {saveButton}
+            </>
+          : null}
         </div>
         // A CLOSED WINDOW HIDES THE INPUT AND NEVER THE RECORD. The address
         // stays exactly where it was, and the reason is stated, because a
