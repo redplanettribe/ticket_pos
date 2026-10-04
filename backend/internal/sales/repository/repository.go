@@ -475,12 +475,18 @@ func (r *Repository) ListActiveSaleKeys(ctx context.Context, orgID, eventID, exc
 	return out, rows.Err()
 }
 
+// lockedType is one `ticket_types` row the commit holds FOR UPDATE. Its
+// catalog half is what the seating rule and the unit price as sold read, and it
+// is embedded so the commit hands those exactly what begin-checkout hands them.
 type lockedType struct {
-	priceCents int
-	capacity   int
-	soldCount  int
-	sortOrder  int
-	name       string
+	CatalogEntry
+	capacity  int
+	soldCount int
+}
+
+// catalogOfLocked is the commit's CatalogLookup: the lock set it already holds.
+func catalogOfLocked(locked map[string]lockedType) CatalogLookup {
+	return func(ticketTypeID string) CatalogEntry { return locked[ticketTypeID].CatalogEntry }
 }
 
 // CommitSales records prepared Ticket Sales, their Lines, and the resulting
@@ -602,7 +608,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			FROM ticket_types
 			WHERE id = $1 AND event_id = $2 AND organization_id = $3
 			FOR UPDATE
-		`, id, in.EventID, in.OrganizationID).Scan(&lt.priceCents, &lt.capacity, &lt.soldCount, &lt.sortOrder, &lt.name)
+		`, id, in.EventID, in.OrganizationID).Scan(&lt.PriceCents, &lt.capacity, &lt.soldCount, &lt.SortOrder, &lt.Name)
 		if errors.Is(err, sql.ErrNoRows) {
 			// A basket line naming a Ticket Type that does not exist is the
 			// caller's error and is reported as one. An Upgrade candidate's type
@@ -699,11 +705,23 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		}
 
 		amountCents := 0
-		// The buyer's own Ticket, chosen as the lines are written: the first
-		// Ticket of the Sale's DEAREST line, ties broken by the catalog's order
-		// (ADR 0074, #646). See selfHeldSeat for why price decides and which
-		// price it is.
-		var seat selfHeldSeat
+		// The buyer's own Ticket: the first Ticket of the Sale's DEAREST line,
+		// ties broken by the catalog's order (ADR 0074, #646). Decided by
+		// SelfHeldSeatOf over the lines about to be written, before any of them
+		// is, because begin-checkout asks the very same predicate of the same
+		// basket to know which Ticket needs no Holder named (#666). See
+		// SelfHeldSeatOf for why price decides and which price it is.
+		//
+		// Only under in.Terms.SelfHeld: a build that seats nobody asks nothing.
+		var seat SelfHeldSeat
+		seated := false
+		if in.Terms.SelfHeld {
+			seat, seated = SelfHeldSeatOf(lines, catalogOfLocked(locked))
+		}
+		// The seat's Ticket and the price its line is sold at, filled in as that
+		// line is written and its Tickets minted.
+		var seatTicketID string
+		seatUnitPriceCents := 0
 		// How many Tickets this basket's own free lines mint, counted the way
 		// every other count in this system is — off the Line quantities. It is
 		// half of the Upgrade's ambiguity rule, and it is accumulated here rather
@@ -717,11 +735,12 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		// happened when there were no earlier qualifying Sales, and the count
 		// this leaves at zero then meets a zero on the other side of the sum.
 		freeTicketsInBasket := 0
-		for _, line := range lines {
+		for lineIndex, line := range lines {
 			// The one definition of "what is this line sold at", shared with the
-			// Upgrade's free/paid split beside it (#649): the two must agree, or
-			// a line this commit called free could be written at a price.
-			unitPrice := committedUnitPrice(line, locked)
+			// Upgrade's free/paid split beside it (#649) and the seating rule
+			// above (#646): they must agree, or a line this commit called free
+			// could be written at a price.
+			unitPrice := committedUnitPrice(line, locked[line.TicketTypeID].CatalogEntry)
 			// A line with no fee snapshot was sold on a channel the platform took
 			// no cut of: its base price is simply what it sold for.
 			fee := sales.FeeSnapshot{BasePriceCents: unitPrice}
@@ -754,19 +773,9 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			if err != nil {
 				return nil, err
 			}
-			if lt := locked[line.TicketTypeID]; in.Terms.SelfHeld {
-				// unitPrice and not lt.priceCents: the seat follows what this
-				// buyer paid, so a Promotional Price and a Sale Import row's
-				// overriding amount both count.
-				claim := selfHeldSeat{
-					ticketID:       ticketIDs[1],
-					unitPriceCents: unitPrice,
-					sortOrder:      lt.sortOrder,
-					name:           lt.name,
-				}
-				if claim.outranks(seat) {
-					seat = claim
-				}
+			if seated && lineIndex == seat.Line {
+				seatTicketID = ticketIDs[seat.TicketIndex]
+				seatUnitPriceCents = unitPrice
 			}
 			// And the Answers the buyer gave at checkout, landing on those very
 			// Tickets in the same transaction (#311). The Payment held them keyed
@@ -809,7 +818,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		// INSIDE THE SEATING HOOK, because an Upgrade is a fact ABOUT the seat: it
 		// swaps the Ticket this buyer holds for the one they were just seated on,
 		// and in a build where nobody is seated there is no such swap to make. That
-		// is also the whole of the Ticket Assignment gate — `seat.ticketID` is only
+		// is also the whole of the Ticket Assignment gate - `seatTicketID` is only
 		// ever set under in.Terms.SelfHeld, so a dark build cannot reach this line
 		// and needs no second check to be safe.
 		//
@@ -817,8 +826,8 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		// Ticket before the free one is taken away, so that no instant inside this
 		// transaction exists in which they hold neither.
 		var upgradedOutOfSaleID string
-		if seat.ticketID != "" {
-			if err := holdOwnTicket(ctx, tx, seat.ticketID, customerID, s.Customer.Email, in.Terms.Now); err != nil {
+		if seatTicketID != "" {
+			if err := holdOwnTicket(ctx, tx, seatTicketID, customerID, s.Customer.Email, in.Terms.Now); err != nil {
 				return nil, err
 			}
 			if in.Terms.UpgradeElected {
@@ -827,7 +836,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 					OrganizationID:      in.OrganizationID,
 					CustomerID:          customerID,
 					PaidSaleID:          saleID,
-					SeatUnitPriceCents:  seat.unitPriceCents,
+					SeatUnitPriceCents:  seatUnitPriceCents,
 					FreeTicketsInBasket: freeTicketsInBasket,
 					LockedTypes:         locked,
 					Now:                 in.Terms.Now,

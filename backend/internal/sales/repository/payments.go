@@ -75,6 +75,27 @@ type PaymentLine struct {
 	Fee          sales.FeeSnapshot
 }
 
+// CommitLine is the Ticket Sale Line this Payment Line commits as, Answers
+// aside: the Payment's snapshot copied onto the sale verbatim, its buyer price
+// as the unit price the line is sold at. What the Customer is paying was
+// decided at begin-checkout, and no catalog price edit, rate change, or Fee
+// Handling flip since then may touch it.
+//
+// IT IS THE ONE TRANSLATION, and both halves of the online checkout make it.
+// The commit writes the sale from it; begin-checkout asks SelfHeldSeatOf and
+// SameBasketUpgrade of it before the Payment exists (#666), so the price the
+// seat is chosen on there is the price it is chosen on here.
+func (l PaymentLine) CommitLine() CommitLine {
+	price := l.Fee.BuyerUnitPriceCents
+	snapshot := l.Fee
+	return CommitLine{
+		TicketTypeID:   l.TicketTypeID,
+		Quantity:       l.Quantity,
+		UnitPriceCents: &price,
+		Fee:            &snapshot,
+	}
+}
+
 // CreatePaymentInput is a pending Payment to record at begin-checkout: the
 // line/price snapshot, the amount they sum to, and the checkout identity as
 // entered.
@@ -594,30 +615,23 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	}
 	var lines []CommitLine
 	for lineRows.Next() {
-		var lineID, typeID string
-		var quantity int
-		var fee sales.FeeSnapshot
-		if err := lineRows.Scan(&lineID, &typeID, &quantity, &fee.BuyerUnitPriceCents,
+		var lineID string
+		var held PaymentLine
+		fee := &held.Fee
+		if err := lineRows.Scan(&lineID, &held.TicketTypeID, &held.Quantity, &fee.BuyerUnitPriceCents,
 			&fee.BasePriceCents, &fee.FeeCents, &fee.FeeIVACents,
 			&fee.FeeBasisPoints, &fee.FeeIVABasisPoints); err != nil {
 			lineRows.Close()
 			return nil, err
 		}
-		// The Payment's snapshot is copied onto the sale verbatim: what the
-		// Customer is paying was decided at begin-checkout, and no catalog price
-		// edit, rate change, or Fee Handling flip since then may touch it.
-		price := fee.BuyerUnitPriceCents
-		snapshot := fee
-		lines = append(lines, CommitLine{
-			TicketTypeID:   typeID,
-			Quantity:       quantity,
-			UnitPriceCents: &price,
-			Fee:            &snapshot,
-			// The Answers ride the LINE from here on, because the line is what
-			// mints the Tickets they are about. Keyed by the Payment Line id,
-			// which is the half of (payment line, index) this loop is holding.
-			Answers: heldAnswers[lineID],
-		})
+		// The Payment's snapshot is copied onto the sale verbatim, through the
+		// one translation begin-checkout also makes (see PaymentLine.CommitLine).
+		line := held.CommitLine()
+		// The Answers ride the LINE from here on, because the line is what
+		// mints the Tickets they are about. Keyed by the Payment Line id,
+		// which is the half of (payment line, index) this loop is holding.
+		line.Answers = heldAnswers[lineID]
+		lines = append(lines, line)
 	}
 	if err := lineRows.Err(); err != nil {
 		lineRows.Close()
