@@ -46,6 +46,10 @@ type AnswerPurgeResult struct {
 	// ordinary answer, and on a platform where the feature ships dark it is the
 	// only answer.
 	AnswersPurged int `json:"answers_purged"`
+	// HoldersPurged is how many Holder addresses held by Named Tickets
+	// checkouts this run deleted, on exactly the Answers' terms and in the same
+	// statement (ADR 0076).
+	HoldersPurged int `json:"holders_purged"`
 	// PaymentsPurged is how many Payments those Answers came off, which is the
 	// figure that means something in human terms: forty answers off one abandoned
 	// cart of twenty tickets is one buyer changing their mind, and forty off forty
@@ -63,6 +67,8 @@ type AnswerPurgeResult struct {
 	// capturing, flat at zero means the flag is closed and there is nothing here
 	// to purge.
 	AnswersHeld int `json:"answers_held"`
+	// HoldersHeld is the same standing backlog for Holder addresses.
+	HoldersHeld int `json:"holders_held"`
 }
 
 // PurgeAbandonedAnswers deletes the Answers held on Payments that never reached
@@ -84,24 +90,29 @@ type AnswerPurgeResult struct {
 func (s *Service) PurgeAbandonedAnswers(ctx context.Context) (*AnswerPurgeResult, error) {
 	cutoff := s.now().Add(-sales.AbandonedAnswerRetention).UTC()
 
-	answers, payments, err := s.repo.PurgeAbandonedCheckoutAnswers(ctx, cutoff)
+	purged, err := s.repo.PurgeAbandonedCheckoutAnswers(ctx, cutoff)
 	if err != nil {
 		return nil, err
 	}
 
 	result := &AnswerPurgeResult{
-		AnswersPurged:  int(answers),
-		PaymentsPurged: int(payments),
+		AnswersPurged:  int(purged.Answers),
+		HoldersPurged:  int(purged.Holders),
+		PaymentsPurged: int(purged.Payments),
 		Cutoff:         cutoff.Format(time.RFC3339),
 	}
 
-	held, err := s.repo.CountHeldCheckoutAnswers(ctx)
-	if err != nil {
-		// Logged and dropped. The deletion above is the job and it succeeded; the
-		// backlog is context for whoever is reading the response.
+	// Logged and dropped, both of them. The deletion above is the job and it
+	// succeeded; the backlog is context for whoever is reading the response.
+	if held, err := s.repo.CountHeldCheckoutAnswers(ctx); err != nil {
 		s.logger.Error("answer purge backlog read failed", "error", err)
 	} else {
 		result.AnswersHeld = int(held)
+	}
+	if held, err := s.repo.CountHeldCheckoutHolders(ctx); err != nil {
+		s.logger.Error("answer purge holder backlog read failed", "error", err)
+	} else {
+		result.HoldersHeld = int(held)
 	}
 
 	// One line per run, and it is the only record that a run happened at all:
@@ -110,8 +121,10 @@ func (s *Service) PurgeAbandonedAnswers(ctx context.Context) (*AnswerPurgeResult
 	// from a paused scheduler.
 	s.logger.Info("abandoned checkout answers purged",
 		"answers_purged", result.AnswersPurged,
+		"holders_purged", result.HoldersPurged,
 		"payments_purged", result.PaymentsPurged,
 		"cutoff", result.Cutoff,
+		"holders_held", result.HoldersHeld,
 		"answers_held", result.AnswersHeld,
 	)
 	return result, nil

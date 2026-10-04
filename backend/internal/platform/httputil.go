@@ -172,6 +172,12 @@ func domainHTTPStatus(code string) int {
 	// unauthorized, and re-sending with the box ticked is exactly what fixes it.
 	case "TERMS_ACCEPTANCE_REQUIRED":
 		return http.StatusBadRequest
+	// A Named Tickets checkout or reassignment with a Holder's address or a
+	// required Answer still owed (#669, ADR 0076). 400 for its neighbours'
+	// reason: re-sending with the named fields filled in is exactly what fixes
+	// it, and the details say which.
+	case "NAMED_TICKETS_INCOMPLETE":
+		return http.StatusBadRequest
 	// The Adulthood Declaration box unticked (#586, ADR 0069). 400 beside the
 	// two acceptance refusals above and for their reason — nothing about the
 	// caller is unauthorized, and restating the request with the box ticked is

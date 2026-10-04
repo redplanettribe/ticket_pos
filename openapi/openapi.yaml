@@ -206,6 +206,11 @@ components:
           type: string
         customer_tax_id_type:
           type: string
+        holders:
+          items:
+            $ref: '#/components/schemas/handler.checkoutHolderBody'
+          type: array
+          uniqueItems: false
         lines:
           items:
             $ref: '#/components/schemas/handler.checkoutLineBody'
@@ -285,6 +290,15 @@ components:
           type: integer
         ticket_question_id:
           type: string
+        ticket_type_id:
+          type: string
+      type: object
+    handler.checkoutHolderBody:
+      properties:
+        holder_email:
+          type: string
+        ticket_index:
+          type: integer
         ticket_type_id:
           type: string
       type: object
@@ -2685,6 +2699,15 @@ components:
             operator staring at an unexpected count should be able to see, without a
             deploy or a database session, which 30 days the job actually used.
           type: string
+        holders_held:
+          description: HoldersHeld is the same standing backlog for Holder addresses.
+          type: integer
+        holders_purged:
+          description: |-
+            HoldersPurged is how many Holder addresses held by Named Tickets
+            checkouts this run deleted, on exactly the Answers' terms and in the same
+            statement (ADR 0076).
+          type: integer
         payments_purged:
           description: |-
             PaymentsPurged is how many Payments those Answers came off, which is the
@@ -9491,19 +9514,39 @@ paths:
         is re-judged on the way back from the Payment Provider. Purchase Limits, Affiliate
         Link attribution, `locale`, and the skippable `answers` section all behave
         exactly as they do on the public route, including that nothing about an answer
-        can ever refuse or delay a checkout (ADR 0044). The technical proof stored
-        with a consent record (IP, user agent, origin URL) is taken from the request
-        and never from this body, and the Policy Version accepted is resolved server-side.
-        The response REPORTS THE ADDRESS THE SALE WAS ADDRESSED TO in `addressed_to`
-        (#387): the address read off the session, echoed back so the caller learns
-        it from this API rather than inferring it from a browser. That is what lets
-        the Storefront''s return leg still recognise a buyer whose Customer Session
-        did not survive the trip to the Payment Provider — a cleared cookie jar, a
-        provider webview, a revoked session, a different browser — and it grants nothing,
-        because signing in still costs a passcode or a Google round trip. Confirming
-        this checkout uses the same public confirm route, which stays public and idempotent:
-        it is the Payment Provider''s return leg and must work for a browser that
-        has lost everything, which is the same fact `addressed_to` exists to survive.'
+        can ever refuse or delay a checkout (ADR 0044) - EXCEPT on an Event that requires
+        Named Tickets (ADR 0076). There, while Ticket Assignment is enabled and the
+        Event has not started, the checkout is refused 400 NAMED_TICKETS_INCOMPLETE
+        with no Payment created until every Ticket but the buyer''s own names a Holder
+        in `holders` (one entry per Ticket: `ticket_type_id`, one-based `ticket_index`,
+        `holder_email`, keyed exactly as `answers` is) and every Ticket, the buyer''s
+        own included, has a usable Answer to every approved, required Ticket Question
+        of its Ticket Type. The buyer''s own Ticket is the first Ticket of the line
+        sold dearest (ties broken by catalog order), decided by the same rule the
+        commit seats the buyer with, and a free line surrendered by an elected same-basket
+        Upgrade is asked nothing. The refusal''s `details.tickets` lists every Ticket
+        still owing something as `{ticket_type_id, ticket_index, holder_email_missing,
+        missing_question_ids}`; an optional question never refuses, and an Answer
+        that does not fit its question counts as missing. A malformed `holder_email`
+        is a 400 VALIDATION_FAILED field error on `holders[i].holder_email` on every
+        Event; addresses are trimmed and lowercased, and the buyer''s own address
+        and repeated addresses are accepted. The addresses wait on the Payment until
+        the sale commits, are purged with its held Answers 30 days after a Payment
+        that never reached approved, and are ignored on an Event the requirement does
+        not bind. The setting is read here only, so a Payment under way settles on
+        the terms it began on. The technical proof stored with a consent record (IP,
+        user agent, origin URL) is taken from the request and never from this body,
+        and the Policy Version accepted is resolved server-side. The response REPORTS
+        THE ADDRESS THE SALE WAS ADDRESSED TO in `addressed_to` (#387): the address
+        read off the session, echoed back so the caller learns it from this API rather
+        than inferring it from a browser. That is what lets the Storefront''s return
+        leg still recognise a buyer whose Customer Session did not survive the trip
+        to the Payment Provider — a cleared cookie jar, a provider webview, a revoked
+        session, a different browser — and it grants nothing, because signing in still
+        costs a passcode or a Google round trip. Confirming this checkout uses the
+        same public confirm route, which stays public and idempotent: it is the Payment
+        Provider''s return leg and must work for a browser that has lost everything,
+        which is the same fact `addressed_to` exists to survive.'
       parameters:
       - description: Organization slug
         in: path
@@ -10491,22 +10534,25 @@ paths:
         reached `approved` and were begun more than 30 days ago (ADR 0044). The Payment
         row and its lines are untouched and kept forever — this is a purge of Answers,
         not of Payments — and the chosen Options of a choice Answer go with it. An
-        approved Payment''s Answers are never purged at any age. The predicate is
-        non-approval plus age, and never the `expired` status alone: expiry in this
-        platform is lazy, opportunistic bookkeeping and an expired Payment can still
-        flip to approved when the Payment Provider confirms late, so purging on it
-        would delete the Answers of a sale that then commits. The 30-day window is
-        what makes non-approval safe to act on. Internal service-to-service only:
-        Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before
-        the request reaches the API (ADR 0008), and no Customer Session or staff token
-        reaches it. The window cannot be named by the caller; it is taken from the
-        clock, and the cutoff actually used is echoed back. Safe to call by hand at
-        any time and idempotent — a second run deletes nothing and reports zeros.
-        The response reports how many Answers went, how many Payments they came off,
-        the cutoff used, and how many Answers are still riding Payments across the
-        platform, so two runs a day apart say whether the checkout is capturing at
-        all. It names no Payment, no buyer and no Answer, because an Answer is the
-        data this feature exists to protect.'
+        approved Payment''s Answers are never purged at any age. The Holder addresses
+        a Named Tickets checkout held on the Payment (ADR 0076) are purged in the
+        same statement on exactly the same predicate, and reported as `holders_purged`
+        and `holders_held`; `payments_purged` counts each Payment that lost anything
+        once. The predicate is non-approval plus age, and never the `expired` status
+        alone: expiry in this platform is lazy, opportunistic bookkeeping and an expired
+        Payment can still flip to approved when the Payment Provider confirms late,
+        so purging on it would delete the Answers of a sale that then commits. The
+        30-day window is what makes non-approval safe to act on. Internal service-to-service
+        only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token
+        before the request reaches the API (ADR 0008), and no Customer Session or
+        staff token reaches it. The window cannot be named by the caller; it is taken
+        from the clock, and the cutoff actually used is echoed back. Safe to call
+        by hand at any time and idempotent — a second run deletes nothing and reports
+        zeros. The response reports how many Answers went, how many Payments they
+        came off, the cutoff used, and how many Answers are still riding Payments
+        across the platform, so two runs a day apart say whether the checkout is capturing
+        at all. It names no Payment, no buyer and no Answer, because an Answer is
+        the data this feature exists to protect.'
       responses:
         "200":
           content:

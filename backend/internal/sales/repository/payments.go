@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/consent"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/sales"
@@ -42,6 +43,14 @@ type CheckoutEvent struct {
 	// whether the buyer prices this checkout quotes carry the Platform Fee and
 	// its Fee IVA (ADR 0014).
 	FeeHandling string
+	// RequiresNamedTickets is the Event's Named Tickets setting (ADR 0076,
+	// migration 125), read here and NOWHERE ELSE on the checkout path: it is
+	// judged once, at begin-checkout, so a Payment under way settles on the
+	// terms it started on if an Org Admin flips it mid-payment.
+	RequiresNamedTickets bool
+	// StartsAt is when the doors open, nil for an Event that has not said.
+	// Named Tickets fall silent from that instant (catalog.NamedTicketsApply).
+	StartsAt *time.Time
 }
 
 // GetCheckoutEvent resolves an Event by Organization and Event slug for the
@@ -49,17 +58,24 @@ type CheckoutEvent struct {
 // rather than filtered so the caller owns the "published only" rule.
 func (r *Repository) GetCheckoutEvent(ctx context.Context, orgSlug, eventSlug string) (*CheckoutEvent, error) {
 	var e CheckoutEvent
+	var startsAt sql.NullTime
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT e.id, e.organization_id, e.name, e.status, o.currency, e.fee_handling
+		SELECT e.id, e.organization_id, e.name, e.status, o.currency, e.fee_handling,
+		       e.requires_named_tickets, e.starts_at
 		FROM events e
 		JOIN organizations o ON o.id = e.organization_id
 		WHERE o.slug = $1 AND e.slug = $2
-	`, orgSlug, eventSlug).Scan(&e.ID, &e.OrganizationID, &e.Name, &e.Status, &e.Currency, &e.FeeHandling)
+	`, orgSlug, eventSlug).Scan(&e.ID, &e.OrganizationID, &e.Name, &e.Status, &e.Currency, &e.FeeHandling,
+		&e.RequiresNamedTickets, &startsAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	if startsAt.Valid {
+		at := startsAt.Time
+		e.StartsAt = &at
 	}
 	return &e, nil
 }
@@ -178,7 +194,37 @@ type CreatePaymentInput struct {
 	// False is "keep both", the reversible answer, and it is what an ignored
 	// prompt means (ADR 0074).
 	UpgradeElected bool
-	Now            time.Time
+	// Named is what a Named Tickets checkout holds for its Tickets (ADR 0076,
+	// #669): the Holder addresses and the Answers the requirement was judged
+	// on. Nil on every checkout the requirement does not bind.
+	//
+	// WRITTEN IN THIS TRANSACTION, unlike the best-effort Answers of an ordinary
+	// checkout (HoldCheckoutAnswers). The checkout was refused until these were
+	// complete, so a Payment that exists without them would be a Named Tickets
+	// sale that names nobody - the very thing the requirement forbids. A failure
+	// here fails the checkout before any Payment exists, which is the honest
+	// outcome for a rule that is allowed to refuse.
+	Named *NamedHold
+	Now   time.Time
+}
+
+// NamedHold is what a Named Tickets checkout holds on its Payment.
+type NamedHold struct {
+	// Holders are the addresses named for every Ticket but the buyer's own,
+	// one per (Ticket Type, index).
+	Holders []HeldHolder
+	// Answers are every usable Answer the buyer gave, the buyer's own Ticket's
+	// included - catalog.HoldableCheckoutAnswers' finding.
+	Answers []catalog.HeldAnswer
+}
+
+// HeldHolder is one Holder address on its way onto a Payment: which Ticket
+// Type, which of its Tickets (1..quantity, which becomes `tickets.ordinal`),
+// and the address as catalog.ParseHolderEmail normalised it.
+type HeldHolder struct {
+	TicketTypeID string
+	TicketIndex  int
+	HolderEmail  string
 }
 
 // CreatePayment records a pending Payment and its line snapshot atomically,
@@ -228,17 +274,30 @@ func (r *Repository) CreatePayment(ctx context.Context, in CreatePaymentInput) (
 		return "", err
 	}
 
+	lineIDs := make(map[string]string, len(in.Lines))
 	for _, line := range in.Lines {
-		if _, err := tx.ExecContext(ctx, `
+		var lineID string
+		if err := tx.QueryRowContext(ctx, `
 			INSERT INTO payment_lines (
 				payment_id, ticket_type_id, quantity, unit_price_cents,
 				base_price_cents, fee_cents, fee_iva_cents, fee_basis_points, fee_iva_basis_points,
 				created_at
 			)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			RETURNING id
 		`, paymentID, line.TicketTypeID, line.Quantity, line.Fee.BuyerUnitPriceCents,
 			line.Fee.BasePriceCents, line.Fee.FeeCents, line.Fee.FeeIVACents,
-			line.Fee.FeeBasisPoints, line.Fee.FeeIVABasisPoints, in.Now); err != nil {
+			line.Fee.FeeBasisPoints, line.Fee.FeeIVABasisPoints, in.Now).Scan(&lineID); err != nil {
+			return "", err
+		}
+		lineIDs[line.TicketTypeID] = lineID
+	}
+
+	if in.Named != nil {
+		if err := holdHolders(ctx, tx, lineIDs, in.Named.Holders, in.Now); err != nil {
+			return "", err
+		}
+		if err := holdAnswers(ctx, tx, lineIDs, in.Named.Answers, in.Now); err != nil {
 			return "", err
 		}
 	}
