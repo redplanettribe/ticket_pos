@@ -48,6 +48,17 @@ type AnswerableTicket struct {
 	// EventStartsAt is the instant the doors open. Invalid on an Event that has
 	// not said when it starts, which has not started.
 	EventStartsAt sql.NullTime
+	// BuyerEmail is the address the Ticket Sale was made to. It rides here for
+	// one reader: a buyer assigning a Ticket to this address is accepted at once
+	// (ADR 0076, catalog.IsBuyersOwnAddress), and the comparison must be against
+	// the Sale the scoped read already resolved rather than a second lookup.
+	BuyerEmail string
+	// RequiresNamedTickets is the Event's Named Tickets setting as it stands
+	// now. It rides here for the buyer's reads and writes: on such an Event the
+	// buyer's Answers on an `assigned` Ticket are provisional and theirs to
+	// correct until its Holder accepts (ADR 0076,
+	// catalog.BuyerAnswersProvisional).
+	RequiresNamedTickets bool
 
 	// THE TICKET ASSIGNMENT (#324, parent #322). Four columns on the Ticket
 	// rather than a joined entity — see migration 080 — and the state they
@@ -123,7 +134,7 @@ type TicketAnswerOption struct {
 
 const answerableTicketColumns = `
 	tk.id, tk.ordinal, l.ticket_type_id, tt.name,
-	s.id, s.confirmation_ref, s.status, s.channel, e.starts_at,
+	s.id, s.confirmation_ref, s.status, s.channel, e.starts_at, s.customer_email, e.requires_named_tickets,
 	tk.holder_email, tk.holder_customer_id, tk.assigned_at, tk.accepted_at
 `
 
@@ -133,7 +144,8 @@ func scanAnswerableTicket(row interface {
 	var t AnswerableTicket
 	if err := row.Scan(
 		&t.ID, &t.Ordinal, &t.TicketTypeID, &t.TicketTypeName,
-		&t.TicketSaleID, &t.ConfirmationRef, &t.SaleStatus, &t.Channel, &t.EventStartsAt,
+		&t.TicketSaleID, &t.ConfirmationRef, &t.SaleStatus, &t.Channel, &t.EventStartsAt, &t.BuyerEmail,
+		&t.RequiresNamedTickets,
 		&t.HolderEmail, &t.HolderCustomerID, &t.AssignedAt, &t.AcceptedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -421,6 +433,27 @@ func (r *Repository) UpsertTicketAnswer(
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := writeTicketAnswer(ctx, tx, ticketID, questionID, params, now); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return r.GetTicketAnswer(ctx, ticketID, questionID)
+}
+
+// writeTicketAnswer is UpsertTicketAnswer's statements inside a transaction the
+// caller owns, so that a write which must land together with something else -
+// a reassignment and the new Holder's Answers (#673) - can make them one
+// commit. The caller commits; nothing here does.
+func writeTicketAnswer(
+	ctx context.Context,
+	tx *sql.Tx,
+	ticketID, questionID string,
+	params UpsertTicketAnswerParams,
+	now time.Time,
+) error {
 	var answerID string
 	// The casts are on the placeholders and not on the columns: `$4` arrives as
 	// a string carrying digits, and telling Postgres it is a NUMERIC (or a DATE)
@@ -444,7 +477,7 @@ func (r *Repository) UpsertTicketAnswer(
 	`, ticketID, questionID,
 		params.Text, params.Number, params.Date, params.Checked, now,
 	).Scan(&answerID); err != nil {
-		return nil, err
+		return err
 	}
 
 	// Replaced wholesale rather than diffed. A choice Answer IS its set of
@@ -456,7 +489,7 @@ func (r *Repository) UpsertTicketAnswer(
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM ticket_answer_options WHERE ticket_answer_id = $1
 	`, answerID); err != nil {
-		return nil, err
+		return err
 	}
 	for i, option := range params.Options {
 		if _, err := tx.ExecContext(ctx, `
@@ -466,14 +499,10 @@ func (r *Repository) UpsertTicketAnswer(
 			)
 			VALUES ($1, $2, $3, $4, $5)
 		`, answerID, option.TicketQuestionOptionID, option.LabelSnapshot, i, now); err != nil {
-			return nil, err
+			return err
 		}
 	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	return r.GetTicketAnswer(ctx, ticketID, questionID)
+	return nil
 }
 
 // TouchTicketAnswer is the empty write: it exists so nothing has one.
@@ -567,7 +596,8 @@ func (r *Repository) ListHeldTicketsForCustomer(ctx context.Context, customerID 
 		var t HeldTicket
 		if err := rows.Scan(
 			&t.ID, &t.Ordinal, &t.TicketTypeID, &t.TicketTypeName,
-			&t.TicketSaleID, &t.ConfirmationRef, &t.SaleStatus, &t.Channel, &t.EventStartsAt,
+			&t.TicketSaleID, &t.ConfirmationRef, &t.SaleStatus, &t.Channel, &t.EventStartsAt, &t.BuyerEmail,
+			&t.RequiresNamedTickets,
 			&t.HolderEmail, &t.HolderCustomerID, &t.AssignedAt, &t.AcceptedAt,
 			&t.EventName, &t.EventSlug,
 		); err != nil {

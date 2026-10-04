@@ -5,9 +5,86 @@ import (
 	"database/sql"
 )
 
-// selfHeldSeat is one Ticket Sale Line's claim to carry the Self-held Ticket,
-// as the commit spine writes the lines: the Ticket the line would seat the buyer
-// on, and the three facts that decide whether it beats the line before it.
+// SelfHeldSeat names the Ticket a basket seats its buyer on, before any Ticket
+// exists: which line, and which of that line's Tickets.
+//
+// IT IS ADDRESSED BY POSITION AND NOT BY ID, because the question is asked of
+// a basket as well as of a commit (#666). Begin-checkout must know which Ticket
+// it is not to ask a Holder for, and at that point nothing has been minted.
+type SelfHeldSeat struct {
+	// Line is the index of the seating line in the slice SelfHeldSeatOf was
+	// given. It means nothing outside that slice: two halves that hold the same
+	// basket in different orders must translate it through the line itself
+	// (its Ticket Type), never compare indexes.
+	Line int
+	// TicketIndex is which of the line's Tickets is the seat, 1..quantity -
+	// the same numbering a held Answer's TicketIndex uses and the Ticket's
+	// `tickets.ordinal` stores. It is always 1 today: the seat is the line's
+	// FIRST Ticket. It travels anyway so no caller has to know that.
+	TicketIndex int
+}
+
+// CatalogEntry is what the Event's catalog contributes to a line's claim on
+// the seat: the List Price a line with no override is sold at, and the two keys
+// that break a tie on price before the Ticket Type's id does.
+type CatalogEntry struct {
+	PriceCents int
+	SortOrder  int
+	Name       string
+}
+
+// CatalogLookup answers CatalogEntry for a Ticket Type of the basket's Event.
+// The commit answers it from the rows it holds FOR UPDATE, and begin-checkout
+// from the catalog read it priced the cart from - neither needs a transaction
+// to ask the seating question.
+type CatalogLookup func(ticketTypeID string) CatalogEntry
+
+// SelfHeldSeatOf is THE Self-held seating rule (ADR 0048, ADR 0074): the Ticket
+// of a basket that becomes the buyer's own. It reports false for a basket that
+// mints no Ticket.
+//
+// IT IS THE ONE DEFINITION, and two halves ask it (#666). The commit spine asks
+// it of the lines it is about to write and seats the buyer on the answer;
+// begin-checkout asks it of the lines it is about to hold, to exempt exactly
+// that Ticket from Named Tickets' "name a Holder" (ADR 0076). Restating the rule
+// in either place would let them disagree, and a buyer would be asked to name a
+// Ticket that becomes their own, or excused from naming one that does not -
+// the constraint the Upgrade already lives under with OffersUpgrade.
+//
+// THE BASKET IS THE ONE THAT WILL BE WRITTEN: a same-basket Upgrade's
+// surrendered free line must already be out of it (see SameBasketUpgrade), or
+// a free line nobody will buy could be ranked.
+//
+// THE PRICE IS committedUnitPrice, the one definition of "what this line is
+// sold at" that the commit writes onto `unit_price_cents` and the Upgrade splits
+// free from paid on. A line's override wins where there is one - which is how a
+// Promotional Price and a Sale Import row's amount both reach the rule - and
+// the catalog's price otherwise.
+func SelfHeldSeatOf(lines []CommitLine, catalog CatalogLookup) (SelfHeldSeat, bool) {
+	var held seatClaim
+	for i, line := range lines {
+		entry := catalog(line.TicketTypeID)
+		claim := seatClaim{
+			line:           i,
+			tickets:        line.Quantity,
+			unitPriceCents: committedUnitPrice(line, entry),
+			sortOrder:      entry.SortOrder,
+			name:           entry.Name,
+			ticketTypeID:   line.TicketTypeID,
+		}
+		if claim.outranks(held) {
+			held = claim
+		}
+	}
+	if held.tickets <= 0 {
+		return SelfHeldSeat{}, false
+	}
+	return SelfHeldSeat{Line: held.line, TicketIndex: 1}, true
+}
+
+// seatClaim is one line's claim to carry the Self-held Ticket: the line, how
+// many Tickets it mints, and the four facts that decide whether it beats the
+// line before it.
 //
 // THE SEAT IS THE DEAREST LINE'S (ADR 0074, #646). A buyer is presumed to attend
 // on what they paid most for. The rule it replaced — first in the catalog's
@@ -25,32 +102,43 @@ import (
 // THE CATALOG BREAKS TIES AND NOTHING ELSE, unchanged: sort_order, then name by
 // byte order — the same comparison, in the same direction, that the storefront's
 // lists and migrations 084/088 make.
-type selfHeldSeat struct {
-	// ticketID is the Ticket that would be seated: the first of the line.
-	// Empty on the zero value, which is what "no line has claimed the seat"
-	// means and the only thing that distinguishes it from a real claim.
-	ticketID string
+//
+// THE TICKET TYPE'S ID SETTLES WHAT THE CATALOG CANNOT, by byte order, so the
+// rule is total over distinct Ticket Types and the order the lines arrive in
+// never decides the seat. That is load-bearing: begin-checkout holds its lines
+// in the catalog's order and the commit reads `payment_lines` back unordered,
+// and on a tie the catalog leaves standing the earlier line would otherwise win
+// in each half - possibly a different line in each. The storefront mirrors the
+// same four keys (apps/storefront/lib/named-tickets.ts).
+type seatClaim struct {
+	line int
+	// tickets is how many Tickets the line mints. Zero on the zero value,
+	// which is what "no line has claimed the seat" means and the only thing
+	// that distinguishes it from a real claim.
+	tickets int
 	// unitPriceCents is the line's unit price AS SOLD.
 	unitPriceCents int
 	sortOrder      int
 	name           string
+	ticketTypeID   string
 }
 
 // outranks reports whether this line's claim takes the seat from the one
-// holding it — dearest first, then the catalog's order, then the name.
+// holding it - dearest first, then the catalog's order, then the name, then
+// the Ticket Type's id.
 //
 // EVERY COMPARISON IS STRICT, so a line that ranks equal with the incumbent
-// leaves it alone: two lines of the same Ticket Type at the same price seat the
-// buyer on the earlier one, the way ordering by these three keys would.
-func (s selfHeldSeat) outranks(held selfHeldSeat) bool {
-	// A line that minted no Ticket claims nothing, however dear it was. The
+// leaves it alone. Only two lines of the SAME Ticket Type at the same price can
+// rank equal, and either is the same Ticket Type's seat; the earlier keeps it.
+func (s seatClaim) outranks(held seatClaim) bool {
+	// A line that mints no Ticket claims nothing, however dear it is. The
 	// quantities that reach the spine are all positive, so this is a guard and
 	// not a case: what it buys is that no arithmetic here can ever UNSEAT a
 	// buyer the line before had seated.
-	if s.ticketID == "" {
+	if s.tickets <= 0 {
 		return false
 	}
-	if held.ticketID == "" {
+	if held.tickets <= 0 {
 		return true
 	}
 	if s.unitPriceCents != held.unitPriceCents {
@@ -59,7 +147,10 @@ func (s selfHeldSeat) outranks(held selfHeldSeat) bool {
 	if s.sortOrder != held.sortOrder {
 		return s.sortOrder < held.sortOrder
 	}
-	return s.name < held.name
+	if s.name != held.name {
+		return s.name < held.name
+	}
+	return s.ticketTypeID < held.ticketTypeID
 }
 
 // --- The Upgrade's eligibility (ADR 0074, #648) ----------------------------

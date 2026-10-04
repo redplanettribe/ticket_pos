@@ -1,4 +1,5 @@
 import type { CheckoutAnswerBody, CheckoutQuestion } from "./checkout-answers";
+import type { CheckoutHolderBody } from "./named-tickets";
 // The ".ts" is written out because lib/api.test.ts runs this module directly
 // under `node --experimental-strip-types`, which resolves specifiers exactly.
 // Next resolves it identically. The two imports beside it are type-only and so
@@ -361,6 +362,11 @@ export type PublicTicketType = {
   // computes fees and never applies a Promotion to it — it shows this number
   // (ADR 0014, ADR 0021).
   price_cents: number;
+  // The Ticket Type's place in its Event's catalog. The list already arrives in
+  // this order, then by creation; the number travels because two Ticket Types
+  // can share a place, and the buyer's own Ticket breaks a price tie on it
+  // before the name and the id, as the server does (ADR 0074, lib/checkout-answers.ts).
+  sort_order: number;
   currency: string;
   remaining: number;
   sold_out: boolean;
@@ -485,6 +491,11 @@ export type PublicEventDetail = {
   // also the answer while Ticket Assignment is dark, since nothing is self-held
   // in that build and so nothing can be given up.
   surrenderable_free_tickets: number | null;
+  // Whether this Event requires Named Tickets (ADR 0076): its checkout names a
+  // Holder for every Ticket beyond the buyer's own and answers every required
+  // question on every Ticket. The setting, not a verdict on one checkout -
+  // begin-checkout judges that once. Always false on an external Event.
+  requires_named_tickets: boolean;
   tags: PublicTag[];
   // Whether the Event advertises itself. It gates nothing about rendering or
   // selling — a published Event is reachable by direct link either way (ADR
@@ -823,6 +834,18 @@ export type BeginCheckoutRequest = {
    * simply sells the buyer the Ticket they asked for.
    */
   upgrade_elected?: boolean;
+  /**
+   * The Holder named for each Ticket on an Event that requires Named Tickets
+   * (ADR 0076), keyed exactly as `answers` is. Never sent for the buyer's own
+   * Ticket, and omitted entirely where the requirement does not bind, which the
+   * API would ignore anyway.
+   *
+   * Unlike `answers` this can refuse: while anything is owed the API answers
+   * 400 NAMED_TICKETS_INCOMPLETE naming each Ticket and what it lacks
+   * (lib/named-tickets.ts reads the details), and a malformed address is a
+   * field error on `holders[i].holder_email`.
+   */
+  holders?: CheckoutHolderBody[];
   lines: { ticket_type_id: string; quantity: number }[];
 };
 

@@ -290,6 +290,22 @@
       "optionalLabel": "{question} · Opcional",
       "noAnswer": "Sin respuesta"
     },
+    "named": {
+      "ticketTitle": "{ticketType} · entrada {number}",
+      "ownHint": "Es suya, así que no necesita correo.",
+      "notice": "Una vez pagada la compra, le escribiremos a cada dirección de abajo sobre su entrada, y el organizador la verá junto a las respuestas de esa entrada. Dé solo direcciones cuyos titulares estén de acuerdo.",
+      "noticeOwnAddress": "Esa es su propia dirección, así que esta entrada también será suya y no se envía ningún correo.",
+      "emailLabel": "Correo de quien usará esta entrada",
+      "emailPlaceholder": "nombre@ejemplo.com",
+      "emailNeeded": "Hace falta antes de pagar.",
+      "emailInvalid": "Eso no parece un correo electrónico.",
+      "answerNeeded": "Hace falta antes de pagar.",
+      "answerInvalid": "Esta respuesta no es válida. Revísela e inténtelo de nuevo.",
+      "owedTitle": "Falta antes de poder pagar",
+      "owedLine": "{ticket}: {missing}",
+      "owedEmail": "un correo",
+      "owedEmailInvalid": "un correo válido"
+    },
     "upgrade": {
       "title": "Su entrada gratuita",
       "inBasket": "Está comprando una entrada gratuita y una pagada. Si marca la casilla, dejamos la gratuita fuera de su compra; puede volver por ella más adelante, mientras queden entradas.",
@@ -470,7 +486,17 @@
       "emailLabel": "Correo de quien usará esta entrada",
       "emailPlaceholder": "nombre@ejemplo.com",
       "notice": "Le escribiremos a esta dirección sobre la entrada, y el organizador la verá junto a las respuestas de esta entrada. Dé solo una dirección cuyo titular esté de acuerdo.",
+      "noticeOwnAddress": "Esa es su propia dirección, así que esta entrada es suya en cuanto la guarde y no se envía ningún correo. El organizador la verá junto a las respuestas de esta entrada.",
       "changeClearsAnswers": "Cambiar la dirección borra las respuestas de esta entrada. Una respuesta es de quien la dio, así que a la siguiente persona se le vuelve a preguntar.",
+      "changeNeedsAnswers": "Cambiar la dirección borra las respuestas de esta entrada. El organizador necesita todas las entradas respondidas, así que dé abajo las de la nueva persona.",
+      "answersTitle": "Respuestas de quien usará esta entrada",
+      "answersHint": "El organizador las necesita junto con la dirección.",
+      "optional": "Opcional",
+      "optionalLabel": "{question} · Opcional",
+      "noAnswer": "Sin respuesta",
+      "answerNeeded": "Hace falta para guardar esta dirección.",
+      "answerInvalid": "Esta respuesta no es válida. Revísela e inténtelo de nuevo.",
+      "answersNeeded": "Responda las preguntas marcadas abajo para guardar esta dirección.",
       "assign": "Guardar correo",
       "reassign": "Cambiar correo",
       "saved": "Guardado",
@@ -485,6 +511,9 @@
       "rowAssigned": "Para {email}",
       "rowAccepted": "{email} la tiene",
       "giveAway": "Dar esta entrada a otra persona"
+    },
+    "provisionalAnswers": {
+      "untilAccepted": "Puede corregir estas respuestas hasta que {email} recoja la entrada. Después, las respuestas pasan a ser de esa persona."
     },
     "tabsLabel": "Sus entradas por estado",
     "reversedHeading": "Anuladas",
@@ -632,6 +661,7 @@
       "TICKET_ASSIGNMENT_UNAVAILABLE": "No encontramos esa entrada.",
       "TICKET_NOT_FOUND": "No encontramos esa entrada.",
       "INVALID_HOLDER_EMAIL": "Eso no parece un correo electrónico. Revíselo e inténtelo de nuevo.",
+      "NAMED_TICKETS_INCOMPLETE": "A algunas entradas todavía les falta un correo o una respuesta. Están marcadas abajo.",
       "ASSIGNMENT_CHANNEL_UNSUPPORTED": "Esta compra se hizo en la puerta, así que aquí no se puede dar una dirección. El organizador puede ayudarle.",
       "ASSIGNMENT_SALE_REVERSED": "Esta compra fue anulada, así que estas entradas no son para nadie.",
       "ASSIGNMENT_EVENT_STARTED": "El evento ya empezó, así que las direcciones están cerradas. Lo que se dio se conserva tal como estaba.",

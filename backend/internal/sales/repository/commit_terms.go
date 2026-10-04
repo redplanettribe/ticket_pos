@@ -5,8 +5,8 @@ import "time"
 // CommitTerms is the Sale Commit Terms (CONTEXT.md): the terms every Ticket
 // Sale is recorded on, whatever channel records it — when the write happens, how
 // the buyer's Customer is resolved inside the transaction, whether the buyer is
-// seated on a Ticket of their own as it is minted, and whether they elected an
-// Upgrade.
+// seated on a Ticket of their own as it is minted, whether they elected an
+// Upgrade, and whom they named for the rest at a Named Tickets checkout.
 //
 // IT EXISTS BECAUSE THESE THREE TRAVELLED TOGETHER AND WERE RESTATED APART. The
 // sale-commit spine, the Sale Import batch, the Manually Recorded Sale and the
@@ -40,8 +40,8 @@ type CommitTerms struct {
 	// SelfHeld makes one Ticket of each sale the buyer's own: the first Ticket
 	// of the sale's dearest line is assigned to the buyer and accepted in the
 	// same transaction that mints it (ADR 0048, seated on the dearest by ADR
-	// 0074). WHICH line that is belongs to the spine and to selfHeldSeat beside
-	// it; this flag says only whether a buyer is seated at all.
+	// 0074). WHICH line that is, SelfHeldSeatOf decides; this flag says only
+	// whether a buyer is seated at all.
 	//
 	// Set by the online checkout and by all three import routes while
 	// TICKET_ASSIGNMENT_ENABLED is on (ADR 0055), and by nothing else: an
@@ -87,4 +87,26 @@ type CommitTerms struct {
 	// Upgrade surrenders the Ticket a buyer holds for the Ticket they are being
 	// seated on, and in a build where nobody is seated there is neither.
 	UpgradeElected bool
+	// NamedHolders are the Holder addresses a Named Tickets checkout named for
+	// the Tickets this commit mints (ADR 0076, #670): one per (Ticket Type,
+	// index), never the buyer's own seat. The spine writes each onto its Ticket
+	// as a Ticket Assignment in this transaction - see assignNamedTickets.
+	//
+	// IT IS A TERM AND NOT A LINE FIELD for UpgradeElected's reason, and has
+	// UpgradeElected's one source: ApprovePaymentAndCommitSale sets it from the
+	// addresses the Payment holds (migration 126), read under the same FOR
+	// UPDATE. No caller states it. Every other route - the three import routes,
+	// the Sale Correction's replacement, a door sale - leaves it empty, and
+	// empty is the truth about them: nobody named anyone, and nothing about
+	// Named Tickets can refuse them.
+	//
+	// IT BINDS ONE SALE. The online checkout commits exactly one Sale, and a
+	// Ticket Type and an index name a Ticket only within one; CommitSales refuses
+	// a commit that pairs these with more than one Sale rather than guess whose
+	// they are.
+	//
+	// JUDGED ONCE, AT BEGIN-CHECKOUT, and not again here. The Payment holds an
+	// address only if the requirement bound that checkout, so the commit writes
+	// whatever is held without re-reading the Event's setting (ADR 0076).
+	NamedHolders []HeldHolder
 }

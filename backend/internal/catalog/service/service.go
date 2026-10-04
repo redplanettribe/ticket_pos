@@ -102,6 +102,13 @@ type EventDetail struct {
 	// platform loses sight of the buyer at the link and never learns what happened
 	// next. Read-only here — the redirect owns it, no Event form may write it.
 	RegistrationClickCount int64 `json:"registration_click_count"`
+	// RequiresNamedTickets is the Event's Named Tickets setting (ADR 0076): a
+	// Storefront checkout must name a Holder for every Ticket beyond the
+	// buyer's own and answer every required Ticket Question on every Ticket.
+	// On for a new Event, off for one that existed before the setting did. The
+	// stored value, stated even on an external Event, where it is ignored and
+	// the staff form does not offer it.
+	RequiresNamedTickets bool `json:"requires_named_tickets"`
 	// TicketQuestionsEnabled is the platform's Ticket Question feature flag
 	// (ADR 0045), not a property of this Event — it rides here for the reason
 	// FeeBasisPoints above does: the Ticket Type editor is composed from this
@@ -197,6 +204,11 @@ type UpdateEventInput struct {
 	// move independently: repointing a link is not a mode change, and choosing
 	// External Registration does not require having the link yet.
 	RegistrationURL *string
+	// RequiresNamedTickets is the submitted Named Tickets setting, nil to leave
+	// it alone. Switchable at any time, published or not: begin-checkout reads
+	// it once, so a Payment under way settles on the terms it started on
+	// (ADR 0076).
+	RequiresNamedTickets *bool
 }
 
 // CreateCoverUploadURLInput requests a presigned cover upload URL.
@@ -650,6 +662,14 @@ func (s *Service) UpdateEvent(ctx context.Context, actor ActorContext, eventID s
 	params.RegistrationURL = event.RegistrationURL
 	if input.RegistrationURL != nil {
 		params.RegistrationURL = nullStringFromPtr(input.RegistrationURL)
+	}
+
+	// Named Tickets is left alone by a form that does not mention it. It is
+	// accepted on an external Event too and simply ignored there: refusing it
+	// would make the mode and this setting a pair to keep in step for nothing.
+	params.RequiresNamedTickets = event.RequiresNamedTickets
+	if input.RequiresNamedTickets != nil {
+		params.RequiresNamedTickets = *input.RequiresNamedTickets
 	}
 
 	// The published-state freezes, enforced here because the server is the only
@@ -1204,6 +1224,7 @@ func (s *Service) toEventDetail(e *repository.Event) EventDetail {
 		// A row written before migration 048 reads as an ordinary ticketed Event.
 		RegistrationMode:        string(catalog.RegistrationModeOrDefault(e.RegistrationMode)),
 		RegistrationClickCount:  e.RegistrationClickCount,
+		RequiresNamedTickets:    e.RequiresNamedTickets,
 		TicketQuestionsEnabled:  s.ticketQuestionsEnabled,
 		TicketAssignmentEnabled: s.ticketAssignmentEnabled,
 		CreatedAt:               e.CreatedAt,

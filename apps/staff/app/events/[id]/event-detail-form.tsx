@@ -65,6 +65,7 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
   const [feeHandling, setFeeHandling] = useState<FeeHandling>("pass_on");
   const [registrationMode, setRegistrationMode] = useState<RegistrationMode>("tickets");
   const [registrationUrl, setRegistrationUrl] = useState("");
+  const [requiresNamedTickets, setRequiresNamedTickets] = useState(true);
 
   const timezoneOptions = useMemo(() => getTimezoneOptions(), []);
 
@@ -84,6 +85,7 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
     setFeeHandling(event.fee_handling);
     setRegistrationMode(event.registration_mode);
     setRegistrationUrl(event.registration_url ?? "");
+    setRequiresNamedTickets(event.requires_named_tickets);
   }, []);
 
   const loadEvent = useCallback(async () => {
@@ -138,6 +140,10 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
           // with nothing to point at. Omitting it leaves the stored link alone,
           // which is what a mode flip should do anyway (ADR 0028).
           ...(registrationMode === "external" ? { registration_url: registrationUrl } : {}),
+          // Named Tickets is the mirror image: only sent while it is on screen,
+          // which is in `tickets` mode. An external Event ignores it, and
+          // omitting it leaves the stored value alone (ADR 0076).
+          ...(registrationMode === "tickets" ? { requires_named_tickets: requiresNamedTickets } : {}),
         }),
       });
       applyEvent(updated);
@@ -374,6 +380,41 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
             </div>
             <p className="text-sm text-muted-foreground">
               {feeHandling === "pass_on" ? t("feePassOnHint") : t("feeAbsorbHint")}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Named Tickets is hidden on an externally registered Event for Fee
+          Handling's reason: nothing is bought here, so there is no checkout to
+          ask for names. Switchable at any time, published or not (ADR 0076). */}
+      {registrationMode === "external" ? null : (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("namedTicketsTitle")}</CardTitle>
+            <CardDescription>{t("namedTicketsDescription")}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant={requiresNamedTickets ? "secondary" : "outline"}
+                aria-pressed={requiresNamedTickets}
+                onClick={() => setRequiresNamedTickets(true)}
+              >
+                {t("namedTicketsOn")}
+              </Button>
+              <Button
+                type="button"
+                variant={requiresNamedTickets ? "outline" : "secondary"}
+                aria-pressed={!requiresNamedTickets}
+                onClick={() => setRequiresNamedTickets(false)}
+              >
+                {t("namedTicketsOff")}
+              </Button>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {requiresNamedTickets ? t("namedTicketsOnHint") : t("namedTicketsOffHint")}
             </p>
           </CardContent>
         </Card>

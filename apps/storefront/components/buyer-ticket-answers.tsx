@@ -4,14 +4,18 @@ import { Skeleton } from "@ticket-pos/ui";
 import { useMessages, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 
-import { HeldTicketAnswers } from "@/components/held-ticket-answers";
-import { TicketAssignmentRow } from "@/components/ticket-assignment-row";
-import { visibleQuestionsOf } from "@/lib/ticket-questions";
+import { AnswerPanel, HeldTicketAnswers, type AnswerSubmitResult } from "@/components/held-ticket-answers";
+import { TicketAssignmentRow, type AssignmentSaveFailure } from "@/components/ticket-assignment-row";
+import { visibleQuestionsOf, type AnswerBody } from "@/lib/ticket-questions";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { refusedQuestionIds } from "@/lib/reassignment";
 import {
   hasAnythingToShow,
+  heldListMissesAHeldTicket,
   heldRowFor,
   placeholderRowCount,
+  provisionalOutstandingIn,
+  provisionalRowFor,
   saleOutstandingCount,
   withHeldRow,
   type BuyerTicket,
@@ -39,6 +43,13 @@ import {
  * backstop. The buyer's "Your ticket" — the Self-held Ticket (ADR 0048) —
  * keeps its questions, read and written through the held-ticket routes, which
  * are the same routes every Holder uses.
+ *
+ * ONE EXCEPTION, SINCE ADR 0076 (#672). On an Event that requires Named
+ * Tickets the buyer answered every Ticket at checkout, and a Ticket named for
+ * somebody who has not yet accepted carries those Answers on its sale-scoped
+ * row. It draws as the same panel as "Your ticket", written through the
+ * buyer's provisional-answers route, until that person accepts; from then the
+ * row is an ordinary assignment row again.
  *
  * TWO FETCHES, ONE COMPONENT. The sale-scoped list says which Tickets this
  * Sale has and whose they are; the held list says what the Tickets this
@@ -97,9 +108,17 @@ type BuyerTicketAnswersProps = {
    * reserve before the lists arrive. Not trusted for anything else — the
    * fetched list decides what is actually drawn. */
   ticketCount: number;
+  /** The session's own address, so an address field can tell the buyer when
+   * what they typed is theirs, which is accepted at once and mails nobody
+   * (ADR 0076). Null when the page does not know it. */
+  buyerEmail?: string | null;
 };
 
-export function BuyerTicketAnswers({ ticketSaleId, ticketCount }: BuyerTicketAnswersProps) {
+export function BuyerTicketAnswers({
+  ticketSaleId,
+  ticketCount,
+  buyerEmail = null,
+}: BuyerTicketAnswersProps) {
   const t = useTranslations("customerArea");
   const [tickets, setTickets] = useState<BuyerTicket[] | null>(null);
   const [held, setHeld] = useState<HeldTicket[] | null>(null);
@@ -124,19 +143,8 @@ export function BuyerTicketAnswers({ ticketSaleId, ticketCount }: BuyerTicketAns
       }
     })();
     void (async () => {
-      try {
-        // The held list is not scoped to this Sale — it is everything the
-        // session holds — and the join by id below picks out the one row, if
-        // any, that belongs on this card. A failure here leaves the buyer's own
-        // row as an assignment row, which is the correct shape for a Ticket
-        // whose questions this page was not given.
-        const response = await fetch("/api/customer/held-tickets");
-        const envelope = (await response.json()) as { data: HeldTicket[] | null };
-        if (!live) return;
-        setHeld(response.ok && envelope.data ? envelope.data : []);
-      } catch {
-        if (live) setHeld([]);
-      }
+      const rows = await fetchHeldTickets();
+      if (live) setHeld(rows ?? []);
     })();
     return () => {
       live = false;
@@ -171,8 +179,10 @@ export function BuyerTicketAnswers({ ticketSaleId, ticketCount }: BuyerTicketAns
           {assignment ? t("assignment.title") : t("answers.title")}
         </h3>
         {/* ONE LINE OF TALLY, never a paragraph per Ticket. The outstanding
-            count is the buyer's OWN debt, on the one Ticket they hold; what the
-            other Tickets owe is their Holders' business. Partial assignment
+            count is the buyer's OWN debt: on the one Ticket they hold, and on
+            a Named Tickets Event on the Tickets still waiting on their Holder
+            (ADR 0076); what an accepted Ticket owes is its Holder's business.
+            Partial assignment
             counts and never warns — a sale of four with two addresses is
             finished as far as the buyer is concerned. */}
         <p className="text-muted-foreground text-sm">
@@ -197,19 +207,49 @@ export function BuyerTicketAnswers({ ticketSaleId, ticketCount }: BuyerTicketAns
             key={ticket.ticket_id}
             ticketSaleId={ticketSaleId}
             ticket={ticket}
+            buyerEmail={buyerEmail}
             heldRow={heldRowFor(ticket, held)}
             // "Ticket 2 of 4" is the whole of what can be said to tell two
             // identical tickets apart until an address is given: there are no
             // seat numbers, and the platform is never going to ask for them.
             position={index + 1}
             total={tickets.length}
-            onAssigned={setTickets}
+            onAssigned={(updated) => {
+              setTickets(updated);
+              // A Ticket the buyer just assigned to their own address is held
+              // at once (ADR 0076), and its questions arrive with a fresh read
+              // of the held list. Its row stays an ordinary one until then.
+              if (heldListMissesAHeldTicket(updated, held)) {
+                // A failed re-read keeps the list the page already had.
+                void fetchHeldTickets().then((rows) => {
+                  if (rows !== null) setHeld(rows);
+                });
+              }
+            }}
             onAnswered={(updated) => setHeld((rows) => withHeldRow(rows ?? [], updated))}
           />
         ))}
       </div>
     </section>
   );
+}
+
+/**
+ * Everything the session holds, or null when it could not be read.
+ *
+ * The held list is not scoped to this Sale - it is everything the session
+ * holds - and the join by id picks out the rows, if any, that belong on this
+ * card. A failure leaves the buyer's own row as an assignment row, which is
+ * the correct shape for a Ticket whose questions this page was not given.
+ */
+async function fetchHeldTickets(): Promise<HeldTicket[] | null> {
+  try {
+    const response = await fetch("/api/customer/held-tickets");
+    const envelope = (await response.json()) as { data: HeldTicket[] | null };
+    return response.ok && envelope.data ? envelope.data : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -249,6 +289,7 @@ function BuyerTicketAnswersSkeleton({ rows }: { rows: number }) {
 type TicketBlockProps = {
   ticketSaleId: string;
   ticket: BuyerTicket;
+  buyerEmail: string | null;
   /** The held-ticket row behind this one, or null — null for every Ticket the
    * buyer does not hold, which draws as an assignment row and nothing more. */
   heldRow: HeldTicket | null;
@@ -261,6 +302,7 @@ type TicketBlockProps = {
 function TicketBlock({
   ticketSaleId,
   ticket,
+  buyerEmail,
   heldRow,
   position,
   total,
@@ -270,12 +312,16 @@ function TicketBlock({
   const t = useTranslations("customerArea");
   const errorCopy = useMessages().errors;
   // The questions are the held row's, and a row the buyer does not hold HAS
-  // none here — not "none yet", none: the sale-scoped payload never carried
-  // them, so there is nothing this block could draw even by mistake.
+  // none of those - not "none yet", none: the held list never carries them.
   const questions = heldRow === null ? [] : visibleQuestionsOf(heldRow.questions);
   const assignable = assignmentOffered(ticket);
+  // The one other source of questions on this page: a Ticket named for
+  // somebody else whose Answers stay the buyer's until they accept, on an
+  // Event that requires Named Tickets (#672, ADR 0076). The API decides which
+  // rows carry them; see lib/buyer-answers.ts, `provisionalRowFor`.
+  const provisionalRow = provisionalRowFor(ticket);
 
-  if (questions.length === 0 && !assignable) {
+  if (questions.length === 0 && !assignable && provisionalRow === null) {
     // A Ticket the buyer does not hold, in a deployment where assignment is
     // dark. Drawn as nothing rather than as an empty block: there is nothing
     // to say about it and nothing to do with it.
@@ -290,7 +336,7 @@ function TicketBlock({
    * the buyer just gave away is redrawn as an ordinary row at once — its held
    * row no longer matches anything on the sale, and its questions go with it.
    */
-  async function assign(body: AssignmentBody): Promise<string | null> {
+  async function assign(body: AssignmentBody): Promise<AssignmentSaveFailure | null> {
     try {
       const response = await fetch(
         `/api/customer/ticket-sales/${encodeURIComponent(ticketSaleId)}` +
@@ -306,12 +352,24 @@ function TicketBlock({
         error: { code: string; message: string; details?: unknown } | null;
       };
       if (!response.ok || envelope.error || !envelope.data) {
-        return apiErrorMessage(errorCopy, envelope.error) ?? t("assignment.saveFailed");
+        // A Named Tickets refusal (#673) is said in this row's words and
+        // points at the questions it names: the catalog's sentence for the
+        // code is the checkout's, about several tickets.
+        if (envelope.error?.code === "NAMED_TICKETS_INCOMPLETE") {
+          return {
+            message: t("assignment.answersNeeded"),
+            missingQuestionIds: refusedQuestionIds(envelope.error.details),
+          };
+        }
+        return {
+          message: apiErrorMessage(errorCopy, envelope.error) ?? t("assignment.saveFailed"),
+          missingQuestionIds: [],
+        };
       }
       onAssigned(envelope.data);
       return null;
     } catch {
-      return t("assignment.networkFailed");
+      return { message: t("assignment.networkFailed"), missingQuestionIds: [] };
     }
   }
 
@@ -331,7 +389,7 @@ function TicketBlock({
               {t("assignment.giveAway")}
             </summary>
             <div className="pt-3">
-              <TicketAssignmentRow ticket={ticket} save={assign} />
+              <TicketAssignmentRow ticket={ticket} buyerEmail={buyerEmail} save={assign} />
             </div>
           </details>
         : null}
@@ -341,6 +399,61 @@ function TicketBlock({
 
   const state = assignmentStateOf(ticket);
   const holder = holderEmailOf(ticket);
+
+  if (provisionalRow !== null) {
+    /**
+     * Correcting one Answer the buyer gave for somebody else (#672, ADR 0076).
+     * The whole Sale comes back, as after an assignment, and this panel reads
+     * its own new count off it to decide whether to fold.
+     */
+    const submit = async (questionId: string, body: AnswerBody): Promise<AnswerSubmitResult> => {
+      try {
+        const response = await fetch(
+          `/api/customer/ticket-sales/${encodeURIComponent(ticketSaleId)}` +
+            `/tickets/${encodeURIComponent(ticket.ticket_id)}` +
+            `/provisional-answers/${encodeURIComponent(questionId)}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          },
+        );
+        const envelope = (await response.json()) as {
+          data: BuyerTicket[] | null;
+          error: { code: string; message: string; details?: unknown } | null;
+        };
+        if (!response.ok || envelope.error || !envelope.data) {
+          return { error: apiErrorMessage(errorCopy, envelope.error) ?? t("answers.saveFailed") };
+        }
+        onAssigned(envelope.data);
+        return { error: null, outstandingCount: provisionalOutstandingIn(envelope.data, ticket.ticket_id) };
+      } catch {
+        return { error: t("answers.networkFailed") };
+      }
+    };
+
+    // THE ROW NAMED FOR SOMEBODY ELSE WHOSE ANSWERS ARE STILL THE BUYER'S: the
+    // same panel as their own Ticket's - open while owed, saved as each
+    // Answer is given, folded behind "Review or edit" once nothing is - with
+    // the address beside the Ticket Type and its field inside, above the
+    // questions, where the ordinary row keeps it. The line under the field
+    // says how long the Answers stay the buyer's.
+    return (
+      <AnswerPanel
+        ticket={provisionalRow}
+        header={t("answers.ticketHeading", { position, total })}
+        detail={t("assignment.rowAssigned", { email: holder })}
+        submit={submit}
+      >
+        {assignable ?
+          <TicketAssignmentRow ticket={ticket} buyerEmail={buyerEmail} save={assign} />
+        : null}
+        <p className="text-muted-foreground text-sm">
+          {t("provisionalAnswers.untilAccepted", { email: holder })}
+        </p>
+      </AnswerPanel>
+    );
+  }
 
   // ONE COLLAPSED ROW PER TICKET the buyer does not hold, opened on demand.
   // The row's default reading is who the Ticket is for; the address field
@@ -384,7 +497,7 @@ function TicketBlock({
             typed, and a remount would take the "saved" confirmation off the
             screen at the moment it was earned. */}
         {assignable ?
-          <TicketAssignmentRow ticket={ticket} save={assign} />
+          <TicketAssignmentRow ticket={ticket} buyerEmail={buyerEmail} save={assign} />
         : null}
       </div>
     </details>

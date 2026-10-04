@@ -29,6 +29,7 @@
  */
 
 import type { BuyerTicket } from "@/lib/buyer-answers";
+import type { ReassignmentAnswerBody } from "@/lib/reassignment";
 
 /**
  * The three states of one Ticket, as the API spells them.
@@ -52,12 +53,15 @@ export type AssignmentState = "unassigned" | "assigned" | "accepted";
 export type AssignmentRefusal = "channel_unsupported" | "sale_reversed" | "event_started";
 
 /**
- * The body of an assignment write. One field, because the buyer names an ADDRESS
- * and nothing else — a name they typed would be a fact about a person recorded
- * from somebody else's memory, and it would go straight into the Organization's
- * guest list.
+ * The body of an assignment write: an ADDRESS, and never a name: a name the
+ * buyer typed would be a fact about a person recorded from somebody else's
+ * memory, and it would go straight into the Organization's guest list.
+ *
+ * On an Event that requires Named Tickets the Ticket's Answers travel with it
+ * (#673, ADR 0076), because a reassignment clears the old Holder's and the
+ * Organization chose to have every Ticket answered. See lib/reassignment.ts.
  */
-export type AssignmentBody = { holder_email: string };
+export type AssignmentBody = { holder_email: string; answers?: ReassignmentAnswerBody[] };
 
 /**
  * The longest a Holder address may be (RFC 5321's forward path), matching
@@ -207,6 +211,24 @@ export function holderEmailRefusal(raw: string): "INVALID_HOLDER_EMAIL" | null {
 export function isUnchangedAssignment(ticket: BuyerTicket, raw: string): boolean {
   const current = holderEmailOf(ticket);
   return current !== "" && normalizeHolderEmail(raw) === current;
+}
+
+/**
+ * Whether what the buyer typed is their own address, matched the way
+ * catalog.IsBuyersOwnAddress matches it: normalised on both sides.
+ *
+ * IT DECIDES WHICH NOTICE THE FIELD CARRIES, and nothing else. An assignment to
+ * the buyer's own address is accepted at once and mails nobody (ADR 0076), so
+ * telling them "we'll email this address" would be a promise the platform then
+ * breaks. The API makes the real decision against the Sale's address; this is
+ * the session's, which is the same address for every Sale the session can see.
+ * With no address to compare against it answers false, and the page says what
+ * an ordinary assignment does.
+ */
+export function isBuyersOwnAddress(raw: string, buyerEmail: string | null): boolean {
+  if (buyerEmail === null) return false;
+  const typed = normalizeHolderEmail(raw);
+  return typed !== "" && typed === normalizeHolderEmail(buyerEmail);
 }
 
 /**

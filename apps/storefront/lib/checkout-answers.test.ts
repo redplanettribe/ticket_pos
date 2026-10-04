@@ -7,6 +7,7 @@ import {
   checkoutAnswerBodies,
   hasCheckoutQuestions,
   ownTicketSlot,
+  slotAnswerKey,
   upgradeOffer,
   type AnsweredTicketType,
   type AnswerValues,
@@ -37,6 +38,7 @@ const generalAdmission: AnsweredTicketType = {
   id: "tt-ga",
   name: "General Admission",
   price_cents: 2000,
+  sort_order: 2,
   ticket_questions: [size, meal],
 };
 
@@ -44,6 +46,7 @@ const premium: AnsweredTicketType = {
   id: "tt-premium",
   name: "Premium",
   price_cents: 5000,
+  sort_order: 3,
   ticket_questions: [size],
 };
 
@@ -51,6 +54,7 @@ const vip: AnsweredTicketType = {
   id: "tt-vip",
   name: "VIP",
   price_cents: 9000,
+  sort_order: 4,
   ticket_questions: [],
 };
 
@@ -119,6 +123,13 @@ test("answerKey identifies one ticket's reply to one question", () => {
   assert.notEqual(answerKey("tt-ga", 1, "q-size"), answerKey("tt-ga", 1, "q-meal"));
 });
 
+test("slotAnswerKey keys a ticket to be bought by its Ticket Type, and one that exists by its own id", () => {
+  const toBuy = { ticketTypeId: "tt-ga", ticketTypeName: "GA", index: 2, questions: [] };
+  const existing = { ticketId: "tk-9", ticketTypeName: "GA", ordinal: 2, questions: [] };
+  assert.equal(slotAnswerKey(toBuy, "q-size"), answerKey("tt-ga", 2, "q-size"));
+  assert.equal(slotAnswerKey(existing, "q-size"), answerKey("tk-9", 2, "q-size"));
+});
+
 test("checkoutAnswerBodies sends what the buyer filled in, in the slot the kind takes", () => {
   const slots = answerSlots([generalAdmission], { "tt-ga": 2 });
   const values: AnswerValues = {
@@ -171,7 +182,7 @@ test("checkoutAnswerBodies distinguishes an unticked checkbox from an untouched 
     options: [],
   };
   const slots = answerSlots(
-    [{ id: "tt-ga", name: "GA", price_cents: 2000, ticket_questions: [dinner] }],
+    [{ id: "tt-ga", name: "GA", price_cents: 2000, sort_order: 0, ticket_questions: [dinner] }],
     { "tt-ga": 2 },
   );
 
@@ -207,7 +218,7 @@ test("checkoutAnswerBodies sends a number as a string", () => {
     options: [],
   };
   const slots = answerSlots(
-    [{ id: "tt-ga", name: "GA", price_cents: 2000, ticket_questions: [age] }],
+    [{ id: "tt-ga", name: "GA", price_cents: 2000, sort_order: 0, ticket_questions: [age] }],
     { "tt-ga": 1 },
   );
   const [body] = checkoutAnswerBodies(slots, { "tt-ga:1:q-age": { number: "3.50" } });
@@ -241,12 +252,14 @@ test("ownTicketSlot ignores types the cart does not hold", () => {
 });
 
 // EQUALLY PRICED LINES TIE-BREAK ON THE CATALOG'S ORDER, exactly as the whole
-// rule used to: the list arrives in that order, so the first of the equals wins.
+// rule used to: the lower sort_order wins (named-tickets.test.ts walks the rest
+// of the tie-break).
 test("ownTicketSlot tie-breaks equally priced types on the catalog's order", () => {
   const balcony: AnsweredTicketType = {
     id: "tt-balcony",
     name: "Balcony",
     price_cents: generalAdmission.price_cents,
+    sort_order: 3,
     ticket_questions: [meal],
   };
   const slot = ownTicketSlot([generalAdmission, balcony], { "tt-ga": 1, "tt-balcony": 1 }, true);
@@ -286,6 +299,7 @@ const community: AnsweredTicketType = {
   id: "tt-community",
   name: "Community",
   price_cents: 0,
+  sort_order: 0,
   ticket_questions: [],
 };
 
@@ -293,6 +307,7 @@ const student: AnsweredTicketType = {
   id: "tt-student",
   name: "Student",
   price_cents: 0,
+  sort_order: 1,
   ticket_questions: [],
 };
 

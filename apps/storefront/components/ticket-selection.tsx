@@ -24,6 +24,11 @@ import { useMemo, useState, type FormEvent } from "react";
 
 import { CheckoutAnswers } from "@/components/checkout-answers";
 import { ConsentCheckbox } from "@/components/consent-checkbox";
+import {
+  NamedTicketPanels,
+  NamedTicketsOwedList,
+  useNamedTicketsCheckout,
+} from "@/components/named-tickets-checkout";
 import { SignInOtherAddressButton } from "@/components/sign-in-other-address-button";
 import { UpgradePrompt } from "@/components/upgrade-prompt";
 import { useFormatLocale } from "@/i18n/format-locale";
@@ -35,6 +40,7 @@ import {
   upgradeOffer,
   type AnswerValues,
 } from "@/lib/checkout-answers";
+import { surrenderedTicketTypeId } from "@/lib/named-tickets";
 import {
   apiErrorMessage,
   fieldCodeMessage,
@@ -193,6 +199,15 @@ type TicketSelectionProps = {
    * buy, and the page they come back to is read with their session.
    */
   surrenderableFreeTickets: number | null;
+  /**
+   * Whether this Event requires Named Tickets (ADR 0076): the Event payload's
+   * setting, which binds only while Ticket Assignment is open and the Event has
+   * not started. lib/named-tickets.ts judges that, against `now` below, and
+   * where it does not bind the dialog is exactly the one before this feature.
+   */
+  requiresNamedTickets: boolean;
+  /** The Event's start, the instant Named Tickets falls silent at. */
+  startsAt: string | null;
   /**
    * The current Policy Version's Short Notice and checkbox labels, as the API
    * serves them — null when it could not be reached (#253).
@@ -374,6 +389,8 @@ export function TicketSelection({
   openCheckoutOnArrival = false,
   buyerHoldsFirstTicket,
   surrenderableFreeTickets,
+  requiresNamedTickets,
+  startsAt,
   priceIncludesFee,
   timezone,
   allClosed,
@@ -520,7 +537,6 @@ export function TicketSelection({
   // their Holders' to give, from the sale page, after the purchase. Recomputed
   // with the quantities, so emptying the cart removes the section.
   const own = ownTicketSlot(ticketTypes, quantities, buyerHoldsFirstTicket);
-  const slots = own === null ? [] : [own];
 
   // Whether this checkout offers an Upgrade, and about which free Ticket (ADR
   // 0074). Recomputed with the quantities, so changing the cart can withdraw an
@@ -532,6 +548,31 @@ export function TicketSelection({
     surrenderableFreeTickets,
     buyerHoldsFirstTicket,
   );
+
+  // NAMED TICKETS (ADR 0076). Where the requirement binds, the form asks about
+  // EVERY Ticket - an address for each but the buyer's own, and each one's own
+  // Ticket Type's questions - and the pay button waits until `owed` is empty.
+  // Where it does not bind, `named` is false, nothing below changes, and the
+  // dialog is the one above: the buyer's own Ticket's skippable questions.
+  const namedTickets = useNamedTicketsCheckout({
+    requiresNamedTickets,
+    ticketAssignmentEnabled: buyerHoldsFirstTicket,
+    startsAt,
+    now,
+    ticketTypes,
+    quantities,
+    // The free line an elected Upgrade gives up is never bought, so it is
+    // asked nothing - and ticking the prompt takes its panel away.
+    surrendered: surrenderedTicketTypeId(upgrade, upgradeElected),
+    answers,
+    setAnswers,
+  });
+  const { named, owed, sentAnswers } = namedTickets;
+
+  // What travels as `answers`: on a Named Tickets checkout every Ticket's, a
+  // required checkbox answered by the state it is drawn in; otherwise the
+  // buyer's own Ticket's, as the buyer left them.
+  const slots = named ? namedTickets.slots : own === null ? [] : [own];
 
   const count = totalQuantity(quantities);
   const total = totalCents(ticketTypes, quantities);
@@ -609,6 +650,7 @@ export function TicketSelection({
   function openCheckout() {
     setError(null);
     setFieldErrors({});
+    namedTickets.clearVerdicts();
     setCheckoutOpen(true);
   }
 
@@ -649,11 +691,15 @@ export function TicketSelection({
     // The answer section, reduced to what the buyer actually said. Computed
     // AFTER the two mirror checks above and never gating them: it cannot fail,
     // and there is no third check here for it to be part of.
-    const answerBodies = checkoutAnswerBodies(slots, answers);
+    const answerBodies = checkoutAnswerBodies(slots, sentAnswers);
+    // The Holder addresses, on a Named Tickets checkout only. Kept in hand so
+    // a field error on `holders[i]` can be put back on the Ticket it was about.
+    const holderBodies = namedTickets.holderBodies();
 
     setSubmitting(true);
     setError(null);
     setFieldErrors({});
+    namedTickets.clearVerdicts();
 
     try {
       const response = await fetch("/api/checkout", {
@@ -707,6 +753,11 @@ export function TicketSelection({
           // are the Tax ID and the phone, and an answer deliberately joins
           // neither of them (ADR 0044).
           ...(answerBodies.length > 0 ? { answers: answerBodies } : {}),
+          // Who each Ticket but the buyer's own is for (ADR 0076). Sent only
+          // where Named Tickets binds, and only once the button below has
+          // lit, which it does when nothing is owed - the API's refusal is
+          // still the guarantee, and its details come back onto the fields.
+          ...(holderBodies.length > 0 ? { holders: holderBodies } : {}),
           // The Upgrade Prompt's answer (#652, ADR 0074), sent ONLY WHERE THE
           // PROMPT IS DRAWN for the cart as it stands right now — which is the
           // whole of how a tick made against an older cart is prevented from
@@ -739,6 +790,7 @@ export function TicketSelection({
       if (!response.ok || envelope.error || !envelope.data) {
         const apiError = envelope.error;
         setFieldErrors(fieldErrorsFromDetails(errorCopy, apiError?.details));
+        namedTickets.takeRefusal(apiError, holderBodies);
         setError({
           code: apiError?.code ?? null,
           message: apiError?.message ?? null,
@@ -786,8 +838,17 @@ export function TicketSelection({
     // slots decide what travels, and confusing on screen the moment the buyer
     // picks the same Ticket Type again and finds somebody else's size in it.
     setAnswers({});
+    // The addresses too, for the same reason: they named the Tickets of a cart
+    // that is gone.
+    namedTickets.reset();
     router.refresh();
   }
+
+  const answerLabels = {
+    optional: t("answers.optional"),
+    optionalLabel: (question: string) => t("answers.optionalLabel", { question }),
+    noAnswer: t("answers.noAnswer"),
+  };
 
   const capacityExceeded = error?.code === "CAPACITY_EXCEEDED";
   // A Purchase Limit refusal is about the Customer, not the Event (ADR 0025), so
@@ -1341,9 +1402,11 @@ export function TicketSelection({
                 they are, and consent stays adjacent to the pay button it gates.
 
                 It gates nothing. There is no required check anywhere in it, and
-                the submit button below deliberately does not mention it.
+                the submit button below deliberately does not mention it. That
+                is this panel, on an Event that does not require Named Tickets;
+                one that does draws the panels further down instead.
               */}
-              {own !== null ?
+              {!named && own !== null ?
                 <CheckoutAnswers
                   slot={own}
                   values={answers}
@@ -1353,9 +1416,7 @@ export function TicketSelection({
                   labels={{
                     title: t("answers.title", { ticketType: own.ticketTypeName }),
                     hint: t("answers.hint"),
-                    optional: t("answers.optional"),
-                    optionalLabel: (question: string) => t("answers.optionalLabel", { question }),
-                    noAnswer: t("answers.noAnswer"),
+                    ...answerLabels,
                   }}
                 />
               : null}
@@ -1369,6 +1430,11 @@ export function TicketSelection({
                 question about the buyer's own Ticket that gates nothing. The pay
                 button below deliberately does not mention it, and there is no
                 required check anywhere in it.
+
+                On a Named Tickets checkout it comes BEFORE the Tickets' panels
+                instead: ticking it takes the free Ticket's panel away, and a
+                box that moved under the buyer's finger as they ticked it would
+                be the worse place for that to happen.
 
                 The sentence above the box names which free Ticket this is about
                 — the one in the basket, or the one already held — and never
@@ -1387,6 +1453,13 @@ export function TicketSelection({
                   }}
                 />
               ) : null}
+              {/*
+                Named Tickets (ADR 0076): every Ticket of the basket, the
+                buyer's own first. Drawn only where the requirement binds, so
+                an Event with the setting off, or one that has started, keeps
+                the dialog above.
+              */}
+              <NamedTicketPanels checkout={namedTickets} buyerEmail={identity?.email ?? null} />
               {/*
                 The consent section: the Short Notice and the three boxes, in
                 the dialog the purchase happens in, because the guidance
@@ -1509,6 +1582,8 @@ export function TicketSelection({
                   ) : null}
                 </div>
               ) : null}
+              {/* What a Named Tickets checkout still owes, right above the button it holds. */}
+              <NamedTicketsOwedList checkout={namedTickets} />
               <Button
                 type="submit"
                 className="h-11 w-full"
@@ -1527,8 +1602,13 @@ export function TicketSelection({
                 // dialog does not know which of those two people it is serving.
                 // It is the same read the fields above are waiting on, and a
                 // guest's costs no call to the API at all.
+                //
+                // A Named Tickets checkout is held while it owes anything, on
+                // the same terms: the list just above says what, and the API's
+                // NAMED_TICKETS_INCOMPLETE is what makes it so (ADR 0076).
                 disabled={
                   submitting ||
+                  owed.length > 0 ||
                   (consentBoxes.policy_acceptance && !policyAccepted) ||
                   (consentBoxes.terms_acceptance && !termsAccepted) ||
                   (consentBoxes.adulthood_declaration && !adulthoodDeclared)

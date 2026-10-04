@@ -473,7 +473,7 @@ func TestImportBackfillHoldsNoSecondTicketForABuyerHoldingOneByLink(t *testing.T
 	third := f.ticketAtOrdinal(t, ana, saleID, 3)
 	f.env.email.Reset()
 	assignTicketOK(t, f.env, ana, saleID, third, "Ana@Example.com")
-	acceptAssignmentOK(t, f.env, assignmentTokenFrom(t, assignmentMailFor(t, f.env, "ana@example.com")))
+	// Held at once: the buyer's own address is accepted with no link (ADR 0076).
 
 	executeMigration(t, f.env, importedSelfHeldBackfill)
 
@@ -511,7 +511,7 @@ func TestImportBackfillIsIdempotent(t *testing.T) {
 	firstOfHeld := f.ticketAtOrdinal(t, bob, heldSale, 1)
 	f.env.email.Reset()
 	assignTicketOK(t, f.env, bob, heldSale, firstOfHeld, "bob@example.com")
-	acceptAssignmentOK(t, f.env, assignmentTokenFrom(t, assignmentMailFor(t, f.env, "bob@example.com")))
+	// Held at once: the buyer's own address is accepted with no link (ADR 0076).
 	heldBefore := holderRows(t, f.env, heldSale)
 
 	executeMigration(t, f.env, importedSelfHeldBackfill)

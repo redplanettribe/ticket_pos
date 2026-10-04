@@ -129,6 +129,13 @@ type PublicTicketType struct {
 	Remaining   int              `json:"remaining"`
 	SoldOut     bool             `json:"sold_out"`
 	Promotion   *PublicPromotion `json:"promotion"`
+	// SortOrder is the Ticket Type's place in its Event's catalog. The list is
+	// already in this order, but two Ticket Types can share a place, and the
+	// Self-held seating rule breaks a price tie on it before the name and the id
+	// (ADR 0074). The Storefront mirrors that rule to know which Ticket a Named
+	// Tickets checkout does not ask a Holder for (ADR 0076), and the list's
+	// order alone cannot tell it which of two equals the server would pick.
+	SortOrder int `json:"sort_order"`
 	// SalesCutoffAt is the Sales Cutoff as it was set — the raw instant, null on
 	// a Ticket Type that never stops selling, which is most of them (ADR 0070).
 	//
@@ -377,6 +384,18 @@ type PublicEventDetail struct {
 	// The name is new and says what it counts. It deliberately does not follow
 	// buyer_holds_first_ticket above, whose name outlived its rule.
 	SurrenderableFreeTickets *int `json:"surrenderable_free_tickets"`
+	// RequiresNamedTickets is whether this Event's checkout must name a Holder
+	// for every Ticket beyond the buyer's own and answer every required Ticket
+	// Question on every Ticket (ADR 0076), so the checkout dialog can draw the
+	// fields for it. The setting as the Event has it, not a verdict on any one
+	// checkout: begin-checkout decides that, once, and it also lets the rule
+	// fall silent once the Event has started.
+	//
+	// Always false on an Event with External Registration, whatever is stored:
+	// it sells nothing here, so the setting is ignored there, and the public read
+	// says what applies rather than what was left behind - the rule
+	// registration_url follows from the other side.
+	RequiresNamedTickets bool `json:"requires_named_tickets"`
 }
 
 // PublicEventPage is one page of global explorer results.
@@ -615,6 +634,7 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 		BuyerHoldsFirstTicket: s.ticketAssignmentEnabled && mode != catalog.RegistrationModeExternal,
 		// Null for an anonymous read, a number for a Customer we can identify.
 		SurrenderableFreeTickets: surrenderable,
+		RequiresNamedTickets:     row.RequiresNamedTickets && mode != catalog.RegistrationModeExternal,
 	}
 	// The Registration Link travels only on the Event that actually registers
 	// through it.
@@ -679,6 +699,7 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 			Remaining:   remaining,
 			SoldOut:     remaining == 0,
 			Promotion:   s.toPublicPromotion(handling, tt.PriceCents, promotion, now),
+			SortOrder:   tt.SortOrder,
 
 			SalesCutoffAt: salesCutoffAt,
 			// The verdict is the catalog predicate against the same `now` that

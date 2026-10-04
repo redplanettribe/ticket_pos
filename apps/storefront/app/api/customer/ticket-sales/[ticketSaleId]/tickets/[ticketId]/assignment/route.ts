@@ -1,9 +1,5 @@
-import { NextResponse } from "next/server";
-
-import { callBackend } from "@/lib/api";
-import { apiErrorResponse, notSignedInResponse } from "@/lib/bff";
+import { relayCustomerPut } from "@/lib/bff";
 import type { BuyerTicket } from "@/lib/buyer-answers";
-import { customerSessionToken } from "@/lib/customer-session";
 
 // Reads the session cookie and writes through it; never cached.
 export const dynamic = "force-dynamic";
@@ -21,7 +17,10 @@ export const dynamic = "force-dynamic";
  * nothing. That is why the form on the other side of this hop tells the buyer,
  * before they submit, that the address will be mailed and shown to the
  * Organization: this handler cannot enforce that notice and does not try to.
- * What it can do is carry nothing else. No name, no answer, no token.
+ * What it can do is carry nothing else: no name and no token. The one thing
+ * beside the address is, on an Event that requires Named Tickets, that
+ * Ticket's Answers (#673, ADR 0076), which the API judges and ignores on
+ * every other Event.
  *
  * THE BODY IS RELAYED WITHOUT A SECOND OPINION, as its Answer neighbour's is.
  * `catalog.ParseHolderEmail` is the platform's one definition of a Holder
@@ -50,43 +49,13 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ ticketSaleId: string; ticketId: string }> },
 ) {
-  const token = await customerSessionToken();
-  if (!token) {
-    return notSignedInResponse();
-  }
-
   const { ticketSaleId, ticketId } = await params;
-
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    // A body this hop cannot even parse never left the browser we serve, so it
-    // is refused here rather than forwarded for the API to reject.
-    return NextResponse.json(
-      {
-        data: null,
-        error: { code: "INVALID_JSON", message: "Malformed request body" },
-        request_id: crypto.randomUUID(),
-      },
-      { status: 400 },
-    );
-  }
-
-  try {
-    const backend = await callBackend<BuyerTicket[]>(
-      `/api/v1/customer/ticket-sales/${encodeURIComponent(ticketSaleId)}` +
-        `/tickets/${encodeURIComponent(ticketId)}/assignment`,
-      { method: "PUT", body: JSON.stringify(body), sessionToken: token },
-    );
-    // The WHOLE sale's Tickets come back, not just the one that changed — which
-    // is what lets the caller redraw a reassignment's cleared Answers from the
-    // same response that reported the new address.
-    return NextResponse.json(
-      { data: backend.data, error: null, request_id: crypto.randomUUID() },
-      { status: backend.status },
-    );
-  } catch (error) {
-    return apiErrorResponse(error);
-  }
+  // The WHOLE sale's Tickets come back, not just the one that changed - which
+  // is what lets the caller redraw a reassignment's cleared Answers from the
+  // same response that reported the new address.
+  return relayCustomerPut<BuyerTicket[]>(
+    request,
+    `/api/v1/customer/ticket-sales/${encodeURIComponent(ticketSaleId)}` +
+      `/tickets/${encodeURIComponent(ticketId)}/assignment`,
+  );
 }

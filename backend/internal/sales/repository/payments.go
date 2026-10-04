@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/consent"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/sales"
@@ -42,6 +43,14 @@ type CheckoutEvent struct {
 	// whether the buyer prices this checkout quotes carry the Platform Fee and
 	// its Fee IVA (ADR 0014).
 	FeeHandling string
+	// RequiresNamedTickets is the Event's Named Tickets setting (ADR 0076,
+	// migration 125), read here and NOWHERE ELSE on the checkout path: it is
+	// judged once, at begin-checkout, so a Payment under way settles on the
+	// terms it started on if an Org Admin flips it mid-payment.
+	RequiresNamedTickets bool
+	// StartsAt is when the doors open, nil for an Event that has not said.
+	// Named Tickets fall silent from that instant (catalog.NamedTicketsApply).
+	StartsAt *time.Time
 }
 
 // GetCheckoutEvent resolves an Event by Organization and Event slug for the
@@ -49,17 +58,24 @@ type CheckoutEvent struct {
 // rather than filtered so the caller owns the "published only" rule.
 func (r *Repository) GetCheckoutEvent(ctx context.Context, orgSlug, eventSlug string) (*CheckoutEvent, error) {
 	var e CheckoutEvent
+	var startsAt sql.NullTime
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT e.id, e.organization_id, e.name, e.status, o.currency, e.fee_handling
+		SELECT e.id, e.organization_id, e.name, e.status, o.currency, e.fee_handling,
+		       e.requires_named_tickets, e.starts_at
 		FROM events e
 		JOIN organizations o ON o.id = e.organization_id
 		WHERE o.slug = $1 AND e.slug = $2
-	`, orgSlug, eventSlug).Scan(&e.ID, &e.OrganizationID, &e.Name, &e.Status, &e.Currency, &e.FeeHandling)
+	`, orgSlug, eventSlug).Scan(&e.ID, &e.OrganizationID, &e.Name, &e.Status, &e.Currency, &e.FeeHandling,
+		&e.RequiresNamedTickets, &startsAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	if startsAt.Valid {
+		at := startsAt.Time
+		e.StartsAt = &at
 	}
 	return &e, nil
 }
@@ -73,6 +89,27 @@ type PaymentLine struct {
 	TicketTypeID string
 	Quantity     int
 	Fee          sales.FeeSnapshot
+}
+
+// CommitLine is the Ticket Sale Line this Payment Line commits as, Answers
+// aside: the Payment's snapshot copied onto the sale verbatim, its buyer price
+// as the unit price the line is sold at. What the Customer is paying was
+// decided at begin-checkout, and no catalog price edit, rate change, or Fee
+// Handling flip since then may touch it.
+//
+// IT IS THE ONE TRANSLATION, and both halves of the online checkout make it.
+// The commit writes the sale from it; begin-checkout asks SelfHeldSeatOf and
+// SameBasketUpgrade of it before the Payment exists (#666), so the price the
+// seat is chosen on there is the price it is chosen on here.
+func (l PaymentLine) CommitLine() CommitLine {
+	price := l.Fee.BuyerUnitPriceCents
+	snapshot := l.Fee
+	return CommitLine{
+		TicketTypeID:   l.TicketTypeID,
+		Quantity:       l.Quantity,
+		UnitPriceCents: &price,
+		Fee:            &snapshot,
+	}
 }
 
 // CreatePaymentInput is a pending Payment to record at begin-checkout: the
@@ -157,7 +194,37 @@ type CreatePaymentInput struct {
 	// False is "keep both", the reversible answer, and it is what an ignored
 	// prompt means (ADR 0074).
 	UpgradeElected bool
-	Now            time.Time
+	// Named is what a Named Tickets checkout holds for its Tickets (ADR 0076,
+	// #669): the Holder addresses and the Answers the requirement was judged
+	// on. Nil on every checkout the requirement does not bind.
+	//
+	// WRITTEN IN THIS TRANSACTION, unlike the best-effort Answers of an ordinary
+	// checkout (HoldCheckoutAnswers). The checkout was refused until these were
+	// complete, so a Payment that exists without them would be a Named Tickets
+	// sale that names nobody - the very thing the requirement forbids. A failure
+	// here fails the checkout before any Payment exists, which is the honest
+	// outcome for a rule that is allowed to refuse.
+	Named *NamedHold
+	Now   time.Time
+}
+
+// NamedHold is what a Named Tickets checkout holds on its Payment.
+type NamedHold struct {
+	// Holders are the addresses named for every Ticket but the buyer's own,
+	// one per (Ticket Type, index).
+	Holders []HeldHolder
+	// Answers are every usable Answer the buyer gave, the buyer's own Ticket's
+	// included - catalog.HoldableCheckoutAnswers' finding.
+	Answers []catalog.HeldAnswer
+}
+
+// HeldHolder is one Holder address on its way onto a Payment: which Ticket
+// Type, which of its Tickets (1..quantity, which becomes `tickets.ordinal`),
+// and the address as catalog.ParseHolderEmail normalised it.
+type HeldHolder struct {
+	TicketTypeID string
+	TicketIndex  int
+	HolderEmail  string
 }
 
 // CreatePayment records a pending Payment and its line snapshot atomically,
@@ -207,17 +274,30 @@ func (r *Repository) CreatePayment(ctx context.Context, in CreatePaymentInput) (
 		return "", err
 	}
 
+	lineIDs := make(map[string]string, len(in.Lines))
 	for _, line := range in.Lines {
-		if _, err := tx.ExecContext(ctx, `
+		var lineID string
+		if err := tx.QueryRowContext(ctx, `
 			INSERT INTO payment_lines (
 				payment_id, ticket_type_id, quantity, unit_price_cents,
 				base_price_cents, fee_cents, fee_iva_cents, fee_basis_points, fee_iva_basis_points,
 				created_at
 			)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			RETURNING id
 		`, paymentID, line.TicketTypeID, line.Quantity, line.Fee.BuyerUnitPriceCents,
 			line.Fee.BasePriceCents, line.Fee.FeeCents, line.Fee.FeeIVACents,
-			line.Fee.FeeBasisPoints, line.Fee.FeeIVABasisPoints, in.Now); err != nil {
+			line.Fee.FeeBasisPoints, line.Fee.FeeIVABasisPoints, in.Now).Scan(&lineID); err != nil {
+			return "", err
+		}
+		lineIDs[line.TicketTypeID] = lineID
+	}
+
+	if in.Named != nil {
+		if err := holdHolders(ctx, tx, lineIDs, in.Named.Holders, in.Now); err != nil {
+			return "", err
+		}
+		if err := holdAnswers(ctx, tx, lineIDs, in.Named.Answers, in.Now); err != nil {
 			return "", err
 		}
 	}
@@ -583,6 +663,18 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 		return nil, err
 	}
 
+	// The Holders a Named Tickets checkout named (#670, migration 126), read
+	// on the same terms as the Answers above and handed to the spine as a term
+	// of the commit, from this one source - see CommitTerms.NamedHolders. Empty
+	// on every checkout the requirement did not bind at begin, which is how
+	// "judged once" reaches this leg without re-reading the Event's setting.
+	// Taken off the Payment as they are read: the Tickets are where they live
+	// from this commit on (see takeHeldHoldersByPayment).
+	terms.NamedHolders, err = takeHeldHoldersByPayment(ctx, tx, paymentID)
+	if err != nil {
+		return nil, err
+	}
+
 	lineRows, err := tx.QueryContext(ctx, `
 		SELECT id, ticket_type_id, quantity, unit_price_cents,
 		       base_price_cents, fee_cents, fee_iva_cents, fee_basis_points, fee_iva_basis_points
@@ -594,30 +686,23 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	}
 	var lines []CommitLine
 	for lineRows.Next() {
-		var lineID, typeID string
-		var quantity int
-		var fee sales.FeeSnapshot
-		if err := lineRows.Scan(&lineID, &typeID, &quantity, &fee.BuyerUnitPriceCents,
+		var lineID string
+		var held PaymentLine
+		fee := &held.Fee
+		if err := lineRows.Scan(&lineID, &held.TicketTypeID, &held.Quantity, &fee.BuyerUnitPriceCents,
 			&fee.BasePriceCents, &fee.FeeCents, &fee.FeeIVACents,
 			&fee.FeeBasisPoints, &fee.FeeIVABasisPoints); err != nil {
 			lineRows.Close()
 			return nil, err
 		}
-		// The Payment's snapshot is copied onto the sale verbatim: what the
-		// Customer is paying was decided at begin-checkout, and no catalog price
-		// edit, rate change, or Fee Handling flip since then may touch it.
-		price := fee.BuyerUnitPriceCents
-		snapshot := fee
-		lines = append(lines, CommitLine{
-			TicketTypeID:   typeID,
-			Quantity:       quantity,
-			UnitPriceCents: &price,
-			Fee:            &snapshot,
-			// The Answers ride the LINE from here on, because the line is what
-			// mints the Tickets they are about. Keyed by the Payment Line id,
-			// which is the half of (payment line, index) this loop is holding.
-			Answers: heldAnswers[lineID],
-		})
+		// The Payment's snapshot is copied onto the sale verbatim, through the
+		// one translation begin-checkout also makes (see PaymentLine.CommitLine).
+		line := held.CommitLine()
+		// The Answers ride the LINE from here on, because the line is what
+		// mints the Tickets they are about. Keyed by the Payment Line id,
+		// which is the half of (payment line, index) this loop is holding.
+		line.Answers = heldAnswers[lineID]
+		lines = append(lines, line)
 	}
 	if err := lineRows.Err(); err != nil {
 		lineRows.Close()

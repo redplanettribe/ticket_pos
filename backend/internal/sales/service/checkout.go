@@ -218,6 +218,20 @@ type BeginCheckoutInput struct {
 	// carrying answers to a deployment that asks none is simply a body this
 	// deployment has no questions for.
 	Answers []CheckoutAnswerInput
+	// Holders are the Holder addresses the buyer named for their Tickets, one
+	// per (Ticket Type, ticket index), keyed exactly as Answers are (ADR 0076,
+	// #669).
+	//
+	// READ ONLY WHERE THE EVENT REQUIRES NAMED TICKETS, and there they are half
+	// of what the checkout is refused without: every Ticket but the buyer's own
+	// must name one (see judgeNamedTickets). Everywhere else they are ignored,
+	// never held and never refused over - the buyer names Holders after the
+	// purchase, as ADR 0046 has it.
+	//
+	// UNTRUSTED IN TICKET TYPE AND INDEX, for Answers' reason; WELL-FORMED IN
+	// ADDRESS, because the handler refused a malformed one as a field error and
+	// normalised the rest.
+	Holders []CheckoutHolderInput
 	// UpgradeElected is the buyer's answer to the Upgrade Prompt: they are moving
 	// up, and the paid Ticket in this basket takes the place of a free one
 	// (ADR 0074, #649/#650) — an earlier Sale's, which is reversed, or another
@@ -578,6 +592,20 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		})
 	}
 
+	// Named Tickets (ADR 0076), judged once, here, beside the Sales Cutoff and
+	// the Purchase Limit and before any Payment exists - see judgeNamedTickets.
+	// It runs after capacity because it needs the cart priced to know which
+	// Ticket is the buyer's own, and a buyer told an Event is sold out should
+	// not first have been asked to name three people for it.
+	//
+	// Judged ONCE: nothing on the way back from the Payment Provider reads the
+	// setting again, so an Org Admin flipping it mid-payment changes nothing
+	// about this Payment. What it held is what the commit finds.
+	named, err := s.judgeNamedTickets(ctx, event, byID, paymentLines, in, customer.Email, now)
+	if err != nil {
+		return nil, err
+	}
+
 	// Which settlement this checkout gets is decided by the total and nothing
 	// else. A cart of Free Ticket Types totals zero and is settled here, by the
 	// platform itself; one paid ticket anywhere in it makes the whole checkout an
@@ -627,7 +655,10 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		// in the transaction that commits the paid Sale and never here, so an
 		// abandoned or declined Payment surrenders nothing (ADR 0074, #650).
 		UpgradeElected: in.UpgradeElected,
-		Now:            now,
+		// A Named Tickets checkout's addresses and Answers, written with the
+		// Payment in one transaction because the checkout was allowed on them.
+		Named: named,
+		Now:   now,
 	})
 	if err != nil {
 		return nil, err
@@ -638,7 +669,12 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 	// same request: a free checkout must carry its answers through by exactly the
 	// path a paid one does, and the only way it can is if they are already held
 	// when the commit runs.
-	s.holdCheckoutAnswers(ctx, paymentID, requested, in.Answers, now)
+	//
+	// Not for a Named Tickets checkout, whose Answers CreatePayment already
+	// wrote: there they are a condition of the sale, not a convenience.
+	if named == nil {
+		s.holdCheckoutAnswers(ctx, paymentID, requested, in.Answers, now)
+	}
 
 	if free {
 		return s.settleFreeCheckout(ctx, event, clientTransactionID, customer.Email, now)

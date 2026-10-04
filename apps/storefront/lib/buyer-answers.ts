@@ -16,6 +16,11 @@
  * Type and its assignment state, and nothing else: no question rows, no
  * Answered/Outstanding badge, no link. The Answer Link is retired.
  *
+ * ONE EXCEPTION, SINCE ADR 0076 (#672): on an Event that requires Named
+ * Tickets, a Ticket assigned to somebody who has not yet accepted carries the
+ * Answers the buyer gave at checkout on its sale-scoped row, and the buyer may
+ * correct them until that person accepts. See `provisionalRowFor`.
+ *
  * TWO PAYLOADS, ONE PANEL. The sale-scoped list (`BuyerTicket`) carries every
  * Ticket of the Sale with its assignment fields and NO answer fields; the
  * held-ticket list (`HeldTicket`) carries the Tickets this Customer holds with
@@ -40,7 +45,10 @@
  * explicit that a question's words must never enter the catalog.
  */
 
-import type { QuestionAnswer } from "@/lib/ticket-questions";
+// Relative and with its extension so the test runner (node --test, no path
+// aliases) can resolve the one runtime import, as lib/held-ticket-panel.ts does.
+import { visibleQuestionsOf, type QuestionAnswer } from "./ticket-questions.ts";
+import type { CheckoutQuestion } from "./checkout-answers.ts";
 
 export type { Answer, AnswerBody, Question, QuestionAnswer, QuestionKind } from "@/lib/ticket-questions";
 
@@ -51,7 +59,8 @@ export type { Answer, AnswerBody, Question, QuestionAnswer, QuestionKind } from 
  * IT CARRIES NO QUESTION, NO ANSWER, NO OUTSTANDING COUNT AND NO LINK, for any
  * row — the Self-held one included. The API dropped them (ADR 0049), and this
  * type dropping them too is what keeps a row the buyer does not hold from ever
- * being asked to render a question it was never sent.
+ * being asked to render a question it was never sent. The two exceptions are
+ * Named Tickets' (ADR 0076), each documented on its field below.
  */
 export type BuyerTicket = {
   ticket_id: string;
@@ -87,6 +96,44 @@ export type BuyerTicket = {
    * why not. */
   assignable?: boolean;
   assignable_refusal?: string;
+  /**
+   * THE ONE EXCEPTION TO "NO QUESTION ON THIS ROW" (#672, ADR 0076). On an
+   * Event that requires Named Tickets, a Ticket `assigned` to somebody who has
+   * not yet accepted carries the questions and the Answers the buyer gave at
+   * checkout, which stay the buyer's to correct until that person accepts.
+   * Absent on every other row, and gone from this one once they accept: from
+   * then the Answers are theirs. Read through `provisionalRowFor`.
+   */
+  provisional_answers?: ProvisionalAnswers;
+  /**
+   * The questions a reassignment of this Ticket must answer with the address
+   * (#673, ADR 0076): on an Event that requires Named Tickets, while the
+   * Ticket may be assigned, when its Ticket Type asks something. The questions
+   * as the checkout form asks them, and NEVER an Answer - what anybody said is
+   * not on this field. Read through lib/reassignment.ts.
+   */
+  reassignment_questions?: CheckoutQuestion[];
+};
+
+/**
+ * An assigned Ticket's questions and Answers as its buyer reads them on a
+ * Named Tickets Event: the answering half of a held row, under the same names,
+ * so one panel draws either.
+ */
+export type ProvisionalAnswers = {
+  answerable: boolean;
+  answerable_refusal: string;
+  outstanding_count: number;
+  questions: QuestionAnswer[];
+};
+
+/**
+ * What the answering panel needs of a Ticket, whichever route it is answered
+ * through: a held row, or a buyer's row carrying provisional Answers.
+ */
+export type AnswerPanelTicket = ProvisionalAnswers & {
+  ticket_id: string;
+  ticket_type_name: string;
 };
 
 /**
@@ -134,6 +181,21 @@ export function heldRowFor(ticket: BuyerTicket, held: HeldTicket[]): HeldTicket 
 }
 
 /**
+ * Whether a Ticket the buyer holds has no row on the held list yet - the
+ * signal to read the held list again.
+ *
+ * It happens when the buyer assigns a Ticket to their own address: the Ticket
+ * is held the moment the write returns (ADR 0076), but its questions live on
+ * the held list, which this page read before. Reading it again turns the row
+ * into the buyer's own panel at once rather than on the next page load.
+ */
+export function heldListMissesAHeldTicket(tickets: BuyerTicket[], held: HeldTicket[]): boolean {
+  return tickets.some(
+    (ticket) => ticket.self_held === true && !held.some((row) => row.ticket_id === ticket.ticket_id),
+  );
+}
+
+/**
  * Whether the buyer's one answerable row has anything to answer — i.e. whether
  * this sale has a question half at all.
  *
@@ -152,18 +214,57 @@ export function heldRowFor(ticket: BuyerTicket, held: HeldTicket[]): HeldTicket 
 export function hasAnythingToShow(tickets: BuyerTicket[], held: HeldTicket[]): boolean {
   return tickets.some((ticket) => {
     const row = heldRowFor(ticket, held);
-    return row !== null && row.questions.length > 0;
+    return (row !== null && row.questions.length > 0) || provisionalRowFor(ticket) !== null;
   });
 }
 
 /**
+ * The answering panel behind a row whose Answers are provisionally the
+ * buyer's (#672, ADR 0076), or null.
+ *
+ * NULL UNLESS THE API SENT THE BLOCK. Whether the buyer may read and correct
+ * a Ticket's Answers is the API's decision - the Event requires Named Tickets
+ * and the Ticket is assigned and unaccepted - and never this page's guess
+ * from the assignment state: a page that decided for itself could draw a
+ * Holder's Answers to somebody who no longer owns them.
+ *
+ * NULL TOO WHEN NOTHING WOULD BE DRAWN - no question, or only retired ones
+ * this Ticket never answered - so the row is an ordinary assignment row
+ * rather than a panel promising something empty, the rule the held panel
+ * follows.
+ */
+export function provisionalRowFor(ticket: BuyerTicket): AnswerPanelTicket | null {
+  const answers = ticket.provisional_answers;
+  if (answers === undefined || visibleQuestionsOf(answers.questions).length === 0) return null;
+  return { ticket_id: ticket.ticket_id, ticket_type_name: ticket.ticket_type_name, ...answers };
+}
+
+/**
+ * The Outstanding count one Ticket's provisional Answers carry on a Sale the
+ * provisional write just handed back - what decides whether the panel that
+ * saved folds. Zero when the row came back without the block (its Holder
+ * accepted meanwhile): it owes the buyer nothing any more.
+ */
+export function provisionalOutstandingIn(tickets: BuyerTicket[], ticketId: string): number {
+  return tickets.find((ticket) => ticket.ticket_id === ticketId)?.provisional_answers?.outstanding_count ?? 0;
+}
+
+/**
  * How many Outstanding Answers the buyer owes on this sale — DEBTS AND NOT
- * TICKETS, on the one Ticket they hold. The same unit the Organization's own
- * headline figure uses, so a buyer on the phone and the member of staff they
- * are talking to are counting the same things. Zero when they hold nothing.
+ * TICKETS, on the Tickets whose Answers are the buyer's to give: the one they
+ * hold, and on a Named Tickets Event the ones still waiting on their Holder
+ * (ADR 0076). The same unit the Organization's own headline figure uses, so a
+ * buyer on the phone and the member of staff they are talking to are
+ * counting the same things. Zero when none are theirs.
  */
 export function saleOutstandingCount(tickets: BuyerTicket[], held: HeldTicket[]): number {
-  return tickets.reduce((total, ticket) => total + (heldRowFor(ticket, held)?.outstanding_count ?? 0), 0);
+  return tickets.reduce(
+    (total, ticket) =>
+      total +
+      (heldRowFor(ticket, held)?.outstanding_count ?? 0) +
+      (provisionalRowFor(ticket)?.outstanding_count ?? 0),
+    0,
+  );
 }
 
 /**

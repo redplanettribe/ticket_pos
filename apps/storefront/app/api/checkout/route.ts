@@ -9,6 +9,7 @@ import { checkoutLocaleFromReferer } from "@/lib/checkout-context-cookie";
 import { consentEvidenceHeaders } from "@/lib/consent-evidence";
 import { customerSessionToken } from "@/lib/customer-session";
 import { isAppLocale, type AppLocale } from "@/lib/locale";
+import { parseCheckoutHolders } from "@/lib/named-tickets";
 import { encodeSelection } from "@/lib/selection-url";
 
 // Begins a Payment and touches a cookie; never cached.
@@ -68,6 +69,7 @@ type CheckoutRequestBody = {
   lines?: unknown;
   locale?: unknown;
   answers?: unknown;
+  holders?: unknown;
 };
 
 /**
@@ -255,6 +257,11 @@ export async function POST(request: Request) {
   // one, and the key is dropped rather than sent as [] so that a checkout with
   // nothing to say is byte-identical to the one before this feature existed.
   const answers = parseAnswers(body.answers);
+  // The Holder addresses a Named Tickets checkout names (ADR 0076), relayed
+  // shape-only on the same terms. Unlike `answers` they CAN refuse the
+  // checkout, but that is the API's verdict and comes back as its envelope:
+  // nothing here judges whether an address is one or a Ticket owes one.
+  const holders = parseCheckoutHolders(body.holders);
 
   try {
     // The Customer Session token rides in Authorization, and it is now what
@@ -334,6 +341,7 @@ export async function POST(request: Request) {
         // the buyer's own record remembers (ADR 0033).
         ...(locale ? { locale } : {}),
         ...(answers.length > 0 ? { answers } : {}),
+        ...(holders.length > 0 ? { holders } : {}),
         lines,
       },
       sessionToken,

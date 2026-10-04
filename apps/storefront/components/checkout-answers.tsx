@@ -3,29 +3,34 @@
 import { FormField, Input, Textarea } from "@ticket-pos/ui";
 
 import {
-  answerKey,
-  type AnswerSlot,
+  slotAnswerKey,
+  slotTicketKey,
   type AnswerValue,
   type AnswerValues,
   type CheckoutQuestion,
+  type QuestionSlot,
 } from "@/lib/checkout-answers";
+import { MAX_HOLDER_EMAIL_LENGTH } from "@/lib/ticket-assignment";
 
 /**
- * The checkout dialog's answer section: the buyer's OWN ticket's questions, and
- * nobody else's (#311, ADR 0044, ADR 0048).
+ * One Ticket's panel in the checkout dialog: its questions and, on an Event
+ * that requires Named Tickets, the address of whoever will hold it (#311, ADR
+ * 0044, ADR 0048, ADR 0076).
  *
- * ONE SET, NOT ONE PER TICKET. The sale hands the buyer the dearest of its
- * Tickets as their own (ADR 0074), so these are questions about the buyer,
- * which the buyer can answer. The cart's other tickets are not mentioned here at all: an Answer
- * belongs to the Ticket (ADR 0043), and those Tickets' Holders give theirs
- * after the purchase, through the links on the sale page.
+ * ORDINARILY THERE IS ONE, for the buyer's OWN Ticket. The sale hands the buyer
+ * the dearest of its Tickets as their own (ADR 0074), so these are questions
+ * about the buyer, which the buyer can answer. The cart's other tickets are not
+ * mentioned: an Answer belongs to the Ticket (ADR 0043), and those Tickets'
+ * Holders give theirs after the purchase. It is skippable and says so, and
+ * nothing in it is wired to the pay button: a skipped question becomes an
+ * Outstanding Answer the buyer can fill in later from their sale page. Wiring a
+ * check in on an Event without Named Tickets would be reversing ADR 0044.
  *
- * IT IS SKIPPABLE AND IT SAYS SO. There is no validation here, no required
- * marker that blocks, and nothing this component renders is wired to the pay
- * button's disabled state — deliberately. What a skipped question produces is
- * an Outstanding Answer, which the buyer can fill in later from their sale page
- * and which the Organization can see and chase. Anybody wiring a check in here
- * is reversing ADR 0044.
+ * ON AN EVENT THAT REQUIRES NAMED TICKETS THERE IS ONE PER TICKET (ADR 0076),
+ * and the dialog holds the pay button until they owe nothing. Every Ticket but
+ * the buyer's own carries `holder`, an address field above its own Ticket
+ * Type's questions. What is owed is judged in lib/named-tickets.ts and the
+ * dialog: this component only draws the errors it is handed.
  *
  * QUESTION LABELS AND OPTION LABELS ARE NOT TRANSLATED. They are the
  * Organization's own words, read as coined in every Locale exactly as a Custom
@@ -35,11 +40,29 @@ export function CheckoutAnswers({
   slot,
   values,
   onChange,
+  onBlur,
+  questionErrors,
+  holder,
   labels,
 }: {
-  slot: AnswerSlot;
+  slot: QuestionSlot;
   values: AnswerValues;
   onChange: (key: string, value: AnswerValue) => void;
+  /** Told the answerKey of a field the buyer has left, so its error may show. */
+  onBlur?: (key: string) => void;
+  /** The sentence under each question that has one, by question id. */
+  questionErrors?: Readonly<Record<string, string>>;
+  /** The Holder's address field, on a Named Tickets Event's other Tickets. */
+  holder?: {
+    value: string;
+    onChange: (value: string) => void;
+    onBlur: () => void;
+    error?: string;
+    /** A line under the field, or nothing: the buyer's own address is not mailed. */
+    notice?: string;
+    label: string;
+    placeholder: string;
+  };
   /**
    * The chrome's words, passed in rather than read from a translator in scope so
    * this component can live at module level. That is not a style preference:
@@ -48,10 +71,10 @@ export function CheckoutAnswers({
    * The same reasoning ConsentCheckbox states.
    */
   labels: {
-    /** The section heading: "Your ticket · {ticketType}". */
+    /** The panel heading: "Your ticket · {ticketType}", or another Ticket's. */
     title: string;
-    /** One line saying the whole section may be skipped. */
-    hint: string;
+    /** One line beside the heading, or null for none. */
+    hint: string | null;
     /** The chip on a question whose answer the Organization is hoping for. */
     optional: string;
     optionalLabel: (question: string) => string;
@@ -63,19 +86,45 @@ export function CheckoutAnswers({
     <div className="space-y-3 rounded-lg border bg-muted/40 p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3">
         <p className="text-sm font-medium">{labels.title}</p>
-        {/* Said once, beside the heading: leaving a blank is fine. */}
-        <p className="text-xs text-muted-foreground">{labels.hint}</p>
+        {/* Said once, beside the heading. */}
+        {labels.hint ? <p className="text-xs text-muted-foreground">{labels.hint}</p> : null}
       </div>
-      {slot.questions.map((question) => (
-        <AnswerFieldRow
-          key={question.id}
-          question={question}
-          fieldKey={answerKey(slot.ticketTypeId, slot.index, question.id)}
-          values={values}
-          onChange={onChange}
-          labels={labels}
-        />
-      ))}
+      {holder ?
+        <FormField
+          id={`holder-${slotTicketKey(slot).join("-")}`}
+          label={holder.label}
+          description={holder.notice}
+          error={holder.error}
+        >
+          <Input
+            type="email"
+            inputMode="email"
+            // Somebody else's address, so not the browser's suggestion: that
+            // would be the buyer's own, the one address this field never needs.
+            autoComplete="off"
+            maxLength={MAX_HOLDER_EMAIL_LENGTH}
+            placeholder={holder.placeholder}
+            value={holder.value}
+            onChange={(event) => holder.onChange(event.target.value)}
+            onBlur={holder.onBlur}
+          />
+        </FormField>
+      : null}
+      {slot.questions.map((question) => {
+        const fieldKey = slotAnswerKey(slot, question.id);
+        return (
+          <AnswerFieldRow
+            key={question.id}
+            question={question}
+            fieldKey={fieldKey}
+            values={values}
+            onChange={onChange}
+            onBlur={onBlur ? () => onBlur(fieldKey) : undefined}
+            error={questionErrors?.[question.id]}
+            labels={labels}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -84,22 +133,27 @@ export function CheckoutAnswers({
  * One question's field, drawn for its kind.
  *
  * `required` is rendered as the ABSENCE of an "optional" chip and never as a
- * `required` attribute on the input. That is the honest rendering of a flag
- * whose only effect is producing an Outstanding Answer: the browser's own
- * required attribute would block submission, which is the one thing this feature
- * may never do.
+ * `required` attribute on the input. The browser's own required attribute would
+ * block submission by itself, and whether a required question blocks anything
+ * is not the field's to decide: on most Events it only produces an Outstanding
+ * Answer, and on a Named Tickets Event the dialog holds the pay button and says
+ * why (lib/named-tickets.ts).
  */
 function AnswerFieldRow({
   question,
   fieldKey,
   values,
   onChange,
+  onBlur,
+  error,
   labels,
 }: {
   question: CheckoutQuestion;
   fieldKey: string;
   values: AnswerValues;
   onChange: (key: string, value: AnswerValue) => void;
+  onBlur?: () => void;
+  error?: string;
   labels: { optional: string; optionalLabel: (question: string) => string; noAnswer: string };
 }) {
   const value = values[fieldKey] ?? {};
@@ -112,21 +166,30 @@ function AnswerFieldRow({
     // checkoutAnswerBodies; what this does is make sure a click always writes a
     // boolean, so "touched" is recorded the moment it happens.
     return (
-      <label htmlFor={id} className="flex items-start gap-3 text-sm">
-        <input
-          id={id}
-          type="checkbox"
-          className="mt-1 h-4 w-4 shrink-0"
-          checked={value.checked ?? false}
-          onChange={(event) => onChange(fieldKey, { checked: event.target.checked })}
-        />
-        <span>
-          {question.label}
-          {question.required ? null : (
-            <span className="ml-2 text-xs text-muted-foreground">{labels.optional}</span>
-          )}
-        </span>
-      </label>
+      <div className="space-y-2" onBlur={onBlur}>
+        <label htmlFor={id} className="flex items-start gap-3 text-sm">
+          <input
+            id={id}
+            type="checkbox"
+            className="mt-1 h-4 w-4 shrink-0"
+            checked={value.checked ?? false}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? `${id}-error` : undefined}
+            onChange={(event) => onChange(fieldKey, { checked: event.target.checked })}
+          />
+          <span>
+            {question.label}
+            {question.required ? null : (
+              <span className="ml-2 text-xs text-muted-foreground">{labels.optional}</span>
+            )}
+          </span>
+        </label>
+        {error ?
+          <p id={`${id}-error`} role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        : null}
+      </div>
     );
   }
 
@@ -219,12 +282,17 @@ function AnswerFieldRow({
         onChange={(event) => onChange(fieldKey, { text: event.target.value })}
       />;
 
+  // Wrapped so a blur anywhere inside, a multi_choice's boxes included, reports
+  // the field as left. React's onBlur bubbles, as the DOM's focusout does.
   return (
-    <FormField
-      id={id}
-      label={question.required ? question.label : labels.optionalLabel(question.label)}
-    >
-      {control}
-    </FormField>
+    <div onBlur={onBlur}>
+      <FormField
+        id={id}
+        label={question.required ? question.label : labels.optionalLabel(question.label)}
+        error={error}
+      >
+        {control}
+      </FormField>
+    </div>
   );
 }

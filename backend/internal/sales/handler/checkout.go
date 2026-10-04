@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/consent"
 	customersmiddleware "github.com/peter/ticket_pos/backend/internal/customers/middleware"
 	"github.com/peter/ticket_pos/backend/internal/platform"
@@ -106,6 +107,61 @@ func checkoutAnswers(body []checkoutAnswerBody) []service.CheckoutAnswerInput {
 		})
 	}
 	return answers
+}
+
+// maxCheckoutHolders bounds how many Holder addresses one checkout body may
+// name. Unlike maxCheckoutAnswers it REFUSES rather than truncates: a dropped
+// address would come back as a NAMED_TICKETS_INCOMPLETE naming a Ticket the
+// buyer did fill in, which is a lie about their form.
+const maxCheckoutHolders = 500
+
+// checkoutHolders checks the shape of the Holder section and normalises its
+// addresses through catalog.ParseHolderEmail.
+//
+// Every SHAPE problem is a field error on the entry: a Ticket Type id that is
+// not an id, an index below one, an address that is not one. Whether the
+// Ticket Type is in the cart and the index within its quantity is the
+// service's to judge against the basket it resolved, and such an entry is
+// dropped there. A blank address is not malformed but absent, and is dropped
+// here so the service reports the Ticket as owing one.
+func checkoutHolders(body []checkoutHolderBody) ([]service.CheckoutHolderInput, []platform.FieldError) {
+	if len(body) == 0 {
+		return nil, nil
+	}
+	if len(body) > maxCheckoutHolders {
+		return nil, []platform.FieldError{{
+			Field: "holders", Code: platform.CodeTooManyItems,
+			Message: fmt.Sprintf("must contain at most %d holders", maxCheckoutHolders),
+		}}
+	}
+	var fields []platform.FieldError
+	holders := make([]service.CheckoutHolderInput, 0, len(body))
+	for i, entry := range body {
+		prefix := fmt.Sprintf("holders[%d].", i)
+		ticketTypeID := strings.TrimSpace(entry.TicketTypeID)
+		if ticketTypeID == "" {
+			fields = append(fields, platform.FieldError{Field: prefix + "ticket_type_id", Code: platform.CodeRequired, Message: "is required"})
+		} else if _, err := uuid.Parse(ticketTypeID); err != nil {
+			fields = append(fields, platform.FieldError{Field: prefix + "ticket_type_id", Code: platform.CodeInvalidID, Message: "must be a valid id"})
+		}
+		if entry.TicketIndex < 1 {
+			fields = append(fields, platform.FieldError{Field: prefix + "ticket_index", Code: platform.CodeInvalidPositiveInt, Message: "must be greater than zero"})
+		}
+		if strings.TrimSpace(entry.HolderEmail) == "" {
+			continue
+		}
+		email, ok := catalog.ParseHolderEmail(entry.HolderEmail)
+		if !ok {
+			fields = append(fields, platform.FieldError{Field: prefix + "holder_email", Code: platform.CodeInvalidEmail, Message: "must be a valid email"})
+			continue
+		}
+		holders = append(holders, service.CheckoutHolderInput{
+			TicketTypeID: ticketTypeID,
+			TicketIndex:  entry.TicketIndex,
+			HolderEmail:  email,
+		})
+	}
+	return holders, fields
 }
 
 type checkoutLineBody struct {
@@ -260,6 +316,29 @@ type beginCheckoutBody struct {
 	// re-judges eligibility inside its own transaction, and a `true` that no
 	// longer holds simply sells the buyer the Ticket they asked for.
 	UpgradeElected bool `json:"upgrade_elected"`
+	// Holders are the Holder addresses the buyer named, one per Ticket, keyed
+	// by Ticket Type and ticket index exactly as `answers` is (ADR 0076, #669).
+	//
+	// READ ONLY ON AN EVENT THAT REQUIRES NAMED TICKETS, where every Ticket but
+	// the buyer's own must name one or the checkout is refused
+	// NAMED_TICKETS_INCOMPLETE. Elsewhere they are ignored and never held.
+	//
+	// A MALFORMED ADDRESS IS A FIELD ERROR, unlike a malformed Answer: it is a
+	// form the buyer must fix, and the address is going to be mailed. A blank
+	// one is not malformed but absent, and is left to the service to report as
+	// owed. The address is normalised by catalog.ParseHolderEmail, the rule
+	// every Ticket Assignment's address goes through; the buyer's own address
+	// and repeats are accepted.
+	Holders []checkoutHolderBody `json:"holders"`
+}
+
+// checkoutHolderBody is one Holder address as the checkout form states it:
+// which Ticket Type, which of that Ticket Type's tickets (ONE-BASED, as on
+// checkoutAnswerBody), and the address.
+type checkoutHolderBody struct {
+	TicketTypeID string `json:"ticket_type_id"`
+	TicketIndex  int    `json:"ticket_index"`
+	HolderEmail  string `json:"holder_email"`
 }
 
 // checkoutAnswerBody is one Answer as the checkout form states it: which Ticket
@@ -406,6 +485,9 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 		lines = append(lines, service.CheckoutLineInput{TicketTypeID: ticketTypeID, Quantity: line.Quantity})
 	}
 
+	holders, holderFields := checkoutHolders(body.Holders)
+	fields = append(fields, holderFields...)
+
 	return fields, service.BeginCheckoutInput{
 		OrganizationSlug: orgSlug,
 		EventSlug:        eventSlug,
@@ -433,6 +515,9 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 		// field error. The service reads them against the cart it resolved and
 		// drops what does not fit; see checkoutAnswers.
 		Answers: checkoutAnswers(body.Answers),
+		// Shape-checked above and normalised; whether the Event asks for them,
+		// and which Ticket is the buyer's own, is the service's to decide.
+		Holders: holders,
 		// Relayed as typed and incapable of a field error for the third reason on
 		// this body: whether an Upgrade was ever offered is a business rule read
 		// inside the commit's own transaction, and an election that no longer holds

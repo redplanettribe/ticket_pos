@@ -1505,7 +1505,7 @@ export interface paths {
         put?: never;
         /**
          * Begin an online checkout as the signed-in Customer
-         * @description The session-gated begin-checkout (ADR 0054). It does the same work as the public begin-checkout — validates ticket types, quantities, remaining capacity and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left — and differs from it in exactly one way: THE BUYER'S EMAIL IS READ FROM THE CUSTOMER SESSION AND IS NOT A REQUEST FIELD. There is no `customer_email` on this body and nothing here reads one, so a Ticket Sale begun on this route can only ever be addressed to an address the platform has proof of ownership for. A request with no Customer Session is refused 401. A request carrying a CONFIRMATION LINK session is refused 403 CUSTOMER_SESSION_SCOPE_INSUFFICIENT: that credential is minted from a token which travelled in an email and may have been forwarded, so it is not Proof of Email Ownership and cannot buy. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url; a checkout whose cart totals zero — Free Ticket Types only — is settled here and now, comes back status "approved" with confirmation_ref and no redirect_url, and is gated by the session identically, because a free Ticket is still a Ticket that needs a reachable inbox (ADR 0017). Because the buyer is proven, the details they give here are their own assertion about themselves: first and last name, the Tax ID (required, ADR 0016) and the optional phone are written back onto the Customer as well as snapshotted onto the sale. Consent given here is recorded as ANSWERED and never as a Pending Confirmation, and which boxes the buyer was owed is recomputed server-side from the Customer on the session and never taken from this body — a Customer who has already accepted the current Policy Version and answered both optional boxes sends no consent fields at all, is owed nothing, writes no Consent Record, and is not asked again; one who still owes Policy Acceptance must send it present and true or the checkout is refused 400 POLICY_ACCEPTANCE_REQUIRED with no Payment created. The Terms box behaves identically where owed (#537, ADR 0066): a Customer whose live session spans the current Terms edition — the one-time re-gate, or a later bump — must send terms_acceptance present and true or the checkout is refused 400 TERMS_ACCEPTANCE_REQUIRED, and the answer is held on the Payment together with the edition it was answered about, so the Consent Record written at commit evidences the text the buyer was shown rather than whichever edition is current when the provider answers. The Adulthood Declaration rides that same box (#588, ADR 0069): where the Terms edition in effect publishes the `label-adulthood-declaration` Artifact, the same buyer must also send adulthood_declaration present and true, or the checkout is refused 400 ADULTHOOD_DECLARATION_REQUIRED with no Payment created and nothing whatever written down — the platform keeps no record of anybody who says they are a minor. It is a declaration and never a verification: no date of birth is collected anywhere, and eighteen is a number in prose inside the Artifact. Where it is owed and ticked the answer is held on the Payment beside the Terms answer and the edition it was declared under, and reaches the Consent Record at commit by the same road. An edition that does not carry the Artifact owes no declaration and draws no box. An answer for a box the buyer was not owed is dropped rather than applied. A Ticket Type whose Sales Cutoff has passed is refused 409 TICKET_TYPE_CLOSED naming it in `details.ticket_type_id`, and that is deliberately NOT the sold-out code: a shut window and an exhausted stock are worded differently on the Storefront, so a Ticket Type that is both closed and exhausted answers TICKET_TYPE_CLOSED rather than CAPACITY_EXCEEDED (ADR 0070). The cutoff is judged once, here, and the Sales Cutoff binds this route alone — a Sale Import row, a Manually Recorded Sale and a Sale Correction's replacement are never refused by it — so a Payment already under way settles on the terms it started on and nothing is re-judged on the way back from the Payment Provider. Purchase Limits, Affiliate Link attribution, `locale`, and the skippable `answers` section all behave exactly as they do on the public route, including that nothing about an answer can ever refuse or delay a checkout (ADR 0044). The technical proof stored with a consent record (IP, user agent, origin URL) is taken from the request and never from this body, and the Policy Version accepted is resolved server-side. The response REPORTS THE ADDRESS THE SALE WAS ADDRESSED TO in `addressed_to` (#387): the address read off the session, echoed back so the caller learns it from this API rather than inferring it from a browser. That is what lets the Storefront's return leg still recognise a buyer whose Customer Session did not survive the trip to the Payment Provider — a cleared cookie jar, a provider webview, a revoked session, a different browser — and it grants nothing, because signing in still costs a passcode or a Google round trip. Confirming this checkout uses the same public confirm route, which stays public and idempotent: it is the Payment Provider's return leg and must work for a browser that has lost everything, which is the same fact `addressed_to` exists to survive.
+         * @description The session-gated begin-checkout (ADR 0054). It does the same work as the public begin-checkout — validates ticket types, quantities, remaining capacity and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left — and differs from it in exactly one way: THE BUYER'S EMAIL IS READ FROM THE CUSTOMER SESSION AND IS NOT A REQUEST FIELD. There is no `customer_email` on this body and nothing here reads one, so a Ticket Sale begun on this route can only ever be addressed to an address the platform has proof of ownership for. A request with no Customer Session is refused 401. A request carrying a CONFIRMATION LINK session is refused 403 CUSTOMER_SESSION_SCOPE_INSUFFICIENT: that credential is minted from a token which travelled in an email and may have been forwarded, so it is not Proof of Email Ownership and cannot buy. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url; a checkout whose cart totals zero — Free Ticket Types only — is settled here and now, comes back status "approved" with confirmation_ref and no redirect_url, and is gated by the session identically, because a free Ticket is still a Ticket that needs a reachable inbox (ADR 0017). Because the buyer is proven, the details they give here are their own assertion about themselves: first and last name, the Tax ID (required, ADR 0016) and the optional phone are written back onto the Customer as well as snapshotted onto the sale. Consent given here is recorded as ANSWERED and never as a Pending Confirmation, and which boxes the buyer was owed is recomputed server-side from the Customer on the session and never taken from this body — a Customer who has already accepted the current Policy Version and answered both optional boxes sends no consent fields at all, is owed nothing, writes no Consent Record, and is not asked again; one who still owes Policy Acceptance must send it present and true or the checkout is refused 400 POLICY_ACCEPTANCE_REQUIRED with no Payment created. The Terms box behaves identically where owed (#537, ADR 0066): a Customer whose live session spans the current Terms edition — the one-time re-gate, or a later bump — must send terms_acceptance present and true or the checkout is refused 400 TERMS_ACCEPTANCE_REQUIRED, and the answer is held on the Payment together with the edition it was answered about, so the Consent Record written at commit evidences the text the buyer was shown rather than whichever edition is current when the provider answers. The Adulthood Declaration rides that same box (#588, ADR 0069): where the Terms edition in effect publishes the `label-adulthood-declaration` Artifact, the same buyer must also send adulthood_declaration present and true, or the checkout is refused 400 ADULTHOOD_DECLARATION_REQUIRED with no Payment created and nothing whatever written down — the platform keeps no record of anybody who says they are a minor. It is a declaration and never a verification: no date of birth is collected anywhere, and eighteen is a number in prose inside the Artifact. Where it is owed and ticked the answer is held on the Payment beside the Terms answer and the edition it was declared under, and reaches the Consent Record at commit by the same road. An edition that does not carry the Artifact owes no declaration and draws no box. An answer for a box the buyer was not owed is dropped rather than applied. A Ticket Type whose Sales Cutoff has passed is refused 409 TICKET_TYPE_CLOSED naming it in `details.ticket_type_id`, and that is deliberately NOT the sold-out code: a shut window and an exhausted stock are worded differently on the Storefront, so a Ticket Type that is both closed and exhausted answers TICKET_TYPE_CLOSED rather than CAPACITY_EXCEEDED (ADR 0070). The cutoff is judged once, here, and the Sales Cutoff binds this route alone — a Sale Import row, a Manually Recorded Sale and a Sale Correction's replacement are never refused by it — so a Payment already under way settles on the terms it started on and nothing is re-judged on the way back from the Payment Provider. Purchase Limits, Affiliate Link attribution, `locale`, and the skippable `answers` section all behave exactly as they do on the public route, including that nothing about an answer can ever refuse or delay a checkout (ADR 0044) - EXCEPT on an Event that requires Named Tickets (ADR 0076). There, while Ticket Assignment is enabled and the Event has not started, the checkout is refused 400 NAMED_TICKETS_INCOMPLETE with no Payment created until every Ticket but the buyer's own names a Holder in `holders` (one entry per Ticket: `ticket_type_id`, one-based `ticket_index`, `holder_email`, keyed exactly as `answers` is) and every Ticket, the buyer's own included, has a usable Answer to every approved, required Ticket Question of its Ticket Type. The buyer's own Ticket is the first Ticket of the line sold dearest (ties broken by catalog order), decided by the same rule the commit seats the buyer with, and a free line surrendered by an elected same-basket Upgrade is asked nothing. The refusal's `details.tickets` lists every Ticket still owing something as `{ticket_type_id, ticket_index, holder_email_missing, missing_question_ids}`; an optional question never refuses, and an Answer that does not fit its question counts as missing. A malformed `holder_email` is a 400 VALIDATION_FAILED field error on `holders[i].holder_email` on every Event; addresses are trimmed and lowercased, and the buyer's own address and repeated addresses are accepted. The addresses wait on the Payment until the sale commits, are purged with its held Answers 30 days after a Payment that never reached approved, and are ignored on an Event the requirement does not bind. The setting is read here only, so a Payment under way settles on the terms it began on. The technical proof stored with a consent record (IP, user agent, origin URL) is taken from the request and never from this body, and the Policy Version accepted is resolved server-side. The response REPORTS THE ADDRESS THE SALE WAS ADDRESSED TO in `addressed_to` (#387): the address read off the session, echoed back so the caller learns it from this API rather than inferring it from a browser. That is what lets the Storefront's return leg still recognise a buyer whose Customer Session did not survive the trip to the Payment Provider — a cleared cookie jar, a provider webview, a revoked session, a different browser — and it grants nothing, because signing in still costs a passcode or a Google round trip. Confirming this checkout uses the same public confirm route, which stays public and idempotent: it is the Payment Provider's return leg and must work for a browser that has lost everything, which is the same fact `addressed_to` exists to survive.
          */
         post: {
             parameters: {
@@ -2358,7 +2358,7 @@ export interface paths {
         };
         /**
          * List a Ticket Sale's tickets and whose they are
-         * @description Returns every Ticket of one of the signed-in Customer's own Ticket Sales — its position, its Ticket Type and its Ticket Assignment state (unassigned, assigned, accepted) with the address the buyer gave it. It carries NO Ticket Questions, Answers, outstanding counts or Answer Links for any Ticket (ADR 0049): an Answer is given only by a Ticket's Holder, and the buyer reads and answers the one Ticket they hold through `/api/v1/customer/held-tickets`. This is the page behind the Confirmation Link and the Customer Area, which are one surface: a Confirmation Link session is narrowed to the single Ticket Sale it names and sees only that one. Authorization is the Customer Session and nothing else — the Ticket Sale id in the path names which of the caller's OWN sales, and a sale belonging to somebody else returns an empty list rather than a refusal, so that ids cannot be probed. A reversed sale's Tickets are still listed. Answers 404 while the Ticket Question feature flag is off.
+         * @description Returns every Ticket of one of the signed-in Customer's own Ticket Sales — its position, its Ticket Type and its Ticket Assignment state (unassigned, assigned, accepted) with the address the buyer gave it. It carries NO Ticket Questions, Answers, outstanding counts or Answer Links for any Ticket (ADR 0049): an Answer is given only by a Ticket's Holder, and the buyer reads and answers the one Ticket they hold through `/api/v1/customer/held-tickets`. The one exception is `provisional_answers` (ADR 0076): on an Event that requires Named Tickets, a Ticket `assigned` to somebody who has not yet accepted carries its questions, the Answers given so far, its Outstanding Answer count and its edit window, which the buyer corrects through `.../tickets/{ticketId}/provisional-answers/{questionId}`; it is absent on every other row, and gone from a row once its Holder accepts. This is the page behind the Confirmation Link and the Customer Area, which are one surface: a Confirmation Link session is narrowed to the single Ticket Sale it names and sees only that one. Authorization is the Customer Session and nothing else — the Ticket Sale id in the path names which of the caller's OWN sales, and a sale belonging to somebody else returns an empty list rather than a refusal, so that ids cannot be probed. A reversed sale's Tickets are still listed. Answers 404 while the Ticket Question feature flag is off.
          */
         get: {
             parameters: {
@@ -2428,7 +2428,7 @@ export interface paths {
         get?: never;
         /**
          * Assign one of your own tickets to an email address
-         * @description Names the email address that holds one Ticket of the signed-in Customer's own Ticket Sale, creating the Ticket Assignment or replacing the one that was there — assign, reassign and correcting a typo are all this one call. **A change of address mails the new address an Assignment Link**, which is how a Ticket becomes `accepted`; re-sending the address already there mails nobody. **Sending is rationed**: one Ticket may send at most a small fixed number of Assignment mails in its whole life (a first send plus a resend allowance for a mistyped address), and one buyer may send only so many inside a rolling window across all their Tickets. A Ticket out of allowance is refused with 409 ASSIGNMENT_MAIL_CAP_REACHED and a buyer over their window with 429 ASSIGNMENT_RATE_LIMITED. Both refuse the ASSIGNMENT outright and send no mail — the address is not written and no timestamp moves, because a write without a send would kill every Assignment Link already outstanding for that Ticket and replace it with nothing. The buyer's fallback is the Ticket's Answer Link, which keeps working. **Reassigning to a DIFFERENT address clears that Ticket's Answers back to Outstanding**: an Answer is a fact about a person and is never inherited by a new Holder. A first assignment clears nothing, and re-sending the address the Ticket already carries is a no-op that moves no timestamp. The buyer may assign any Ticket of their sale, including to their own address, and may assign only some of them. Authorization is the Customer Session; a Confirmation Link session may assign the one sale it names. A Ticket that is not on one of the caller's own sales is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does not exist. Available on `online` and `import` Ticket Sales only — an `in_person` door sale has no buyer surface and is refused with 409 ASSIGNMENT_CHANNEL_UNSUPPORTED. Also refused with 409 once the Event has started (ASSIGNMENT_EVENT_STARTED) or the Ticket Sale has been reversed (ASSIGNMENT_SALE_REVERSED), and with 400 INVALID_HOLDER_EMAIL when the value is not an email address. The whole sale's tickets come back, not just the one that changed. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off, which is how it ships — that flag is separate from the Ticket Question one, so closing it leaves Ticket Questions working. The Storefront must tell the buyer, before they submit, that the address will be mailed and shown to the Organization.
+         * @description Names the email address that holds one Ticket of the signed-in Customer's own Ticket Sale, creating the Ticket Assignment or replacing the one that was there — assign, reassign and correcting a typo are all this one call. **A change of address mails the new address an Assignment Link**, which is how a Ticket becomes `accepted`; re-sending the address already there mails nobody. **Sending is rationed**: one Ticket may send at most a small fixed number of Assignment mails in its whole life (a first send plus a resend allowance for a mistyped address), and one buyer may send only so many inside a rolling window across all their Tickets. A Ticket out of allowance is refused with 409 ASSIGNMENT_MAIL_CAP_REACHED and a buyer over their window with 429 ASSIGNMENT_RATE_LIMITED. Both refuse the ASSIGNMENT outright and send no mail — the address is not written and no timestamp moves, because a write without a send would kill every Assignment Link already outstanding for that Ticket and replace it with nothing. The buyer's fallback is the Ticket's Answer Link, which keeps working. **Reassigning to a DIFFERENT address clears that Ticket's Answers back to Outstanding**: an Answer is a fact about a person and is never inherited by a new Holder. **On an Event that requires Named Tickets** (ADR 0076) and has not started, a call that changes the address must carry in `answers` an Answer to each approved, required, unretired Ticket Question of the Ticket's Ticket Type, the buyer's own address included; optional ones may be given too. They are written in the same transaction that names the new Holder and clears the old Holder's Answers. Re-sending the address the Ticket already carries needs no `answers` and writes none of any it carries. Missing or unusable ones are refused with 400 NAMED_TICKETS_INCOMPLETE, whose details are begin-checkout's: the Ticket by `ticket_type_id` and `ticket_index` (its ordinal), with the `missing_question_ids`. The buyer's row lists those questions as `reassignment_questions`. On every other Event `answers` is ignored and only the Holder answers. A first assignment clears nothing, and re-sending the address the Ticket already carries is a no-op that moves no timestamp. The buyer may assign any Ticket of their sale, including to their own address, and may assign only some of them. **The Sale's own buyer address is `accepted` at once** (ADR 0076), matched case- and whitespace-insensitively, with the buyer as Holder: no Assignment Link is mailed, no allowance is spent and the rationing never refuses it; a Holder who had accepted the Ticket before is still told they no longer hold it. Authorization is the Customer Session; a Confirmation Link session may assign the one sale it names. A Ticket that is not on one of the caller's own sales is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does not exist. Available on `online` and `import` Ticket Sales only — an `in_person` door sale has no buyer surface and is refused with 409 ASSIGNMENT_CHANNEL_UNSUPPORTED. Also refused with 409 once the Event has started (ASSIGNMENT_EVENT_STARTED) or the Ticket Sale has been reversed (ASSIGNMENT_SALE_REVERSED), and with 400 INVALID_HOLDER_EMAIL when the value is not an email address. The whole sale's tickets come back, not just the one that changed. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off, which is how it ships — that flag is separate from the Ticket Question one, so closing it leaves Ticket Questions working. The Storefront must tell the buyer, before they submit, that the address will be mailed and shown to the Organization.
          */
         put: {
             parameters: {
@@ -2496,6 +2496,102 @@ export interface paths {
                 };
                 /** @description Too Many Requests */
                 429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/ticket-sales/{ticketSaleId}/tickets/{ticketId}/provisional-answers/{questionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Answer a ticket question on a ticket you named for somebody else
+         * @description Writes the Answer to one Ticket Question on one Ticket of the signed-in Customer's own Ticket Sale whose Answers are provisionally the buyer's (ADR 0076): the Event requires Named Tickets and the Ticket is `assigned` to somebody who has not yet accepted. Creates the Answer or corrects what was there, and returns the whole Sale's tickets, as the assignment write does. Once the Holder accepts, the Answers are theirs and this route refuses. It never moves the assignment: the Holder's Assignment Link and any owed Assignment mail stay valid. Authorization is the Customer Session; a Confirmation Link session may answer on the one sale it names. Any Ticket whose Answers are not provisionally the buyer's - accepted, unassigned, held by the buyer, on an Event without Named Tickets, or not on one of the caller's own sales - is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does not exist. Refused with 400 INVALID_ANSWER when the value does not fit the question's kind, and with 409 once the Event has started (EVENT_STARTED_ANSWERS_CLOSED) or the Ticket Sale has been reversed (TICKET_SALE_REVERSED). Answers 404 while the Ticket Question feature flag is off.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Ticket Sale id */
+                    ticketSaleId: string;
+                    /** @description Ticket id */
+                    ticketId: string;
+                    /** @description Ticket question ID */
+                    questionId: string;
+                };
+                cookie?: never;
+            };
+            /** @description The answer, in the shape its question's kind takes */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.buyerProvisionalAnswerBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeBuyerTicketAnswers"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2681,7 +2777,7 @@ export interface paths {
         put?: never;
         /**
          * Purge the Answers on abandoned Payments
-         * @description Deletes the Ticket Question Answers held on Payments that never reached `approved` and were begun more than 30 days ago (ADR 0044). The Payment row and its lines are untouched and kept forever — this is a purge of Answers, not of Payments — and the chosen Options of a choice Answer go with it. An approved Payment's Answers are never purged at any age. The predicate is non-approval plus age, and never the `expired` status alone: expiry in this platform is lazy, opportunistic bookkeeping and an expired Payment can still flip to approved when the Payment Provider confirms late, so purging on it would delete the Answers of a sale that then commits. The 30-day window is what makes non-approval safe to act on. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. The window cannot be named by the caller; it is taken from the clock, and the cutoff actually used is echoed back. Safe to call by hand at any time and idempotent — a second run deletes nothing and reports zeros. The response reports how many Answers went, how many Payments they came off, the cutoff used, and how many Answers are still riding Payments across the platform, so two runs a day apart say whether the checkout is capturing at all. It names no Payment, no buyer and no Answer, because an Answer is the data this feature exists to protect.
+         * @description Deletes the Ticket Question Answers held on Payments that never reached `approved` and were begun more than 30 days ago (ADR 0044). The Payment row and its lines are untouched and kept forever — this is a purge of Answers, not of Payments — and the chosen Options of a choice Answer go with it. An approved Payment's Answers are never purged at any age. The Holder addresses a Named Tickets checkout held on the Payment (ADR 0076) are purged in the same statement on the same predicate, and also wherever an approved Payment still carries one, at any age: the commit moves them onto the Tickets and takes them off the Payment, so such a row is only ever a leftover. They are reported as `holders_purged` and `holders_held`; `payments_purged` counts each Payment that lost anything once. The predicate is non-approval plus age, and never the `expired` status alone: expiry in this platform is lazy, opportunistic bookkeeping and an expired Payment can still flip to approved when the Payment Provider confirms late, so purging on it would delete the Answers of a sale that then commits. The 30-day window is what makes non-approval safe to act on. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. The window cannot be named by the caller; it is taken from the clock, and the cutoff actually used is echoed back. Safe to call by hand at any time and idempotent — a second run deletes nothing and reports zeros. The response reports how many Answers went, how many Payments they came off, the cutoff used, and how many Answers are still riding Payments across the platform, so two runs a day apart say whether the checkout is capturing at all. It names no Payment, no buyer and no Answer, because an Answer is the data this feature exists to protect.
          */
         post: {
             parameters: {
@@ -2843,6 +2939,54 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["openapi.EnvelopeHolderAddressPurge"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/internal/owed-assignment-mails/sweep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send owed Assignment mails
+         * @description Sends the Assignment mails a Named Tickets checkout owes: one per Ticket the buyer named at checkout for an address other than their own, written as owed by the commit that recorded the Ticket Sale. Each is the ordinary Assignment mail with the ordinary Assignment Link, written in the Holder's Mail Locale, then the Sale Locale, then English. Before sending, the Ticket is re-read: an owed mail whose Ticket has been reassigned since, has no address any more, or was accepted, whose Ticket Sale was reversed, or whose Event has started is dropped and never sent. A sent mail is recorded in the Assignment mail ledger, where it counts against its Ticket's lifetime allowance and never against the buyer's rolling window, and is owed no more. A send the provider refuses or that fails stays owed and is retried by a later run after a backoff. Sends are paced by the gap the Reminder sweeps share, one at a time, oldest owed first, at most a batch per run and inside a run budget. Holds everything, sending and dropping nothing, while TICKET_ASSIGNMENT_ENABLED is off or no mailer or Assignment Link secret is configured. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. Nothing about the run can be named by the caller. Safe to call by hand and concurrently: claims are leased and skip each other, so no mail is sent twice. The response reports how many mails went, how many were dropped, how many failed, how many were sent but could not be recorded, and the standing backlog. It names nobody.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOwedAssignmentMailSweep"];
                     };
                 };
                 /** @description Internal Server Error */
@@ -14263,6 +14407,7 @@ export interface components {
             customer_phone?: string;
             customer_tax_id_number?: string;
             customer_tax_id_type?: string;
+            holders?: components["schemas"]["handler.checkoutHolderBody"][];
             lines?: components["schemas"]["handler.checkoutLineBody"][];
             locale?: string;
             marketing_consent?: boolean;
@@ -14301,7 +14446,41 @@ export interface components {
              */
             upgrade_elected?: boolean;
         };
+        "handler.buyerAssignmentAnswerBody": {
+            /** @description Checked answers checkbox. */
+            checked?: boolean;
+            /**
+             * @description Date answers date, as a calendar date YYYY-MM-DD. Never an instant: a
+             *     date carries no time and no zone, so nothing can shift it by a day.
+             */
+            date?: string;
+            /**
+             * @description Number answers number, as a decimal STRING rather than a JSON number.
+             *     JSON numbers are doubles in most parsers, and a value that survives a
+             *     NUMERIC column only to be rounded on the way through the wire would defeat
+             *     the column. See catalog.SubmittedAnswer.
+             */
+            number?: string;
+            /**
+             * @description OptionIDs answers single_choice (one) and multi_choice (any number). They
+             *     are OPTION IDENTITIES and never labels, because a label could not survive
+             *     a rename — which is the whole reason an Option has an id.
+             *
+             *     An empty array is somebody clearing their choices, which is refused as an
+             *     empty Answer; the way to say "not said" is to DELETE the Answer.
+             */
+            option_ids?: string[];
+            /** @description Text answers short_text and long_text. */
+            text?: string;
+            ticket_question_id?: string;
+        };
         "handler.buyerAssignmentBody": {
+            /**
+             * @description Answers are the new Holder's Answers to this Ticket's questions, one per
+             *     question, in the shape its kind takes. Judged in the service against the
+             *     questions the checkout form asks, exactly as a checkout's Answers are.
+             */
+            answers?: components["schemas"]["handler.buyerAssignmentAnswerBody"][];
             /**
              * @description HolderEmail is the address as the buyer typed it. Normalised and shape
              *     checked by catalog.ParseHolderEmail in the service, and NOT here — the
@@ -14309,6 +14488,33 @@ export interface components {
              *     handler is a second place for it to disagree.
              */
             holder_email?: string;
+        };
+        "handler.buyerProvisionalAnswerBody": {
+            /** @description Checked answers checkbox. */
+            checked?: boolean;
+            /**
+             * @description Date answers date, as a calendar date YYYY-MM-DD. Never an instant: a
+             *     date carries no time and no zone, so nothing can shift it by a day.
+             */
+            date?: string;
+            /**
+             * @description Number answers number, as a decimal STRING rather than a JSON number.
+             *     JSON numbers are doubles in most parsers, and a value that survives a
+             *     NUMERIC column only to be rounded on the way through the wire would defeat
+             *     the column. See catalog.SubmittedAnswer.
+             */
+            number?: string;
+            /**
+             * @description OptionIDs answers single_choice (one) and multi_choice (any number). They
+             *     are OPTION IDENTITIES and never labels, because a label could not survive
+             *     a rename — which is the whole reason an Option has an id.
+             *
+             *     An empty array is somebody clearing their choices, which is refused as an
+             *     empty Answer; the way to say "not said" is to DELETE the Answer.
+             */
+            option_ids?: string[];
+            /** @description Text answers short_text and long_text. */
+            text?: string;
         };
         "handler.checkoutAnswerBody": {
             checked?: boolean;
@@ -14324,6 +14530,11 @@ export interface components {
              */
             ticket_index?: number;
             ticket_question_id?: string;
+            ticket_type_id?: string;
+        };
+        "handler.checkoutHolderBody": {
+            holder_email?: string;
+            ticket_index?: number;
             ticket_type_id?: string;
         };
         "handler.checkoutLineBody": {
@@ -14863,6 +15074,12 @@ export interface components {
              */
             registration_mode?: string;
             registration_url?: string;
+            /**
+             * @description RequiresNamedTickets is the Named Tickets setting (ADR 0076). Absent
+             *     leaves it alone, like fee_handling: the cover image and video side-saves
+             *     borrow this body and know nothing about it.
+             */
+            requires_named_tickets?: boolean;
             slug?: string;
             starts_at?: string;
             timezone?: string;
@@ -15439,6 +15656,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeOwedAssignmentMailSweep": {
+            data?: components["schemas"]["service.OwedAssignmentMailSweepResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopePayoutProfile": {
             data?: components["schemas"]["service.PayoutProfile"];
             error?: components["schemas"]["platform.APIError"];
@@ -15825,6 +16047,15 @@ export interface components {
              *     deploy or a database session, which 30 days the job actually used.
              */
             cutoff?: string;
+            /** @description HoldersHeld is the same standing backlog for Holder addresses. */
+            holders_held?: number;
+            /**
+             * @description HoldersPurged is how many Holder addresses held by Named Tickets
+             *     checkouts this run deleted, in the same statement as the Answers (ADR
+             *     0076): on the Answers' terms, and also any an approved Payment still
+             *     carries, at any age, because its Tickets already have them.
+             */
+            holders_purged?: number;
             /**
              * @description PaymentsPurged is how many Payments those Answers came off, which is the
              *     figure that means something in human terms: forty answers off one abandoned
@@ -16081,6 +16312,16 @@ export interface components {
              *     line apart until an address is given.
              */
             ordinal?: number;
+            provisional_answers?: components["schemas"]["service.ProvisionalAnswersView"];
+            /**
+             * @description ReassignmentQuestions are the Ticket Questions an assignment of this
+             *     Ticket must be given Answers to, with the address (ADR 0076, #673): the
+             *     Event requires Named Tickets, the Ticket may be assigned right now, and
+             *     its Ticket Type asks something. The questions as the checkout form asks
+             *     them, required ones marked, and NEVER an Answer: what anybody said is not
+             *     on this field. Absent on every other row.
+             */
+            reassignment_questions?: components["schemas"]["service.PublicTicketQuestion"][];
             /**
              * @description SelfHeld is whether this Ticket's Holder is the buyer themself — the one
              *     Ticket an Online Sale hands the buyer at purchase (ADR 0048), or any
@@ -17038,6 +17279,15 @@ export interface components {
              */
             registration_mode?: string;
             registration_url?: string;
+            /**
+             * @description RequiresNamedTickets is the Event's Named Tickets setting (ADR 0076): a
+             *     Storefront checkout must name a Holder for every Ticket beyond the
+             *     buyer's own and answer every required Ticket Question on every Ticket.
+             *     On for a new Event, off for one that existed before the setting did. The
+             *     stored value, stated even on an external Event, where it is ignored and
+             *     the staff form does not offer it.
+             */
+            requires_named_tickets?: boolean;
             slug?: string;
             starts_at?: string;
             status?: string;
@@ -18347,6 +18597,32 @@ export interface components {
             question_id?: string;
             sort_order?: number;
         };
+        "service.OwedAssignmentMailSweepResult": {
+            /**
+             * @description Backlog is how many owed mails are due after this run and held by no
+             *     claim. Non-zero with nothing sent means the sender is held - Ticket
+             *     Assignment closed, or no mailer or link secret configured.
+             */
+            backlog?: number;
+            /**
+             * @description Dropped is how many were owed no longer - the Ticket reassigned since, its
+             *     Sale reversed, its Event started - and went unsent, never to be sent.
+             */
+            dropped?: number;
+            /**
+             * @description Failed is how many the provider refused or failed. They stay owed, backed
+             *     off, and a later run sends them.
+             */
+            failed?: number;
+            /** @description Sent is how many mails the provider accepted, recorded or not. */
+            sent?: number;
+            /**
+             * @description Unrecorded is how many were sent but whose ledger row could not be
+             *     written: counted in Sent too. The Holder has the mail; the Ticket's
+             *     lifetime allowance under-counts by one. It should always be zero.
+             */
+            unrecorded?: number;
+        };
         "service.PageInfo": {
             page?: number;
             page_size?: number;
@@ -18653,6 +18929,34 @@ export interface components {
             promotional_price_cents?: number;
             starts_at?: string;
         };
+        /**
+         * @description ProvisionalAnswers is the one exception to "no question on this payload"
+         *     (ADR 0076, #672): on an Event that requires Named Tickets, an `assigned`
+         *     Ticket's questions and the Answers given so far, which are the buyer's
+         *     to correct until its Holder accepts. Nil, and so absent, on every other
+         *     row - an accepted Ticket's Answers are its Holder's, and a Ticket the
+         *     buyer holds is answered on the held-ticket routes. See
+         *     buyer_provisional_answers.go.
+         */
+        "service.ProvisionalAnswersView": {
+            /**
+             * @description Answerable and AnswerableRefusal are the write window: false once the
+             *     Event has started and on a reversed Sale, with the refusal as a token
+             *     the Storefront translates. The READ is never gated by it.
+             */
+            answerable?: boolean;
+            answerable_refusal?: string;
+            /**
+             * @description OutstandingCount is how many required questions this Ticket has not yet
+             *     answered, from the platform's one definition of the debt.
+             */
+            outstanding_count?: number;
+            /**
+             * @description Questions carries the Ticket Type's questions in the order they are
+             *     asked, retired ones last, each with this Ticket's Answer or null.
+             */
+            questions?: components["schemas"]["service.TicketQuestionAnswerView"][];
+        };
         "service.PublicEventCard": {
             /**
              * @description AllClosed reports that every one of the Event's Ticket Types is past its
@@ -18798,6 +19102,20 @@ export interface components {
              *     cannot be (the publish gate requires it, #208).
              */
             registration_url?: string;
+            /**
+             * @description RequiresNamedTickets is whether this Event's checkout must name a Holder
+             *     for every Ticket beyond the buyer's own and answer every required Ticket
+             *     Question on every Ticket (ADR 0076), so the checkout dialog can draw the
+             *     fields for it. The setting as the Event has it, not a verdict on any one
+             *     checkout: begin-checkout decides that, once, and it also lets the rule
+             *     fall silent once the Event has started.
+             *
+             *     Always false on an Event with External Registration, whatever is stored:
+             *     it sells nothing here, so the setting is ignored there, and the public read
+             *     says what applies rather than what was left behind - the rule
+             *     registration_url follows from the other side.
+             */
+            requires_named_tickets?: boolean;
             slug?: string;
             starts_at?: string;
             /**
@@ -18991,6 +19309,15 @@ export interface components {
              */
             sales_cutoff_at?: string;
             sold_out?: boolean;
+            /**
+             * @description SortOrder is the Ticket Type's place in its Event's catalog. The list is
+             *     already in this order, but two Ticket Types can share a place, and the
+             *     Self-held seating rule breaks a price tie on it before the name and the id
+             *     (ADR 0074). The Storefront mirrors that rule to know which Ticket a Named
+             *     Tickets checkout does not ask a Holder for (ADR 0076), and the list's
+             *     order alone cannot tell it which of two equals the server would pick.
+             */
+            sort_order?: number;
             /**
              * @description TicketQuestions are what this Ticket Type asks the person who will hold one
              *     of its tickets, in the order they are asked (#311).

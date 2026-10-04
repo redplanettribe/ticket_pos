@@ -369,35 +369,8 @@ func TestReassigningToTheSameAddressIsANoOpAndKeepsTheAnswers(t *testing.T) {
 	}
 }
 
-// A BUYER MAY ASSIGN A TICKET TO THEIR OWN ADDRESS. A parent buying for three
-// children holds one themselves, and a rule that refused the buyer's own address
-// would refuse the commonest shape this feature has. Nothing about it makes them
-// stop being the buyer: the Ticket Sale, and the other Ticket, stay exactly where
-// they were.
-func TestBuyerAssignsATicketToTheirOwnAddress(t *testing.T) {
-	env := setupTest(t)
-	f := newBuyerAnswersFixture(t, env)
-	enableTicketAssignment(t)
-	ana := customerSignIn(t, env, "ana@example.com")
-
-	returned := assignTicketOK(t, env, ana, f.anaSaleID, f.anaTicketIDs[0], "ana@example.com")
-	own := findBuyerRow(t, returned, f.anaTicketIDs[0])
-	if own.AssignmentState != "assigned" || own.HolderEmail != "ana@example.com" {
-		t.Fatalf("self-assignment gave state=%q holder=%q", own.AssignmentState, own.HolderEmail)
-	}
-	// Still `assigned` and not `accepted`, even though the platform already
-	// knows this address belongs to a Verified Customer. Acceptance is a CLICK
-	// FROM THE INBOX and nothing else — inferring it from a match would be the
-	// platform proving ownership on somebody's behalf, and there is no mail to
-	// click in #324 anyway.
-	if own.AcceptedAt != nil {
-		t.Error("assigning to the buyer's own address reported an acceptance; only a click accepts")
-	}
-	// The buyer's other Ticket, and their Sale, are untouched.
-	if other := findBuyerRow(t, returned, f.anaTicketIDs[1]); other.AssignmentState != "unassigned" {
-		t.Errorf("the other Ticket became %q when the buyer assigned one to themselves", other.AssignmentState)
-	}
-}
+// A BUYER MAY ASSIGN A TICKET TO THEIR OWN ADDRESS, and since ADR 0076 it is
+// accepted at once: see own_address_assignment_test.go.
 
 // ASKING ABOUT ANOTHER CUSTOMER'S TICKET SALE IS ANSWERED AS IF IT DID NOT
 // EXIST, on the write as on the read beside it (#315).

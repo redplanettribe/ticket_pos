@@ -14,8 +14,8 @@
 
 import { NextResponse } from "next/server";
 
-import { APIError } from "./api";
-import type { SessionOutcome } from "./customer-session";
+import { APIError, callBackend } from "./api";
+import { customerSessionToken, type SessionOutcome } from "./customer-session";
 
 /** Relays a failed API call to the browser with the API's own code and message. */
 export function apiErrorResponse(error: unknown): NextResponse {
@@ -85,5 +85,58 @@ export function sessionOutcomeResponse<T>(outcome: SessionOutcome<T>): NextRespo
         },
         { status: 502 },
       );
+  }
+}
+
+/**
+ * Relays a Customer's write to the API through their session: the body as the
+ * browser sent it, PUT to `path`, and the API's verdict back as it said it.
+ *
+ * Every /api/customer write handler that edits one thing in place is this hop
+ * and nothing more, so they share it rather than each carrying a copy. The
+ * route's whole say is the API path it builds from its own ids, each one
+ * encoded by the caller.
+ *
+ * THE BODY IS RELAYED UNVALIDATED. Whatever rules the body is held to are the
+ * API's, and a second reading here would only be a parser that could disagree
+ * with the real one. A body this hop cannot even parse never left the browser
+ * we serve, so it alone is refused here rather than forwarded.
+ *
+ * NO TOKEN TRAVELS IN THE BODY. The Customer Session cookie is the whole
+ * credential; a call without one is told it is not signed in, and never reaches
+ * the API.
+ */
+export async function relayCustomerPut<T>(request: Request, path: string): Promise<NextResponse> {
+  const token = await customerSessionToken();
+  if (!token) {
+    return notSignedInResponse();
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json(
+      {
+        data: null,
+        error: { code: "INVALID_JSON", message: "Malformed request body" },
+        request_id: crypto.randomUUID(),
+      },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const backend = await callBackend<T>(path, {
+      method: "PUT",
+      body: JSON.stringify(body),
+      sessionToken: token,
+    });
+    return NextResponse.json(
+      { data: backend.data, error: null, request_id: crypto.randomUUID() },
+      { status: backend.status },
+    );
+  } catch (error) {
+    return apiErrorResponse(error);
   }
 }

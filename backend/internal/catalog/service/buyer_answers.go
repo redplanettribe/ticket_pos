@@ -29,6 +29,13 @@ import (
 // held-ticket routes, which is the one door every Holder uses, so there is no
 // second copy of "may this person answer this Ticket" to drift.
 //
+// ONE EXCEPTION, SINCE ADR 0076 (#672). On an Event that requires Named
+// Tickets the buyer answered every Ticket at checkout, and the Answers on a
+// Ticket named for somebody else stay the buyer's to read and correct while it
+// is `assigned`: such a row carries them under `provisional_answers`, and
+// nothing else on any row does. From the Holder's acceptance the row is back
+// to the shape above. See buyer_provisional_answers.go.
+//
 // THE PREVIOUS SHAPE IS WORTH REMEMBERING, because the tests guard against it
 // returning: this payload used to carry every Ticket's Answers and a per-Ticket
 // Answer Link, an unauthenticated write credential over somebody else's Ticket.
@@ -88,6 +95,21 @@ type BuyerTicketAnswersView struct {
 	// because the Storefront owns the words in the reader's language.
 	Assignable        bool   `json:"assignable,omitempty"`
 	AssignableRefusal string `json:"assignable_refusal,omitempty"`
+	// ProvisionalAnswers is the one exception to "no question on this payload"
+	// (ADR 0076, #672): on an Event that requires Named Tickets, an `assigned`
+	// Ticket's questions and the Answers given so far, which are the buyer's
+	// to correct until its Holder accepts. Nil, and so absent, on every other
+	// row - an accepted Ticket's Answers are its Holder's, and a Ticket the
+	// buyer holds is answered on the held-ticket routes. See
+	// buyer_provisional_answers.go.
+	ProvisionalAnswers *ProvisionalAnswersView `json:"provisional_answers,omitempty"`
+	// ReassignmentQuestions are the Ticket Questions an assignment of this
+	// Ticket must be given Answers to, with the address (ADR 0076, #673): the
+	// Event requires Named Tickets, the Ticket may be assigned right now, and
+	// its Ticket Type asks something. The questions as the checkout form asks
+	// them, required ones marked, and NEVER an Answer: what anybody said is not
+	// on this field. Absent on every other row.
+	ReassignmentQuestions []PublicTicketQuestion `json:"reassignment_questions,omitempty"`
 }
 
 // ListBuyerTicketAnswers returns every Ticket of one of the buyer's own Ticket
@@ -124,19 +146,39 @@ func (s *Service) ListBuyerTicketAnswers(
 	if err != nil {
 		return nil, err
 	}
-	return s.buyerTicketAnswersViews(customerID, tickets), nil
+	return s.buyerTicketAnswersViews(ctx, customerID, tickets)
 }
 
 // buyerTicketAnswersViews assembles the buyer's rows from the scoped read.
 //
-// NO QUESTIONS ARE READ AND NO ANSWERS ARE LOADED, on purpose and not as an
-// optimisation: a row that never carried an Answer cannot leak one. Anything the
-// buyer may answer is on the held-ticket routes, behind the one "is this
-// Ticket held by the caller" check.
+// QUESTIONS ARE READ FOR THE PROVISIONAL ROWS ALONE, and for no other row, on
+// purpose and not as an optimisation: a row that never carried an Answer cannot
+// leak one. The one predicate deciding which rows those are is
+// catalog.BuyerAnswersProvisional, the same one the provisional write asks, so
+// what the buyer is shown and what they may correct cannot drift apart.
+// Anything else the buyer may answer is on the held-ticket routes, behind the
+// one "is this Ticket held by the caller" check. The reassignment questions a
+// Named Tickets row carries (#673) are questions alone, with no Answer.
 func (s *Service) buyerTicketAnswersViews(
+	ctx context.Context,
 	customerID string,
 	tickets []repository.AnswerableTicket,
-) []BuyerTicketAnswersView {
+) ([]BuyerTicketAnswersView, error) {
+	provisional := make([]repository.AnswerableTicket, 0)
+	for _, ticket := range tickets {
+		if s.buyerAnswersProvisional(&ticket) {
+			provisional = append(provisional, ticket)
+		}
+	}
+	provisionalViews, err := s.provisionalAnswersViews(ctx, provisional)
+	if err != nil {
+		return nil, err
+	}
+	reassignment, err := s.reassignmentQuestions(ctx, tickets)
+	if err != nil {
+		return nil, err
+	}
+
 	views := make([]BuyerTicketAnswersView, 0, len(tickets))
 	for _, ticket := range tickets {
 		view := BuyerTicketAnswersView{
@@ -145,9 +187,11 @@ func (s *Service) buyerTicketAnswersViews(
 			TicketTypeName: ticket.TicketTypeName,
 		}
 		s.fillBuyerAssignment(&view, customerID, ticket)
+		view.ProvisionalAnswers = provisionalViews[ticket.ID]
+		view.ReassignmentQuestions = reassignment[ticket.ID]
 		views = append(views, view)
 	}
-	return views
+	return views, nil
 }
 
 // TicketSaleHasOutstandingAnswers is whether any Ticket of one Sale still owes a

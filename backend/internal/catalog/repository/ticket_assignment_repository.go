@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/catalog"
 )
 
 // The one write path into a Ticket Assignment (#324, parent #322).
@@ -63,6 +65,54 @@ type AssignTicketResult struct {
 	//
 	// Empty on a first assignment and on a no-op, where nobody was displaced.
 	DisplacedHolderEmail string
+	// Accepted is true when this write made the Ticket `accepted` for the buyer
+	// (ADR 0076): always on an own-address assignment that changed the address,
+	// and also on the one same-address call that is not a no-op - a Ticket
+	// already carrying the buyer's address but left `assigned` from before own
+	// addresses were accepted at once.
+	Accepted bool
+}
+
+// AssignedAnswer is one Answer written onto a Ticket in the transaction that
+// names its new Holder (#673): already validated and its Options resolved by
+// the caller, as UpsertTicketAnswer's are.
+type AssignedAnswer struct {
+	TicketQuestionID string
+	Params           UpsertTicketAnswerParams
+}
+
+// AssignTicketInput is one "this Ticket's Holder address is now X", with
+// everything the write needs to decide, under the row lock, what that means.
+type AssignTicketInput struct {
+	// TicketID is a Ticket the caller has ALREADY resolved through a scoped
+	// read; see AssignTicketToHolder.
+	TicketID string
+	// HolderEmail is the address, already parsed and normalised
+	// (catalog.ParseHolderEmail).
+	HolderEmail string
+	// BuyerCustomerID is the Sale's own Customer, the session's.
+	BuyerCustomerID string
+	// OwnAddress says HolderEmail is the Sale's own address
+	// (catalog.IsBuyersOwnAddress): the Ticket is then accepted at once with
+	// the buyer as its Holder, through catalog.AcceptForBuyer, and is never
+	// left `assigned` waiting on a link nobody will mail (ADR 0076).
+	OwnAddress bool
+	// NamedTickets is the Named Tickets requirement's verdict on the Answers
+	// given with the address, and nil wherever the requirement does not bind
+	// (#673, ADR 0076). It is consulted only if the address CHANGES.
+	NamedTickets *NamedTicketsVerdict
+	Now          time.Time
+}
+
+// NamedTicketsVerdict is what the Named Tickets requirement says of one
+// reassignment's Answers, judged by the service against the questions the
+// checkout asks: the Answers to write if the address changes, or what is still
+// owed, which refuses a change of address outright.
+type NamedTicketsVerdict struct {
+	Answers []AssignedAnswer
+	// Owed is non-empty when a required Answer is missing. Refused in the
+	// shared NAMED_TICKETS_INCOMPLETE shape, and only when the address changes.
+	Owed []catalog.OwedTicket
 }
 
 // AssignTicketToHolder names the address that holds one Ticket, creating the
@@ -90,19 +140,32 @@ type AssignTicketResult struct {
 // ACCEPTANCE IS CLEARED WITH THE ADDRESS. A Ticket handed to somebody new has
 // not been accepted by them, so accepted_at and holder_customer_id go together
 // with the old address — otherwise the database's own CHECK would be describing
-// a Customer who proved a different address entirely. Unreachable in #324, where
-// nothing ever sets them; correct from the day #325 does.
+// a Customer who proved a different address entirely.
+//
+// THE BUYER'S OWN ADDRESS IS ACCEPTED IN THE SAME TRANSACTION (ADR 0076), by
+// catalog.AcceptForBuyer: the one write the commit spine also seats the
+// Self-held Ticket with, so the two cannot write different rows. Not a second
+// call afterwards: a Ticket must never be observable as `assigned` to the
+// buyer, waiting on a link nobody will mail.
+//
+// THE NAMED TICKETS REQUIREMENT IS DECIDED HERE, UNDER THE LOCK (#673, ADR
+// 0076). Whether a call names somebody new is only knowable once the row is
+// locked, and so is whether it owes the new Holder's Answers: a same-address
+// call is a no-op that needs none and writes none (the Ticket's Answers may
+// already be an accepted Holder's own, ADR 0049), while a change of address
+// with a required Answer missing is refused and writes nothing. A rule judged
+// before the lock on the caller's earlier read would leave a window in which
+// a concurrent reassignment turned a same-address call into a change made
+// without Answers. On a change, the clearing above and the new Holder's
+// Answers commit together: there is no instant at which the Ticket is named
+// for somebody new with the roster's required Answers gone.
 //
 // NO ORGANIZATION, EVENT OR CUSTOMER CLAUSE HERE. This takes a Ticket id that
 // the caller has ALREADY resolved through a scoped read — ListAnswerableTickets
 // ForBuyer and its customer_id clause — exactly as UpsertTicketAnswer does. A
 // second, differently-worded scope on the write is a second place for it to be
 // wrong, and the two would eventually disagree.
-func (r *Repository) AssignTicketToHolder(
-	ctx context.Context,
-	ticketID, holderEmail string,
-	now time.Time,
-) (AssignTicketResult, error) {
+func (r *Repository) AssignTicketToHolder(ctx context.Context, in AssignTicketInput) (AssignTicketResult, error) {
 	var result AssignTicketResult
 
 	tx, err := r.db.Pool.BeginTx(ctx, nil)
@@ -123,7 +186,7 @@ func (r *Repository) AssignTicketToHolder(
 	var previouslyAccepted sql.NullTime
 	if err := tx.QueryRowContext(ctx, `
 		SELECT holder_email, accepted_at FROM tickets WHERE id = $1 FOR UPDATE
-	`, ticketID).Scan(&previous, &previouslyAccepted); err != nil {
+	`, in.TicketID).Scan(&previous, &previouslyAccepted); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			// The caller resolved this Ticket a moment ago through its own scoped
 			// read; it is gone now. Reported as "nothing changed" rather than as an
@@ -133,9 +196,29 @@ func (r *Repository) AssignTicketToHolder(
 		return result, err
 	}
 
-	if previous.Valid && previous.String == holderEmail {
-		// The same address again. Nothing is written at all — see Changed.
+	if previous.Valid && previous.String == in.HolderEmail {
+		// The same address again. Nothing is written at all - see Changed -
+		// and no Answers are asked for or written, unless it is the buyer's own
+		// address on a Ticket still waiting to be accepted, which is accepted
+		// now: the same person, so no Answer goes and assigned_at stands.
+		if !in.OwnAddress || previouslyAccepted.Valid {
+			return result, nil
+		}
+		if _, err := catalog.AcceptForBuyer(ctx, tx, in.TicketID, in.BuyerCustomerID, in.HolderEmail, in.Now); err != nil {
+			return result, err
+		}
+		if err := tx.Commit(); err != nil {
+			return AssignTicketResult{}, err
+		}
+		result.Accepted = true
 		return result, nil
+	}
+
+	// A CHANGE OF ADDRESS, so the Named Tickets requirement binds this call.
+	// Refused before anything is written; the deferred rollback releases the
+	// lock having changed nothing.
+	if in.NamedTickets != nil && len(in.NamedTickets.Owed) > 0 {
+		return AssignTicketResult{}, catalog.ErrNamedTicketsIncomplete(in.NamedTickets.Owed)
 	}
 	result.Changed = true
 
@@ -146,23 +229,28 @@ func (r *Repository) AssignTicketToHolder(
 		result.DisplacedHolderEmail = previous.String
 	}
 
-	// RETURNING the stored timestamp rather than trusting the one sent in: it
-	// comes back rounded to the column's microseconds, and #325 signs the
+	// Both writes return the stored timestamp rather than trusting the one sent
+	// in: it comes back rounded to the column's microseconds, and #325 signs the
 	// Assignment Link over exactly that value.
-	if err := tx.QueryRowContext(ctx, `
+	if in.OwnAddress {
+		result.AssignedAt, err = catalog.AcceptForBuyer(ctx, tx, in.TicketID, in.BuyerCustomerID, in.HolderEmail, in.Now)
+		if err != nil {
+			return result, err
+		}
+		result.Accepted = true
+	} else if err := tx.QueryRowContext(ctx, `
 		UPDATE tickets
 		SET holder_email = $2,
 		    assigned_at = $3,
-		    -- Both cleared with the address, always. See above: unreachable in
-		    -- #324 because nothing sets them, and load-bearing from #325 — a
-		    -- Ticket handed to somebody new has not been accepted by them, and
-		    -- every Assignment Link mailed to the previous address dies here,
-		    -- because assigned_at is what those links were signed over.
+		    -- Both cleared with the address, always. A Ticket handed to somebody
+		    -- new has not been accepted by them, and every Assignment Link mailed
+		    -- to the previous address dies here, because assigned_at is what
+		    -- those links were signed over.
 		    accepted_at = NULL,
 		    holder_customer_id = NULL
 		WHERE id = $1
 		RETURNING assigned_at
-	`, ticketID, holderEmail, now).Scan(&result.AssignedAt); err != nil {
+	`, in.TicketID, in.HolderEmail, in.Now).Scan(&result.AssignedAt); err != nil {
 		return result, err
 	}
 
@@ -170,11 +258,21 @@ func (r *Repository) AssignTicketToHolder(
 	// rather than the naming of one. The Options a choice Answer chose follow by
 	// the ON DELETE CASCADE on ticket_answer_options (migration 073).
 	if previous.Valid {
-		res, err := tx.ExecContext(ctx, `DELETE FROM ticket_answers WHERE ticket_id = $1`, ticketID)
+		res, err := tx.ExecContext(ctx, `DELETE FROM ticket_answers WHERE ticket_id = $1`, in.TicketID)
 		if err != nil {
 			return result, err
 		}
 		result.AnswersCleared, _ = res.RowsAffected()
+	}
+
+	// Upserted rather than inserted: a first assignment cleared nothing, and
+	// the Ticket may already carry an Answer the buyer is now restating.
+	if in.NamedTickets != nil {
+		for _, answer := range in.NamedTickets.Answers {
+			if err := writeTicketAnswer(ctx, tx, in.TicketID, answer.TicketQuestionID, answer.Params, in.Now); err != nil {
+				return result, err
+			}
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -213,12 +311,16 @@ func (r *Repository) CountAssignmentMailsForTicket(ctx context.Context, ticketID
 // derives the cutoff from its own clock rather than accepting one from a
 // request — a caller who could name the window's start could name one a second
 // ago and lift the limit entirely.
+//
+// A MAIL OWED BY A NAMED TICKETS CHECKOUT IS NOT COUNTED (migration 128, ADR
+// 0076): it spends its Ticket's lifetime allowance and never the buyer's
+// window, which rations what the buyer does after the sale.
 func (r *Repository) CountAssignmentMailsForBuyer(ctx context.Context, buyerCustomerID string, since time.Time) (int, error) {
 	var count int
 	err := r.db.Pool.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM ticket_assignment_mails
-		WHERE buyer_customer_id = $1 AND sent_at >= $2
+		WHERE buyer_customer_id = $1 AND sent_at >= $2 AND NOT checkout_named
 	`, buyerCustomerID, since).Scan(&count)
 	return count, err
 }

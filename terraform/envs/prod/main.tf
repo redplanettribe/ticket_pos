@@ -136,6 +136,14 @@ module "ticket_pos" {
   assignment_reminder_schedule                 = var.assignment_reminder_schedule
   assignment_reminder_attempt_deadline_seconds = var.assignment_reminder_attempt_deadline_seconds
 
+  # The Owed Assignment Mail sweep (#671, parent #665, ADR 0076). Threaded
+  # through on the Assignment Reminder's terms and enabled in terraform.tfvars:
+  # a Named Tickets checkout owes its mails from the moment it deploys, and
+  # paused, nobody a buyer names at checkout is ever told.
+  owed_assignment_mail_enabled                  = var.owed_assignment_mail_enabled
+  owed_assignment_mail_schedule                 = var.owed_assignment_mail_schedule
+  owed_assignment_mail_attempt_deadline_seconds = var.owed_assignment_mail_attempt_deadline_seconds
+
   # The Holder Address Purge (#331, parent #322, ADR 0046). Threaded through on
   # the Abandoned Answer Purge's terms, and read the enabled flag as BOTH levers
   # at once for a sharper reason than that job's. It is the incident stop — this

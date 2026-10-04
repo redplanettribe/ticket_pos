@@ -8,6 +8,10 @@
  * button. A question the buyer leaves alone becomes an Outstanding Answer that
  * the Ticket's holder can fill in later through its Answer Link.
  *
+ * On an Event that requires Named Tickets (ADR 0076) every Ticket is asked and
+ * the required questions do hold the pay button; that rule lives in
+ * lib/named-tickets.ts, which builds on the shapes here.
+ *
  * Framework-free, like checkout.ts beside it, so the decisions are unit tested
  * and the component owns only the drawing.
  */
@@ -40,10 +44,14 @@ export type CheckoutQuestion = {
     | "date"
     | "checkbox";
   /**
-   * MARKS THE FIELD AND GATES NOTHING. Required's only effect anywhere is
+   * MARKS THE FIELD AND, ORDINARILY, GATES NOTHING. Required's only effect is
    * producing an Outstanding Answer the Organization can chase; a Storefront
    * that turned it into a blocked pay button would be reversing ADR 0044, whose
    * premise is that the buyer often does not know the answer.
+   *
+   * The one exception is an Event that requires Named Tickets (ADR 0076), whose
+   * Organization chose the friction: there it holds the pay button, and
+   * lib/named-tickets.ts is where that is decided, never this file.
    */
   required: boolean;
   /** Empty for the five kinds that are not answered by choosing. */
@@ -62,6 +70,11 @@ export type AnsweredTicketType = {
    * decides that is the price as sold — this app never recomputes either.
    */
   price_cents: number;
+  /**
+   * The Ticket Type's place in the catalog, which breaks a price tie for the
+   * buyer's own Ticket exactly as the server does (selfHeldSeat).
+   */
+  sort_order: number;
   /**
    * Absent on a deployment where the feature flag is closed, which is how it
    * ships — the API omits the key entirely, so there is nothing to draw and no
@@ -83,6 +96,39 @@ export type AnswerSlot = {
   index: number;
   questions: CheckoutQuestion[];
 };
+
+/**
+ * One Ticket that already exists, and what a form asks about it: a
+ * reassignment's new Holder's Answers (ADR 0076).
+ *
+ * KEYED BY THE TICKET'S OWN ID where AnswerSlot is keyed by Ticket Type: this
+ * Ticket is told apart from its Sale's others by its id, not by its place in a
+ * cart. `ordinal` is its number in the Sale, the one a refusal names it by.
+ */
+export type ExistingTicketSlot = {
+  ticketId: string;
+  ticketTypeName: string;
+  ordinal: number;
+  questions: CheckoutQuestion[];
+};
+
+/** One ticket's answer fields: a ticket still to be bought, or one that exists. */
+export type QuestionSlot = AnswerSlot | ExistingTicketSlot;
+
+/**
+ * The pair that tells this slot's ticket apart on its form, and prefixes every
+ * answerKey of its fields: Ticket Type and number for a ticket to be bought,
+ * the Ticket's own id and ordinal for one that exists.
+ */
+export function slotTicketKey(slot: QuestionSlot): [string, number] {
+  return "ticketId" in slot ? [slot.ticketId, slot.ordinal] : [slot.ticketTypeId, slot.index];
+}
+
+/** answerKey for one of this slot's questions, whichever kind of slot it is. */
+export function slotAnswerKey(slot: QuestionSlot, questionId: string): string {
+  const [id, number] = slotTicketKey(slot);
+  return answerKey(id, number, questionId);
+}
 
 /** One reply, in the one slot its question's kind takes. */
 export type AnswerValue = {
@@ -172,6 +218,8 @@ export function answerSlots(
  * THE OTHER TICKETS ARE NOT ASKED ABOUT AT ALL, and are not mentioned. A buyer
  * of four is not assumed to know four people's sizes; those Tickets are for
  * their own Holders to answer, after the purchase, from the sale page's links.
+ * An Event that requires Named Tickets is the exception, and asks about every
+ * Ticket through lib/named-tickets.ts instead of this.
  *
  * Null when the sale will hand the buyer nothing — the assignment feature is
  * closed, the cart is empty — or when the buyer's own Ticket Type asks nothing:
@@ -184,15 +232,87 @@ export function ownTicketSlot(
   buyerHoldsFirstTicket: boolean,
 ): AnswerSlot | null {
   if (!buyerHoldsFirstTicket) return null;
-  let own: AnsweredTicketType | undefined;
-  for (const ticketType of ticketTypes) {
-    if ((quantities[ticketType.id] ?? 0) <= 0) continue;
-    if (own === undefined || ticketType.price_cents > own.price_cents) own = ticketType;
-  }
+  const seat = selfHeldSeat(ticketTypes, quantities, null);
+  const own = ticketTypes.find((ticketType) => ticketType.id === seat?.ticketTypeId);
   if (own === undefined) return null;
   const questions = own.ticket_questions ?? [];
   if (questions.length === 0) return null;
   return { ticketTypeId: own.id, ticketTypeName: own.name, index: 1, questions };
+}
+
+/** Which Ticket of the cart the sale will seat the buyer on. */
+export type SelfHeldSeat = { ticketTypeId: string; index: number };
+
+/**
+ * selfHeldSeat is the Ticket of this cart that becomes the buyer's own (ADR
+ * 0048, ADR 0074): the FIRST Ticket of the line sold DEAREST, or null for a cart
+ * that mints nothing.
+ *
+ * THIS RESTATES `SelfHeldSeatOf` in backend/internal/sales/repository/self_held.go,
+ * which begin-checkout asks to excuse one Ticket from Named Tickets' address
+ * (ADR 0076, #666) and the commit asks to seat the buyer. A page that picked a
+ * different Ticket would ask for an address on the Ticket the buyer will hold,
+ * and wave through the one somebody else will, so every clause below is the
+ * server's:
+ *
+ *   - A SURRENDERED FREE LINE IS OUT FIRST. A same-basket Upgrade the buyer
+ *     elected is never bought, so it can neither take the seat nor be asked
+ *     anything (`SameBasketUpgrade`). Pass its Ticket Type, or null.
+ *   - DEAREST BY THE PRICE AS SOLD. `price_cents` is the buyer unit price the
+ *     API quoted, Promotional Price and passed-on fee included, which is what
+ *     the server's Payment Line freezes and ranks on.
+ *   - A PRICE TIE GOES TO THE CATALOG: the lower `sort_order`, then the name,
+ *     then the Ticket Type's id, each string by its UTF-8 bytes as Go compares
+ *     them. The id makes the rule total, so the order the API happens to list
+ *     Ticket Types in never decides the seat - that order is `sort_order` then
+ *     creation, and two Ticket Types can share a `sort_order`.
+ *   - A LINE THAT MINTS NOTHING CLAIMS NOTHING, however dear.
+ */
+export function selfHeldSeat(
+  ticketTypes: SeatCandidate[],
+  quantities: Record<string, number>,
+  surrenderedTicketTypeId: string | null,
+): SelfHeldSeat | null {
+  let seat: SeatCandidate | undefined;
+  for (const ticketType of ticketTypes) {
+    if (ticketType.id === surrenderedTicketTypeId) continue;
+    if ((quantities[ticketType.id] ?? 0) <= 0) continue;
+    if (seat === undefined || outranks(ticketType, seat)) seat = ticketType;
+  }
+  return seat === undefined ? null : { ticketTypeId: seat.id, index: 1 };
+}
+
+/** As much of a Ticket Type as its claim on the Self-held seat needs. */
+type SeatCandidate = Pick<AnsweredTicketType, "id" | "name" | "price_cents" | "sort_order">;
+
+/**
+ * outranks reports whether `claim` takes the seat from `held`: the server's
+ * `seatClaim.outranks`, key for key and in the same direction.
+ */
+function outranks(claim: SeatCandidate, held: SeatCandidate): boolean {
+  if (claim.price_cents !== held.price_cents) return claim.price_cents > held.price_cents;
+  if (claim.sort_order !== held.sort_order) return claim.sort_order < held.sort_order;
+  const byName = compareUtf8(claim.name, held.name);
+  if (byName !== 0) return byName < 0;
+  return compareUtf8(claim.id, held.id) < 0;
+}
+
+/**
+ * compareUtf8 orders two strings by their UTF-8 bytes, which is how Go's `<`
+ * orders strings. That is code point order, and neither `<` here (UTF-16 code
+ * units, which put an emoji before U+FF5E) nor localeCompare (which puts "a"
+ * before "B") is.
+ */
+function compareUtf8(a: string, b: string): number {
+  const left = a[Symbol.iterator]();
+  const right = b[Symbol.iterator]();
+  for (;;) {
+    const x = left.next();
+    const y = right.next();
+    if (x.done || y.done) return x.done && y.done ? 0 : x.done ? -1 : 1;
+    const diff = x.value.codePointAt(0)! - y.value.codePointAt(0)!;
+    if (diff !== 0) return diff;
+  }
 }
 
 /**
@@ -384,7 +504,7 @@ export function checkoutAnswerBodies(
  * refused there rather than coerced. The order below is the order the kinds are
  * checked in and no value can legitimately fill two.
  */
-function statedReply(value: AnswerValue | undefined): AnswerValue | null {
+export function statedReply(value: AnswerValue | undefined): AnswerValue | null {
   if (!value) return null;
   if (typeof value.checked === "boolean") return { checked: value.checked };
   if (value.option_ids && value.option_ids.length > 0) return { option_ids: value.option_ids };

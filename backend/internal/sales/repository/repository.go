@@ -475,12 +475,18 @@ func (r *Repository) ListActiveSaleKeys(ctx context.Context, orgID, eventID, exc
 	return out, rows.Err()
 }
 
+// lockedType is one `ticket_types` row the commit holds FOR UPDATE. Its
+// catalog half is what the seating rule and the unit price as sold read, and it
+// is embedded so the commit hands those exactly what begin-checkout hands them.
 type lockedType struct {
-	priceCents int
-	capacity   int
-	soldCount  int
-	sortOrder  int
-	name       string
+	CatalogEntry
+	capacity  int
+	soldCount int
+}
+
+// catalogOfLocked is the commit's CatalogLookup: the lock set it already holds.
+func catalogOfLocked(locked map[string]lockedType) CatalogLookup {
+	return func(ticketTypeID string) CatalogEntry { return locked[ticketTypeID].CatalogEntry }
 }
 
 // CommitSales records prepared Ticket Sales, their Lines, and the resulting
@@ -491,6 +497,13 @@ type lockedType struct {
 func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSalesInput) ([]RecordedSale, error) {
 	if in.Terms.UpsertCustomer == nil {
 		return nil, errors.New("sales: UpsertCustomer is required — every Ticket Sale must reference a Customer")
+	}
+	// The Holders a Named Tickets checkout named are keyed by Ticket Type and
+	// index, which name a Ticket only within one Sale (see
+	// CommitTerms.NamedHolders). Refused before anything is written rather than
+	// guessed at: no route commits them beside a second Sale.
+	if len(in.Terms.NamedHolders) > 0 && len(in.Sales) != 1 {
+		return nil, errors.New("sales: NamedHolders bind exactly one Ticket Sale")
 	}
 	// Native channels never record a sale without its Tax ID (ADR 0016). The
 	// entry points validate this against the user; the spine asserts it so a
@@ -602,7 +615,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			FROM ticket_types
 			WHERE id = $1 AND event_id = $2 AND organization_id = $3
 			FOR UPDATE
-		`, id, in.EventID, in.OrganizationID).Scan(&lt.priceCents, &lt.capacity, &lt.soldCount, &lt.sortOrder, &lt.name)
+		`, id, in.EventID, in.OrganizationID).Scan(&lt.PriceCents, &lt.capacity, &lt.soldCount, &lt.SortOrder, &lt.Name)
 		if errors.Is(err, sql.ErrNoRows) {
 			// A basket line naming a Ticket Type that does not exist is the
 			// caller's error and is reported as one. An Upgrade candidate's type
@@ -699,11 +712,23 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		}
 
 		amountCents := 0
-		// The buyer's own Ticket, chosen as the lines are written: the first
-		// Ticket of the Sale's DEAREST line, ties broken by the catalog's order
-		// (ADR 0074, #646). See selfHeldSeat for why price decides and which
-		// price it is.
-		var seat selfHeldSeat
+		// The buyer's own Ticket: the first Ticket of the Sale's DEAREST line,
+		// ties broken by the catalog's order (ADR 0074, #646). Decided by
+		// SelfHeldSeatOf over the lines about to be written, before any of them
+		// is, because begin-checkout asks the very same predicate of the same
+		// basket to know which Ticket needs no Holder named (#666). See
+		// SelfHeldSeatOf for why price decides and which price it is.
+		//
+		// Only under in.Terms.SelfHeld: a build that seats nobody asks nothing.
+		var seat SelfHeldSeat
+		seated := false
+		if in.Terms.SelfHeld {
+			seat, seated = SelfHeldSeatOf(lines, catalogOfLocked(locked))
+		}
+		// The seat's Ticket and the price its line is sold at, filled in as that
+		// line is written and its Tickets minted.
+		var seatTicketID string
+		seatUnitPriceCents := 0
 		// How many Tickets this basket's own free lines mint, counted the way
 		// every other count in this system is — off the Line quantities. It is
 		// half of the Upgrade's ambiguity rule, and it is accumulated here rather
@@ -717,11 +742,17 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		// happened when there were no earlier qualifying Sales, and the count
 		// this leaves at zero then meets a zero on the other side of the sum.
 		freeTicketsInBasket := 0
-		for _, line := range lines {
+		// Every Ticket this Sale mints, by Ticket Type and ordinal, for the
+		// Holders a Named Tickets checkout named (#670). One line per Ticket
+		// Type is the online checkout's invariant (see
+		// paymentLineIDsByTicketType), and it is the only route that names any.
+		minted := make(map[string]map[int]string, len(lines))
+		for lineIndex, line := range lines {
 			// The one definition of "what is this line sold at", shared with the
-			// Upgrade's free/paid split beside it (#649): the two must agree, or
-			// a line this commit called free could be written at a price.
-			unitPrice := committedUnitPrice(line, locked)
+			// Upgrade's free/paid split beside it (#649) and the seating rule
+			// above (#646): they must agree, or a line this commit called free
+			// could be written at a price.
+			unitPrice := committedUnitPrice(line, locked[line.TicketTypeID].CatalogEntry)
 			// A line with no fee snapshot was sold on a channel the platform took
 			// no cut of: its base price is simply what it sold for.
 			fee := sales.FeeSnapshot{BasePriceCents: unitPrice}
@@ -754,19 +785,10 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			if err != nil {
 				return nil, err
 			}
-			if lt := locked[line.TicketTypeID]; in.Terms.SelfHeld {
-				// unitPrice and not lt.priceCents: the seat follows what this
-				// buyer paid, so a Promotional Price and a Sale Import row's
-				// overriding amount both count.
-				claim := selfHeldSeat{
-					ticketID:       ticketIDs[1],
-					unitPriceCents: unitPrice,
-					sortOrder:      lt.sortOrder,
-					name:           lt.name,
-				}
-				if claim.outranks(seat) {
-					seat = claim
-				}
+			minted[line.TicketTypeID] = ticketIDs
+			if seated && lineIndex == seat.Line {
+				seatTicketID = ticketIDs[seat.TicketIndex]
+				seatUnitPriceCents = unitPrice
 			}
 			// And the Answers the buyer gave at checkout, landing on those very
 			// Tickets in the same transaction (#311). The Payment held them keyed
@@ -809,16 +831,21 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		// INSIDE THE SEATING HOOK, because an Upgrade is a fact ABOUT the seat: it
 		// swaps the Ticket this buyer holds for the one they were just seated on,
 		// and in a build where nobody is seated there is no such swap to make. That
-		// is also the whole of the Ticket Assignment gate — `seat.ticketID` is only
+		// is also the whole of the Ticket Assignment gate - `seatTicketID` is only
 		// ever set under in.Terms.SelfHeld, so a dark build cannot reach this line
 		// and needs no second check to be safe.
 		//
-		// AFTER holdOwnTicket AND NOT BEFORE. The buyer must be holding the paid
+		// AFTER THE SEAT IS ACCEPTED AND NOT BEFORE. The buyer must be holding the paid
 		// Ticket before the free one is taken away, so that no instant inside this
 		// transaction exists in which they hold neither.
 		var upgradedOutOfSaleID string
-		if seat.ticketID != "" {
-			if err := holdOwnTicket(ctx, tx, seat.ticketID, customerID, s.Customer.Email, in.Terms.Now); err != nil {
+		if seatTicketID != "" {
+			// The one write that accepts a Ticket for its buyer, shared with the
+			// assign route after the sale (catalog.AcceptForBuyer). THE WARRANT
+			// DIFFERS BY CHANNEL AND THE WRITE DOES NOT: a payment is a proof and
+			// a transcription is a presumption (ADR 0055), but the roster's
+			// question is who is coming, so there is one row shape only.
+			if _, err := catalog.AcceptForBuyer(ctx, tx, seatTicketID, customerID, s.Customer.Email, in.Terms.Now); err != nil {
 				return nil, err
 			}
 			if in.Terms.UpgradeElected {
@@ -827,7 +854,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 					OrganizationID:      in.OrganizationID,
 					CustomerID:          customerID,
 					PaidSaleID:          saleID,
-					SeatUnitPriceCents:  seat.unitPriceCents,
+					SeatUnitPriceCents:  seatUnitPriceCents,
 					FreeTicketsInBasket: freeTicketsInBasket,
 					LockedTypes:         locked,
 					Now:                 in.Terms.Now,
@@ -836,6 +863,17 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 					return nil, err
 				}
 			}
+		}
+
+		// The Tickets the buyer named at a Named Tickets checkout, each written
+		// as the Ticket Assignment it was named as (ADR 0076, #670). After the
+		// seat, so the buyer holds their own Ticket before anybody else is
+		// named, and so the seat is kept out of reach of any held row.
+		if err := assignNamedTickets(ctx, tx,
+			namedTicketsOf(in.Terms.NamedHolders, minted, seatTicketID),
+			customerID, s.Customer.Email, in.Terms.Now,
+		); err != nil {
+			return nil, err
 		}
 
 		recorded = append(recorded, RecordedSale{
@@ -917,39 +955,6 @@ func mintTickets(ctx context.Context, tx *sql.Tx, ticketSaleLineID string, quant
 		ticketIDs[ordinal] = id
 	}
 	return ticketIDs, rows.Err()
-}
-
-// holdOwnTicket makes one freshly minted Ticket the buyer's own Self-held
-// Ticket: assigned to the buyer's address and accepted at once, in the caller's
-// transaction (ADR 0048).
-//
-// ACCEPTED BY PURCHASE OR BY TRANSCRIPTION, NEVER BY LINK. Checking out is the
-// buyer's own act, and an imported Sale transcribes a transaction the buyer
-// already made somewhere else (ADR 0055), so on neither route does "who is this
-// one for" need asking and on neither is an Assignment mail written. It writes
-// holder_customer_id and accepted_at together, as migration 080's CHECK
-// requires, and touches nothing on the customers row — neither a payment nor a
-// transcription is Proof of Email Ownership, and whether the buyer is Verified
-// stays the sign-in module's authority. The Organization sees an ordinary
-// accepted Ticket under the name and address the Sale was made with, which it
-// already sees on the Sale.
-//
-// THE WARRANT DIFFERS BY CHANNEL AND THE WRITE DOES NOT. A payment is a proof
-// and a transcription is a presumption, which ADR 0055 states plainly rather
-// than dressing up; what it refused was a fourth assignment state saying "we
-// think so", because the roster's question is who is coming and not how they
-// came to hold the Ticket. So there is one row shape here and one only.
-//
-// Like mintTickets it takes a transaction and not a pool: a Ticket that is
-// the buyer's own from the start must be so in the commit that minted it, or
-// a crash in between leaves a Sale whose buyer holds nothing.
-func holdOwnTicket(ctx context.Context, tx *sql.Tx, ticketID, customerID, email string, now time.Time) error {
-	_, err := tx.ExecContext(ctx, `
-		UPDATE tickets
-		SET holder_email = $2, holder_customer_id = $3, assigned_at = $4, accepted_at = $4
-		WHERE id = $1
-	`, ticketID, platform.NormalizeEmail(email), customerID, now)
-	return err
 }
 
 // liveHoldsForUpdate returns the quantities live Capacity Holds claim per
