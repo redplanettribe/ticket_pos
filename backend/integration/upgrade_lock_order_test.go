@@ -60,12 +60,19 @@ func TestTheUpgradeLocksItsFreeTicketTypeInsideTheBasketsSortedSet(t *testing.T)
 	staff := orgAdminSession(t, env)
 	eventID, paidTypeID := publishCheckoutEvent(t, env, staff, "Lock Order", "lock-order", 3000, 20)
 
+	// A fresh PAID type on every miss as well as a fresh free one, so each try
+	// is an even coin. Re-rolling the free type alone against one fixed paid id
+	// is not: a paid id that happens to sort near the bottom (one starting with
+	// "0" is a 1-in-16 draw) leaves every try a long shot, and the loop failed
+	// about one run in thirty.
 	var freeTypeID string
 	for attempt := 0; attempt < 32 && freeTypeID == ""; attempt++ {
 		id := createTicketTypeWithCapacity(t, env, staff, eventID, fmt.Sprintf("Community %d", attempt), 0, 20)
 		if id < paidTypeID {
 			freeTypeID = id
+			break
 		}
+		paidTypeID = createTicketTypeWithCapacity(t, env, staff, eventID, fmt.Sprintf("VIP %d", attempt), 3000, 20)
 	}
 	if freeTypeID == "" {
 		t.Fatalf("no free Ticket Type id sorted below the paid one (%s) in 32 tries; v4 UUIDs should not do that", paidTypeID)
