@@ -213,7 +213,7 @@ _Avoid_: Quota, cap, max quantity, rate limit, one-per-person, purchase restrict
 Something an Organization wants to know about the person who will hold a ticket, defined on a Ticket Type and asked of each of its Tickets — a t-shirt size on a workshop ticket, dietary requirements on a dinner ticket.
 Of one of seven kinds: short text, long text, single choice, multiple choice, number, date, or a single tick box. A choice question offers Options; the others do not. Deliberately not a file upload and not a purpose-built email or phone field.
 Belongs to one Ticket Type, so the same wording on three Ticket Types is three Ticket Questions that happen to read alike. Written in the Organization's own words and read as coined in every Locale, like a Custom Tag.
-May be marked required, which makes an unanswered one an Outstanding Answer rather than a refusal: nothing about a Ticket Question ever blocks a checkout, a door sale or a Sale Import.
+May be marked required, which makes an unanswered one an Outstanding Answer rather than a refusal: nothing about a Ticket Question ever blocks a checkout, a door sale or a Sale Import - except a Storefront checkout on an Event requiring Named Tickets, which is refused until every required Ticket Question is answered.
 Asked of nobody until a Platform Operator has approved it (ADR 0056): a Ticket Question is a **draft** when authored, **under review** once a Question Review carries it, **approved** — the only state in which it is asked, answered, reminded about, counted as an Outstanding Answer or given a column in the Sales Export — or **refused**, with the Operator's reason, from where it is edited back into a draft. The second lock after ADR 0045's, not a replacement for it: the Policy Version still comes first.
 Immutable once approved. Its wording, kind and required-ness are what the Operator read, so a change is a retirement and a fresh question; the only moves an approved question allows without review are the ones that collect less — making it optional, retiring one of its Options, or retiring it. An Option added to an approved question is a draft Option until a Question Review approves it, and the question keeps collecting in its approved shape meanwhile.
 Retired rather than deleted, like an Option: a retired question stops being asked, keeps every Answer it was given, and keeps its column. A Revocation is a retirement too.
@@ -339,7 +339,8 @@ _Avoid_: Ticket, receipt, order confirmation
 
 **Answer**:
 What one Ticket says in reply to one Ticket Question.
-A property of the Ticket rather than of the buyer: a person buying four tickets is not assumed to know four people's sizes. Given only by the Ticket's Holder — the buyer for their Self-held Ticket, at checkout or after — or by Event Staff; the buyer cannot give, read or correct an Answer on a Ticket they do not hold, and sees of such a Ticket only its assignment state. Persisted the moment it is given rather than on a form's submit, and once a held Ticket owes nothing its Answers fold away behind a review-or-edit control rather than staying on display.
+A property of the Ticket rather than of the buyer: a person buying four tickets is not assumed to know four people's sizes. Given only by the Ticket's Holder — the buyer for their Self-held Ticket, at checkout or after — or by Event Staff; the buyer cannot give, read or correct an Answer on a Ticket they do not hold, and sees of such a Ticket only its assignment state.
+The exception is an Event requiring Named Tickets, where the buyer answers for every Ticket they name, at checkout or on reassigning it, and may read and correct those Answers until the Holder accepts; from then they are the Holder's, who finds them already given and may change them. Persisted the moment it is given rather than on a form's submit, and once a held Ticket owes nothing its Answers fold away behind a review-or-edit control rather than staying on display.
 Supplied by choice: nothing anywhere is refused for want of one. A choice Answer records which Option was picked together with the words that Option showed at the time.
 Changeable until the Event starts, read in the Event's timezone, and never on a reversed Ticket Sale. The platform keeps when it was last changed and not who changed it: which of four friends ordered the wrong size is not a dispute this product adjudicates.
 _Avoid_: Response, submission, field value, entry, reply
@@ -350,7 +351,7 @@ _Avoid_: Claim link, ticket link, share link, invite, magic link, transfer, "cop
 
 **Outstanding Answer**:
 A required Ticket Question that one Ticket has not answered yet — a debt, not a defect.
-The whole meaning of "required" on this platform: an Answer that is owed and visible as owed, rather than a gate. It is what a Sales Export's blank cell means, what an Answer Reminder is about, and the only thing an Organization can act on when the buyer did not know.
+The whole meaning of "required" on this platform: an Answer that is owed and visible as owed, rather than a gate - the one exception being a Storefront checkout on an Event requiring Named Tickets. It is what a Sales Export's blank cell means, what an Answer Reminder is about, and the only thing an Organization can act on when the buyer did not know.
 _Avoid_: Missing, incomplete, unanswered (as the term), pending, required field
 
 **Answer Reminder**:
@@ -368,20 +369,33 @@ _Avoid_: Announcement (as the term), nudge, notification, campaign, "assign your
 
 **Ticket Assignment**:
 The buyer's act of naming an email address for one of their Tickets, and the record of it — the answer to "who is this one for", which a Ticket Sale of four otherwise cannot express.
-Done after the purchase and never at checkout, from the Confirmation Link page or the Customer Area, on the `online` and `import` Sales Channels; a door sale has no buyer surface to do it from. Nothing is held on a Payment, so an abandoned checkout leaves no third party's address behind.
+Done after the purchase, from the Confirmation Link page or the Customer Area, on the `online` and `import` Sales Channels; a door sale has no buyer surface to do it from.
+At checkout too on an Event requiring Named Tickets, where it is required: the addresses wait on the Payment, nobody is mailed until the Ticket Sale is recorded, and an abandoned checkout's addresses are purged on the same terms as its Answers. An assignment named at checkout is never refused for want of mail allowance, since the money has already moved.
 Assignment, never transfer: the Ticket Sale, the Sale Confirmation, the money and the Reversal Window stay with the buyer, who may reassign any Ticket at any time — including one already accepted, which clears that Ticket's Answers, because an Answer is a fact about a person and the new Holder is not carrying the old one's allergy. Changes no figure: Tickets Sold, capacity and Purchase Limit all still read off Ticket Sale Line quantities.
 Kept as three states on the Ticket — `unassigned`, `assigned`, `accepted` — with the current Holder and when it last changed, never a history of who was named before, the same way an Answer keeps no author.
-One Ticket of every Online Sale and every imported sale is the buyer's own from the start, as a Self-held Ticket, so the buyer is never asked to name themself; every other Ticket starts `unassigned`.
+One Ticket of every Online Sale and every imported sale is the buyer's own from the start, as a Self-held Ticket, so the buyer is never asked to name themself; every other Ticket starts `unassigned`, or `assigned` when named at checkout.
+A Ticket the buyer assigns to their own address is `accepted` at once, at checkout or after, with no Assignment Link: the buyer's address is the one their Customer Session or Confirmation Link already reached.
 Distinct from an Event assignment, which puts a Member on an Event's staff and has nothing to do with tickets.
 _Avoid_: Transfer, allocation, ticket sharing, invite, guest list entry, seat assignment, delegation
 
 **Self-held Ticket**:
 The one Ticket of a Ticket Sale that is the buyer's own: the first Ticket of the Sale's **dearest** line, ties broken by the catalog's order, assigned to the buyer and accepted the moment the Sale is made, because "who is this for" is the one question a buyer never needs asking about themself. On a sale of one Ticket it is simply that Ticket.
 Seated on the dearest rather than the first because a buyer is presumed to attend on what they paid most for, and because a catalog listed cheap-to-dear made "first in the catalog's order" mean "cheapest in the basket" every time a buyer mixed Ticket Types — reliably seating them on a giveaway and stranding the Ticket they paid for. Price is still only a guess at which Ticket is theirs, and the remedy for a wrong guess is reassignment, exactly as before.
-Accepted by purchase or by transcription rather than by link, so it proves nothing about the buyer's inbox and makes nobody Verified; to the Organization it is an ordinary accepted Ticket held by the buyer, under the name and address the Sale was made with. Its Ticket Questions are the only ones checkout asks, under "Your ticket", and the only ones the buyer is presumed able to answer; the Sale's other Tickets are for their own Holders to answer.
+Accepted by purchase or by transcription rather than by link, so it proves nothing about the buyer's inbox and makes nobody Verified; to the Organization it is an ordinary accepted Ticket held by the buyer, under the name and address the Sale was made with. Its Ticket Questions are the only ones checkout asks, under "Your ticket", and the only ones the buyer is presumed able to answer; the Sale's other Tickets are for their own Holders to answer - unless the Event requires Named Tickets, where checkout asks of every Ticket and the buyer answers for all of them.
 Still the buyer's to reassign, like any Ticket — a buyer who is not attending hands it on, and it stops being self-held.
 On an Online Sale the warrant is the payment; on an imported sale it is the transcription — the file records a transaction that already happened, and the address on it is the person who bought. An imported buyer is therefore **presumed** to attend rather than proven to, which is the weakest warrant the roster rests on and is stated rather than hidden: the remedy is reassignment, the same one an online buyer has. An In-Person Sale has no Self-held Ticket, because it has no buyer surface to reassign from and no route by which a wrong Holder could be removed — an exclusion pending a POS, not a judgement about door buyers.
 _Avoid_: Buyer's ticket (as the term), primary ticket, own ticket, main ticket, purchaser ticket
+
+**Named Tickets**:
+An Event's requirement that every Ticket bought on its Storefront arrives with a person on it and its required Ticket Questions answered.
+At checkout the buyer names a Holder for every Ticket beyond their Self-held Ticket and answers every required Ticket Question on every Ticket, their own included, and the checkout is refused until they have - the one place on this platform where "required" blocks rather than leaving an Outstanding Answer.
+Kept after the purchase too: a buyer who reassigns a Ticket on such an Event gives the new Holder's required Answers along with the address, because the point is a roster the Organization can plan with and a rule a reassignment could undo would not give one.
+Any address will do, the buyer's own and the same one twice included, since a parent buying for three children has nobody else to name; it guarantees a named and answered Ticket, not a different person on each.
+Binds the Storefront alone, like a Sales Cutoff: a Sale Import, a Manually Recorded Sale, a Sale Correction's replacement and a door sale record acts that already happened and are never refused by it.
+On for every new Event and off for every Event that existed before it; switchable at any time, judged once at begin-checkout, and never reaching back to Tickets already sold.
+Falls silent once the Event has started, read in the Event's timezone: an assignment can no longer be accepted nor an Answer changed, so a walk-up buyer is asked for nothing extra.
+In Spanish, **Entradas nominativas**.
+_Avoid_: Attendee details, registration, mandatory assignment, required questions, named checkout. In Spanish: asignar entradas, which is the act of Ticket Assignment and not this requirement
 
 **Upgrade**:
 The buyer's election that a paid Ticket takes the place of a Ticket of a Free Ticket Type — the answer to "are you moving up, or buying for somebody else too", which a basket holding both otherwise cannot express.
@@ -420,7 +434,7 @@ The fourth signed link and the only one that proves an identity, which is why it
 _Avoid_: Claim link, invite link, magic link, transfer link, confirmation link, ticket link, activation link
 
 **accept**:
-What a Holder does to a Ticket Assignment, by clicking the Assignment Link once.
+What a Holder does to a Ticket Assignment, by clicking the Assignment Link once - or what happens without a click when the buyer names their own address.
 The click is Proof of Email Ownership, so accepting mints or matches a Verified Customer, and the Holder then gives their first and last name and answers that Ticket's Ticket Questions themselves. Nothing else is asked: no password, no One-time Passcode, no Phone Number, no Tax ID.
 The moment things change hands: from here the Answer Reminder is addressed to the Holder, the Answer Link stops opening, the Organization sees the name and email address, and the Event appears in the Holder's Customer Area. Grants no consent of any kind — accepting a ticket is not subscribing to anything.
 Not accepting is how a person declines. Ignoring the mail costs them nothing, leaves the Ticket working exactly as it did before, and the address is purged when the Event starts; there is no explicit decline and no page to do it on.
