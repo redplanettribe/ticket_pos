@@ -1,4 +1,5 @@
 import type { CheckoutAnswerBody, CheckoutQuestion } from "./checkout-answers";
+import type { CheckoutHolderBody } from "./named-tickets";
 // The ".ts" is written out because lib/api.test.ts runs this module directly
 // under `node --experimental-strip-types`, which resolves specifiers exactly.
 // Next resolves it identically. The two imports beside it are type-only and so
@@ -828,6 +829,18 @@ export type BeginCheckoutRequest = {
    * simply sells the buyer the Ticket they asked for.
    */
   upgrade_elected?: boolean;
+  /**
+   * The Holder named for each Ticket on an Event that requires Named Tickets
+   * (ADR 0076), keyed exactly as `answers` is. Never sent for the buyer's own
+   * Ticket, and omitted entirely where the requirement does not bind, which the
+   * API would ignore anyway.
+   *
+   * Unlike `answers` this can refuse: while anything is owed the API answers
+   * 400 NAMED_TICKETS_INCOMPLETE naming each Ticket and what it lacks
+   * (lib/named-tickets.ts reads the details), and a malformed address is a
+   * field error on `holders[i].holder_email`.
+   */
+  holders?: CheckoutHolderBody[];
   lines: { ticket_type_id: string; quantity: number }[];
 };
 

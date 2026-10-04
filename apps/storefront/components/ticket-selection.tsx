@@ -30,11 +30,31 @@ import { useFormatLocale } from "@/i18n/format-locale";
 import { Link, usePathname } from "@/i18n/navigation";
 import type { BeginCheckoutResult, PrivacyPolicy, PublicTicketType, Terms } from "@/lib/api";
 import {
+  answerKey,
   checkoutAnswerBodies,
   ownTicketSlot,
+  statedReply,
   upgradeOffer,
+  type AnswerValue,
   type AnswerValues,
 } from "@/lib/checkout-answers";
+import {
+  answerIsUsable,
+  checkoutHolderBodies,
+  holderKey,
+  holderKeyOfField,
+  namedTicketsApply,
+  namedTicketSlots,
+  namedTicketsOwed,
+  refusedTickets,
+  surrenderedTicketTypeId,
+  withDrawnCheckboxes,
+  type HolderValues,
+  type NamedTicketSlot,
+  type OwedTicket,
+  type RefusedTicket,
+} from "@/lib/named-tickets";
+import { isBuyersOwnAddress } from "@/lib/ticket-assignment";
 import {
   apiErrorMessage,
   fieldCodeMessage,
@@ -193,6 +213,15 @@ type TicketSelectionProps = {
    * buy, and the page they come back to is read with their session.
    */
   surrenderableFreeTickets: number | null;
+  /**
+   * Whether this Event requires Named Tickets (ADR 0076): the Event payload's
+   * setting, which binds only while Ticket Assignment is open and the Event has
+   * not started. lib/named-tickets.ts judges that, against `now` below, and
+   * where it does not bind the dialog is exactly the one before this feature.
+   */
+  requiresNamedTickets: boolean;
+  /** The Event's start, the instant Named Tickets falls silent at. */
+  startsAt: string | null;
   /**
    * The current Policy Version's Short Notice and checkbox labels, as the API
    * serves them — null when it could not be reached (#253).
@@ -374,6 +403,8 @@ export function TicketSelection({
   openCheckoutOnArrival = false,
   buyerHoldsFirstTicket,
   surrenderableFreeTickets,
+  requiresNamedTickets,
+  startsAt,
   priceIncludesFee,
   timezone,
   allClosed,
@@ -502,6 +533,20 @@ export function TicketSelection({
   // longer in the cart never travel anyway — the slots decide that, not this map
   // (checkoutAnswerBodies).
   const [answers, setAnswers] = useState<AnswerValues>({});
+  // The Holder addresses typed on a Named Tickets checkout (ADR 0076), keyed by
+  // (Ticket Type, ticket number) like the answers and kept and cleared on the
+  // same terms, so a Ticket's address survives the buyer changing another
+  // Ticket Type's quantity.
+  const [holders, setHolders] = useState<HolderValues>({});
+  // The fields the buyer has left, by holderKey or answerKey. A malformed
+  // address or an unusable answer is said under its field only once the buyer
+  // has moved on from it, so nobody is told off for a half-typed address.
+  const [leftFields, setLeftFields] = useState<Record<string, true>>({});
+  // What a NAMED_TICKETS_INCOMPLETE refusal said each Ticket owes, by
+  // holderKey, and the API's field errors on `holders[i]`, by holderKey. Each
+  // piece is dropped as soon as the buyer edits the field it is about.
+  const [refused, setRefused] = useState<Record<string, RefusedTicket>>({});
+  const [holderFieldErrors, setHolderFieldErrors] = useState<Record<string, string>>({});
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<CheckoutError | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -520,7 +565,6 @@ export function TicketSelection({
   // their Holders' to give, from the sale page, after the purchase. Recomputed
   // with the quantities, so emptying the cart removes the section.
   const own = ownTicketSlot(ticketTypes, quantities, buyerHoldsFirstTicket);
-  const slots = own === null ? [] : [own];
 
   // Whether this checkout offers an Upgrade, and about which free Ticket (ADR
   // 0074). Recomputed with the quantities, so changing the cart can withdraw an
@@ -532,6 +576,41 @@ export function TicketSelection({
     surrenderableFreeTickets,
     buyerHoldsFirstTicket,
   );
+
+  // NAMED TICKETS (ADR 0076). Where the requirement binds, the form asks about
+  // EVERY Ticket - an address for each but the buyer's own, and each one's own
+  // Ticket Type's questions - and the pay button waits until `owed` is empty.
+  // Where it does not bind, `named` is false, nothing below changes, and the
+  // dialog is the one above: the buyer's own Ticket's skippable questions.
+  const named = namedTicketsApply({
+    requiresNamedTickets,
+    ticketAssignmentEnabled: buyerHoldsFirstTicket,
+    startsAt,
+    now,
+  });
+  // The free line an elected Upgrade gives up is never bought, so it is asked
+  // nothing - and ticking the prompt takes its panel away.
+  const surrendered = surrenderedTicketTypeId(upgrade, upgradeElected);
+  const namedSlots = named ? namedTicketSlots(ticketTypes, quantities, surrendered) : [];
+  const owed = namedTicketsOwed({
+    requiresNamedTickets,
+    ticketAssignmentEnabled: buyerHoldsFirstTicket,
+    startsAt,
+    now,
+    ticketTypes,
+    quantities,
+    surrenderedTicketTypeId: surrendered,
+    holders,
+    answers,
+  });
+  const ownNamedSlot = namedSlots.find((slot) => slot.selfHeld) ?? null;
+  const otherNamedSlots = namedSlots.filter((slot) => !slot.selfHeld);
+
+  // What travels as `answers`: on a Named Tickets checkout every Ticket's, a
+  // required checkbox answered by the state it is drawn in; otherwise the
+  // buyer's own Ticket's, as the buyer left them.
+  const slots = named ? namedSlots : own === null ? [] : [own];
+  const sentAnswers = named ? withDrawnCheckboxes(namedSlots, answers) : answers;
 
   const count = totalQuantity(quantities);
   const total = totalCents(ticketTypes, quantities);
@@ -609,6 +688,8 @@ export function TicketSelection({
   function openCheckout() {
     setError(null);
     setFieldErrors({});
+    setRefused({});
+    setHolderFieldErrors({});
     setCheckoutOpen(true);
   }
 
@@ -649,11 +730,16 @@ export function TicketSelection({
     // The answer section, reduced to what the buyer actually said. Computed
     // AFTER the two mirror checks above and never gating them: it cannot fail,
     // and there is no third check here for it to be part of.
-    const answerBodies = checkoutAnswerBodies(slots, answers);
+    const answerBodies = checkoutAnswerBodies(slots, sentAnswers);
+    // The Holder addresses, on a Named Tickets checkout only. Kept in hand so
+    // a field error on `holders[i]` can be put back on the Ticket it was about.
+    const holderBodies = named ? checkoutHolderBodies(namedSlots, holders) : [];
 
     setSubmitting(true);
     setError(null);
     setFieldErrors({});
+    setRefused({});
+    setHolderFieldErrors({});
 
     try {
       const response = await fetch("/api/checkout", {
@@ -707,6 +793,11 @@ export function TicketSelection({
           // are the Tax ID and the phone, and an answer deliberately joins
           // neither of them (ADR 0044).
           ...(answerBodies.length > 0 ? { answers: answerBodies } : {}),
+          // Who each Ticket but the buyer's own is for (ADR 0076). Sent only
+          // where Named Tickets binds, and only once the button below has
+          // lit, which it does when nothing is owed - the API's refusal is
+          // still the guarantee, and its details come back onto the fields.
+          ...(holderBodies.length > 0 ? { holders: holderBodies } : {}),
           // The Upgrade Prompt's answer (#652, ADR 0074), sent ONLY WHERE THE
           // PROMPT IS DRAWN for the cart as it stands right now — which is the
           // whole of how a tick made against an older cart is prevented from
@@ -739,6 +830,27 @@ export function TicketSelection({
       if (!response.ok || envelope.error || !envelope.data) {
         const apiError = envelope.error;
         setFieldErrors(fieldErrorsFromDetails(errorCopy, apiError?.details));
+        // A Named Tickets refusal names each Ticket and what it still owes;
+        // a malformed address is a field error on the entry that carried it.
+        // Both go onto the fields they are about.
+        if (apiError?.code === "NAMED_TICKETS_INCOMPLETE") {
+          setRefused(refusedTickets(apiError.details));
+        }
+        const holderErrors: Record<string, string> = {};
+        for (const [field, message] of Object.entries(
+          fieldErrorMessages(errorCopy, apiError?.details),
+        )) {
+          const key = holderKeyOfField(field, holderBodies);
+          // The only field error an address can earn is that it is not one,
+          // and the field's catalog entry is worded to follow a label. The
+          // sale page's whole sentence for the same refusal reads better
+          // under a field of its own.
+          if (key !== null) {
+            holderErrors[key] =
+              apiErrorMessage(errorCopy, { code: "INVALID_HOLDER_EMAIL" }) ?? message;
+          }
+        }
+        setHolderFieldErrors(holderErrors);
         setError({
           code: apiError?.code ?? null,
           message: apiError?.message ?? null,
@@ -786,8 +898,131 @@ export function TicketSelection({
     // slots decide what travels, and confusing on screen the moment the buyer
     // picks the same Ticket Type again and finds somebody else's size in it.
     setAnswers({});
+    // The addresses too, for the same reason: they named the Tickets of a cart
+    // that is gone.
+    setHolders({});
+    setLeftFields({});
+    setRefused({});
+    setHolderFieldErrors({});
     router.refresh();
   }
+
+  // --- Named Tickets: the fields' states, said in this page's words ---------
+
+  const owedByTicket = new Map<string, OwedTicket>(
+    owed.map((ticket) => [holderKey(ticket.ticketTypeId, ticket.index), ticket]),
+  );
+
+  function leaveField(key: string) {
+    setLeftFields((current) => (current[key] ? current : { ...current, [key]: true }));
+  }
+
+  /** One answer typed: kept, and whatever the refusal said of it withdrawn. */
+  function changeAnswer(key: string, value: AnswerValue) {
+    setAnswers((current) => ({ ...current, [key]: value }));
+    // The answerKey is the Ticket's holderKey with the question id after it.
+    const separator = key.lastIndexOf(":");
+    const ticket = key.slice(0, separator);
+    const questionId = key.slice(separator + 1);
+    setRefused((current) => {
+      const entry = current[ticket];
+      if (!entry?.missingQuestionIds.includes(questionId)) return current;
+      return {
+        ...current,
+        [ticket]: {
+          ...entry,
+          missingQuestionIds: entry.missingQuestionIds.filter((id) => id !== questionId),
+        },
+      };
+    });
+  }
+
+  /** One address typed: kept, and whatever the API said of the last one withdrawn. */
+  function changeHolder(key: string, value: string) {
+    setHolders((current) => ({ ...current, [key]: value }));
+    setRefused((current) =>
+      current[key]?.holderEmailMissing ?
+        { ...current, [key]: { ...current[key], holderEmailMissing: false } }
+      : current,
+    );
+    setHolderFieldErrors((current) => {
+      if (!(key in current)) return current;
+      const rest = { ...current };
+      delete rest[key];
+      return rest;
+    });
+  }
+
+  /** A Ticket's heading, which the owed list below names it by too. */
+  function namedTicketTitle(slot: NamedTicketSlot): string {
+    return slot.selfHeld ?
+        t("answers.title", { ticketType: slot.ticketTypeName })
+      : t("named.ticketTitle", { ticketType: slot.ticketTypeName, number: slot.index });
+  }
+
+  /**
+   * The sentence under the address field, if any: the API's own verdict on what
+   * was sent first, then the refusal's "still needed", then this page's check
+   * on an address the buyer has moved on from.
+   */
+  function holderError(key: string): string | undefined {
+    const value = holders[key] ?? "";
+    if (holderFieldErrors[key]) return holderFieldErrors[key];
+    if (refused[key]?.holderEmailMissing && value.trim() === "") return t("named.emailNeeded");
+    if (leftFields[key] && owedByTicket.get(key)?.holderEmail === "invalid") {
+      return (
+        apiErrorMessage(errorCopy, { code: "INVALID_HOLDER_EMAIL" }) ?? t("named.emailInvalid")
+      );
+    }
+    return undefined;
+  }
+
+  /** The sentence under each of a Ticket's questions that has one. */
+  function questionErrors(slot: NamedTicketSlot): Record<string, string> {
+    const ticket = holderKey(slot.ticketTypeId, slot.index);
+    const errors: Record<string, string> = {};
+    for (const question of slot.questions) {
+      const key = answerKey(slot.ticketTypeId, slot.index, question.id);
+      const value = answers[key];
+      if (refused[ticket]?.missingQuestionIds.includes(question.id)) {
+        errors[question.id] = t("named.answerNeeded");
+      } else if (
+        leftFields[key] &&
+        statedReply(value) !== null &&
+        !answerIsUsable(question, value)
+      ) {
+        // Said only of a reply the buyer gave and the server would drop. A
+        // blank one is listed by the summary above the button instead.
+        errors[question.id] = t("named.answerInvalid");
+      }
+    }
+    return errors;
+  }
+
+  /** One line of the owed list: which Ticket, and what it lacks. */
+  function owedLine(ticket: OwedTicket): string {
+    const slot = namedSlots.find(
+      (candidate) =>
+        candidate.ticketTypeId === ticket.ticketTypeId && candidate.index === ticket.index,
+    );
+    const missing: string[] = [];
+    if (ticket.holderEmail === "missing") missing.push(t("named.owedEmail"));
+    if (ticket.holderEmail === "invalid") missing.push(t("named.owedEmailInvalid"));
+    for (const questionId of ticket.missingQuestionIds) {
+      const label = slot?.questions.find((question) => question.id === questionId)?.label;
+      if (label) missing.push(label);
+    }
+    return t("named.owedLine", {
+      ticket: slot ? namedTicketTitle(slot) : "",
+      missing: missing.join(", "),
+    });
+  }
+
+  const answerLabels = {
+    optional: t("answers.optional"),
+    optionalLabel: (question: string) => t("answers.optionalLabel", { question }),
+    noAnswer: t("answers.noAnswer"),
+  };
 
   const capacityExceeded = error?.code === "CAPACITY_EXCEEDED";
   // A Purchase Limit refusal is about the Customer, not the Event (ADR 0025), so
@@ -1341,9 +1576,11 @@ export function TicketSelection({
                 they are, and consent stays adjacent to the pay button it gates.
 
                 It gates nothing. There is no required check anywhere in it, and
-                the submit button below deliberately does not mention it.
+                the submit button below deliberately does not mention it. That
+                is this panel, on an Event that does not require Named Tickets;
+                one that does draws the panels further down instead.
               */}
-              {own !== null ?
+              {!named && own !== null ?
                 <CheckoutAnswers
                   slot={own}
                   values={answers}
@@ -1353,9 +1590,7 @@ export function TicketSelection({
                   labels={{
                     title: t("answers.title", { ticketType: own.ticketTypeName }),
                     hint: t("answers.hint"),
-                    optional: t("answers.optional"),
-                    optionalLabel: (question: string) => t("answers.optionalLabel", { question }),
-                    noAnswer: t("answers.noAnswer"),
+                    ...answerLabels,
                   }}
                 />
               : null}
@@ -1369,6 +1604,11 @@ export function TicketSelection({
                 question about the buyer's own Ticket that gates nothing. The pay
                 button below deliberately does not mention it, and there is no
                 required check anywhere in it.
+
+                On a Named Tickets checkout it comes BEFORE the Tickets' panels
+                instead: ticking it takes the free Ticket's panel away, and a
+                box that moved under the buyer's finger as they ticked it would
+                be the worse place for that to happen.
 
                 The sentence above the box names which free Ticket this is about
                 — the one in the basket, or the one already held — and never
@@ -1387,6 +1627,72 @@ export function TicketSelection({
                   }}
                 />
               ) : null}
+              {/*
+                Named Tickets (ADR 0076): every Ticket of the basket, the
+                buyer's own first. It owes its required Answers and no address,
+                since the buyer is its Holder; every other Ticket owes an
+                address and its own Ticket Type's required Answers. Drawn only
+                where the requirement binds, so an Event with the setting off,
+                or one that has started, keeps the dialog above.
+
+                The buyer's own panel is drawn even when it asks nothing,
+                whenever there are other Tickets: it is what says which Ticket
+                needs no address, and why the others are numbered as they are.
+              */}
+              {named && ownNamedSlot !== null &&
+              (ownNamedSlot.questions.length > 0 || otherNamedSlots.length > 0) ?
+                <CheckoutAnswers
+                  slot={ownNamedSlot}
+                  values={sentAnswers}
+                  onChange={changeAnswer}
+                  onBlur={leaveField}
+                  questionErrors={questionErrors(ownNamedSlot)}
+                  labels={{
+                    title: namedTicketTitle(ownNamedSlot),
+                    hint: otherNamedSlots.length > 0 ? t("named.ownHint") : null,
+                    ...answerLabels,
+                  }}
+                />
+              : null}
+              {named && otherNamedSlots.length > 0 ?
+                <div className="space-y-3">
+                  {/* The third-party notice, once, above the address fields
+                      it is about: who these addresses are given to (ADR 0076).
+                      The buyer is typing other people's details, and is told
+                      what becomes of them before they do. */}
+                  <p className="text-sm text-muted-foreground">{t("named.notice")}</p>
+                  {otherNamedSlots.map((slot) => {
+                    const key = holderKey(slot.ticketTypeId, slot.index);
+                    const value = holders[key] ?? "";
+                    return (
+                      <CheckoutAnswers
+                        key={key}
+                        slot={slot}
+                        values={sentAnswers}
+                        onChange={changeAnswer}
+                        onBlur={leaveField}
+                        questionErrors={questionErrors(slot)}
+                        holder={{
+                          value,
+                          onChange: (next) => changeHolder(key, next),
+                          onBlur: () => leaveField(key),
+                          error: holderError(key),
+                          // The buyer's own address is accepted at once and
+                          // mails nobody (#668), so the notice above would be
+                          // untrue of it; the field says so itself.
+                          notice:
+                            isBuyersOwnAddress(value, identity?.email ?? null) ?
+                              t("named.noticeOwnAddress")
+                            : undefined,
+                          label: t("named.emailLabel"),
+                          placeholder: t("named.emailPlaceholder"),
+                        }}
+                        labels={{ title: namedTicketTitle(slot), hint: null, ...answerLabels }}
+                      />
+                    );
+                  })}
+                </div>
+              : null}
               {/*
                 The consent section: the Short Notice and the three boxes, in
                 the dialog the purchase happens in, because the guidance
@@ -1509,6 +1815,23 @@ export function TicketSelection({
                   ) : null}
                 </div>
               ) : null}
+              {/*
+                What a Named Tickets checkout still owes, Ticket by Ticket,
+                right above the button it holds (ADR 0076). Not an error, so not
+                red: it is what is left to do, and it shrinks as the buyer works
+                down it. Polite, so a screen reader hears it change without
+                being interrupted mid-field.
+              */}
+              {owed.length > 0 ? (
+                <div className="rounded-lg border border-dashed p-3 text-sm" aria-live="polite">
+                  <p className="font-medium">{t("named.owedTitle")}</p>
+                  <ul className="mt-1 list-disc space-y-1 pl-4 text-muted-foreground">
+                    {owed.map((ticket) => (
+                      <li key={holderKey(ticket.ticketTypeId, ticket.index)}>{owedLine(ticket)}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               <Button
                 type="submit"
                 className="h-11 w-full"
@@ -1527,8 +1850,13 @@ export function TicketSelection({
                 // dialog does not know which of those two people it is serving.
                 // It is the same read the fields above are waiting on, and a
                 // guest's costs no call to the API at all.
+                //
+                // A Named Tickets checkout is held while it owes anything, on
+                // the same terms: the list just above says what, and the API's
+                // NAMED_TICKETS_INCOMPLETE is what makes it so (ADR 0076).
                 disabled={
                   submitting ||
+                  owed.length > 0 ||
                   (consentBoxes.policy_acceptance && !policyAccepted) ||
                   (consentBoxes.terms_acceptance && !termsAccepted) ||
                   (consentBoxes.adulthood_declaration && !adulthoodDeclared)
