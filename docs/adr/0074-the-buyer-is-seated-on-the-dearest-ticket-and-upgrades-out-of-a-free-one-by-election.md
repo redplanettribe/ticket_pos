@@ -32,6 +32,7 @@ nothing else about it: the warrant is still the payment, it still makes nobody V
 reassignable, and price is still only a guess whose remedy is reassignment. It has a second effect
 worth naming — the dearer Ticket Types are the ones carrying Ticket Questions, so seating on the
 dearest also seats on the Ticket whose questions checkout will actually ask.
+Catalog order means `sort_order`, then the Ticket Type's name by byte order, then the Ticket Type's id by byte order, so the seat never depends on the order a basket's lines arrive in.
 
 **A buyer may elect an Upgrade, and only out of a Ticket that cost nothing.** An Upgrade is the
 buyer's election that a paid Ticket takes the place of a free one; it is never a change to a Ticket,

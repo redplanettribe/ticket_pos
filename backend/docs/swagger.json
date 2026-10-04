@@ -7409,6 +7409,10 @@
                     "sold_out": {
                         "type": "boolean"
                     },
+                    "sort_order": {
+                        "description": "SortOrder is the Ticket Type's place in its Event's catalog. The list is\nalready in this order, but two Ticket Types can share a place, and the\nSelf-held seating rule breaks a price tie on it before the name and the id\n(ADR 0074). The Storefront mirrors that rule to know which Ticket a Named\nTickets checkout does not ask a Holder for (ADR 0076), and the list's\norder alone cannot tell it which of two equals the server would pick.",
+                        "type": "integer"
+                    },
                     "ticket_questions": {
                         "description": "TicketQuestions are what this Ticket Type asks the person who will hold one\nof its tickets, in the order they are asked (#311).\n\nPRESENT ONLY WHERE THE FEATURE FLAG IS OPEN, and empty on every Ticket Type\nthat asks nothing — which, on the shipped deployment, is all of them\n(ADR 0045). The Storefront draws its answer section from this and from\nnothing else, so a closed flag is a checkout with no answer section at all\nrather than one hidden by a second flag on the frontend that could disagree.\n\nIT IS A NARROWER VIEW THAN THE STAFF ONE, deliberately. No `retired` — a\nretired question or Option is simply absent, because this is a new list and\nnobody is being asked one. No timestamps, no `timing` — the timing decided\nwhether the question is here at all, and restating it would invite a client\nto filter on it a second time. What a public payload does not say cannot be\nread wrong.",
                         "items": {

@@ -19035,6 +19035,15 @@ export interface components {
             sales_cutoff_at?: string;
             sold_out?: boolean;
             /**
+             * @description SortOrder is the Ticket Type's place in its Event's catalog. The list is
+             *     already in this order, but two Ticket Types can share a place, and the
+             *     Self-held seating rule breaks a price tie on it before the name and the id
+             *     (ADR 0074). The Storefront mirrors that rule to know which Ticket a Named
+             *     Tickets checkout does not ask a Holder for (ADR 0076), and the list's
+             *     order alone cannot tell it which of two equals the server would pick.
+             */
+            sort_order?: number;
+            /**
              * @description TicketQuestions are what this Ticket Type asks the person who will hold one
              *     of its tickets, in the order they are asked (#311).
              *

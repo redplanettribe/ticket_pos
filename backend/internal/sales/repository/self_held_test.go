@@ -314,3 +314,85 @@ func TestSelfHeldSeatOfAnEmptyBasketIsNobody(t *testing.T) {
 		}
 	}
 }
+
+// TestSelfHeldSeatIsTheSameWhicheverOrderTheBasketArrivesIn pins the last
+// tie-break (#666): two Ticket Types sold at one price that share a catalog
+// place and a name fall to their ids, by byte order. Begin-checkout holds its
+// lines in the catalog's order and the commit reads them back unordered, so a
+// rule that let the earlier line win a full tie could seat the buyer on a
+// different Ticket in each half.
+func TestSelfHeldSeatIsTheSameWhicheverOrderTheBasketArrivesIn(t *testing.T) {
+	catalog := catalogOf(map[string]CatalogEntry{
+		"b-twin":  {PriceCents: 2500, SortOrder: 3, Name: "General"},
+		"a-twin":  {PriceCents: 2500, SortOrder: 3, Name: "General"},
+		"c-other": {PriceCents: 2500, SortOrder: 3, Name: "Generalísimo"},
+		"cheap":   {PriceCents: 1000, SortOrder: 0, Name: "Cheap"},
+	})
+	cases := []struct {
+		name string
+		// lines holds one basket; every permutation of it must seat the buyer
+		// on wantType.
+		lines    []CommitLine
+		wantType string
+	}{
+		{
+			name: "same price, catalog place and name fall to the lower id",
+			lines: []CommitLine{
+				{TicketTypeID: "b-twin", Quantity: 2},
+				{TicketTypeID: "a-twin", Quantity: 1},
+			},
+			wantType: "a-twin",
+		},
+		{
+			name: "the id is asked only after the name",
+			lines: []CommitLine{
+				{TicketTypeID: "c-other", Quantity: 1},
+				{TicketTypeID: "b-twin", Quantity: 1},
+			},
+			wantType: "b-twin",
+		},
+		{
+			name: "a full tie among several lines beside a cheaper one",
+			lines: []CommitLine{
+				{TicketTypeID: "cheap", Quantity: 4},
+				{TicketTypeID: "c-other", Quantity: 1},
+				{TicketTypeID: "b-twin", Quantity: 1},
+				{TicketTypeID: "a-twin", Quantity: 3},
+			},
+			wantType: "a-twin",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, order := range permutations(len(tc.lines)) {
+				basket := make([]CommitLine, len(order))
+				for i, j := range order {
+					basket[i] = tc.lines[j]
+				}
+				seat, ok := SelfHeldSeatOf(basket, catalog)
+				if !ok {
+					t.Fatalf("%v seated nobody", basket)
+				}
+				if got := basket[seat.Line].TicketTypeID; got != tc.wantType || seat.TicketIndex != 1 {
+					t.Fatalf("basket %v seats %s ticket %d, want %s ticket 1",
+						basket, got, seat.TicketIndex, tc.wantType)
+				}
+			}
+		})
+	}
+}
+
+// permutations lists every ordering of 0..n-1.
+func permutations(n int) [][]int {
+	if n == 0 {
+		return [][]int{{}}
+	}
+	var out [][]int
+	for _, rest := range permutations(n - 1) {
+		for at := 0; at <= len(rest); at++ {
+			p := slices.Insert(slices.Clone(rest), at, n-1)
+			out = append(out, p)
+		}
+	}
+	return out
+}

@@ -70,6 +70,7 @@ func SelfHeldSeatOf(lines []CommitLine, catalog CatalogLookup) (SelfHeldSeat, bo
 			unitPriceCents: committedUnitPrice(line, entry),
 			sortOrder:      entry.SortOrder,
 			name:           entry.Name,
+			ticketTypeID:   line.TicketTypeID,
 		}
 		if claim.outranks(held) {
 			held = claim
@@ -101,6 +102,14 @@ func SelfHeldSeatOf(lines []CommitLine, catalog CatalogLookup) (SelfHeldSeat, bo
 // THE CATALOG BREAKS TIES AND NOTHING ELSE, unchanged: sort_order, then name by
 // byte order — the same comparison, in the same direction, that the storefront's
 // lists and migrations 084/088 make.
+//
+// THE TICKET TYPE'S ID SETTLES WHAT THE CATALOG CANNOT, by byte order, so the
+// rule is total over distinct Ticket Types and the order the lines arrive in
+// never decides the seat. That is load-bearing: begin-checkout holds its lines
+// in the catalog's order and the commit reads `payment_lines` back unordered,
+// and on a tie the catalog leaves standing the earlier line would otherwise win
+// in each half - possibly a different line in each. The storefront mirrors the
+// same four keys (apps/storefront/lib/named-tickets.ts).
 type seatClaim struct {
 	line int
 	// tickets is how many Tickets the line mints. Zero on the zero value,
@@ -111,14 +120,16 @@ type seatClaim struct {
 	unitPriceCents int
 	sortOrder      int
 	name           string
+	ticketTypeID   string
 }
 
 // outranks reports whether this line's claim takes the seat from the one
-// holding it — dearest first, then the catalog's order, then the name.
+// holding it — dearest first, then the catalog's order, then the name, then
+// the Ticket Type's id.
 //
 // EVERY COMPARISON IS STRICT, so a line that ranks equal with the incumbent
-// leaves it alone: two lines of the same Ticket Type at the same price seat the
-// buyer on the earlier one, the way ordering by these three keys would.
+// leaves it alone. Only two lines of the SAME Ticket Type at the same price can
+// rank equal, and either is the same Ticket Type's seat; the earlier keeps it.
 func (s seatClaim) outranks(held seatClaim) bool {
 	// A line that mints no Ticket claims nothing, however dear it is. The
 	// quantities that reach the spine are all positive, so this is a guard and
@@ -136,7 +147,10 @@ func (s seatClaim) outranks(held seatClaim) bool {
 	if s.sortOrder != held.sortOrder {
 		return s.sortOrder < held.sortOrder
 	}
-	return s.name < held.name
+	if s.name != held.name {
+		return s.name < held.name
+	}
+	return s.ticketTypeID < held.ticketTypeID
 }
 
 // --- The Upgrade's eligibility (ADR 0074, #648) ----------------------------

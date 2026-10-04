@@ -6824,6 +6824,15 @@ components:
           type: string
         sold_out:
           type: boolean
+        sort_order:
+          description: |-
+            SortOrder is the Ticket Type's place in its Event's catalog. The list is
+            already in this order, but two Ticket Types can share a place, and the
+            Self-held seating rule breaks a price tie on it before the name and the id
+            (ADR 0074). The Storefront mirrors that rule to know which Ticket a Named
+            Tickets checkout does not ask a Holder for (ADR 0076), and the list's
+            order alone cannot tell it which of two equals the server would pick.
+          type: integer
         ticket_questions:
           description: |-
             TicketQuestions are what this Ticket Type asks the person who will hold one

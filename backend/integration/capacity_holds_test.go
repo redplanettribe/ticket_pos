@@ -41,6 +41,10 @@ type publicTicketTypeView struct {
 	// into, which is all of them outside sales_cutoff_public_test.go.
 	SalesCutoffAt *string `json:"sales_cutoff_at"`
 	Closed        bool    `json:"closed"`
+	// The Ticket Type's place in its Event's catalog, which the Storefront
+	// needs to break a price tie for the Self-held seat the way the server
+	// does (ADR 0074).
+	SortOrder int `json:"sort_order"`
 }
 
 // publicTicketTypes reads the Storefront event page and returns its Ticket

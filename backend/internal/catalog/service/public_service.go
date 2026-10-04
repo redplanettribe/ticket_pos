@@ -129,6 +129,13 @@ type PublicTicketType struct {
 	Remaining   int              `json:"remaining"`
 	SoldOut     bool             `json:"sold_out"`
 	Promotion   *PublicPromotion `json:"promotion"`
+	// SortOrder is the Ticket Type's place in its Event's catalog. The list is
+	// already in this order, but two Ticket Types can share a place, and the
+	// Self-held seating rule breaks a price tie on it before the name and the id
+	// (ADR 0074). The Storefront mirrors that rule to know which Ticket a Named
+	// Tickets checkout does not ask a Holder for (ADR 0076), and the list's
+	// order alone cannot tell it which of two equals the server would pick.
+	SortOrder int `json:"sort_order"`
 	// SalesCutoffAt is the Sales Cutoff as it was set — the raw instant, null on
 	// a Ticket Type that never stops selling, which is most of them (ADR 0070).
 	//
@@ -692,6 +699,7 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 			Remaining:   remaining,
 			SoldOut:     remaining == 0,
 			Promotion:   s.toPublicPromotion(handling, tt.PriceCents, promotion, now),
+			SortOrder:   tt.SortOrder,
 
 			SalesCutoffAt: salesCutoffAt,
 			// The verdict is the catalog predicate against the same `now` that
