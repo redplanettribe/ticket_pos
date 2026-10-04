@@ -40,8 +40,8 @@ type CommitTerms struct {
 	// SelfHeld makes one Ticket of each sale the buyer's own: the first Ticket
 	// of the sale's dearest line is assigned to the buyer and accepted in the
 	// same transaction that mints it (ADR 0048, seated on the dearest by ADR
-	// 0074). WHICH line that is belongs to the spine and to selfHeldSeat beside
-	// it; this flag says only whether a buyer is seated at all.
+	// 0074). WHICH line that is, SelfHeldSeatOf decides; this flag says only
+	// whether a buyer is seated at all.
 	//
 	// Set by the online checkout and by all three import routes while
 	// TICKET_ASSIGNMENT_ENABLED is on (ADR 0055), and by nothing else: an
