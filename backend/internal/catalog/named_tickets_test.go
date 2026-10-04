@@ -29,6 +29,27 @@ func TestNamedTicketsApply(t *testing.T) {
 	}
 }
 
+func TestBuyerAnswersProvisional(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		requires, assigned bool
+		state              TicketAssignmentState
+		want               bool
+	}{
+		{"named, open, assigned and unaccepted", true, true, TicketAssigned, true},
+		{"the Holder accepted", true, true, TicketAccepted, false},
+		{"nobody is named", true, true, TicketUnassigned, false},
+		{"the Event does not require Named Tickets", false, true, TicketAssigned, false},
+		{"Ticket Assignment is dark", true, false, TicketAssigned, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := BuyerAnswersProvisional(tc.requires, tc.assigned, tc.state); got != tc.want {
+				t.Fatalf("BuyerAnswersProvisional = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestOwedByNamedTickets(t *testing.T) {
 	asked := []AskedQuestion{
 		{ID: "size", TicketTypeID: "ga", Kind: TicketQuestionKindShortText, Required: true},

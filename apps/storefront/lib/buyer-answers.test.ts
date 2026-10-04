@@ -6,6 +6,8 @@ import {
   heldListMissesAHeldTicket,
   heldRowFor,
   placeholderRowCount,
+  provisionalOutstandingIn,
+  provisionalRowFor,
   saleOutstandingCount,
   withHeldRow,
   type BuyerTicket,
@@ -142,6 +144,84 @@ test("a written held ticket replaces its row and never duplicates it", () => {
   assert.equal(after[0]?.outstanding_count, 0);
   assert.equal(after[1], before[1]);
   assert.equal(withHeldRow([], held({ ticket_id: "c" })).length, 1);
+});
+
+// PROVISIONAL ANSWERS (#672, ADR 0076). On a Named Tickets Event the API puts
+// an assigned Ticket's questions on the buyer's own row, and only there; the
+// page draws them from that row and from nowhere else.
+function provisional(overrides: Partial<NonNullable<BuyerTicket["provisional_answers"]>> = {}) {
+  return {
+    answerable: true,
+    answerable_refusal: "",
+    outstanding_count: 0,
+    questions: [{ question: question(), answer: null }],
+    ...overrides,
+  };
+}
+
+test("a row the API sent provisional answers on is answered from that row", () => {
+  const row = ticket({
+    ticket_id: "b",
+    ticket_type_name: "VIP",
+    assignment_state: "assigned",
+    provisional_answers: provisional({ outstanding_count: 2 }),
+  });
+  const panel = provisionalRowFor(row);
+  assert.equal(panel?.ticket_id, "b");
+  assert.equal(panel?.ticket_type_name, "VIP");
+  assert.equal(panel?.outstanding_count, 2);
+  assert.equal(panel?.questions.length, 1);
+});
+
+test("a row without provisional answers has no provisional panel", () => {
+  assert.equal(provisionalRowFor(ticket({ assignment_state: "assigned" })), null);
+  assert.equal(provisionalRowFor(ticket({ assignment_state: "accepted" })), null);
+});
+
+// A provisional block whose every question was retired unanswered asks
+// nothing, so the row is an ordinary assignment row rather than a panel
+// promising something empty.
+test("provisional answers with nothing to draw are no panel", () => {
+  assert.equal(provisionalRowFor(ticket({ provisional_answers: provisional({ questions: [] }) })), null);
+  assert.equal(
+    provisionalRowFor(
+      ticket({
+        provisional_answers: provisional({
+          questions: [{ question: question({ retired: true }), answer: null }],
+        }),
+      }),
+    ),
+    null,
+  );
+});
+
+test("a provisional row asking something is reason enough for the question half", () => {
+  assert.equal(hasAnythingToShow([ticket({ provisional_answers: provisional() })], []), true);
+});
+
+// The buyer owes what they may still answer: their own Ticket's debt plus the
+// provisional rows', and nothing on a Ticket whose Answers are its Holder's.
+test("the sale's outstanding count adds what the provisional rows owe", () => {
+  const tickets = [
+    ticket({ ticket_id: "a", self_held: true }),
+    ticket({ ticket_id: "b", provisional_answers: provisional({ outstanding_count: 2 }) }),
+    ticket({ ticket_id: "c" }),
+  ];
+  assert.equal(saleOutstandingCount(tickets, [held({ ticket_id: "a", outstanding_count: 1 })]), 3);
+});
+
+// The provisional write hands back the whole Sale; the panel that saved reads
+// its own new count off it to decide whether to fold.
+test("the outstanding count after a provisional save is read off the returned sale", () => {
+  const sale = [
+    ticket({ ticket_id: "a" }),
+    ticket({ ticket_id: "b", provisional_answers: provisional({ outstanding_count: 0 }) }),
+  ];
+  assert.equal(provisionalOutstandingIn(sale, "b"), 0);
+  // A row that came back without the block (the Holder accepted meanwhile)
+  // owes the buyer nothing.
+  assert.equal(provisionalOutstandingIn(sale, "a"), 0);
+  assert.equal(provisionalOutstandingIn(sale, "missing"), 0);
 });
 
 test("the skeleton reserves one row per ticket, at least one and at most twelve", () => {

@@ -503,6 +503,9 @@
       "rowAccepted": "{email} has it",
       "giveAway": "Give this ticket to someone else"
     },
+    "provisionalAnswers": {
+      "untilAccepted": "You can correct these answers until {email} picks the ticket up. After that, the answers are theirs."
+    },
     "tabsLabel": "Your tickets by status",
     "reversedHeading": "Reversed",
     "tabCount": "{label} ({count})",

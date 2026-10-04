@@ -731,6 +731,14 @@ func registerCustomerRoutes(mux Router, app *App) {
 	// are #325, which is also what makes the `accepted` state reachable.
 	mux.Handle("PUT /api/v1/customer/ticket-sales/{ticketSaleId}/tickets/{ticketId}/assignment",
 		signedIn(http.HandlerFunc(app.CatalogHandler.AssignOwnTicket)))
+	// The buyer corrects the Answers they gave for somebody else (#672, ADR
+	// 0076): on a Named Tickets Event, an `assigned` Ticket's Answers are the
+	// buyer's until its Holder accepts. Behind the same gate as the assignment
+	// write, for the same reason. NOT the sale-scoped answer write ADR 0049
+	// retired at `.../answers/{questionId}`, which stays gone: this path names
+	// the only Answers it reaches, and every other Ticket is not found.
+	mux.Handle("PUT /api/v1/customer/ticket-sales/{ticketSaleId}/tickets/{ticketId}/provisional-answers/{questionId}",
+		signedIn(http.HandlerFunc(app.CatalogHandler.AnswerBuyerProvisionalTicketQuestion)))
 	// The Customer Area's one write: "My info" (#102). Scoped by the session
 	// like every route above it, and narrowed once more inside the service — a
 	// Confirmation Link session may read its one sale but may not rewrite the
