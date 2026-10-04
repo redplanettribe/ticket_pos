@@ -48,6 +48,11 @@ type AnswerableTicket struct {
 	// EventStartsAt is the instant the doors open. Invalid on an Event that has
 	// not said when it starts, which has not started.
 	EventStartsAt sql.NullTime
+	// BuyerEmail is the address the Ticket Sale was made to. It rides here for
+	// one reader: a buyer assigning a Ticket to this address is accepted at once
+	// (ADR 0076, catalog.IsBuyersOwnAddress), and the comparison must be against
+	// the Sale the scoped read already resolved rather than a second lookup.
+	BuyerEmail string
 
 	// THE TICKET ASSIGNMENT (#324, parent #322). Four columns on the Ticket
 	// rather than a joined entity — see migration 080 — and the state they
@@ -123,7 +128,7 @@ type TicketAnswerOption struct {
 
 const answerableTicketColumns = `
 	tk.id, tk.ordinal, l.ticket_type_id, tt.name,
-	s.id, s.confirmation_ref, s.status, s.channel, e.starts_at,
+	s.id, s.confirmation_ref, s.status, s.channel, e.starts_at, s.customer_email,
 	tk.holder_email, tk.holder_customer_id, tk.assigned_at, tk.accepted_at
 `
 
@@ -133,7 +138,7 @@ func scanAnswerableTicket(row interface {
 	var t AnswerableTicket
 	if err := row.Scan(
 		&t.ID, &t.Ordinal, &t.TicketTypeID, &t.TicketTypeName,
-		&t.TicketSaleID, &t.ConfirmationRef, &t.SaleStatus, &t.Channel, &t.EventStartsAt,
+		&t.TicketSaleID, &t.ConfirmationRef, &t.SaleStatus, &t.Channel, &t.EventStartsAt, &t.BuyerEmail,
 		&t.HolderEmail, &t.HolderCustomerID, &t.AssignedAt, &t.AcceptedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -567,7 +572,7 @@ func (r *Repository) ListHeldTicketsForCustomer(ctx context.Context, customerID 
 		var t HeldTicket
 		if err := rows.Scan(
 			&t.ID, &t.Ordinal, &t.TicketTypeID, &t.TicketTypeName,
-			&t.TicketSaleID, &t.ConfirmationRef, &t.SaleStatus, &t.Channel, &t.EventStartsAt,
+			&t.TicketSaleID, &t.ConfirmationRef, &t.SaleStatus, &t.Channel, &t.EventStartsAt, &t.BuyerEmail,
 			&t.HolderEmail, &t.HolderCustomerID, &t.AssignedAt, &t.AcceptedAt,
 			&t.EventName, &t.EventSlug,
 		); err != nil {

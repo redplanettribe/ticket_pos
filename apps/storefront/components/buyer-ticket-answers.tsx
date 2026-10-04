@@ -10,6 +10,7 @@ import { visibleQuestionsOf } from "@/lib/ticket-questions";
 import { apiErrorMessage } from "@/lib/api-errors";
 import {
   hasAnythingToShow,
+  heldListMissesAHeldTicket,
   heldRowFor,
   placeholderRowCount,
   saleOutstandingCount,
@@ -124,19 +125,8 @@ export function BuyerTicketAnswers({ ticketSaleId, ticketCount }: BuyerTicketAns
       }
     })();
     void (async () => {
-      try {
-        // The held list is not scoped to this Sale — it is everything the
-        // session holds — and the join by id below picks out the one row, if
-        // any, that belongs on this card. A failure here leaves the buyer's own
-        // row as an assignment row, which is the correct shape for a Ticket
-        // whose questions this page was not given.
-        const response = await fetch("/api/customer/held-tickets");
-        const envelope = (await response.json()) as { data: HeldTicket[] | null };
-        if (!live) return;
-        setHeld(response.ok && envelope.data ? envelope.data : []);
-      } catch {
-        if (live) setHeld([]);
-      }
+      const rows = await fetchHeldTickets();
+      if (live) setHeld(rows ?? []);
     })();
     return () => {
       live = false;
@@ -203,13 +193,42 @@ export function BuyerTicketAnswers({ ticketSaleId, ticketCount }: BuyerTicketAns
             // seat numbers, and the platform is never going to ask for them.
             position={index + 1}
             total={tickets.length}
-            onAssigned={setTickets}
+            onAssigned={(updated) => {
+              setTickets(updated);
+              // A Ticket the buyer just assigned to their own address is held
+              // at once (ADR 0076), and its questions arrive with a fresh read
+              // of the held list. Its row stays an ordinary one until then.
+              if (heldListMissesAHeldTicket(updated, held)) {
+                // A failed re-read keeps the list the page already had.
+                void fetchHeldTickets().then((rows) => {
+                  if (rows !== null) setHeld(rows);
+                });
+              }
+            }}
             onAnswered={(updated) => setHeld((rows) => withHeldRow(rows ?? [], updated))}
           />
         ))}
       </div>
     </section>
   );
+}
+
+/**
+ * Everything the session holds, or null when it could not be read.
+ *
+ * The held list is not scoped to this Sale — it is everything the session
+ * holds — and the join by id picks out the rows, if any, that belong on this
+ * card. A failure leaves the buyer's own row as an assignment row, which is
+ * the correct shape for a Ticket whose questions this page was not given.
+ */
+async function fetchHeldTickets(): Promise<HeldTicket[] | null> {
+  try {
+    const response = await fetch("/api/customer/held-tickets");
+    const envelope = (await response.json()) as { data: HeldTicket[] | null };
+    return response.ok && envelope.data ? envelope.data : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -486,7 +486,7 @@ func TestBackfillHoldsNoSecondTicketForABuyerHoldingOneByLink(t *testing.T) {
 	third := f.ticketAt(t, ana, saleID, 3)
 	f.env.email.Reset()
 	assignTicketOK(t, f.env, ana, saleID, third, "Ana@Example.com")
-	acceptAssignmentOK(t, f.env, assignmentTokenFrom(t, assignmentMailFor(t, f.env, "ana@example.com")))
+	// Held at once: the buyer's own address is accepted with no link (ADR 0076).
 
 	executeMigration(t, f.env, selfHeldBackfill)
 
@@ -556,7 +556,7 @@ func TestBackfillCountsACaseVariantHolderEmailAsAlreadyHeld(t *testing.T) {
 	second := f.ticketAt(t, ana, saleID, 2)
 	f.env.email.Reset()
 	assignTicketOK(t, f.env, ana, saleID, second, "ana@example.com")
-	acceptAssignmentOK(t, f.env, assignmentTokenFrom(t, assignmentMailFor(t, f.env, "ana@example.com")))
+	// Held at once: the buyer's own address is accepted with no link (ADR 0076).
 
 	if _, err := f.env.db.Exec(`UPDATE tickets SET holder_email = '  ANA@Example.com ' WHERE id = $1`, second); err != nil {
 		t.Fatalf("stage a raw holder address: %v", err)

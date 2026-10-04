@@ -98,18 +98,33 @@ func (s *Service) AssignOwnTicket(
 		return nil, err
 	}
 
-	// THE RATIONING, BEFORE THE WRITE AND NEVER AFTER IT (#332). See
-	// assignmentMailAllowed for why a refusal here refuses the ASSIGNMENT and
-	// not merely the mail.
-	if err := s.assignmentMailAllowed(ctx, customerID, ticket, email); err != nil {
-		return nil, err
+	// THE BUYER'S OWN ADDRESS IS ACCEPTED AT ONCE, on every Event (ADR 0076). A
+	// parent buying for three children holds one themselves, and the address
+	// has already been proven by the act that names it: this session is a
+	// Customer Session, or a Confirmation Link session reached through that very
+	// inbox. So the buyer is the Holder the moment they say so, no Assignment
+	// Link is mailed to prove the inbox again, and the Holder List reads a known
+	// family rather than one name and three blanks.
+	//
+	// The Holder is the session's Customer, which the scoped read above has
+	// already proven is the Sale's own.
+	acceptingCustomerID := ""
+	if catalog.IsBuyersOwnAddress(email, ticket.BuyerEmail) {
+		acceptingCustomerID = customerID
 	}
 
-	// A BUYER MAY ASSIGN A TICKET TO THEIR OWN ADDRESS, and nothing here checks
-	// otherwise. A parent buying for three children holds one themselves; a
-	// rule that refused the buyer's own address would refuse the commonest shape
-	// this feature has.
-	assignment, err := s.repo.AssignTicketToHolder(ctx, ticket.ID, email, s.now())
+	// THE RATIONING, BEFORE THE WRITE AND NEVER AFTER IT (#332). See
+	// assignmentMailAllowed for why a refusal here refuses the ASSIGNMENT and
+	// not merely the mail. Never for the buyer's own address: the rationing
+	// stops the platform writing to strangers, and that assignment writes to
+	// nobody, so it is neither refused by an allowance nor spends one.
+	if acceptingCustomerID == "" {
+		if err := s.assignmentMailAllowed(ctx, customerID, ticket, email); err != nil {
+			return nil, err
+		}
+	}
+
+	assignment, err := s.repo.AssignTicketToHolder(ctx, ticket.ID, email, acceptingCustomerID, s.now())
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +159,14 @@ func (s *Service) AssignOwnTicket(
 	// refused costs the buyer nothing: the alternative would ration somebody out
 	// of a message that never reached an inbox, permanently, since the
 	// per-Ticket allowance never refills.
-	if assignment.Changed {
+	//
+	// THE BUYER TAKING A TICKET BACK MAILS ONLY THE DISPLACED END. There is no
+	// Assignment mail to send to an address that was accepted as it was named,
+	// and so no ledger row either; a Holder who had accepted is still told they
+	// no longer hold it, as any reassignment tells them.
+	if assignment.Changed && assignment.Accepted {
+		s.tellDisplacedHolder(ctx, ticket.ID, assignment.DisplacedHolderEmail)
+	} else if assignment.Changed {
 		if s.mailAssignedTicket(
 			ctx, ticket.ID, email, assignment.AssignedAt, assignment.DisplacedHolderEmail,
 		) {
@@ -310,6 +332,23 @@ func (s *Service) mailAssignedTicket(
 	// naturally as the order the two facts happened in.
 	s.tellHolderDisplacedByReassignment(ctx, ticket, displacedHolderEmail)
 	return sent
+}
+
+// tellDisplacedHolder sends the No Longer Holding mail alone, for a
+// reassignment that owes no Assignment mail: the buyer taking a Ticket back from
+// a Holder who had accepted it (ADR 0076). The same read and the same composer
+// mailAssignedTicket uses, so the displaced Holder is told the same thing
+// whichever address took the Ticket from them.
+func (s *Service) tellDisplacedHolder(ctx context.Context, ticketID, displacedHolderEmail string) {
+	if displacedHolderEmail == "" || s.noLongerHoldingMailer == nil {
+		return
+	}
+	ticket, err := s.repo.GetAssignmentLinkTicket(ctx, ticketID)
+	if err != nil || ticket == nil {
+		s.logAssignmentMailFailure("no longer holding mail not composed: ticket unreadable", err)
+		return
+	}
+	s.tellHolderDisplacedByReassignment(ctx, ticket, displacedHolderEmail)
 }
 
 // assignmentMailAllowed is the whole of #332's refusal, and it stands BEFORE the

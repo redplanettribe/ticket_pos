@@ -134,6 +134,21 @@ export function heldRowFor(ticket: BuyerTicket, held: HeldTicket[]): HeldTicket 
 }
 
 /**
+ * Whether a Ticket the buyer holds has no row on the held list yet — the
+ * signal to read the held list again.
+ *
+ * It happens when the buyer assigns a Ticket to their own address: the Ticket
+ * is held the moment the write returns (ADR 0076), but its questions live on
+ * the held list, which this page read before. Reading it again turns the row
+ * into the buyer's own panel at once rather than on the next page load.
+ */
+export function heldListMissesAHeldTicket(tickets: BuyerTicket[], held: HeldTicket[]): boolean {
+  return tickets.some(
+    (ticket) => ticket.self_held === true && !held.some((row) => row.ticket_id === ticket.ticket_id),
+  );
+}
+
+/**
  * Whether the buyer's one answerable row has anything to answer — i.e. whether
  * this sale has a question half at all.
  *

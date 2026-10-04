@@ -196,3 +196,21 @@ func ParseHolderEmail(raw string) (string, bool) {
 	}
 	return email, true
 }
+
+// IsBuyersOwnAddress reports whether a Holder address is the address the Ticket
+// Sale was made to, which makes the Ticket the buyer's own (ADR 0076).
+//
+// THE ONE PLACE THIS QUESTION IS ANSWERED, for both moments a buyer names an
+// address: after the sale, from their sale page, and at checkout, when the
+// commit writes the Tickets the buyer named. Either way a match is `accepted`
+// at once, with the buyer as Holder and no Assignment Link, because the address
+// was already proven by the act that names it: a Customer Session or a
+// Confirmation Link session reached through that inbox.
+//
+// MATCHED ON THE NORMALISED ADDRESS, by the same rule accepting uses, so the
+// buyer typing their address the way an address book gives it is still the
+// buyer. An empty address is nobody's.
+func IsBuyersOwnAddress(holderEmail, buyerEmail string) bool {
+	holder := platform.NormalizeEmail(holderEmail)
+	return holder != "" && holder == platform.NormalizeEmail(buyerEmail)
+}

@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   hasAnythingToShow,
+  heldListMissesAHeldTicket,
   heldRowFor,
   placeholderRowCount,
   saleOutstandingCount,
@@ -82,6 +83,22 @@ test("the self-held ticket finds its questions in the held list by id", () => {
 test("a self-held ticket missing from the held list draws as an ordinary row", () => {
   assert.equal(heldRowFor(ticket({ self_held: true }), []), null);
   assert.equal(heldRowFor(ticket({ self_held: true }), [held({ ticket_id: "other" })]), null);
+});
+
+// A TICKET THE BUYER JUST ASSIGNED TO THEMSELVES is held at once (ADR 0076),
+// and its questions are on the held list only once it is read again. The page
+// asks for that read exactly when a held Ticket has no held row yet.
+test("the held list is stale when a ticket the buyer holds is missing from it", () => {
+  assert.equal(heldListMissesAHeldTicket([ticket({ self_held: true })], []), true);
+  assert.equal(
+    heldListMissesAHeldTicket([ticket({ ticket_id: "a", self_held: true })], [held({ ticket_id: "b" })]),
+    true,
+  );
+  assert.equal(heldListMissesAHeldTicket([ticket({ self_held: true })], [held()]), false);
+  // Giving a Ticket away leaves a held row with no Ticket behind it, which is
+  // harmless: the join simply finds nothing to draw it on.
+  assert.equal(heldListMissesAHeldTicket([ticket({ self_held: false })], [held()]), false);
+  assert.equal(heldListMissesAHeldTicket([], []), false);
 });
 
 // THE RULE THAT KEEPS THIS FEATURE INVISIBLE. Most Organizations have never

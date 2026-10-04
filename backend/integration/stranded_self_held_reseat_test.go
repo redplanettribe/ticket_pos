@@ -411,7 +411,7 @@ func TestReseatLeavesTheDearerTicketsHolderAlone(t *testing.T) {
 		freeTicket, paidTicket := f.strand(t, saleID)
 		f.env.email.Reset()
 		assignTicketOK(t, f.env, ana, saleID, paidTicket, "ana@example.com")
-		acceptAssignmentOK(t, f.env, assignmentTokenFrom(t, assignmentMailFor(t, f.env, "ana@example.com")))
+		// Held at once: the buyer's own address is accepted with no link (ADR 0076).
 
 		executeMigration(t, f.env, reseatStranded)
 
