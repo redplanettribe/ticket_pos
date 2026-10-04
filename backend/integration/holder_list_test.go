@@ -2770,8 +2770,9 @@ func newHolderSortFixture(t *testing.T, env *testEnv) holderSortFixture {
 	f.sessionID = orgAdminSession(t, env)
 	f.eventID = createDraftEvent(t, env, f.sessionID, "Sort Fest", "sort-fest")
 	// SCHEDULED AND COMFORTABLY IN THE FUTURE: the assignment window closes at
-	// the doors, and three of these four Tickets are reached by assigning.
-	scheduleEvent(t, env, f.sessionID, f.eventID, "Sort Fest", "sort-fest",
+	// the doors, and three of these four Tickets are reached by assigning - an
+	// address alone, so on an Event that does not require Named Tickets.
+	scheduleEventWithoutNamedTickets(t, env, f.sessionID, f.eventID, "Sort Fest", "sort-fest",
 		env.fixedClock.Add(30*24*time.Hour))
 
 	// THE CATALOG ORDER IS THE CREATION ORDER, and it is deliberately not the

@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
+	"github.com/peter/ticket_pos/backend/internal/catalog/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
@@ -28,13 +29,19 @@ import (
 // that notice; it can and does refuse to accept anything at all while
 // TICKET_ASSIGNMENT_ENABLED is closed.
 
-// buyerAssignmentBody is the whole of what a buyer sends: one address.
+// buyerAssignmentBody is the whole of what a buyer sends: one address, and on
+// an Event that requires Named Tickets that Ticket's Answers with it.
 //
-// ONE FIELD AND NOT TWO. There is no name here, and no Ticket Question answer:
-// what the platform knows about a Holder is what the HOLDER told it when they
-// accepted (#325), never what the buyer guessed on their behalf. A `holder_name`
-// the buyer typed would be a fact about a person recorded from somebody else's
-// memory, and it would go straight into the Organization's guest list.
+// THERE IS NO NAME HERE. What the platform knows about a Holder's name is what
+// the HOLDER told it when they accepted (#325), never what the buyer guessed on
+// their behalf. A `holder_name` the buyer typed would be a fact about a person
+// recorded from somebody else's memory, and it would go straight into the
+// Organization's guest list.
+//
+// THE ANSWERS ARE READ ONLY ON A NAMED TICKETS EVENT (ADR 0076, #673), where
+// the Organization chose to have the buyer answer for every Ticket and a
+// reassignment must not undo that. Everywhere else they are ignored: only the
+// Holder answers (ADR 0049).
 //
 // NO TOKEN, for the reason its Answer neighbour has none: this route has a
 // session, so the body carries no credential.
@@ -44,6 +51,18 @@ type buyerAssignmentBody struct {
 	// address is a domain value with one definition, and a second check in the
 	// handler is a second place for it to disagree.
 	HolderEmail string `json:"holder_email"`
+	// Answers are the new Holder's Answers to this Ticket's questions, one per
+	// question, in the shape its kind takes. Judged in the service against the
+	// questions the checkout form asks, exactly as a checkout's Answers are.
+	Answers []buyerAssignmentAnswerBody `json:"answers"`
+}
+
+// buyerAssignmentAnswerBody is one Answer given with an address: the question
+// and the reply. No Ticket Type and no index, unlike a checkout's: the Ticket
+// is the one in the path.
+type buyerAssignmentAnswerBody struct {
+	TicketQuestionID string `json:"ticket_question_id"`
+	answerBody
 }
 
 // AssignOwnTicket assigns or reassigns one Ticket of the buyer's own Sale to an
@@ -55,7 +74,7 @@ type buyerAssignmentBody struct {
 // address twice changes nothing at all — see repository.AssignTicketToHolder.
 //
 // @Summary      Assign one of your own tickets to an email address
-// @Description  Names the email address that holds one Ticket of the signed-in Customer's own Ticket Sale, creating the Ticket Assignment or replacing the one that was there — assign, reassign and correcting a typo are all this one call. **A change of address mails the new address an Assignment Link**, which is how a Ticket becomes `accepted`; re-sending the address already there mails nobody. **Sending is rationed**: one Ticket may send at most a small fixed number of Assignment mails in its whole life (a first send plus a resend allowance for a mistyped address), and one buyer may send only so many inside a rolling window across all their Tickets. A Ticket out of allowance is refused with 409 ASSIGNMENT_MAIL_CAP_REACHED and a buyer over their window with 429 ASSIGNMENT_RATE_LIMITED. Both refuse the ASSIGNMENT outright and send no mail — the address is not written and no timestamp moves, because a write without a send would kill every Assignment Link already outstanding for that Ticket and replace it with nothing. The buyer's fallback is the Ticket's Answer Link, which keeps working. **Reassigning to a DIFFERENT address clears that Ticket's Answers back to Outstanding**: an Answer is a fact about a person and is never inherited by a new Holder. A first assignment clears nothing, and re-sending the address the Ticket already carries is a no-op that moves no timestamp. The buyer may assign any Ticket of their sale, including to their own address, and may assign only some of them. **The Sale's own buyer address is `accepted` at once** (ADR 0076), matched case- and whitespace-insensitively, with the buyer as Holder: no Assignment Link is mailed, no allowance is spent and the rationing never refuses it; a Holder who had accepted the Ticket before is still told they no longer hold it. Authorization is the Customer Session; a Confirmation Link session may assign the one sale it names. A Ticket that is not on one of the caller's own sales is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does not exist. Available on `online` and `import` Ticket Sales only — an `in_person` door sale has no buyer surface and is refused with 409 ASSIGNMENT_CHANNEL_UNSUPPORTED. Also refused with 409 once the Event has started (ASSIGNMENT_EVENT_STARTED) or the Ticket Sale has been reversed (ASSIGNMENT_SALE_REVERSED), and with 400 INVALID_HOLDER_EMAIL when the value is not an email address. The whole sale's tickets come back, not just the one that changed. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off, which is how it ships — that flag is separate from the Ticket Question one, so closing it leaves Ticket Questions working. The Storefront must tell the buyer, before they submit, that the address will be mailed and shown to the Organization.
+// @Description  Names the email address that holds one Ticket of the signed-in Customer's own Ticket Sale, creating the Ticket Assignment or replacing the one that was there — assign, reassign and correcting a typo are all this one call. **A change of address mails the new address an Assignment Link**, which is how a Ticket becomes `accepted`; re-sending the address already there mails nobody. **Sending is rationed**: one Ticket may send at most a small fixed number of Assignment mails in its whole life (a first send plus a resend allowance for a mistyped address), and one buyer may send only so many inside a rolling window across all their Tickets. A Ticket out of allowance is refused with 409 ASSIGNMENT_MAIL_CAP_REACHED and a buyer over their window with 429 ASSIGNMENT_RATE_LIMITED. Both refuse the ASSIGNMENT outright and send no mail — the address is not written and no timestamp moves, because a write without a send would kill every Assignment Link already outstanding for that Ticket and replace it with nothing. The buyer's fallback is the Ticket's Answer Link, which keeps working. **Reassigning to a DIFFERENT address clears that Ticket's Answers back to Outstanding**: an Answer is a fact about a person and is never inherited by a new Holder. **On an Event that requires Named Tickets** (ADR 0076) and has not started, every call must carry in `answers` an Answer to each approved, required, unretired Ticket Question of the Ticket's Ticket Type, the buyer's own address included; optional ones may be given too. They are written in the same transaction that names the new Holder and clears the old Holder's Answers, and only when the address changes. Missing or unusable ones are refused with 400 NAMED_TICKETS_INCOMPLETE, whose details are begin-checkout's: the Ticket by `ticket_type_id` and `ticket_index` (its ordinal), with the `missing_question_ids`. The buyer's row lists those questions as `reassignment_questions`. On every other Event `answers` is ignored and only the Holder answers. A first assignment clears nothing, and re-sending the address the Ticket already carries is a no-op that moves no timestamp. The buyer may assign any Ticket of their sale, including to their own address, and may assign only some of them. **The Sale's own buyer address is `accepted` at once** (ADR 0076), matched case- and whitespace-insensitively, with the buyer as Holder: no Assignment Link is mailed, no allowance is spent and the rationing never refuses it; a Holder who had accepted the Ticket before is still told they no longer hold it. Authorization is the Customer Session; a Confirmation Link session may assign the one sale it names. A Ticket that is not on one of the caller's own sales is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does not exist. Available on `online` and `import` Ticket Sales only — an `in_person` door sale has no buyer surface and is refused with 409 ASSIGNMENT_CHANNEL_UNSUPPORTED. Also refused with 409 once the Event has started (ASSIGNMENT_EVENT_STARTED) or the Ticket Sale has been reversed (ASSIGNMENT_SALE_REVERSED), and with 400 INVALID_HOLDER_EMAIL when the value is not an email address. The whole sale's tickets come back, not just the one that changed. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off, which is how it ships — that flag is separate from the Ticket Question one, so closing it leaves Ticket Questions working. The Storefront must tell the buyer, before they submit, that the address will be mailed and shown to the Organization.
 // @Tags         customer
 // @Accept       json
 // @Produce      json
@@ -101,8 +120,21 @@ func (h *Handler) AssignOwnTicket(w http.ResponseWriter, r *http.Request) {
 	// verbatim, which reads the FLAG first and resolves the Ticket before it
 	// looks at the address at all — so a caller naming somebody else's Ticket
 	// cannot learn from a validation error that their id was reachable.
+	answers := make([]service.AssignmentAnswerInput, 0, len(body.Answers))
+	for _, answer := range body.Answers {
+		answers = append(answers, service.AssignmentAnswerInput{
+			TicketQuestionID: answer.TicketQuestionID,
+			Answer: service.AnswerInput{
+				Text:      answer.Text,
+				Number:    answer.Number,
+				Date:      answer.Date,
+				Checked:   answer.Checked,
+				OptionIDs: answer.OptionIDs,
+			},
+		})
+	}
 	views, err := h.svc.AssignOwnTicket(
-		r.Context(), session.CustomerID, session.TicketSaleID, saleID, ticketID, body.HolderEmail,
+		r.Context(), session.CustomerID, session.TicketSaleID, saleID, ticketID, body.HolderEmail, answers,
 	)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)

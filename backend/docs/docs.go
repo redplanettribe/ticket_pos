@@ -268,8 +268,48 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.buyerAssignmentAnswerBody": {
+                "properties": {
+                    "checked": {
+                        "description": "Checked answers checkbox.",
+                        "type": "boolean"
+                    },
+                    "date": {
+                        "description": "Date answers date, as a calendar date YYYY-MM-DD. Never an instant: a\ndate carries no time and no zone, so nothing can shift it by a day.",
+                        "type": "string"
+                    },
+                    "number": {
+                        "description": "Number answers number, as a decimal STRING rather than a JSON number.\nJSON numbers are doubles in most parsers, and a value that survives a\nNUMERIC column only to be rounded on the way through the wire would defeat\nthe column. See catalog.SubmittedAnswer.",
+                        "type": "string"
+                    },
+                    "option_ids": {
+                        "description": "OptionIDs answers single_choice (one) and multi_choice (any number). They\nare OPTION IDENTITIES and never labels, because a label could not survive\na rename — which is the whole reason an Option has an id.\n\nAn empty array is somebody clearing their choices, which is refused as an\nempty Answer; the way to say \"not said\" is to DELETE the Answer.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "text": {
+                        "description": "Text answers short_text and long_text.",
+                        "type": "string"
+                    },
+                    "ticket_question_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.buyerAssignmentBody": {
                 "properties": {
+                    "answers": {
+                        "description": "Answers are the new Holder's Answers to this Ticket's questions, one per\nquestion, in the shape its kind takes. Judged in the service against the\nquestions the checkout form asks, exactly as a checkout's Answers are.",
+                        "items": {
+                            "$ref": "#/components/schemas/handler.buyerAssignmentAnswerBody"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "holder_email": {
                         "description": "HolderEmail is the address as the buyer typed it. Normalised and shape\nchecked by catalog.ParseHolderEmail in the service, and NOT here — the\naddress is a domain value with one definition, and a second check in the\nhandler is a second place for it to disagree.",
                         "type": "string"
@@ -3806,6 +3846,14 @@ const docTemplate = `{
                     },
                     "provisional_answers": {
                         "$ref": "#/components/schemas/service.ProvisionalAnswersView"
+                    },
+                    "reassignment_questions": {
+                        "description": "ReassignmentQuestions are the Ticket Questions an assignment of this\nTicket must be given Answers to, with the address (ADR 0076, #673): the\nEvent requires Named Tickets, the Ticket may be assigned right now, and\nits Ticket Type asks something. The questions as the checkout form asks\nthem, required ones marked, and NEVER an Answer: what anybody said is not\non this field. Absent on every other row.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.PublicTicketQuestion"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
                     "self_held": {
                         "description": "SelfHeld is whether this Ticket's Holder is the buyer themself — the one\nTicket an Online Sale hands the buyer at purchase (ADR 0048), or any\nTicket they later assigned to their own address and accepted. The\nStorefront says \"your ticket\" on it and draws its questions from the\nheld-ticket list; every other Ticket is its Holder's to answer. Absent\nwhile the assignment flag is closed, like the rest of this block.",
@@ -11414,7 +11462,7 @@ const docTemplate = `{
         },
         "/api/v1/customer/ticket-sales/{ticketSaleId}/tickets/{ticketId}/assignment": {
             "put": {
-                "description": "Names the email address that holds one Ticket of the signed-in Customer's own Ticket Sale, creating the Ticket Assignment or replacing the one that was there — assign, reassign and correcting a typo are all this one call. **A change of address mails the new address an Assignment Link**, which is how a Ticket becomes ` + "`" + `accepted` + "`" + `; re-sending the address already there mails nobody. **Sending is rationed**: one Ticket may send at most a small fixed number of Assignment mails in its whole life (a first send plus a resend allowance for a mistyped address), and one buyer may send only so many inside a rolling window across all their Tickets. A Ticket out of allowance is refused with 409 ASSIGNMENT_MAIL_CAP_REACHED and a buyer over their window with 429 ASSIGNMENT_RATE_LIMITED. Both refuse the ASSIGNMENT outright and send no mail — the address is not written and no timestamp moves, because a write without a send would kill every Assignment Link already outstanding for that Ticket and replace it with nothing. The buyer's fallback is the Ticket's Answer Link, which keeps working. **Reassigning to a DIFFERENT address clears that Ticket's Answers back to Outstanding**: an Answer is a fact about a person and is never inherited by a new Holder. A first assignment clears nothing, and re-sending the address the Ticket already carries is a no-op that moves no timestamp. The buyer may assign any Ticket of their sale, including to their own address, and may assign only some of them. **The Sale's own buyer address is ` + "`" + `accepted` + "`" + ` at once** (ADR 0076), matched case- and whitespace-insensitively, with the buyer as Holder: no Assignment Link is mailed, no allowance is spent and the rationing never refuses it; a Holder who had accepted the Ticket before is still told they no longer hold it. Authorization is the Customer Session; a Confirmation Link session may assign the one sale it names. A Ticket that is not on one of the caller's own sales is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does not exist. Available on ` + "`" + `online` + "`" + ` and ` + "`" + `import` + "`" + ` Ticket Sales only — an ` + "`" + `in_person` + "`" + ` door sale has no buyer surface and is refused with 409 ASSIGNMENT_CHANNEL_UNSUPPORTED. Also refused with 409 once the Event has started (ASSIGNMENT_EVENT_STARTED) or the Ticket Sale has been reversed (ASSIGNMENT_SALE_REVERSED), and with 400 INVALID_HOLDER_EMAIL when the value is not an email address. The whole sale's tickets come back, not just the one that changed. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off, which is how it ships — that flag is separate from the Ticket Question one, so closing it leaves Ticket Questions working. The Storefront must tell the buyer, before they submit, that the address will be mailed and shown to the Organization.",
+                "description": "Names the email address that holds one Ticket of the signed-in Customer's own Ticket Sale, creating the Ticket Assignment or replacing the one that was there — assign, reassign and correcting a typo are all this one call. **A change of address mails the new address an Assignment Link**, which is how a Ticket becomes ` + "`" + `accepted` + "`" + `; re-sending the address already there mails nobody. **Sending is rationed**: one Ticket may send at most a small fixed number of Assignment mails in its whole life (a first send plus a resend allowance for a mistyped address), and one buyer may send only so many inside a rolling window across all their Tickets. A Ticket out of allowance is refused with 409 ASSIGNMENT_MAIL_CAP_REACHED and a buyer over their window with 429 ASSIGNMENT_RATE_LIMITED. Both refuse the ASSIGNMENT outright and send no mail — the address is not written and no timestamp moves, because a write without a send would kill every Assignment Link already outstanding for that Ticket and replace it with nothing. The buyer's fallback is the Ticket's Answer Link, which keeps working. **Reassigning to a DIFFERENT address clears that Ticket's Answers back to Outstanding**: an Answer is a fact about a person and is never inherited by a new Holder. **On an Event that requires Named Tickets** (ADR 0076) and has not started, every call must carry in ` + "`" + `answers` + "`" + ` an Answer to each approved, required, unretired Ticket Question of the Ticket's Ticket Type, the buyer's own address included; optional ones may be given too. They are written in the same transaction that names the new Holder and clears the old Holder's Answers, and only when the address changes. Missing or unusable ones are refused with 400 NAMED_TICKETS_INCOMPLETE, whose details are begin-checkout's: the Ticket by ` + "`" + `ticket_type_id` + "`" + ` and ` + "`" + `ticket_index` + "`" + ` (its ordinal), with the ` + "`" + `missing_question_ids` + "`" + `. The buyer's row lists those questions as ` + "`" + `reassignment_questions` + "`" + `. On every other Event ` + "`" + `answers` + "`" + ` is ignored and only the Holder answers. A first assignment clears nothing, and re-sending the address the Ticket already carries is a no-op that moves no timestamp. The buyer may assign any Ticket of their sale, including to their own address, and may assign only some of them. **The Sale's own buyer address is ` + "`" + `accepted` + "`" + ` at once** (ADR 0076), matched case- and whitespace-insensitively, with the buyer as Holder: no Assignment Link is mailed, no allowance is spent and the rationing never refuses it; a Holder who had accepted the Ticket before is still told they no longer hold it. Authorization is the Customer Session; a Confirmation Link session may assign the one sale it names. A Ticket that is not on one of the caller's own sales is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does not exist. Available on ` + "`" + `online` + "`" + ` and ` + "`" + `import` + "`" + ` Ticket Sales only — an ` + "`" + `in_person` + "`" + ` door sale has no buyer surface and is refused with 409 ASSIGNMENT_CHANNEL_UNSUPPORTED. Also refused with 409 once the Event has started (ASSIGNMENT_EVENT_STARTED) or the Ticket Sale has been reversed (ASSIGNMENT_SALE_REVERSED), and with 400 INVALID_HOLDER_EMAIL when the value is not an email address. The whole sale's tickets come back, not just the one that changed. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off, which is how it ships — that flag is separate from the Ticket Question one, so closing it leaves Ticket Questions working. The Storefront must tell the buyer, before they submit, that the address will be mailed and shown to the Organization.",
                 "parameters": [
                     {
                         "description": "Ticket Sale id",

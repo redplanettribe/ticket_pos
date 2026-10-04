@@ -433,6 +433,27 @@ func (r *Repository) UpsertTicketAnswer(
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := writeTicketAnswer(ctx, tx, ticketID, questionID, params, now); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return r.GetTicketAnswer(ctx, ticketID, questionID)
+}
+
+// writeTicketAnswer is UpsertTicketAnswer's statements inside a transaction the
+// caller owns, so that a write which must land together with something else -
+// a reassignment and the new Holder's Answers (#673) - can make them one
+// commit. The caller commits; nothing here does.
+func writeTicketAnswer(
+	ctx context.Context,
+	tx *sql.Tx,
+	ticketID, questionID string,
+	params UpsertTicketAnswerParams,
+	now time.Time,
+) error {
 	var answerID string
 	// The casts are on the placeholders and not on the columns: `$4` arrives as
 	// a string carrying digits, and telling Postgres it is a NUMERIC (or a DATE)
@@ -456,7 +477,7 @@ func (r *Repository) UpsertTicketAnswer(
 	`, ticketID, questionID,
 		params.Text, params.Number, params.Date, params.Checked, now,
 	).Scan(&answerID); err != nil {
-		return nil, err
+		return err
 	}
 
 	// Replaced wholesale rather than diffed. A choice Answer IS its set of
@@ -468,7 +489,7 @@ func (r *Repository) UpsertTicketAnswer(
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM ticket_answer_options WHERE ticket_answer_id = $1
 	`, answerID); err != nil {
-		return nil, err
+		return err
 	}
 	for i, option := range params.Options {
 		if _, err := tx.ExecContext(ctx, `
@@ -478,14 +499,10 @@ func (r *Repository) UpsertTicketAnswer(
 			)
 			VALUES ($1, $2, $3, $4, $5)
 		`, answerID, option.TicketQuestionOptionID, option.LabelSnapshot, i, now); err != nil {
-			return nil, err
+			return err
 		}
 	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	return r.GetTicketAnswer(ctx, ticketID, questionID)
+	return nil
 }
 
 // TouchTicketAnswer is the empty write: it exists so nothing has one.
