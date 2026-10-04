@@ -197,7 +197,7 @@ func (r *Repository) AssignTicketToHolder(ctx context.Context, in AssignTicketIn
 	}
 
 	if previous.Valid && previous.String == in.HolderEmail {
-		// The same address again. Nothing is written at all — see Changed —
+		// The same address again. Nothing is written at all - see Changed -
 		// and no Answers are asked for or written, unless it is the buyer's own
 		// address on a Ticket still waiting to be accepted, which is accepted
 		// now: the same person, so no Answer goes and assigned_at stands.
