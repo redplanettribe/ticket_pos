@@ -63,6 +63,12 @@ type AssignTicketResult struct {
 	//
 	// Empty on a first assignment and on a no-op, where nobody was displaced.
 	DisplacedHolderEmail string
+	// Accepted is true when this write made the Ticket `accepted` for the buyer
+	// (ADR 0076): always on an own-address assignment that changed the address,
+	// and also on the one same-address call that is not a no-op - a Ticket
+	// already carrying the buyer's address but left `assigned` from before own
+	// addresses were accepted at once.
+	Accepted bool
 }
 
 // AssignTicketToHolder names the address that holds one Ticket, creating the
@@ -93,6 +99,15 @@ type AssignTicketResult struct {
 // a Customer who proved a different address entirely. Unreachable in #324, where
 // nothing ever sets them; correct from the day #325 does.
 //
+// THE BUYER'S OWN ADDRESS IS ACCEPTED IN THE SAME STATEMENT (ADR 0076). When
+// acceptingCustomerID is set - the caller has matched the address to the Sale's
+// own, through catalog.IsBuyersOwnAddress - the Ticket is written `accepted`
+// with that Customer as Holder, exactly the row shape the Self-held Ticket is
+// written in at commit. Not a second call afterwards: a Ticket must never be
+// observable as `assigned` to the buyer, waiting on a link nobody will mail.
+// Empty for every other address, which is assigned and left to be accepted by
+// its Assignment Link.
+//
 // NO ORGANIZATION, EVENT OR CUSTOMER CLAUSE HERE. This takes a Ticket id that
 // the caller has ALREADY resolved through a scoped read — ListAnswerableTickets
 // ForBuyer and its customer_id clause — exactly as UpsertTicketAnswer does. A
@@ -100,7 +115,7 @@ type AssignTicketResult struct {
 // wrong, and the two would eventually disagree.
 func (r *Repository) AssignTicketToHolder(
 	ctx context.Context,
-	ticketID, holderEmail string,
+	ticketID, holderEmail, acceptingCustomerID string,
 	now time.Time,
 ) (AssignTicketResult, error) {
 	var result AssignTicketResult
@@ -134,7 +149,22 @@ func (r *Repository) AssignTicketToHolder(
 	}
 
 	if previous.Valid && previous.String == holderEmail {
-		// The same address again. Nothing is written at all — see Changed.
+		// The same address again. Nothing is written at all — see Changed —
+		// unless it is the buyer's own address on a Ticket still waiting to be
+		// accepted, which is accepted now: the same person, so no Answer goes and
+		// assigned_at stands.
+		if acceptingCustomerID == "" || previouslyAccepted.Valid {
+			return result, nil
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE tickets SET accepted_at = $2, holder_customer_id = $3 WHERE id = $1
+		`, ticketID, now, acceptingCustomerID); err != nil {
+			return result, err
+		}
+		if err := tx.Commit(); err != nil {
+			return AssignTicketResult{}, err
+		}
+		result.Accepted = true
 		return result, nil
 	}
 	result.Changed = true
@@ -153,18 +183,19 @@ func (r *Repository) AssignTicketToHolder(
 		UPDATE tickets
 		SET holder_email = $2,
 		    assigned_at = $3,
-		    -- Both cleared with the address, always. See above: unreachable in
-		    -- #324 because nothing sets them, and load-bearing from #325 — a
-		    -- Ticket handed to somebody new has not been accepted by them, and
-		    -- every Assignment Link mailed to the previous address dies here,
-		    -- because assigned_at is what those links were signed over.
-		    accepted_at = NULL,
-		    holder_customer_id = NULL
+		    -- Both replaced with the address, always. A Ticket handed to somebody
+		    -- new has not been accepted by them, and every Assignment Link mailed
+		    -- to the previous address dies here, because assigned_at is what
+		    -- those links were signed over. The one exception is the buyer's own
+		    -- address, accepted in the same instant it is named (ADR 0076).
+		    accepted_at = CASE WHEN $4 = '' THEN NULL ELSE $3::timestamptz END,
+		    holder_customer_id = NULLIF($4, '')::uuid
 		WHERE id = $1
 		RETURNING assigned_at
-	`, ticketID, holderEmail, now).Scan(&result.AssignedAt); err != nil {
+	`, ticketID, holderEmail, now, acceptingCustomerID).Scan(&result.AssignedAt); err != nil {
 		return result, err
 	}
+	result.Accepted = acceptingCustomerID != ""
 
 	// The Answers go only when there WAS a previous Holder — a change of person
 	// rather than the naming of one. The Options a choice Answer chose follow by

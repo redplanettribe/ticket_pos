@@ -133,3 +133,27 @@ func TestParseHolderEmailNormalisesAndRefuses(t *testing.T) {
 		t.Error("an address past MaxHolderEmailLength was accepted")
 	}
 }
+
+// The buyer's own address is recognised by the normalisation rule every stored
+// address went through, so the buyer typing their address the way an address
+// book gives it is still the buyer (ADR 0076). An empty buyer address matches
+// nothing: a Sale with no address on it has nobody to accept for.
+func TestIsBuyersOwnAddressMatchesOnTheNormalisedAddress(t *testing.T) {
+	for _, tc := range []struct {
+		holder, buyer string
+		want          bool
+	}{
+		{"ana@example.com", "ana@example.com", true},
+		{"ana@example.com", "  Ana@Example.COM ", true},
+		{" ANA@example.com", "ana@example.com", true},
+		{"carla@example.com", "ana@example.com", false},
+		{"ana+kids@example.com", "ana@example.com", false},
+		{"", "", false},
+		{"   ", " ", false},
+		{"ana@example.com", "", false},
+	} {
+		if got := IsBuyersOwnAddress(tc.holder, tc.buyer); got != tc.want {
+			t.Errorf("IsBuyersOwnAddress(%q, %q) = %v, want %v", tc.holder, tc.buyer, got, tc.want)
+		}
+	}
+}
