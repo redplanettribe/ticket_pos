@@ -117,17 +117,6 @@ func newOwedMailFixture(t *testing.T, env *testEnv) owedMailFixture {
 	return f
 }
 
-// assignmentMailsTo counts the Assignment mails sent to one address.
-func assignmentMailsTo(env *testEnv, address string) int {
-	n := 0
-	for _, mail := range env.email.TicketAssignmentsSent() {
-		if mail.To == address {
-			n++
-		}
-	}
-	return n
-}
-
 // ledgerRowsFor reads one Ticket's Assignment mail ledger: how many rows, and
 // how many of them the swept sender wrote.
 func ledgerRowsFor(t *testing.T, env *testEnv, ticketID string) (total, checkoutNamed int) {
@@ -178,11 +167,11 @@ func TestTheOwedMailSweepSendsOneAssignmentMailPerNamedAddress(t *testing.T) {
 		t.Fatalf("sweep = %+v, want 2 sent and nothing else", result)
 	}
 	for _, address := range []string{"ben@example.com", "carla@example.com"} {
-		if got := assignmentMailsTo(env, address); got != 1 {
+		if got := len(assignmentMailsTo(env, address)); got != 1 {
 			t.Errorf("%d Assignment mails to %s, want 1", got, address)
 		}
 	}
-	if got := assignmentMailsTo(env, "ana@example.com"); got != 0 {
+	if got := len(assignmentMailsTo(env, "ana@example.com")); got != 0 {
 		t.Errorf("%d Assignment mails to the buyer's own address, want 0", got)
 	}
 	if got := len(env.email.TicketAssignmentsSent()); got != 2 {
@@ -272,11 +261,11 @@ func TestASweptMailSpendsTheTicketsAllowanceAndNotTheBuyersWindow(t *testing.T) 
 	// so a correction on another Ticket is not rate limited.
 	assignTicketOK(t, env, f.ana, f.saleID, f.carlaID, "frank@example.com")
 	for _, address := range []string{"dan@example.com", "frank@example.com"} {
-		if got := assignmentMailsTo(env, address); got != 1 {
+		if got := len(assignmentMailsTo(env, address)); got != 1 {
 			t.Errorf("%d Assignment mails to %s, want 1", got, address)
 		}
 	}
-	if got := assignmentMailsTo(env, "eve@example.com"); got != 0 {
+	if got := len(assignmentMailsTo(env, "eve@example.com")); got != 0 {
 		t.Errorf("%d Assignment mails to eve@example.com past the Ticket's cap, want 0", got)
 	}
 }
@@ -314,7 +303,7 @@ func TestARefusedOwedMailIsSentByALaterRun(t *testing.T) {
 		t.Fatalf("the later sweep = %+v, want both sent", later)
 	}
 	for _, address := range []string{"ben@example.com", "carla@example.com"} {
-		if got := assignmentMailsTo(env, address); got != 1 {
+		if got := len(assignmentMailsTo(env, address)); got != 1 {
 			t.Errorf("%d Assignment mails to %s, want 1", got, address)
 		}
 	}
@@ -339,10 +328,10 @@ func TestAnOwedMailForAReassignedTicketIsDropped(t *testing.T) {
 	if result.Sent != 1 || result.Dropped != 1 {
 		t.Fatalf("sweep = %+v, want Carla's sent and Ben's dropped", result)
 	}
-	if got := assignmentMailsTo(env, "ben@example.com"); got != 0 {
+	if got := len(assignmentMailsTo(env, "ben@example.com")); got != 0 {
 		t.Errorf("%d Assignment mails to Ben after his Ticket was reassigned, want 0", got)
 	}
-	if got := assignmentMailsTo(env, "dan@example.com"); got != 1 {
+	if got := len(assignmentMailsTo(env, "dan@example.com")); got != 1 {
 		t.Errorf("%d Assignment mails to Dan, want the correction's 1", got)
 	}
 	if owed := owedMails(t, env, f.saleID); len(owed) != 0 {
@@ -350,6 +339,67 @@ func TestAnOwedMailForAReassignedTicketIsDropped(t *testing.T) {
 	}
 	if again := sweepOwedAssignmentMails(t, env); again != (owedMailSweepResult{}) {
 		t.Errorf("a second sweep = %+v, want nothing", again)
+	}
+}
+
+// THE SEAM WITH #673: on an Event whose Tickets ask a required question, the
+// correction must carry the new Holder's Answers. Refused without them, it
+// writes nothing and Ben's mail stays owed for the assignment he holds. Given
+// with them, it moves assigned_at, so the sweep drops Ben's mail as stale, and
+// mails Dan inline - a mail that is rationed as every after-sale assignment is,
+// in the buyer's window that the sweep's mails never enter.
+func TestAReassignmentWithTheAnswersDropsTheOwedMailAndIsRationed(t *testing.T) {
+	env := setupTest(t)
+	f := newNamedCommitFixture(t, env, 2000)
+	withAssignmentMailLimits(t, catalog.AssignmentMailLimits{PerTicket: 2, PerBuyer: 1})
+
+	begun := beginCheckoutOK(t, env, testOrgSlug, "named-fest", f.familyBasket())
+	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
+	saleID := saleIDOfPayment(t, env, begun.ClientTransactionID)
+	ana := customerSignIn(t, env, "ana@example.com")
+	tickets := listBuyerTickets(t, env, ana, saleID)
+	benID, benAgainID := buyerTicketAt(t, tickets, 2).TicketID, buyerTicketAt(t, tickets, 4).TicketID
+	if owed := owedMails(t, env, saleID); len(owed) != 2 {
+		t.Fatalf("%d Assignment mails owed after the commit, want Ben's two", len(owed))
+	}
+	sharedEmail.Reset()
+
+	// A minute on, as a correction is: on the harness's fixed clock the
+	// correction would otherwise carry the commit's own assigned_at.
+	moveClockTo(t, env.fixedClock.Add(time.Minute))
+	resp, body := assignTicket(t, env, ana, saleID, benID, "dan@example.com")
+	refusedAsUnanswered(t, resp, body)
+	if owed := owedMails(t, env, saleID)[benID]; !owed.current {
+		t.Fatalf("after a refused correction Ben's owed mail is %+v, want still current", owed)
+	}
+
+	assignWithAnswersOK(t, env, ana, saleID, benID, "dan@example.com",
+		givenAnswer(f.size.ID, map[string]any{"text": "XXL"}))
+	if owed := owedMails(t, env, saleID)[benID]; owed.current {
+		t.Fatalf("after the correction Ben's owed mail is %+v, want stale", owed)
+	}
+	if got := staffAnswerText(t, env, f.sessionID, f.eventID, benID, f.size.ID); got == nil || *got != "XXL" {
+		t.Errorf("Event Staff read %v for the size, want Dan's XXL", got)
+	}
+	if got := len(assignmentMailsTo(env, "dan@example.com")); got != 1 {
+		t.Fatalf("%d Assignment mails to Dan, want the correction's 1", got)
+	}
+
+	result := sweepOwedAssignmentMails(t, env)
+	if result.Sent != 1 || result.Dropped != 1 {
+		t.Fatalf("sweep = %+v, want Ben's other Ticket sent and the corrected one dropped", result)
+	}
+	if got := len(assignmentMailsTo(env, "ben@example.com")); got != 1 {
+		t.Errorf("%d Assignment mails to Ben, want the one for the Ticket he still holds", got)
+	}
+
+	// Ana's window of one holds Dan's inline mail and nothing of the sweep's, so
+	// the next correction is rate limited before it is written.
+	resp, body = assignWithAnswers(t, env, ana, saleID, benAgainID, "eve@example.com",
+		givenAnswer(f.size.ID, map[string]any{"text": "S"}))
+	assertAPIError(t, resp, body, http.StatusTooManyRequests, "ASSIGNMENT_RATE_LIMITED")
+	if got := len(assignmentMailsTo(env, "eve@example.com")); got != 0 {
+		t.Errorf("%d Assignment mails to Eve past the buyer's window, want 0", got)
 	}
 }
 
@@ -487,7 +537,7 @@ func TestOverlappingSweepsSendANineTicketCheckoutOncePaced(t *testing.T) {
 	}
 	for index := 2; index <= 9; index++ {
 		address := fmt.Sprintf("friend%d@example.com", index)
-		if got := assignmentMailsTo(env, address); got != 1 {
+		if got := len(assignmentMailsTo(env, address)); got != 1 {
 			t.Errorf("%d Assignment mails to %s, want exactly 1", got, address)
 		}
 	}
