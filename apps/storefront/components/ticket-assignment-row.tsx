@@ -13,6 +13,7 @@ import {
   canAssign,
   holderEmailOf,
   holderEmailRefusal,
+  isBuyersOwnAddress,
   isUnchangedAssignment,
   MAX_HOLDER_EMAIL_LENGTH,
   type AssignmentBody,
@@ -33,6 +34,8 @@ import {
  * page said. So the sentence sits above the button, always rendered, never
  * behind a disclosure and never deferred to a confirmation step: a warning that
  * appears after the press is a warning about something that has happened.
+ * When what is typed is the buyer's own address, the notice says instead that
+ * the Ticket is theirs at once and nothing is mailed (ADR 0076).
  *
  * IT ASKS FOR AN ADDRESS AND NOTHING ELSE. No name field, deliberately. What the
  * platform knows about a Holder is what the HOLDER said when they accepted
@@ -50,6 +53,12 @@ import {
 export type TicketAssignmentRowProps = {
   ticket: BuyerTicket;
   /**
+   * The session's own address, or null when unknown. Typing it swaps the
+   * notice: the buyer's own address is accepted at once and mails nobody (ADR
+   * 0076), so "we'll email this address" would be untrue for it.
+   */
+  buyerEmail?: string | null;
+  /**
    * Writes the address, and returns null on success or a sentence to show on
    * failure. The CALLER owns the request and owns turning an API error code into
    * words, exactly as it does for an Answer.
@@ -57,7 +66,7 @@ export type TicketAssignmentRowProps = {
   save: (body: AssignmentBody) => Promise<string | null>;
 };
 
-export function TicketAssignmentRow({ ticket, save }: TicketAssignmentRowProps) {
+export function TicketAssignmentRow({ ticket, buyerEmail = null, save }: TicketAssignmentRowProps) {
   const t = useTranslations("customerArea");
   const errorCopy = useMessages().errors;
 
@@ -73,6 +82,12 @@ export function TicketAssignmentRow({ ticket, save }: TicketAssignmentRowProps) 
   const open = canAssign(ticket);
   const refusal = assignmentRefusalOf(ticket);
   const fieldId = `assignment-${ticket.ticket_id}`;
+  // THE NOTICE FOLLOWS WHAT IS TYPED, so it is true before the press in both
+  // cases: somebody else's address is mailed, the buyer's own is not.
+  const notice =
+    isBuyersOwnAddress(value, buyerEmail) ?
+      t("assignment.noticeOwnAddress")
+    : t("assignment.notice");
 
   async function submit() {
     // THE PRE-FLIGHT ANSWERS WITH THE API'S OWN CODE and resolves it down the
@@ -119,8 +134,8 @@ export function TicketAssignmentRow({ ticket, save }: TicketAssignmentRowProps) 
               STACKS — label, full-width field, full-width button, the notice
               under — because a phone cannot hold a label, an address and a
               button side by side without the notice squeezed into a sliver
-              beside a button pushed off the screen (#353). The notice — that
-              the address will be mailed and shown to the Organization — rides
+              beside a button pushed off the screen (#353). The notice (what
+              happens to the address, and to whom it is shown) rides
               on the field as its `description`, so it is `aria-describedby`
               the input and is heard BEFORE THEY SUBMIT in the only sense that
               matters; #324's last acceptance criterion, and the one the API
@@ -135,9 +150,7 @@ export function TicketAssignmentRow({ ticket, save }: TicketAssignmentRowProps) 
               : t("assignment.emailLabel")
             }
             description={
-              current !== "" ?
-                `${t("assignment.notice")} ${t("assignment.changeClearsAnswers")}`
-              : t("assignment.notice")
+              current !== "" ? `${notice} ${t("assignment.changeClearsAnswers")}` : notice
             }
           >
             {/* FormField clones its child with the id and aria-describedby, so

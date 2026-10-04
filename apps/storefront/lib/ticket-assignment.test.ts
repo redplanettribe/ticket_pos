@@ -13,6 +13,7 @@ import {
   canAssign,
   holderEmailOf,
   holderEmailRefusal,
+  isBuyersOwnAddress,
   isUnchangedAssignment,
   MAX_HOLDER_EMAIL_LENGTH,
   normalizeHolderEmail,
@@ -197,6 +198,32 @@ test("re-sending the address a ticket already carries is recognised as no change
   assert.equal(isUnchangedAssignment(assigned, "bea@example.test"), false);
   // A FIRST assignment is never "unchanged": there was nothing there to keep.
   assert.equal(isUnchangedAssignment(ticket(), "ana@example.test"), false);
+});
+
+// THE BUYER'S OWN ADDRESS IS ACCEPTED AT ONCE AND MAILS NOBODY (ADR 0076), so
+// the notice beside the field must not promise an email for it. The match is
+// the API's: trimmed and case-blind, and only against an address that is known.
+test("the buyer's own address is recognised the way the API recognises it", () => {
+  assert.equal(isBuyersOwnAddress(" Ana@Example.Test ", "ana@example.test"), true);
+  assert.equal(isBuyersOwnAddress("ana@example.test", "ANA@example.test"), true);
+  assert.equal(isBuyersOwnAddress("bea@example.test", "ana@example.test"), false);
+  // Half-typed is somebody else's address until it is the buyer's whole one.
+  assert.equal(isBuyersOwnAddress("ana@example", "ana@example.test"), false);
+  // Nothing typed, or no session address to compare with, is never a match:
+  // the page then says what an ordinary assignment does.
+  assert.equal(isBuyersOwnAddress("", ""), false);
+  assert.equal(isBuyersOwnAddress("  ", "ana@example.test"), false);
+  assert.equal(isBuyersOwnAddress("ana@example.test", null), false);
+});
+
+// Both catalogs carry the own-address notice, and neither promises a mail in it.
+test("the own-address notice exists in both languages", () => {
+  for (const locale of ["en", "es"]) {
+    const catalog = JSON.parse(readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8"));
+    const sentence = catalog.customerArea.assignment.noticeOwnAddress;
+    assert.ok(typeof sentence === "string" && sentence.trim() !== "", `${locale} has no noticeOwnAddress`);
+    assert.ok(!sentence.includes("\u2014"), `${locale} noticeOwnAddress contains an em dash`);
+  }
 });
 
 // PARTIAL ASSIGNMENT IS THE NORMAL CASE. A sale of four where the buyer knows

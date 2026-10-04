@@ -98,9 +98,17 @@ type BuyerTicketAnswersProps = {
    * reserve before the lists arrive. Not trusted for anything else — the
    * fetched list decides what is actually drawn. */
   ticketCount: number;
+  /** The session's own address, so an address field can tell the buyer when
+   * what they typed is theirs, which is accepted at once and mails nobody
+   * (ADR 0076). Null when the page does not know it. */
+  buyerEmail?: string | null;
 };
 
-export function BuyerTicketAnswers({ ticketSaleId, ticketCount }: BuyerTicketAnswersProps) {
+export function BuyerTicketAnswers({
+  ticketSaleId,
+  ticketCount,
+  buyerEmail = null,
+}: BuyerTicketAnswersProps) {
   const t = useTranslations("customerArea");
   const [tickets, setTickets] = useState<BuyerTicket[] | null>(null);
   const [held, setHeld] = useState<HeldTicket[] | null>(null);
@@ -187,6 +195,7 @@ export function BuyerTicketAnswers({ ticketSaleId, ticketCount }: BuyerTicketAns
             key={ticket.ticket_id}
             ticketSaleId={ticketSaleId}
             ticket={ticket}
+            buyerEmail={buyerEmail}
             heldRow={heldRowFor(ticket, held)}
             // "Ticket 2 of 4" is the whole of what can be said to tell two
             // identical tickets apart until an address is given: there are no
@@ -268,6 +277,7 @@ function BuyerTicketAnswersSkeleton({ rows }: { rows: number }) {
 type TicketBlockProps = {
   ticketSaleId: string;
   ticket: BuyerTicket;
+  buyerEmail: string | null;
   /** The held-ticket row behind this one, or null — null for every Ticket the
    * buyer does not hold, which draws as an assignment row and nothing more. */
   heldRow: HeldTicket | null;
@@ -280,6 +290,7 @@ type TicketBlockProps = {
 function TicketBlock({
   ticketSaleId,
   ticket,
+  buyerEmail,
   heldRow,
   position,
   total,
@@ -350,7 +361,7 @@ function TicketBlock({
               {t("assignment.giveAway")}
             </summary>
             <div className="pt-3">
-              <TicketAssignmentRow ticket={ticket} save={assign} />
+              <TicketAssignmentRow ticket={ticket} buyerEmail={buyerEmail} save={assign} />
             </div>
           </details>
         : null}
@@ -403,7 +414,7 @@ function TicketBlock({
             typed, and a remount would take the "saved" confirmation off the
             screen at the moment it was earned. */}
         {assignable ?
-          <TicketAssignmentRow ticket={ticket} save={assign} />
+          <TicketAssignmentRow ticket={ticket} buyerEmail={buyerEmail} save={assign} />
         : null}
       </div>
     </details>

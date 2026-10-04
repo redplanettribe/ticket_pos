@@ -284,7 +284,11 @@ export async function TicketSaleCard({
           majority of these cards are exactly the card they were before — once
           the lists have landed. Until then it holds one row per Ticket, and
           the count is this card's to give: the lines know it (#357). */}
-      <BuyerTicketAnswers ticketSaleId={sale.id} ticketCount={totalTickets} />
+      <BuyerTicketAnswers
+        ticketSaleId={sale.id}
+        ticketCount={totalTickets}
+        buyerEmail={customerEmail}
+      />
       </div>
     </details>
   );

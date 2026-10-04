@@ -210,6 +210,24 @@ export function isUnchangedAssignment(ticket: BuyerTicket, raw: string): boolean
 }
 
 /**
+ * Whether what the buyer typed is their own address, matched the way
+ * catalog.IsBuyersOwnAddress matches it: normalised on both sides.
+ *
+ * IT DECIDES WHICH NOTICE THE FIELD CARRIES, and nothing else. An assignment to
+ * the buyer's own address is accepted at once and mails nobody (ADR 0076), so
+ * telling them "we'll email this address" would be a promise the platform then
+ * breaks. The API makes the real decision against the Sale's address; this is
+ * the session's, which is the same address for every Sale the session can see.
+ * With no address to compare against it answers false, and the page says what
+ * an ordinary assignment does.
+ */
+export function isBuyersOwnAddress(raw: string, buyerEmail: string | null): boolean {
+  if (buyerEmail === null) return false;
+  const typed = normalizeHolderEmail(raw);
+  return typed !== "" && typed === normalizeHolderEmail(buyerEmail);
+}
+
+/**
  * The body to send, or null when there is nothing worth sending.
  *
  * The address goes NORMALISED rather than as typed. The API normalises it again

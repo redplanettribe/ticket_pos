@@ -470,6 +470,7 @@
       "emailLabel": "Correo de quien usará esta entrada",
       "emailPlaceholder": "nombre@ejemplo.com",
       "notice": "Le escribiremos a esta dirección sobre la entrada, y el organizador la verá junto a las respuestas de esta entrada. Dé solo una dirección cuyo titular esté de acuerdo.",
+      "noticeOwnAddress": "Esa es su propia dirección, así que esta entrada es suya en cuanto la guarde y no se envía ningún correo. El organizador la verá junto a las respuestas de esta entrada.",
       "changeClearsAnswers": "Cambiar la dirección borra las respuestas de esta entrada. Una respuesta es de quien la dio, así que a la siguiente persona se le vuelve a preguntar.",
       "assign": "Guardar correo",
       "reassign": "Cambiar correo",
