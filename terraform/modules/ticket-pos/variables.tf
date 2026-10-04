@@ -691,6 +691,40 @@ variable "assignment_reminder_attempt_deadline_seconds" {
   }
 }
 
+# --- Owed Assignment Mail -----------------------------------------------------
+#
+# One job, one switch (#671, parent #665, ADR 0076), on the Assignment
+# Reminder's pattern with a per-minute cadence. The sweep sends the Assignment
+# mails a Named Tickets checkout owes, paced and retried.
+
+variable "owed_assignment_mail_enabled" {
+  description = "Whether the per-minute Owed Assignment Mail sweep tick fires. False leaves the job, its identity and its grant in place but paused. While paused, every Assignment mail a Named Tickets checkout owes waits in owed_assignment_mails and nobody a buyer named at checkout is told they hold a Ticket, so it must be true wherever Named Tickets sell. Pausing is still the first move if the sweep is ever suspected of writing to the wrong people: the owed mails wait, and nothing is lost but time. The backend holds independently while TICKET_ASSIGNMENT_ENABLED is off."
+  type        = bool
+  default     = false
+}
+
+variable "owed_assignment_mail_schedule" {
+  description = "Unix cron for the sweep tick. Every minute, because the cadence is the delay between a checkout naming somebody and that person being told; the sending itself is paced in the backend, and its run budget is shorter than a minute so two scheduled runs never overlap."
+  type        = string
+  default     = "* * * * *"
+
+  validation {
+    condition     = can(regex("^\\S+( \\S+){4}$", var.owed_assignment_mail_schedule))
+    error_message = "owed_assignment_mail_schedule must be five space-separated cron fields, e.g. \"* * * * *\"."
+  }
+}
+
+variable "owed_assignment_mail_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one sweep before abandoning it. The middle term of the chain the Reminder sweeps keep - the backend's run budget first, this second, api_request_timeout_seconds last; a backend test reads this default and fails if the chain stops holding. A deadline that expires before the run's budget abandons the request mid-send and can lose the ledger write for a mail already accepted."
+  type        = number
+  default     = 90
+
+  validation {
+    condition     = var.owed_assignment_mail_attempt_deadline_seconds >= 60 && var.owed_assignment_mail_attempt_deadline_seconds <= 1800
+    error_message = "owed_assignment_mail_attempt_deadline_seconds must be between 60 and 1800: at least 60 so it outlives the backend's run budget plus a send in flight, and at most 1800 because Cloud Scheduler rejects more for an HTTP target."
+  }
+}
+
 # --- Holder Address Purge -----------------------------------------------------
 #
 # One job, one switch (#331, parent #322, ADR 0046). Like the Abandoned Answer

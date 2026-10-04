@@ -2862,6 +2862,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/internal/owed-assignment-mails/sweep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send owed Assignment mails
+         * @description Sends the Assignment mails a Named Tickets checkout owes: one per Ticket the buyer named at checkout for an address other than their own, written as owed by the commit that recorded the Ticket Sale. Each is the ordinary Assignment mail with the ordinary Assignment Link, written in the Holder's Mail Locale, then the Sale Locale, then English. Before sending, the Ticket is re-read: an owed mail whose Ticket has been reassigned since, has no address any more, or was accepted, whose Ticket Sale was reversed, or whose Event has started is dropped and never sent. A sent mail is recorded in the Assignment mail ledger, where it counts against its Ticket's lifetime allowance and never against the buyer's rolling window, and is owed no more. A send the provider refuses or that fails stays owed and is retried by a later run after a backoff. Sends are paced by the gap the Reminder sweeps share, one at a time, oldest owed first, at most a batch per run and inside a run budget. Holds everything, sending and dropping nothing, while TICKET_ASSIGNMENT_ENABLED is off or no mailer or Assignment Link secret is configured. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. Nothing about the run can be named by the caller. Safe to call by hand and concurrently: claims are leased and skip each other, so no mail is sent twice. The response reports how many mails went, how many were dropped, how many failed, how many were sent but could not be recorded, and the standing backlog. It names nobody.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOwedAssignmentMailSweep"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/internal/reversals/drain": {
         parameters: {
             query?: never;
@@ -15451,6 +15499,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeOwedAssignmentMailSweep": {
+            data?: components["schemas"]["service.OwedAssignmentMailSweepResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopePayoutProfile": {
             data?: components["schemas"]["service.PayoutProfile"];
             error?: components["schemas"]["platform.APIError"];
@@ -18375,6 +18428,32 @@ export interface components {
             label?: string;
             question_id?: string;
             sort_order?: number;
+        };
+        "service.OwedAssignmentMailSweepResult": {
+            /**
+             * @description Backlog is how many owed mails are due after this run and held by no
+             *     claim. Non-zero with nothing sent means the sender is held - Ticket
+             *     Assignment closed, or no mailer or link secret configured.
+             */
+            backlog?: number;
+            /**
+             * @description Dropped is how many were owed no longer - the Ticket reassigned since, its
+             *     Sale reversed, its Event started - and went unsent, never to be sent.
+             */
+            dropped?: number;
+            /**
+             * @description Failed is how many the provider refused or failed. They stay owed, backed
+             *     off, and a later run sends them.
+             */
+            failed?: number;
+            /** @description Sent is how many mails the provider accepted, recorded or not. */
+            sent?: number;
+            /**
+             * @description Unrecorded is how many were sent but whose ledger row could not be
+             *     written: counted in Sent too. The Holder has the mail; the Ticket's
+             *     lifetime allowance under-counts by one. It should always be zero.
+             */
+            unrecorded?: number;
         };
         "service.PageInfo": {
             page?: number;

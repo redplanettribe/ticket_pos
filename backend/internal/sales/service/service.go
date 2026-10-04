@@ -356,6 +356,10 @@ type Service struct {
 	// who has had one (#362, ADR 0051). Optional and nil on any deployment that
 	// has not wired it, which sweeps nothing and mails nobody.
 	assignmentReminders AssignmentReminderSource
+	// owedAssignmentMails sends the Assignment mails a Named Tickets checkout
+	// owes (#671, ADR 0076). Optional and nil on any deployment that has not
+	// wired it, which sends nothing: the mails stay owed.
+	owedAssignmentMails OwedAssignmentMailSender
 	// displacedHolders tells the people who were holding a reversed Sale's
 	// Tickets that they are not holding them any more (#327, parent #322).
 	//
@@ -528,6 +532,15 @@ func (s *Service) WithAnswerReminders(source AnswerReminderSource) *Service {
 // that forgets it mails nobody.
 func (s *Service) WithAssignmentReminders(source AssignmentReminderSource) *Service {
 	s.assignmentReminders = source
+	return s
+}
+
+// WithOwedAssignmentMails wires the seam the Owed Assignment Mail sweep runs on
+// (#671, ADR 0076), on WithAssignmentReminders' terms: a setter because the
+// catalog service does not exist yet when this one is constructed, and a
+// deployment that forgets it mails nobody.
+func (s *Service) WithOwedAssignmentMails(sender OwedAssignmentMailSender) *Service {
+	s.owedAssignmentMails = sender
 	return s
 }
 

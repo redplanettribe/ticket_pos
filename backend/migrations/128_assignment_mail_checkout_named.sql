@@ -1,0 +1,30 @@
+-- Marks the Assignment mails the swept sender sent for a Named Tickets
+-- checkout, so they spend the Ticket's lifetime allowance and NOT the buyer's
+-- rolling window (#671, parent #665, ADR 0076).
+--
+-- THE LEDGER (migration 082) RATIONS TWO THINGS WITH ONE ROW: the per-Ticket
+-- lifetime cap, counted by ticket_id, and the per-buyer rolling window, counted
+-- by buyer_customer_id since some instant. A mail owed by a checkout (migration
+-- 127) has to spend the first and must not spend the second:
+--
+--   - IT SPENDS THE TICKET'S LIFETIME ALLOWANCE, so a checkout-named Ticket has
+--     exactly the resends for a typo afterwards that a Ticket assigned after
+--     the sale has. Its first mail is a mail like any other to that Ticket.
+--   - IT DOES NOT SPEND THE BUYER'S WINDOW. The window exists to stop a buyer
+--     scripting assignments across many Tickets faster than a person would; at
+--     a Named Tickets checkout the money has already moved and the platform,
+--     not the buyer, chose to require every address (ADR 0076). Counting nine
+--     checkout mails against it would refuse that buyer's first typo
+--     correction for a day, for having bought what the Event made them name.
+--
+-- A FLAG ON THE ROW, NOT A SECOND TABLE. Both allowances are spent by sends,
+-- and the per-Ticket count must keep seeing every send to that Ticket whoever
+-- caused it; splitting the ledger would make that count a union somebody
+-- forgets. buyer_customer_id stays NOT NULL and keeps naming the buyer whose
+-- Sale caused the send, which is still true.
+--
+-- FALSE BY DEFAULT, so every existing row - all of them written by the inline,
+-- after-sale path - keeps counting against its buyer's window exactly as
+-- before, and so does every row that path writes from now on.
+ALTER TABLE ticket_assignment_mails
+    ADD COLUMN checkout_named BOOLEAN NOT NULL DEFAULT FALSE;
