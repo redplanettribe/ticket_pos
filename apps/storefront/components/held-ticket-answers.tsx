@@ -6,7 +6,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { TicketQuestionRow } from "@/components/ticket-question-row";
 import { visibleQuestionsOf, type AnswerBody } from "@/lib/ticket-questions";
 import { apiErrorMessage } from "@/lib/api-errors";
-import type { HeldTicket } from "@/lib/buyer-answers";
+import type { AnswerPanelTicket, HeldTicket } from "@/lib/buyer-answers";
 import { closedWindowKey, collapsesAfterSave, panelDisclosure } from "@/lib/held-ticket-panel";
 
 /**
@@ -61,24 +61,12 @@ type HeldTicketAnswersProps = {
 export function HeldTicketAnswers({ ticket, header, children, onAnswered }: HeldTicketAnswersProps) {
   const t = useTranslations("customerArea");
   const errorCopy = useMessages().errors;
-  const disclosure = panelDisclosure(ticket);
-  // The INITIAL disclosure decides where the panel starts; after that it is the
-  // reader's, and only the last owed Answer saving moves it (below).
-  const [open, setOpen] = useState(disclosure === "open");
-  // A refetch that brings a NEW debt (a required question added after the
-  // sale) reopens the panel: something owed is never hidden.
-  useEffect(() => {
-    if (disclosure === "open") setOpen(true);
-  }, [disclosure]);
-
-  const questions = visibleQuestionsOf(ticket.questions);
-  const closed = closedWindowKey(ticket);
 
   /**
    * Answering one question on this Ticket, through the held-ticket route.
    * ONE TICKET COMES BACK, not a list: each held Ticket's panel stands alone.
    */
-  async function save(questionId: string, body: AnswerBody): Promise<string | null> {
+  async function submit(questionId: string, body: AnswerBody): Promise<AnswerSubmitResult> {
     try {
       const response = await fetch(
         `/api/customer/held-tickets/${encodeURIComponent(ticket.ticket_id)}` +
@@ -96,17 +84,72 @@ export function HeldTicketAnswers({ ticket, header, children, onAnswered }: Held
         error: { code: string; message: string; details?: unknown } | null;
       };
       if (!response.ok || envelope.error || !envelope.data) {
-        return apiErrorMessage(errorCopy, envelope.error) ?? t("answers.saveFailed");
-      }
-      // THE LAST OWED ANSWER FOLDS THE PANEL, and nothing else does.
-      if (collapsesAfterSave(ticket.outstanding_count, envelope.data.outstanding_count)) {
-        setOpen(false);
+        return { error: apiErrorMessage(errorCopy, envelope.error) ?? t("answers.saveFailed") };
       }
       onAnswered(envelope.data);
-      return null;
+      return { error: null, outstandingCount: envelope.data.outstanding_count };
     } catch {
-      return t("answers.networkFailed");
+      return { error: t("answers.networkFailed") };
     }
+  }
+
+  return (
+    <AnswerPanel ticket={ticket} header={header} submit={submit}>
+      {children}
+    </AnswerPanel>
+  );
+}
+
+/**
+ * What one Answer's write came to: the sentence to show beside the field, or
+ * the Ticket's Outstanding count after it saved - which is what folds the
+ * panel when the last owed Answer is given.
+ */
+export type AnswerSubmitResult = { error: string } | { error: null; outstandingCount: number };
+
+type AnswerPanelProps = {
+  ticket: AnswerPanelTicket;
+  /** See HeldTicketAnswersProps.header. */
+  header: ReactNode;
+  /** Drawn in the header row after the Ticket Type: the buyer's provisional
+   * row says whose the Ticket is here, as the assignment row beside it does. */
+  detail?: ReactNode;
+  /** See HeldTicketAnswersProps.children. */
+  children?: ReactNode;
+  /** Persists one Answer through whichever route this Ticket is answered on. */
+  submit: (questionId: string, body: AnswerBody) => Promise<AnswerSubmitResult>;
+};
+
+/**
+ * The answering panel itself, with no opinion about which route it writes
+ * through. Two callers: HeldTicketAnswers above, for a Ticket the reader
+ * holds, and the buyer's provisional row on a Named Tickets Event (#672, ADR
+ * 0076), whose Answers are the buyer's until its Holder accepts. ONE PANEL so
+ * the two cannot drift in how they open, fold, save or close.
+ */
+export function AnswerPanel({ ticket, header, detail, children, submit }: AnswerPanelProps) {
+  const t = useTranslations("customerArea");
+  const disclosure = panelDisclosure(ticket);
+  // The INITIAL disclosure decides where the panel starts; after that it is the
+  // reader's, and only the last owed Answer saving moves it (below).
+  const [open, setOpen] = useState(disclosure === "open");
+  // A refetch that brings a NEW debt (a required question added after the
+  // sale) reopens the panel: something owed is never hidden.
+  useEffect(() => {
+    if (disclosure === "open") setOpen(true);
+  }, [disclosure]);
+
+  const questions = visibleQuestionsOf(ticket.questions);
+  const closed = closedWindowKey(ticket);
+
+  async function save(questionId: string, body: AnswerBody): Promise<string | null> {
+    const result = await submit(questionId, body);
+    if (result.error !== null) return result.error;
+    // THE LAST OWED ANSWER FOLDS THE PANEL, and nothing else does.
+    if (collapsesAfterSave(ticket.outstanding_count, result.outstandingCount)) {
+      setOpen(false);
+    }
+    return null;
   }
 
   const outstanding = ticket.outstanding_count;
@@ -123,6 +166,9 @@ export function HeldTicketAnswers({ ticket, header, children, onAnswered }: Held
           </span>
           <span className="font-medium">{header}</span>
           <span className="text-muted-foreground">{ticket.ticket_type_name}</span>
+          {detail ?
+            <span className="text-muted-foreground min-w-0 basis-full flex-1 truncate sm:basis-0">{detail}</span>
+          : null}
         </div>
         {children ? <div className="px-3 pb-4 pt-1">{children}</div> : null}
       </div>
@@ -147,6 +193,12 @@ export function HeldTicketAnswers({ ticket, header, children, onAnswered }: Held
         </span>
         <span className="font-medium">{header}</span>
         <span className="text-muted-foreground">{ticket.ticket_type_name}</span>
+        {/* The same box the buyer's assignment row gives its address: its own
+            line on a phone, beside the Ticket Type from `sm`, truncated
+            rather than overflowing. */}
+        {detail ?
+          <span className="text-muted-foreground min-w-0 basis-full flex-1 truncate sm:basis-0">{detail}</span>
+        : null}
         {/* Owed, or answered and offered for review. The collapsed header is
             the review-or-edit control: there is no separate "review" view,
             expanding the panel is reviewing. */}

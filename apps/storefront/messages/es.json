@@ -487,6 +487,9 @@
       "rowAccepted": "{email} la tiene",
       "giveAway": "Dar esta entrada a otra persona"
     },
+    "provisionalAnswers": {
+      "untilAccepted": "Puede corregir estas respuestas hasta que {email} recoja la entrada. Después, las respuestas pasan a ser de esa persona."
+    },
     "tabsLabel": "Sus entradas por estado",
     "reversedHeading": "Anuladas",
     "tabCount": "{label} ({count})",
