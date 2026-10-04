@@ -3,11 +3,12 @@
 import { FormField, Input, Textarea } from "@ticket-pos/ui";
 
 import {
-  answerKey,
-  type AnswerSlot,
+  slotAnswerKey,
+  slotTicketKey,
   type AnswerValue,
   type AnswerValues,
   type CheckoutQuestion,
+  type QuestionSlot,
 } from "@/lib/checkout-answers";
 import { MAX_HOLDER_EMAIL_LENGTH } from "@/lib/ticket-assignment";
 
@@ -44,7 +45,7 @@ export function CheckoutAnswers({
   holder,
   labels,
 }: {
-  slot: AnswerSlot;
+  slot: QuestionSlot;
   values: AnswerValues;
   onChange: (key: string, value: AnswerValue) => void;
   /** Told the answerKey of a field the buyer has left, so its error may show. */
@@ -90,7 +91,7 @@ export function CheckoutAnswers({
       </div>
       {holder ?
         <FormField
-          id={`holder-${slot.ticketTypeId}-${slot.index}`}
+          id={`holder-${slotTicketKey(slot).join("-")}`}
           label={holder.label}
           description={holder.notice}
           error={holder.error}
@@ -110,7 +111,7 @@ export function CheckoutAnswers({
         </FormField>
       : null}
       {slot.questions.map((question) => {
-        const fieldKey = answerKey(slot.ticketTypeId, slot.index, question.id);
+        const fieldKey = slotAnswerKey(slot, question.id);
         return (
           <AnswerFieldRow
             key={question.id}

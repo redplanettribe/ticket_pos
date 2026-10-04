@@ -22,13 +22,15 @@
  */
 
 import {
-  answerKey,
   selfHeldSeat,
+  slotAnswerKey,
+  statedReply,
   type AnsweredTicketType,
   type AnswerSlot,
   type AnswerValue,
   type AnswerValues,
   type CheckoutQuestion,
+  type QuestionSlot,
   type UpgradeOffer,
 } from "./checkout-answers.ts";
 import { holderEmailRefusal, normalizeHolderEmail } from "./ticket-assignment.ts";
@@ -182,19 +184,73 @@ export function namedTicketsOwed(form: NamedTicketsForm): OwedTicket[] {
   const answers = withDrawnCheckboxes(slots, form.answers);
   const owed: OwedTicket[] = [];
   for (const slot of slots) {
-    const missingQuestionIds = slot.questions
-      .filter(
-        (question) =>
-          question.required &&
-          !answerIsUsable(question, answers[answerKey(slot.ticketTypeId, slot.index, question.id)]),
-      )
-      .map((question) => question.id);
+    const missingQuestionIds = owedQuestionIds(slot, answers);
     const holderEmail =
       slot.selfHeld ? null : holderEmailOwed(form.holders[holderKey(slot.ticketTypeId, slot.index)]);
     if (holderEmail === null && missingQuestionIds.length === 0) continue;
     owed.push({ ticketTypeId: slot.ticketTypeId, index: slot.index, holderEmail, missingQuestionIds });
   }
   return owed;
+}
+
+/**
+ * owedQuestionIds is the required questions of one slot with no usable Answer
+ * among `answers`, in the order they are asked. An optional question is never
+ * owed. The answers are read as given: a caller that draws untouched required
+ * checkboxes (withDrawnCheckboxes) does so first.
+ *
+ * The one reading of "owed" both Named Tickets forms share: the checkout's,
+ * Ticket by Ticket, and a reassignment's, for the new Holder.
+ */
+export function owedQuestionIds(slot: QuestionSlot, answers: AnswerValues): string[] {
+  return slot.questions
+    .filter(
+      (question) =>
+        question.required && !answerIsUsable(question, answers[slotAnswerKey(slot, question.id)]),
+    )
+    .map((question) => question.id);
+}
+
+/** What is wrong with one question's reply, for the form to put in its own words. */
+export type QuestionErrorKind = "answerNeeded" | "answerInvalid";
+
+/**
+ * questionErrorKinds is what to say under each of a slot's questions that has
+ * something to say, by question id.
+ *
+ * A question the form was told is still needed (`needed`, the form's own
+ * reading of a press or a refusal) is said to be needed. Otherwise a reply the
+ * buyer gave and has left (`left`, by answerKey) that the server would drop is
+ * said to be invalid. A blank one is not, because the form lists what is owed
+ * elsewhere, and a reply still being typed is not told off.
+ */
+export function questionErrorKinds(
+  slot: QuestionSlot,
+  answers: AnswerValues,
+  said: {
+    needed: (question: CheckoutQuestion, reply: AnswerValue | undefined) => boolean;
+    left: Readonly<Record<string, boolean | undefined>>;
+  },
+): Record<string, QuestionErrorKind> {
+  const errors: Record<string, QuestionErrorKind> = {};
+  for (const question of slot.questions) {
+    const key = slotAnswerKey(slot, question.id);
+    const reply = answers[key];
+    if (said.needed(question, reply)) {
+      errors[question.id] = "answerNeeded";
+    } else if (said.left[key] && statedReply(reply) !== null && !answerIsUsable(question, reply)) {
+      errors[question.id] = "answerInvalid";
+    }
+  }
+  return errors;
+}
+
+/** questionErrorKinds' verdicts in one form's own words, by question id. */
+export function questionErrorCopy(
+  kinds: Readonly<Record<string, QuestionErrorKind>>,
+  copy: Readonly<Record<QuestionErrorKind, string>>,
+): Record<string, string> {
+  return Object.fromEntries(Object.entries(kinds).map(([questionId, kind]) => [questionId, copy[kind]]));
 }
 
 /**
@@ -223,12 +279,12 @@ function holderEmailOwed(raw: string | undefined): OwedTicket["holderEmail"] {
  * An optional checkbox is left alone: nobody needs its answer, so an untouched
  * one stays unsaid.
  */
-export function withDrawnCheckboxes(slots: AnswerSlot[], answers: AnswerValues): AnswerValues {
+export function withDrawnCheckboxes(slots: QuestionSlot[], answers: AnswerValues): AnswerValues {
   const drawn: AnswerValues = { ...answers };
   for (const slot of slots) {
     for (const question of slot.questions) {
       if (question.kind !== "checkbox" || !question.required) continue;
-      const key = answerKey(slot.ticketTypeId, slot.index, question.id);
+      const key = slotAnswerKey(slot, question.id);
       if (typeof drawn[key]?.checked !== "boolean") drawn[key] = { checked: false };
     }
   }

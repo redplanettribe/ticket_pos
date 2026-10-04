@@ -97,6 +97,39 @@ export type AnswerSlot = {
   questions: CheckoutQuestion[];
 };
 
+/**
+ * One Ticket that already exists, and what a form asks about it: a
+ * reassignment's new Holder's Answers (ADR 0076).
+ *
+ * KEYED BY THE TICKET'S OWN ID where AnswerSlot is keyed by Ticket Type: this
+ * Ticket is told apart from its Sale's others by its id, not by its place in a
+ * cart. `ordinal` is its number in the Sale, the one a refusal names it by.
+ */
+export type ExistingTicketSlot = {
+  ticketId: string;
+  ticketTypeName: string;
+  ordinal: number;
+  questions: CheckoutQuestion[];
+};
+
+/** One ticket's answer fields: a ticket still to be bought, or one that exists. */
+export type QuestionSlot = AnswerSlot | ExistingTicketSlot;
+
+/**
+ * The pair that tells this slot's ticket apart on its form, and prefixes every
+ * answerKey of its fields: Ticket Type and number for a ticket to be bought,
+ * the Ticket's own id and ordinal for one that exists.
+ */
+export function slotTicketKey(slot: QuestionSlot): [string, number] {
+  return "ticketId" in slot ? [slot.ticketId, slot.ordinal] : [slot.ticketTypeId, slot.index];
+}
+
+/** answerKey for one of this slot's questions, whichever kind of slot it is. */
+export function slotAnswerKey(slot: QuestionSlot, questionId: string): string {
+  const [id, number] = slotTicketKey(slot);
+  return answerKey(id, number, questionId);
+}
+
 /** One reply, in the one slot its question's kind takes. */
 export type AnswerValue = {
   text?: string;

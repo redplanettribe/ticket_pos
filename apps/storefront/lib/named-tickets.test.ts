@@ -15,7 +15,10 @@ import {
   namedTicketsApply,
   namedTicketSlots,
   namedTicketsOwed,
+  owedQuestionIds,
   parseCheckoutHolders,
+  questionErrorCopy,
+  questionErrorKinds,
   refusedTickets,
   surrenderedTicketTypeId,
   withDrawnCheckboxes,
@@ -602,4 +605,87 @@ test("parseCheckoutHolders relays well-shaped entries and drops the rest", () =>
     ]),
     [{ ticket_type_id: "tt-general", ticket_index: 2, holder_email: "Ben@Example.com" }],
   );
+});
+
+test("owedQuestionIds is a slot's required questions without a usable Answer, in the order asked", () => {
+  const slot = { ticketTypeId: "tt-general", ticketTypeName: "General", index: 2, questions: [size, meal, diet] };
+  assert.deepEqual(owedQuestionIds(slot, {}), ["q-size", "q-diet"]);
+  assert.deepEqual(
+    owedQuestionIds(slot, {
+      [answerKey("tt-general", 2, "q-size")]: { option_ids: ["opt-s"] },
+      // Another Ticket's reply is not this one's.
+      [answerKey("tt-general", 1, "q-diet")]: { text: "None" },
+    }),
+    ["q-diet"],
+  );
+  // An Option the question does not offer is not an Answer the server keeps.
+  assert.deepEqual(
+    owedQuestionIds(slot, {
+      [answerKey("tt-general", 2, "q-size")]: { option_ids: ["opt-xl"] },
+      [answerKey("tt-general", 2, "q-diet")]: { text: "None" },
+    }),
+    ["q-size"],
+  );
+});
+
+test("owedQuestionIds reads an existing Ticket's replies under its own id", () => {
+  const slot = { ticketId: "tk-7", ticketTypeName: "General", ordinal: 3, questions: [size] };
+  assert.deepEqual(owedQuestionIds(slot, {}), ["q-size"]);
+  assert.deepEqual(owedQuestionIds(slot, { [answerKey("tk-7", 3, "q-size")]: { option_ids: ["opt-m"] } }), []);
+});
+
+test("questionErrorKinds says a needed question is needed, and an unusable reply only once left", () => {
+  const slot = { ticketTypeId: "tt-general", ticketTypeName: "General", index: 1, questions: [size, meal, diet] };
+  const sizeKey = answerKey("tt-general", 1, "q-size");
+  const dietKey = answerKey("tt-general", 1, "q-diet");
+  const answers: AnswerValues = { [sizeKey]: { option_ids: ["opt-xl"] }, [dietKey]: { text: "x".repeat(2001) } };
+
+  // Nothing left and nothing needed: a half-typed reply is not told off.
+  assert.deepEqual(questionErrorKinds(slot, answers, { needed: () => false, left: {} }), {});
+
+  // Left, and unusable: invalid.
+  assert.deepEqual(
+    questionErrorKinds(slot, answers, { needed: () => false, left: { [sizeKey]: true, [dietKey]: true } }),
+    { "q-size": "answerInvalid", "q-diet": "answerInvalid" },
+  );
+
+  // Needed wins over invalid, whatever the reply.
+  assert.deepEqual(
+    questionErrorKinds(slot, answers, {
+      needed: (question) => question.id === "q-size",
+      left: { [sizeKey]: true },
+    }),
+    { "q-size": "answerNeeded" },
+  );
+
+  // A blank reply left behind is not invalid: it is owed, and said elsewhere.
+  assert.deepEqual(
+    questionErrorKinds(slot, { [sizeKey]: { option_ids: [] } }, { needed: () => false, left: { [sizeKey]: true } }),
+    {},
+  );
+});
+
+test("questionErrorCopy puts each kind in the form's own words", () => {
+  assert.deepEqual(
+    questionErrorCopy(
+      { "q-size": "answerNeeded", "q-diet": "answerInvalid" },
+      { answerNeeded: "Needed.", answerInvalid: "Unusable." },
+    ),
+    { "q-size": "Needed.", "q-diet": "Unusable." },
+  );
+  assert.deepEqual(questionErrorCopy({}, { answerNeeded: "Needed.", answerInvalid: "Unusable." }), {});
+});
+
+test("questionErrorKinds hands the needed check the question and its reply", () => {
+  const slot = { ticketId: "tk-7", ticketTypeName: "General", ordinal: 3, questions: [size] };
+  const key = answerKey("tk-7", 3, "q-size");
+  const seen: unknown[] = [];
+  questionErrorKinds(slot, { [key]: { option_ids: ["opt-s"] } }, {
+    needed: (question, reply) => {
+      seen.push([question.id, reply]);
+      return false;
+    },
+    left: {},
+  });
+  assert.deepEqual(seen, [["q-size", { option_ids: ["opt-s"] }]]);
 });

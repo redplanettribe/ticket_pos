@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { BuyerTicket } from "./buyer-answers.ts";
-import { answerKey, type AnswerValues } from "./checkout-answers.ts";
+import { answerKey, slotAnswerKey, type AnswerValues } from "./checkout-answers.ts";
 import {
   reassignmentAnswerBodies,
   reassignmentOwed,
@@ -53,7 +53,7 @@ function ticket(overrides: Partial<BuyerTicket> = {}): BuyerTicket {
 function valuesFor(slot: NonNullable<ReturnType<typeof reassignmentSlot>>, values: Record<string, object>): AnswerValues {
   const keyed: AnswerValues = {};
   for (const [questionId, value] of Object.entries(values)) {
-    keyed[answerKey(slot.ticketTypeId, slot.index, questionId)] = value;
+    keyed[answerKey(slot.ticketId, slot.ordinal, questionId)] = value;
   }
   return keyed;
 }
@@ -61,7 +61,8 @@ function valuesFor(slot: NonNullable<ReturnType<typeof reassignmentSlot>>, value
 test("reassignmentSlot is the Ticket's questions when the API sent them, and nothing otherwise", () => {
   const slot = reassignmentSlot(ticket());
   assert.ok(slot);
-  assert.equal(slot.index, 2);
+  assert.equal(slot.ticketId, "tk-2");
+  assert.equal(slot.ordinal, 2);
   assert.deepEqual(
     slot.questions.map((question) => question.id),
     ["q-size", "q-note"],
@@ -78,8 +79,8 @@ test("reassignmentSlot keeps two Tickets of one Sale apart", () => {
   const second = reassignmentSlot(ticket());
   assert.ok(first && second);
   assert.notEqual(
-    answerKey(first.ticketTypeId, first.index, "q-size"),
-    answerKey(second.ticketTypeId, second.index, "q-size"),
+    slotAnswerKey(first, "q-size"),
+    slotAnswerKey(second, "q-size"),
   );
 });
 

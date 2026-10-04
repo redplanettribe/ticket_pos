@@ -7,6 +7,7 @@ import {
   checkoutAnswerBodies,
   hasCheckoutQuestions,
   ownTicketSlot,
+  slotAnswerKey,
   upgradeOffer,
   type AnsweredTicketType,
   type AnswerValues,
@@ -120,6 +121,13 @@ test("answerKey identifies one ticket's reply to one question", () => {
   // one ticket, must never collide into one field.
   assert.notEqual(answerKey("tt-ga", 1, "q-size"), answerKey("tt-ga", 2, "q-size"));
   assert.notEqual(answerKey("tt-ga", 1, "q-size"), answerKey("tt-ga", 1, "q-meal"));
+});
+
+test("slotAnswerKey keys a ticket to be bought by its Ticket Type, and one that exists by its own id", () => {
+  const toBuy = { ticketTypeId: "tt-ga", ticketTypeName: "GA", index: 2, questions: [] };
+  const existing = { ticketId: "tk-9", ticketTypeName: "GA", ordinal: 2, questions: [] };
+  assert.equal(slotAnswerKey(toBuy, "q-size"), answerKey("tt-ga", 2, "q-size"));
+  assert.equal(slotAnswerKey(existing, "q-size"), answerKey("tk-9", 2, "q-size"));
 });
 
 test("checkoutAnswerBodies sends what the buyer filled in, in the slot the kind takes", () => {

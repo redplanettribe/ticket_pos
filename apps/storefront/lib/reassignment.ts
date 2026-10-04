@@ -23,8 +23,14 @@
  */
 
 import type { BuyerTicket } from "./buyer-answers.ts";
-import { answerKey, statedReply, type AnswerSlot, type AnswerValue, type AnswerValues } from "./checkout-answers.ts";
-import { answerIsUsable, refusedTickets, withDrawnCheckboxes } from "./named-tickets.ts";
+import {
+  slotAnswerKey,
+  statedReply,
+  type AnswerValue,
+  type AnswerValues,
+  type ExistingTicketSlot,
+} from "./checkout-answers.ts";
+import { owedQuestionIds, refusedTickets, withDrawnCheckboxes } from "./named-tickets.ts";
 
 /** One entry of the assign body's `answers`: the question, and the reply. */
 export type ReassignmentAnswerBody = { ticket_question_id: string } & AnswerValue;
@@ -35,15 +41,15 @@ export type ReassignmentAnswerBody = { ticket_question_id: string } & AnswerValu
  *
  * KEYED BY THE TICKET'S ID where the checkout keys by Ticket Type: this Ticket
  * already exists, and its id is what tells it apart from the Sale's others on
- * one page. The index is its ordinal, the number the API's refusal names it by.
+ * one page.
  */
-export function reassignmentSlot(ticket: BuyerTicket): AnswerSlot | null {
+export function reassignmentSlot(ticket: BuyerTicket): ExistingTicketSlot | null {
   const questions = ticket.reassignment_questions ?? [];
   if (questions.length === 0) return null;
   return {
-    ticketTypeId: ticket.ticket_id,
+    ticketId: ticket.ticket_id,
     ticketTypeName: ticket.ticket_type_name,
-    index: ticket.ordinal,
+    ordinal: ticket.ordinal,
     questions,
   };
 }
@@ -53,15 +59,8 @@ export function reassignmentSlot(ticket: BuyerTicket): AnswerSlot | null {
  * are asked. Empty means the address may be saved. An optional question is
  * never owed.
  */
-export function reassignmentOwed(slot: AnswerSlot, values: AnswerValues): string[] {
-  const drawn = withDrawnCheckboxes([slot], values);
-  return slot.questions
-    .filter(
-      (question) =>
-        question.required &&
-        !answerIsUsable(question, drawn[answerKey(slot.ticketTypeId, slot.index, question.id)]),
-    )
-    .map((question) => question.id);
+export function reassignmentOwed(slot: ExistingTicketSlot, values: AnswerValues): string[] {
+  return owedQuestionIds(slot, withDrawnCheckboxes([slot], values));
 }
 
 /**
@@ -69,11 +68,14 @@ export function reassignmentOwed(slot: AnswerSlot, values: AnswerValues): string
  * checkbox as it is drawn, and nothing for a blank. Whether a reply fits is the
  * API's finding; it keeps what does, as at checkout.
  */
-export function reassignmentAnswerBodies(slot: AnswerSlot, values: AnswerValues): ReassignmentAnswerBody[] {
+export function reassignmentAnswerBodies(
+  slot: ExistingTicketSlot,
+  values: AnswerValues,
+): ReassignmentAnswerBody[] {
   const drawn = withDrawnCheckboxes([slot], values);
   const bodies: ReassignmentAnswerBody[] = [];
   for (const question of slot.questions) {
-    const stated = statedReply(drawn[answerKey(slot.ticketTypeId, slot.index, question.id)]);
+    const stated = statedReply(drawn[slotAnswerKey(slot, question.id)]);
     if (stated === null) continue;
     bodies.push({ ticket_question_id: question.id, ...stated });
   }

@@ -7,8 +7,8 @@ import { useState } from "react";
 import { CheckoutAnswers } from "@/components/checkout-answers";
 import { apiErrorMessage } from "@/lib/api-errors";
 import type { BuyerTicket } from "@/lib/buyer-answers";
-import { answerKey, statedReply, type AnswerValue, type AnswerValues } from "@/lib/checkout-answers";
-import { answerIsUsable } from "@/lib/named-tickets";
+import type { AnswerValue, AnswerValues } from "@/lib/checkout-answers";
+import { answerIsUsable, questionErrorCopy, questionErrorKinds } from "@/lib/named-tickets";
 import { reassignmentAnswerBodies, reassignmentOwed, reassignmentSlot } from "@/lib/reassignment";
 import {
   assignmentBodyFor,
@@ -180,18 +180,16 @@ export function TicketAssignmentRow({ ticket, buyerEmail = null, save }: TicketA
 
   /** The sentence under each question that has one, by question id. */
   function questionErrors(): Record<string, string> {
-    const errors: Record<string, string> = {};
-    if (slot === null) return errors;
-    for (const question of slot.questions) {
-      const key = answerKey(slot.ticketTypeId, slot.index, question.id);
-      const reply = answers[key];
-      if (owedIds.includes(question.id) && !answerIsUsable(question, reply)) {
-        errors[question.id] = t("assignment.answerNeeded");
-      } else if (leftFields[key] && statedReply(reply) !== null && !answerIsUsable(question, reply)) {
-        errors[question.id] = t("assignment.answerInvalid");
-      }
-    }
-    return errors;
+    if (slot === null) return {};
+    const kinds = questionErrorKinds(slot, answers, {
+      // Owed until the reply is one the server would keep.
+      needed: (question, reply) => owedIds.includes(question.id) && !answerIsUsable(question, reply),
+      left: leftFields,
+    });
+    return questionErrorCopy(kinds, {
+      answerNeeded: t("assignment.answerNeeded"),
+      answerInvalid: t("assignment.answerInvalid"),
+    });
   }
 
   const addressField = (
