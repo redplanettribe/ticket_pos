@@ -181,7 +181,7 @@ export function heldRowFor(ticket: BuyerTicket, held: HeldTicket[]): HeldTicket 
 }
 
 /**
- * Whether a Ticket the buyer holds has no row on the held list yet — the
+ * Whether a Ticket the buyer holds has no row on the held list yet - the
  * signal to read the held list again.
  *
  * It happens when the buyer assigns a Ticket to their own address: the Ticket

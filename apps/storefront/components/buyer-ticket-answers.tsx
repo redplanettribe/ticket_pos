@@ -237,8 +237,8 @@ export function BuyerTicketAnswers({
 /**
  * Everything the session holds, or null when it could not be read.
  *
- * The held list is not scoped to this Sale — it is everything the session
- * holds — and the join by id picks out the rows, if any, that belong on this
+ * The held list is not scoped to this Sale - it is everything the session
+ * holds - and the join by id picks out the rows, if any, that belong on this
  * card. A failure leaves the buyer's own row as an assignment row, which is
  * the correct shape for a Ticket whose questions this page was not given.
  */
@@ -312,7 +312,7 @@ function TicketBlock({
   const t = useTranslations("customerArea");
   const errorCopy = useMessages().errors;
   // The questions are the held row's, and a row the buyer does not hold HAS
-  // none of those — not "none yet", none: the held list never carries them.
+  // none of those - not "none yet", none: the held list never carries them.
   const questions = heldRow === null ? [] : visibleQuestionsOf(heldRow.questions);
   const assignable = assignmentOffered(ticket);
   // The one other source of questions on this page: a Ticket named for
