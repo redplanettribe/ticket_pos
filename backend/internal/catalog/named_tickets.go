@@ -36,6 +36,26 @@ func NamedTicketsApply(requiresNamedTickets, ticketAssignmentEnabled bool, event
 	return eventStartsAt == nil || now.Before(*eventStartsAt)
 }
 
+// BuyerAnswersProvisional reports whether the buyer may read and correct the
+// Answers on a Ticket of their own Sale that somebody else is named for (ADR
+// 0076, #672): the Event requires Named Tickets, Ticket Assignment is open, and
+// the Ticket is `assigned` - named and not yet accepted.
+//
+// THE ANSWERS ARE THE HOLDER'S FROM THE MOMENT THEY ACCEPT, so `accepted`
+// answers false and the buyer is back to the assignment state alone, as ADR
+// 0049 has it. An `unassigned` Ticket answers false too: there is nobody the
+// Answers are provisional on behalf of. A Ticket the buyer holds is `accepted`,
+// and is answered where every Holder answers.
+//
+// THE CURRENT SETTING IS READ, not the one the Sale was made under, because
+// that is what the Event says now about who answers. It does NOT read the
+// Event's start: the read stays open and the write is closed at the doors by
+// the answer window, as on every Answer route, so the buyer still sees what
+// they said beside the reason they can no longer change it.
+func BuyerAnswersProvisional(requiresNamedTickets, ticketAssignmentEnabled bool, state TicketAssignmentState) bool {
+	return requiresNamedTickets && ticketAssignmentEnabled && state == TicketAssigned
+}
+
 // NamedTicket is one Ticket the requirement is judged on, before or after it
 // exists: which Ticket Type, which of that Ticket Type's Tickets (1..quantity,
 // the number that becomes `tickets.ordinal`), and the Holder named for it.

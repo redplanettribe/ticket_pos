@@ -49,6 +49,11 @@ type buyerTicket struct {
 	SelfHeld          bool    `json:"self_held"`
 	Assignable        bool    `json:"assignable"`
 	AssignableRefusal string  `json:"assignable_refusal"`
+	// ProvisionalAnswers is the one place a question reaches this payload
+	// (#672, ADR 0076): an `assigned`, unaccepted Ticket on an Event that
+	// requires Named Tickets, whose Answers are the buyer's until its Holder
+	// accepts. Nil on every other row. See buyer_provisional_answers_test.go.
+	ProvisionalAnswers *provisionalAnswers `json:"provisional_answers"`
 }
 
 // answerKeysNeverOnTheBuyersRow are the JSON keys ADR 0049 took off this
@@ -95,14 +100,35 @@ func listBuyerTickets(t *testing.T, env *testEnv, customerSession, ticketSaleID 
 }
 
 // assertNoAnswerOnTheBuyersRows is ADR 0049 over the bytes: the sale-scoped
-// list names no question, no Answer, no debt and no link, on any row.
+// list names no question, no Answer, no debt and no link, on any row - save
+// inside `provisional_answers`, which ADR 0076 puts on an `assigned` Ticket of
+// a Named Tickets Event alone. Every row is searched outside that key, and a
+// row carrying it must be `assigned`: a provisional Answer on an accepted,
+// unassigned or self-held Ticket is the regression this guards.
 func assertNoAnswerOnTheBuyersRows(t *testing.T, raw json.RawMessage) {
 	t.Helper()
-	for _, key := range answerKeysNeverOnTheBuyersRow {
-		if strings.Contains(string(raw), key) {
-			t.Errorf("the buyer's sale-scoped list carries %s.\n"+
-				"Only the Holder answers (ADR 0049): questions and Answers travel on the held-ticket routes alone.\n"+
-				"See service.BuyerTicketAnswersView.\nbody: %s", key, raw)
+	var rows []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		t.Fatalf("decode buyer rows: %v", err)
+	}
+	for _, row := range rows {
+		if _, provisional := row["provisional_answers"]; provisional {
+			if state := string(row["assignment_state"]); state != `"assigned"` {
+				t.Errorf("a buyer's row reading %s carries provisional_answers; only an assigned, "+
+					"unaccepted Ticket's Answers are the buyer's (ADR 0076).\nbody: %s", state, raw)
+			}
+			delete(row, "provisional_answers")
+		}
+		rest, err := json.Marshal(row)
+		if err != nil {
+			t.Fatalf("encode buyer row: %v", err)
+		}
+		for _, key := range answerKeysNeverOnTheBuyersRow {
+			if strings.Contains(string(rest), key) {
+				t.Errorf("the buyer's sale-scoped list carries %s outside provisional_answers.\n"+
+					"Only the Holder answers (ADR 0049), save an assigned Ticket's provisional Answers\n"+
+					"on a Named Tickets Event (ADR 0076). See service.BuyerTicketAnswersView.\nbody: %s", key, raw)
+			}
 		}
 	}
 }

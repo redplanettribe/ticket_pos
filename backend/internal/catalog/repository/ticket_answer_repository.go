@@ -53,6 +53,12 @@ type AnswerableTicket struct {
 	// (ADR 0076, catalog.IsBuyersOwnAddress), and the comparison must be against
 	// the Sale the scoped read already resolved rather than a second lookup.
 	BuyerEmail string
+	// RequiresNamedTickets is the Event's Named Tickets setting as it stands
+	// now. It rides here for the buyer's reads and writes: on such an Event the
+	// buyer's Answers on an `assigned` Ticket are provisional and theirs to
+	// correct until its Holder accepts (ADR 0076,
+	// catalog.BuyerAnswersProvisional).
+	RequiresNamedTickets bool
 
 	// THE TICKET ASSIGNMENT (#324, parent #322). Four columns on the Ticket
 	// rather than a joined entity — see migration 080 — and the state they
@@ -128,7 +134,7 @@ type TicketAnswerOption struct {
 
 const answerableTicketColumns = `
 	tk.id, tk.ordinal, l.ticket_type_id, tt.name,
-	s.id, s.confirmation_ref, s.status, s.channel, e.starts_at, s.customer_email,
+	s.id, s.confirmation_ref, s.status, s.channel, e.starts_at, s.customer_email, e.requires_named_tickets,
 	tk.holder_email, tk.holder_customer_id, tk.assigned_at, tk.accepted_at
 `
 
@@ -139,6 +145,7 @@ func scanAnswerableTicket(row interface {
 	if err := row.Scan(
 		&t.ID, &t.Ordinal, &t.TicketTypeID, &t.TicketTypeName,
 		&t.TicketSaleID, &t.ConfirmationRef, &t.SaleStatus, &t.Channel, &t.EventStartsAt, &t.BuyerEmail,
+		&t.RequiresNamedTickets,
 		&t.HolderEmail, &t.HolderCustomerID, &t.AssignedAt, &t.AcceptedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -573,6 +580,7 @@ func (r *Repository) ListHeldTicketsForCustomer(ctx context.Context, customerID 
 		if err := rows.Scan(
 			&t.ID, &t.Ordinal, &t.TicketTypeID, &t.TicketTypeName,
 			&t.TicketSaleID, &t.ConfirmationRef, &t.SaleStatus, &t.Channel, &t.EventStartsAt, &t.BuyerEmail,
+			&t.RequiresNamedTickets,
 			&t.HolderEmail, &t.HolderCustomerID, &t.AssignedAt, &t.AcceptedAt,
 			&t.EventName, &t.EventSlug,
 		); err != nil {

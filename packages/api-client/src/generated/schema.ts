@@ -2358,7 +2358,7 @@ export interface paths {
         };
         /**
          * List a Ticket Sale's tickets and whose they are
-         * @description Returns every Ticket of one of the signed-in Customer's own Ticket Sales — its position, its Ticket Type and its Ticket Assignment state (unassigned, assigned, accepted) with the address the buyer gave it. It carries NO Ticket Questions, Answers, outstanding counts or Answer Links for any Ticket (ADR 0049): an Answer is given only by a Ticket's Holder, and the buyer reads and answers the one Ticket they hold through `/api/v1/customer/held-tickets`. This is the page behind the Confirmation Link and the Customer Area, which are one surface: a Confirmation Link session is narrowed to the single Ticket Sale it names and sees only that one. Authorization is the Customer Session and nothing else — the Ticket Sale id in the path names which of the caller's OWN sales, and a sale belonging to somebody else returns an empty list rather than a refusal, so that ids cannot be probed. A reversed sale's Tickets are still listed. Answers 404 while the Ticket Question feature flag is off.
+         * @description Returns every Ticket of one of the signed-in Customer's own Ticket Sales — its position, its Ticket Type and its Ticket Assignment state (unassigned, assigned, accepted) with the address the buyer gave it. It carries NO Ticket Questions, Answers, outstanding counts or Answer Links for any Ticket (ADR 0049): an Answer is given only by a Ticket's Holder, and the buyer reads and answers the one Ticket they hold through `/api/v1/customer/held-tickets`. The one exception is `provisional_answers` (ADR 0076): on an Event that requires Named Tickets, a Ticket `assigned` to somebody who has not yet accepted carries its questions, the Answers given so far, its Outstanding Answer count and its edit window, which the buyer corrects through `.../tickets/{ticketId}/provisional-answers/{questionId}`; it is absent on every other row, and gone from a row once its Holder accepts. This is the page behind the Confirmation Link and the Customer Area, which are one surface: a Confirmation Link session is narrowed to the single Ticket Sale it names and sees only that one. Authorization is the Customer Session and nothing else — the Ticket Sale id in the path names which of the caller's OWN sales, and a sale belonging to somebody else returns an empty list rather than a refusal, so that ids cannot be probed. A reversed sale's Tickets are still listed. Answers 404 while the Ticket Question feature flag is off.
          */
         get: {
             parameters: {
@@ -2496,6 +2496,102 @@ export interface paths {
                 };
                 /** @description Too Many Requests */
                 429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/ticket-sales/{ticketSaleId}/tickets/{ticketId}/provisional-answers/{questionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Answer a ticket question on a ticket you named for somebody else
+         * @description Writes the Answer to one Ticket Question on one Ticket of the signed-in Customer's own Ticket Sale whose Answers are provisionally the buyer's (ADR 0076): the Event requires Named Tickets and the Ticket is `assigned` to somebody who has not yet accepted. Creates the Answer or corrects what was there, and returns the whole Sale's tickets, as the assignment write does. Once the Holder accepts, the Answers are theirs and this route refuses. It never moves the assignment: the Holder's Assignment Link and any owed Assignment mail stay valid. Authorization is the Customer Session; a Confirmation Link session may answer on the one sale it names. Any Ticket whose Answers are not provisionally the buyer's - accepted, unassigned, held by the buyer, on an Event without Named Tickets, or not on one of the caller's own sales - is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does not exist. Refused with 400 INVALID_ANSWER when the value does not fit the question's kind, and with 409 once the Event has started (EVENT_STARTED_ANSWERS_CLOSED) or the Ticket Sale has been reversed (TICKET_SALE_REVERSED). Answers 404 while the Ticket Question feature flag is off.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Ticket Sale id */
+                    ticketSaleId: string;
+                    /** @description Ticket id */
+                    ticketId: string;
+                    /** @description Ticket question ID */
+                    questionId: string;
+                };
+                cookie?: never;
+            };
+            /** @description The answer, in the shape its question's kind takes */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.buyerProvisionalAnswerBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeBuyerTicketAnswers"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -14311,6 +14407,33 @@ export interface components {
              */
             holder_email?: string;
         };
+        "handler.buyerProvisionalAnswerBody": {
+            /** @description Checked answers checkbox. */
+            checked?: boolean;
+            /**
+             * @description Date answers date, as a calendar date YYYY-MM-DD. Never an instant: a
+             *     date carries no time and no zone, so nothing can shift it by a day.
+             */
+            date?: string;
+            /**
+             * @description Number answers number, as a decimal STRING rather than a JSON number.
+             *     JSON numbers are doubles in most parsers, and a value that survives a
+             *     NUMERIC column only to be rounded on the way through the wire would defeat
+             *     the column. See catalog.SubmittedAnswer.
+             */
+            number?: string;
+            /**
+             * @description OptionIDs answers single_choice (one) and multi_choice (any number). They
+             *     are OPTION IDENTITIES and never labels, because a label could not survive
+             *     a rename — which is the whole reason an Option has an id.
+             *
+             *     An empty array is somebody clearing their choices, which is refused as an
+             *     empty Answer; the way to say "not said" is to DELETE the Answer.
+             */
+            option_ids?: string[];
+            /** @description Text answers short_text and long_text. */
+            text?: string;
+        };
         "handler.checkoutAnswerBody": {
             checked?: boolean;
             date?: string;
@@ -16101,6 +16224,7 @@ export interface components {
              *     line apart until an address is given.
              */
             ordinal?: number;
+            provisional_answers?: components["schemas"]["service.ProvisionalAnswersView"];
             /**
              * @description SelfHeld is whether this Ticket's Holder is the buyer themself — the one
              *     Ticket an Online Sale hands the buyer at purchase (ADR 0048), or any
@@ -18681,6 +18805,34 @@ export interface components {
             ends_at?: string;
             promotional_price_cents?: number;
             starts_at?: string;
+        };
+        /**
+         * @description ProvisionalAnswers is the one exception to "no question on this payload"
+         *     (ADR 0076, #672): on an Event that requires Named Tickets, an `assigned`
+         *     Ticket's questions and the Answers given so far, which are the buyer's
+         *     to correct until its Holder accepts. Nil, and so absent, on every other
+         *     row - an accepted Ticket's Answers are its Holder's, and a Ticket the
+         *     buyer holds is answered on the held-ticket routes. See
+         *     buyer_provisional_answers.go.
+         */
+        "service.ProvisionalAnswersView": {
+            /**
+             * @description Answerable and AnswerableRefusal are the write window: false once the
+             *     Event has started and on a reversed Sale, with the refusal as a token
+             *     the Storefront translates. The READ is never gated by it.
+             */
+            answerable?: boolean;
+            answerable_refusal?: string;
+            /**
+             * @description OutstandingCount is how many required questions this Ticket has not yet
+             *     answered, from the platform's one definition of the debt.
+             */
+            outstanding_count?: number;
+            /**
+             * @description Questions carries the Ticket Type's questions in the order they are
+             *     asked, retired ones last, each with this Ticket's Answer or null.
+             */
+            questions?: components["schemas"]["service.TicketQuestionAnswerView"][];
         };
         "service.PublicEventCard": {
             /**

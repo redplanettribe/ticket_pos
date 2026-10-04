@@ -188,7 +188,7 @@ func (s *Service) AssignOwnTicket(
 	if err != nil {
 		return nil, err
 	}
-	return s.buyerTicketAnswersViews(customerID, fresh), nil
+	return s.buyerTicketAnswersViews(ctx, customerID, fresh)
 }
 
 // assignmentWindowOpen turns the domain's reading of the assignment window into
