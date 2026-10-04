@@ -58,6 +58,10 @@ type updateEventBody struct {
 	// string, the way cover_image_key does.
 	RegistrationMode *string `json:"registration_mode"`
 	RegistrationURL  *string `json:"registration_url"`
+	// RequiresNamedTickets is the Named Tickets setting (ADR 0076). Absent
+	// leaves it alone, like fee_handling: the cover image and video side-saves
+	// borrow this body and know nothing about it.
+	RequiresNamedTickets *bool `json:"requires_named_tickets"`
 }
 
 type coverUploadURLBody struct {
@@ -916,18 +920,19 @@ func parseUpdateEvent(body updateEventBody) (service.UpdateEventInput, []platfor
 	}
 
 	return service.UpdateEventInput{
-		Name:             name,
-		Slug:             slug,
-		StartsAt:         startsAt,
-		EndsAt:           endsAt,
-		Timezone:         body.Timezone,
-		VenueName:        body.VenueName,
-		VenueAddress:     body.VenueAddress,
-		Description:      body.Description,
-		CoverImageKey:    body.CoverImageKey,
-		CoverVideoKey:    body.CoverVideoKey,
-		FeeHandling:      feeHandling,
-		RegistrationMode: registrationMode,
-		RegistrationURL:  registrationURL,
+		Name:                 name,
+		Slug:                 slug,
+		StartsAt:             startsAt,
+		EndsAt:               endsAt,
+		Timezone:             body.Timezone,
+		VenueName:            body.VenueName,
+		VenueAddress:         body.VenueAddress,
+		Description:          body.Description,
+		CoverImageKey:        body.CoverImageKey,
+		CoverVideoKey:        body.CoverVideoKey,
+		FeeHandling:          feeHandling,
+		RegistrationMode:     registrationMode,
+		RegistrationURL:      registrationURL,
+		RequiresNamedTickets: body.RequiresNamedTickets,
 	}, nil
 }

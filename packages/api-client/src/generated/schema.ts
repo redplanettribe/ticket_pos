@@ -14863,6 +14863,12 @@ export interface components {
              */
             registration_mode?: string;
             registration_url?: string;
+            /**
+             * @description RequiresNamedTickets is the Named Tickets setting (ADR 0076). Absent
+             *     leaves it alone, like fee_handling: the cover image and video side-saves
+             *     borrow this body and know nothing about it.
+             */
+            requires_named_tickets?: boolean;
             slug?: string;
             starts_at?: string;
             timezone?: string;
@@ -17038,6 +17044,15 @@ export interface components {
              */
             registration_mode?: string;
             registration_url?: string;
+            /**
+             * @description RequiresNamedTickets is the Event's Named Tickets setting (ADR 0076): a
+             *     Storefront checkout must name a Holder for every Ticket beyond the
+             *     buyer's own and answer every required Ticket Question on every Ticket.
+             *     On for a new Event, off for one that existed before the setting did. The
+             *     stored value, stated even on an external Event, where it is ignored and
+             *     the staff form does not offer it.
+             */
+            requires_named_tickets?: boolean;
             slug?: string;
             starts_at?: string;
             status?: string;
@@ -18798,6 +18813,20 @@ export interface components {
              *     cannot be (the publish gate requires it, #208).
              */
             registration_url?: string;
+            /**
+             * @description RequiresNamedTickets is whether this Event's checkout must name a Holder
+             *     for every Ticket beyond the buyer's own and answer every required Ticket
+             *     Question on every Ticket (ADR 0076), so the checkout dialog can draw the
+             *     fields for it. The setting as the Event has it, not a verdict on any one
+             *     checkout: begin-checkout decides that, once, and it also lets the rule
+             *     fall silent once the Event has started.
+             *
+             *     Always false on an Event with External Registration, whatever is stored:
+             *     it sells nothing here, so the setting is ignored there, and the public read
+             *     says what applies rather than what was left behind - the rule
+             *     registration_url follows from the other side.
+             */
+            requires_named_tickets?: boolean;
             slug?: string;
             starts_at?: string;
             /**

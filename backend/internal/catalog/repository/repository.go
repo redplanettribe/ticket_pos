@@ -45,7 +45,12 @@ type Event struct {
 	RegistrationMode       string
 	RegistrationURL        sql.NullString
 	RegistrationClickCount int64
-	CreatedAt              time.Time
+	// RequiresNamedTickets is the Event's Named Tickets setting (migration 125,
+	// ADR 0076): a Storefront checkout must name a Holder and answer the
+	// required Ticket Questions for every Ticket. Stored as set even on an
+	// external Event, where it is ignored.
+	RequiresNamedTickets bool
+	CreatedAt            time.Time
 }
 
 // UpdateEventParams holds mutable Event fields for PATCH.
@@ -67,6 +72,9 @@ type UpdateEventParams struct {
 	// redirect owns, and an Event form must never be able to rewrite it.
 	RegistrationMode string
 	RegistrationURL  sql.NullString
+	// RequiresNamedTickets is the Named Tickets setting, always restated: the
+	// service resolves an omitted field to the stored value before it gets here.
+	RequiresNamedTickets bool
 }
 
 // CreateEventParams holds the fields a new draft Event may be created with.
@@ -94,7 +102,7 @@ const eventColumns = `
 	id, organization_id, name, slug, status,
 	starts_at, ends_at, timezone, venue_name, venue_address,
 	description, cover_image_key, cover_video_key, discoverable, fee_handling,
-	registration_mode, registration_url, registration_click_count, created_at
+	registration_mode, registration_url, registration_click_count, requires_named_tickets, created_at
 `
 
 func scanEvent(row interface {
@@ -106,7 +114,7 @@ func scanEvent(row interface {
 		&e.ID, &e.OrganizationID, &e.Name, &e.Slug, &status,
 		&e.StartsAt, &e.EndsAt, &e.Timezone, &e.VenueName, &e.VenueAddress,
 		&e.Description, &e.CoverImageKey, &e.CoverVideoKey, &e.Discoverable, &e.FeeHandling,
-		&e.RegistrationMode, &e.RegistrationURL, &e.RegistrationClickCount, &e.CreatedAt,
+		&e.RegistrationMode, &e.RegistrationURL, &e.RegistrationClickCount, &e.RequiresNamedTickets, &e.CreatedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -138,7 +146,7 @@ func (r *Repository) ListEventsByOrganizationID(ctx context.Context, orgID strin
 			&e.ID, &e.OrganizationID, &e.Name, &e.Slug, &status,
 			&e.StartsAt, &e.EndsAt, &e.Timezone, &e.VenueName, &e.VenueAddress,
 			&e.Description, &e.CoverImageKey, &e.CoverVideoKey, &e.Discoverable, &e.FeeHandling,
-			&e.RegistrationMode, &e.RegistrationURL, &e.RegistrationClickCount, &e.CreatedAt,
+			&e.RegistrationMode, &e.RegistrationURL, &e.RegistrationClickCount, &e.RequiresNamedTickets, &e.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -209,7 +217,8 @@ func (r *Repository) UpdateEvent(ctx context.Context, orgID, eventID string, par
 			discoverable = $13,
 			fee_handling = $14,
 			registration_mode = $15,
-			registration_url = $16
+			registration_url = $16,
+			requires_named_tickets = $17
 		WHERE id = $1 AND organization_id = $2
 		RETURNING `+eventColumns+`
 	`, eventID, orgID,
@@ -220,6 +229,7 @@ func (r *Repository) UpdateEvent(ctx context.Context, orgID, eventID string, par
 		nullString(params.CoverImageKey), nullString(params.CoverVideoKey),
 		params.Discoverable, params.FeeHandling,
 		params.RegistrationMode, nullString(params.RegistrationURL),
+		params.RequiresNamedTickets,
 	)
 	return scanEvent(row)
 }

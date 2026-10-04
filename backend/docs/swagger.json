@@ -1226,6 +1226,10 @@
                     "registration_url": {
                         "type": "string"
                     },
+                    "requires_named_tickets": {
+                        "description": "RequiresNamedTickets is the Named Tickets setting (ADR 0076). Absent\nleaves it alone, like fee_handling: the cover image and video side-saves\nborrow this body and know nothing about it.",
+                        "type": "boolean"
+                    },
                     "slug": {
                         "type": "string"
                     },
@@ -4983,6 +4987,10 @@
                     "registration_url": {
                         "type": "string"
                     },
+                    "requires_named_tickets": {
+                        "description": "RequiresNamedTickets is the Event's Named Tickets setting (ADR 0076): a\nStorefront checkout must name a Holder for every Ticket beyond the\nbuyer's own and answer every required Ticket Question on every Ticket.\nOn for a new Event, off for one that existed before the setting did. The\nstored value, stated even on an external Event, where it is ignored and\nthe staff form does not offer it.",
+                        "type": "boolean"
+                    },
                     "slug": {
                         "type": "string"
                     },
@@ -7177,6 +7185,10 @@
                     "registration_url": {
                         "description": "RegistrationURL is the Registration Link, present only on an external\nEvent. The Storefront needs the URL itself and not merely the fact of it:\nthe Register panel names the destination's hostname beneath the call to\naction, because a Customer being handed to a stranger should learn which\none before they click rather than after.\n\nIt is null for a ticketed Event even if a link is stored — a link a\nticketed Event does not use is nothing a Customer should be offered — and\nnull for an external Event still missing one, which a published Event\ncannot be (the publish gate requires it, #208).",
                         "type": "string"
+                    },
+                    "requires_named_tickets": {
+                        "description": "RequiresNamedTickets is whether this Event's checkout must name a Holder\nfor every Ticket beyond the buyer's own and answer every required Ticket\nQuestion on every Ticket (ADR 0076), so the checkout dialog can draw the\nfields for it. The setting as the Event has it, not a verdict on any one\ncheckout: begin-checkout decides that, once, and it also lets the rule\nfall silent once the Event has started.\n\nAlways false on an Event with External Registration, whatever is stored:\nit sells nothing here, so the setting is ignored there, and the public read\nsays what applies rather than what was left behind - the rule\nregistration_url follows from the other side.",
+                        "type": "boolean"
                     },
                     "slug": {
                         "type": "string"

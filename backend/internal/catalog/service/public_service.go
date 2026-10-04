@@ -377,6 +377,18 @@ type PublicEventDetail struct {
 	// The name is new and says what it counts. It deliberately does not follow
 	// buyer_holds_first_ticket above, whose name outlived its rule.
 	SurrenderableFreeTickets *int `json:"surrenderable_free_tickets"`
+	// RequiresNamedTickets is whether this Event's checkout must name a Holder
+	// for every Ticket beyond the buyer's own and answer every required Ticket
+	// Question on every Ticket (ADR 0076), so the checkout dialog can draw the
+	// fields for it. The setting as the Event has it, not a verdict on any one
+	// checkout: begin-checkout decides that, once, and it also lets the rule
+	// fall silent once the Event has started.
+	//
+	// Always false on an Event with External Registration, whatever is stored:
+	// it sells nothing here, so the setting is ignored there, and the public read
+	// says what applies rather than what was left behind - the rule
+	// registration_url follows from the other side.
+	RequiresNamedTickets bool `json:"requires_named_tickets"`
 }
 
 // PublicEventPage is one page of global explorer results.
@@ -615,6 +627,7 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 		BuyerHoldsFirstTicket: s.ticketAssignmentEnabled && mode != catalog.RegistrationModeExternal,
 		// Null for an anonymous read, a number for a Customer we can identify.
 		SurrenderableFreeTickets: surrenderable,
+		RequiresNamedTickets:     row.RequiresNamedTickets && mode != catalog.RegistrationModeExternal,
 	}
 	// The Registration Link travels only on the Event that actually registers
 	// through it.
