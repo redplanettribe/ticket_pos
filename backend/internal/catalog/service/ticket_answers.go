@@ -102,13 +102,13 @@ type AnswerOptionView struct {
 // AnswerInput is one Answer as a caller states it, before the Ticket Question's
 // kind has been read against it. See catalog.SubmittedAnswer for why every field
 // is optional and why absence is meaningful.
-type AnswerInput struct {
-	Text      *string
-	Number    *string
-	Date      *string
-	Checked   *bool
-	OptionIDs []string
-}
+//
+// AN ALIAS AND NOT A COPY. This module's callers state a reply in exactly the
+// domain's shape, and every path that judges one - ParseAnswer for a single
+// Answer, HoldableCheckoutAnswers for a reassignment's set - takes that shape,
+// so a second struct with the same five fields would only add a hand-written
+// translation per path for the two to drift apart in.
+type AnswerInput = catalog.SubmittedAnswer
 
 // ListTicketSaleAnswers returns every Ticket of one Ticket Sale with its Ticket
 // Questions and Answers.
@@ -242,13 +242,7 @@ func (s *Service) answerTicketQuestion(
 	}
 
 	kind := catalog.TicketQuestionKind(question.Kind)
-	value, problem := catalog.ParseAnswer(kind, catalog.SubmittedAnswer{
-		Text:      input.Text,
-		Number:    input.Number,
-		Date:      input.Date,
-		Checked:   input.Checked,
-		OptionIDs: input.OptionIDs,
-	})
+	value, problem := catalog.ParseAnswer(kind, input)
 	if problem != catalog.AnswerOK {
 		return invalidAnswerError(kind, problem)
 	}

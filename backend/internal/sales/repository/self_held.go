@@ -124,7 +124,7 @@ type seatClaim struct {
 }
 
 // outranks reports whether this line's claim takes the seat from the one
-// holding it — dearest first, then the catalog's order, then the name, then
+// holding it - dearest first, then the catalog's order, then the name, then
 // the Ticket Type's id.
 //
 // EVERY COMPARISON IS STRICT, so a line that ranks equal with the incumbent

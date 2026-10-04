@@ -446,11 +446,46 @@ func TestNamedTicketsIsJudgedOnceAtBegin(t *testing.T) {
 	begunUnnamed := beginCheckoutOK(t, env, testOrgSlug, "named-fest",
 		checkoutBody("cai@example.com", "Cai", "Unnamed", cartLine(gaID, 2)))
 	flip(true)
+	assertHeld(t, env, begunNamed.ClientTransactionID, map[string]map[int]string{gaID: {2: "ben@example.com"}})
+	assertHeld(t, env, begunUnnamed.ClientTransactionID, map[string]map[int]string{})
 
 	confirmCheckoutOK(t, env, begunNamed.ClientTransactionID, "approved")
 	confirmCheckoutOK(t, env, begunUnnamed.ClientTransactionID, "approved")
-	assertHeld(t, env, begunNamed.ClientTransactionID, map[string]map[int]string{gaID: {2: "ben@example.com"}})
-	assertHeld(t, env, begunUnnamed.ClientTransactionID, map[string]map[int]string{})
+	if got := ticketHolderEmails(t, env, begunNamed.ClientTransactionID); got[2] != "ben@example.com" {
+		t.Fatalf("named sale's holders = %v, want Ben on ticket 2", got)
+	}
+	if got := ticketHolderEmails(t, env, begunUnnamed.ClientTransactionID); got[2] != "" {
+		t.Fatalf("unnamed sale's holders = %v, want nobody named on ticket 2", got)
+	}
+}
+
+// ticketHolderEmails reads the holder_email each Ticket of a Payment's sale
+// carries, by ordinal, with "" for a Ticket nobody holds.
+func ticketHolderEmails(t *testing.T, env *testEnv, clientTransactionID string) map[int]string {
+	t.Helper()
+	rows, err := env.db.Query(`
+		SELECT tk.ordinal, COALESCE(tk.holder_email, '')
+		FROM tickets tk
+		JOIN ticket_sale_lines sl ON sl.id = tk.ticket_sale_line_id
+		WHERE sl.ticket_sale_id = $1
+	`, saleIDOfPayment(t, env, clientTransactionID))
+	if err != nil {
+		t.Fatalf("read ticket holders: %v", err)
+	}
+	defer rows.Close()
+	byOrdinal := map[int]string{}
+	for rows.Next() {
+		var ordinal int
+		var email string
+		if err := rows.Scan(&ordinal, &email); err != nil {
+			t.Fatalf("scan ticket holder: %v", err)
+		}
+		byOrdinal[ordinal] = email
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read ticket holders: %v", err)
+	}
+	return byOrdinal
 }
 
 // namedPurgeResult is the purge's tally, Holder addresses included.
@@ -508,14 +543,15 @@ func TestHeldAddressesArePurgedWithHeldAnswers(t *testing.T) {
 		t.Fatalf("purge inside the window = %+v, want nothing purged and 2 addresses held", result)
 	}
 	confirmCheckoutOK(t, env, patient.ClientTransactionID, "approved")
+	// The late commit wrote Cai onto the Ticket and took the Payment's copy.
+	assertHeld(t, env, patient.ClientTransactionID, map[string]map[int]string{})
 
 	holdClocksAt(fixedClock.Add(sales.AbandonedAnswerRetention + time.Hour))
 	result := purgeAbandonedCheckoutData(t, env)
-	if result.HoldersPurged != 1 || result.PaymentsPurged != 1 || result.HoldersHeld != 1 {
-		t.Fatalf("purge a month on = %+v, want 1 address off 1 Payment and 1 still held", result)
+	if result.HoldersPurged != 1 || result.PaymentsPurged != 1 || result.HoldersHeld != 0 {
+		t.Fatalf("purge a month on = %+v, want 1 address off 1 Payment and none still held", result)
 	}
 	assertHeld(t, env, gone.ClientTransactionID, map[string]map[int]string{})
-	assertHeld(t, env, patient.ClientTransactionID, map[string]map[int]string{gaID: {2: "cai@example.com"}})
 	if got := countPaymentLines(t, env, gone.ClientTransactionID); got != 1 {
 		t.Fatalf("payment lines = %d after the purge, want 1 - the Payment is kept", got)
 	}
@@ -523,6 +559,41 @@ func TestHeldAddressesArePurgedWithHeldAnswers(t *testing.T) {
 	if again := purgeAbandonedCheckoutData(t, env); again.HoldersPurged != 0 || again.PaymentsPurged != 0 {
 		t.Fatalf("second purge = %+v, want zeros", again)
 	}
+}
+
+// TestAnAddressLeftOnACommittedPaymentIsPurgedOnTheNextRun: the commit takes
+// the held addresses with it, but a Payment committed before it did (or by any
+// future path that forgets to) would otherwise keep a third party's address
+// forever, because an approved Payment is never abandoned. The purge takes any
+// address an approved Payment still carries on its next run, whatever its age:
+// the Ticket already has it, so nothing waits on the held copy.
+func TestAnAddressLeftOnACommittedPaymentIsPurgedOnTheNextRun(t *testing.T) {
+	env := setupTest(t)
+	enableTicketAssignment(t)
+	sessionID := orgAdminSession(t, env)
+	_, gaID := publishNamedEvent(t, env, sessionID, "Named Fest", "named-fest", 2000, 20)
+
+	body := checkoutBody("ana@example.com", "Ana", "Lopez", cartLine(gaID, 2))
+	body["holders"] = []map[string]any{holder(gaID, 2, "ben@example.com")}
+	sold := beginCheckoutOK(t, env, testOrgSlug, "named-fest", body)
+	confirmCheckoutOK(t, env, sold.ClientTransactionID, "approved")
+
+	// The row a commit from before the fix left behind.
+	if _, err := env.db.Exec(`
+		INSERT INTO payment_ticket_holders (payment_line_id, ticket_index, holder_email, created_at)
+		SELECT l.id, 2, 'ben@example.com', $2
+		FROM payment_lines l JOIN payments p ON p.id = l.payment_id
+		WHERE p.client_transaction_id = $1
+	`, sold.ClientTransactionID, fixedClock); err != nil {
+		t.Fatalf("plant a leftover address: %v", err)
+	}
+
+	// Minutes after the sale, long inside the abandoned-checkout window.
+	result := purgeAbandonedCheckoutData(t, env)
+	if result.HoldersPurged != 1 || result.PaymentsPurged != 1 || result.HoldersHeld != 0 {
+		t.Fatalf("purge = %+v, want the committed Payment's 1 address gone", result)
+	}
+	assertHeld(t, env, sold.ClientTransactionID, map[string]map[int]string{})
 }
 
 // TestNamedTicketsSucceedsWhenEveryTicketIsNamedAndAnswered is the other half:

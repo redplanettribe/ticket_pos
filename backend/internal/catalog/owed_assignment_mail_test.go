@@ -112,19 +112,21 @@ func TestTheSaleIsJudgedBeforeTheAssignment(t *testing.T) {
 	}
 }
 
-// A failed send waits longer each time, and never longer than the last step:
-// the Event's start, not an attempt count, is what ends an owed mail.
-func TestTheRetryDelayGrowsAndSaturates(t *testing.T) {
-	previous := time.Duration(0)
-	for attempts := 1; attempts <= len(owedAssignmentMailRetryBackoff); attempts++ {
-		delay := OwedAssignmentMailRetryDelay(attempts)
-		if delay <= previous {
-			t.Fatalf("attempt %d waits %v, not longer than the %v before it", attempts, delay, previous)
-		}
-		previous = delay
+// A failed send is retried at the next run three times, then waits 5, 15, 45
+// and 90 minutes, and never longer than the last step: the Event's start, not
+// an attempt count, is what ends an owed mail.
+func TestTheRetryDelayRetriesAtTheNextRunThenBacksOff(t *testing.T) {
+	want := []time.Duration{
+		time.Minute, time.Minute, time.Minute,
+		5 * time.Minute, 15 * time.Minute, 45 * time.Minute, 90 * time.Minute,
 	}
-	if got := OwedAssignmentMailRetryDelay(100); got != previous {
-		t.Fatalf("attempt 100 waits %v, want the last step %v", got, previous)
+	for i, delay := range want {
+		if got := OwedAssignmentMailRetryDelay(i + 1); got != delay {
+			t.Fatalf("attempt %d waits %v, want %v", i+1, got, delay)
+		}
+	}
+	if got := OwedAssignmentMailRetryDelay(100); got != 90*time.Minute {
+		t.Fatalf("attempt 100 waits %v, want the last step, 90m", got)
 	}
 	if got := OwedAssignmentMailRetryDelay(0); got != OwedAssignmentMailRetryDelay(1) {
 		t.Fatalf("a row never claimed waits %v, want the first step", got)

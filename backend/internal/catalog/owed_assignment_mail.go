@@ -149,8 +149,19 @@ const OwedAssignmentMailClaimLease = 5 * time.Minute
 // owedAssignmentMailRetryBackoff is how long a failed send waits before the
 // next attempt, indexed by how many attempts have been made.
 //
-// The Follow Digest's schedule, for its reason: the failures met here are the
-// provider's - a rate limit, a 5xx, a timeout - and none is over in seconds.
+// THE FIRST THREE RETRIES ARE THE NEXT RUN. The spec's promise is that a send
+// the provider refuses or that fails "stays owed and is picked up by the next
+// run", and story 62's Holder hears "within a minute or so": most refusals met
+// here are a rate limit or a blip that a minute clears, and the buyer has just
+// been told their friends are being mailed. So the first three retries wait one
+// minute, the per-minute job's own tick, and never less: a provider that
+// refused this second is not better in ten.
+//
+// THEN IT BACKS OFF, 5, 15, 45 and 90 minutes, and every retry after that waits
+// the last step again. A failure that survives three ticks is an outage rather
+// than a blip, and hammering a provider through one only stretches its rate
+// limit. The steps are this mail's own and deliberately not shared with the
+// Follow Digest's, which owes nobody anything within a minute.
 //
 // THERE IS NO LAST ATTEMPT. Unlike a Digest, which is about one week, this mail
 // is about an assignment that stays acceptable until the doors open, and the
@@ -158,6 +169,8 @@ const OwedAssignmentMailClaimLease = 5 * time.Minute
 // buyer named, and paid for, never told, with nothing on the buyer's page to
 // say so.
 var owedAssignmentMailRetryBackoff = []time.Duration{
+	1 * time.Minute,
+	1 * time.Minute,
 	1 * time.Minute,
 	5 * time.Minute,
 	15 * time.Minute,

@@ -47,8 +47,9 @@ type AnswerPurgeResult struct {
 	// only answer.
 	AnswersPurged int `json:"answers_purged"`
 	// HoldersPurged is how many Holder addresses held by Named Tickets
-	// checkouts this run deleted, on exactly the Answers' terms and in the same
-	// statement (ADR 0076).
+	// checkouts this run deleted, in the same statement as the Answers (ADR
+	// 0076): on the Answers' terms, and also any an approved Payment still
+	// carries, at any age, because its Tickets already have them.
 	HoldersPurged int `json:"holders_purged"`
 	// PaymentsPurged is how many Payments those Answers came off, which is the
 	// figure that means something in human terms: forty answers off one abandoned

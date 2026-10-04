@@ -58,12 +58,15 @@ Their organizers authored their questions under "nothing ever blocks a checkout"
 - **Bind imports and Manually Recorded Sales too.** Rejected: they record transactions that already happened, and refusing a row of history does not make it true.
 - **Switch it on for existing Events.** Rejected: it would change live checkouts under organizers who never chose it, and turn questions approved as "nice to know" into gates.
 - **Record who gave each Answer.** Rejected: an organizer acts on the size whoever typed it, and ADR 0044 and 0049 already chose not to keep an author.
-- **Ship behind a deploy flag pending a legal review of the Privacy Policy.** Rejected by the product owner. The Storefront states, beside the address fields, that the addresses will be mailed and shown to the Organization, as the assignment route already requires.
+- **Ship behind a deploy flag pending a legal review of the Privacy Policy.** Rejected by the product owner.
+  The Storefront states, beside the address fields, that the addresses will be mailed and shown to the Organization, as the assignment route already requires.
 
 ## Consequences
 
-- "Required" now has two meanings depending on the Event: a gate at a Named Tickets checkout, a debt everywhere else. The glossary's Ticket Question, Answer and Outstanding Answer entries say so.
-- The platform collects third parties' contact details and, through Ticket Questions, possibly their health data, before payment and by default. The Question Review's acknowledgement that a buyer may be supplying data about somebody else is now the normal case on most Events, not an edge.
+- "Required" now has two meanings depending on the Event: a gate at a Named Tickets checkout, a debt everywhere else.
+  The glossary's Ticket Question, Answer and Outstanding Answer entries say so.
+- The platform collects third parties' contact details and, through Ticket Questions, possibly their health data, before payment and by default.
+  The Question Review's acknowledgement that a buyer may be supplying data about somebody else is now the normal case on most Events, not an edge.
 - A checkout that names nine people produces nine Assignment mails at once; the paced queue is what keeps that from tripping the mail provider's rate limit, as the Assignment Reminder's first run did.
 - The Assignment Reminder has almost nothing to chase on a Named Tickets Event, since its online Tickets are all named; it keeps working for imported sales and for Events with the setting off.
 - Event Owners cannot switch it, because they cannot edit the Event; if that gate is ever widened, this setting moves with the rest of the form.

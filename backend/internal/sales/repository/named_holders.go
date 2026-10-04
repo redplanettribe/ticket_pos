@@ -12,22 +12,36 @@ import (
 // buyer named at checkout, read off the Payment and written onto the Tickets the
 // commit mints, in the transaction that records the Ticket Sale.
 
-// listHeldHoldersByPayment returns the Holder addresses a Payment is holding,
+// takeHeldHoldersByPayment returns the Holder addresses a Payment is holding,
 // each keyed by the Ticket Type its line sold and the index of the Ticket on
-// that line (migration 126).
+// that line (migration 126), and DELETES THEM in the same statement.
 //
 // Read inside the commit transaction, as listHeldAnswersByPaymentLine is, so
 // the assignments and the Tickets they name cannot come apart. Keyed by Ticket
 // Type rather than by Payment Line because the spine never sees a Payment Line:
 // it sees the Ticket Sale Lines it writes, one per Ticket Type of a checkout
 // (see paymentLineIDsByTicketType).
-func listHeldHoldersByPayment(ctx context.Context, tx *sql.Tx, paymentID string) ([]HeldHolder, error) {
+//
+// TAKEN, NOT READ. Once the commit has written an address onto its Ticket the
+// held copy has no reader left, and keeping it would put a third party's
+// address on an approved Payment forever: the abandoned-checkout purge never
+// looks at an approved Payment, and the Holder Address Purge that takes the
+// Ticket's own unaccepted address at Event start knows nothing of this table
+// (ADR 0076: "may hold one for 30 days"). A commit that rolls back puts the
+// rows back with everything else it wrote, so nothing is lost on a failed
+// sale. The held Answers stay where they are on purpose; see
+// PurgeAbandonedCheckoutAnswers.
+func takeHeldHoldersByPayment(ctx context.Context, tx *sql.Tx, paymentID string) ([]HeldHolder, error) {
 	rows, err := tx.QueryContext(ctx, `
-		SELECT l.ticket_type_id, h.ticket_index, h.holder_email
-		FROM payment_ticket_holders h
-		JOIN payment_lines l ON l.id = h.payment_line_id
-		WHERE l.payment_id = $1
-		ORDER BY l.ticket_type_id, h.ticket_index
+		WITH taken AS (
+			DELETE FROM payment_ticket_holders h
+			USING payment_lines l
+			WHERE l.id = h.payment_line_id AND l.payment_id = $1
+			RETURNING l.ticket_type_id, h.ticket_index, h.holder_email
+		)
+		SELECT ticket_type_id, ticket_index, holder_email
+		FROM taken
+		ORDER BY ticket_type_id, ticket_index
 	`, paymentID)
 	if err != nil {
 		return nil, err
@@ -86,8 +100,8 @@ func namedTicketsOf(held []HeldHolder, minted map[string]map[int]string, seatTic
 // Assignment, in the commit's transaction (ADR 0076).
 //
 //   - THE BUYER'S OWN ADDRESS is `accepted` at once with the buyer as Holder,
-//     by holdOwnTicket - the very write that seats the Self-held Ticket, and the
-//     row shape catalog's own-address assignment writes after the sale. Whether
+//     by catalog.AcceptForBuyer - the very write that seats the Self-held
+//     Ticket, and the one the own-address assignment after the sale makes. Whether
 //     an address is the buyer's is catalog.IsBuyersOwnAddress's answer and
 //     nobody else's. It owes no mail.
 //   - ANY OTHER ADDRESS is `assigned`, and an Assignment mail is OWED for it:
@@ -112,7 +126,7 @@ func assignNamedTickets(
 ) error {
 	for _, ticket := range named {
 		if catalog.IsBuyersOwnAddress(ticket.holderEmail, buyerEmail) {
-			if err := holdOwnTicket(ctx, tx, ticket.ticketID, customerID, buyerEmail, now); err != nil {
+			if _, err := catalog.AcceptForBuyer(ctx, tx, ticket.ticketID, customerID, buyerEmail, now); err != nil {
 				return err
 			}
 			continue
