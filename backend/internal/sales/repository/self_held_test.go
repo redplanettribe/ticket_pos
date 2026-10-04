@@ -327,6 +327,12 @@ func TestSelfHeldSeatIsTheSameWhicheverOrderTheBasketArrivesIn(t *testing.T) {
 		"a-twin":  {PriceCents: 2500, SortOrder: 3, Name: "General"},
 		"c-other": {PriceCents: 2500, SortOrder: 3, Name: "Generalísimo"},
 		"cheap":   {PriceCents: 1000, SortOrder: 0, Name: "Cheap"},
+		// Names that order differently by bytes than by locale or by UTF-16
+		// code units, the two ways the Storefront's mirror could get it wrong.
+		"lower":     {PriceCents: 3000, SortOrder: 5, Name: "a"},
+		"upper":     {PriceCents: 3000, SortOrder: 5, Name: "B"},
+		"emoji":     {PriceCents: 3000, SortOrder: 5, Name: "\U0001F600"},
+		"fullwidth": {PriceCents: 3000, SortOrder: 5, Name: "～"},
 	})
 	cases := []struct {
 		name string
@@ -335,6 +341,22 @@ func TestSelfHeldSeatIsTheSameWhicheverOrderTheBasketArrivesIn(t *testing.T) {
 		lines    []CommitLine
 		wantType string
 	}{
+		{
+			name: "a name compares by bytes, not by locale: upper case sorts first",
+			lines: []CommitLine{
+				{TicketTypeID: "lower", Quantity: 1},
+				{TicketTypeID: "upper", Quantity: 1},
+			},
+			wantType: "upper",
+		},
+		{
+			name: "a name compares by bytes, not by UTF-16 code units",
+			lines: []CommitLine{
+				{TicketTypeID: "emoji", Quantity: 1},
+				{TicketTypeID: "fullwidth", Quantity: 1},
+			},
+			wantType: "fullwidth",
+		},
 		{
 			name: "same price, catalog place and name fall to the lower id",
 			lines: []CommitLine{

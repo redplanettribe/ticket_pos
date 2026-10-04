@@ -362,6 +362,11 @@ export type PublicTicketType = {
   // computes fees and never applies a Promotion to it — it shows this number
   // (ADR 0014, ADR 0021).
   price_cents: number;
+  // The Ticket Type's place in its Event's catalog. The list already arrives in
+  // this order, then by creation; the number travels because two Ticket Types
+  // can share a place, and the buyer's own Ticket breaks a price tie on it
+  // before the name and the id, as the server does (ADR 0074, lib/checkout-answers.ts).
+  sort_order: number;
   currency: string;
   remaining: number;
   sold_out: boolean;

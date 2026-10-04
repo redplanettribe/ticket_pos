@@ -56,18 +56,21 @@ const general: AnsweredTicketType = {
   id: "tt-general",
   name: "General",
   price_cents: 1000,
+  sort_order: 0,
   ticket_questions: [size, meal],
 };
 const vip: AnsweredTicketType = {
   id: "tt-vip",
   name: "VIP",
   price_cents: 5000,
+  sort_order: 1,
   ticket_questions: [diet],
 };
 const free: AnsweredTicketType = {
   id: "tt-free",
   name: "Free",
   price_cents: 0,
+  sort_order: 2,
   ticket_questions: [size],
 };
 
@@ -151,9 +154,9 @@ test("namedTicketsOwed owes nothing with the setting off or assignment dark", ()
 
 test("selfHeldSeat is the first Ticket of the dearest line", () => {
   const catalog = [
-    { id: "general", name: "General", price_cents: 1000 },
-    { id: "vip", name: "VIP", price_cents: 5000 },
-    { id: "free", name: "Free", price_cents: 0 },
+    { id: "general", name: "General", price_cents: 1000, sort_order: 0 },
+    { id: "vip", name: "VIP", price_cents: 5000, sort_order: 1 },
+    { id: "free", name: "Free", price_cents: 0, sort_order: 2 },
   ];
   assert.deepEqual(selfHeldSeat(catalog, { general: 2, vip: 1, free: 3 }, null), {
     ticketTypeId: "vip",
@@ -163,8 +166,8 @@ test("selfHeldSeat is the first Ticket of the dearest line", () => {
 
 test("selfHeldSeat breaks a tie on price by the catalog's order", () => {
   const catalog = [
-    { id: "early-bird", name: "Early bird", price_cents: 2000 },
-    { id: "regular", name: "Regular", price_cents: 2000 },
+    { id: "early-bird", name: "Early bird", price_cents: 2000, sort_order: 0 },
+    { id: "regular", name: "Regular", price_cents: 2000, sort_order: 1 },
   ];
   assert.deepEqual(selfHeldSeat(catalog, { regular: 1, "early-bird": 1 }, null), {
     ticketTypeId: "early-bird",
@@ -172,16 +175,116 @@ test("selfHeldSeat breaks a tie on price by the catalog's order", () => {
   });
 });
 
+/** Every ordering of `items`, so a case can prove the order it arrives in never decides. */
+function permutations<T>(items: T[]): T[][] {
+  if (items.length <= 1) return [items];
+  return items.flatMap((item, at) =>
+    permutations([...items.slice(0, at), ...items.slice(at + 1)]).map((rest) => [item, ...rest]),
+  );
+}
+
+// The server breaks a tie the catalog cannot on the Ticket Type's id, so the
+// seat is the same however the lines arrive (self_held_test.go's
+// TestSelfHeldSeatIsTheSameWhicheverOrderTheBasketArrivesIn). The API lists
+// Ticket Types by sort_order and then creation, so this page must not read a
+// tie off that list: two Ticket Types can share a sort_order.
+type SeatTieCase = {
+  name: string;
+  catalog: Pick<AnsweredTicketType, "id" | "name" | "price_cents" | "sort_order">[];
+  quantities: Record<string, number>;
+  want: string;
+};
+
+const seatTieCases: SeatTieCase[] = [
+  {
+    name: "equal prices seat the buyer on the earlier catalog place",
+    catalog: [
+      { id: "regular", name: "Regular", price_cents: 2000, sort_order: 1 },
+      { id: "early-bird", name: "Early bird", price_cents: 2000, sort_order: 0 },
+    ],
+    quantities: { regular: 1, "early-bird": 1 },
+    want: "early-bird",
+  },
+  {
+    name: "equal prices and catalog places fall to the name, by bytes",
+    catalog: [
+      { id: "beta", name: "Beta", price_cents: 3000, sort_order: 5 },
+      { id: "alpha", name: "Alpha", price_cents: 3000, sort_order: 5 },
+    ],
+    quantities: { beta: 1, alpha: 2 },
+    want: "alpha",
+  },
+  {
+    name: "a name compares by bytes, not by locale: upper case sorts first",
+    catalog: [
+      { id: "lower", name: "a", price_cents: 3000, sort_order: 5 },
+      { id: "upper", name: "B", price_cents: 3000, sort_order: 5 },
+    ],
+    quantities: { lower: 1, upper: 1 },
+    want: "upper",
+  },
+  {
+    name: "a name compares by bytes, not by UTF-16 code units",
+    catalog: [
+      { id: "emoji", name: "\u{1F600}", price_cents: 3000, sort_order: 5 },
+      { id: "fullwidth", name: "～", price_cents: 3000, sort_order: 5 },
+    ],
+    quantities: { emoji: 1, fullwidth: 1 },
+    want: "fullwidth",
+  },
+  {
+    name: "same price, catalog place and name fall to the lower id",
+    catalog: [
+      { id: "b-twin", name: "General", price_cents: 2500, sort_order: 3 },
+      { id: "a-twin", name: "General", price_cents: 2500, sort_order: 3 },
+    ],
+    quantities: { "b-twin": 2, "a-twin": 1 },
+    want: "a-twin",
+  },
+  {
+    name: "the id is asked only after the name",
+    catalog: [
+      { id: "c-other", name: "Generalísimo", price_cents: 2500, sort_order: 3 },
+      { id: "b-twin", name: "General", price_cents: 2500, sort_order: 3 },
+    ],
+    quantities: { "c-other": 1, "b-twin": 1 },
+    want: "b-twin",
+  },
+  {
+    name: "a full tie among several lines beside a cheaper one",
+    catalog: [
+      { id: "cheap", name: "Cheap", price_cents: 1000, sort_order: 0 },
+      { id: "c-other", name: "Generalísimo", price_cents: 2500, sort_order: 3 },
+      { id: "b-twin", name: "General", price_cents: 2500, sort_order: 3 },
+      { id: "a-twin", name: "General", price_cents: 2500, sort_order: 3 },
+    ],
+    quantities: { cheap: 4, "c-other": 1, "b-twin": 1, "a-twin": 3 },
+    want: "a-twin",
+  },
+];
+
+for (const tc of seatTieCases) {
+  test(`selfHeldSeat in any order: ${tc.name}`, () => {
+    for (const catalog of permutations(tc.catalog)) {
+      assert.deepEqual(
+        selfHeldSeat(catalog, tc.quantities, null),
+        { ticketTypeId: tc.want, index: 1 },
+        `catalog listed as ${catalog.map((ticketType) => ticketType.id).join(", ")}`,
+      );
+    }
+  });
+}
+
 // price_cents arrives already the Promotional Price with any passed-on fee in
 // it, which is the buyer unit price the server ranks on.
 test("selfHeldSeat ranks a line at the price it is sold at, not its List Price", () => {
-  const promotedVip = { id: "vip", name: "VIP", price_cents: 1500 };
-  const regularWithFee = { id: "regular", name: "Regular", price_cents: 2120 };
+  const promotedVip = { id: "vip", name: "VIP", price_cents: 1500, sort_order: 1 };
+  const regularWithFee = { id: "regular", name: "Regular", price_cents: 2120, sort_order: 0 };
   assert.deepEqual(selfHeldSeat([promotedVip, regularWithFee], { vip: 1, regular: 2 }, null), {
     ticketTypeId: "regular",
     index: 1,
   });
-  const stillDearest = { id: "vip", name: "VIP", price_cents: 4500 };
+  const stillDearest = { id: "vip", name: "VIP", price_cents: 4500, sort_order: 1 };
   assert.deepEqual(selfHeldSeat([regularWithFee, stillDearest], { vip: 1, regular: 3 }, null), {
     ticketTypeId: "vip",
     index: 1,
@@ -252,7 +355,7 @@ test("namedTicketSlots lists every Ticket, the buyer's own marked, in the page's
 });
 
 test("namedTicketSlots includes Ticket Types that ask nothing, since they still owe an address", () => {
-  const plain: AnsweredTicketType = { id: "tt-plain", name: "Plain", price_cents: 500 };
+  const plain: AnsweredTicketType = { id: "tt-plain", name: "Plain", price_cents: 500, sort_order: 0 };
   const slots = namedTicketSlots([plain], { "tt-plain": 2 }, null);
   assert.deepEqual(
     slots.map((slot) => [slot.index, slot.selfHeld, slot.questions.length]),
@@ -306,7 +409,7 @@ test("namedTicketsOwed asks each Ticket its own Ticket Type's required questions
 });
 
 test("namedTicketsOwed accepts the buyer's own address and the same address twice", () => {
-  const plain: AnsweredTicketType = { id: "tt-plain", name: "Plain", price_cents: 500 };
+  const plain: AnsweredTicketType = { id: "tt-plain", name: "Plain", price_cents: 500, sort_order: 0 };
   const holders: HolderValues = {
     [holderKey("tt-plain", 2)]: "Ana@Example.com ",
     [holderKey("tt-plain", 3)]: "ana@example.com",
@@ -320,7 +423,7 @@ test("namedTicketsOwed accepts the buyer's own address and the same address twic
 });
 
 test("namedTicketsOwed refuses a malformed address at its Ticket", () => {
-  const plain: AnsweredTicketType = { id: "tt-plain", name: "Plain", price_cents: 500 };
+  const plain: AnsweredTicketType = { id: "tt-plain", name: "Plain", price_cents: 500, sort_order: 0 };
   const holders: HolderValues = {
     [holderKey("tt-plain", 2)]: "ana.example.com",
     [holderKey("tt-plain", 3)]: "   ",
@@ -336,7 +439,7 @@ test("namedTicketsOwed refuses a malformed address at its Ticket", () => {
 
 test("namedTicketsOwed counts an Answer the server would drop as missing", () => {
   const age = { id: "q-age", label: "Age", kind: "number" as const, required: true, options: [] };
-  const typed: AnsweredTicketType = { id: "tt-a", name: "A", price_cents: 100, ticket_questions: [age, size] };
+  const typed: AnsweredTicketType = { id: "tt-a", name: "A", price_cents: 100, sort_order: 0, ticket_questions: [age, size] };
   const answers: AnswerValues = {
     [answerKey("tt-a", 1, "q-age")]: { number: "twelve" },
     [answerKey("tt-a", 1, "q-size")]: { option_ids: ["opt-gone"] },
@@ -348,7 +451,7 @@ test("namedTicketsOwed counts an Answer the server would drop as missing", () =>
 });
 
 test("namedTicketsOwed asks a surrendered free line for nothing", () => {
-  const paid: AnsweredTicketType = { id: "tt-paid", name: "Paid", price_cents: 2500, ticket_questions: [] };
+  const paid: AnsweredTicketType = { id: "tt-paid", name: "Paid", price_cents: 2500, sort_order: 1, ticket_questions: [] };
   const elected = namedTicketsOwed(
     form({ ticketTypes: [free, paid], quantities: { "tt-free": 1, "tt-paid": 1 }, surrenderedTicketTypeId: "tt-free" }),
   );
@@ -375,7 +478,7 @@ test("namedTicketsOwed owes nothing once everything is given", () => {
 
 test("namedTicketsOwed reads a required checkbox's drawn state as its Answer", () => {
   const agree = { id: "q-agree", label: "I'll bring ID", kind: "checkbox" as const, required: true, options: [] };
-  const typed: AnsweredTicketType = { id: "tt-a", name: "A", price_cents: 100, ticket_questions: [agree] };
+  const typed: AnsweredTicketType = { id: "tt-a", name: "A", price_cents: 100, sort_order: 0, ticket_questions: [agree] };
   assert.deepEqual(namedTicketsOwed(form({ ticketTypes: [typed], quantities: { "tt-a": 1 } })), []);
 });
 
@@ -425,7 +528,7 @@ test("answerIsUsable mirrors the server's per-kind rules", () => {
 test("withDrawnCheckboxes answers an untouched required checkbox with what it shows, and nothing else", () => {
   const agree = { id: "q-agree", label: "Agree", kind: "checkbox" as const, required: true, options: [] };
   const maybe = { id: "q-maybe", label: "Maybe", kind: "checkbox" as const, required: false, options: [] };
-  const typed: AnsweredTicketType = { id: "tt-a", name: "A", price_cents: 100, ticket_questions: [agree, maybe] };
+  const typed: AnsweredTicketType = { id: "tt-a", name: "A", price_cents: 100, sort_order: 0, ticket_questions: [agree, maybe] };
   const slots = namedTicketSlots([typed], { "tt-a": 2 }, null);
   const answers: AnswerValues = { [answerKey("tt-a", 2, "q-agree")]: { checked: true } };
   assert.deepEqual(withDrawnCheckboxes(slots, answers), {

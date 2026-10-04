@@ -71,6 +71,11 @@ export type AnsweredTicketType = {
    */
   price_cents: number;
   /**
+   * The Ticket Type's place in the catalog, which breaks a price tie for the
+   * buyer's own Ticket exactly as the server does (selfHeldSeat).
+   */
+  sort_order: number;
+  /**
    * Absent on a deployment where the feature flag is closed, which is how it
    * ships — the API omits the key entirely, so there is nothing to draw and no
    * second flag on this side to disagree with it (ADR 0045).
@@ -223,27 +228,58 @@ export type SelfHeldSeat = { ticketTypeId: string; index: number };
  *   - DEAREST BY THE PRICE AS SOLD. `price_cents` is the buyer unit price the
  *     API quoted, Promotional Price and passed-on fee included, which is what
  *     the server's Payment Line freezes and ranks on.
- *   - TIES GO TO THE EARLIER LINE, by strict comparison, so the first of equals
- *     keeps the seat. The server breaks a price tie on `sort_order` and then on
- *     the name's bytes; this page has no `sort_order`, only the order the API
- *     lists Ticket Types in, which is `sort_order` then creation. The two agree
- *     whenever the tied Ticket Types sit at different places in the catalog,
- *     which the staff app's reordering preserves; they could only part on two
- *     equally priced Ticket Types sharing one `sort_order`.
+ *   - A PRICE TIE GOES TO THE CATALOG: the lower `sort_order`, then the name,
+ *     then the Ticket Type's id, each string by its UTF-8 bytes as Go compares
+ *     them. The id makes the rule total, so the order the API happens to list
+ *     Ticket Types in never decides the seat - that order is `sort_order` then
+ *     creation, and two Ticket Types can share a `sort_order`.
  *   - A LINE THAT MINTS NOTHING CLAIMS NOTHING, however dear.
  */
 export function selfHeldSeat(
-  ticketTypes: Pick<AnsweredTicketType, "id" | "price_cents">[],
+  ticketTypes: SeatCandidate[],
   quantities: Record<string, number>,
   surrenderedTicketTypeId: string | null,
 ): SelfHeldSeat | null {
-  let seat: Pick<AnsweredTicketType, "id" | "price_cents"> | undefined;
+  let seat: SeatCandidate | undefined;
   for (const ticketType of ticketTypes) {
     if (ticketType.id === surrenderedTicketTypeId) continue;
     if ((quantities[ticketType.id] ?? 0) <= 0) continue;
-    if (seat === undefined || ticketType.price_cents > seat.price_cents) seat = ticketType;
+    if (seat === undefined || outranks(ticketType, seat)) seat = ticketType;
   }
   return seat === undefined ? null : { ticketTypeId: seat.id, index: 1 };
+}
+
+/** As much of a Ticket Type as its claim on the Self-held seat needs. */
+type SeatCandidate = Pick<AnsweredTicketType, "id" | "name" | "price_cents" | "sort_order">;
+
+/**
+ * outranks reports whether `claim` takes the seat from `held`: the server's
+ * `seatClaim.outranks`, key for key and in the same direction.
+ */
+function outranks(claim: SeatCandidate, held: SeatCandidate): boolean {
+  if (claim.price_cents !== held.price_cents) return claim.price_cents > held.price_cents;
+  if (claim.sort_order !== held.sort_order) return claim.sort_order < held.sort_order;
+  const byName = compareUtf8(claim.name, held.name);
+  if (byName !== 0) return byName < 0;
+  return compareUtf8(claim.id, held.id) < 0;
+}
+
+/**
+ * compareUtf8 orders two strings by their UTF-8 bytes, which is how Go's `<`
+ * orders strings. That is code point order, and neither `<` here (UTF-16 code
+ * units, which put an emoji before U+FF5E) nor localeCompare (which puts "a"
+ * before "B") is.
+ */
+function compareUtf8(a: string, b: string): number {
+  const left = a[Symbol.iterator]();
+  const right = b[Symbol.iterator]();
+  for (;;) {
+    const x = left.next();
+    const y = right.next();
+    if (x.done || y.done) return x.done && y.done ? 0 : x.done ? -1 : 1;
+    const diff = x.value.codePointAt(0)! - y.value.codePointAt(0)!;
+    if (diff !== 0) return diff;
+  }
 }
 
 /**
