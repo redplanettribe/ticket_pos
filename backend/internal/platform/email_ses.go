@@ -16,10 +16,10 @@ import (
 )
 
 // ErrNotYetOnSES is what the SES sender returns for a message it does not
-// send yet. Only the One-time Passcode travels through SES so far (#692);
-// every other transactional message lands with its own ticket under #690.
-// Until then a deployment that selects SES for the transactional identity is
-// told, on every such send, that the message did not leave.
+// send yet. Every transactional message travels through SES (#692, #693); the
+// Follow Digest, which belongs to the Digest identity, lands with its own
+// ticket (#696). Until then a Digest sent through this sender is refused out
+// loud rather than reported as sent.
 var ErrNotYetOnSES = errors.New("not yet implemented on SES")
 
 // SESEmailSender delivers transactional email through Amazon SES, beside the
@@ -100,26 +100,46 @@ func (s *SESEmailSender) From() string { return s.from }
 // send performs the one SendEmail call every public method funnels through.
 // messageType names the message in the returned error; the recipient is
 // redacted from it.
-func (s *SESEmailSender) send(ctx context.Context, messageType, to, subject, text string) error {
+//
+// Attachments travel on the Simple message, which SES v2 builds into the MIME
+// mail itself: the bytes as stored, under their filename and media type, as
+// attachments rather than inline parts. Only the Tax Document delivery passes
+// any (#475); every other message's request carries no attachment key at all.
+func (s *SESEmailSender) send(ctx context.Context, messageType, to, subject, text string, attachments ...EmailAttachment) error {
 	ctx, cancel := context.WithTimeout(ctx, sesSendTimeout)
 	defer cancel()
+	message := &sestypes.Message{
+		Subject: &sestypes.Content{Data: aws.String(subject), Charset: aws.String("UTF-8")},
+		Body: &sestypes.Body{
+			Text: &sestypes.Content{Data: aws.String(text), Charset: aws.String("UTF-8")},
+		},
+	}
+	for _, a := range attachments {
+		message.Attachments = append(message.Attachments, sestypes.Attachment{
+			FileName:           aws.String(a.Filename),
+			ContentType:        aws.String(a.ContentType),
+			ContentDisposition: sestypes.AttachmentContentDispositionAttachment,
+			RawContent:         a.Body,
+		})
+	}
 	_, err := s.client.SendEmail(ctx, &sesv2.SendEmailInput{
 		FromEmailAddress:     aws.String(s.from),
 		Destination:          &sestypes.Destination{ToAddresses: []string{to}},
 		ConfigurationSetName: aws.String(s.configurationSet),
-		Content: &sestypes.EmailContent{
-			Simple: &sestypes.Message{
-				Subject: &sestypes.Content{Data: aws.String(subject), Charset: aws.String("UTF-8")},
-				Body: &sestypes.Body{
-					Text: &sestypes.Content{Data: aws.String(text), Charset: aws.String("UTF-8")},
-				},
-			},
-		},
+		Content:              &sestypes.EmailContent{Simple: message},
 	})
 	if err != nil {
 		return redactRecipient(fmt.Errorf("ses send %s: %w", messageType, err), to)
 	}
 	return nil
+}
+
+// fail logs a failed send under the message type, with the attributes the
+// Resend sender logs for the same message and never the recipient (the error
+// has it redacted already), and hands the error back for the caller.
+func (s *SESEmailSender) fail(messageType string, err error, attrs ...any) error {
+	s.logger.Error("ses send "+messageType+" failed", append(attrs, "error", err)...)
+	return err
 }
 
 // notYet refuses a message SES does not send yet, logging it the way a
@@ -136,112 +156,194 @@ func (s *SESEmailSender) notYet(messageType string) error {
 func (s *SESEmailSender) SendOTP(ctx context.Context, to string, code string, locale Locale) error {
 	message := OTPMessage{Code: code, Locale: locale}
 	if err := s.send(ctx, "otp", to, message.Subject(), message.Text()); err != nil {
-		s.logger.Error("ses send otp failed", "locale", string(locale), "error", err)
-		return err
+		return s.fail("otp", err, "locale", string(locale))
 	}
 	return nil
 }
 
-// The methods below are the messages SES does not send yet (#692). Each
-// refuses with ErrNotYetOnSES until the "every transactional message" ticket
-// under #690 routes it through send, with its copy from email_content.go.
+// Every transactional message below funnels through send with the copy from
+// email_content.go, so SES and Resend say exactly the same words (#693). Each
+// failure is logged with the attributes the Resend sender logs for the same
+// message, never the recipient, and returned: callers decide what it means.
 
-// SendSaleConfirmation is not yet sent through SES.
-func (s *SESEmailSender) SendSaleConfirmation(context.Context, SaleConfirmation) error {
-	return s.notYet("sale confirmation")
+// SendSaleConfirmation delivers a Customer's receipt. Best-effort for its caller, which logs and
+// discards the error: a delivery hiccup never reverses a recorded Ticket Sale.
+func (s *SESEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConfirmation) error {
+	if err := s.send(ctx, "sale confirmation", c.To, c.Subject(), c.Text()); err != nil {
+		return s.fail("sale confirmation", err, "reference", c.Reference)
+	}
+	return nil
 }
 
-// SendSaleVoided is not yet sent through SES.
-func (s *SESEmailSender) SendSaleVoided(context.Context, SaleVoided) error {
-	return s.notYet("sale voided")
+// SendSaleVoided delivers a cancellation notice referencing the original Sale
+// Confirmation. Best-effort, as above.
+func (s *SESEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) error {
+	if err := s.send(ctx, "sale voided", v.To, v.Subject(), v.Text()); err != nil {
+		return s.fail("sale voided", err, "reference", v.Reference)
+	}
+	return nil
 }
 
-// SendSaleReversalRefused is not yet sent through SES.
-func (s *SESEmailSender) SendSaleReversalRefused(context.Context, SaleReversalRefused) error {
-	return s.notYet("sale reversal refused")
+// SendSaleReversalRefused delivers the notice that a refund the Customer was
+// told was being processed could not be made. Best-effort, as above.
+func (s *SESEmailSender) SendSaleReversalRefused(ctx context.Context, r SaleReversalRefused) error {
+	if err := s.send(ctx, "sale reversal refused", r.To, r.Subject(), r.Text()); err != nil {
+		return s.fail("sale reversal refused", err, "reference", r.Reference)
+	}
+	return nil
 }
 
-// SendTaxDocumentDelivery is not yet sent through SES.
-func (s *SESEmailSender) SendTaxDocumentDelivery(context.Context, TaxDocumentDelivery) error {
-	return s.notYet("tax document delivery")
+// SendTaxDocumentDelivery hands the buyer their authorized Tax Document with
+// the signed XML and its RIDE attached (#475, #496), the only message that
+// carries attachments. The Drainer reads the error and retries on its ladder.
+func (s *SESEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDocumentDelivery) error {
+	if err := s.send(ctx, "tax document delivery", d.To, d.Subject(), d.Text(), d.Attachments...); err != nil {
+		return s.fail("tax document delivery", err, "kind", d.Kind, "reference", d.Reference)
+	}
+	return nil
 }
 
-// SendConsentWithdrawalConfirmation is not yet sent through SES.
-func (s *SESEmailSender) SendConsentWithdrawalConfirmation(context.Context, ConsentWithdrawalConfirmation) error {
-	return s.notYet("consent withdrawal confirmation")
+// SendConsentWithdrawalConfirmation delivers the confirmation that a Consent
+// Withdrawal took something away (#267). The error is returned because the
+// confirmation-sent stamp is written only where the provider took the message.
+func (s *SESEmailSender) SendConsentWithdrawalConfirmation(ctx context.Context, c ConsentWithdrawalConfirmation) error {
+	if err := s.send(ctx, "consent withdrawal confirmation", c.To, c.Subject(), c.Text()); err != nil {
+		return s.fail("consent withdrawal confirmation", err)
+	}
+	return nil
 }
 
-// SendHolderAnswerReminder is not yet sent through SES.
-func (s *SESEmailSender) SendHolderAnswerReminder(context.Context, HolderAnswerReminder) error {
-	return s.notYet("holder answer reminder")
+// SendHolderAnswerReminder delivers the Answer Reminder (#328). The sweep writes
+// its ledger row only once this returns nil. The Event is not logged.
+func (s *SESEmailSender) SendHolderAnswerReminder(ctx context.Context, r HolderAnswerReminder) error {
+	if err := s.send(ctx, "holder answer reminder", r.To, r.Subject(), r.Text()); err != nil {
+		return s.fail("holder answer reminder", err)
+	}
+	return nil
 }
 
-// SendAssignmentReminder is not yet sent through SES.
-func (s *SESEmailSender) SendAssignmentReminder(context.Context, AssignmentReminder) error {
-	return s.notYet("assignment reminder")
+// SendAssignmentReminder delivers the Assignment Reminder (#362). The sweep
+// writes its ledger row only once this returns nil. The Event and the link are
+// not logged.
+func (s *SESEmailSender) SendAssignmentReminder(ctx context.Context, r AssignmentReminder) error {
+	if err := s.send(ctx, "assignment reminder", r.To, r.Subject(), r.Text()); err != nil {
+		return s.fail("assignment reminder", err)
+	}
+	return nil
 }
 
-// SendTicketAssignment is not yet sent through SES.
-func (s *SESEmailSender) SendTicketAssignment(context.Context, TicketAssignment) error {
-	return s.notYet("ticket assignment")
+// SendTicketAssignment delivers the Assignment mail carrying an Assignment
+// Link (#325). Neither the link, a credential that mints an identity, nor the
+// Event is logged.
+func (s *SESEmailSender) SendTicketAssignment(ctx context.Context, a TicketAssignment) error {
+	if err := s.send(ctx, "ticket assignment", a.To, a.Subject(), a.Text()); err != nil {
+		return s.fail("ticket assignment", err)
+	}
+	return nil
 }
 
-// SendNoLongerHolding is not yet sent through SES.
-func (s *SESEmailSender) SendNoLongerHolding(context.Context, NoLongerHolding) error {
-	return s.notYet("no longer holding")
+// SendNoLongerHolding delivers the notice that a Ticket a Holder accepted is
+// no longer theirs (#327). The Event is not logged.
+func (s *SESEmailSender) SendNoLongerHolding(ctx context.Context, n NoLongerHolding) error {
+	if err := s.send(ctx, "no longer holding", n.To, n.Subject(), n.Text()); err != nil {
+		return s.fail("no longer holding", err)
+	}
+	return nil
 }
 
-// SendSaleReAddressing is not yet sent through SES.
-func (s *SESEmailSender) SendSaleReAddressing(context.Context, SaleReAddressing) error {
-	return s.notYet("sale re-addressing")
+// SendSaleReAddressing delivers the mail carrying a Re-addressing Link
+// (#420). Neither the link nor the Event is logged.
+func (s *SESEmailSender) SendSaleReAddressing(ctx context.Context, r SaleReAddressing) error {
+	if err := s.send(ctx, "sale re-addressing", r.To, r.Subject(), r.Text()); err != nil {
+		return s.fail("sale re-addressing", err)
+	}
+	return nil
 }
 
-// SendTicketQuestionRevoked is not yet sent through SES.
-func (s *SESEmailSender) SendTicketQuestionRevoked(context.Context, TicketQuestionRevoked) error {
-	return s.notYet("ticket question revoked")
+// SendTicketQuestionRevoked delivers one Org Admin's notice that an approved
+// Ticket Question was revoked (#410). The reason is not logged.
+func (s *SESEmailSender) SendTicketQuestionRevoked(ctx context.Context, r TicketQuestionRevoked) error {
+	if err := s.send(ctx, "ticket question revoked", r.To, r.Subject(), r.Text()); err != nil {
+		return s.fail("ticket question revoked", err, "organization", r.OrganizationName)
+	}
+	return nil
 }
 
-// SendPayoutRequestSubmitted is not yet sent through SES.
-func (s *SESEmailSender) SendPayoutRequestSubmitted(context.Context, PayoutRequestSubmitted) error {
-	return s.notYet("payout request submitted")
+// SendPayoutRequestSubmitted delivers one Platform Operator's notice that an
+// Organization asked to be paid. Best-effort.
+func (s *SESEmailSender) SendPayoutRequestSubmitted(ctx context.Context, p PayoutRequestSubmitted) error {
+	if err := s.send(ctx, "payout request submitted", p.To, p.Subject(), p.Text()); err != nil {
+		return s.fail("payout request submitted", err, "organization", p.OrganizationName)
+	}
+	return nil
 }
 
-// SendQuestionReviewSubmitted is not yet sent through SES.
-func (s *SESEmailSender) SendQuestionReviewSubmitted(context.Context, QuestionReviewSubmitted) error {
-	return s.notYet("question review submitted")
+// SendQuestionReviewSubmitted delivers one Platform Operator's notice that an
+// Event's questions are waiting for review (#406). Best-effort.
+func (s *SESEmailSender) SendQuestionReviewSubmitted(ctx context.Context, q QuestionReviewSubmitted) error {
+	if err := s.send(ctx, "question review submitted", q.To, q.Subject(), q.Text()); err != nil {
+		return s.fail("question review submitted", err, "organization", q.OrganizationName)
+	}
+	return nil
 }
 
-// SendQuestionReviewAnswered is not yet sent through SES.
-func (s *SESEmailSender) SendQuestionReviewAnswered(context.Context, QuestionReviewAnswered) error {
-	return s.notYet("question review answered")
+// SendQuestionReviewAnswered delivers the submitter's notice of the Operator's
+// verdicts (#407). Best-effort.
+func (s *SESEmailSender) SendQuestionReviewAnswered(ctx context.Context, q QuestionReviewAnswered) error {
+	if err := s.send(ctx, "question review answered", q.To, q.Subject(), q.Text()); err != nil {
+		return s.fail("question review answered", err, "organization", q.OrganizationName)
+	}
+	return nil
 }
 
-// SendPayoutRequestPaid is not yet sent through SES.
-func (s *SESEmailSender) SendPayoutRequestPaid(context.Context, PayoutRequestPaid) error {
-	return s.notYet("payout request paid")
+// SendPayoutRequestPaid delivers the asker's notice that the transfer was
+// made. Best-effort.
+func (s *SESEmailSender) SendPayoutRequestPaid(ctx context.Context, p PayoutRequestPaid) error {
+	if err := s.send(ctx, "payout request paid", p.To, p.Subject(), p.Text()); err != nil {
+		return s.fail("payout request paid", err, "organization", p.OrganizationName)
+	}
+	return nil
 }
 
-// SendPayoutRequestDeclined is not yet sent through SES.
-func (s *SESEmailSender) SendPayoutRequestDeclined(context.Context, PayoutRequestDeclined) error {
-	return s.notYet("payout request declined")
+// SendPayoutRequestDeclined delivers the asker's notice that the ask was
+// refused. The reason is not logged.
+func (s *SESEmailSender) SendPayoutRequestDeclined(ctx context.Context, p PayoutRequestDeclined) error {
+	if err := s.send(ctx, "payout request declined", p.To, p.Subject(), p.Text()); err != nil {
+		return s.fail("payout request declined", err, "organization", p.OrganizationName)
+	}
+	return nil
 }
 
-// SendPayoutRequestTransferSent is not yet sent through SES.
-func (s *SESEmailSender) SendPayoutRequestTransferSent(context.Context, PayoutRequestTransferSent) error {
-	return s.notYet("payout request transfer sent")
+// SendPayoutRequestTransferSent delivers the asker's notice that the transfer
+// has been submitted to the bank. Best-effort.
+func (s *SESEmailSender) SendPayoutRequestTransferSent(ctx context.Context, p PayoutRequestTransferSent) error {
+	if err := s.send(ctx, "payout request transfer sent", p.To, p.Subject(), p.Text()); err != nil {
+		return s.fail("payout request transfer sent", err, "organization", p.OrganizationName)
+	}
+	return nil
 }
 
-// SendPayoutRequestTransferFailed is not yet sent through SES.
-func (s *SESEmailSender) SendPayoutRequestTransferFailed(context.Context, PayoutRequestTransferFailed) error {
-	return s.notYet("payout request transfer failed")
+// SendPayoutRequestTransferFailed delivers the asker's notice that the bank
+// sent the transfer back. The reason is not logged.
+func (s *SESEmailSender) SendPayoutRequestTransferFailed(ctx context.Context, p PayoutRequestTransferFailed) error {
+	if err := s.send(ctx, "payout request transfer failed", p.To, p.Subject(), p.Text()); err != nil {
+		return s.fail("payout request transfer failed", err, "organization", p.OrganizationName)
+	}
+	return nil
 }
 
-// SendCertificateExpiryWarning is not yet sent through SES.
-func (s *SESEmailSender) SendCertificateExpiryWarning(context.Context, CertificateExpiryWarning) error {
-	return s.notYet("certificate expiry warning")
+// SendCertificateExpiryWarning delivers one Platform Operator's notice that
+// the signing certificate is about to lapse, or has (#502). The Drainer writes
+// its ledger row only once an address accepted the mail.
+func (s *SESEmailSender) SendCertificateExpiryWarning(ctx context.Context, w CertificateExpiryWarning) error {
+	if err := s.send(ctx, "certificate expiry warning", w.To, w.Subject(), w.Text()); err != nil {
+		return s.fail("certificate expiry warning", err, "threshold_days", w.Threshold, "ruc", w.RUC)
+	}
+	return nil
 }
 
-// SendFollowDigest is not yet sent through SES.
+// SendFollowDigest is not yet sent through SES: the Digest identity's
+// provider is its own ticket (#696).
 func (s *SESEmailSender) SendFollowDigest(context.Context, FollowDigest) error {
 	return s.notYet("follow digest")
 }

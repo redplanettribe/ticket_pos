@@ -53,6 +53,12 @@ type sesSendEmailBody struct {
 				Text *struct{ Data, Charset string }
 				Html *struct{ Data, Charset string }
 			}
+			Attachments []struct {
+				FileName           string
+				ContentType        string
+				ContentDisposition string
+				RawContent         []byte
+			}
 		}
 	}
 }
@@ -265,36 +271,19 @@ func TestSESSendOTPReturnsTheProviderErrorAndNeverLogsTheRecipient(t *testing.T)
 	}
 }
 
-// Every other transactional message waits for its own ticket. Until then it is
-// refused out loud, never sent through some other provider and never reported
-// as sent.
-func TestSESSenderRefusesMessagesItDoesNotYetSend(t *testing.T) {
+// The Follow Digest waits for its own ticket (#696). Until then it is refused
+// out loud, never sent through some other provider and never reported as sent.
+func TestSESSenderRefusesTheFollowDigestItDoesNotYetSend(t *testing.T) {
 	sender, fake := newTestSESSender(t, noopLogger{})
-	ctx := context.Background()
-	calls := map[string]func() error{
-		"sale confirmation": func() error { return sender.SendSaleConfirmation(ctx, SaleConfirmation{To: "a@example.com"}) },
-		"sale voided":       func() error { return sender.SendSaleVoided(ctx, SaleVoided{To: "a@example.com"}) },
-		"follow digest":     func() error { return sender.SendFollowDigest(ctx, FollowDigest{To: "a@example.com"}) },
-		"tax document delivery": func() error {
-			return sender.SendTaxDocumentDelivery(ctx, TaxDocumentDelivery{To: "a@example.com"})
-		},
-		"certificate expiry warning": func() error {
-			return sender.SendCertificateExpiryWarning(ctx, CertificateExpiryWarning{To: "a@example.com"})
-		},
+	err := sender.SendFollowDigest(context.Background(), FollowDigest{To: "a@example.com"})
+	if !errors.Is(err, ErrNotYetOnSES) {
+		t.Fatalf("error = %v, want ErrNotYetOnSES", err)
 	}
-	for name, call := range calls {
-		t.Run(name, func(t *testing.T) {
-			err := call()
-			if !errors.Is(err, ErrNotYetOnSES) {
-				t.Fatalf("error = %v, want ErrNotYetOnSES", err)
-			}
-			if !strings.Contains(err.Error(), name) {
-				t.Fatalf("error %q does not name the message %q", err, name)
-			}
-		})
+	if !strings.Contains(err.Error(), "follow digest") {
+		t.Fatalf("error %q does not name the message", err)
 	}
 	if n := len(fake.sent()); n != 0 {
-		t.Fatalf("fake SES saw %d requests for messages SES does not send yet", n)
+		t.Fatalf("fake SES saw %d requests for a message SES does not send yet", n)
 	}
 }
 
