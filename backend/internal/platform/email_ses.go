@@ -193,7 +193,7 @@ func (s *SESEmailSender) SendSaleReversalRefused(ctx context.Context, r SaleReve
 	return nil
 }
 
-// SendTaxDocumentDelivery hands the buyer their authorized Tax Document with
+// SendTaxDocumentDelivery hands the Customer their authorized Tax Document with
 // the signed XML and its RIDE attached (#475, #496), the only message that
 // carries attachments. The Drainer reads the error and retries on its ladder.
 func (s *SESEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDocumentDelivery) error {
