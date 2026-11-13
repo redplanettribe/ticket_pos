@@ -48,10 +48,16 @@ type SESEmailSender struct {
 	logger           Logger
 }
 
-// sesHTTPTimeout bounds one SES request, as the Resend sender bounds its own:
-// an unresponsive provider must not hang a sign-in until the Cloud Run request
+// sesHTTPTimeout bounds one SES request attempt, and sesSendTimeout the
+// whole send, retries included. The Resend sender stops at 10s; the standard
+// retryer makes up to three attempts, so without the overall deadline a
+// stalled SES could hold a sign-in for three timeouts plus backoff. An
+// unresponsive provider must not hang a sign-in until the Cloud Run request
 // timeout.
-const sesHTTPTimeout = 10 * time.Second
+const (
+	sesHTTPTimeout = 10 * time.Second
+	sesSendTimeout = 15 * time.Second
+)
 
 // NewSESEmailSender builds an SES sender sending as from, the full RFC 5322
 // From header of the identity it serves; the address must live on a domain
@@ -95,6 +101,8 @@ func (s *SESEmailSender) From() string { return s.from }
 // messageType names the message in the returned error; the recipient is
 // redacted from it.
 func (s *SESEmailSender) send(ctx context.Context, messageType, to, subject, text string) error {
+	ctx, cancel := context.WithTimeout(ctx, sesSendTimeout)
+	defer cancel()
 	_, err := s.client.SendEmail(ctx, &sesv2.SendEmailInput{
 		FromEmailAddress:     aws.String(s.from),
 		Destination:          &sestypes.Destination{ToAddresses: []string{to}},
@@ -134,82 +142,106 @@ func (s *SESEmailSender) SendOTP(ctx context.Context, to string, code string, lo
 	return nil
 }
 
+// The methods below are the messages SES does not send yet (#692). Each
+// refuses with ErrNotYetOnSES until the "every transactional message" ticket
+// under #690 routes it through send, with its copy from email_content.go.
+
+// SendSaleConfirmation is not yet sent through SES.
 func (s *SESEmailSender) SendSaleConfirmation(context.Context, SaleConfirmation) error {
 	return s.notYet("sale confirmation")
 }
 
+// SendSaleVoided is not yet sent through SES.
 func (s *SESEmailSender) SendSaleVoided(context.Context, SaleVoided) error {
 	return s.notYet("sale voided")
 }
 
+// SendSaleReversalRefused is not yet sent through SES.
 func (s *SESEmailSender) SendSaleReversalRefused(context.Context, SaleReversalRefused) error {
 	return s.notYet("sale reversal refused")
 }
 
+// SendTaxDocumentDelivery is not yet sent through SES.
 func (s *SESEmailSender) SendTaxDocumentDelivery(context.Context, TaxDocumentDelivery) error {
 	return s.notYet("tax document delivery")
 }
 
+// SendConsentWithdrawalConfirmation is not yet sent through SES.
 func (s *SESEmailSender) SendConsentWithdrawalConfirmation(context.Context, ConsentWithdrawalConfirmation) error {
 	return s.notYet("consent withdrawal confirmation")
 }
 
+// SendHolderAnswerReminder is not yet sent through SES.
 func (s *SESEmailSender) SendHolderAnswerReminder(context.Context, HolderAnswerReminder) error {
 	return s.notYet("holder answer reminder")
 }
 
+// SendAssignmentReminder is not yet sent through SES.
 func (s *SESEmailSender) SendAssignmentReminder(context.Context, AssignmentReminder) error {
 	return s.notYet("assignment reminder")
 }
 
+// SendTicketAssignment is not yet sent through SES.
 func (s *SESEmailSender) SendTicketAssignment(context.Context, TicketAssignment) error {
 	return s.notYet("ticket assignment")
 }
 
+// SendNoLongerHolding is not yet sent through SES.
 func (s *SESEmailSender) SendNoLongerHolding(context.Context, NoLongerHolding) error {
 	return s.notYet("no longer holding")
 }
 
+// SendSaleReAddressing is not yet sent through SES.
 func (s *SESEmailSender) SendSaleReAddressing(context.Context, SaleReAddressing) error {
 	return s.notYet("sale re-addressing")
 }
 
+// SendTicketQuestionRevoked is not yet sent through SES.
 func (s *SESEmailSender) SendTicketQuestionRevoked(context.Context, TicketQuestionRevoked) error {
 	return s.notYet("ticket question revoked")
 }
 
+// SendPayoutRequestSubmitted is not yet sent through SES.
 func (s *SESEmailSender) SendPayoutRequestSubmitted(context.Context, PayoutRequestSubmitted) error {
 	return s.notYet("payout request submitted")
 }
 
+// SendQuestionReviewSubmitted is not yet sent through SES.
 func (s *SESEmailSender) SendQuestionReviewSubmitted(context.Context, QuestionReviewSubmitted) error {
 	return s.notYet("question review submitted")
 }
 
+// SendQuestionReviewAnswered is not yet sent through SES.
 func (s *SESEmailSender) SendQuestionReviewAnswered(context.Context, QuestionReviewAnswered) error {
 	return s.notYet("question review answered")
 }
 
+// SendPayoutRequestPaid is not yet sent through SES.
 func (s *SESEmailSender) SendPayoutRequestPaid(context.Context, PayoutRequestPaid) error {
 	return s.notYet("payout request paid")
 }
 
+// SendPayoutRequestDeclined is not yet sent through SES.
 func (s *SESEmailSender) SendPayoutRequestDeclined(context.Context, PayoutRequestDeclined) error {
 	return s.notYet("payout request declined")
 }
 
+// SendPayoutRequestTransferSent is not yet sent through SES.
 func (s *SESEmailSender) SendPayoutRequestTransferSent(context.Context, PayoutRequestTransferSent) error {
 	return s.notYet("payout request transfer sent")
 }
 
+// SendPayoutRequestTransferFailed is not yet sent through SES.
 func (s *SESEmailSender) SendPayoutRequestTransferFailed(context.Context, PayoutRequestTransferFailed) error {
 	return s.notYet("payout request transfer failed")
 }
 
+// SendCertificateExpiryWarning is not yet sent through SES.
 func (s *SESEmailSender) SendCertificateExpiryWarning(context.Context, CertificateExpiryWarning) error {
 	return s.notYet("certificate expiry warning")
 }
 
+// SendFollowDigest is not yet sent through SES.
 func (s *SESEmailSender) SendFollowDigest(context.Context, FollowDigest) error {
 	return s.notYet("follow digest")
 }

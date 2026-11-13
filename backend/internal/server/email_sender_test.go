@@ -282,6 +282,7 @@ func hermeticAWS(t *testing.T) {
 	t.Helper()
 	t.Setenv("AWS_ACCESS_KEY_ID", "AKIDWIRINGTEST")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "wiring-test-secret")
+	t.Setenv("AWS_SESSION_TOKEN", "")
 	t.Setenv("AWS_PROFILE", "")
 	t.Setenv("AWS_CONFIG_FILE", t.TempDir()+"/config")
 	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", t.TempDir()+"/credentials")

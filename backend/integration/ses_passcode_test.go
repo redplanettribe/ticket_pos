@@ -61,6 +61,13 @@ func (f *fakeSESEndpoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(`{"MessageId":"fake-message-id"}`))
 }
 
+// rejectAll makes every later request a MessageRejected error.
+func (f *fakeSESEndpoint) rejectAll() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reject = true
+}
+
 func (f *fakeSESEndpoint) sent() []fakeSESEmail {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -116,8 +123,10 @@ func startAppWithSES(t *testing.T) (*testEnv, *fakeSESEndpoint) {
 		_ = app.Close()
 	})
 	return &testEnv{
-		server:     srv,
-		db:         app.DB.Pool,
+		server: srv,
+		db:     app.DB.Pool,
+		// Mail from this app goes to the fake SES, never to the capture
+		// sender; testEnv wants one, and these tests read the fake instead.
 		email:      sharedEmail,
 		fixedClock: fixedClock,
 		service:    app.IdentityService,
@@ -171,9 +180,7 @@ func TestPasscodeSignInSendsOneSESRequest(t *testing.T) {
 func TestPasscodeSignInFailsWhenSESRejectsTheMessage(t *testing.T) {
 	setupTest(t)
 	env, fake := startAppWithSES(t)
-	fake.mu.Lock()
-	fake.reject = true
-	fake.mu.Unlock()
+	fake.rejectAll()
 
 	resp, _ := requestPasscodeInLocale(t, env, "ana@example.com", "es")
 	if resp.StatusCode == http.StatusOK {

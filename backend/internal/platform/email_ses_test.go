@@ -116,7 +116,7 @@ func newTestSESSender(t *testing.T, logger Logger) (*SESEmailSender, *fakeSES) {
 	return sender, fake
 }
 
-// recordedLog is one line a recordingPlatformLogger saw.
+// recordedLog is one line a lineLogger saw.
 type recordedLog struct {
 	level string
 	msg   string
@@ -125,22 +125,25 @@ type recordedLog struct {
 
 func (l recordedLog) String() string { return fmt.Sprint(l.level, " ", l.msg, " ", l.args) }
 
-type recordingPlatformLogger struct {
+// lineLogger keeps every line with its level and attributes, so a test can
+// read what a failure log said. recordingLogger (email_digest_test.go) only
+// counts lines per level.
+type lineLogger struct {
 	mu    sync.Mutex
 	lines []recordedLog
 }
 
-func (l *recordingPlatformLogger) record(level, msg string, args []any) {
+func (l *lineLogger) record(level, msg string, args []any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.lines = append(l.lines, recordedLog{level: level, msg: msg, args: args})
 }
 
-func (l *recordingPlatformLogger) Info(msg string, args ...any)  { l.record("info", msg, args) }
-func (l *recordingPlatformLogger) Warn(msg string, args ...any)  { l.record("warn", msg, args) }
-func (l *recordingPlatformLogger) Error(msg string, args ...any) { l.record("error", msg, args) }
+func (l *lineLogger) Info(msg string, args ...any)  { l.record("info", msg, args) }
+func (l *lineLogger) Warn(msg string, args ...any)  { l.record("warn", msg, args) }
+func (l *lineLogger) Error(msg string, args ...any) { l.record("error", msg, args) }
 
-func (l *recordingPlatformLogger) errors() []recordedLog {
+func (l *lineLogger) errors() []recordedLog {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var out []recordedLog
@@ -220,7 +223,7 @@ func TestSESSendOTPSendsOneRequestWithTheSharedCopy(t *testing.T) {
 // type and the provider's error and never the recipient (#377), even when SES
 // quotes the recipient back in its error, as its sandbox rejection does.
 func TestSESSendOTPReturnsTheProviderErrorAndNeverLogsTheRecipient(t *testing.T) {
-	logger := &recordingPlatformLogger{}
+	logger := &lineLogger{}
 	sender, fake := newTestSESSender(t, logger)
 	fake.respond = func(w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "application/json")

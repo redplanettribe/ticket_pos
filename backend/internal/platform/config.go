@@ -365,11 +365,11 @@ var transactionalEmailProviders = []EmailProvider{EmailProviderResend, EmailProv
 var digestEmailProviders = []EmailProvider{EmailProviderResend}
 
 // loadEmailProvider reads one identity's provider switch, accepting only the
-// values in accepted. Unset means Resend,
-// which is what every deployment did before the switch existed. The value is
-// trimmed and matched case-insensitively; anything else is a startup failure
-// rather than a fallback, because an unrecognised value on switch day is a typo
-// that must be loud instead of quietly sending through the old provider.
+// values in accepted. Unset means Resend, which is what every deployment did
+// before the switch existed. The value is trimmed and matched
+// case-insensitively; anything else is a startup failure rather than a
+// fallback, because an unrecognised value on switch day is a typo that must be
+// loud instead of quietly sending through the old provider.
 func loadEmailProvider(variable string, accepted []EmailProvider) (EmailProvider, error) {
 	raw := strings.TrimSpace(os.Getenv(variable))
 	value := strings.ToLower(raw)
