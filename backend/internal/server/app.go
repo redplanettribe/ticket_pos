@@ -161,7 +161,11 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	platformLogger := platform.NewSlogLogger(logger)
 	emailSender := options.emailSender
 	if emailSender == nil {
-		emailSender = newEmailSender(cfg, platformLogger)
+		emailSender, err = newEmailSender(ctx, cfg, platformLogger)
+		if err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("email sender: %w", err)
+		}
 	}
 
 	objectStorage := options.objectStorage
@@ -713,18 +717,31 @@ func (a *App) Close() error {
 	return a.DB.Close()
 }
 
-func newEmailSender(cfg platform.Config, logger platform.Logger) platform.EmailSender {
+func newEmailSender(ctx context.Context, cfg platform.Config, logger platform.Logger) (platform.EmailSender, error) {
 	// Each identity's provider is chosen by an explicit setting, EMAIL_PROVIDER
 	// and DIGEST_EMAIL_PROVIDER, which LoadConfig has already validated (ADR
-	// 0077). Resend is the only provider so far and the default (an unset
-	// provider reads as Resend), so both identities are Resend senders; the
-	// startup log names the provider and From of each so an operator can confirm
-	// which one took effect.
+	// 0077). An unset provider reads as Resend. The startup log names the
+	// provider and From of each identity so an operator can confirm which one
+	// took effect.
 	//
-	// The presence of a transactional Resend key still decides whether this
-	// deployment sends real mail at all: prod injects it from Secret Manager,
-	// local dev and tests set none and keep logging OTP codes to the console.
-	// Mirrors how newObjectStorage gates on S3_ENDPOINT. See ADR 0009.
+	// EMAIL_PROVIDER=ses selects the SES sender for the transactional identity
+	// whatever Resend credentials are or are not present: SES was asked for by
+	// name, and LoadConfig has refused the deployment already if its settings
+	// are incomplete. The Digest keeps its own provider and its own rules.
+	if cfg.EmailProvider.OrDefault() == platform.EmailProviderSES {
+		transactional, err := platform.NewSESEmailSender(ctx, cfg.SES, cfg.EmailFrom, logger)
+		if err != nil {
+			return nil, err
+		}
+		logger.Info("email sender: ses", "provider", platform.EmailProviderSES, "from", transactional.From())
+		return platform.NewSplitEmailSender(transactional, newDigestEmailSender(cfg, logger)), nil
+	}
+
+	// On Resend, the presence of a transactional Resend key still decides
+	// whether this deployment sends real mail at all: prod injects it from
+	// Secret Manager, local dev and tests set none and keep logging OTP codes to
+	// the console. Mirrors how newObjectStorage gates on S3_ENDPOINT. See ADR
+	// 0009.
 	//
 	// A deployment with NO transactional key sends no real mail at all, so there
 	// is no domain to protect and nothing to split: the logging sender handles
@@ -733,12 +750,12 @@ func newEmailSender(cfg platform.Config, logger platform.Logger) platform.EmailS
 	if cfg.ResendAPIKey == "" {
 		logger.Info("email sender: logging (no RESEND_API_KEY set)", "provider", "logging", "from", cfg.EmailFrom)
 		logger.Info("digest email sender: logging (no RESEND_API_KEY set)", "provider", "logging", "from", cfg.DigestEmail.From)
-		return &platform.LoggingEmailSender{Logger: logger}
+		return &platform.LoggingEmailSender{Logger: logger}, nil
 	}
 
 	logger.Info("email sender: resend", "provider", cfg.EmailProvider.OrDefault(), "from", cfg.EmailFrom)
 	transactional := platform.NewResendEmailSender(cfg.ResendAPIKey, cfg.EmailFrom, logger)
-	return platform.NewSplitEmailSender(transactional, newDigestEmailSender(cfg, logger))
+	return platform.NewSplitEmailSender(transactional, newDigestEmailSender(cfg, logger)), nil
 }
 
 // newDigestEmailSender selects the sender for the one non-transactional message

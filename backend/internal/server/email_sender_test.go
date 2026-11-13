@@ -54,7 +54,7 @@ func aFollowDigest() platform.FollowDigest {
 }
 
 func TestEmailSendersSplitWhenTheDigestHasItsOwnIdentity(t *testing.T) {
-	sender := newEmailSender(sendingConfig(platform.DigestEmailConfig{
+	sender := mustEmailSender(t, sendingConfig(platform.DigestEmailConfig{
 		ResendAPIKey: "re_digest",
 		From:         digestFrom,
 	}), &quietLogger{})
@@ -106,7 +106,7 @@ func TestAnUnconfiguredDigestSendsNothingAndLeavesTransactionalMailAlone(t *test
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			logger := &quietLogger{}
-			sender := newEmailSender(sendingConfig(tc.digest), logger)
+			sender := mustEmailSender(t, sendingConfig(tc.digest), logger)
 
 			// Nothing is sent, and the caller can tell why.
 			err := sender.SendFollowDigest(context.Background(), aFollowDigest())
@@ -142,7 +142,7 @@ func TestAnUnconfiguredDigestSendsNothingAndLeavesTransactionalMailAlone(t *test
 // the manual verification docs read Digests out of the container log, and #225
 // must not take that away.
 func TestWithoutAnyProviderKeyEverythingKeepsLogging(t *testing.T) {
-	sender := newEmailSender(platform.Config{}, &quietLogger{})
+	sender := mustEmailSender(t, platform.Config{}, &quietLogger{})
 
 	if _, ok := sender.(*platform.LoggingEmailSender); !ok {
 		t.Fatalf("sender is %T, want the logging sender", sender)
@@ -209,7 +209,7 @@ func TestBothIdentitiesUseResendByDefaultAndWhenNamed(t *testing.T) {
 			cfg.EmailProvider = tc.provider
 			logger := &recordingLogger{}
 
-			split, ok := newEmailSender(cfg, logger).(*platform.SplitEmailSender)
+			split, ok := mustEmailSender(t, cfg, logger).(*platform.SplitEmailSender)
 			if !ok {
 				t.Fatal("sender is not a split sender")
 			}
@@ -241,7 +241,7 @@ func TestBothIdentitiesUseResendByDefaultAndWhenNamed(t *testing.T) {
 // says so in the same shape.
 func TestNamingResendWithoutAKeyStillLogs(t *testing.T) {
 	logger := &recordingLogger{}
-	sender := newEmailSender(platform.Config{
+	sender := mustEmailSender(t, platform.Config{
 		EmailProvider: platform.EmailProviderResend,
 		EmailFrom:     transactionalFrom,
 		DigestEmail:   platform.DigestEmailConfig{Provider: platform.EmailProviderResend},
@@ -261,5 +261,102 @@ func TestNamingResendWithoutAKeyStillLogs(t *testing.T) {
 		if fmt.Sprint(line.args["from"]) != from {
 			t.Fatalf("%q logged from %v, want %q", line.msg, line.args["from"], from)
 		}
+	}
+}
+
+// mustEmailSender wires the sender the way NewApp does and fails the test on a
+// wiring error.
+func mustEmailSender(t *testing.T, cfg platform.Config, logger platform.Logger) platform.EmailSender {
+	t.Helper()
+	sender, err := newEmailSender(context.Background(), cfg, logger)
+	if err != nil {
+		t.Fatalf("newEmailSender: %v", err)
+	}
+	return sender
+}
+
+// hermeticAWS keeps the SDK's default credential chain away from anything on
+// the machine running the tests. Building an SES sender reaches no network,
+// but it does read the shared AWS config files.
+func hermeticAWS(t *testing.T) {
+	t.Helper()
+	t.Setenv("AWS_ACCESS_KEY_ID", "AKIDWIRINGTEST")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "wiring-test-secret")
+	t.Setenv("AWS_PROFILE", "")
+	t.Setenv("AWS_CONFIG_FILE", t.TempDir()+"/config")
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", t.TempDir()+"/credentials")
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+}
+
+// sesConfig is a deployment that selected SES for the transactional identity
+// with complete SES settings, as LoadConfig would hand it over.
+func sesConfig(digest platform.DigestEmailConfig) platform.Config {
+	return platform.Config{
+		EmailProvider: platform.EmailProviderSES,
+		EmailFrom:     transactionalFrom,
+		SES: platform.SESConfig{
+			Region:           "us-east-1",
+			ConfigurationSet: "ticket-pos-transactional",
+		},
+		DigestEmail: digest,
+	}
+}
+
+// EMAIL_PROVIDER=ses selects the SES sender for the transactional identity, on
+// the transactional From, and startup says so. The Digest identity keeps its own
+// provider: the two switch independently (ADR 0077).
+func TestSESIsSelectedForTheTransactionalIdentity(t *testing.T) {
+	hermeticAWS(t)
+	logger := &recordingLogger{}
+	cfg := sesConfig(platform.DigestEmailConfig{
+		Provider:     platform.EmailProviderResend,
+		ResendAPIKey: "re_digest",
+		From:         digestFrom,
+	})
+
+	split, ok := mustEmailSender(t, cfg, logger).(*platform.SplitEmailSender)
+	if !ok {
+		t.Fatal("sender is not a split sender")
+	}
+	if tx, ok := split.EmailSender.(*platform.SESEmailSender); !ok || tx.From() != transactionalFrom {
+		t.Fatalf("transactional sender = %T, want SES from %q", split.EmailSender, transactionalFrom)
+	}
+	if digest, ok := split.Digest.(*platform.ResendEmailSender); !ok || digest.From() != digestFrom {
+		t.Fatalf("digest sender = %T, want Resend from %q", split.Digest, digestFrom)
+	}
+
+	line := logger.line(t, "email sender:")
+	if fmt.Sprint(line.args["provider"]) != string(platform.EmailProviderSES) {
+		t.Fatalf("%q logged provider %v, want ses", line.msg, line.args["provider"])
+	}
+	if fmt.Sprint(line.args["from"]) != transactionalFrom {
+		t.Fatalf("%q logged from %v, want %q", line.msg, line.args["from"], transactionalFrom)
+	}
+	digestLine := logger.line(t, "digest email sender:")
+	if fmt.Sprint(digestLine.args["provider"]) != string(platform.EmailProviderResend) {
+		t.Fatalf("%q logged provider %v, want resend", digestLine.msg, digestLine.args["provider"])
+	}
+}
+
+// Selecting SES is the decision to send real mail, so a missing Resend key does
+// not demote it to the logging sender. And the Digest's own rules still hold
+// beside it: an unconfigured Digest identity refuses to send rather than
+// borrowing the transactional one.
+func TestSESWithoutAnyResendKeyStillSendsAndTheDigestStillRefuses(t *testing.T) {
+	hermeticAWS(t)
+	logger := &recordingLogger{}
+
+	split, ok := mustEmailSender(t, sesConfig(platform.DigestEmailConfig{}), logger).(*platform.SplitEmailSender)
+	if !ok {
+		t.Fatal("sender is not a split sender; selecting SES must not fall back to logging")
+	}
+	if _, ok := split.EmailSender.(*platform.SESEmailSender); !ok {
+		t.Fatalf("transactional sender = %T, want SES", split.EmailSender)
+	}
+	if err := split.SendFollowDigest(context.Background(), aFollowDigest()); err == nil {
+		t.Fatal("an unconfigured Digest sent anyway")
+	}
+	if logger.errors == 0 {
+		t.Fatal("the unconfigured Digest was not announced at error level")
 	}
 }

@@ -73,6 +73,9 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-Multiticketing <noreply@send.multiticketing.com>}
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-}
+      # Amazon SES (ADR 0077), read only when EMAIL_PROVIDER=ses.
+      SES_REGION: ${SES_REGION:-}
+      SES_CONFIGURATION_SET: ${SES_CONFIGURATION_SET:-}
       # The Follow Digest's own sending identity (#225, ADR 0030). Empty by
       # default and with NO fallback to the two above — the Digest is marketing
       # mail and may not borrow the transactional domain. Empty here is harmless

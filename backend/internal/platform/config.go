@@ -57,6 +57,9 @@ type Config struct {
 	// EmailProvider is the transactional identity's provider, chosen by
 	// EMAIL_PROVIDER rather than by which credentials are present (ADR 0077).
 	EmailProvider EmailProvider
+	// SES is the Amazon SES configuration, read and validated only when an
+	// identity selects ses (ADR 0077); otherwise it is the zero value.
+	SES SESConfig
 	// DigestEmail is the Follow Digest's OWN sending identity, configured
 	// independently of the transactional one above. See DigestEmailConfig.
 	DigestEmail DigestEmailConfig
@@ -314,7 +317,7 @@ func (c DigestEmailConfig) UnconfiguredReason(transactionalFrom string) string {
 // Supplying the key outright always wins, so a separate restricted key remains
 // possible for anyone who wants one.
 func loadDigestEmailConfig(transactionalAPIKey string) (DigestEmailConfig, error) {
-	provider, err := loadEmailProvider("DIGEST_EMAIL_PROVIDER")
+	provider, err := loadEmailProvider("DIGEST_EMAIL_PROVIDER", digestEmailProviders)
 	if err != nil {
 		return DigestEmailConfig{}, err
 	}
@@ -336,8 +339,13 @@ func loadDigestEmailConfig(transactionalAPIKey string) (DigestEmailConfig, error
 // deployment can never turn that provider on by accident (ADR 0077).
 type EmailProvider string
 
-// EmailProviderResend is the default provider for both sending identities.
-const EmailProviderResend EmailProvider = "resend"
+const (
+	// EmailProviderResend is the default provider for both sending identities.
+	EmailProviderResend EmailProvider = "resend"
+	// EmailProviderSES is Amazon SES, dormant beside Resend until an identity
+	// selects it (ADR 0077).
+	EmailProviderSES EmailProvider = "ses"
+)
 
 // OrDefault reads an unset provider as Resend, the default for both sending
 // identities, so a Config built without LoadConfig wires as it always did.
@@ -348,28 +356,80 @@ func (p EmailProvider) OrDefault() EmailProvider {
 	return p
 }
 
-// emailProviders lists every value a provider setting accepts.
-var emailProviders = []EmailProvider{EmailProviderResend}
+// transactionalEmailProviders lists every value EMAIL_PROVIDER accepts.
+var transactionalEmailProviders = []EmailProvider{EmailProviderResend, EmailProviderSES}
 
-// loadEmailProvider reads one identity's provider switch. Unset means Resend,
+// digestEmailProviders lists every value DIGEST_EMAIL_PROVIDER accepts. SES
+// joins it with the Follow Digest's own ticket under #690; until then the SES
+// sender cannot send a Digest, so selecting it would be a dark feature.
+var digestEmailProviders = []EmailProvider{EmailProviderResend}
+
+// loadEmailProvider reads one identity's provider switch, accepting only the
+// values in accepted. Unset means Resend,
 // which is what every deployment did before the switch existed. The value is
 // trimmed and matched case-insensitively; anything else is a startup failure
 // rather than a fallback, because an unrecognised value on switch day is a typo
 // that must be loud instead of quietly sending through the old provider.
-func loadEmailProvider(variable string) (EmailProvider, error) {
+func loadEmailProvider(variable string, accepted []EmailProvider) (EmailProvider, error) {
 	raw := strings.TrimSpace(os.Getenv(variable))
 	value := strings.ToLower(raw)
 	if value == "" {
 		return EmailProviderResend, nil
 	}
-	accepted := make([]string, len(emailProviders))
-	for i, provider := range emailProviders {
+	names := make([]string, len(accepted))
+	for i, provider := range accepted {
 		if value == string(provider) {
 			return provider, nil
 		}
-		accepted[i] = strconv.Quote(string(provider))
+		names[i] = strconv.Quote(string(provider))
 	}
-	return "", fmt.Errorf("%s must be one of %s, got %q", variable, strings.Join(accepted, ", "), raw)
+	return "", fmt.Errorf("%s must be one of %s, got %q", variable, strings.Join(names, ", "), raw)
+}
+
+// SESConfig is what an identity sending through Amazon SES needs beyond its
+// From (ADR 0077). Both identities share it: one AWS account, one region, one
+// configuration set.
+type SESConfig struct {
+	// Region is the AWS region SES sends from (SES_REGION). Production is
+	// us-east-1, where SES has its widest feature set.
+	Region string
+	// ConfigurationSet is the SES configuration set every message is sent
+	// through (SES_CONFIGURATION_SET), so delivery settings live in Terraform.
+	ConfigurationSet string
+	// Endpoint overrides the SES API endpoint. It is never read from the
+	// environment: it exists for tests, which point it at a fake SES, the way
+	// the Resend sender's tests point at an httptest server.
+	Endpoint string
+}
+
+// loadSESConfig reads the SES settings for the identity whose switch is
+// variable. Every setting is required, in every environment: an identity that
+// selected SES and cannot reach it must fail startup naming what is missing,
+// never send through another provider instead.
+func loadSESConfig(variable string) (SESConfig, error) {
+	cfg := SESConfig{
+		Region:           strings.TrimSpace(os.Getenv("SES_REGION")),
+		ConfigurationSet: strings.TrimSpace(os.Getenv("SES_CONFIGURATION_SET")),
+	}
+	var missing []string
+	if cfg.Region == "" {
+		missing = append(missing, "SES_REGION")
+	}
+	if cfg.ConfigurationSet == "" {
+		missing = append(missing, "SES_CONFIGURATION_SET")
+	}
+	if len(missing) > 0 {
+		return SESConfig{}, fmt.Errorf("%s is %q but %s not set", variable, EmailProviderSES, describeMissing(missing))
+	}
+	return cfg, nil
+}
+
+// describeMissing lists missing settings as "A is" or "A, B are".
+func describeMissing(missing []string) string {
+	if len(missing) == 1 {
+		return missing[0] + " is"
+	}
+	return strings.Join(missing, ", ") + " are"
 }
 
 // envIsTrue reads a boolean setting the permissive way round: anything Go does
@@ -463,9 +523,18 @@ func LoadConfig() (Config, error) {
 	}
 
 	resendAPIKey := os.Getenv("RESEND_API_KEY")
-	emailProvider, err := loadEmailProvider("EMAIL_PROVIDER")
+	emailProvider, err := loadEmailProvider("EMAIL_PROVIDER", transactionalEmailProviders)
 	if err != nil {
 		return Config{}, err
+	}
+	// SES settings are read only when an identity selects SES, so half-written
+	// AWS settings on a Resend deployment change nothing (ADR 0077).
+	var ses SESConfig
+	if emailProvider == EmailProviderSES {
+		ses, err = loadSESConfig("EMAIL_PROVIDER")
+		if err != nil {
+			return Config{}, err
+		}
 	}
 	digestEmail, err := loadDigestEmailConfig(resendAPIKey)
 	if err != nil {
@@ -507,6 +576,7 @@ func LoadConfig() (Config, error) {
 		ResendAPIKey:  resendAPIKey,
 		EmailFrom:     envOrDefault("EMAIL_FROM", "Multiticketing <noreply@send.multiticketing.com>"),
 		EmailProvider: emailProvider,
+		SES:           ses,
 
 		DigestEmail: digestEmail,
 
