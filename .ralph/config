@@ -1,0 +1,26 @@
+# ralph's configuration for this project: one `key = value` per line, read by every run.
+# Each key below is commented out, so its default applies; `./ralph help` documents them all.
+# RALPH_<KEY> in the environment overrides a key for one run, as in RALPH_MAX_ATTEMPTS=1.
+
+# A shell command, run at the project root, that must pass before a ticket is closed. None skips
+# verification.
+verify = make ci
+
+# The branch a run never commits to. A run started on it creates the integration branch.
+# main_branch = main
+
+# The run base: the commit a run starts from, which the first review round compares the work
+# against. None means the merge base of the integration branch with main_branch.
+# run_base =
+
+# Attempts per ticket before it is left alone for the rest of the run.
+# max_attempts = 2
+
+# Review rounds per run before it stops as not converging.
+# max_review_rounds = 3
+
+# Iterations per run, implementing or reviewing, before it stops as not converging.
+# max_iterations = 30
+
+# Extra flags for every Claude Code launch, after ralph's own, split as a shell would.
+# agent_flags =

@@ -1,0 +1,338 @@
+#!/usr/bin/env python3
+"""Runs the version of ralph this project is pinned to.
+
+This is ralph's wrapper: a project commits it at its root, next to the
+`.ralph` directory holding the pin. It reads the pin, makes sure that version
+is in the per-user cache (fetching the tag from the public ralph repository
+with plain git the first time) and hands over to it with the same arguments.
+Nothing needs installing beyond Python 3.9 and git.
+
+Kept to syntax any Python 3 can parse, so an old interpreter gets a clear
+message instead of a syntax error, and to the standard library only.
+
+It tells ralph which project to act on by setting RALPH_PROJECT to the
+directory it lives in, so a command acts on this project wherever it is run.
+
+While it fetches it shows the working indicator, by the same rules as ralph's
+(src/ralph/progress.py, which this file cannot import): an animated line on a
+terminal, a plain "ralph: working: ..." line every interval otherwise, and
+nothing left behind however the fetch ends. tests/test_wrapper.py keeps the two
+in step.
+
+Environment:
+  RALPH_REPOSITORY         where versions are fetched from (default: the public repository)
+  RALPH_CACHE              the per-user cache of fetched versions
+                           (default: $XDG_CACHE_HOME/ralph, or ~/.cache/ralph)
+  RALPH_PROGRESS_INTERVAL  seconds between progress lines when output is not a terminal (default: 30)
+"""
+
+import contextlib
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import unicodedata
+
+REPOSITORY = "https://github.com/pedrodcsjostrom/ralph"
+PIN = os.path.join(".ralph", "pin")
+# A tag name that is also safe as a single directory name in the cache.
+VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
+
+
+class Failure(Exception):
+    pass
+
+
+# The working indicator: a minimal copy of src/ralph/progress.py (one wait at a time, nothing written above it), kept to
+# the same output byte for byte.
+
+# Seconds between plain progress lines when output is not a terminal.
+INTERVAL = 30.0
+INTERVAL_VARIABLE = "RALPH_PROGRESS_INTERVAL"
+# Seconds between frames of the animation on a terminal.
+FRAME = 0.1
+SPINNER = "\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f"
+ASCII_SPINNER = "|/-\\"
+# Erases the current line and puts the cursor at its start.
+ERASE = "\r\x1b[2K"
+HIDE_CURSOR = "\x1b[?25l"
+SHOW_CURSOR = "\x1b[?25h"
+ACTIVITY_WIDTH = 80
+
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]+")
+
+
+def interval(env):
+    """The plain progress interval the environment asks for. Raises Failure if it is unusable."""
+    value = env.get(INTERVAL_VARIABLE, "").strip()
+    if not value:
+        return INTERVAL
+    try:
+        seconds = float(value)
+    except ValueError:
+        seconds = 0.0
+    if not seconds > 0 or seconds == float("inf"):
+        raise Failure("%s must be a number of seconds above 0, not %r" % (INTERVAL_VARIABLE, value))
+    return seconds
+
+
+def duration(seconds):
+    """A whole-second duration as 7s, 1m05s or 2h03m."""
+    s = int(seconds)
+    if s < 60:
+        return "%ds" % s
+    if s < 3600:
+        return "%dm%02ds" % (s // 60, s % 60)
+    return "%dh%02dm" % (s // 3600, s % 3600 // 60)
+
+
+def one_line(text, width=ACTIVITY_WIDTH):
+    """text on one line, free of control characters, cut to width."""
+    text = " ".join(_CONTROL.sub(" ", text).split())
+    return text if len(text) <= width else text[: width - 3] + "..."
+
+
+def _cells(char):
+    if unicodedata.combining(char):
+        return 0
+    return 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+
+
+def fit(text, columns):
+    """text cut to at most columns terminal columns, ending in "..." when it is cut."""
+    if sum(_cells(c) for c in text) <= columns:
+        return text
+    room, kept = max(columns - 3, 0), []
+    for char in text:
+        room -= _cells(char)
+        if room < 0:
+            break
+        kept.append(char)
+    return "".join(kept) + "..."[: max(columns, 0)]
+
+
+def is_terminal(stream, env):
+    try:
+        return stream.isatty() and env.get("TERM", "") != "dumb"
+    except (AttributeError, ValueError):
+        return False
+
+
+class Wait:
+    def __init__(self, progress, label, started):
+        self._progress = progress
+        self.label = label
+        self.started = started
+        self.activity = None
+
+    def doing(self, activity):
+        self._progress._set_activity(self, activity)
+
+
+class Progress:
+    def __init__(self, stream=sys.stderr, interval=INTERVAL, terminal=None, clock=time.monotonic):
+        self.stream = stream
+        self.interval = interval
+        self.terminal = is_terminal(stream, os.environ) if terminal is None else terminal
+        self.clock = clock
+        self._wait = None
+        self._lock = threading.RLock()
+        self._drawn = False
+        self._cursor_hidden = False
+        self._frame = 0
+        encoding = (getattr(stream, "encoding", None) or "ascii").lower().replace("-", "")
+        self._spinner = SPINNER if encoding == "utf8" else ASCII_SPINNER
+
+    @contextlib.contextmanager
+    def waiting(self, label):
+        """Shows the indicator for label while the block runs, and takes it away when the block ends however it ends."""
+        with self._lock:
+            if self._wait is not None:
+                raise RuntimeError("the wrapper's indicator shows one wait at a time")
+            self._wait = Wait(self, one_line(label), self.clock())
+            self._frame = 0
+            stop = threading.Event()
+            thread = threading.Thread(target=self._tick, args=(stop,), name="ralph-progress", daemon=True)
+            thread.start()
+        try:
+            yield self._wait
+        finally:
+            with self._lock:
+                self._wait = None
+                stop.set()
+                self._erase()
+            thread.join()
+
+    def line(self):
+        """What the indicator says now, without decoration; empty when nothing is waited on."""
+        with self._lock:
+            if self._wait is None:
+                return ""
+            parts = [self._wait.label, duration(self.clock() - self._wait.started)]
+            if self._wait.activity:
+                parts.append(self._wait.activity)
+            return ", ".join(parts)
+
+    def _set_activity(self, wait, activity):
+        with self._lock:
+            wait.activity = one_line(activity) if activity else None
+            if self.terminal and wait is self._wait:
+                self._draw()
+
+    def _tick(self, stop):
+        period = FRAME if self.terminal else self.interval
+        while not stop.wait(period):
+            with self._lock:
+                if stop.is_set() or self._wait is None:
+                    return
+                self._frame += 1
+                if self.terminal:
+                    self._draw()
+                else:
+                    self._write("ralph: working: %s\n" % self.line())
+
+    def _draw(self):
+        text = "%s %s" % (self._spinner[self._frame % len(self._spinner)], self.line())
+        # A line as wide as the terminal would wrap, and redrawing it in place would leave its head behind.
+        text = fit(text, self._width() - 1)
+        # The cursor is hidden and parked at the start of the line, so an echoed ^C lands on the indicator.
+        self._write(("" if self._cursor_hidden else HIDE_CURSOR) + ERASE + text + "\r")
+        self._drawn = self._cursor_hidden = True
+
+    def _erase(self):
+        text = ""
+        if self._drawn:
+            text += ERASE
+            self._drawn = False
+        if self._cursor_hidden:
+            text += SHOW_CURSOR
+            self._cursor_hidden = False
+        if text:
+            self._write(text)
+
+    def _width(self):
+        try:
+            columns = os.get_terminal_size(self.stream.fileno()).columns
+        except (AttributeError, ValueError, OSError):
+            columns = 0
+        return columns or 80
+
+    def _write(self, text):
+        self.stream.write(text)
+        self.stream.flush()
+
+
+def main(args):
+    project = os.path.dirname(os.path.abspath(__file__))
+    version = read_pin(os.path.join(project, PIN))
+    path = os.path.join(cache_dir(), version)
+    if not os.path.isdir(path):
+        fetch(version, path)
+    entry = os.path.join(path, "bin", "ralph")
+    if not os.path.isfile(entry):
+        raise Failure(
+            "the cached ralph %s at %s has no bin/ralph; delete that directory to fetch it again" % (version, path)
+        )
+    os.environ["RALPH_PROJECT"] = project
+    os.execv(sys.executable, [sys.executable, entry] + args)
+
+
+def read_pin(path):
+    try:
+        with open(path) as f:
+            version = f.read().strip()
+    except FileNotFoundError:
+        raise Failure("no pin at %s; this project is not set up to run ralph" % PIN) from None
+    if not VERSION.match(version):
+        raise Failure("the pin in %s is not a version name: %r" % (PIN, version))
+    return version
+
+
+def cache_dir():
+    if os.environ.get("RALPH_CACHE"):
+        return os.path.abspath(os.environ["RALPH_CACHE"])
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    return os.path.join(os.path.abspath(base), "ralph")
+
+
+def fetch(version, path):
+    """Fetches the tag `version` into `path`, all or nothing.
+
+    The version is assembled in a scratch directory beside `path` and renamed
+    into place only once complete, so a failure or an interrupt never leaves a
+    half-fetched version where a later run would take it for a cached one.
+    """
+    repository = os.environ.get("RALPH_REPOSITORY") or REPOSITORY
+    progress = Progress(sys.stderr, interval(os.environ))
+    with progress.waiting("fetching ralph %s" % version) as wait:
+        fetch_into(version, path, repository, wait)
+
+
+def fetch_into(version, path, repository, wait):
+    """The steps of fetch, each one told to wait as it starts."""
+    tag = "refs/tags/" + version
+    wait.doing("git ls-remote")
+    found = git(["ls-remote", "--exit-code", "--tags", repository, tag])
+    if found.returncode == 2:
+        raise Failure("the pinned version %s does not exist in %s (pin: %s)" % (version, repository, PIN))
+    if found.returncode != 0:
+        raise fetch_failure(version, repository, found)
+
+    cache = os.path.dirname(path)
+    os.makedirs(cache, exist_ok=True)
+    scratch = tempfile.mkdtemp(prefix=".fetch-%s-" % version, dir=cache)
+    try:
+        for command in (
+            ["init", "--quiet", scratch],
+            ["-C", scratch, "fetch", "--quiet", "--no-tags", "--depth", "1", repository, "%s:%s" % (tag, tag)],
+            ["-C", scratch, "checkout", "--quiet", "--detach", tag],
+        ):
+            wait.doing("git " + command[2 if command[0] == "-C" else 0])
+            step = git(command)
+            if step.returncode != 0:
+                raise fetch_failure(version, repository, step)
+        shutil.rmtree(os.path.join(scratch, ".git"))
+        try:
+            os.rename(scratch, path)
+        except OSError:
+            # Another run fetched the same version meanwhile; theirs is as good.
+            if not os.path.isdir(path):
+                raise
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def git(args):
+    """Runs git without credentials or prompts, isolated from any enclosing repository."""
+    env = dict(os.environ)
+    for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR"):
+        env.pop(name, None)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    command = ["git", "-c", "credential.helper=", "-c", "advice.detachedHead=false"] + args
+    try:
+        return subprocess.run(command, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True)
+    except FileNotFoundError:
+        raise Failure("git is required to fetch ralph and was not found on PATH") from None
+
+
+def fetch_failure(version, repository, proc):
+    detail = "\n".join(("  " + line).rstrip() for line in proc.stderr.strip().splitlines())
+    return Failure("could not fetch ralph %s from %s:\n%s" % (version, repository, detail))
+
+
+if __name__ == "__main__":
+    if sys.version_info < (3, 9):
+        sys.stderr.write("ralph: Python 3.9 or newer is required, this is Python %d.%d\n" % sys.version_info[:2])
+        sys.exit(1)
+    try:
+        main(sys.argv[1:])
+    except Failure as failure:
+        sys.stderr.write("ralph: %s\n" % failure)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        sys.stderr.write("ralph: interrupted\n")
+        sys.exit(130)
