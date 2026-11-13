@@ -714,20 +714,27 @@ func (a *App) Close() error {
 }
 
 func newEmailSender(cfg platform.Config, logger platform.Logger) platform.EmailSender {
-	// The presence of a Resend key is the switch: prod injects it from Secret
-	// Manager, local dev and tests set none and keep logging OTP codes to the
-	// console. Mirrors how newObjectStorage gates on S3_ENDPOINT. See ADR 0009.
+	// Each identity's provider is chosen by an explicit setting, EMAIL_PROVIDER
+	// and DIGEST_EMAIL_PROVIDER, which LoadConfig has already validated (ADR
+	// 0077). Resend is the only provider so far and the default, so both
+	// identities are Resend senders; the startup log names the provider and From
+	// of each so an operator can confirm which one took effect.
+	//
+	// The presence of a transactional Resend key still decides whether this
+	// deployment sends real mail at all: prod injects it from Secret Manager,
+	// local dev and tests set none and keep logging OTP codes to the console.
+	// Mirrors how newObjectStorage gates on S3_ENDPOINT. See ADR 0009.
 	//
 	// A deployment with NO transactional key sends no real mail at all, so there
 	// is no domain to protect and nothing to split: the logging sender handles
 	// Digests too, which is what local development and the manual verification
 	// docs read. The split below is for deployments that actually send.
 	if cfg.ResendAPIKey == "" {
-		logger.Info("email sender: logging (no RESEND_API_KEY set)")
+		logger.Info("email sender: logging (no RESEND_API_KEY set)", "provider", "logging")
 		return &platform.LoggingEmailSender{Logger: logger}
 	}
 
-	logger.Info("email sender: resend", "from", cfg.EmailFrom)
+	logger.Info("email sender: resend", "provider", platform.EmailProviderResend, "from", cfg.EmailFrom)
 	transactional := platform.NewResendEmailSender(cfg.ResendAPIKey, cfg.EmailFrom, logger)
 	return platform.NewSplitEmailSender(transactional, newDigestEmailSender(cfg, logger))
 }
@@ -750,7 +757,7 @@ func newDigestEmailSender(cfg platform.Config, logger platform.Logger) platform.
 		logger.Error("digest email sender: not configured; follow digests will not be sent", "reason", reason)
 		return platform.NewUnconfiguredDigestSender(logger, reason)
 	}
-	logger.Info("digest email sender: resend", "from", cfg.DigestEmail.From)
+	logger.Info("digest email sender: resend", "provider", platform.EmailProviderResend, "from", cfg.DigestEmail.From)
 	return platform.NewResendEmailSender(cfg.DigestEmail.ResendAPIKey, cfg.DigestEmail.From, logger)
 }
 

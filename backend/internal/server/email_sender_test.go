@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/peter/ticket_pos/backend/internal/platform"
@@ -147,5 +149,109 @@ func TestWithoutAnyProviderKeyEverythingKeepsLogging(t *testing.T) {
 	}
 	if err := sender.SendFollowDigest(context.Background(), aFollowDigest()); err != nil {
 		t.Fatalf("SendFollowDigest: %v; local development must keep logging Digests", err)
+	}
+}
+
+// recordingLogger keeps every Info line, so a test can read what startup said
+// about each sending identity.
+type recordingLogger struct {
+	quietLogger
+	infos []loggedLine
+}
+
+type loggedLine struct {
+	msg  string
+	args map[string]any
+}
+
+func (l *recordingLogger) Info(msg string, args ...any) {
+	line := loggedLine{msg: msg, args: map[string]any{}}
+	for i := 0; i+1 < len(args); i += 2 {
+		if key, ok := args[i].(string); ok {
+			line.args[key] = args[i+1]
+		}
+	}
+	l.infos = append(l.infos, line)
+}
+
+// line returns the first Info line whose message starts with prefix.
+func (l *recordingLogger) line(t *testing.T, prefix string) loggedLine {
+	t.Helper()
+	for _, line := range l.infos {
+		if strings.HasPrefix(line.msg, prefix) {
+			return line
+		}
+	}
+	t.Fatalf("no startup log line starting %q; got %v", prefix, l.infos)
+	return loggedLine{}
+}
+
+// The provider switch (ADR 0077): each identity names its provider explicitly,
+// and Resend is the default. An unset provider (the zero Config) and an
+// explicit "resend" must wire exactly the same senders as before the switch
+// existed, and startup must say, per identity, which provider and From it is
+// using so the operator can confirm a switch took effect.
+func TestBothIdentitiesUseResendByDefaultAndWhenNamed(t *testing.T) {
+	cases := []struct {
+		name     string
+		provider platform.EmailProvider
+	}{
+		{"unset", ""},
+		{"resend", platform.EmailProviderResend},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := sendingConfig(platform.DigestEmailConfig{
+				Provider:     tc.provider,
+				ResendAPIKey: "re_digest",
+				From:         digestFrom,
+			})
+			cfg.EmailProvider = tc.provider
+			logger := &recordingLogger{}
+
+			split, ok := newEmailSender(cfg, logger).(*platform.SplitEmailSender)
+			if !ok {
+				t.Fatal("sender is not a split sender")
+			}
+			if tx, ok := split.EmailSender.(*platform.ResendEmailSender); !ok || tx.From() != transactionalFrom {
+				t.Fatalf("transactional sender = %T, want Resend from %q", split.EmailSender, transactionalFrom)
+			}
+			if digest, ok := split.Digest.(*platform.ResendEmailSender); !ok || digest.From() != digestFrom {
+				t.Fatalf("digest sender = %T, want Resend from %q", split.Digest, digestFrom)
+			}
+
+			for prefix, from := range map[string]string{
+				"email sender:":        transactionalFrom,
+				"digest email sender:": digestFrom,
+			} {
+				line := logger.line(t, prefix)
+				if fmt.Sprint(line.args["provider"]) != "resend" {
+					t.Fatalf("%q logged provider %v, want resend", line.msg, line.args["provider"])
+				}
+				if fmt.Sprint(line.args["from"]) != from {
+					t.Fatalf("%q logged from %v, want %q", line.msg, line.args["from"], from)
+				}
+			}
+		})
+	}
+}
+
+// Naming Resend explicitly does not conjure a key. With no provider credentials
+// at all the deployment still logs mail, whatever the switch says, and startup
+// says so in the same shape.
+func TestNamingResendWithoutAKeyStillLogs(t *testing.T) {
+	logger := &recordingLogger{}
+	sender := newEmailSender(platform.Config{
+		EmailProvider: platform.EmailProviderResend,
+		EmailFrom:     transactionalFrom,
+		DigestEmail:   platform.DigestEmailConfig{Provider: platform.EmailProviderResend},
+	}, logger)
+
+	if _, ok := sender.(*platform.LoggingEmailSender); !ok {
+		t.Fatalf("sender is %T, want the logging sender", sender)
+	}
+	line := logger.line(t, "email sender:")
+	if fmt.Sprint(line.args["provider"]) != "logging" {
+		t.Fatalf("%q logged provider %v, want logging", line.msg, line.args["provider"])
 	}
 }

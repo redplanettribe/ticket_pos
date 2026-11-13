@@ -72,6 +72,7 @@ services:
       # mail via Resend from the dev stack. See .env.example.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-Multiticketing <noreply@send.multiticketing.com>}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-}
       # The Follow Digest's own sending identity (#225, ADR 0030). Empty by
       # default and with NO fallback to the two above — the Digest is marketing
       # mail and may not borrow the transactional domain. Empty here is harmless
@@ -79,6 +80,7 @@ services:
       # so Digests print to the container log like everything else.
       DIGEST_RESEND_API_KEY: ${DIGEST_RESEND_API_KEY:-}
       DIGEST_EMAIL_FROM: ${DIGEST_EMAIL_FROM:-}
+      DIGEST_EMAIL_PROVIDER: ${DIGEST_EMAIL_PROVIDER:-}
       DIGEST_EMAIL_ALLOW_SHARED_DOMAIN: ${DIGEST_EMAIL_ALLOW_SHARED_DOMAIN:-}
       # The Issuer's certificate key (#453, ADR 0059), from the root .env: 32
       # bytes as base64, `openssl rand -base64 32`. Empty (the default) leaves

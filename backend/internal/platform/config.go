@@ -54,6 +54,9 @@ type Config struct {
 	S3Region      string
 	ResendAPIKey  string
 	EmailFrom     string
+	// EmailProvider is the transactional identity's provider, chosen by
+	// EMAIL_PROVIDER rather than by which credentials are present (ADR 0077).
+	EmailProvider EmailProvider
 	// DigestEmail is the Follow Digest's OWN sending identity, configured
 	// independently of the transactional one above. See DigestEmailConfig.
 	DigestEmail DigestEmailConfig
@@ -225,6 +228,9 @@ func (c PayPhoneConfig) Configured() bool {
 // what a typo in DIGEST_EMAIL_FROM looks like, and that one should still be
 // refused.
 type DigestEmailConfig struct {
+	// Provider is the Digest identity's provider, chosen by
+	// DIGEST_EMAIL_PROVIDER independently of the transactional one (ADR 0077).
+	Provider                 EmailProvider
 	ResendAPIKey             string
 	From                     string
 	AllowSharedSendingDomain bool
@@ -307,8 +313,13 @@ func (c DigestEmailConfig) UnconfiguredReason(transactionalFrom string) string {
 // set, an unset DIGEST_RESEND_API_KEY still means no Digests, exactly as before.
 // Supplying the key outright always wins, so a separate restricted key remains
 // possible for anyone who wants one.
-func loadDigestEmailConfig(transactionalAPIKey string) DigestEmailConfig {
+func loadDigestEmailConfig(transactionalAPIKey string) (DigestEmailConfig, error) {
+	provider, err := loadEmailProvider("DIGEST_EMAIL_PROVIDER")
+	if err != nil {
+		return DigestEmailConfig{}, err
+	}
 	cfg := DigestEmailConfig{
+		Provider:                 provider,
 		ResendAPIKey:             strings.TrimSpace(os.Getenv("DIGEST_RESEND_API_KEY")),
 		From:                     strings.TrimSpace(os.Getenv("DIGEST_EMAIL_FROM")),
 		AllowSharedSendingDomain: envIsTrue("DIGEST_EMAIL_ALLOW_SHARED_DOMAIN"),
@@ -316,7 +327,40 @@ func loadDigestEmailConfig(transactionalAPIKey string) DigestEmailConfig {
 	if cfg.AllowSharedSendingDomain && cfg.ResendAPIKey == "" {
 		cfg.ResendAPIKey = strings.TrimSpace(transactionalAPIKey)
 	}
-	return cfg
+	return cfg, nil
+}
+
+// EmailProvider names the service a sending identity's mail leaves through.
+// It is chosen per identity by an explicit setting, never inferred from which
+// credentials happen to be present, so adding a provider's settings to a
+// deployment can never turn that provider on by accident (ADR 0077).
+type EmailProvider string
+
+// EmailProviderResend is the default provider for both sending identities.
+const EmailProviderResend EmailProvider = "resend"
+
+// emailProviders lists every value a provider setting accepts.
+var emailProviders = []EmailProvider{EmailProviderResend}
+
+// loadEmailProvider reads one identity's provider switch. Unset means Resend,
+// which is what every deployment did before the switch existed. The value is
+// trimmed and matched case-insensitively; anything else is a startup failure
+// rather than a fallback, because an unrecognised value on switch day is a typo
+// that must be loud instead of quietly sending through the old provider.
+func loadEmailProvider(variable string) (EmailProvider, error) {
+	raw := strings.TrimSpace(os.Getenv(variable))
+	value := strings.ToLower(raw)
+	if value == "" {
+		return EmailProviderResend, nil
+	}
+	accepted := make([]string, len(emailProviders))
+	for i, provider := range emailProviders {
+		if value == string(provider) {
+			return provider, nil
+		}
+		accepted[i] = strconv.Quote(string(provider))
+	}
+	return "", fmt.Errorf("%s %q is not an email provider; accepted values: %s", variable, raw, strings.Join(accepted, ", "))
 }
 
 // envIsTrue reads a boolean setting the permissive way round: anything Go does
@@ -410,7 +454,14 @@ func LoadConfig() (Config, error) {
 	}
 
 	resendAPIKey := os.Getenv("RESEND_API_KEY")
-	digestEmail := loadDigestEmailConfig(resendAPIKey)
+	emailProvider, err := loadEmailProvider("EMAIL_PROVIDER")
+	if err != nil {
+		return Config{}, err
+	}
+	digestEmail, err := loadDigestEmailConfig(resendAPIKey)
+	if err != nil {
+		return Config{}, err
+	}
 
 	google, err := loadGoogleConfig(appEnv)
 	if err != nil {
@@ -446,6 +497,7 @@ func LoadConfig() (Config, error) {
 		S3Region:      envOrDefault("S3_REGION", "us-east-1"),
 		ResendAPIKey:  resendAPIKey,
 		EmailFrom:     envOrDefault("EMAIL_FROM", "Multiticketing <noreply@send.multiticketing.com>"),
+		EmailProvider: emailProvider,
 
 		DigestEmail: digestEmail,
 
