@@ -716,9 +716,10 @@ func (a *App) Close() error {
 func newEmailSender(cfg platform.Config, logger platform.Logger) platform.EmailSender {
 	// Each identity's provider is chosen by an explicit setting, EMAIL_PROVIDER
 	// and DIGEST_EMAIL_PROVIDER, which LoadConfig has already validated (ADR
-	// 0077). Resend is the only provider so far and the default, so both
-	// identities are Resend senders; the startup log names the provider and From
-	// of each so an operator can confirm which one took effect.
+	// 0077). Resend is the only provider so far and the default (an unset
+	// provider reads as Resend), so both identities are Resend senders; the
+	// startup log names the provider and From of each so an operator can confirm
+	// which one took effect.
 	//
 	// The presence of a transactional Resend key still decides whether this
 	// deployment sends real mail at all: prod injects it from Secret Manager,
@@ -730,11 +731,12 @@ func newEmailSender(cfg platform.Config, logger platform.Logger) platform.EmailS
 	// Digests too, which is what local development and the manual verification
 	// docs read. The split below is for deployments that actually send.
 	if cfg.ResendAPIKey == "" {
-		logger.Info("email sender: logging (no RESEND_API_KEY set)", "provider", "logging")
+		logger.Info("email sender: logging (no RESEND_API_KEY set)", "provider", "logging", "from", cfg.EmailFrom)
+		logger.Info("digest email sender: logging (no RESEND_API_KEY set)", "provider", "logging", "from", cfg.DigestEmail.From)
 		return &platform.LoggingEmailSender{Logger: logger}
 	}
 
-	logger.Info("email sender: resend", "provider", platform.EmailProviderResend, "from", cfg.EmailFrom)
+	logger.Info("email sender: resend", "provider", cfg.EmailProvider.OrDefault(), "from", cfg.EmailFrom)
 	transactional := platform.NewResendEmailSender(cfg.ResendAPIKey, cfg.EmailFrom, logger)
 	return platform.NewSplitEmailSender(transactional, newDigestEmailSender(cfg, logger))
 }
@@ -754,10 +756,11 @@ func newDigestEmailSender(cfg platform.Config, logger platform.Logger) platform.
 	if reason := cfg.DigestEmail.UnconfiguredReason(cfg.EmailFrom); reason != "" {
 		// Error level, at startup, and again on every refused send. This is a
 		// deployment that believes it has a discovery feature and does not.
-		logger.Error("digest email sender: not configured; follow digests will not be sent", "reason", reason)
+		logger.Error("digest email sender: not configured; follow digests will not be sent",
+			"provider", cfg.DigestEmail.Provider.OrDefault(), "from", cfg.DigestEmail.From, "reason", reason)
 		return platform.NewUnconfiguredDigestSender(logger, reason)
 	}
-	logger.Info("digest email sender: resend", "provider", platform.EmailProviderResend, "from", cfg.DigestEmail.From)
+	logger.Info("digest email sender: resend", "provider", cfg.DigestEmail.Provider.OrDefault(), "from", cfg.DigestEmail.From)
 	return platform.NewResendEmailSender(cfg.DigestEmail.ResendAPIKey, cfg.DigestEmail.From, logger)
 }
 

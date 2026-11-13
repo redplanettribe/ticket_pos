@@ -225,7 +225,7 @@ func TestBothIdentitiesUseResendByDefaultAndWhenNamed(t *testing.T) {
 				"digest email sender:": digestFrom,
 			} {
 				line := logger.line(t, prefix)
-				if fmt.Sprint(line.args["provider"]) != "resend" {
+				if fmt.Sprint(line.args["provider"]) != string(platform.EmailProviderResend) {
 					t.Fatalf("%q logged provider %v, want resend", line.msg, line.args["provider"])
 				}
 				if fmt.Sprint(line.args["from"]) != from {
@@ -250,8 +250,16 @@ func TestNamingResendWithoutAKeyStillLogs(t *testing.T) {
 	if _, ok := sender.(*platform.LoggingEmailSender); !ok {
 		t.Fatalf("sender is %T, want the logging sender", sender)
 	}
-	line := logger.line(t, "email sender:")
-	if fmt.Sprint(line.args["provider"]) != "logging" {
-		t.Fatalf("%q logged provider %v, want logging", line.msg, line.args["provider"])
+	for prefix, from := range map[string]string{
+		"email sender:":        transactionalFrom,
+		"digest email sender:": "",
+	} {
+		line := logger.line(t, prefix)
+		if fmt.Sprint(line.args["provider"]) != "logging" {
+			t.Fatalf("%q logged provider %v, want logging", line.msg, line.args["provider"])
+		}
+		if fmt.Sprint(line.args["from"]) != from {
+			t.Fatalf("%q logged from %v, want %q", line.msg, line.args["from"], from)
+		}
 	}
 }

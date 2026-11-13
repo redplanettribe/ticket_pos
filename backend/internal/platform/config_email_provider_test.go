@@ -11,27 +11,11 @@ import (
 // Digest's. Resend is the only provider so far and the default, so an unset
 // switch must read exactly as it did before the switch existed.
 
-func TestEmailProvidersDefaultToResendWhenUnset(t *testing.T) {
-	t.Setenv("DATABASE_URL", "postgres://localhost/ticket_pos")
-	t.Setenv("EMAIL_PROVIDER", "")
-	t.Setenv("DIGEST_EMAIL_PROVIDER", "")
-
-	cfg, err := LoadConfig()
-	if err != nil {
-		t.Fatalf("LoadConfig: %v", err)
-	}
-	if cfg.EmailProvider != EmailProviderResend {
-		t.Fatalf("EmailProvider = %q, want %q", cfg.EmailProvider, EmailProviderResend)
-	}
-	if cfg.DigestEmail.Provider != EmailProviderResend {
-		t.Fatalf("DigestEmail.Provider = %q, want %q", cfg.DigestEmail.Provider, EmailProviderResend)
-	}
-}
-
-// Values are matched case-insensitively and trimmed: the switch names a
-// provider, and " Resend " names the same one as "resend".
-func TestAnExplicitResendProviderReadsAsResend(t *testing.T) {
-	for _, value := range []string{"resend", "RESEND", " Resend ", "resend\n"} {
+// Unset reads as Resend, exactly as before the switch existed. Values are
+// matched case-insensitively and trimmed: the switch names a provider, and
+// " Resend " names the same one as "resend".
+func TestUnsetOrNamedResendProviderReadsAsResend(t *testing.T) {
+	for _, value := range []string{"", "resend", "RESEND", " Resend ", "resend\n"} {
 		t.Run(value, func(t *testing.T) {
 			t.Setenv("DATABASE_URL", "postgres://localhost/ticket_pos")
 			t.Setenv("EMAIL_PROVIDER", value)

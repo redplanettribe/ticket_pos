@@ -339,6 +339,15 @@ type EmailProvider string
 // EmailProviderResend is the default provider for both sending identities.
 const EmailProviderResend EmailProvider = "resend"
 
+// OrDefault reads an unset provider as Resend, the default for both sending
+// identities, so a Config built without LoadConfig wires as it always did.
+func (p EmailProvider) OrDefault() EmailProvider {
+	if p == "" {
+		return EmailProviderResend
+	}
+	return p
+}
+
 // emailProviders lists every value a provider setting accepts.
 var emailProviders = []EmailProvider{EmailProviderResend}
 
@@ -360,7 +369,7 @@ func loadEmailProvider(variable string) (EmailProvider, error) {
 		}
 		accepted[i] = strconv.Quote(string(provider))
 	}
-	return "", fmt.Errorf("%s %q is not an email provider; accepted values: %s", variable, raw, strings.Join(accepted, ", "))
+	return "", fmt.Errorf("%s must be one of %s, got %q", variable, strings.Join(accepted, ", "), raw)
 }
 
 // envIsTrue reads a boolean setting the permissive way round: anything Go does
