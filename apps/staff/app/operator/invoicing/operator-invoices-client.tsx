@@ -444,17 +444,7 @@ export function OperatorInvoicesClient({
     setLoading(true);
     setError(null);
     try {
-      // The count is read beside the page: it says whether Sale Invoicing is
-      // open (404 while closed, read as "no filter") and how many the filter
-      // would find. A closed feature must not take the list down with it.
-      const [listPage, warningCount, uninvoiced] = await Promise.all([
-        fetchOperatorInvoiceList(page, filters, sort, dir),
-        fetchOperatorRecipientWarningCount().catch(() => null),
-        fetchOperatorUninvoicedHouseSaleCount().catch(() => null),
-      ]);
-      setResult(listPage);
-      setRecipientWarningCount(warningCount?.recipient_warning_count ?? null);
-      setUninvoicedCount(uninvoiced?.uninvoiced_house_sale_count ?? null);
+      setResult(await fetchOperatorInvoiceList(page, filters, sort, dir));
       setForbidden(false);
     } catch (loadError) {
       if (loadError instanceof ApiError && loadError.code === "FORBIDDEN") {
@@ -476,6 +466,31 @@ export function OperatorInvoicesClient({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // The two counts are read BESIDE the list, never in front of it (#677).
+  // Each says whether Sale Invoicing is open (404 while closed, read as "no
+  // filter" and "no link") and how many it would find, and each fills in its
+  // own control the moment it answers. Neither is awaited by the list: a
+  // badge is a hint about the list, and a slow one once held the whole page
+  // blank for over a second. A closed feature must not take the list down
+  // with it either, which is why a failure reads as null. Re-read with every
+  // view, as the list is, so a count is never older than the rows beneath it.
+  useEffect(() => {
+    let current = true;
+    void fetchOperatorRecipientWarningCount()
+      .catch(() => null)
+      .then((count) => {
+        if (current) setRecipientWarningCount(count?.recipient_warning_count ?? null);
+      });
+    void fetchOperatorUninvoicedHouseSaleCount()
+      .catch(() => null)
+      .then((count) => {
+        if (current) setUninvoicedCount(count?.uninvoiced_house_sale_count ?? null);
+      });
+    return () => {
+      current = false;
+    };
+  }, [viewQuery]);
 
   // Each control rewrites the address bar rather than a piece of local state:
   // the server re-renders this component with the new props, and the back

@@ -1,0 +1,15 @@
+-- Find a Ticket Sale's Payments by the Sale (#677).
+--
+-- payments.ticket_sale_id has carried a foreign key since 019 and never an
+-- index, so every "the Payment of this Sale" read scanned the whole table.
+-- Inside a per-Sale LATERAL that is sales x payments: the uninvoiced House
+-- Sale count, read on every load of the Tax Invoices page, took ~1.2 s over
+-- ~4,800 Sales and kept the page blank until it answered. With this index it
+-- takes ~10 ms. The Customer Dossier, reversal and backfill reads that look a
+-- Sale's Payment up the same way are served by it too.
+--
+-- A plain index over every row rather than one shaped to a single query's
+-- predicate: each reader filters the Sale's Payments differently, and a Sale
+-- has a handful of them at most. Built without CONCURRENTLY because the
+-- table is small enough that the lock lasts milliseconds.
+CREATE INDEX payments_ticket_sale_id_idx ON payments (ticket_sale_id);
