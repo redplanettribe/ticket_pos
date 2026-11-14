@@ -1,4 +1,4 @@
-.PHONY: dev down prod prod-down prod-to-local seed-dev deploy test test-integration test-parity ci ci-preflight ci-go ci-js ci-openapi migrate swagger api-client openapi openapi-sync-check infra-graph infra-graph-zip infra-plan-json
+.PHONY: dev down prod prod-down prod-to-local seed-dev deploy test test-integration test-parity ci ci-preflight ci-go ci-js ci-openapi migrate ses-send-check swagger api-client openapi openapi-sync-check infra-graph infra-graph-zip infra-plan-json
 
 export GOTOOLCHAIN := local
 
@@ -135,6 +135,13 @@ ci-preflight:
 
 migrate:
 	cd backend && go run ./cmd/migrate
+
+# Send one fixture of every message type through Amazon SES to TO (#697), to
+# prove the dormant provider delivers. Reads SES_REGION, SES_CONFIGURATION_SET,
+# EMAIL_FROM and DIGEST_EMAIL_FROM from the environment and authenticates with
+# the AWS profile (AWS_PROFILE); no database, no running API. See README.md.
+ses-send-check:
+	cd backend && go run ./cmd/ses-send-check -to "$(TO)"
 
 # Production deploy from this machine, for when GitHub Actions cannot run (out
 # of minutes). Same sequence as .github/workflows/deploy.yml -- build and push

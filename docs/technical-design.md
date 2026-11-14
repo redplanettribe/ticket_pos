@@ -81,6 +81,7 @@ ticket_pos/
   backend/                  # Go module (stdlib-first)
     cmd/server/
     cmd/migrate/
+    cmd/ses-send-check/     # operator's SES delivery proof (no database)
     internal/
       catalog/
       sales/

@@ -642,7 +642,7 @@ func LoadConfig() (Config, error) {
 		S3Bucket:      os.Getenv("S3_BUCKET"),
 		S3Region:      envOrDefault("S3_REGION", "us-east-1"),
 		ResendAPIKey:  resendAPIKey,
-		EmailFrom:     envOrDefault("EMAIL_FROM", "Multiticketing <noreply@send.multiticketing.com>"),
+		EmailFrom:     envOrDefault("EMAIL_FROM", defaultEmailFrom),
 		EmailProvider: emailProvider,
 		SES:           ses,
 

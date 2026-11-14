@@ -44,6 +44,7 @@ make test-integration  # HTTP integration tests (requires Docker)
 make test-parity       # browser smoke tests against the parity stack (requires `make prod`)
 make ci                # full pre-push checks (Go suite including integration, vet, lint, build)
 make migrate   # apply database migrations
+make ses-send-check TO=you@example.com  # send every message type through Amazon SES (see below)
 make swagger   # regenerate API docs from Go annotations
 make api-client  # regenerate TypeScript client from openapi/openapi.yaml
 make openapi   # run swagger + api-client
@@ -51,6 +52,22 @@ pnpm install   # install JS workspace dependencies
 ```
 
 `make migrate` applies the SQL migrations in `backend/migrations/`. It defaults to the local Docker Compose Postgres (host port 64432), so that container must be running (`make dev`, or just the Postgres service). It's idempotent — safe to re-run. Point it at another database by exporting `DATABASE_URL`, e.g. `DATABASE_URL=postgres://user:pass@host:5432/db?sslmode=disable make migrate`.
+
+`make ses-send-check` is the Platform Operator's proof that the dormant Amazon SES provider delivers (ADR 0077).
+It sends one fixture message of every type the platform sends, transactional and Follow Digest alike, through the SES sender to `TO`, prints one `ok` or `FAIL` line per message type, and exits non-zero if any failed.
+Transactional messages leave from `EMAIL_FROM` (the API's default when unset) and the Follow Digest from `DIGEST_EMAIL_FROM`, under the same Digest rules the API applies.
+It needs `SES_REGION` and `SES_CONFIGURATION_SET`, authenticates with the AWS SDK's default credential chain, and ignores `AWS_ROLE_ARN`.
+It reads no provider switch, never sends through Resend or the logging sender, and needs no database and no running API.
+In the SES sandbox `TO` must be a verified address, and sends are paced one per second (`-pace` on the command changes that).
+The fixtures' links lead nowhere, and the Tax Document carries a real factura XML and RIDE PDF from the SRI test environment.
+
+```bash
+aws sso login --profile multiticketing-ses
+AWS_PROFILE=multiticketing-ses SES_REGION=us-east-1 SES_CONFIGURATION_SET=prod-ticket-pos \
+  EMAIL_FROM='Multiticketing <noreply@send.multiticketing.com>' \
+  DIGEST_EMAIL_FROM='Multiticketing <digest@digest.multiticketing.com>' \
+  make ses-send-check TO=you@example.com
+```
 
 ## Production-parity stack
 
