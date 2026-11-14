@@ -19,10 +19,10 @@ import (
 // with AssumeRoleWithWebIdentity for short-lived credentials of the one role
 // Terraform lets that service account assume.
 
-// GCPMetadataEndpoint is the metadata server every Cloud Run instance reaches
+// gcpMetadataEndpoint is the metadata server every Cloud Run instance reaches
 // for its service account's tokens. SESConfig.MetadataEndpoint overrides it in
 // tests only.
-const GCPMetadataEndpoint = "http://metadata.google.internal"
+const gcpMetadataEndpoint = "http://metadata.google.internal"
 
 // webIdentityRoleSessionName names the STS session, so AWS CloudTrail says
 // which workload assumed the role.
@@ -51,7 +51,9 @@ type webIdentityCredentials struct {
 }
 
 // newWebIdentityCredentials builds the cached federation credentials for
-// roleARN, with ID tokens minted for audience. stsOptions are the STS
+// settings.RoleARN, with ID tokens minted for settings.WebIdentityAudience
+// and the metadata and STS endpoints overridden when tests set them.
+// stsOptions are the STS
 // client's options (region, HTTP client, retryer, endpoint override);
 // AssumeRoleWithWebIdentity is unsigned, so the client is given no
 // credentials of its own. Nothing reaches the metadata server or STS until
@@ -59,7 +61,7 @@ type webIdentityCredentials struct {
 func newWebIdentityCredentials(settings SESConfig, stsOptions sts.Options) *aws.CredentialsCache {
 	metadataEndpoint := settings.MetadataEndpoint
 	if metadataEndpoint == "" {
-		metadataEndpoint = GCPMetadataEndpoint
+		metadataEndpoint = gcpMetadataEndpoint
 	}
 	stsOptions.Credentials = aws.AnonymousCredentials{}
 	if settings.STSEndpoint != "" {
@@ -80,6 +82,11 @@ func newWebIdentityCredentials(settings SESConfig, stsOptions sts.Options) *aws.
 }
 
 // Retrieve fetches an ID token and exchanges it for the role's credentials.
+//
+// The credentials cache hands Retrieve a context stripped of the send's
+// deadline and cancellation, so one exchange can serve every send waiting on
+// it. The send itself still gives up at its own deadline; the exchange is
+// bounded by metadataTimeout and the STS client's timeout and retries.
 func (p *webIdentityCredentials) Retrieve(ctx context.Context) (aws.Credentials, error) {
 	token, err := p.idToken(ctx)
 	if err != nil {

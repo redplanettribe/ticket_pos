@@ -16,11 +16,6 @@ import (
 // assert what each fake is asked and which credentials sign the SES request,
 // never how the exchange is built.
 
-const (
-	federationTestRoleARN  = "arn:aws:iam::123456789012:role/ticket-pos-api-ses"
-	federationTestAudience = "sts.amazonaws.com/ticket-pos-api"
-)
-
 // fakeMetadata stands in for the GCP metadata server's identity endpoint. It
 // hands out a numbered token per request, or fails when told to.
 type fakeMetadata struct {
@@ -121,8 +116,8 @@ func newFederatedSESSender(t *testing.T, logger Logger) (*SESEmailSender, *fakeM
 	sender, err := NewSESEmailSender(context.Background(), SESConfig{
 		Region:              "us-east-1",
 		ConfigurationSet:    "ticket-pos-transactional",
-		RoleARN:             federationTestRoleARN,
-		WebIdentityAudience: federationTestAudience,
+		RoleARN:             sesTestRoleARN,
+		WebIdentityAudience: sesTestAudience,
 		Endpoint:            sesSrv.URL,
 		STSEndpoint:         stsSrv.URL,
 		MetadataEndpoint:    metadataSrv.URL,
@@ -166,8 +161,8 @@ func TestSESSenderSignsWithCredentialsFederatedFromTheMetadataToken(t *testing.T
 	if tr.Method != http.MethodGet || tr.URL.Path != "/computeMetadata/v1/instance/service-accounts/default/identity" {
 		t.Fatalf("metadata request = %s %s, want GET of the default service account's identity", tr.Method, tr.URL.Path)
 	}
-	if got := tr.URL.Query().Get("audience"); got != federationTestAudience {
-		t.Fatalf("ID token audience = %q, want %q", got, federationTestAudience)
+	if got := tr.URL.Query().Get("audience"); got != sesTestAudience {
+		t.Fatalf("ID token audience = %q, want %q", got, sesTestAudience)
 	}
 	if got := tr.Header.Get("Metadata-Flavor"); got != "Google" {
 		t.Fatalf("Metadata-Flavor = %q, want Google", got)
@@ -181,8 +176,8 @@ func TestSESSenderSignsWithCredentialsFederatedFromTheMetadataToken(t *testing.T
 	if ex.Action != "AssumeRoleWithWebIdentity" {
 		t.Fatalf("STS action = %q, want AssumeRoleWithWebIdentity", ex.Action)
 	}
-	if ex.RoleArn != federationTestRoleARN {
-		t.Fatalf("RoleArn = %q, want %q", ex.RoleArn, federationTestRoleARN)
+	if ex.RoleArn != sesTestRoleARN {
+		t.Fatalf("RoleArn = %q, want %q", ex.RoleArn, sesTestRoleARN)
 	}
 	if ex.WebIdentityToken != "fake-id-token-1" {
 		t.Fatalf("WebIdentityToken = %q, want the metadata server's fake-id-token-1", ex.WebIdentityToken)
