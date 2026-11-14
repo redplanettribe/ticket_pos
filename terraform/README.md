@@ -482,7 +482,8 @@ Amazon SES is provisioned beside it, dormant, on the same two sending subdomains
 | `digest_email_provider` | `DIGEST_EMAIL_PROVIDER` | `resend` |
 
 Switching an identity to SES is setting one of these to `ses` and applying; rolling back is setting it back.
-`digest_email_provider` accepts only `resend` until the API sends the Follow Digest through SES.
+The two switch independently, in either direction.
+On `ses` the Follow Digest still sends as `DIGEST_EMAIL_FROM` on its own subdomain and needs no Digest Resend key.
 The SES settings (`SES_REGION`, `SES_CONFIGURATION_SET`, `AWS_ROLE_ARN`, `SES_WEB_IDENTITY_AUDIENCE`) are always mounted, and the API reads them only for an identity that selects `ses`.
 
 **Resend** (`email.tf`).

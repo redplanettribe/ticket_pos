@@ -199,8 +199,12 @@ func (c PayPhoneConfig) Configured() bool {
 	return c.APIToken != "" && c.StoreID != ""
 }
 
-// DigestEmailConfig is the Follow Digest's sending identity: its own Resend API
-// key and its own From address, on its own subdomain (#225, ADR 0030).
+// DigestEmailConfig is the Follow Digest's sending identity: its own provider,
+// its own From address on its own subdomain and, on Resend, its own Resend API
+// key (#225, ADR 0030). On SES the identity is its From alone: SES
+// authenticates with the deployment's AWS role and SESConfig, which both
+// identities share (ADR 0077), so the Resend key and its shared-domain
+// fallback below apply only while the Digest's provider is Resend.
 //
 // It exists because the Digest is the platform's first NON-TRANSACTIONAL mail.
 // Marketing mail attracts spam complaints in a way transactional mail never
@@ -240,10 +244,14 @@ type DigestEmailConfig struct {
 }
 
 // Configured reports whether a usable Digest identity is present — the switch
-// that selects a real Digest sender over the refusing one. BOTH halves are
-// required: a key with no From has nothing to send as, and a From with no key
-// cannot authenticate.
+// that selects a real Digest sender over the refusing one. On Resend BOTH
+// halves are required: a key with no From has nothing to send as, and a From
+// with no key cannot authenticate. On SES only the From is: the credentials
+// belong to the deployment, not to the identity.
 func (c DigestEmailConfig) Configured() bool {
+	if c.Provider.OrDefault() == EmailProviderSES {
+		return c.From != ""
+	}
 	return c.ResendAPIKey != "" && c.From != ""
 }
 
@@ -252,7 +260,12 @@ func (c DigestEmailConfig) Configured() bool {
 // Digest mail on" from "somebody tried and stopped halfway", which are the same
 // outcome and very different bugs. An operator in the second case is told which
 // half is missing at startup rather than watching Digests silently not arrive.
+//
+// A Digest on SES has one setting, its From, so it is never half configured.
 func (c DigestEmailConfig) PartiallyConfigured() bool {
+	if c.Provider.OrDefault() == EmailProviderSES {
+		return false
+	}
 	return (c.ResendAPIKey == "") != (c.From == "")
 }
 
@@ -284,12 +297,17 @@ func (c DigestEmailConfig) SharesSendingDomainWith(transactionalFrom string) boo
 // (nothing set, half set, set to the transactional domain without saying so)
 // deserve to be listed together and phrased as instructions.
 func (c DigestEmailConfig) UnconfiguredReason(transactionalFrom string) string {
+	onSES := c.Provider.OrDefault() == EmailProviderSES
 	switch {
-	case c.ResendAPIKey == "" && c.From == "":
+	// On SES the identity is its From alone, so the Resend key cases do not
+	// apply; the shared-domain rule applies to both providers.
+	case onSES && c.From == "":
+		return fmt.Sprintf("DIGEST_EMAIL_PROVIDER is %q but DIGEST_EMAIL_FROM is not set", EmailProviderSES)
+	case !onSES && c.ResendAPIKey == "" && c.From == "":
 		return "neither DIGEST_RESEND_API_KEY nor DIGEST_EMAIL_FROM is set"
-	case c.ResendAPIKey == "":
+	case !onSES && c.ResendAPIKey == "":
 		return "DIGEST_EMAIL_FROM is set but DIGEST_RESEND_API_KEY is not"
-	case c.From == "":
+	case !onSES && c.From == "":
 		return "DIGEST_RESEND_API_KEY is set but DIGEST_EMAIL_FROM is not"
 	case c.SharesSendingDomainWith(transactionalFrom) && !c.AllowSharedSendingDomain:
 		// Named as a choice with two exits, because both are legitimate and the
@@ -316,17 +334,24 @@ func (c DigestEmailConfig) UnconfiguredReason(transactionalFrom string) string {
 // set, an unset DIGEST_RESEND_API_KEY still means no Digests, exactly as before.
 // Supplying the key outright always wins, so a separate restricted key remains
 // possible for anyone who wants one.
+//
+// All of that is about Resend. A Digest on SES reads neither the key nor the
+// fallback (#696): its credentials are the deployment's AWS role, so a Resend
+// key left behind from before the switch can neither be required nor used.
 func loadDigestEmailConfig(transactionalAPIKey string) (DigestEmailConfig, error) {
-	provider, err := loadEmailProvider("DIGEST_EMAIL_PROVIDER", digestEmailProviders)
+	provider, err := loadEmailProvider("DIGEST_EMAIL_PROVIDER", emailProviders)
 	if err != nil {
 		return DigestEmailConfig{}, err
 	}
 	cfg := DigestEmailConfig{
 		Provider:                 provider,
-		ResendAPIKey:             strings.TrimSpace(os.Getenv("DIGEST_RESEND_API_KEY")),
 		From:                     strings.TrimSpace(os.Getenv("DIGEST_EMAIL_FROM")),
 		AllowSharedSendingDomain: envIsTrue("DIGEST_EMAIL_ALLOW_SHARED_DOMAIN"),
 	}
+	if provider == EmailProviderSES {
+		return cfg, nil
+	}
+	cfg.ResendAPIKey = strings.TrimSpace(os.Getenv("DIGEST_RESEND_API_KEY"))
 	if cfg.AllowSharedSendingDomain && cfg.ResendAPIKey == "" {
 		cfg.ResendAPIKey = strings.TrimSpace(transactionalAPIKey)
 	}
@@ -356,13 +381,9 @@ func (p EmailProvider) OrDefault() EmailProvider {
 	return p
 }
 
-// transactionalEmailProviders lists every value EMAIL_PROVIDER accepts.
-var transactionalEmailProviders = []EmailProvider{EmailProviderResend, EmailProviderSES}
-
-// digestEmailProviders lists every value DIGEST_EMAIL_PROVIDER accepts. SES
-// joins it with the Follow Digest's own ticket under #690; until then the SES
-// sender cannot send a Digest, so selecting it would be a dark feature.
-var digestEmailProviders = []EmailProvider{EmailProviderResend}
+// emailProviders lists every value EMAIL_PROVIDER and DIGEST_EMAIL_PROVIDER
+// accept. Both identities can be on either provider, switched independently.
+var emailProviders = []EmailProvider{EmailProviderResend, EmailProviderSES}
 
 // loadEmailProvider reads one identity's provider switch, accepting only the
 // values in accepted. Unset means Resend, which is what every deployment did
@@ -553,20 +574,25 @@ func LoadConfig() (Config, error) {
 	}
 
 	resendAPIKey := os.Getenv("RESEND_API_KEY")
-	emailProvider, err := loadEmailProvider("EMAIL_PROVIDER", transactionalEmailProviders)
+	emailProvider, err := loadEmailProvider("EMAIL_PROVIDER", emailProviders)
+	if err != nil {
+		return Config{}, err
+	}
+	digestEmail, err := loadDigestEmailConfig(resendAPIKey)
 	if err != nil {
 		return Config{}, err
 	}
 	// SES settings are read only when an identity selects SES, so half-written
-	// AWS settings on a Resend deployment change nothing (ADR 0077).
+	// AWS settings on a Resend deployment change nothing (ADR 0077). Both
+	// identities share them, so they are read once; a refusal names the switch
+	// that asked for SES, the transactional one when both did.
 	var ses SESConfig
-	if emailProvider == EmailProviderSES {
+	switch {
+	case emailProvider == EmailProviderSES:
 		ses, err = loadSESConfig("EMAIL_PROVIDER", appEnv)
-		if err != nil {
-			return Config{}, err
-		}
+	case digestEmail.Provider == EmailProviderSES:
+		ses, err = loadSESConfig("DIGEST_EMAIL_PROVIDER", appEnv)
 	}
-	digestEmail, err := loadDigestEmailConfig(resendAPIKey)
 	if err != nil {
 		return Config{}, err
 	}

@@ -3,7 +3,6 @@ package platform
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -106,8 +105,16 @@ func sesTestCredentials(t *testing.T) {
 	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
 }
 
-// newTestSESSender points an SES sender at a fresh fake SES endpoint.
+// newTestSESSender points an SES sender for the transactional identity at a
+// fresh fake SES endpoint.
 func newTestSESSender(t *testing.T, logger Logger) (*SESEmailSender, *fakeSES) {
+	t.Helper()
+	return newTestSESSenderFrom(t, sesTestFrom, logger)
+}
+
+// newTestSESSenderFrom points an SES sender sending as from at a fresh fake
+// SES endpoint, so a test can build the Digest identity's sender.
+func newTestSESSenderFrom(t *testing.T, from string, logger Logger) (*SESEmailSender, *fakeSES) {
 	t.Helper()
 	sesTestCredentials(t)
 	fake := &fakeSES{}
@@ -117,7 +124,7 @@ func newTestSESSender(t *testing.T, logger Logger) (*SESEmailSender, *fakeSES) {
 		Region:           "us-east-1",
 		ConfigurationSet: "ticket-pos-transactional",
 		Endpoint:         srv.URL,
-	}, sesTestFrom, logger)
+	}, from, logger)
 	if err != nil {
 		t.Fatalf("NewSESEmailSender: %v", err)
 	}
@@ -270,22 +277,6 @@ func TestSESSendOTPReturnsTheProviderErrorAndNeverLogsTheRecipient(t *testing.T)
 	}
 	if len(fake.sent()) != 1 {
 		t.Fatalf("a rejected message was retried: %d requests", len(fake.sent()))
-	}
-}
-
-// The Follow Digest waits for its own ticket (#696). Until then it is refused
-// out loud, never sent through some other provider and never reported as sent.
-func TestSESSenderRefusesTheFollowDigestItDoesNotYetSend(t *testing.T) {
-	sender, fake := newTestSESSender(t, noopLogger{})
-	err := sender.SendFollowDigest(context.Background(), FollowDigest{To: "a@example.com"})
-	if !errors.Is(err, ErrNotYetOnSES) {
-		t.Fatalf("error = %v, want ErrNotYetOnSES", err)
-	}
-	if !strings.Contains(err.Error(), "follow digest") {
-		t.Fatalf("error %q does not name the message", err)
-	}
-	if n := len(fake.sent()); n != 0 {
-		t.Fatalf("fake SES saw %d requests for a message SES does not send yet", n)
 	}
 }
 

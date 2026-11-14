@@ -2,9 +2,13 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/peter/ticket_pos/backend/internal/platform"
@@ -360,4 +364,199 @@ func TestSESWithoutAnyResendKeyStillSendsAndTheDigestStillRefuses(t *testing.T) 
 	if logger.errors == 0 {
 		t.Fatal("the unconfigured Digest was not announced at error level")
 	}
+}
+
+// fakeSESFroms is an SES v2 endpoint that answers every SendEmail and keeps
+// the From of each, so a wiring test can see which identity a message left on.
+type fakeSESFroms struct {
+	mu    sync.Mutex
+	froms []string
+}
+
+func (f *fakeSESFroms) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	var body struct{ FromEmailAddress string }
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	f.mu.Lock()
+	f.froms = append(f.froms, body.FromEmailAddress)
+	f.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{"MessageId":"fake-message-id"}`))
+}
+
+func (f *fakeSESFroms) sent() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.froms...)
+}
+
+// providerConfig is a sending deployment with each identity on the given
+// provider, complete settings for both, and SES pointed at endpoint. The
+// Digest carries a Resend key only when it is on Resend, as LoadConfig hands
+// it over.
+func providerConfig(transactional, digest platform.EmailProvider, endpoint string) platform.Config {
+	cfg := sendingConfig(platform.DigestEmailConfig{Provider: digest, From: digestFrom})
+	cfg.EmailProvider = transactional
+	if digest == platform.EmailProviderResend {
+		cfg.DigestEmail.ResendAPIKey = "re_digest"
+	}
+	cfg.SES = platform.SESConfig{
+		Region:           "us-east-1",
+		ConfigurationSet: "ticket-pos-transactional",
+		Endpoint:         endpoint,
+	}
+	return cfg
+}
+
+// senderFrom reports a wired sender's provider and From.
+func senderFrom(t *testing.T, sender any) (platform.EmailProvider, string) {
+	t.Helper()
+	switch s := sender.(type) {
+	case *platform.ResendEmailSender:
+		return platform.EmailProviderResend, s.From()
+	case *platform.SESEmailSender:
+		return platform.EmailProviderSES, s.From()
+	}
+	t.Fatalf("sender is %T, want a Resend or SES sender", sender)
+	return "", ""
+}
+
+// The two identities switch independently (ADR 0077): every combination
+// wires each identity to its own provider on its own From, the two are never
+// one object, and startup names each identity's provider and From.
+func TestEveryCombinationOfProvidersWiresEachIdentityOnItsOwn(t *testing.T) {
+	resend, ses := platform.EmailProviderResend, platform.EmailProviderSES
+	for _, tc := range []struct{ transactional, digest platform.EmailProvider }{
+		{resend, resend}, {resend, ses}, {ses, resend}, {ses, ses},
+	} {
+		t.Run(string(tc.transactional)+"/"+string(tc.digest), func(t *testing.T) {
+			hermeticAWS(t)
+			fake := &fakeSESFroms{}
+			srv := httptest.NewServer(fake)
+			t.Cleanup(srv.Close)
+			logger := &recordingLogger{}
+
+			split, ok := mustEmailSender(t, providerConfig(tc.transactional, tc.digest, srv.URL), logger).(*platform.SplitEmailSender)
+			if !ok {
+				t.Fatal("sender is not a split sender")
+			}
+			if logger.errors != 0 {
+				t.Fatalf("a fully configured deployment logged %d errors at startup", logger.errors)
+			}
+			if any(split.EmailSender) == any(split.Digest) {
+				t.Fatal("both identities share one sender object; there is no domain separation at all")
+			}
+
+			for _, identity := range []struct {
+				prefix   string
+				sender   any
+				provider platform.EmailProvider
+				from     string
+			}{
+				{"email sender: ", split.EmailSender, tc.transactional, transactionalFrom},
+				{"digest email sender: ", split.Digest, tc.digest, digestFrom},
+			} {
+				provider, from := senderFrom(t, identity.sender)
+				if provider != identity.provider || from != identity.from {
+					t.Fatalf("%q wired %s from %q, want %s from %q", identity.prefix, provider, from, identity.provider, identity.from)
+				}
+				line := logger.line(t, identity.prefix+string(identity.provider))
+				if fmt.Sprint(line.args["provider"]) != string(identity.provider) {
+					t.Fatalf("%q logged provider %v, want %s", line.msg, line.args["provider"], identity.provider)
+				}
+				if fmt.Sprint(line.args["from"]) != identity.from {
+					t.Fatalf("%q logged from %v, want %q", line.msg, line.args["from"], identity.from)
+				}
+			}
+
+			// A Digest on SES leaves through SES on the Digest's From and
+			// nothing else.
+			if tc.digest == ses {
+				if err := split.SendFollowDigest(context.Background(), aFollowDigest()); err != nil {
+					t.Fatalf("SendFollowDigest: %v", err)
+				}
+				if got := fake.sent(); len(got) != 1 || got[0] != digestFrom {
+					t.Fatalf("fake SES saw Froms %v, want exactly [%q]", got, digestFrom)
+				}
+			}
+		})
+	}
+}
+
+// A Digest on SES never needs a Digest Resend key, nor any Resend key at all:
+// selecting SES is the decision to send real mail, so a deployment whose only
+// Resend setting is missing still sends Digests through SES, while its
+// transactional identity, on Resend with no key, keeps logging.
+func TestADigestOnSESNeedsNoResendKeyAtAll(t *testing.T) {
+	hermeticAWS(t)
+	logger := &recordingLogger{}
+	cfg := providerConfig(platform.EmailProviderResend, platform.EmailProviderSES, "")
+	cfg.ResendAPIKey = ""
+
+	split, ok := mustEmailSender(t, cfg, logger).(*platform.SplitEmailSender)
+	if !ok {
+		t.Fatal("sender is not a split sender; a Digest on SES must not fall back to logging")
+	}
+	if _, ok := split.EmailSender.(*platform.LoggingEmailSender); !ok {
+		t.Fatalf("transactional sender = %T, want the logging sender: Resend has no key", split.EmailSender)
+	}
+	if digest, ok := split.Digest.(*platform.SESEmailSender); !ok || digest.From() != digestFrom {
+		t.Fatalf("digest sender = %T, want SES from %q", split.Digest, digestFrom)
+	}
+	if line := logger.line(t, "email sender: logging"); fmt.Sprint(line.args["provider"]) != "logging" {
+		t.Fatalf("%q logged provider %v, want logging", line.msg, line.args["provider"])
+	}
+	if line := logger.line(t, "digest email sender: ses"); fmt.Sprint(line.args["from"]) != digestFrom {
+		t.Fatalf("%q logged from %v, want %q", line.msg, line.args["from"], digestFrom)
+	}
+}
+
+// The Digest's rules hold under SES: no From, or a From on the transactional
+// domain without the sharing declared, refuses every Digest loudly and leaves
+// the transactional identity alone; declared sharing is obeyed.
+func TestADigestOnSESKeepsTheDigestRules(t *testing.T) {
+	sharedFrom := "Multiticketing <digest@send.multiticketing.com>"
+	for _, tc := range []struct {
+		name string
+		from string
+	}{
+		{"no from", ""},
+		{"the transactional domain, undeclared", sharedFrom},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hermeticAWS(t)
+			logger := &recordingLogger{}
+			cfg := providerConfig(platform.EmailProviderSES, platform.EmailProviderSES, "")
+			cfg.DigestEmail.From = tc.from
+
+			split, ok := mustEmailSender(t, cfg, logger).(*platform.SplitEmailSender)
+			if !ok {
+				t.Fatal("sender is not a split sender")
+			}
+			err := split.SendFollowDigest(context.Background(), aFollowDigest())
+			if !errors.Is(err, platform.ErrDigestSenderUnconfigured) {
+				t.Fatalf("error = %v, want ErrDigestSenderUnconfigured", err)
+			}
+			if logger.errors == 0 {
+				t.Fatal("the unconfigured Digest was not announced at error level")
+			}
+			if tx, ok := split.EmailSender.(*platform.SESEmailSender); !ok || tx.From() != transactionalFrom {
+				t.Fatalf("transactional sender = %T, want SES from %q", split.EmailSender, transactionalFrom)
+			}
+		})
+	}
+
+	t.Run("the transactional domain, declared", func(t *testing.T) {
+		hermeticAWS(t)
+		cfg := providerConfig(platform.EmailProviderSES, platform.EmailProviderSES, "")
+		cfg.DigestEmail.From = sharedFrom
+		cfg.DigestEmail.AllowSharedSendingDomain = true
+
+		split, ok := mustEmailSender(t, cfg, &quietLogger{}).(*platform.SplitEmailSender)
+		if !ok {
+			t.Fatal("sender is not a split sender")
+		}
+		if digest, ok := split.Digest.(*platform.SESEmailSender); !ok || digest.From() != sharedFrom {
+			t.Fatalf("digest sender = %T, want SES from %q", split.Digest, sharedFrom)
+		}
+	})
 }

@@ -37,8 +37,7 @@ func TestUnsetOrNamedResendProviderReadsAsResend(t *testing.T) {
 
 // Anything else fails startup. A provider nobody can name is a provider nobody
 // meant, and falling back to the default would hide exactly the switch-day typo
-// that most needs to be loud. The Follow Digest refuses "ses" too until the SES
-// sender can send a Digest.
+// that most needs to be loud. Both identities accept the same two providers.
 func TestAnUnknownEmailProviderFailsStartup(t *testing.T) {
 	cases := []struct {
 		variable string
@@ -46,7 +45,7 @@ func TestAnUnknownEmailProviderFailsStartup(t *testing.T) {
 		accepted []string
 	}{
 		{"EMAIL_PROVIDER", []string{"sendgrid", "resend2", "re send", "amazon"}, []string{`"resend"`, `"ses"`}},
-		{"DIGEST_EMAIL_PROVIDER", []string{"ses", "sendgrid", "resend2", "re send"}, []string{`"resend"`}},
+		{"DIGEST_EMAIL_PROVIDER", []string{"sendgrid", "resend2", "re send", "amazon"}, []string{`"resend"`, `"ses"`}},
 	}
 	for _, tc := range cases {
 		for _, value := range tc.values {
@@ -265,4 +264,107 @@ func TestSESSettingsAreIgnoredWhenNoIdentitySelectsSES(t *testing.T) {
 			t.Fatalf("SES = %+v, want the zero value when nothing selects SES", cfg.SES)
 		}
 	})
+}
+
+// digestSESEnv is a deployment that selects SES for the Follow Digest alone,
+// with every SES setting present and the transactional identity on Resend.
+func digestSESEnv(t *testing.T, appEnv string) {
+	t.Helper()
+	sesEnv(t, appEnv)
+	t.Setenv("EMAIL_PROVIDER", "")
+	t.Setenv("DIGEST_EMAIL_PROVIDER", "ses")
+}
+
+// DIGEST_EMAIL_PROVIDER=ses with complete settings selects SES for the Digest
+// alone and carries the SES settings, while the transactional identity stays
+// on Resend: the two switch independently (ADR 0077).
+func TestDigestSESProviderWithCompleteSettingsLoads(t *testing.T) {
+	for _, value := range []string{"ses", "SES", " Ses "} {
+		t.Run(value, func(t *testing.T) {
+			digestSESEnv(t, "production")
+			t.Setenv("DIGEST_EMAIL_PROVIDER", value)
+
+			cfg, err := LoadConfig()
+			if err != nil {
+				t.Fatalf("LoadConfig: %v", err)
+			}
+			if cfg.DigestEmail.Provider != EmailProviderSES {
+				t.Fatalf("DigestEmail.Provider = %q, want %q", cfg.DigestEmail.Provider, EmailProviderSES)
+			}
+			if cfg.EmailProvider != EmailProviderResend {
+				t.Fatalf("EmailProvider = %q, want resend: the identities switch independently", cfg.EmailProvider)
+			}
+			want := SESConfig{
+				Region:              "us-east-1",
+				ConfigurationSet:    "ticket-pos-transactional",
+				RoleARN:             sesTestRoleARN,
+				WebIdentityAudience: sesTestAudience,
+			}
+			if cfg.SES != want {
+				t.Fatalf("SES = %+v, want %+v", cfg.SES, want)
+			}
+		})
+	}
+}
+
+// A Digest that selected SES is held to the same SES rules as the
+// transactional identity: missing settings fail startup naming them and the
+// switch that asked for SES, and production requires the federation settings.
+func TestDigestSESProviderWithAMissingSettingFailsStartup(t *testing.T) {
+	cases := []struct {
+		appEnv string
+		unset  []string
+	}{
+		{"development", []string{"SES_REGION"}},
+		{"development", []string{"SES_CONFIGURATION_SET"}},
+		{"production", []string{"SES_REGION", "SES_CONFIGURATION_SET"}},
+		{"production", []string{"AWS_ROLE_ARN"}},
+		{"production", []string{"SES_WEB_IDENTITY_AUDIENCE"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.appEnv+"/"+strings.Join(tc.unset, ","), func(t *testing.T) {
+			digestSESEnv(t, tc.appEnv)
+			for _, variable := range tc.unset {
+				t.Setenv(variable, " ")
+			}
+
+			_, err := LoadConfig()
+			if err == nil {
+				t.Fatal("LoadConfig accepted DIGEST_EMAIL_PROVIDER=ses with a missing SES setting")
+			}
+			msg := err.Error()
+			if !strings.HasPrefix(msg, "DIGEST_EMAIL_PROVIDER ") {
+				t.Fatalf("error %q does not lead with the switch that asked for SES", msg)
+			}
+			for _, variable := range tc.unset {
+				if !strings.Contains(msg, variable) {
+					t.Fatalf("error %q does not name the missing %s", msg, variable)
+				}
+			}
+		})
+	}
+}
+
+// Both identities on SES share one AWS account, one region and one
+// configuration set: the settings are read once and carried once, while each
+// identity keeps its own From.
+func TestBothIdentitiesOnSESShareOneSESConfig(t *testing.T) {
+	sesEnv(t, "production")
+	t.Setenv("DIGEST_EMAIL_PROVIDER", "ses")
+	t.Setenv("EMAIL_FROM", "Multiticketing <noreply@send.multiticketing.com>")
+	t.Setenv("DIGEST_EMAIL_FROM", "Multiticketing <digest@digest.multiticketing.com>")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.EmailProvider != EmailProviderSES || cfg.DigestEmail.Provider != EmailProviderSES {
+		t.Fatalf("providers = %q/%q, want ses/ses", cfg.EmailProvider, cfg.DigestEmail.Provider)
+	}
+	if cfg.SES.Region != "us-east-1" || cfg.SES.ConfigurationSet != "ticket-pos-transactional" {
+		t.Fatalf("SES = %+v, want the one shared region and configuration set", cfg.SES)
+	}
+	if cfg.EmailFrom == cfg.DigestEmail.From {
+		t.Fatalf("both identities send as %q; each keeps its own From", cfg.EmailFrom)
+	}
 }

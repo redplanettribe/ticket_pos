@@ -2,7 +2,6 @@ package platform
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"regexp"
 	"time"
@@ -16,16 +15,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
-// ErrNotYetOnSES is what the SES sender returns for a message it does not
-// send yet. Every transactional message travels through SES (#692, #693); the
-// Follow Digest, which belongs to the Digest identity, lands with its own
-// ticket (#696). Until then a Digest sent through this sender is refused out
-// loud rather than reported as sent.
-var ErrNotYetOnSES = errors.New("not yet implemented on SES")
-
-// SESEmailSender delivers transactional email through Amazon SES, beside the
-// Resend sender and selected only by an explicit EMAIL_PROVIDER=ses (ADR
-// 0077). It is the Resend sender's twin: one private send path every public
+// SESEmailSender delivers email through Amazon SES, beside the Resend sender
+// and selected only by an explicit EMAIL_PROVIDER=ses for the transactional
+// identity or DIGEST_EMAIL_PROVIDER=ses for the Follow Digest's (ADR 0077).
+// Which identity a sender is depends only on the From it was built with: the
+// wiring builds one per identity that selects SES, as it does with Resend. It is the Resend sender's twin: one private send path every public
 // method funnels through, the copy taken from the message's own content
 // (email_content.go) and never written here, plain text only.
 //
@@ -156,14 +150,6 @@ func (s *SESEmailSender) send(ctx context.Context, messageType, to, subject, tex
 // has it redacted already), and hands the error back for the caller.
 func (s *SESEmailSender) fail(messageType string, err error, attrs ...any) error {
 	s.logger.Error("ses send "+messageType+" failed", append(attrs, "error", err)...)
-	return err
-}
-
-// notYet refuses a message SES does not send yet, logging it the way a
-// failed send is logged so the refusal is visible beside real failures.
-func (s *SESEmailSender) notYet(messageType string) error {
-	err := fmt.Errorf("ses send %s: %w", messageType, ErrNotYetOnSES)
-	s.logger.Error("ses send "+messageType+" failed", "error", err)
 	return err
 }
 
@@ -359,10 +345,16 @@ func (s *SESEmailSender) SendCertificateExpiryWarning(ctx context.Context, w Cer
 	return nil
 }
 
-// SendFollowDigest is not yet sent through SES: the Digest identity's
-// provider is its own ticket (#696).
-func (s *SESEmailSender) SendFollowDigest(context.Context, FollowDigest) error {
-	return s.notYet("follow digest")
+// SendFollowDigest delivers the weekly Follow Digest (#696). The error is
+// returned because the drain retries a failed Digest rather than recording it
+// as sent (ADR 0030). This method is only ever reached on the sender built
+// with the Digest identity's From: the wiring routes the Digest there through
+// SplitEmailSender, so it never leaves on the transactional domain.
+func (s *SESEmailSender) SendFollowDigest(ctx context.Context, d FollowDigest) error {
+	if err := s.send(ctx, "follow digest", d.To, d.Subject(), d.Text()); err != nil {
+		return s.fail("follow digest", err, "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening))
+	}
+	return nil
 }
 
 // redactedError carries an error's text with the recipient taken out, while

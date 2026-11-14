@@ -31,15 +31,13 @@ variable "email_provider" {
 }
 
 variable "digest_email_provider" {
-  description = "Provider the Follow Digest's sending identity delivers through, independent of email_provider. Only \"resend\" for now: the API refuses \"ses\" for the Digest until the Digest's SES sender ships, and this refuses it at plan time rather than at the API's startup."
+  description = "Provider the Follow Digest's sending identity delivers through, independent of email_provider: \"resend\" or \"ses\". On ses the Digest sends as digest_email_from through the shared SES settings and needs no Digest Resend key."
   type        = string
   default     = "resend"
 
-  # Widen to ["resend", "ses"] in the ticket that teaches the API to send the
-  # Digest through SES (#696), together with its digestEmailProviders.
   validation {
-    condition     = contains(["resend"], var.digest_email_provider)
-    error_message = "digest_email_provider must be \"resend\"; the API does not yet send the Follow Digest through SES."
+    condition     = contains(["resend", "ses"], var.digest_email_provider)
+    error_message = "digest_email_provider must be \"resend\" or \"ses\"."
   }
 }
 

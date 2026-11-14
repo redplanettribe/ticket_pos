@@ -720,65 +720,90 @@ func (a *App) Close() error {
 func newEmailSender(ctx context.Context, cfg platform.Config, logger platform.Logger) (platform.EmailSender, error) {
 	// Each identity's provider is chosen by an explicit setting, EMAIL_PROVIDER
 	// and DIGEST_EMAIL_PROVIDER, which LoadConfig has already validated (ADR
-	// 0077). An unset provider reads as Resend. The startup log names the
-	// provider and From of each identity so an operator can confirm which one
-	// took effect.
+	// 0077), and the two switch independently. An unset provider reads as
+	// Resend. The startup log names the provider and From of each identity so
+	// an operator can confirm which one took effect.
 	//
-	// EMAIL_PROVIDER=ses selects the SES sender for the transactional identity
-	// whatever Resend credentials are or are not present: SES was asked for by
-	// name, and LoadConfig has refused the deployment already if its settings
-	// are incomplete. The Digest keeps its own provider and its own rules.
-	if cfg.EmailProvider.OrDefault() == platform.EmailProviderSES {
-		transactional, err := platform.NewSESEmailSender(ctx, cfg.SES, cfg.EmailFrom, logger)
-		if err != nil {
-			return nil, err
-		}
-		logger.Info("email sender: ses", "provider", platform.EmailProviderSES, "from", transactional.From())
-		return platform.NewSplitEmailSender(transactional, newDigestEmailSender(cfg, logger)), nil
-	}
-
 	// On Resend, the presence of a transactional Resend key still decides
 	// whether this deployment sends real mail at all: prod injects it from
 	// Secret Manager, local dev and tests set none and keep logging OTP codes to
 	// the console. Mirrors how newObjectStorage gates on S3_ENDPOINT. See ADR
 	// 0009.
 	//
-	// A deployment with NO transactional key sends no real mail at all, so there
-	// is no domain to protect and nothing to split: the logging sender handles
-	// Digests too, which is what local development and the manual verification
-	// docs read. The split below is for deployments that actually send.
-	if cfg.ResendAPIKey == "" {
+	// A deployment with NO transactional key and neither identity on SES sends
+	// no real mail at all, so there is no domain to protect and nothing to
+	// split: the logging sender handles Digests too, which is what local
+	// development and the manual verification docs read. Selecting SES for
+	// either identity is the decision to send real mail through it, whatever
+	// Resend credentials are or are not present, and LoadConfig has refused the
+	// deployment already if its SES settings are incomplete.
+	transactionalOnSES := cfg.EmailProvider.OrDefault() == platform.EmailProviderSES
+	digestOnSES := cfg.DigestEmail.Provider.OrDefault() == platform.EmailProviderSES
+	if cfg.ResendAPIKey == "" && !transactionalOnSES && !digestOnSES {
 		logger.Info("email sender: logging (no RESEND_API_KEY set)", "provider", "logging", "from", cfg.EmailFrom)
 		logger.Info("digest email sender: logging (no RESEND_API_KEY set)", "provider", "logging", "from", cfg.DigestEmail.From)
 		return &platform.LoggingEmailSender{Logger: logger}, nil
 	}
 
-	logger.Info("email sender: resend", "provider", cfg.EmailProvider.OrDefault(), "from", cfg.EmailFrom)
-	transactional := platform.NewResendEmailSender(cfg.ResendAPIKey, cfg.EmailFrom, logger)
-	return platform.NewSplitEmailSender(transactional, newDigestEmailSender(cfg, logger)), nil
+	var transactional platform.EmailSender
+	switch {
+	case transactionalOnSES:
+		sender, err := platform.NewSESEmailSender(ctx, cfg.SES, cfg.EmailFrom, logger)
+		if err != nil {
+			return nil, err
+		}
+		logger.Info("email sender: ses", "provider", platform.EmailProviderSES, "from", sender.From())
+		transactional = sender
+	case cfg.ResendAPIKey == "":
+		// Only the Digest is on SES: transactional mail on a keyless Resend
+		// keeps logging, as it would with no Digest at all.
+		logger.Info("email sender: logging (no RESEND_API_KEY set)", "provider", "logging", "from", cfg.EmailFrom)
+		transactional = &platform.LoggingEmailSender{Logger: logger}
+	default:
+		logger.Info("email sender: resend", "provider", platform.EmailProviderResend, "from", cfg.EmailFrom)
+		transactional = platform.NewResendEmailSender(cfg.ResendAPIKey, cfg.EmailFrom, logger)
+	}
+	digest, err := newDigestEmailSender(ctx, cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+	return platform.NewSplitEmailSender(transactional, digest), nil
 }
 
 // newDigestEmailSender selects the sender for the one non-transactional message
-// this platform sends (#225, ADR 0030).
+// this platform sends (#225, ADR 0030), on the provider DIGEST_EMAIL_PROVIDER
+// chose for it.
 //
 // It reads cfg.DigestEmail and nothing else about the transactional identity
-// except to check whether the two are on the same domain. Sharing it is refused
-// unless the deployment set DIGEST_EMAIL_ALLOW_SHARED_DOMAIN, and the default
-// answer is no because marketing mail attracts spam complaints, complaint rates
-// degrade domain reputation, and the reputation at stake on the transactional
-// domain is the one delivering the One-time Passcodes people sign in with. What
-// this function will not do is decide that for itself: the sharing is never
-// inferred, only obeyed. An unconfigured Digest sends nothing, loudly.
-func newDigestEmailSender(cfg platform.Config, logger platform.Logger) platform.DigestEmailSender {
+// except to check whether the two are on the same domain, and, on SES, the SES
+// settings both identities share: one account, one region, one configuration
+// set, each identity with its own From (ADR 0077). Sharing the domain is
+// refused unless the deployment set DIGEST_EMAIL_ALLOW_SHARED_DOMAIN, on either
+// provider, and the default answer is no because marketing mail attracts spam
+// complaints, complaint rates degrade domain reputation, and the reputation at
+// stake on the transactional domain is the one delivering the One-time
+// Passcodes people sign in with. What this function will not do is decide that
+// for itself: the sharing is never inferred, only obeyed. An unconfigured
+// Digest sends nothing, loudly.
+func newDigestEmailSender(ctx context.Context, cfg platform.Config, logger platform.Logger) (platform.DigestEmailSender, error) {
+	provider := cfg.DigestEmail.Provider.OrDefault()
 	if reason := cfg.DigestEmail.UnconfiguredReason(cfg.EmailFrom); reason != "" {
 		// Error level, at startup, and again on every refused send. This is a
 		// deployment that believes it has a discovery feature and does not.
 		logger.Error("digest email sender: not configured; follow digests will not be sent",
-			"provider", cfg.DigestEmail.Provider.OrDefault(), "from", cfg.DigestEmail.From, "reason", reason)
-		return platform.NewUnconfiguredDigestSender(logger, reason)
+			"provider", provider, "from", cfg.DigestEmail.From, "reason", reason)
+		return platform.NewUnconfiguredDigestSender(logger, reason), nil
 	}
-	logger.Info("digest email sender: resend", "provider", cfg.DigestEmail.Provider.OrDefault(), "from", cfg.DigestEmail.From)
-	return platform.NewResendEmailSender(cfg.DigestEmail.ResendAPIKey, cfg.DigestEmail.From, logger)
+	if provider == platform.EmailProviderSES {
+		sender, err := platform.NewSESEmailSender(ctx, cfg.SES, cfg.DigestEmail.From, logger)
+		if err != nil {
+			return nil, fmt.Errorf("digest: %w", err)
+		}
+		logger.Info("digest email sender: ses", "provider", platform.EmailProviderSES, "from", sender.From())
+		return sender, nil
+	}
+	logger.Info("digest email sender: resend", "provider", platform.EmailProviderResend, "from", cfg.DigestEmail.From)
+	return platform.NewResendEmailSender(cfg.DigestEmail.ResendAPIKey, cfg.DigestEmail.From, logger), nil
 }
 
 // newPaymentProvider selects the Payment Provider by credential presence,
