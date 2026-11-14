@@ -63,7 +63,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	fromStep := flags.Int("from-step", 1, fmt.Sprintf("the step to start at, 1 to %d, to resume an earlier run", len(steps)))
 	profile := flags.String("profile", defaultProfile, "the IAM Identity Center profile for the SES member account (Terraform's aws_profile)")
 	region := flags.String("region", defaultRegion, "the AWS region SES runs in (Terraform's aws_region)")
-	account := flags.String("account", "", "the SES member account's ID; when set, step 2 also checks the profile reaches exactly this account")
+	account := flags.String("account", "", "the SES member account's 12-digit ID, which step 2 checks the profile reaches; asked for when not set")
 	terraformDir := flags.String("terraform-dir", defaultTerraformDir, "the Terraform root that manages SES")
 	emailFrom := flags.String("email-from", orDefault(getenv("EMAIL_FROM"), defaultEmailFrom), "the transactional From the send check sends as (EMAIL_FROM)")
 	digestEmailFrom := flags.String("digest-email-from", orDefault(getenv("DIGEST_EMAIL_FROM"), defaultDigestEmailFrom), "the Follow Digest From the send check sends as (DIGEST_EMAIL_FROM)")

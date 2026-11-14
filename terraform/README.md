@@ -484,10 +484,10 @@ make ses-setup-wizard                       # from step 1
 make ses-setup-wizard ARGS='-from-step 5'   # resume at a step
 ```
 
-Each step says what to do and how to tell it worked, and the wizard checks it with the AWS CLI or Terraform where it can: the profile reaches a member account of the Organization, both identities are verified, and the send check exits 0.
+Each step says what to do and how to tell it worked, and the wizard checks it with the AWS CLI or Terraform where it can: the profile reaches the AWS member account whose ID you give, both identities are verified, and the send check exits 0.
 It refuses to move on while a check fails.
 It writes no file: the budget alert address comes from `TF_VAR_aws_budget_alert_email` in the environment, and the send check's recipient is typed at a prompt.
-`make ses-setup-wizard ARGS=-help` lists its flags (`-profile`, `-region`, `-account`, `-email-from`, `-digest-email-from`).
+`make ses-setup-wizard ARGS=-help` lists its flags (`-from-step`, `-profile`, `-region`, `-account`, `-terraform-dir`, `-email-from`, `-digest-email-from`).
 Nothing it does switches a sending identity.
 
 | Setting | Cloud Run env | Default |

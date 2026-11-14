@@ -144,7 +144,7 @@ ses-send-check:
 	cd backend && go run ./cmd/ses-send-check -to "$(TO)"
 
 # The Platform Operator's guided walk through the human-only steps of the SES
-# setup (#698): Organization, Identity Center profile, apply, DNS, verification,
+# setup (#698): AWS Organization, Identity Center profile, apply, DNS, verification,
 # send check, production access. Checks what the AWS CLI can and refuses to move
 # on when a check fails. Writes no file and switches nothing.
 # `make ses-setup-wizard ARGS='-from-step 5'` resumes. See terraform/README.md.

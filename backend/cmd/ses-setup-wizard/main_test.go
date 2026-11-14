@@ -169,9 +169,10 @@ func runWizard(t *testing.T, args []string, input string, replies map[string]rep
 }
 
 // The answers a run from step 1 to the end needs when every check passes:
-// Enter (step 1), Enter (step 2), y to apply (step 3), Enter (step 4), the
-// recipient (step 6), Enter for the default volume and y to submit (step 7).
-var happyInput = strings.Join([]string{"", "", "y", "", testRecipient, "", "y"}, "\n") + "\n"
+// Enter (step 1), Enter and the member account ID (step 2), y to apply
+// (step 3), Enter (step 4), the recipient (step 6), Enter for the default
+// volume and y to submit (step 7).
+var happyInput = strings.Join([]string{"", "", memberAccount, "y", "", testRecipient, "", "y"}, "\n") + "\n"
 
 func stepHeadings(out string) []int {
 	var seen []int
@@ -324,7 +325,7 @@ func TestWizardEndsSayingNothingHasSwitched(t *testing.T) {
 func TestWizardResumesFromAGivenStep(t *testing.T) {
 	for from := 1; from <= len(steps); from++ {
 		t.Run(fmt.Sprint("step ", from), func(t *testing.T) {
-			r := runWizard(t, []string{"-from-step", fmt.Sprint(from)}, strings.Repeat("y\n", 12)+testRecipient+"\n\ny\n", resumeReplies(), nil)
+			r := runWizard(t, []string{"-from-step", fmt.Sprint(from), "-account", memberAccount}, strings.Repeat("y\n", 12)+testRecipient+"\n\ny\n", resumeReplies(), nil)
 			var want []int
 			for n := from; n <= len(steps); n++ {
 				want = append(want, n)
@@ -371,7 +372,7 @@ func TestStepTwoBlocksUntilTheProfileReachesTheMemberAccount(t *testing.T) {
 		{
 			name:    "not in an Organization",
 			replies: map[string]reply{"aws organizations describe-organization": fails("AWSOrganizationsNotInUseException")},
-			says:    "does not answer as a member of an Organization",
+			says:    "does not answer as a member of an AWS Organization",
 		},
 		{
 			name: "the management account",
@@ -393,7 +394,7 @@ func TestStepTwoBlocksUntilTheProfileReachesTheMemberAccount(t *testing.T) {
 			for k, r := range tc.replies {
 				replies[k] = r
 			}
-			args := append([]string{"-from-step", "2"}, tc.args...)
+			args := append([]string{"-from-step", "2", "-account", memberAccount}, tc.args...)
 			r := runWizard(t, args, "\nq\n", replies, nil)
 
 			if r.code != 1 {
@@ -419,11 +420,25 @@ func TestStepTwoPassesWithTheGivenAccount(t *testing.T) {
 	}
 }
 
+func TestStepTwoAsksForTheMemberAccountWithoutAccountFlag(t *testing.T) {
+	r := runWizard(t, []string{"-from-step", "2"}, "\n12345\n333333333333\nq\n", happyReplies(), nil)
+
+	if r.code != 1 || strings.Contains(r.out, "Step 2 done") {
+		t.Errorf("step 2 passed on another member account (exit %d)\n%s", r.code, r.out)
+	}
+	if !strings.Contains(r.out, "not a 12-digit AWS account ID") {
+		t.Errorf("a malformed account ID was not refused\n%s", r.out)
+	}
+	if !strings.Contains(r.out, "not the member account 333333333333") {
+		t.Errorf("output does not name the expected account\n%s", r.out)
+	}
+}
+
 func TestStepTwoChecksAgainUntilItPasses(t *testing.T) {
 	replies := happyReplies()
 	replies["aws sts get-caller-identity"] = thenOK("Token has expired", `{"Account": "`+memberAccount+`"}`)
 
-	r := runWizard(t, []string{"-from-step", "2"}, "\n\nq\n", replies, nil)
+	r := runWizard(t, []string{"-from-step", "2", "-account", memberAccount}, "\n\nq\n", replies, nil)
 
 	if strings.Count(r.out, "NOT YET") != 1 || !strings.Contains(r.out, "Step 2 done") {
 		t.Errorf("step 2 did not pass on its second check\n%s", r.out)

@@ -83,10 +83,15 @@ func (w *wizard) ask(prompt string) (answer string, ok bool) {
 // done. q, or the end of input, stops the wizard.
 func (w *wizard) confirm(what string) error {
 	answer, ok := w.ask(fmt.Sprintf("Press Enter when %s (q to stop here):", what))
-	if !ok || strings.EqualFold(answer, "q") {
+	if stops(answer, ok) {
 		return errStopped
 	}
 	return nil
+}
+
+// stops tells whether the operator asked to stop (q) or their input ended.
+func stops(answer string, ok bool) bool {
+	return !ok || strings.EqualFold(answer, "q")
 }
 
 // yes asks a yes/no question whose answer defaults to no.
@@ -108,7 +113,7 @@ func (w *wizard) until(what string, check func() error) error {
 		}
 		w.printf("  NOT YET: %v\n", err)
 		answer, ok := w.ask("Fix it, then press Enter to check again (q to stop here):")
-		if !ok || strings.EqualFold(answer, "q") {
+		if stops(answer, ok) {
 			return errStopped
 		}
 	}

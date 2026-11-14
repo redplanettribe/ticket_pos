@@ -13,8 +13,8 @@ import (
 // Step 1. Nothing here can be checked from the member account's profile,
 // which does not exist yet; step 2's check proves the account is a member.
 func (w *wizard) organization(ctx context.Context) error {
-	w.printf(`The personal AWS account becomes the Organization's management account and
-does nothing else; SES runs in a member account of its own (ADR 0077).
+	w.printf(`The personal AWS account becomes the AWS Organization's management account
+and does nothing else; SES runs in an AWS member account of its own (ADR 0077).
 
 Signed in to the personal account's root user, in the AWS console:
 
@@ -24,15 +24,15 @@ Signed in to the personal account's root user, in the AWS console:
   3. AWS Organizations > Add an AWS account > Create an AWS account, for the
      platform (for example "multiticketing-ses"). Give it an address you
      control; it becomes the member account's root email.
-  4. Note the new account's 12-digit ID. Pass it as -account to have step 2
-     check the profile reaches exactly this account.
+  4. Note the new account's 12-digit ID: step 2 asks for it (or pass it as
+     -account) to check the profile reaches exactly this account.
 
 How to tell it worked: AWS Organizations lists two accounts, the management
 account and the new member, and the root user shows MFA assigned and no
 access keys.
 
 `)
-	return w.confirm("the Organization and the member account exist and the root user has MFA and no access keys")
+	return w.confirm("the AWS Organization and the member account exist and the root user has MFA and no access keys")
 }
 
 // Step 2. Checked: the profile signs in, and the account it reaches belongs
@@ -61,12 +61,19 @@ which the wizard checks now.
 	if err := w.confirm("the profile is configured and signed in"); err != nil {
 		return err
 	}
+	if w.account == "" {
+		account, err := w.memberAccountID()
+		if err != nil {
+			return err
+		}
+		w.account = account
+	}
 	return w.until(fmt.Sprintf("profile %s works against the member account", w.profile), func() error {
-		return w.checkMemberAccount(ctx)
+		return w.checkAWSMemberAccount(ctx)
 	})
 }
 
-func (w *wizard) checkMemberAccount(ctx context.Context) error {
+func (w *wizard) checkAWSMemberAccount(ctx context.Context) error {
 	var caller struct{ Account, Arn string }
 	if err := w.awsJSON(ctx, &caller, "sts", "get-caller-identity"); err != nil {
 		return fmt.Errorf("the profile does not sign in (run: aws sso login --profile %s): %w", w.profile, err)
@@ -75,15 +82,15 @@ func (w *wizard) checkMemberAccount(ctx context.Context) error {
 		Organization struct{ Id, MasterAccountId string }
 	}
 	if err := w.awsJSON(ctx, &org, "organizations", "describe-organization"); err != nil {
-		return fmt.Errorf("account %s does not answer as a member of an Organization: %w", caller.Account, err)
+		return fmt.Errorf("account %s does not answer as a member of an AWS Organization: %w", caller.Account, err)
 	}
 	if caller.Account == org.Organization.MasterAccountId {
-		return fmt.Errorf("profile %s reaches account %s, the Organization's management account; assign it the member account instead", w.profile, caller.Account)
+		return fmt.Errorf("profile %s reaches account %s, the AWS Organization's management account; assign it the member account instead", w.profile, caller.Account)
 	}
 	if w.account != "" && caller.Account != w.account {
-		return fmt.Errorf("profile %s reaches account %s, not the member account %s given with -account", w.profile, caller.Account, w.account)
+		return fmt.Errorf("profile %s reaches account %s, not the member account %s", w.profile, caller.Account, w.account)
 	}
-	w.printf("  profile %s reaches account %s, a member of Organization %s\n", w.profile, caller.Account, org.Organization.Id)
+	w.printf("  profile %s reaches account %s, a member of AWS Organization %s\n", w.profile, caller.Account, org.Organization.Id)
 	return nil
 }
 
@@ -287,11 +294,26 @@ every message arrives in the inbox. The wizard checks the exit code.
 	})
 }
 
+// memberAccountID asks for the AWS member account's 12-digit ID, so step 2
+// checks the profile reaches exactly it rather than any member account.
+func (w *wizard) memberAccountID() (string, error) {
+	for {
+		answer, ok := w.ask("The member account's 12-digit ID (q to stop here):")
+		if stops(answer, ok) {
+			return "", errStopped
+		}
+		if len(answer) == 12 && strings.Trim(answer, "0123456789") == "" {
+			return answer, nil
+		}
+		w.printf("  That is not a 12-digit AWS account ID.\n")
+	}
+}
+
 // recipient asks for the send check's address until it is a bare one.
 func (w *wizard) recipient() (string, error) {
 	for {
 		answer, ok := w.ask("Recipient address (q to stop here):")
-		if !ok || strings.EqualFold(answer, "q") {
+		if stops(answer, ok) {
 			return "", errStopped
 		}
 		if a, err := mail.ParseAddress(answer); err == nil && a.Name == "" && a.Address == answer {
@@ -320,7 +342,7 @@ refuse, so it is asked for now, while Resend still carries the load
 		return nil
 	}
 	if status := account.Details.ReviewDetails.Status; status == "PENDING" {
-		w.printf("A production access request is already under review (case %s). AWS answers by mail.\n", orDefault(account.Details.ReviewDetails.CaseId, "-"))
+		w.printf("A production access request is already under review (case %s). AWS answers by mail.\n", account.caseID())
 		return nil
 	}
 
@@ -367,12 +389,12 @@ SES (%s) > Get set up > Request production access, with the description above.
 		}
 		switch status := account.Details.ReviewDetails.Status; status {
 		case "PENDING":
-			w.printf("  under review (case %s); AWS answers by mail, usually within a day\n", orDefault(account.Details.ReviewDetails.CaseId, "-"))
+			w.printf("  under review (case %s); AWS answers by mail, usually within a day\n", account.caseID())
 			return nil
 		case "":
 			return errors.New("SES shows no production access request for the account")
 		default:
-			return fmt.Errorf("the review reads %s (case %s); answer AWS's mail or the case in the Support Center, then check again", status, orDefault(account.Details.ReviewDetails.CaseId, "-"))
+			return fmt.Errorf("the review reads %s (case %s); answer AWS's mail or the case in the Support Center, then check again", status, account.caseID())
 		}
 	})
 }
@@ -382,6 +404,11 @@ type sesAccount struct {
 	Details                 struct {
 		ReviewDetails struct{ Status, CaseId string }
 	}
+}
+
+// caseID is the production access review's support case, "-" when none.
+func (a sesAccount) caseID() string {
+	return orDefault(a.Details.ReviewDetails.CaseId, "-")
 }
 
 func (w *wizard) sesAccount(ctx context.Context) (sesAccount, error) {
@@ -397,18 +424,18 @@ func (w *wizard) sesAccount(ctx context.Context) (sesAccount, error) {
 // reviewer reads them.
 func useCaseDescription(volume, digestDomain string) string {
 	return strings.Join([]string{
-		"Multiticketing (" + defaultWebsiteURL + ") is a ticketing and point-of-sale platform for event organizers in Ecuador.",
+		"Multiticketing (" + defaultWebsiteURL + ") is a ticketing and point-of-sale platform for organizations that run events in Ecuador.",
 		"All mail is triggered by something the recipient did or is owed, and is plain text in Spanish or English.",
 		"",
 		"What we send:",
-		"- One-time passcodes for signing in, for customers and for organizers' staff.",
-		"- Purchase mail: sale confirmations, void and refund notices, and electronic tax documents (Ecuadorian SRI invoices, with their XML and PDF attached).",
+		"- One-time passcodes for signing in, for customers and for the staff of those organizations.",
+		"- Sale mail: sale confirmations, notices that a sale was voided or reversed, and electronic tax documents (Ecuadorian SRI invoices, with their XML and PDF attached).",
 		"- Ticket mail to the person holding a ticket: assignment, reassignment, reminders to complete it, and answers to the event's questions.",
 		"- Confirmation that a customer's consent withdrawal was recorded.",
-		"- Operational notices to organizers and the platform operator: payout requests, question reviews and signing certificate expiry warnings.",
-		"- A weekly digest of upcoming events, sent only to customers who chose to follow an organizer, from its own subdomain (" + digestDomain + "), with an unsubscribe link in every message.",
+		"- Operational notices to those organizations and the platform operator: payout requests, question reviews and signing certificate expiry warnings.",
+		"- A weekly digest of upcoming events, sent only to customers who chose to follow an organization, from its own subdomain (" + digestDomain + "), with an unsubscribe link in every message.",
 		"",
-		"Recipients: every address was given to us by the person in a purchase, a sign-in or a follow, or by a buyer for the holder of a ticket they bought. We never buy, rent or import lists.",
+		"Recipients: every address was given to us by the person in a sale, a sign-in or a follow, or by a customer for the holder of a ticket they bought. We never buy, rent or import lists.",
 		"",
 		"Bounces and complaints: the account-level suppression list is on for bounces and complaints, so an address that bounces or complains is not mailed again. Both sending subdomains are verified with Easy DKIM and a custom MAIL FROM, and DMARC is published.",
 		"",
