@@ -334,7 +334,7 @@ locals {
         {
           type  = "MX"
           name  = aws_sesv2_email_identity_mail_from_attributes.sending[domain].mail_from_domain
-          value = "10 feedback-smtp.${var.ses_region}.amazonses.com"
+          value = "10 feedback-smtp.${local.ses_region}.amazonses.com"
         },
         {
           type  = "TXT"

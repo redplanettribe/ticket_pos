@@ -16,7 +16,7 @@
 #
 # WHAT THIS FILE DOES NOT DO: create DNS records. The zone is at Namecheap
 # (ADR 0007), so the DKIM and MAIL FROM records are added by hand from the
-# ses_dns_setup output below. Until they are, SES reports both identities as
+# ses_dns_setup output (outputs.tf). Until they are, SES reports both identities as
 # pending and refuses to send from them.
 
 variable "email_provider" {
@@ -31,20 +31,16 @@ variable "email_provider" {
 }
 
 variable "digest_email_provider" {
-  description = "Provider the Follow Digest's sending identity delivers through: \"resend\" or \"ses\", independent of email_provider. The API accepts \"ses\" here only once the Digest's SES sender has shipped; until then it refuses to start with it."
+  description = "Provider the Follow Digest's sending identity delivers through, independent of email_provider. Only \"resend\" for now: the API refuses \"ses\" for the Digest until the Digest's SES sender ships, and this refuses it at plan time rather than at the API's startup."
   type        = string
   default     = "resend"
 
+  # Widen to ["resend", "ses"] in the ticket that teaches the API to send the
+  # Digest through SES (#696), together with its digestEmailProviders.
   validation {
-    condition     = contains(["resend", "ses"], var.digest_email_provider)
-    error_message = "digest_email_provider must be \"resend\" or \"ses\"."
+    condition     = contains(["resend"], var.digest_email_provider)
+    error_message = "digest_email_provider must be \"resend\"; the API does not yet send the Follow Digest through SES."
   }
-}
-
-variable "ses_region" {
-  description = "AWS region SES sends from. Must match the region of the root's aws provider, where the identities and configuration set are created."
-  type        = string
-  default     = "us-east-1"
 }
 
 # Resend's return path on each sending subdomain is `send.<domain>` (an MX and
@@ -79,6 +75,8 @@ variable "aws_budget_alert_email" {
   }
 }
 
+data "aws_region" "current" {}
+
 locals {
   # The two sending identities, keyed by role. On a shared Digest domain the
   # two collapse onto one SES identity, which is the only thing SES allows.
@@ -90,10 +88,16 @@ locals {
 
   ses_configuration_set_name = "${var.environment}-ticket-pos"
 
+  # The region of the root's aws provider, where every resource here lives and
+  # the one the API is told to send to.
+  ses_region = data.aws_region.current.region
+
+  ses_role_name = "${var.environment}-ticket-pos-api-ses"
+
   # The audience the API asks the GCP metadata server to mint its ID token
-  # for, and the only one the role's trust accepts. It names this role so a
-  # token minted for anything else is not accepted here.
-  ses_web_identity_audience = "${var.environment}-ticket-pos-api-ses"
+  # for, and the only one the role's trust accepts. It is the role's own name,
+  # so a token minted for anything else is not accepted here.
+  ses_web_identity_audience = local.ses_role_name
 }
 
 # Easy DKIM: SES generates the keys and publishes three CNAME tokens, which
@@ -132,6 +136,16 @@ resource "aws_sesv2_email_identity_mail_from_attributes" "sending" {
 # mail is plain text anyway.
 resource "aws_sesv2_configuration_set" "main" {
   configuration_set_name = local.ses_configuration_set_name
+
+  # The transactional domain is parsed out of var.email_from. If that ever
+  # stops parsing, the transactional identity would quietly drop out of the
+  # identities, the role's policy and the DNS checklist; stop the plan instead.
+  lifecycle {
+    precondition {
+      condition     = local.transactional_email_domain != ""
+      error_message = "email_from has no parseable domain, so SES would have no transactional sending identity."
+    }
+  }
 
   reputation_options {
     reputation_metrics_enabled = true
@@ -227,7 +241,7 @@ data "aws_iam_policy_document" "ses_sender" {
 }
 
 resource "aws_iam_role" "ses_sender" {
-  name                 = "${var.environment}-ticket-pos-api-ses"
+  name                 = local.ses_role_name
   description          = "Assumed by the ${var.environment} API Cloud Run service account through Workload Identity Federation to send email through SES (ADR 0077)."
   assume_role_policy   = data.aws_iam_policy_document.ses_sender_trust.json
   max_session_duration = 3600

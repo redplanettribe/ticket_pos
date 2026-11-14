@@ -432,7 +432,7 @@ resource "google_cloud_run_v2_service" "api" {
       # identity that selects ses, so mounting them changes nothing today.
       env {
         name  = "SES_REGION"
-        value = var.ses_region
+        value = local.ses_region
       }
 
       env {

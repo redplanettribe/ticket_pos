@@ -125,7 +125,7 @@ variable "email_provider" {
 }
 
 variable "digest_email_provider" {
-  description = "Provider the Follow Digest's sending identity delivers through: \"resend\" or \"ses\", independent of email_provider. Defaults to resend."
+  description = "Provider the Follow Digest's sending identity delivers through, independent of email_provider. Only \"resend\" until the API sends the Digest through SES (#696)."
   type        = string
   default     = "resend"
 }
