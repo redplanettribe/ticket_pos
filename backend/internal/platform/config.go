@@ -396,20 +396,43 @@ type SESConfig struct {
 	// ConfigurationSet is the SES configuration set every message is sent
 	// through (SES_CONFIGURATION_SET), so delivery settings live in Terraform.
 	ConfigurationSet string
+	// RoleARN is the IAM role the API assumes through Workload Identity
+	// Federation (AWS_ROLE_ARN). Set, the SES sender trades a Google-signed ID
+	// token from the GCP metadata server for that role's credentials and uses
+	// nothing else. Unset, it uses the SDK's default credential chain, which
+	// only a deployment outside production may do.
+	RoleARN string
+	// WebIdentityAudience is the audience the ID token is minted for
+	// (SES_WEB_IDENTITY_AUDIENCE), the one the role's trust policy expects.
+	WebIdentityAudience string
 	// Endpoint overrides the SES API endpoint. It is never read from the
 	// environment: it exists for tests, which point it at a fake SES, the way
 	// the Resend sender's tests point at an httptest server.
 	Endpoint string
+	// STSEndpoint and MetadataEndpoint override the STS and GCP metadata
+	// server endpoints the federation exchange calls. Like Endpoint they are
+	// never read from the environment and exist for tests.
+	STSEndpoint      string
+	MetadataEndpoint string
 }
 
 // loadSESConfig reads the SES settings for the identity whose switch is
-// variable. Every setting is required, in every environment: an identity that
-// selected SES and cannot reach it must fail startup naming what is missing,
-// never send through another provider instead.
-func loadSESConfig(variable string) (SESConfig, error) {
+// variable. The region and configuration set are required in every
+// environment: an identity that selected SES and cannot reach it must fail
+// startup naming what is missing, never send through another provider instead.
+//
+// In production the role to assume and its token audience are required too
+// (ADR 0077): Cloud Run authenticates to AWS through Workload Identity
+// Federation only, and a service left to the default credential chain could
+// silently pick up some other AWS credential. Elsewhere the role is optional,
+// so a developer's machine uses its own profile; a role set without an
+// audience is still refused, since the exchange cannot be made without one.
+func loadSESConfig(variable, appEnv string) (SESConfig, error) {
 	cfg := SESConfig{
-		Region:           strings.TrimSpace(os.Getenv("SES_REGION")),
-		ConfigurationSet: strings.TrimSpace(os.Getenv("SES_CONFIGURATION_SET")),
+		Region:              strings.TrimSpace(os.Getenv("SES_REGION")),
+		ConfigurationSet:    strings.TrimSpace(os.Getenv("SES_CONFIGURATION_SET")),
+		RoleARN:             strings.TrimSpace(os.Getenv("AWS_ROLE_ARN")),
+		WebIdentityAudience: strings.TrimSpace(os.Getenv("SES_WEB_IDENTITY_AUDIENCE")),
 	}
 	var missing []string
 	if cfg.Region == "" {
@@ -417,6 +440,13 @@ func loadSESConfig(variable string) (SESConfig, error) {
 	}
 	if cfg.ConfigurationSet == "" {
 		missing = append(missing, "SES_CONFIGURATION_SET")
+	}
+	production := appEnv == "production"
+	if cfg.RoleARN == "" && production {
+		missing = append(missing, "AWS_ROLE_ARN")
+	}
+	if cfg.WebIdentityAudience == "" && (production || cfg.RoleARN != "") {
+		missing = append(missing, "SES_WEB_IDENTITY_AUDIENCE")
 	}
 	if len(missing) > 0 {
 		return SESConfig{}, fmt.Errorf("%s is %q but %s not set", variable, EmailProviderSES, describeMissing(missing))
@@ -531,7 +561,7 @@ func LoadConfig() (Config, error) {
 	// AWS settings on a Resend deployment change nothing (ADR 0077).
 	var ses SESConfig
 	if emailProvider == EmailProviderSES {
-		ses, err = loadSESConfig("EMAIL_PROVIDER")
+		ses, err = loadSESConfig("EMAIL_PROVIDER", appEnv)
 		if err != nil {
 			return Config{}, err
 		}

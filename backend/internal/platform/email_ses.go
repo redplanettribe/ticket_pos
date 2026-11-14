@@ -13,6 +13,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sesv2"
 	sestypes "github.com/aws/aws-sdk-go-v2/service/sesv2/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
 // ErrNotYetOnSES is what the SES sender returns for a message it does not
@@ -29,9 +30,9 @@ var ErrNotYetOnSES = errors.New("not yet implemented on SES")
 // (email_content.go) and never written here, plain text only.
 //
 // It sends with the SES v2 API through a named configuration set, so the
-// delivery settings live in one place in Terraform. Credentials come from the
-// SDK's default credential chain; the Workload Identity Federation exchange
-// Cloud Run will use is its own ticket under #690.
+// delivery settings live in one place in Terraform. On Cloud Run its
+// credentials come from Workload Identity Federation (aws_web_identity.go);
+// elsewhere, with no role to assume, from the SDK's default credential chain.
 //
 // Delivery is synchronous and its truth goes to the caller, exactly as with
 // Resend: a failed passcode fails the sign-in, and best-effort callers decide
@@ -62,20 +63,36 @@ const (
 // NewSESEmailSender builds an SES sender sending as from, the full RFC 5322
 // From header of the identity it serves; the address must live on a domain
 // verified in SES or delivery is rejected. settings is the SES configuration
-// LoadConfig validated: the region and configuration set, and an endpoint
-// override that only tests set.
+// LoadConfig validated: the region and configuration set, the role to assume
+// and its token audience, and endpoint overrides that only tests set.
 //
-// Nothing reaches AWS here. The default credential chain resolves on the
-// first send, so building the sender at startup costs no network call.
+// Nothing reaches AWS here. Credentials, federated or from the default chain,
+// resolve on the first send, so building the sender at startup costs no
+// network call.
 func NewSESEmailSender(ctx context.Context, settings SESConfig, from string, logger Logger) (*SESEmailSender, error) {
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
+	httpClient := awshttp.NewBuildableClient().WithTimeout(sesHTTPTimeout)
+	// The standard retryer retries throttling and transient faults with
+	// backoff, so a brief SES throttle does not drop a message. A rejection is
+	// not retried.
+	retryer := func() aws.Retryer { return retry.NewStandard() }
+	options := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(settings.Region),
-		awsconfig.WithHTTPClient(awshttp.NewBuildableClient().WithTimeout(sesHTTPTimeout)),
-		// The standard retryer retries throttling and transient faults with
-		// backoff, so a brief SES throttle does not drop a message. A
-		// rejection is not retried.
-		awsconfig.WithRetryer(func() aws.Retryer { return retry.NewStandard() }),
-	)
+		awsconfig.WithHTTPClient(httpClient),
+		awsconfig.WithRetryer(retryer),
+	}
+	// With a role to assume, the credentials come from Workload Identity
+	// Federation and nothing else: the default chain is never consulted, so a
+	// Cloud Run service cannot pick up some other AWS credential. Without one
+	// (never in production, which LoadConfig refuses) the default chain is
+	// used, which is how the send check runs on an Identity Center profile.
+	if settings.RoleARN != "" {
+		options = append(options, awsconfig.WithCredentialsProvider(newWebIdentityCredentials(settings, sts.Options{
+			Region:     settings.Region,
+			HTTPClient: httpClient,
+			Retryer:    retryer(),
+		})))
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, options...)
 	if err != nil {
 		return nil, fmt.Errorf("load aws configuration for ses: %w", err)
 	}

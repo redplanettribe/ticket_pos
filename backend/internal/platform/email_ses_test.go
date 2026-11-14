@@ -33,6 +33,7 @@ type fakeSESRequest struct {
 	Method        string
 	Path          string
 	Authorization string
+	SecurityToken string
 	Body          sesSendEmailBody
 }
 
@@ -72,6 +73,7 @@ func (f *fakeSES) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Method:        r.Method,
 		Path:          r.URL.Path,
 		Authorization: r.Header.Get("Authorization"),
+		SecurityToken: r.Header.Get("X-Amz-Security-Token"),
 		Body:          body,
 	})
 	respond := f.respond

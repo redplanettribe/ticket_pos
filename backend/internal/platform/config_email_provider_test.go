@@ -86,7 +86,14 @@ func sesEnv(t *testing.T, appEnv string) {
 	t.Setenv("EMAIL_PROVIDER", "ses")
 	t.Setenv("SES_REGION", "us-east-1")
 	t.Setenv("SES_CONFIGURATION_SET", "ticket-pos-transactional")
+	t.Setenv("AWS_ROLE_ARN", sesTestRoleARN)
+	t.Setenv("SES_WEB_IDENTITY_AUDIENCE", sesTestAudience)
 }
+
+const (
+	sesTestRoleARN  = "arn:aws:iam::123456789012:role/ticket-pos-api-ses"
+	sesTestAudience = "sts.amazonaws.com/ticket-pos-api"
+)
 
 // EMAIL_PROVIDER=ses with complete settings selects SES and carries them, in
 // the same case-insensitive way "resend" is read.
@@ -103,7 +110,12 @@ func TestSESProviderWithCompleteSettingsLoads(t *testing.T) {
 			if cfg.EmailProvider != EmailProviderSES {
 				t.Fatalf("EmailProvider = %q, want %q", cfg.EmailProvider, EmailProviderSES)
 			}
-			want := SESConfig{Region: "us-east-1", ConfigurationSet: "ticket-pos-transactional"}
+			want := SESConfig{
+				Region:              "us-east-1",
+				ConfigurationSet:    "ticket-pos-transactional",
+				RoleARN:             sesTestRoleARN,
+				WebIdentityAudience: sesTestAudience,
+			}
 			if cfg.SES != want {
 				t.Fatalf("SES = %+v, want %+v", cfg.SES, want)
 			}
@@ -151,6 +163,75 @@ func TestSESProviderWithAMissingSettingFailsStartup(t *testing.T) {
 			})
 		}
 	}
+}
+
+// Production authenticates to AWS through Workload Identity Federation only
+// (ADR 0077): selecting SES without the role to assume or the audience its ID
+// token is minted for fails startup naming what is missing, so a Cloud Run
+// service never falls back to some other AWS credential.
+func TestSESProviderInProductionWithoutFederationFailsStartup(t *testing.T) {
+	cases := []struct {
+		name    string
+		unset   []string
+		missing []string
+	}{
+		{"no role", []string{"AWS_ROLE_ARN"}, []string{"AWS_ROLE_ARN"}},
+		{"no audience", []string{"SES_WEB_IDENTITY_AUDIENCE"}, []string{"SES_WEB_IDENTITY_AUDIENCE"}},
+		{"neither", []string{"AWS_ROLE_ARN", "SES_WEB_IDENTITY_AUDIENCE"}, []string{"AWS_ROLE_ARN", "SES_WEB_IDENTITY_AUDIENCE"}},
+		{"nothing at all", []string{"SES_REGION", "SES_CONFIGURATION_SET", "AWS_ROLE_ARN", "SES_WEB_IDENTITY_AUDIENCE"},
+			[]string{"SES_REGION", "SES_CONFIGURATION_SET", "AWS_ROLE_ARN", "SES_WEB_IDENTITY_AUDIENCE"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sesEnv(t, "production")
+			for _, variable := range tc.unset {
+				t.Setenv(variable, " ")
+			}
+
+			_, err := LoadConfig()
+			if err == nil {
+				t.Fatal("LoadConfig accepted EMAIL_PROVIDER=ses in production without federation settings")
+			}
+			msg := err.Error()
+			if !strings.HasPrefix(msg, "EMAIL_PROVIDER ") {
+				t.Fatalf("error %q does not lead with the switch that asked for SES", msg)
+			}
+			for _, variable := range tc.missing {
+				if !strings.Contains(msg, variable) {
+					t.Fatalf("error %q does not name the missing %s", msg, variable)
+				}
+			}
+		})
+	}
+}
+
+// Outside production no role is needed: the sender then uses the SDK's
+// default credential chain, which is what a developer running the send check
+// relies on. A role set without an audience is still refused, because the
+// exchange it asks for cannot be made.
+func TestSESProviderOutsideProductionMayLeaveTheRoleUnset(t *testing.T) {
+	t.Run("no role, no audience loads", func(t *testing.T) {
+		sesEnv(t, "development")
+		t.Setenv("AWS_ROLE_ARN", "")
+		t.Setenv("SES_WEB_IDENTITY_AUDIENCE", "")
+
+		cfg, err := LoadConfig()
+		if err != nil {
+			t.Fatalf("LoadConfig: %v", err)
+		}
+		if cfg.SES.RoleARN != "" {
+			t.Fatalf("RoleARN = %q, want empty: the default chain is used", cfg.SES.RoleARN)
+		}
+	})
+	t.Run("a role without an audience fails", func(t *testing.T) {
+		sesEnv(t, "development")
+		t.Setenv("SES_WEB_IDENTITY_AUDIENCE", "")
+
+		_, err := LoadConfig()
+		if err == nil || !strings.Contains(err.Error(), "SES_WEB_IDENTITY_AUDIENCE") {
+			t.Fatalf("err = %v, want a refusal naming SES_WEB_IDENTITY_AUDIENCE", err)
+		}
+	})
 }
 
 // SES settings are neither read nor validated unless an identity selects SES:
