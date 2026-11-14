@@ -167,7 +167,7 @@ func TestSendCheckSendsOneRequestPerMessageType(t *testing.T) {
 		t.Errorf("%d requests from the Digest's From, want 1 (the Follow Digest)", digests)
 	}
 	if !locales[platform.LocaleES] || !locales[platform.LocaleEN] {
-		t.Errorf("fixtures use locales %v, want both Mail Locales", locales)
+		t.Errorf("fixtures use locales %v, want Spanish and English", locales)
 	}
 	if summary := fmt.Sprintf("%d of %d message types sent, 0 failed", messageTypes(), messageTypes()); !strings.Contains(stdout.String(), summary) {
 		t.Errorf("no summary line in output:\n%s", stdout.String())

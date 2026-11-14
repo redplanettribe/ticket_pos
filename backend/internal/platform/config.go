@@ -461,19 +461,9 @@ type SESConfig struct {
 // so a developer's machine uses its own profile; a role set without an
 // audience is still refused, since the exchange cannot be made without one.
 func loadSESConfig(variable, appEnv string) (SESConfig, error) {
-	cfg := SESConfig{
-		Region:              strings.TrimSpace(os.Getenv("SES_REGION")),
-		ConfigurationSet:    strings.TrimSpace(os.Getenv("SES_CONFIGURATION_SET")),
-		RoleARN:             strings.TrimSpace(os.Getenv("AWS_ROLE_ARN")),
-		WebIdentityAudience: strings.TrimSpace(os.Getenv("SES_WEB_IDENTITY_AUDIENCE")),
-	}
-	var missing []string
-	if cfg.Region == "" {
-		missing = append(missing, "SES_REGION")
-	}
-	if cfg.ConfigurationSet == "" {
-		missing = append(missing, "SES_CONFIGURATION_SET")
-	}
+	cfg, missing := readSESDeliverySettings()
+	cfg.RoleARN = strings.TrimSpace(os.Getenv("AWS_ROLE_ARN"))
+	cfg.WebIdentityAudience = strings.TrimSpace(os.Getenv("SES_WEB_IDENTITY_AUDIENCE"))
 	production := appEnv == "production"
 	if cfg.RoleARN == "" && production {
 		missing = append(missing, "AWS_ROLE_ARN")
@@ -485,6 +475,25 @@ func loadSESConfig(variable, appEnv string) (SESConfig, error) {
 		return SESConfig{}, fmt.Errorf("%s is %q but %s not set", variable, EmailProviderSES, describeMissing(missing))
 	}
 	return cfg, nil
+}
+
+// readSESDeliverySettings reads the two SES settings every SES sender needs,
+// the region and the configuration set, and names whichever is unset. The API
+// (loadSESConfig) and the send check (LoadSendCheckConfig) both read them
+// here, so the check proves the settings the API would send with.
+func readSESDeliverySettings() (SESConfig, []string) {
+	cfg := SESConfig{
+		Region:           strings.TrimSpace(os.Getenv("SES_REGION")),
+		ConfigurationSet: strings.TrimSpace(os.Getenv("SES_CONFIGURATION_SET")),
+	}
+	var missing []string
+	if cfg.Region == "" {
+		missing = append(missing, "SES_REGION")
+	}
+	if cfg.ConfigurationSet == "" {
+		missing = append(missing, "SES_CONFIGURATION_SET")
+	}
+	return cfg, missing
 }
 
 // describeMissing lists missing settings as "A is" or "A, B are".
@@ -557,6 +566,10 @@ type GoogleConfig struct {
 	// override in production — see loadGoogleConfig.
 	TokenEndpoint string
 }
+
+// defaultEmailFrom is the transactional From a deployment that sets no
+// EMAIL_FROM sends as, the API and the SES send check alike.
+const defaultEmailFrom = "Multiticketing <noreply@send.multiticketing.com>"
 
 // LoadConfig reads configuration from environment variables.
 func LoadConfig() (Config, error) {

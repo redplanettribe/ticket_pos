@@ -6,10 +6,6 @@ import (
 	"strings"
 )
 
-// defaultEmailFrom is the transactional From a deployment that sets no
-// EMAIL_FROM sends as, the API and the SES send check alike.
-const defaultEmailFrom = "Multiticketing <noreply@send.multiticketing.com>"
-
 // SendCheckConfig is what the SES send check (cmd/ses-send-check, #697) needs:
 // the SES settings both identities share, and the From of each identity. It
 // is read from the same variables the API reads, so the check proves the
@@ -34,20 +30,11 @@ type SendCheckConfig struct {
 // needs its own From, on a domain of its own unless sharing the
 // transactional one is declared (ADR 0030).
 func LoadSendCheckConfig() (SendCheckConfig, error) {
+	ses, missing := readSESDeliverySettings()
 	cfg := SendCheckConfig{
-		SES: SESConfig{
-			Region:           strings.TrimSpace(os.Getenv("SES_REGION")),
-			ConfigurationSet: strings.TrimSpace(os.Getenv("SES_CONFIGURATION_SET")),
-		},
+		SES:               ses,
 		TransactionalFrom: envOrDefault("EMAIL_FROM", defaultEmailFrom),
 		DigestFrom:        strings.TrimSpace(os.Getenv("DIGEST_EMAIL_FROM")),
-	}
-	var missing []string
-	if cfg.SES.Region == "" {
-		missing = append(missing, "SES_REGION")
-	}
-	if cfg.SES.ConfigurationSet == "" {
-		missing = append(missing, "SES_CONFIGURATION_SET")
 	}
 	if len(missing) > 0 {
 		return SendCheckConfig{}, fmt.Errorf("the SES send check needs SES settings, but %s not set", describeMissing(missing))

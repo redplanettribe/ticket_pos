@@ -46,6 +46,8 @@ func taxDocumentAttachments(now time.Time) ([]platform.EmailAttachment, error) {
 		IVAInclusive:   true,
 	}
 	const sequential = "000000042"
+	// 19 is the SRI's "tarjeta de crédito", what a Storefront card sale is.
+	const paymentMethod sri.PaymentMethod = "19"
 	issuedOn := now.In(sri.Guayaquil)
 
 	accessKey, err := sri.NewAccessKey(sri.AccessKeyInput{
@@ -67,39 +69,40 @@ func taxDocumentAttachments(now time.Time) ([]platform.EmailAttachment, error) {
 			LegalName: recipient.LegalName, Email: recipient.Email,
 		},
 		Lines:         []sri.Line{line},
-		PaymentMethod: "19",
+		PaymentMethod: paymentMethod,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("tax document fixture: factura: %w", err)
 	}
 	totals := built.Totals
+	snapshot := invoicing.SnapshotOf(invoicing.EcuadorIssuerDetails{
+		RUC:                      issuer.RUC,
+		RazonSocial:              issuer.RazonSocial,
+		NombreComercial:          issuer.NombreComercial,
+		DireccionMatriz:          issuer.DirMatriz,
+		DireccionEstablecimiento: issuer.DirEstablecimiento,
+		Establecimiento:          issuer.Establishment,
+		PuntoEmision:             issuer.EmissionPoint,
+		ObligadoContabilidad:     issuer.ObligadoContabilidad,
+		Regimen:                  invoicing.RegimenGeneral,
+	})
 
 	inv := &invoicing.Invoice{
-		ID:          "ses-send-check",
-		Kind:        invoicing.DocumentKindSale,
-		Country:     invoicing.CountryEcuador,
-		Environment: invoicing.EnvironmentTest,
-		Status:      invoicing.InvoiceStatusAuthorized,
-		IssuedOn:    issuedOn,
-		IssuedAt:    now,
-		Recipient:   recipient,
-		Issuer: &invoicing.IssuerSnapshot{
-			RUC:                      issuer.RUC,
-			RazonSocial:              issuer.RazonSocial,
-			NombreComercial:          issuer.NombreComercial,
-			DireccionMatriz:          issuer.DirMatriz,
-			DireccionEstablecimiento: issuer.DirEstablecimiento,
-			Establecimiento:          issuer.Establishment,
-			PuntoEmision:             issuer.EmissionPoint,
-			ObligadoContabilidad:     issuer.ObligadoContabilidad,
-			Regimen:                  invoicing.RegimenGeneral,
-		},
+		ID:            "ses-send-check",
+		Kind:          invoicing.DocumentKindSale,
+		Country:       invoicing.CountryEcuador,
+		Environment:   invoicing.EnvironmentTest,
+		Status:        invoicing.InvoiceStatusAuthorized,
+		IssuedOn:      issuedOn,
+		IssuedAt:      now,
+		Recipient:     recipient,
+		Issuer:        &snapshot,
 		Currency:      "USD",
 		SubtotalCents: totals.SubtotalCents,
 		DiscountCents: totals.DiscountCents,
 		IVACents:      totals.IVACents,
 		TotalCents:    totals.TotalCents,
-		PaymentMethod: "19",
+		PaymentMethod: string(paymentMethod),
 		SignedXML:     built.XML,
 		Lines: []invoicing.InvoiceLine{{
 			Position:           1,

@@ -53,7 +53,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, load func
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
-	recipient, err := parseRecipient(*to, flags.Args())
+	address, err := parseTo(*to, flags.Args())
 	if err != nil {
 		fmt.Fprintf(stderr, "ses-send-check: %v\n", err)
 		flags.Usage()
@@ -76,7 +76,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, load func
 		fmt.Fprintf(stderr, "ses-send-check: digest sender: %v\n", err)
 		return 2
 	}
-	all, err := messages(recipient, time.Now(), transactional, digest)
+	all, err := messages(address, time.Now(), transactional, digest)
 	if err != nil {
 		fmt.Fprintf(stderr, "ses-send-check: %v\n", err)
 		return 2
@@ -91,10 +91,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, load func
 	return 0
 }
 
-// parseRecipient takes the one address every message goes to. A missing,
+// parseTo takes the one address every message goes to. A missing,
 // unparseable or display-named address is refused: there is no default
 // recipient to fall back on.
-func parseRecipient(to string, rest []string) (string, error) {
+func parseTo(to string, rest []string) (string, error) {
 	if len(rest) > 0 {
 		return "", fmt.Errorf("unexpected arguments %q; give the recipient with -to", strings.Join(rest, " "))
 	}
@@ -113,6 +113,8 @@ func parseRecipient(to string, rest []string) (string, error) {
 // message type: "ok" or "FAIL" with the provider's error, which the SES
 // sender has already stripped of the recipient. It returns how many failed.
 // A failure never stops the run: the operator needs every type's outcome.
+// A cancelled run (ctx done) stops before the next send; the types not tried
+// count as failed.
 func sendAll(ctx context.Context, out io.Writer, all []message, pace time.Duration) int {
 	failed := 0
 	for i, m := range all {
@@ -121,6 +123,11 @@ func sendAll(ctx context.Context, out io.Writer, all []message, pace time.Durati
 			case <-ctx.Done():
 			case <-time.After(pace):
 			}
+		}
+		if ctx.Err() != nil {
+			failed += len(all) - i
+			fmt.Fprintf(out, "stopped: %v; %d message types not tried\n", ctx.Err(), len(all)-i)
+			break
 		}
 		if err := m.send(ctx); err != nil {
 			failed++
