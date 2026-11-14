@@ -368,3 +368,20 @@ func TestBothIdentitiesOnSESShareOneSESConfig(t *testing.T) {
 		t.Fatalf("both identities send as %q; each keeps its own From", cfg.EmailFrom)
 	}
 }
+
+// With both identities on SES the shared settings are read once, so an
+// incomplete one fails startup once, naming the transactional switch.
+func TestBothIdentitiesOnSESWithAMissingSettingFailStartupOnce(t *testing.T) {
+	sesEnv(t, "production")
+	t.Setenv("DIGEST_EMAIL_PROVIDER", "ses")
+	t.Setenv("SES_CONFIGURATION_SET", " ")
+
+	_, err := LoadConfig()
+	if err == nil {
+		t.Fatal("LoadConfig accepted ses/ses with a missing SES setting")
+	}
+	msg := err.Error()
+	if !strings.HasPrefix(msg, "EMAIL_PROVIDER ") || !strings.Contains(msg, "SES_CONFIGURATION_SET") {
+		t.Fatalf("error %q does not lead with EMAIL_PROVIDER and name SES_CONFIGURATION_SET", msg)
+	}
+}

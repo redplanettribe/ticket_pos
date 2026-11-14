@@ -260,8 +260,9 @@ locals {
        account-scoped, and the API falls back to the transactional key here. A
        second copy of one credential is a rotation hazard, not isolation.
     3. Apply. The API logs "digest email sender: resend" at startup when it is
-       satisfied, and "digest email sender: not configured" with a reason when
-       it is not.
+       satisfied ("digest email sender: ses" once digest_email_provider is
+       ses, which needs no Digest Resend key), and "digest email sender: not
+       configured" with a reason when it is not.
 
     To undo this later: verify ${var.digest_email_domain} in Resend, follow the
     separate-domain checklist this output prints when the flag is false, then set
@@ -291,8 +292,9 @@ locals {
     4. Create an API key in Resend scoped to this domain and supply it as
        TF_VAR_digest_resend_api_key. It must NOT be the transactional key.
     5. Apply. The API logs "digest email sender: resend" at startup when it is
-       satisfied, and "digest email sender: not configured" with a reason when
-       it is not.
+       satisfied ("digest email sender: ses" once digest_email_provider is
+       ses, which needs no Digest Resend key), and "digest email sender: not
+       configured" with a reason when it is not.
   EOT
 }
 

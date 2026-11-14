@@ -297,24 +297,36 @@ func (c DigestEmailConfig) SharesSendingDomainWith(transactionalFrom string) boo
 // (nothing set, half set, set to the transactional domain without saying so)
 // deserve to be listed together and phrased as instructions.
 func (c DigestEmailConfig) UnconfiguredReason(transactionalFrom string) string {
-	onSES := c.Provider.OrDefault() == EmailProviderSES
-	switch {
-	// On SES the identity is its From alone, so the Resend key cases do not
-	// apply; the shared-domain rule applies to both providers.
-	case onSES && c.From == "":
-		return fmt.Sprintf("DIGEST_EMAIL_PROVIDER is %q but DIGEST_EMAIL_FROM is not set", EmailProviderSES)
-	case !onSES && c.ResendAPIKey == "" && c.From == "":
-		return "neither DIGEST_RESEND_API_KEY nor DIGEST_EMAIL_FROM is set"
-	case !onSES && c.ResendAPIKey == "":
-		return "DIGEST_EMAIL_FROM is set but DIGEST_RESEND_API_KEY is not"
-	case !onSES && c.From == "":
-		return "DIGEST_RESEND_API_KEY is set but DIGEST_EMAIL_FROM is not"
-	case c.SharesSendingDomainWith(transactionalFrom) && !c.AllowSharedSendingDomain:
+	if reason := c.missingSettingReason(); reason != "" {
+		return reason
+	}
+	if c.SharesSendingDomainWith(transactionalFrom) && !c.AllowSharedSendingDomain {
 		// Named as a choice with two exits, because both are legitimate and the
 		// operator hitting this cannot tell from the symptom which one they are
 		// in: a typo pointing the Digest at the transactional domain looks
-		// identical to a deliberate single-domain deployment.
+		// identical to a deliberate single-domain deployment. The rule holds on
+		// both providers.
 		return fmt.Sprintf("DIGEST_EMAIL_FROM (%s) is on the same sending domain as EMAIL_FROM; give the Digest its own subdomain (ADR 0030), or set DIGEST_EMAIL_ALLOW_SHARED_DOMAIN=true to accept sharing the transactional domain's reputation", c.From)
+	}
+	return ""
+}
+
+// missingSettingReason names the identity setting that is not set, or "".
+// On SES the identity is its From alone; on Resend it is a key and a From.
+func (c DigestEmailConfig) missingSettingReason() string {
+	if c.Provider.OrDefault() == EmailProviderSES {
+		if c.From == "" {
+			return fmt.Sprintf("DIGEST_EMAIL_PROVIDER is %q but DIGEST_EMAIL_FROM is not set", EmailProviderSES)
+		}
+		return ""
+	}
+	switch {
+	case c.ResendAPIKey == "" && c.From == "":
+		return "neither DIGEST_RESEND_API_KEY nor DIGEST_EMAIL_FROM is set"
+	case c.ResendAPIKey == "":
+		return "DIGEST_EMAIL_FROM is set but DIGEST_RESEND_API_KEY is not"
+	case c.From == "":
+		return "DIGEST_RESEND_API_KEY is set but DIGEST_EMAIL_FROM is not"
 	}
 	return ""
 }

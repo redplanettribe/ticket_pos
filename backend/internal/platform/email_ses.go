@@ -19,8 +19,9 @@ import (
 // and selected only by an explicit EMAIL_PROVIDER=ses for the transactional
 // identity or DIGEST_EMAIL_PROVIDER=ses for the Follow Digest's (ADR 0077).
 // Which identity a sender is depends only on the From it was built with: the
-// wiring builds one per identity that selects SES, as it does with Resend. It is the Resend sender's twin: one private send path every public
-// method funnels through, the copy taken from the message's own content
+// wiring builds one per identity that selects SES, as it does with Resend.
+// It is the Resend sender's twin: one private send path every public method
+// funnels through, the copy taken from the message's own content
 // (email_content.go) and never written here, plain text only.
 //
 // It sends with the SES v2 API through a named configuration set, so the
