@@ -82,6 +82,7 @@ ticket_pos/
     cmd/server/
     cmd/migrate/
     cmd/ses-send-check/     # operator's SES delivery proof (no database)
+    cmd/ses-setup-wizard/   # operator's guided AWS and SES setup (no database)
     internal/
       catalog/
       sales/

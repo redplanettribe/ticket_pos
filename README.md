@@ -45,6 +45,7 @@ make test-parity       # browser smoke tests against the parity stack (requires 
 make ci                # full pre-push checks (Go suite including integration, vet, lint, build)
 make migrate   # apply database migrations
 make ses-send-check TO=you@example.com  # send every message type through Amazon SES (see below)
+make ses-setup-wizard  # guided AWS and SES setup for the Platform Operator (see terraform/README.md)
 make swagger   # regenerate API docs from Go annotations
 make api-client  # regenerate TypeScript client from openapi/openapi.yaml
 make openapi   # run swagger + api-client

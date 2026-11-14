@@ -476,6 +476,20 @@ Two providers, two sending identities (ADR [0009](../docs/adr/0009-transactional
 Resend carries all mail today.
 Amazon SES is provisioned beside it, dormant, on the same two sending subdomains: `send.multiticketing.com` for transactional mail and `digest.multiticketing.com` for the Follow Digest.
 
+**The setup wizard.**
+The steps only a human can perform (the AWS Organization and member account, the IAM Identity Center profile, the apply, the DNS records at Namecheap, verification of both identities, the send check against a sandbox-verified address, and the request for production access) are walked in order by the wizard:
+
+```bash
+make ses-setup-wizard                       # from step 1
+make ses-setup-wizard ARGS='-from-step 5'   # resume at a step
+```
+
+Each step says what to do and how to tell it worked, and the wizard checks it with the AWS CLI or Terraform where it can: the profile reaches a member account of the Organization, both identities are verified, and the send check exits 0.
+It refuses to move on while a check fails.
+It writes no file: the budget alert address comes from `TF_VAR_aws_budget_alert_email` in the environment, and the send check's recipient is typed at a prompt.
+`make ses-setup-wizard ARGS=-help` lists its flags (`-profile`, `-region`, `-account`, `-email-from`, `-digest-email-from`).
+Nothing it does switches a sending identity.
+
 | Setting | Cloud Run env | Default |
 | --- | --- | --- |
 | `email_provider` | `EMAIL_PROVIDER` | `resend` |

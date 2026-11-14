@@ -1,4 +1,4 @@
-.PHONY: dev down prod prod-down prod-to-local seed-dev deploy test test-integration test-parity ci ci-preflight ci-go ci-js ci-openapi migrate ses-send-check swagger api-client openapi openapi-sync-check infra-graph infra-graph-zip infra-plan-json
+.PHONY: dev down prod prod-down prod-to-local seed-dev deploy test test-integration test-parity ci ci-preflight ci-go ci-js ci-openapi migrate ses-send-check ses-setup-wizard swagger api-client openapi openapi-sync-check infra-graph infra-graph-zip infra-plan-json
 
 export GOTOOLCHAIN := local
 
@@ -142,6 +142,14 @@ migrate:
 # the AWS profile (AWS_PROFILE); no database, no running API. See README.md.
 ses-send-check:
 	cd backend && go run ./cmd/ses-send-check -to "$(TO)"
+
+# The Platform Operator's guided walk through the human-only steps of the SES
+# setup (#698): Organization, Identity Center profile, apply, DNS, verification,
+# send check, production access. Checks what the AWS CLI can and refuses to move
+# on when a check fails. Writes no file and switches nothing.
+# `make ses-setup-wizard ARGS='-from-step 5'` resumes. See terraform/README.md.
+ses-setup-wizard:
+	cd backend && go run ./cmd/ses-setup-wizard $(ARGS)
 
 # Production deploy from this machine, for when GitHub Actions cannot run (out
 # of minutes). Same sequence as .github/workflows/deploy.yml -- build and push
