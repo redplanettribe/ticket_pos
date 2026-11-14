@@ -36,6 +36,15 @@ gcloud auth application-default login
 gcloud config set project multiticketing
 ```
 
+`envs/prod` also manages Amazon SES in the AWS member account (see [Email](#email)), so a plan needs the
+`aws` CLI signed in to that account's IAM Identity Center profile and the budget alert address in the
+environment:
+
+```bash
+aws sso login --profile multiticketing-ses
+export TF_VAR_aws_budget_alert_email=...   # from the sourced, gitignored .env
+```
+
 ### 1. Bootstrap — once per project, ever
 
 ```bash
@@ -77,7 +86,7 @@ module takes no `prod`-specific input, so nothing else moves.
 
 ## Conventions
 
-- **Versions are pinned.** Roots pin Terraform `~> 1.13` and the Google provider `~> 6.0`; the module
+- **Versions are pinned.** Roots pin Terraform `~> 1.13`, the Google provider `~> 6.0` and, in `envs/prod`, the AWS provider `~> 6.0`; the module
   states looser constraints because the root is what decides. Run `terraform init` and commit the
   generated `.terraform.lock.hcl` in each root so provider hashes are locked too.
 - **Nothing environment-specific inside the module.** Variables in, outputs out. If a resource needs to
@@ -461,6 +470,68 @@ reconciler has — the backend's drain budget expires first, Scheduler's deadlin
 `api_request_timeout_seconds` last — written down once in
 `backend/internal/digest/service/service.go` beside `digestDrainBudget`, where a backend test reads
 the Terraform defaults and fails if the three stop agreeing.
+
+## Email
+
+Two providers, two sending identities (ADR [0009](../docs/adr/0009-transactional-email-via-resend.md),
+[0030](../docs/adr/0030-follows-notify-as-a-weekly-digest.md),
+[0077](../docs/adr/0077-ses-stands-beside-resend-dormant-behind-an-explicit-provider-switch.md)).
+Resend carries all mail today.
+Amazon SES is provisioned beside it, dormant, on the same two sending subdomains:
+`send.multiticketing.com` for transactional mail and `digest.multiticketing.com` for the Follow Digest.
+
+| Setting | Cloud Run env | Default |
+| --- | --- | --- |
+| `email_provider` | `EMAIL_PROVIDER` | `resend` |
+| `digest_email_provider` | `DIGEST_EMAIL_PROVIDER` | `resend` |
+
+Switching an identity to SES is setting one of these to `ses` and applying; rolling back is setting it back.
+The SES settings (`SES_REGION`, `SES_CONFIGURATION_SET`, `AWS_ROLE_ARN`, `SES_WEB_IDENTITY_AUDIENCE`) are always
+mounted, and the API reads them only for an identity that selects `ses`.
+
+**Resend** (`email.tf`).
+The Resend domains and their records were added by hand; Terraform holds only the API keys
+(`TF_VAR_resend_api_key`, `TF_VAR_digest_resend_api_key`) and prints the Digest domain's checklist as
+`terraform output digest_email_dns_setup`.
+On each subdomain Resend publishes a DKIM TXT at `resend._domainkey.<domain>` and its return path at
+`send.<domain>` (an MX to `feedback-smtp.<region>.amazonses.com` and an SPF TXT).
+
+**SES** (`ses.tf`).
+Everything on the AWS side lives in a dedicated member account of an AWS Organization, in `us-east-1`, reached
+through the `aws_profile` IAM Identity Center profile.
+The Organization and the account are created by hand, never in Terraform.
+`ses.tf` creates:
+
+- an email identity per sending subdomain with Easy DKIM, each defaulting to the configuration set;
+- a custom MAIL FROM per identity on `bounce.<domain>` (`ses_mail_from_label`);
+- the configuration set `prod-ticket-pos`, with no event destination and engagement tracking disabled, so open
+  and click tracking stay off;
+- account-level suppression for `BOUNCE` and `COMPLAINT`;
+- the role `prod-ticket-pos-api-ses`, which the API assumes with a Google-signed ID token (no AWS key is stored
+  anywhere).
+  Its trust accepts `accounts.google.com` only when `sub` and `aud` (Google's `azp`) are the API service
+  account's unique ID, read from `google_service_account.api`, and `oaud` is the audience the API requests.
+  Its policy allows only `ses:SendEmail` on the two identities and the configuration set;
+- a monthly AWS Budget on the member account (`aws_budget_limit_usd`, 10 USD by default) that emails
+  `TF_VAR_aws_budget_alert_email` at 80% spent and at a forecast over 100%.
+  The address has no default and no committed value, so a plan without it stops and asks.
+
+**DNS for SES.**
+`terraform output -raw ses_dns_setup` prints every record to add at Namecheap, per subdomain:
+
+| Record | Name | Value |
+| --- | --- | --- |
+| CNAME x3 | `<token>._domainkey.<domain>` | `<token>.dkim.amazonses.com` |
+| MX | `bounce.<domain>` | `10 feedback-smtp.us-east-1.amazonses.com` |
+| TXT | `bounce.<domain>` | `v=spf1 include:amazonses.com ~all` |
+
+They sit beside Resend's and replace none of them.
+SES's DKIM selectors are random tokens, so they never meet `resend._domainkey`, and its return path is
+`bounce.<domain>`, never Resend's `send.<domain>`.
+DMARC needs nothing new: `_dmarc.multiticketing.com` already covers both subdomains, and SES mail aligns with it
+through DKIM and the MAIL FROM.
+Until the records are in and SES reads both identities as verified, SES refuses to send from them; nothing sends
+through SES before a provider variable says `ses` anyway.
 
 ## What is not here yet
 

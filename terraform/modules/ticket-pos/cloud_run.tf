@@ -413,6 +413,43 @@ resource "google_cloud_run_v2_service" "api" {
         }
       }
 
+      # The provider switch, one per sending identity (ADR 0077, ses.tf). Both
+      # default to "resend", so these are behaviour-neutral until somebody
+      # changes a variable. Switch day, and its rollback, is that one variable.
+      env {
+        name  = "EMAIL_PROVIDER"
+        value = var.email_provider
+      }
+
+      env {
+        name  = "DIGEST_EMAIL_PROVIDER"
+        value = var.digest_email_provider
+      }
+
+      # The SES settings (ses.tf). Plain env vars, none of them a secret: the
+      # API holds no AWS key and trades its own ID token for AWS_ROLE_ARN. They
+      # are mounted whatever the switch says, and the API reads them only for an
+      # identity that selects ses, so mounting them changes nothing today.
+      env {
+        name  = "SES_REGION"
+        value = var.ses_region
+      }
+
+      env {
+        name  = "SES_CONFIGURATION_SET"
+        value = aws_sesv2_configuration_set.main.configuration_set_name
+      }
+
+      env {
+        name  = "AWS_ROLE_ARN"
+        value = aws_iam_role.ses_sender.arn
+      }
+
+      env {
+        name  = "SES_WEB_IDENTITY_AUDIENCE"
+        value = local.ses_web_identity_audience
+      }
+
       # The Google OAuth credentials, one client per surface (google_oauth.tf).
       # Guarded the same way as the Resend key and for the same reason: no
       # version exists until a value is supplied, and "latest" against an empty

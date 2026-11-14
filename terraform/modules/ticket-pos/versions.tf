@@ -10,6 +10,12 @@ terraform {
       version = ">= 6.0, < 7.0"
     }
 
+    # Amazon SES and the role the API assumes (ses.tf, ADR 0077).
+    aws = {
+      source  = "hashicorp/aws"
+      version = ">= 6.0, < 7.0"
+    }
+
     random = {
       source  = "hashicorp/random"
       version = ">= 3.5, < 4.0"

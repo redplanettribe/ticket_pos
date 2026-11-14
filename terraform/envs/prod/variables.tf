@@ -103,6 +103,39 @@ variable "digest_email_from" {
   default     = ""
 }
 
+# Amazon SES (ADR 0077). The aws provider points at the SES member account
+# through an IAM Identity Center profile; nothing about it is secret except the
+# budget alert address.
+variable "aws_profile" {
+  description = "AWS CLI profile (IAM Identity Center) for the SES member account of the AWS Organization. Run `aws sso login --profile <name>` before a plan."
+  type        = string
+  default     = "multiticketing-ses"
+}
+
+variable "aws_region" {
+  description = "AWS region SES runs in. Also the SES_REGION the API sends to."
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "email_provider" {
+  description = "Provider the transactional sending identity delivers through: \"resend\" or \"ses\". Defaults to resend; setting ses is switch day, setting resend back is the rollback."
+  type        = string
+  default     = "resend"
+}
+
+variable "digest_email_provider" {
+  description = "Provider the Follow Digest's sending identity delivers through: \"resend\" or \"ses\", independent of email_provider. Defaults to resend."
+  type        = string
+  default     = "resend"
+}
+
+variable "aws_budget_alert_email" {
+  description = "Address the SES member account's AWS Budget alert goes to. Set via TF_VAR_aws_budget_alert_email from a sourced .env, never a committed tfvars."
+  type        = string
+  sensitive   = true
+}
+
 # The four Google Sign-In credentials, from the `staff` and `storefront` OAuth
 # clients registered by hand in the Console (#75). Set via TF_VAR_ from a sourced
 # .env; empty leaves the feature off with the Google button hidden on both

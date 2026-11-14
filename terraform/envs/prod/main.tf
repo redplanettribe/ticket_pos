@@ -54,6 +54,20 @@ module "ticket_pos" {
   digest_resend_api_key            = var.digest_resend_api_key
   digest_email_from                = var.digest_email_from
 
+  # The provider switch, one per sending identity (ADR 0077). Both default to
+  # "resend": switching an identity to SES is one of these variables set to
+  # "ses" and an apply, and rolling back is setting it back. The SES region is
+  # the aws provider's, so the identities, the configuration set and what the
+  # API asks for cannot be in different regions.
+  #
+  # The budget alert address is personal: TF_VAR_aws_budget_alert_email from
+  # the sourced .env, never a committed tfvars. It has no default, so a plan
+  # without it stops and asks rather than dropping the alert.
+  email_provider         = var.email_provider
+  digest_email_provider  = var.digest_email_provider
+  ses_region             = var.aws_region
+  aws_budget_alert_email = var.aws_budget_alert_email
+
   # Google Sign-In credentials, one client per surface (ADR 0011). Supplied the
   # same way as the Resend key — sourced .env, never a committed tfvars — and
   # subject to the same trap: applying without sourcing it removes the secret

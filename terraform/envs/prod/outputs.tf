@@ -95,6 +95,26 @@ output "digest_email_dns_setup" {
   value       = module.ticket_pos.digest_email_dns_setup
 }
 
+output "ses_dns_setup" {
+  description = "Operator checklist of every DNS record Amazon SES needs at Namecheap for both sending identities (ADR 0077), added beside Resend's. Terraform creates none of them."
+  value       = module.ticket_pos.ses_dns_setup
+}
+
+output "ses_dns_records" {
+  description = "The records in ses_dns_setup as data, keyed by sending domain."
+  value       = module.ticket_pos.ses_dns_records
+}
+
+output "ses_role_arn" {
+  description = "IAM role the API assumes through Workload Identity Federation to send through SES. Trusts only the API service account."
+  value       = module.ticket_pos.ses_role_arn
+}
+
+output "ses_configuration_set_name" {
+  description = "SES configuration set every message is sent through."
+  value       = module.ticket_pos.ses_configuration_set_name
+}
+
 output "reversal_reconciler_job_name" {
   description = "Cloud Scheduler job driving the reversal drain. `gcloud scheduler jobs pause <name> --location us-east1` stops the tick immediately; follow it with the matching Terraform change so the next apply does not resume it."
   value       = module.ticket_pos.reversal_reconciler_job_name
