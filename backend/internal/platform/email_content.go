@@ -162,8 +162,8 @@ var (
 	questionReviewAnsweredRefusedCopy  = translated("refused", "rechazada")
 	questionReviewAnsweredReasonCopy   = translated(" — %s", " — %s")
 	questionReviewAnsweredClosingCopy  = translated(
-		"\nApproved questions are asked from now on. A refused question is not asked; edit it and submit the event's questions for review again.",
-		"\nLas preguntas aprobadas se hacen desde ahora. Una pregunta rechazada no se hace; edítela y envíe de nuevo las preguntas del evento a revisión.",
+		"\n\nApproved questions are asked from now on. A refused question is not asked; edit it and submit the event's questions for review again.",
+		"\n\nLas preguntas aprobadas se hacen desde ahora. Una pregunta rechazada no se hace; edítela y envíe de nuevo las preguntas del evento a revisión.",
 	)
 )
 
