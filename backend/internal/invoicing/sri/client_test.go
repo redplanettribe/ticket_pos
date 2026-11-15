@@ -282,8 +282,8 @@ func TestBuildRequestsAreWellFormed(t *testing.T) {
 // redirectingSRI answers autorizacionComprobante the way the SRI's edge did
 // on 6 of 40 consultas from Cloud Run on 2026-11-15 (#716, #722): an HTTP
 // 302 to an HTML page, not SOAP. The page itself answers 200.
-// It records each request's method and path, so a test can see the client
-// followed the redirect to the page.
+// It records each request's method and path, so a test can see the
+// autorización POST reached it.
 func redirectingSRI(t *testing.T) (*httptest.Server, *[]string) {
 	t.Helper()
 	var seen []string

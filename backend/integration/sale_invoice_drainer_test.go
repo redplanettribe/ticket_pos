@@ -871,9 +871,10 @@ func TestSaleInvoiceDrainerResubmitsOnAFalseUnknownAndHoldsItsStatus(t *testing.
 		t.Fatal("the SRI recorded no submission at all")
 	}
 
-	// lastAnswerLeaves checks status once, asserts the ledger ends on a query
-	// answered unknown, and that the status is the one the document had.
-	lastAnswerLeaves := func(want string) {
+	// checkLeavesStatus presses Check status once, asserts the ledger ends
+	// on a query answered unknown, and that the status is the one the
+	// document had.
+	checkLeavesStatus := func(want string) {
 		t.Helper()
 		resp, body := checkInvoice(t, operatorSessionID, invoiceID)
 		actionOK(t, "check status", resp, body)
@@ -886,8 +887,8 @@ func TestSaleInvoiceDrainerResubmitsOnAFalseUnknownAndHoldsItsStatus(t *testing.
 			t.Fatalf("after an unknown answer: status %s; want %s, as it was", detail.Status, want)
 		}
 	}
-	lastAnswerLeaves("pending")
-	lastAnswerLeaves("pending")
+	checkLeavesStatus("pending")
+	checkLeavesStatus("pending")
 
 	// Past 24 h the clock parks it; the unknown answers after that leave it
 	// parked, and do not take it back to pending.
@@ -895,7 +896,7 @@ func TestSaleInvoiceDrainerResubmitsOnAFalseUnknownAndHoldsItsStatus(t *testing.
 	if late := drainSaleInvoices(t); late.Claimed != 1 || late.NeedsAttention != 1 {
 		t.Fatalf("drain at 24 h = %+v; want the document parked needs_attention", late)
 	}
-	lastAnswerLeaves("needs_attention")
+	checkLeavesStatus("needs_attention")
 	before := sriStub.receptionCount()
 
 	// The SRI holds it after all: the resubmit is answered 43, and
@@ -919,8 +920,8 @@ func TestSaleInvoiceDrainerResubmitsOnAFalseUnknownAndHoldsItsStatus(t *testing.
 		t.Fatalf("clave: first %s, resubmission %s, on file %s; want one clave throughout",
 			first.accessKey, again.accessKey, detail.EcuadorFull.AccessKey)
 	}
-	if *detail.Number != "001-001-000000001" {
-		t.Fatalf("number = %s; want the first number kept: a resubmission consumes none", *detail.Number)
+	if detail.Number == nil || *detail.Number != "001-001-000000001" {
+		t.Fatalf("number = %v; want the first number kept: a resubmission consumes none", detail.Number)
 	}
 	if detail.Status != "needs_attention" {
 		t.Fatalf("after the 43 and more unknown answers: status %s; want needs_attention still", detail.Status)
