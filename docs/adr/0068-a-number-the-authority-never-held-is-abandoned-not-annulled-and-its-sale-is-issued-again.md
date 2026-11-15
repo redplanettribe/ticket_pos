@@ -145,3 +145,16 @@ a second case needs it.
   carries the status and the abandonment's trail, and 120 the widened live-successor index.
 - The needs-attention queue's widening is #581; the record of this arc, including the flows doc's row
   27, is #582.
+
+## Amendment: a fresh Check is two spaced "nothing known" answers
+
+Recorded 2026-11-15 from the triage of #722, amending the fresh Check and nothing else.
+Probing production from Cloud Run (#716) showed the SRI's `autorizacionComprobante` answering `numeroComprobantes 0` for a factura it held and had authorized, byte-identical to a clave it never held, and answering `AUTORIZADO` for the same clave hours later.
+A single "nothing known" is therefore not evidence of anything, and the record an abandonment leaves must not rest on one.
+
+- **The fresh Check now reads the answer's value.** The last two attempts on the ledger are both queries answered `unknown`, started at least one minute apart, and the later one within fifteen minutes (`AbandonCheckFreshness`).
+  The remedy stays a button the operator already has: Check status, wait a minute, Check status, then Abandon.
+- **A `received` answer no longer counts.** It is the authority saying it holds the document and is still working on it, which is the opposite of the record an abandonment needs.
+  Under "As built" it passed, because only decisions move the status and `received` is not a decision.
+- The refusal by number (error 45) is still required and is still the positive fact the act rests on; the two Checks are the timestamped record beside it, not a substitute for it.
+- The same rule, that only a positive answer counts and a negative one must be repeated before anything rests on it, governs the Annulment Check specced from map #710 (#716, #723).
