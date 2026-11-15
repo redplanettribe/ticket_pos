@@ -1607,8 +1607,9 @@ export async function annulOperatorInvoice(id: string): Promise<OperatorInvoiceD
  * minute apart, the later within the last 15 minutes, so the decision rests
  * on the SRI's own word given twice. Otherwise it is refused with
  * INVOICE_CHECK_NOT_FRESH, whose remedy is to Check status twice, at least a
- * minute apart, then Abandon. Also refused with INVOICE_NOT_REFUSED_BY_NUMBER on a document the
- * SRI refused for any other reason, INVOICE_NOT_ABANDONABLE outside
+ * minute apart, then Abandon. Also refused with
+ * INVOICE_NOT_REFUSED_BY_NUMBER on a document the SRI refused for any other
+ * reason, INVOICE_NOT_ABANDONABLE outside
  * `needs_attention`, `rejected` and `not_authorized`, and by the shared
  * codes every finished document answers — INVOICE_ALREADY_AUTHORIZED,
  * INVOICE_ABANDONED, INVOICE_ANNULLED, INVOICE_WITHDRAWN,

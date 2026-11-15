@@ -40,18 +40,18 @@ var abandonAt = time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 func checkedTwiceLedger() []invoicing.Attempt {
 	return []invoicing.Attempt{
 		{Operation: invoicing.AttemptSubmit, Outcome: string(invoicing.OutcomeRejected), StartedAt: abandonAt.Add(-48 * time.Hour)},
-		{Operation: invoicing.AttemptQuery, Outcome: string(invoicing.OutcomeUnknown), StartedAt: abandonAt.Add(-3 * time.Minute)},
-		{Operation: invoicing.AttemptQuery, Outcome: string(invoicing.OutcomeUnknown), StartedAt: abandonAt.Add(-time.Minute)},
+		unknownAt(3 * time.Minute),
+		unknownAt(time.Minute),
 	}
 }
 
-// freshCheckLedger is the ledger the one-answer rule abandoned on: the same
+// checkedOnceLedger is the ledger the one-answer rule abandoned on: the same
 // refused Submit and ONE query answering "nothing known", a minute ago. It
 // is no longer enough, and is kept to say so.
-func freshCheckLedger() []invoicing.Attempt {
+func checkedOnceLedger() []invoicing.Attempt {
 	return []invoicing.Attempt{
 		{Operation: invoicing.AttemptSubmit, Outcome: string(invoicing.OutcomeRejected), StartedAt: abandonAt.Add(-48 * time.Hour)},
-		{Operation: invoicing.AttemptQuery, Outcome: string(invoicing.OutcomeUnknown), StartedAt: abandonAt.Add(-time.Minute)},
+		unknownAt(time.Minute),
 	}
 }
 
@@ -148,7 +148,7 @@ func TestAbandonRefusal(t *testing.T) {
 		{"never checked, only submitted", abandonable, []invoicing.Attempt{
 			{Operation: invoicing.AttemptSubmit, Outcome: string(invoicing.OutcomeRejected), StartedAt: abandonAt.Add(-time.Minute)},
 		}, "INVOICE_CHECK_NOT_FRESH"},
-		{"checked once: one 'nothing known' is not evidence", abandonable, freshCheckLedger(), "INVOICE_CHECK_NOT_FRESH"},
+		{"checked once: one 'nothing known' is not evidence", abandonable, checkedOnceLedger(), "INVOICE_CHECK_NOT_FRESH"},
 		{"checked twice, 30 seconds apart", abandonable, []invoicing.Attempt{
 			unknownAt(time.Minute + 30*time.Second), unknownAt(time.Minute),
 		}, "INVOICE_CHECK_NOT_FRESH"},
