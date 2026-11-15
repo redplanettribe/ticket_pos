@@ -1259,7 +1259,7 @@ export type OperatorInvoiceMessage = {
 export type OperatorInvoiceAttempt = {
   id: number;
   operation: "submit" | "query";
-  outcome: "received" | "authorized" | "not_authorized" | "rejected" | "error";
+  outcome: "received" | "authorized" | "not_authorized" | "rejected" | "unknown" | "error";
   messages: OperatorInvoiceMessage[];
   error: string;
   started_at: string;
@@ -1362,10 +1362,13 @@ export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
    * never both true. `check_status_hint` is true when the SRI really holds
    * it — a submit came back received (RECIBIDA, or 43/70 on a resend) — and
    * it is still undecided: the page says "check status" rather than showing
-   * an error. `resend_hint` is its opposite: the SRI answered that it has no
-   * record of the clave and never took the document, so sending the same
-   * bytes again is the fix. A document whose ledger says neither shows
-   * neither banner.
+   * an error. `resend_hint` is its opposite: no submit was ever
+   * acknowledged and the SRI's last answer was that it holds nothing under
+   * the clave. That answer is not proof - the SRI gives it for documents it
+   * holds (#722) - but sending the same bytes again is the fix either way,
+   * since a clave it holds is answered as already registered. The page shows
+   * the answer's time, the last attempt's `started_at` (#728). A document
+   * whose ledger says neither shows neither banner.
    */
   check_status_hint: boolean;
   resend_hint: boolean;

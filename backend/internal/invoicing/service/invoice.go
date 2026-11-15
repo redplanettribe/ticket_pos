@@ -857,10 +857,13 @@ type InvoiceDetail struct {
 	// is true when the authority really holds it — some Submit came back
 	// received (RECIBIDA, or 43/70 on a resend) — and has decided nothing
 	// yet, so the page says "check status" rather than showing an error.
-	// ResendHint is its opposite: the authority's last word was that it has
-	// no record of the clave (`unknown`, #514) and no Submit was ever
-	// acknowledged, so the document is nowhere and resending the same bytes
-	// is the fix. A query answer never counts as acknowledgement, which is
+	// ResendHint is its opposite: the authority's last answer was that it
+	// holds nothing under the clave (`unknown`, #514) and no Submit was ever
+	// acknowledged. That answer is not proof - the SRI gives it for documents
+	// it holds (#722) - but resending the same bytes is the fix either way,
+	// since a clave it holds is answered 43/70. The page reports the answer
+	// and the last attempt's time (#728), never that the SRI has no record.
+	// A query answer never counts as acknowledgement, which is
 	// what makes the two mutually exclusive; neither is true of a document
 	// whose position the ledger does not say (checkStatusHint, resendHint).
 	CheckStatusHint bool      `json:"check_status_hint"`

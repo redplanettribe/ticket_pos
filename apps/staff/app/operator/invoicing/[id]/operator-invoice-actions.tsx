@@ -22,11 +22,13 @@ import {
   Textarea,
   toast,
 } from "@ticket-pos/ui";
-import { useMessages, useTranslations } from "next-intl";
+import { toAppLocale } from "@ticket-pos/locale";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
-import { hasInvoiceLevers, invoiceLevers } from "@/lib/invoice-actions";
+import { PLATFORM_TIME_ZONE, formatDateTime } from "@/lib/format";
+import { hasInvoiceLevers, invoiceLevers, resendHintAskedAt } from "@/lib/invoice-actions";
 import {
   type InvoiceStatus,
   type OperatorInvoiceDetail,
@@ -53,10 +55,13 @@ import {
  * RECIBIDA, or after a resend the SRI met with "clave already registered"
  * (43) or "in processing" (70) — the API says so with `check_status_hint`,
  * and the card shows "it is there, check status" instead of an error. When
- * the SRI answered that it has no record of the clave and never took the
- * document — where a submit that died in transport leaves it — `resend_hint`
- * says so instead, and the card asks for the resend that is the only thing
- * that would fix it. A document the ledger says neither about shows neither
+ * no submit was ever acknowledged and the SRI's last answer was that it
+ * holds nothing under the clave - where a submit that died in transport
+ * leaves it - `resend_hint` says so instead, and the card reports that
+ * answer and when it was given (#728), and asks for the resend. It never
+ * says the document was not received: the SRI's status services give that
+ * answer for documents they hold (#722), and resending is the fix either
+ * way, since a clave it holds is answered as already registered. A document the ledger says neither about shows neither
  * banner: the card offers its levers and says nothing it cannot know.
  *
  * RESEND IS REFUSED WHERE THE NUMBER IS THE OBJECTION (#577, ADR 0068).
@@ -117,6 +122,7 @@ export function OperatorInvoiceActions({
   onUpdated: (invoice: OperatorInvoiceDetail) => void;
 }) {
   const t = useTranslations("operator");
+  const locale = toAppLocale(useLocale());
   const errorCopy = useMessages().errors;
   const [busy, setBusy] = useState<"check" | "resend" | "annul" | "abandon" | null>(null);
   const [confirmingAnnulment, setConfirmingAnnulment] = useState(false);
@@ -125,6 +131,7 @@ export function OperatorInvoiceActions({
   const [error, setError] = useState<string | null>(null);
 
   const levers = invoiceLevers(invoice.status, invoice.ecuador !== null, undefined, invoice.refused_by_number);
+  const resendAskedAt = resendHintAskedAt(invoice);
   if (!hasInvoiceLevers(levers)) {
     return null;
   }
@@ -198,10 +205,14 @@ export function OperatorInvoiceActions({
             <AlertDescription>{t("invoicingCheckStatusHint")}</AlertDescription>
           </Alert>
         ) : null}
-        {invoice.resend_hint ? (
+        {resendAskedAt !== null ? (
           <Alert variant="warning">
             <AlertTitle>{t("invoicingResendHintTitle")}</AlertTitle>
-            <AlertDescription>{t("invoicingResendHint")}</AlertDescription>
+            <AlertDescription>
+              {t("invoicingResendHint", {
+                time: formatDateTime(resendAskedAt, PLATFORM_TIME_ZONE, locale) ?? resendAskedAt,
+              })}
+            </AlertDescription>
           </Alert>
         ) : null}
         {error ? (

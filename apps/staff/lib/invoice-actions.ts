@@ -178,3 +178,25 @@ function reissueOffered(status: InvoiceStatus, chain: InvoiceChainFacts): boolea
 export function hasInvoiceLevers(levers: InvoiceLevers): boolean {
   return levers.check || levers.resend || levers.annul || levers.abandon;
 }
+
+/**
+ * When the SRI gave the answer the resend hint reports (#728): the last
+ * attempt's start, which is the query answered `unknown` that turned the
+ * hint on. Null when the hint is off.
+ *
+ * The hint says only what the SRI answered and when, never that the document
+ * was not received: the SRI's status services answer "nothing under this
+ * clave" for documents they hold (#722), and production factura 225 was
+ * told "never received" on one such answer while the SRI held it authorized.
+ * Resending is safe either way - a clave the SRI holds is answered as
+ * already registered (43/70), never duplicated.
+ */
+export function resendHintAskedAt(invoice: {
+  resend_hint: boolean;
+  attempts: readonly { started_at: string }[];
+}): string | null {
+  if (!invoice.resend_hint || invoice.attempts.length === 0) {
+    return null;
+  }
+  return invoice.attempts[invoice.attempts.length - 1].started_at;
+}

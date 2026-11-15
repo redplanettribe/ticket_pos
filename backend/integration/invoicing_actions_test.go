@@ -45,8 +45,9 @@ func actionOK(t *testing.T, what string, resp *http.Response, env envelope) invo
 // invoiceActionView is the part of the detail #455 adds and #516 tightens:
 // the two hints about who holds the document. CheckStatusHint says "the SRI
 // has it — check status" and is true only when a submit came back received
-// and nothing is decided yet; ResendHint says the opposite — the SRI has no
-// record of the clave and never took it, so the fix is to send it again.
+// and nothing is decided yet; ResendHint says the opposite - no submit was
+// acknowledged and the SRI last answered it holds nothing under the clave,
+// so the fix is to send it again.
 // They are never both true.
 type invoiceActionView struct {
 	CheckStatusHint bool `json:"check_status_hint"`
@@ -314,7 +315,7 @@ func TestCheckStatusUnknownAfterATransportFailureAsksForAResend(t *testing.T) {
 	}
 	hints := actionHints(t, body)
 	if hints.CheckStatusHint || !hints.ResendHint {
-		t.Fatalf("hints = %+v, want the resend hint alone on a document the SRI never received", hints)
+		t.Fatalf("hints = %+v, want the resend hint alone on a document no submit got to the SRI", hints)
 	}
 }
 
