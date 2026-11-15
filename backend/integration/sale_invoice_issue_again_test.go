@@ -3,7 +3,10 @@ package integration
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
+
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // Issue again (#580, parent #575, ADR 0068): the second press, which owes a
@@ -82,6 +85,36 @@ func abandonedSaleInvoice(t *testing.T) (env *testEnv, operatorSessionID, invoic
 		t.Fatalf("setup abandon left the document %s", view.Status)
 	}
 	return env, operatorSessionID, invoiceID
+}
+
+// assertPlainFacturaMail (#718): a replacement Issue again produced is
+// mailed as the buyer's factura and nothing more. Its predecessor was never
+// held by the SRI and never mailed, and no Credit Note cancelled it, so the
+// words a Sale Invoice Reissue's corrected factura carries - that it
+// replaces an earlier one a nota de crédito cancelled - would be false. The
+// mail is read in both languages, since the Sale's Locale picks one.
+func assertPlainFacturaMail(t *testing.T, mail platform.TaxDocumentDelivery) {
+	t.Helper()
+	if mail.Kind != "sale" || mail.Replaces != "" {
+		t.Fatalf("mail kind %s replaces %q; want a Sale Invoice that replaces nothing the buyer was told of", mail.Kind, mail.Replaces)
+	}
+	openings := map[platform.Locale]string{
+		platform.LocaleEN: "Attached is the tax invoice (factura) for your purchase",
+		platform.LocaleES: "Adjuntamos la factura de su compra",
+	}
+	for locale, opening := range openings {
+		mail.Locale = locale
+		text := mail.Text()
+		if !strings.Contains(text, opening) {
+			t.Fatalf("%s mail is not the ordinary factura delivery:\n%s", locale, text)
+		}
+		lower := strings.ToLower(text)
+		for _, banned := range []string{"replaces", "credit note", "nota de crédito", "sustituye", "corrected", "corregida"} {
+			if strings.Contains(lower, banned) {
+				t.Fatalf("%s mail says %q, but no Credit Note exists and the buyer never received the earlier factura:\n%s", locale, banned, text)
+			}
+		}
+	}
 }
 
 // lastSecuencial reads the sequence table directly: no API exposes it, and
@@ -180,6 +213,7 @@ func TestIssueAgainOwesAReplacementTheDrainerSignsUnderTheNextSecuencial(t *test
 	if len(sent) != 1 || sent[0].Kind != "sale" {
 		t.Fatalf("deliveries = %+v; want exactly one, the replacement's", sent)
 	}
+	assertPlainFacturaMail(t, sent[0])
 	if signed.DeliveredAt == nil || still.DeliveredAt != nil {
 		t.Fatalf("delivered: replacement %v abandoned %v; want the replacement mailed and the abandoned document never", signed.DeliveredAt, still.DeliveredAt)
 	}
@@ -309,9 +343,11 @@ func TestIssueAgainWorksFromAnAnnulledSaleInvoice(t *testing.T) {
 	if signed.Number == nil || *signed.Number != "001-001-000000002" {
 		t.Fatalf("the replacement took %v; want the next free number", signed.Number)
 	}
-	if sent := deliveriesSent(t, env); len(sent) != 1 {
+	sent := deliveriesSent(t, env)
+	if len(sent) != 1 {
 		t.Fatalf("deliveries = %+v; want exactly the replacement's — the annulled document is never mailed", sent)
 	}
+	assertPlainFacturaMail(t, sent[0])
 }
 
 // TestIssueAgainIsRefusedWhereItCannotOwe: every refusal, by its own code,
