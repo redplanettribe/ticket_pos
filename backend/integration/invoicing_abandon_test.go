@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/invoicing/service"
 )
 
 // Abandon (#578, parent #575, ADR 0068): the operator's record that the SRI
@@ -69,6 +72,21 @@ func abandonedView(t *testing.T, resp *http.Response, env envelope) abandonedInv
 	return view
 }
 
+// checkTwice leaves the ledger an Abandon rests on (ADR 0068, amended for
+// #722): Check status pressed at `at`, then again AbandonCheckSpacing later,
+// both answered by whatever the fake SRI is set to answer. The invoicing
+// clock is left at the second press, which is where the Abandon that follows
+// is pressed; atInvoicingClock puts it back when the test ends.
+func checkTwice(t *testing.T, sessionID, id string, at time.Time) {
+	t.Helper()
+	for _, when := range []time.Time{at, at.Add(service.AbandonCheckSpacing)} {
+		atInvoicingClock(t, when)
+		if resp, body := checkInvoice(t, sessionID, id); resp.StatusCode != http.StatusOK {
+			t.Fatalf("check at %s: status=%d error=%+v", when, resp.StatusCode, body.Error)
+		}
+	}
+}
+
 // refusedByNumberSaleInvoice drives a House Organization's Sale Invoice to
 // the position production's 001-001-000000025 and 26 are in: submitted once,
 // returned by recepción with error 45, parked needs_attention with the
@@ -121,12 +139,24 @@ func TestAbandonWithoutAFreshCheckIsRefusedAndWithOneTheDocumentIsAbandoned(t *t
 		t.Fatalf("annul: status=%d error=%+v; want 409 INVOICE_ABANDON_INSTEAD", annulResp.StatusCode, annulBody.Error)
 	}
 
-	// One Check status, answered "nothing known", and the ledger now carries
-	// the authority's own current answer immediately before the act.
+	// One Check status, answered "nothing known". The SRI gives that answer
+	// for documents it holds (#716), so one is not evidence, and Abandon is
+	// still refused - with the same remedy.
 	checkResp, checkBody := checkInvoice(t, operatorSessionID, invoiceID)
 	if view := actionOK(t, "check", checkResp, checkBody); view.Status != "needs_attention" {
 		t.Fatalf("status = %q after a check that decided nothing; want needs_attention", view.Status)
 	}
+	resp, body = abandonInvoice(t, operatorSessionID, invoiceID, nil)
+	if resp.StatusCode != http.StatusConflict || body.Error == nil || body.Error.Code != "INVOICE_CHECK_NOT_FRESH" {
+		t.Fatalf("abandon after one check: status=%d error=%+v; want 409 INVOICE_CHECK_NOT_FRESH", resp.StatusCode, body.Error)
+	}
+
+	// A second Check, a minute later, answered the same: the ledger now
+	// carries the authority's word twice, spaced and timestamped,
+	// immediately before the act.
+	atInvoicingClock(t, fixedClock.Add(service.AbandonCheckSpacing))
+	checkResp, checkBody = checkInvoice(t, operatorSessionID, invoiceID)
+	actionOK(t, "check", checkResp, checkBody)
 	sent := sriStub.receptionCount()
 
 	abandonResp, abandonBody := abandonInvoice(t, operatorSessionID, invoiceID, map[string]any{"note": "not registered at the portal, confirmed by phone"})
@@ -143,8 +173,8 @@ func TestAbandonWithoutAFreshCheckIsRefusedAndWithOneTheDocumentIsAbandoned(t *t
 	}
 	// Nothing was sent, and nothing about the issuance was lost: the number,
 	// the clave and the secuencial stand, and the ledger still holds every
-	// attempt — the Submit the SRI refused and the Check that preceded the
-	// act — plus nothing new.
+	// attempt - the Submit the SRI refused and the two Checks that preceded
+	// the act - plus nothing new.
 	if got := sriStub.receptionCount(); got != sent {
 		t.Fatalf("recepción received %d documents; want %d — Abandon sends nothing", got, sent)
 	}
@@ -154,10 +184,11 @@ func TestAbandonWithoutAFreshCheckIsRefusedAndWithOneTheDocumentIsAbandoned(t *t
 	if view.Ecuador == nil || view.Ecuador.AccessKey != before.Ecuador.AccessKey || view.Ecuador.Secuencial != before.Ecuador.Secuencial {
 		t.Fatalf("ecuador = %+v; want the clave and secuencial of %+v", view.Ecuador, before.Ecuador)
 	}
-	if len(view.Attempts) != 2 ||
+	if len(view.Attempts) != 3 ||
 		view.Attempts[0].Operation != "submit" ||
-		view.Attempts[1].Operation != "query" {
-		t.Fatalf("attempts = %+v; want the Submit and the Check kept, in order, and nothing added", view.Attempts)
+		view.Attempts[1].Operation != "query" ||
+		view.Attempts[2].Operation != "query" {
+		t.Fatalf("attempts = %+v; want the Submit and both Checks kept, in order, and nothing added", view.Attempts)
 	}
 	// The signed bytes are still on file and still downloadable: the
 	// abandonment is an account of the document, not its deletion.
@@ -249,9 +280,8 @@ func TestAnAuthorizedDocumentIsNeverAbandonable(t *testing.T) {
 func TestALateAuthorizationDoesNotHealAnAbandonedDocument(t *testing.T) {
 	operatorSessionID, invoiceID := refusedByNumberSaleInvoice(t)
 
-	// The Check the abandonment will rest on.
-	checkResp, checkBody := checkInvoice(t, operatorSessionID, invoiceID)
-	actionOK(t, "check", checkResp, checkBody)
+	// The two Checks the abandonment will rest on.
+	checkTwice(t, operatorSessionID, invoiceID, fixedClock)
 
 	// The next call to autorización abandons the document before answering
 	// AUTORIZADO: the platform asked about a needs_attention row and will be
@@ -288,8 +318,7 @@ func TestALateAuthorizationDoesNotHealAnAbandonedDocument(t *testing.T) {
 // status filter.
 func TestTheInvoiceListFiltersByAbandoned(t *testing.T) {
 	operatorSessionID, invoiceID := refusedByNumberSaleInvoice(t)
-	checkResp, checkBody := checkInvoice(t, operatorSessionID, invoiceID)
-	actionOK(t, "check", checkResp, checkBody)
+	checkTwice(t, operatorSessionID, invoiceID, fixedClock)
 	abandonResp, abandonBody := abandonInvoice(t, operatorSessionID, invoiceID, nil)
 	abandonedView(t, abandonResp, abandonBody)
 
@@ -357,9 +386,7 @@ func TestAbandoningAReissuesCreditNoteLeavesItsCorrectedFacturaToTheDrainer(t *t
 	sriStub.setAuthorization(func(accessKey string) (int, string) {
 		return http.StatusOK, emptyAuthorizationSOAP(accessKey)
 	})
-	if resp, body := checkInvoice(t, operatorSessionID, noteID); resp.StatusCode != http.StatusOK {
-		t.Fatalf("check the credit note: status=%d error=%+v", resp.StatusCode, body.Error)
-	}
+	checkTwice(t, operatorSessionID, noteID, fixedClock)
 	resp, body := abandonInvoice(t, operatorSessionID, noteID, map[string]any{"note": "the SRI refuses the credit note's number"})
 	if view := abandonedView(t, resp, body); view.Status != "abandoned" {
 		t.Fatalf("the credit note is %s; want abandoned", view.Status)

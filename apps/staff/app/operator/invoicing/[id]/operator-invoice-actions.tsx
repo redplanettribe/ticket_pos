@@ -82,12 +82,15 @@ import {
  * one the operator was reaching for is gone, in its own sentence, for the
  * same reason it does so for Resend.
  *
- * ABANDON RESTS ON A FRESH CHECK, which the page cannot see: the API wants
- * a `check` as the last thing on the ledger, made within the last quarter
- * hour, and answers INVOICE_CHECK_NOT_FRESH otherwise. That refusal has a
- * next step rather than a dead end — press Check status, then Abandon — so
- * the button is offered and the refusal teaches, rather than the button
- * being hidden on a rule the operator would have to guess at.
+ * ABANDON RESTS ON A FRESH CHECK, TWICE, which the page does not judge: the
+ * API wants the last two things on the ledger to be checks the SRI answered
+ * "nothing known", at least a minute apart, the later within the last
+ * quarter hour (ADR 0068, amended for #722, because one such answer is not
+ * proof), and answers INVOICE_CHECK_NOT_FRESH otherwise. That refusal has a
+ * next step rather than a dead end - Check status twice, at least a minute
+ * apart, then Abandon - so the button is offered and the refusal teaches,
+ * rather than the button being hidden on a rule the operator would have to
+ * guess at.
  *
  * Which levers show is `invoiceLevers`' decision.
  * Reissue (#483) is that decision's fourth lever and its own card

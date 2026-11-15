@@ -37,10 +37,11 @@ import type { InvoiceKind, InvoiceStatus } from "./operator-api";
  * for a manual one, whose refusals are recorded rather than parked — of any
  * kind, since the number is dead whoever typed the document. Not from
  * `pending`: the SRI still has the document and it is checked, not given up
- * on. The API asks for one thing more that this cannot see, a fresh Check
- * status immediately beforehand, and answers INVOICE_CHECK_NOT_FRESH when
- * there is none; that is a refusal with a next step — press Check status —
- * rather than a lever that should not be drawn.
+ * on. The API asks for one thing more that this does not judge, two Check
+ * status answers of "nothing known", at least a minute apart, immediately
+ * beforehand, and answers INVOICE_CHECK_NOT_FRESH when they are not there;
+ * that is a refusal with a next step - Check status twice, at least a minute
+ * apart, then Abandon - rather than a lever that should not be drawn.
  *
  * `resend` alone falls away on a document the SRI refuses by NUMBER (#577,
  * ADR 0068). Resend sends the same clave and the same secuencial, which is

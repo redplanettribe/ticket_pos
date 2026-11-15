@@ -57,34 +57,51 @@ import (
 // for its answer to still be the answer the abandonment rests on.
 //
 // WHAT "FRESH" MEANS HERE, in full, because ADR 0068 states the purpose and
-// leaves the reading to the code: the LAST attempt on the document's ledger
-// is a query, it carries an answer the authority actually gave, and it was
-// started no longer than this ago. All three, and each for its own reason.
+// leaves the reading to the code. Amended after #722: the LAST TWO attempts
+// on the document's ledger are both queries the authority answered
+// `unknown` - it holds nothing under this clave - the earlier one started at
+// least AbandonCheckSpacing before the later one, and the later one started
+// no longer than this ago. All of it, and each part for its own reason.
 //
-//   - The last attempt, not merely some recent one. Anything done after the
-//     Check makes the Check history: a Resend in between changes what the
+//   - Two answers, not one. The SRI's status services answer
+//     numeroComprobantes 0 for documents they hold and have authorized, the
+//     same bytes they answer for a clave they never held (#716). One
+//     "nothing known" is therefore not evidence, and the record an
+//     abandonment leaves must not rest on one.
+//   - Spaced, not back to back: two presses a second apart ask the same
+//     moment of the same service twice. AbandonCheckSpacing says why a
+//     minute.
+//   - The last two attempts, not merely two recent ones. Anything done after
+//     or between the Checks makes them history: a Resend changes what the
 //     authority has been asked to consider, and "immediately before the act"
 //     is the phrase the ADR uses.
-//   - An answer, not an attempt: a query that failed in transport
+//   - `unknown`, and nothing else, is read. A query that failed in transport
 //     (AttemptOutcomeError) is the platform failing to ask, and the ledger
-//     must carry the AUTHORITY's word, not ours.
-//   - A time bound, because an answer is only current for so long, and the
-//     record the ledger leaves is meant to read as "asked, and then acted".
-//     Fifteen minutes is one operator sitting at one page.
+//     must carry the AUTHORITY's word, not ours. A `received` answer is the
+//     authority saying it holds the document and is still working on it,
+//     the opposite of what an abandonment records. A decision - authorizing
+//     or refusing the document - is applied by the Check itself and moves the
+//     status, so the state gate answers instead.
+//   - A time bound on the later answer, because an answer is only current
+//     for so long, and the record the ledger leaves is meant to read as
+//     "asked, and then acted". Fifteen minutes is one operator sitting at one
+//     page. The earlier answer needs no bound of its own: what it adds is that
+//     the authority said the same thing at another moment.
 //
-// WHAT IS DELIBERATELY NOT READ IS THE ANSWER'S VALUE. A decision — the
-// authority authorizing or refusing the document — is applied by the Check
-// itself, so it moves the status and the state gate answers instead; an
-// authorized document is never abandonable, and that is where that case is
-// caught. An undecided answer is the authority's current word, whatever it
-// says, and the ledger is what carries which word it was. Reading the value
-// here would mean a document the authority answers "still processing" about
-// has no path at all and no different message for why, which is the shape
-// of the very problem this feature exists to remove. ADR 0068 accepts the
-// residual window this leaves — an authorization landing between the Check
-// and the Abandon — on the strength of the status guard, which keeps the
-// data consistent and leaves a reconcilable ledger either way.
+// The refusal by number (error 45) is still required beside this, and is
+// still the positive fact the act rests on; the two Checks are the
+// timestamped record next to it, not a substitute for it. ADR 0068 accepts
+// the residual window this leaves - an authorization landing between the
+// Check and the Abandon - on the strength of the status guard, which keeps
+// the data consistent and leaves a reconcilable ledger either way.
 const AbandonCheckFreshness = 15 * time.Minute
+
+// AbandonCheckSpacing is how long before the later of the two Checks an
+// abandonment rests on the earlier one must have started (ADR 0068,
+// amended). A minute is long enough that the two answers are the authority
+// asked at two moments rather than one moment asked twice, and short enough
+// that the operator waits at the page rather than coming back to it.
+const AbandonCheckSpacing = time.Minute
 
 // AbandonInvoice records that the authority never took the document and
 // never will, and returns it as it then stands.
@@ -171,17 +188,27 @@ func abandonRefusal(inv *invoicing.Invoice, attempts []invoicing.Attempt, now ti
 	return nil
 }
 
-// checkedFreshly reports whether the authority's own current answer stands
-// at the end of the ledger, timestamped, ready to be the record of why this
-// number was never declared. AbandonCheckFreshness states the rule in full
-// and why each half of it is there.
+// checkedFreshly reports whether the authority's own answer, twice and
+// spaced, stands at the end of the ledger, timestamped, ready to be the
+// record of why this number was never declared. AbandonCheckFreshness states
+// the rule in full and why each part of it is there.
 func checkedFreshly(attempts []invoicing.Attempt, now time.Time) bool {
-	if len(attempts) == 0 {
+	if len(attempts) < 2 {
 		return false
 	}
-	last := attempts[len(attempts)-1]
-	if last.Operation != invoicing.AttemptQuery || last.Outcome == invoicing.AttemptOutcomeError {
+	earlier, later := attempts[len(attempts)-2], attempts[len(attempts)-1]
+	if !answeredNothingKnown(earlier) || !answeredNothingKnown(later) {
 		return false
 	}
-	return !last.StartedAt.Before(now.Add(-AbandonCheckFreshness))
+	if later.StartedAt.Sub(earlier.StartedAt) < AbandonCheckSpacing {
+		return false
+	}
+	return !later.StartedAt.Before(now.Add(-AbandonCheckFreshness))
+}
+
+// answeredNothingKnown is a query the authority answered by holding nothing
+// under the clave. A transport error is not an answer, and any other answer
+// says something else.
+func answeredNothingKnown(a invoicing.Attempt) bool {
+	return a.Operation == invoicing.AttemptQuery && a.Outcome == string(invoicing.OutcomeUnknown)
 }

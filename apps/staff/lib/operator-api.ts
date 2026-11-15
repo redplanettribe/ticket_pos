@@ -1602,10 +1602,12 @@ export async function annulOperatorInvoice(id: string): Promise<OperatorInvoiceD
  * number, clave, bytes and every attempt — the secuencial stays consumed and
  * is never handed out again.
  *
- * Requires a fresh Check status immediately beforehand, so the decision
- * rests on the SRI's own current answer: without one it is refused with
- * INVOICE_CHECK_NOT_FRESH, whose remedy is to press Check status and try
- * again. Also refused with INVOICE_NOT_REFUSED_BY_NUMBER on a document the
+ * Requires a fresh Check status, twice, immediately beforehand: the last two
+ * attempts must be checks the SRI answered "nothing known", at least a
+ * minute apart, the later within the last 15 minutes, so the decision rests
+ * on the SRI's own word given twice. Otherwise it is refused with
+ * INVOICE_CHECK_NOT_FRESH, whose remedy is to Check status twice, at least a
+ * minute apart, then Abandon. Also refused with INVOICE_NOT_REFUSED_BY_NUMBER on a document the
  * SRI refused for any other reason, INVOICE_NOT_ABANDONABLE outside
  * `needs_attention`, `rejected` and `not_authorized`, and by the shared
  * codes every finished document answers — INVOICE_ALREADY_AUTHORIZED,

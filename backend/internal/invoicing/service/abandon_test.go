@@ -31,14 +31,34 @@ import (
 // and was anything done since", never "what o'clock is it".
 var abandonAt = time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 
-// freshCheckLedger is the ledger an operator leaves by pressing Check status
-// and then Abandon: a Submit the authority refused by number, then a query
-// answering that it has no record of the clave, a minute ago.
+// checkedTwiceLedger is the ledger an operator leaves by pressing Check
+// status, waiting a minute, pressing it again and then Abandon (ADR 0068,
+// amended): a Submit the authority refused by number, then two queries
+// answering that it has no record of the clave, three minutes and one
+// minute ago. Only the two answers together are the record an abandonment
+// rests on, because one "nothing known" from the SRI is not evidence (#722).
+func checkedTwiceLedger() []invoicing.Attempt {
+	return []invoicing.Attempt{
+		{Operation: invoicing.AttemptSubmit, Outcome: string(invoicing.OutcomeRejected), StartedAt: abandonAt.Add(-48 * time.Hour)},
+		{Operation: invoicing.AttemptQuery, Outcome: string(invoicing.OutcomeUnknown), StartedAt: abandonAt.Add(-3 * time.Minute)},
+		{Operation: invoicing.AttemptQuery, Outcome: string(invoicing.OutcomeUnknown), StartedAt: abandonAt.Add(-time.Minute)},
+	}
+}
+
+// freshCheckLedger is the ledger the one-answer rule abandoned on: the same
+// refused Submit and ONE query answering "nothing known", a minute ago. It
+// is no longer enough, and is kept to say so.
 func freshCheckLedger() []invoicing.Attempt {
 	return []invoicing.Attempt{
 		{Operation: invoicing.AttemptSubmit, Outcome: string(invoicing.OutcomeRejected), StartedAt: abandonAt.Add(-48 * time.Hour)},
 		{Operation: invoicing.AttemptQuery, Outcome: string(invoicing.OutcomeUnknown), StartedAt: abandonAt.Add(-time.Minute)},
 	}
+}
+
+// unknownAt is a query the authority answered "nothing known", started the
+// given time before abandonAt.
+func unknownAt(ago time.Duration) invoicing.Attempt {
+	return invoicing.Attempt{Operation: invoicing.AttemptQuery, Outcome: string(invoicing.OutcomeUnknown), StartedAt: abandonAt.Add(-ago)}
 }
 
 // abandonable is a document exactly as the two production facturas stand:
@@ -56,97 +76,129 @@ func TestAbandonRefusal(t *testing.T) {
 		want     string
 	}{
 		// ---- the act, on each kind the platform issues -------------------
-		{"a sale invoice refused by number, checked a minute ago", abandonable, freshCheckLedger(), ""},
+		{"a sale invoice refused by number, checked twice, a minute and three minutes ago", abandonable, checkedTwiceLedger(), ""},
 		{"a manual tax invoice refused by number, rejected at recepción", func() invoicing.Invoice {
 			i := abandonable()
 			i.Kind = invoicing.DocumentKindManual
 			i.Status = invoicing.InvoiceStatusRejected
 			return i
-		}, freshCheckLedger(), ""},
+		}, checkedTwiceLedger(), ""},
 		{"a manual tax invoice refused by number, not authorized", func() invoicing.Invoice {
 			i := abandonable()
 			i.Kind = invoicing.DocumentKindManual
 			i.Status = invoicing.InvoiceStatusNotAuthorized
 			return i
-		}, freshCheckLedger(), ""},
+		}, checkedTwiceLedger(), ""},
 		{"a credit note refused by number", func() invoicing.Invoice {
 			i := abandonable()
 			i.Kind = invoicing.DocumentKindCreditNote
 			return i
-		}, freshCheckLedger(), ""},
+		}, checkedTwiceLedger(), ""},
 
 		// ---- the shared floor, answered first ----------------------------
 		{"authorized", func() invoicing.Invoice {
 			i := abandonable()
 			i.Status = invoicing.InvoiceStatusAuthorized
 			return i
-		}, freshCheckLedger(), "INVOICE_ALREADY_AUTHORIZED"},
+		}, checkedTwiceLedger(), "INVOICE_ALREADY_AUTHORIZED"},
 		{"already abandoned", func() invoicing.Invoice {
 			i := abandonable()
 			i.Status = invoicing.InvoiceStatusAbandoned
 			return i
-		}, freshCheckLedger(), "INVOICE_ABANDONED"},
+		}, checkedTwiceLedger(), "INVOICE_ABANDONED"},
 		{"annulled", func() invoicing.Invoice {
 			i := abandonable()
 			i.Status = invoicing.InvoiceStatusAnnulled
 			return i
-		}, freshCheckLedger(), "INVOICE_ANNULLED"},
+		}, checkedTwiceLedger(), "INVOICE_ANNULLED"},
 		{"withdrawn", func() invoicing.Invoice {
 			i := abandonable()
 			i.Status = invoicing.InvoiceStatusWithdrawn
 			return i
-		}, freshCheckLedger(), "INVOICE_WITHDRAWN"},
+		}, checkedTwiceLedger(), "INVOICE_WITHDRAWN"},
 		{"owed and unsigned", func() invoicing.Invoice {
 			i := abandonable()
 			i.Status = invoicing.InvoiceStatusOwed
 			i.SignedXML = nil
 			return i
-		}, freshCheckLedger(), "INVOICE_NOT_ISSUED"},
+		}, checkedTwiceLedger(), "INVOICE_NOT_ISSUED"},
 
 		// ---- the state a refusal must have left it in --------------------
 		{"pending: still with the authority, and checked, not given up on", func() invoicing.Invoice {
 			i := abandonable()
 			i.Status = invoicing.InvoiceStatusPending
 			return i
-		}, freshCheckLedger(), "INVOICE_NOT_ABANDONABLE"},
+		}, checkedTwiceLedger(), "INVOICE_NOT_ABANDONABLE"},
 
 		// ---- the authority's refusal by number ---------------------------
 		{"refused for its content, which has a remedy", func() invoicing.Invoice {
 			return numberRefusedInvoice(authorityError("35"))
-		}, freshCheckLedger(), "INVOICE_NOT_REFUSED_BY_NUMBER"},
+		}, checkedTwiceLedger(), "INVOICE_NOT_REFUSED_BY_NUMBER"},
 		{"45 as an advertencia is not the refusal", func() invoicing.Invoice {
 			return numberRefusedInvoice(invoicing.AuthorityMessage{
 				Identifier: invoicing.AuthorityMessageSequenceRegistered, Type: invoicing.AuthorityMessageTypeWarning,
 			})
-		}, freshCheckLedger(), "INVOICE_NOT_REFUSED_BY_NUMBER"},
+		}, checkedTwiceLedger(), "INVOICE_NOT_REFUSED_BY_NUMBER"},
 		{"the authority said nothing at all", func() invoicing.Invoice {
 			return numberRefusedInvoice()
-		}, freshCheckLedger(), "INVOICE_NOT_REFUSED_BY_NUMBER"},
+		}, checkedTwiceLedger(), "INVOICE_NOT_REFUSED_BY_NUMBER"},
 
 		// ---- the fresh Check the act rests on -----------------------------
 		{"no ledger at all", abandonable, nil, "INVOICE_CHECK_NOT_FRESH"},
 		{"never checked, only submitted", abandonable, []invoicing.Attempt{
 			{Operation: invoicing.AttemptSubmit, Outcome: string(invoicing.OutcomeRejected), StartedAt: abandonAt.Add(-time.Minute)},
 		}, "INVOICE_CHECK_NOT_FRESH"},
-		{"checked, then resent: the send is what the ledger ends on", abandonable, []invoicing.Attempt{
-			{Operation: invoicing.AttemptQuery, Outcome: string(invoicing.OutcomeUnknown), StartedAt: abandonAt.Add(-2 * time.Minute)},
+		{"checked once: one 'nothing known' is not evidence", abandonable, freshCheckLedger(), "INVOICE_CHECK_NOT_FRESH"},
+		{"checked twice, 30 seconds apart", abandonable, []invoicing.Attempt{
+			unknownAt(time.Minute + 30*time.Second), unknownAt(time.Minute),
+		}, "INVOICE_CHECK_NOT_FRESH"},
+		{"checked twice, a second short of the spacing", abandonable, []invoicing.Attempt{
+			unknownAt(time.Minute + AbandonCheckSpacing - time.Second), unknownAt(time.Minute),
+		}, "INVOICE_CHECK_NOT_FRESH"},
+		{"checked twice, exactly the spacing apart", abandonable, []invoicing.Attempt{
+			unknownAt(time.Minute + AbandonCheckSpacing), unknownAt(time.Minute),
+		}, ""},
+		{"nothing known, then still processing: the SRI holds it", abandonable, []invoicing.Attempt{
+			unknownAt(3 * time.Minute),
+			{Operation: invoicing.AttemptQuery, Outcome: string(invoicing.OutcomeReceived), StartedAt: abandonAt.Add(-time.Minute)},
+		}, "INVOICE_CHECK_NOT_FRESH"},
+		{"still processing, then nothing known", abandonable, []invoicing.Attempt{
+			{Operation: invoicing.AttemptQuery, Outcome: string(invoicing.OutcomeReceived), StartedAt: abandonAt.Add(-3 * time.Minute)},
+			unknownAt(time.Minute),
+		}, "INVOICE_CHECK_NOT_FRESH"},
+		{"checked, resent, checked: the two answers are not the last two attempts", abandonable, []invoicing.Attempt{
+			unknownAt(5 * time.Minute),
+			{Operation: invoicing.AttemptSubmit, Outcome: string(invoicing.OutcomeRejected), StartedAt: abandonAt.Add(-3 * time.Minute)},
+			unknownAt(time.Minute),
+		}, "INVOICE_CHECK_NOT_FRESH"},
+		{"checked twice, then resent: the send is what the ledger ends on", abandonable, []invoicing.Attempt{
+			unknownAt(4 * time.Minute), unknownAt(2 * time.Minute),
 			{Operation: invoicing.AttemptSubmit, Outcome: string(invoicing.OutcomeRejected), StartedAt: abandonAt.Add(-time.Minute)},
 		}, "INVOICE_CHECK_NOT_FRESH"},
-		{"checked yesterday", abandonable, []invoicing.Attempt{
-			{Operation: invoicing.AttemptQuery, Outcome: string(invoicing.OutcomeUnknown), StartedAt: abandonAt.Add(-24 * time.Hour)},
+		{"checked twice, the later 16 minutes ago", abandonable, []invoicing.Attempt{
+			unknownAt(18 * time.Minute), unknownAt(16 * time.Minute),
 		}, "INVOICE_CHECK_NOT_FRESH"},
-		{"checked just past the window", abandonable, []invoicing.Attempt{
-			{Operation: invoicing.AttemptQuery, Outcome: string(invoicing.OutcomeUnknown), StartedAt: abandonAt.Add(-AbandonCheckFreshness - time.Second)},
+		{"checked twice, the later just past the window", abandonable, []invoicing.Attempt{
+			unknownAt(AbandonCheckFreshness + AbandonCheckSpacing + time.Second), unknownAt(AbandonCheckFreshness + time.Second),
 		}, "INVOICE_CHECK_NOT_FRESH"},
-		{"checked at the edge of the window", abandonable, []invoicing.Attempt{
-			{Operation: invoicing.AttemptQuery, Outcome: string(invoicing.OutcomeUnknown), StartedAt: abandonAt.Add(-AbandonCheckFreshness)},
+		{"checked twice, the later at the edge of the window", abandonable, []invoicing.Attempt{
+			unknownAt(AbandonCheckFreshness + AbandonCheckSpacing), unknownAt(AbandonCheckFreshness),
 		}, ""},
-		{"the check could not be made: no answer, no evidence", abandonable, []invoicing.Attempt{
+		{"checked twice, the earlier long ago: only the later need be recent", abandonable, []invoicing.Attempt{
+			unknownAt(24 * time.Hour), unknownAt(time.Minute),
+		}, ""},
+		{"the later check could not be made: no answer, no evidence", abandonable, []invoicing.Attempt{
+			unknownAt(3 * time.Minute),
 			{Operation: invoicing.AttemptQuery, Outcome: invoicing.AttemptOutcomeError, StartedAt: abandonAt.Add(-time.Minute)},
 		}, "INVOICE_CHECK_NOT_FRESH"},
-		{"a check the authority answered was still processing", abandonable, []invoicing.Attempt{
+		{"the earlier check could not be made", abandonable, []invoicing.Attempt{
+			{Operation: invoicing.AttemptQuery, Outcome: invoicing.AttemptOutcomeError, StartedAt: abandonAt.Add(-3 * time.Minute)},
+			unknownAt(time.Minute),
+		}, "INVOICE_CHECK_NOT_FRESH"},
+		{"checked twice, the SRI still processing both times", abandonable, []invoicing.Attempt{
+			{Operation: invoicing.AttemptQuery, Outcome: string(invoicing.OutcomeReceived), StartedAt: abandonAt.Add(-3 * time.Minute)},
 			{Operation: invoicing.AttemptQuery, Outcome: string(invoicing.OutcomeReceived), StartedAt: abandonAt.Add(-time.Minute)},
-		}, ""},
+		}, "INVOICE_CHECK_NOT_FRESH"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

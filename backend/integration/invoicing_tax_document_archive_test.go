@@ -212,9 +212,7 @@ func newTaxDocumentArchiveFixture(t *testing.T, env *testEnv) taxDocumentArchive
 		sriStub.setAuthorization(func(accessKey string) (int, string) {
 			return http.StatusOK, emptyAuthorizationSOAP(accessKey)
 		})
-		if resp, body := checkInvoice(t, sid, f.saleAbandoned); resp.StatusCode != http.StatusOK {
-			t.Fatalf("setup check status=%d error=%+v", resp.StatusCode, body.Error)
-		}
+		checkTwice(t, sid, f.saleAbandoned, emissionNoon(t, taxArchiveTo))
 		resp, body := abandonInvoice(t, sid, f.saleAbandoned, map[string]any{"note": "not registered at the portal"})
 		if view := abandonedView(t, resp, body); view.Status != "abandoned" {
 			t.Fatalf("setup abandon left the Sale Invoice %s", view.Status)
@@ -272,13 +270,21 @@ func newTaxDocumentArchiveFixture(t *testing.T, env *testEnv) taxDocumentArchive
 // that Emission Date, and puts the clock back.
 func atEmissionDay(t *testing.T, day string, fn func() string) string {
 	t.Helper()
+	at := emissionNoon(t, day)
+	sriApp.InvoicingService.WithClock(func() time.Time { return at })
+	defer sriApp.InvoicingService.WithClock(func() time.Time { return fixedClock })
+	return fn()
+}
+
+// emissionNoon is noon UTC on the given day, the instant atEmissionDay sets
+// the invoicing clock to.
+func emissionNoon(t *testing.T, day string) time.Time {
+	t.Helper()
 	at, err := time.Parse("2006-01-02", day)
 	if err != nil {
 		t.Fatalf("fixture day %q: %v", day, err)
 	}
-	sriApp.InvoicingService.WithClock(func() time.Time { return at.Add(12 * time.Hour) })
-	defer sriApp.InvoicingService.WithClock(func() time.Time { return fixedClock })
-	return fn()
+	return at.Add(12 * time.Hour)
 }
 
 // drainUntilQuiet drains until a round claims nothing, since a corrected
