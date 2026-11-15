@@ -5,7 +5,8 @@ import (
 	"testing"
 )
 
-// What the question review verdict mail says around its verdict list (#703).
+// What the Question Review verdict mail says around its verdict list (#703,
+// parent #709, ADR 0056).
 //
 // The closing paragraph is its own paragraph: a blank line separates it from
 // the last verdict, so it is never read as part of that item's reason.
