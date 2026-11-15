@@ -170,9 +170,11 @@ Sales Channel) follows `CONTEXT.md`.
 - **A consumidor-final factura cannot be annulled or credited**: "Las facturas
   electrónicas emitidas con la leyenda 'consumidor final' no se podrán anular
   una vez emitidas y transmitidas al Servicio de Rentas Internas. En estos
-  casos, no procede la emisión de notas de crédito." (Res. 25-14 Art. 3, S9.)
-  The SRI may also annul such facturas *de oficio* during audits (Res. 25-17
-  adds Disposición General Quinta, S10). For a platform that supports Sale
+  casos, no procede la emisión de notas de crédito." (Res. 25-14 Art. 3, S9;
+  in force since 2026-01-01 per Res. 25-17 Art. 1(f), S10.)
+  The SRI may also annul such facturas *de oficio* in control operations by
+  fedatarios fiscales, i.e. its own test purchases (Res. 25-17 adds
+  Disposición General Quinta, S10). See `docs/research-sri-annulment.md`. For a platform that supports Sale
   Reversals this is decisive: **identify the buyer whenever a Tax ID exists**.
 - Identification codes (S1 Tabla 6): `04` RUC, `05` cédula, `06` pasaporte,
   `07` consumidor final, `08` identificación del exterior. Mapping from the
@@ -347,7 +349,11 @@ including RUC, ambiente, serie, secuencial, tipo emisión.
   (`ConsultaComprobante?wsdl` → `consultarEstadoAutorizacionComprobante(claveAcceso)`,
   and `ConsultaFactura?wsdl`) on the same hosts, namespace
   `http://ec.gob.sri.ws.consultas` (S1 §8). They are read-only and useful for a
-  reconciliation job.
+  reconciliation job. `consultarEstadoAutorizacionComprobante` is the only
+  documented service that distinguishes an annulled clave: its
+  `estadoAutorizacion` is "AUTORIZADO", "NO AUTORIZADO", "PENDIENTE DE ANULAR"
+  or "ANULADO" (S1 §8.2.3, §8.4), whereas `autorizacionComprobante` documents
+  only PPR/AUT/NAT. See `docs/research-sri-annulment.md` §2.
 - Size limits: 320 KB per individual comprobante; a batch is ≤ 500 KB / ~50
   comprobantes (S1 §7.5). The SRI's SSL certificates "podrían cambiar sin
   previo aviso" — do not pin them (S1 §7.1.4).
@@ -447,11 +453,19 @@ sustento no electrónico.
   factura is annulled **either online or by nota de crédito**; retenciones and
   complementary docs only online. (S9.)
 - Art. 3 (as amended): online annulment is possible **until day 7 of the
-  following month** (was day 10); after that, only a nota de crédito. Art. 4:
-  notas de crédito/débito and retenciones need the receptor's acceptance
-  within 5 business days; facturas do **not** need receptor confirmation for
-  online annulment (S6 Q28), though the FAQ says to obtain consent because a
+  month following the month of emission** (was day 10), rolling to the next
+  business day when day 7 is a rest day or a national or local holiday; after
+  that, only a nota de crédito. Art. 4: notas de crédito/débito and
+  retenciones need the receptor's acceptance within 5 business days; facturas
+  do **not** need receptor acceptance for online annulment and are annulled
+  immediately (Art. 4 names only those three types; S6 Q28; the SRI en línea
+  annulment guide §1.2.1), though the FAQ says to obtain consent because a
   declared factura must not be annulled. (S9, S10, S6.)
+- Also never annullable, nor creditable: comprobantes that support a tax
+  refund (Disposición General Tercera) and negotiated facturas comerciales
+  negociables (Segunda) (S9).
+- The FAQ's Q29 "hasta 90 días" (S6, 2023) is stale: Res. 25-14 repealed
+  Art. 7 of NAC-DGERCGC16-00000092, the source of the 90 days.
 - Art. 5 (as amended by 25-17): notas de crédito "deberán emitirse únicamente
   en los casos señalados en el Reglamento" (annul operations, accept returns,
   grant discounts — Reglamento Art. 15, S5); the 12-month limit that 25-14 had
@@ -459,8 +473,12 @@ sustento no electrónico.
 - Annulment is irreversible ("No es posible reversar la anulación… se debe
   emitir un nuevo comprobante", S6 Q27). Mass annulment (>1,000 per month) is
   a trámite (Disposición General Cuarta, S9).
-- The online annulment is a portal action in SRI en línea (or a trámite with a
-  spreadsheet, S11); **there is no web service for annulment in the Ficha**.
+- The online annulment is a portal action in SRI en línea, or the Facturador
+  SRI for documents issued in it (Art. 2), or a trámite with a spreadsheet
+  (S11); **there is no web service for annulment in the Ficha** (re-checked
+  against v2.34 on 2026-11-15; the §13.7 `devolucionesIndividualesAnulaciones`
+  endpoint cancels an IVA refund discount, not a comprobante). Details and
+  the per-question findings for #711 are in `docs/research-sri-annulment.md`.
   For an automated platform the reversal instrument is therefore the
   **nota de crédito**, which is issued through the same recepción/autorización
   services, must name the buyer (Tabla 6 note: "se debe obligatoriamente
@@ -800,6 +818,7 @@ Primary (SRI / law / official schemas / live services):
 - S20. SRI, *Impuesto a los Consumos Especiales* page: https://www.sri.gob.ec/en/impuesto-consumos-especiales
 - S21. Live WSDL, RecepcionComprobantesOffline (pruebas): https://celcer.sri.gob.ec/comprobantes-electronicos-ws/RecepcionComprobantesOffline?wsdl
 - S22. Live WSDL, AutorizacionComprobantesOffline (pruebas): https://celcer.sri.gob.ec/comprobantes-electronicos-ws/AutorizacionComprobantesOffline?wsdl
+- S34. SRI, *Guía para contribuyentes - Anulación de Comprobantes Electrónicos* (marzo 2025; its 90-day window is superseded by Res. 25-14): https://www.sri.gob.ec/o/sri-portlet-biblioteca-alfresco-internet/descargar/c97242e6-c271-4eb8-8f6a-f687313118ba/Guia%20para%20contribuyentes%20de%20anulaci%c3%b3n%20de%20comprobantes%20electr%c3%b3nicos.pdf
 - SRI en línea public validity check (portal): https://srienlinea.sri.gob.ec/comprobantes-electronicos-internet/publico/validezComprobantes.jsf
 
 Open-source implementations (cited only for claims about themselves):
