@@ -166,3 +166,42 @@ func TestTaxDocumentDeliveryWithoutAnOriginOffersNoLink(t *testing.T) {
 		t.Fatalf("text = %q, want no link line", text)
 	}
 }
+
+// TestTaxDocumentDeliveryReplacesLineIsKeyedOnHowThePredecessorWasReplaced
+// (#718): a Sale Invoice that stands in for an earlier one says so only when
+// a Credit Note the buyer received cancelled that earlier one - a Sale
+// Invoice Reissue (#485, ADR 0061). Issue again (ADR 0068) replaces a
+// factura the SRI never held and the buyer never received; it is simply the
+// buyer's factura. Any cause the copy does not recognize reads as the plain
+// factura: a future cause opts into its own words, never inherits these.
+func TestTaxDocumentDeliveryReplacesLineIsKeyedOnHowThePredecessorWasReplaced(t *testing.T) {
+	lines := map[Locale]string{
+		LocaleEN: "This corrected tax invoice (factura) replaces the earlier one for this purchase, which the credit note (nota de crédito) you received cancelled.",
+		LocaleES: "Esta factura corregida sustituye a la anterior de esta compra, que quedó sin efecto con la nota de crédito que recibió.",
+	}
+	for locale, line := range lines {
+		d := spanishDelivery()
+		d.Locale = locale
+		d.Replaces = TaxDocumentReplacesCredited
+		if text := d.Text(); !strings.Contains(text, line) {
+			t.Fatalf("%s credited: text = %q, want the replaces line", locale, text)
+		}
+
+		for _, cause := range []string{"", "abandoned", "annulled", "something_new"} {
+			d.Replaces = cause
+			text := strings.ToLower(d.Text())
+			for _, banned := range []string{"replaces", "credit note", "nota de crédito", "sustituye", "corregida", "corrected"} {
+				if strings.Contains(text, banned) {
+					t.Fatalf("%s cause %q: text = %q, says %q", locale, cause, text, banned)
+				}
+			}
+		}
+
+		// A Credit Note never carries the line, whatever it is handed.
+		d.Kind = TaxDocumentKindCreditNote
+		d.Replaces = TaxDocumentReplacesCredited
+		if text := d.Text(); strings.Contains(text, line) {
+			t.Fatalf("%s credit note: text = %q, carries the factura's replaces line", locale, text)
+		}
+	}
+}

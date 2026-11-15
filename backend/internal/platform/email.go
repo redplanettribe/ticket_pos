@@ -991,6 +991,18 @@ const (
 	TaxDocumentReasonReissue = "reissue"
 )
 
+// TaxDocumentReplacesCredited is the one cause of a Sale Invoice's
+// replacement the delivery mail has words for (#718): a Credit Note the
+// buyer received cancelled the factura this one stands in for, which is a
+// Sale Invoice Reissue (#485, ADR 0061), at every hop of its chain.
+//
+// THE DEFAULT IS SILENCE. Any other cause, and "", is mailed as the plain
+// factura: Issue again (ADR 0068) replaces a factura the SRI never held and
+// the buyer never received, so it is simply the buyer's factura. A future
+// cause - an authorized factura annulled at the SRI (#710) - opts into its
+// own words here; it never inherits the credit note's.
+const TaxDocumentReplacesCredited = "credited"
+
 // TaxDocumentDelivery is the mail that hands a buyer an authorized Tax
 // Document (#475, ADR 0060): the second mail about a paid House sale, after
 // the receipt that promised it.
@@ -1018,11 +1030,14 @@ type TaxDocumentDelivery struct {
 	// purchase was reversed or that a corrected factura follows (#481). ""
 	// on a Sale Invoice.
 	Reason string
-	// Supersedes is, on a Sale Invoice, whether a Sale Invoice Reissue
-	// produced it (#485, ADR 0061): the ordinary factura words then carry
-	// one more line saying it replaces the earlier factura the Credit Note
-	// cancelled. False on a first factura and on every Credit Note.
-	Supersedes bool
+	// Replaces is, on a Sale Invoice that stands in for an earlier one, how
+	// that earlier one was replaced (#718): one of the TaxDocumentReplaces
+	// constants. Only TaxDocumentReplacesCredited changes the words - the
+	// ordinary factura words then carry one more line saying it replaces the
+	// earlier factura the Credit Note cancelled (#485, ADR 0061). "" on a
+	// first factura, on an Issue again replacement (ADR 0068) and on every
+	// Credit Note.
+	Replaces string
 	// CustomerName is the Recipient's legal name as printed on the document.
 	CustomerName string
 	// EventName and Reference name the purchase the document is about, so

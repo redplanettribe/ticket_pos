@@ -135,6 +135,9 @@ func TestReissueMailsTheCreditNoteThenTheCorrectedSaleInvoiceEachOnce(t *testing
 	if !strings.Contains(text, "Attached is the tax invoice (factura) for your purchase for House Fest") || !strings.Contains(text, ref) {
 		t.Fatalf("factura mail is not the ordinary factura delivery:\n%s", text)
 	}
+	if facturaMail.Replaces != platform.TaxDocumentReplacesCredited {
+		t.Fatalf("factura mail replaces %q; want %q - a Credit Note the buyer received cancelled the earlier factura", facturaMail.Replaces, platform.TaxDocumentReplacesCredited)
+	}
 	if !strings.Contains(text, "replaces the earlier one") || strings.Contains(strings.ToLower(text), "reversed") {
 		t.Fatalf("factura mail does not say it replaces the earlier document, or says the sale was reversed:\n%s", text)
 	}
@@ -267,6 +270,21 @@ func TestCustomerSaleDocumentsNameEachDocumentsRoleInTheChain(t *testing.T) {
 	mid := chainDocument(t, docs, corrected.ID)
 	if mid.Role != "superseded" || !strEq(mid.SupersedesInvoiceID, facturaID) || !strEq(mid.SupersededByInvoiceID, second.ID) || mid.DownloadURL == nil {
 		t.Fatalf("the first corrected factura = %+v; want superseded, linked both ways, still downloadable", mid)
+	}
+
+	// The second hop is mailed as the first was (#718): its predecessor is
+	// itself a corrected factura, and the second Credit Note the buyer
+	// receives is what cancelled it, so the replaces line still holds.
+	env.email.Reset()
+	if result := drainSaleInvoices(t); result.Authorized != 2 || result.Delivered != 2 {
+		t.Fatalf("drain of the second reissue = %+v; want its Credit Note and its corrected factura authorized and delivered", result)
+	}
+	sent := deliveriesSent(t, env)
+	if len(sent) != 2 || sent[1].Kind != "sale" || sent[1].Replaces != platform.TaxDocumentReplacesCredited {
+		t.Fatalf("mails of the second reissue = %+v; want the Credit Note, then the corrected factura replacing a credited one", sent)
+	}
+	if text := sent[1].Text(); !strings.Contains(text, "replaces the earlier one") {
+		t.Fatalf("the second corrected factura's mail does not say it replaces the earlier one:\n%s", text)
 	}
 }
 

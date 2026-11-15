@@ -1947,7 +1947,7 @@ func (d TaxDocumentDelivery) Text() string {
 		}
 	}
 	text := fmt.Sprintf(opening.in(d.Locale), d.CustomerName, d.EventName, d.Reference)
-	if d.Kind != TaxDocumentKindCreditNote && d.Supersedes {
+	if d.Kind != TaxDocumentKindCreditNote && d.Replaces == TaxDocumentReplacesCredited {
 		text += "\n\n" + taxDocumentSaleInvoiceSupersedesCopy.in(d.Locale)
 	}
 	text += "\n\n" + taxDocumentAttachmentCopy.in(d.Locale)

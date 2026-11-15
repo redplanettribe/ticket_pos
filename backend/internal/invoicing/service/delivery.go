@@ -89,11 +89,15 @@ func (s *Service) deliverDocument(ctx context.Context, row *repository.InvoiceRo
 	if reason == invoicing.CreditNoteReasonReissue && facts.Reversed {
 		reason = ""
 	}
+	replaces, err := s.replacesOf(ctx, inv)
+	if err != nil {
+		return false, err
+	}
 	delivery := platform.TaxDocumentDelivery{
 		To:           inv.Recipient.Email,
 		Kind:         string(inv.Kind),
 		Reason:       reason,
-		Supersedes:   inv.SupersedesInvoiceID != "",
+		Replaces:     replaces,
 		CustomerName: inv.Recipient.LegalName,
 		EventName:    facts.EventName,
 		Reference:    inv.SaleConfirmationRef,
@@ -128,6 +132,34 @@ func (s *Service) deliverDocument(ctx context.Context, row *repository.InvoiceRo
 	}
 	s.logger.Info("invoicing: tax document delivered", "invoice_id", inv.ID, "kind", inv.Kind, "locale", delivery.Locale)
 	return true, nil
+}
+
+// replacesOf says how the factura a Sale Invoice stands in for was replaced,
+// as far as the buyer's mail is concerned (#718): one of the
+// platform.TaxDocumentReplaces causes, or "" for none the mail has words for.
+//
+// THE PREDECESSOR'S FATE DECIDES, NEVER THE LINK. A Sale Invoice Reissue
+// (ADR 0061) and Issue again (ADR 0068) both write SupersedesInvoiceID and
+// both write the reissue trail columns, so nothing on the replacement tells
+// them apart. What does is whether a live Credit Note credits the
+// predecessor: a reissue's always does - its corrected factura is not even
+// claimable until that nota is authorized - and Issue again's never can,
+// because it replaces only a factura the SRI never authorized. The status
+// `annulled` is deliberately not the test: the SRI annulment work (#710)
+// annuls authorized facturas the buyer did receive, and brings its own
+// words.
+func (s *Service) replacesOf(ctx context.Context, inv *invoicing.Invoice) (string, error) {
+	if inv.Kind != invoicing.DocumentKindSale || inv.SupersedesInvoiceID == "" {
+		return "", nil
+	}
+	predecessor, err := s.repo.GetInvoice(ctx, inv.SupersedesInvoiceID)
+	if err != nil {
+		return "", err
+	}
+	if predecessor != nil && predecessor.Invoice.CreditedByInvoiceID != "" {
+		return platform.TaxDocumentReplacesCredited, nil
+	}
+	return "", nil
 }
 
 // rescheduleDelivery writes when delivery is next due — or that it never
