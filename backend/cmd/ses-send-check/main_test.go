@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/peter/ticket_pos/backend/internal/invoicing/sri"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
@@ -219,6 +220,25 @@ func TestSendCheckTaxDocumentCarriesAttachmentsThatOpen(t *testing.T) {
 			!bytes.Contains(pdfFile.RawContent[len(pdfFile.RawContent)-32:], []byte("%%EOF")) {
 			t.Errorf("RIDE %s (%s, %d bytes) is not a whole PDF", pdfFile.FileName, pdfFile.ContentType, len(pdfFile.RawContent))
 		}
+	}
+}
+
+// The factura is paid the way production issues a Sale Invoice:
+// sri.PaymentMethodDefault, per the 2026-09-16 ruling (PR #634), so the XML
+// and RIDE the operator eyeballs match what customers receive.
+func TestSendCheckTaxDocumentIssuesTheDefaultPaymentMethod(t *testing.T) {
+	attachments, err := taxDocumentAttachments(fixedNow)
+	if err != nil {
+		t.Fatalf("taxDocumentAttachments: %v", err)
+	}
+	var factura struct {
+		Pagos []string `xml:"infoFactura>pagos>pago>formaPago"`
+	}
+	if err := xml.Unmarshal(attachments[0].Body, &factura); err != nil {
+		t.Fatalf("factura XML: %v", err)
+	}
+	if want := []string{string(sri.PaymentMethodDefault)}; !reflect.DeepEqual(factura.Pagos, want) {
+		t.Errorf("formaPago = %v, want %v", factura.Pagos, want)
 	}
 }
 

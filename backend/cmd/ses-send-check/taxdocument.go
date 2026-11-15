@@ -46,8 +46,8 @@ func taxDocumentAttachments(now time.Time) ([]platform.EmailAttachment, error) {
 		IVAInclusive:   true,
 	}
 	const sequential = "000000042"
-	// 19 is the SRI's "tarjeta de crédito", what a Storefront card sale is.
-	const paymentMethod sri.PaymentMethod = "19"
+	// What production issues a Sale Invoice with (ruled 2026-09-16, PR #634).
+	const paymentMethod = sri.PaymentMethodDefault
 	issuedOn := now.In(sri.Guayaquil)
 
 	accessKey, err := sri.NewAccessKey(sri.AccessKeyInput{
