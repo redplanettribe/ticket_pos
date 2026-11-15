@@ -459,7 +459,7 @@ sustento no electrónico.
   retenciones need the receptor's acceptance within 5 business days; facturas
   do **not** need receptor acceptance for online annulment and are annulled
   immediately (Art. 4 names only those three types; S6 Q28; the SRI en línea
-  annulment guide §1.2.1), though the FAQ says to obtain consent because a
+  annulment guide S34 §1.2.1), though the FAQ says to obtain consent because a
   declared factura must not be annulled. (S9, S10, S6.)
 - Also never annullable, nor creditable: comprobantes that support a tax
   refund (Disposición General Tercera) and negotiated facturas comerciales
