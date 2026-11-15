@@ -135,31 +135,35 @@ func (s *Service) deliverDocument(ctx context.Context, row *repository.InvoiceRo
 }
 
 // replacesOf says how the factura a Sale Invoice stands in for was replaced,
-// as far as the buyer's mail is concerned (#718): one of the
-// platform.TaxDocumentReplaces causes, or "" for none the mail has words for.
+// as far as the buyer's mail is concerned (#718).
 //
 // THE PREDECESSOR'S FATE DECIDES, NEVER THE LINK. A Sale Invoice Reissue
 // (ADR 0061) and Issue again (ADR 0068) both write SupersedesInvoiceID and
 // both write the reissue trail columns, so nothing on the replacement tells
 // them apart. What does is whether a live Credit Note credits the
-// predecessor: a reissue's always does - its corrected factura is not even
-// claimable until that nota is authorized - and Issue again's never can,
-// because it replaces only a factura the SRI never authorized. The status
-// `annulled` is deliberately not the test: the SRI annulment work (#710)
-// annuls authorized facturas the buyer did receive, and brings its own
-// words.
-func (s *Service) replacesOf(ctx context.Context, inv *invoicing.Invoice) (string, error) {
+// predecessor. A reissue's corrected factura is not signed while its Credit
+// Note is still on its way, so by the time it is mailed that nota is
+// authorized and the buyer has it - unless an operator abandoned it, and
+// then the buyer never got it and the plain words are the true ones. Issue
+// again's predecessor never has one, because it replaces only a factura the
+// SRI never authorized. The status `annulled` is deliberately not the test:
+// the SRI annulment work (#710) annuls authorized facturas the buyer did
+// receive, and brings its own words.
+//
+// A predecessor that cannot be found reads as nothing to say: the mail is
+// still the buyer's factura, and silence is the safe default.
+func (s *Service) replacesOf(ctx context.Context, inv *invoicing.Invoice) (platform.TaxDocumentReplaces, error) {
 	if inv.Kind != invoicing.DocumentKindSale || inv.SupersedesInvoiceID == "" {
-		return "", nil
+		return platform.TaxDocumentReplacesNothing, nil
 	}
 	predecessor, err := s.repo.GetInvoice(ctx, inv.SupersedesInvoiceID)
 	if err != nil {
-		return "", err
+		return platform.TaxDocumentReplacesNothing, err
 	}
 	if predecessor != nil && predecessor.Invoice.CreditedByInvoiceID != "" {
 		return platform.TaxDocumentReplacesCredited, nil
 	}
-	return "", nil
+	return platform.TaxDocumentReplacesNothing, nil
 }
 
 // rescheduleDelivery writes when delivery is next due — or that it never

@@ -187,7 +187,9 @@ func TestTaxDocumentDeliveryReplacesLineIsKeyedOnHowThePredecessorWasReplaced(t 
 			t.Fatalf("%s credited: text = %q, want the replaces line", locale, text)
 		}
 
-		for _, cause := range []string{"", "abandoned", "annulled", "something_new"} {
+		// Nothing, then causes the copy deliberately does not know: how an
+		// Issue again predecessor died, and one nobody has invented yet.
+		for _, cause := range []TaxDocumentReplaces{TaxDocumentReplacesNothing, "abandoned", "annulled", "something_new"} {
 			d.Replaces = cause
 			text := strings.ToLower(d.Text())
 			for _, banned := range []string{"replaces", "credit note", "nota de crédito", "sustituye", "corregida", "corrected"} {

@@ -991,17 +991,26 @@ const (
 	TaxDocumentReasonReissue = "reissue"
 )
 
-// TaxDocumentReplacesCredited is the one cause of a Sale Invoice's
-// replacement the delivery mail has words for (#718): a Credit Note the
-// buyer received cancelled the factura this one stands in for, which is a
-// Sale Invoice Reissue (#485, ADR 0061), at every hop of its chain.
+// TaxDocumentReplaces is how the factura a Sale Invoice stands in for was
+// replaced, as far as the buyer's mail is concerned (#718).
 //
-// THE DEFAULT IS SILENCE. Any other cause, and "", is mailed as the plain
-// factura: Issue again (ADR 0068) replaces a factura the SRI never held and
-// the buyer never received, so it is simply the buyer's factura. A future
-// cause - an authorized factura annulled at the SRI (#710) - opts into its
-// own words here; it never inherits the credit note's.
-const TaxDocumentReplacesCredited = "credited"
+// THE DEFAULT IS SILENCE. TaxDocumentReplacesNothing, and any value the
+// copy does not recognize, is mailed as the plain factura: Issue again (ADR
+// 0068) replaces a factura the SRI never held and the buyer never received,
+// so it is simply the buyer's factura. A future cause - an authorized
+// factura annulled at the SRI (#710) - opts into its own words here; it
+// never inherits the credit note's.
+type TaxDocumentReplaces string
+
+const (
+	// TaxDocumentReplacesNothing: a first factura, an Issue again
+	// replacement, and every Credit Note.
+	TaxDocumentReplacesNothing TaxDocumentReplaces = ""
+	// TaxDocumentReplacesCredited: a Credit Note the buyer received
+	// cancelled the factura this one stands in for - a Sale Invoice
+	// Reissue (#485, ADR 0061), at every hop of its chain.
+	TaxDocumentReplacesCredited TaxDocumentReplaces = "credited"
+)
 
 // TaxDocumentDelivery is the mail that hands a buyer an authorized Tax
 // Document (#475, ADR 0060): the second mail about a paid House sale, after
@@ -1031,13 +1040,12 @@ type TaxDocumentDelivery struct {
 	// on a Sale Invoice.
 	Reason string
 	// Replaces is, on a Sale Invoice that stands in for an earlier one, how
-	// that earlier one was replaced (#718): one of the TaxDocumentReplaces
-	// constants. Only TaxDocumentReplacesCredited changes the words - the
-	// ordinary factura words then carry one more line saying it replaces the
-	// earlier factura the Credit Note cancelled (#485, ADR 0061). "" on a
-	// first factura, on an Issue again replacement (ADR 0068) and on every
-	// Credit Note.
-	Replaces string
+	// that earlier one was replaced (#718). Only TaxDocumentReplacesCredited
+	// changes the words - the ordinary factura words then carry one more
+	// line saying it replaces the earlier factura the Credit Note cancelled
+	// (#485, ADR 0061). TaxDocumentReplacesNothing on a first factura, on an
+	// Issue again replacement (ADR 0068) and on every Credit Note.
+	Replaces TaxDocumentReplaces
 	// CustomerName is the Recipient's legal name as printed on the document.
 	CustomerName string
 	// EventName and Reference name the purchase the document is about, so
