@@ -48,7 +48,9 @@ func TestTicketAssignmentIsWrittenInEnglishWhenNothingNamedALanguage(t *testing.
 		//
 		// Each of the closing's three facts is its own sentence (#704). Run
 		// together with commas they read as if ignoring the mail were what
-		// killed the link, and a bare "then" left open when the address goes.
+		// killed the Assignment Link, and a bare "then" left open when the
+		// address goes. Each pin starts with the space after the previous full
+		// stop, so the sentence boundary is pinned too.
 		"You do not have to do anything.",
 		" If you ignore this message, the ticket still works and the person who bought it can still use it.",
 		" This link stops working when the event starts.",

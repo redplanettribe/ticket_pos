@@ -1015,9 +1015,8 @@ var (
 	// enforces: the ticket is unaffected (the Answer Link and the buyer's own
 	// routes keep working while a Ticket is merely `assigned`), the link dies at
 	// the Event's start (catalog.AnswerWindow, read live), and the address is
-	// deleted then (#322's purge). Anyone changing one of those has to come here.
-	// Each fact is its own sentence (#704): joined with commas, they read as if
-	// ignoring the mail were what made the link stop working.
+	// deleted at that point (#322's purge). Anyone changing one of those has to
+	// come here. Each fact is its own sentence (#704).
 	ticketAssignmentClosingCopy = translated(
 		"You do not have to do anything. If you ignore this message, the ticket still works and the person who bought it can still use it. This link stops working when the event starts. At that point we also delete your email address.",
 		"No tiene que hacer nada. Si ignora este mensaje, la entrada sigue siendo válida y quien la compró puede seguir usándola. Este enlace deja de funcionar cuando empieza el evento. En ese momento también eliminamos su dirección de correo.",
