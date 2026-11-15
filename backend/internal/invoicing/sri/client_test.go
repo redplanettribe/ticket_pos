@@ -278,3 +278,46 @@ func TestBuildRequestsAreWellFormed(t *testing.T) {
 		t.Fatalf("clave must be escaped: %s", req)
 	}
 }
+
+// redirectingSRI answers autorizacionComprobante the way the SRI's edge did
+// on 6 of 40 consultas from Cloud Run on 2026-11-15 (#716, #722): an HTTP
+// 302 to an HTML page, not SOAP. The page itself answers 200.
+// It records each request's method and path, so a test can see the client
+// followed the redirect to the page.
+func redirectingSRI(t *testing.T) (*httptest.Server, *[]string) {
+	t.Helper()
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Method+" "+r.URL.Path)
+		if r.URL.Path == AuthorizationPath {
+			http.Redirect(w, r, "/portal", http.StatusFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
+		w.WriteHeader(http.StatusOK)
+		io.WriteString(w, `<html><head><title>SRI</title></head><body>Servicio no disponible</body></html>`)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &seen
+}
+
+// TestAuthorizationComprobanteRedirectedToHTMLIsAnError (#729, parent #722):
+// a 302 to a non-SOAP page is an error - ErrResponse today, or a transport
+// error should the client ever stop following redirects - and never an
+// AuthorizationResult with zero comprobantes, which the platform would read
+// as the SRI holding nothing under the clave.
+func TestAuthorizationComprobanteRedirectedToHTMLIsAnError(t *testing.T) {
+	srv, seen := redirectingSRI(t)
+	c := NewClient(EnvironmentTest, WithBaseURL(srv.URL))
+
+	res, err := c.AuthorizationComprobante(context.Background(), "2508202601179001234500110010020000001231234567811")
+	if err == nil {
+		t.Fatalf("a redirect to an HTML page answered %+v and no error; want an error", res)
+	}
+	if res != nil {
+		t.Fatalf("result = %+v alongside err %v; want no AuthorizationResult at all", res, err)
+	}
+	if len(*seen) == 0 || (*seen)[0] != "POST "+AuthorizationPath {
+		t.Fatalf("requests = %v; want the autorización POST first", *seen)
+	}
+}
