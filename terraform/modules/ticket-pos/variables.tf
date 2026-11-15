@@ -416,7 +416,7 @@ variable "ticket_assignment_enabled" {
   type        = bool
   default     = false
   # THE MAIL PROMISES A DELETION THIS ALONE DOES NOT PERFORM. The Assignment mail
-  # tells a stranger, in their own language, "we delete your email address then" --
+  # tells a stranger, in their own language, "At that point we also delete your email address" --
   # meaning at Event start. That sentence is made true by the Holder Address Purge
   # and by nothing else, and the purge deliberately does NOT read this flag (see
   # holder_address_purge_enabled): gating it here would mean a deployment that shut
