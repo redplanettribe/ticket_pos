@@ -131,7 +131,10 @@ func (s *SESEmailSender) send(ctx context.Context, messageType, to, subject, tex
 			FileName:           aws.String(a.Filename),
 			ContentType:        aws.String(a.ContentType),
 			ContentDisposition: sestypes.AttachmentContentDispositionAttachment,
-			RawContent:         a.Body,
+			// Base64 for every part, XML included: left unset SES sends 7bit,
+			// which drops a binary body such as the RIDE PDF (#702).
+			ContentTransferEncoding: sestypes.AttachmentContentTransferEncodingBase64,
+			RawContent:              a.Body,
 		})
 	}
 	_, err := s.client.SendEmail(ctx, &sesv2.SendEmailInput{

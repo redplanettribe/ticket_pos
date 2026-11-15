@@ -208,6 +208,10 @@ func TestSESSendsEveryTransactionalMessageWithTheSharedCopy(t *testing.T) {
 				if got.ContentDisposition != "ATTACHMENT" {
 					t.Errorf("attachment %d ContentDisposition = %q, want ATTACHMENT", i, got.ContentDisposition)
 				}
+				// Left unset, SES sends the part as 7bit and drops a binary body (#702).
+				if got.ContentTransferEncoding != "BASE64" {
+					t.Errorf("attachment %d ContentTransferEncoding = %q, want BASE64", i, got.ContentTransferEncoding)
+				}
 				if !bytes.Equal(got.RawContent, want.Body) {
 					t.Errorf("attachment %d bytes = %q, want %q", i, got.RawContent, want.Body)
 				}
