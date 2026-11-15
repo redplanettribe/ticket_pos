@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/invoicing/service"
 )
 
 // The needs-attention queue widens (#581, parent #575, ADR 0068): it lists
@@ -283,7 +285,8 @@ func TestTheQueuesTwoHalvesShareOneClock(t *testing.T) {
 	sriStub.setAuthorization(func(accessKey string) (int, string) {
 		return http.StatusOK, emptyAuthorizationSOAP(accessKey)
 	})
-	checkTwice(t, operatorSessionID, firstParked, fixedClock.Add(3*time.Hour))
+	// Its two Checks end at the third hour, where the Abandon is pressed.
+	checkTwice(t, operatorSessionID, firstParked, fixedClock.Add(3*time.Hour-service.AbandonCheckSpacing))
 	resp, body := abandonInvoice(t, operatorSessionID, firstParked, map[string]any{"note": "not registered at the portal"})
 	if view := abandonedView(t, resp, body); view.Status != "abandoned" {
 		t.Fatalf("abandon left the document %s", view.Status)
