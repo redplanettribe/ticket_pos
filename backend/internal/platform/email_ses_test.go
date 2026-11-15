@@ -54,10 +54,11 @@ type sesSendEmailBody struct {
 				Html *struct{ Data, Charset string }
 			}
 			Attachments []struct {
-				FileName           string
-				ContentType        string
-				ContentDisposition string
-				RawContent         []byte
+				FileName                string
+				ContentType             string
+				ContentDisposition      string
+				ContentTransferEncoding string
+				RawContent              []byte
 			}
 		}
 	}
