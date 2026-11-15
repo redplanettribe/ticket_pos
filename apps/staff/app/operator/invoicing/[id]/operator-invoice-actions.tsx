@@ -61,8 +61,9 @@ import {
  * answer and when it was given (#728), and asks for the resend. It never
  * says the document was not received: the SRI's status services give that
  * answer for documents they hold (#722), and resending is the fix either
- * way, since a clave it holds is answered as already registered. A document the ledger says neither about shows neither
- * banner: the card offers its levers and says nothing it cannot know.
+ * way, since a clave it holds is answered as already registered. A
+ * document the ledger says neither about shows neither banner: the card
+ * offers its levers and says nothing it cannot know.
  *
  * RESEND IS REFUSED WHERE THE NUMBER IS THE OBJECTION (#577, ADR 0068).
  * On a document the SRI answered 45 "secuencial registrado", a resend would

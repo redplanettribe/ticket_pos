@@ -29,6 +29,12 @@ const INVOICE_STATUSES = [
 // queue, the annulment and the trail cannot reach an operator with nothing
 // to say in either language.
 
+type Catalog = { operator: Record<string, string>; errors: { envelope: Record<string, string> } };
+
+function loadCatalog(locale: string): Catalog {
+  return JSON.parse(readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8")) as Catalog;
+}
+
 const NONE = { check: false, resend: false, annul: false, reissue: false, abandon: false, issueAgain: false };
 
 test("a pending or parked document offers check, resend and mark annulled", () => {
@@ -294,9 +300,7 @@ test("every surface has its words in both languages", () => {
     "invoicingIssueAgainFailed",
   ];
   for (const locale of ["en", "es"]) {
-    const catalog = JSON.parse(
-      readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8"),
-    ) as { operator: Record<string, string>; errors: { envelope: Record<string, string> } };
+    const catalog = loadCatalog(locale);
     for (const key of keys) {
       assert.ok(catalog.operator[key]?.trim(), `${locale}: operator.${key} is missing or empty`);
     }
@@ -341,11 +345,6 @@ const LOST_SUBMIT_THEN_UNKNOWN = {
   ],
 } as const;
 
-function catalog(locale: string): { operator: Record<string, string> } {
-  return JSON.parse(readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8")) as {
-    operator: Record<string, string>;
-  };
-}
 
 test("the resend hint is asked at the last attempt's time", () => {
   assert.equal(resendHintAskedAt(LOST_SUBMIT_THEN_UNKNOWN), "2026-11-15T16:32:00Z");
@@ -356,7 +355,7 @@ test("the resend hint says when the SRI answered, in both languages", () => {
   for (const locale of ["en", "es"] as const) {
     const when = formatDateTime(resendHintAskedAt(LOST_SUBMIT_THEN_UNKNOWN)!, PLATFORM_TIME_ZONE, locale);
     assert.ok(when?.includes("11:32"), `${locale}: ${when} is not Guayaquil time`);
-    const { operator } = catalog(locale);
+    const { operator } = loadCatalog(locale);
     assert.ok(operator.invoicingResendHint.includes("{time}"), `${locale}: the hint does not say when`);
     const shown = `${operator.invoicingResendHintTitle} ${operator.invoicingResendHint.replace("{time}", when!)}`;
     assert.ok(shown.includes(when!), locale);

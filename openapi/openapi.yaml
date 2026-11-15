@@ -11813,8 +11813,8 @@ paths:
         under the clave sends nothing and is the one thing still worth doing there.
         Returns the invoice as it then stands, with its two hints about who holds
         the document (#516): `check_status_hint` is true only when the SRI really
-        holds it — some submit to recepción came back received (`RECIBIDA`, or 43/70
-        on a resend) — and it is still undecided (`pending` or `needs_attention`);
+        holds it - some submit to recepción came back received (`RECIBIDA`, or 43/70
+        on a resend) - and it is still undecided (`pending` or `needs_attention`);
         `resend_hint` is true when the SRI''s last answer was that it holds nothing
         under the clave (`unknown`) and no submit was ever received. That answer is
         not proof - the SRI gives it for documents it holds (#722) - but resending

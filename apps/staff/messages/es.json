@@ -1667,7 +1667,7 @@
     "invoicingCheckStatusHintTitle": "El SRI tiene este documento",
     "invoicingCheckStatusHint": "Fue recibido y sigue en proceso. Consulte el estado en lugar de reenviarlo.",
     "invoicingResendHintTitle": "Última respuesta del SRI: sin registro de este documento",
-    "invoicingResendHint": "Consultado el {time}, el SRI respondió que no tiene nada con esta clave. Sus servicios de consulta a veces responden así sobre documentos que sí tienen, así que reenviarlo es la solución en cualquier caso: un documento que ya tiene se responde como ya registrado, nunca se duplica.",
+    "invoicingResendHint": "Consultado el {time}, el SRI respondió que no tiene nada con esta clave. Sus servicios de consulta a veces responden así sobre documentos que sí tienen, así que reenviarlo es la solución en cualquier caso: a un documento que ya tiene, responde que ya está registrado, y nunca lo duplica.",
     "invoicingCheckedAuthorized": "El SRI autorizó la factura.",
     "invoicingCheckedNotAuthorized": "El SRI no autorizó la factura. Revise sus mensajes.",
     "invoicingCheckedRejected": "El SRI devolvió la factura. Revise sus mensajes.",
