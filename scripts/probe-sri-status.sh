@@ -9,15 +9,19 @@
 # Prod services use PRIVATE_RANGES_ONLY egress, so their SRI calls leave by
 # Cloud Run's default internet path; this job (no VPC) takes the same path.
 #
-# Usage: scripts/probe-sri-status.sh [ANNULLED_CLAVE]
+# Usage: [REPEAT=3] [SPACING=0] scripts/probe-sri-status.sh [ANNULLED_CLAVE]
 #   ANNULLED_CLAVE  a production factura clave the SRI holds as ANULADO
 #                   (annulled at the SRI en línea portal). Optional; without it
 #                   the annulled case is not probed.
+#   REPEAT          consultas per clave (default 3)
+#   SPACING         seconds between consultas (default 0)
 set -euo pipefail
 
 PROJECT=multiticketing
 REGION=us-east1
 JOB=probe-716-sri-status
+REPEAT=${REPEAT:-3}
+SPACING=${SPACING:-0}
 LOG=${LOG:-probe-716-$(date +%Y%m%dT%H%M%S).log}
 
 # label=clave pairs. Production claves from prod's invoicing_invoices_ec.
@@ -53,7 +57,10 @@ for host in cel celcer; do
 done
 for pair in $CLAVES; do
   label=${pair%%=*}; clave=${pair#*=}
-  for i in 1 2 3; do out "consulta cel $label #$i"; consulta cel "$clave"; done
+  i=1; while [ "$i" -le "$REPEAT" ]; do
+    out "consulta cel $label #$i $(date -u +%H:%M:%S)"; consulta cel "$clave"
+    i=$((i + 1)); sleep "$SPACING"
+  done
   out "autorizacion cel $label"; autorizacion cel "$clave"
 done
 first=${CLAVES%% *}
@@ -69,7 +76,7 @@ trap cleanup EXIT
 gcloud run jobs create "$JOB" --project "$PROJECT" --region "$REGION" \
   --image docker.io/curlimages/curl:latest \
   --command sh --args '^@^-c@echo "$PROBE_B64" | base64 -d | sh' \
-  --set-env-vars "^@^PROBE_B64=$B64@CLAVES=$CLAVES" \
+  --set-env-vars "^@^PROBE_B64=$B64@CLAVES=$CLAVES@REPEAT=$REPEAT@SPACING=$SPACING" \
   --max-retries 0 --task-timeout 600s --quiet
 
 gcloud run jobs execute "$JOB" --project "$PROJECT" --region "$REGION" --wait || true
