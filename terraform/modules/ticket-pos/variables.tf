@@ -419,10 +419,9 @@ variable "ticket_assignment_enabled" {
   # tells a stranger, in their own language, that at that point "we also delete
   # your email address" -- meaning at Event start. That sentence is made true by
   # the Holder Address Purge and by nothing else, and the purge deliberately does
-  # NOT read this flag (see
-  # holder_address_purge_enabled): gating it here would mean a deployment that shut
-  # assignment kept every address it had already collected, forever, precisely
-  # because it had stopped collecting.
+  # NOT read this flag (see holder_address_purge_enabled): gating it here would
+  # mean a deployment that shut assignment kept every address it had already
+  # collected, forever, precisely because it had stopped collecting.
   #
   # So the two switches have to be thrown together, and this is the only place that
   # can insist on it. Opening assignment while the purge is paused would have the
