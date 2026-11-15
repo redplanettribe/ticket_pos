@@ -7,6 +7,12 @@ terraform {
       version = "~> 6.0"
     }
 
+    # Amazon SES in its dedicated member account (ADR 0077).
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+
     # Generates the database password. Its state is the password, which is why
     # the state bucket is private and versioned.
     random = {
@@ -26,4 +32,14 @@ terraform {
 provider "google" {
   project = var.project_id
   region  = var.region
+}
+
+# The SES member account of the AWS Organization (ADR 0077), reached through an
+# IAM Identity Center profile on the operator's machine (`aws sso login
+# --profile <aws_profile>` before a plan). The Organization and the account are
+# created by hand, never here. The module tags every AWS resource with its
+# common labels. State stays in the GCS backend above.
+provider "aws" {
+  profile = var.aws_profile
+  region  = var.aws_region
 }

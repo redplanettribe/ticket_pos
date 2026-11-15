@@ -260,8 +260,9 @@ locals {
        account-scoped, and the API falls back to the transactional key here. A
        second copy of one credential is a rotation hazard, not isolation.
     3. Apply. The API logs "digest email sender: resend" at startup when it is
-       satisfied, and "digest email sender: not configured" with a reason when
-       it is not.
+       satisfied ("digest email sender: ses" once digest_email_provider is
+       ses, which needs no Digest Resend key), and "digest email sender: not
+       configured" with a reason when it is not.
 
     To undo this later: verify ${var.digest_email_domain} in Resend, follow the
     separate-domain checklist this output prints when the flag is false, then set
@@ -291,8 +292,9 @@ locals {
     4. Create an API key in Resend scoped to this domain and supply it as
        TF_VAR_digest_resend_api_key. It must NOT be the transactional key.
     5. Apply. The API logs "digest email sender: resend" at startup when it is
-       satisfied, and "digest email sender: not configured" with a reason when
-       it is not.
+       satisfied ("digest email sender: ses" once digest_email_provider is
+       ses, which needs no Digest Resend key), and "digest email sender: not
+       configured" with a reason when it is not.
   EOT
 }
 
@@ -313,4 +315,88 @@ output "assignment_reminder_job_name" {
 output "owed_assignment_mail_job_name" {
   description = "Name of the per-minute Cloud Scheduler job driving the Owed Assignment Mail sweep (ADR 0076): the Assignment mails a Named Tickets checkout owes. Paused unless owed_assignment_mail_enabled is true, and production sets it true in terraform.tfvars. A run can be forced with `gcloud scheduler jobs run <name> --location <region>`; pause it through the tfvar and an apply, never the console. It presents its own service account, google_service_account.owed_assignment_mail."
   value       = google_cloud_scheduler_job.owed_assignment_mail.name
+}
+
+# --- Amazon SES (ADR 0077) ----------------------------------------------------
+
+locals {
+  # Every record SES needs per sending identity, in the order they are added
+  # at Namecheap. Names are fully qualified; Namecheap's Host field is the name
+  # without the zone (e.g. bounce.send for bounce.send.multiticketing.com).
+  ses_dns_records = {
+    for domain, identity in aws_sesv2_email_identity.sending : domain => concat(
+      [
+        for token in identity.dkim_signing_attributes[0].tokens : {
+          type  = "CNAME"
+          name  = "${token}._domainkey.${domain}"
+          value = "${token}.dkim.amazonses.com"
+        }
+      ],
+      [
+        {
+          type  = "MX"
+          name  = aws_sesv2_email_identity_mail_from_attributes.sending[domain].mail_from_domain
+          value = "10 feedback-smtp.${local.ses_region}.amazonses.com"
+        },
+        {
+          type  = "TXT"
+          name  = aws_sesv2_email_identity_mail_from_attributes.sending[domain].mail_from_domain
+          value = "v=spf1 include:amazonses.com ~all"
+        },
+      ],
+    )
+  }
+
+  ses_dns_records_text = join("\n\n", [
+    for domain, records in local.ses_dns_records : join("\n", concat(
+      [domain],
+      [for r in records : format("  %-5s  %-72s  %s", r.type, r.name, r.value)],
+    ))
+  ])
+
+  ses_dns_setup = <<-EOT
+    Amazon SES sending identities (ADR 0077): ${join(", ", sort(tolist(local.ses_identities)))}
+
+    None of these records is created by Terraform. Add them at Namecheap BESIDE
+    Resend's records on the same subdomains; do not touch or replace any Resend
+    record. SES and Resend are verified on the same domains at the same time.
+
+    ${local.ses_dns_records_text}
+
+    Why these do not collide with Resend:
+      - DKIM: SES signs with three random-token selectors under _domainkey, as
+        CNAMEs. Resend's key is the TXT at resend._domainkey. Both coexist.
+      - MAIL FROM: SES's return path is ${var.ses_mail_from_label}.<domain>. Resend's is
+        send.<domain> (its own MX and SPF TXT), which stays as it is.
+      - DMARC: nothing to add. _dmarc.multiticketing.com ("v=DMARC1; p=none;")
+        already covers both subdomains. SES mail passes it on the DKIM
+        signature and on the MAIL FROM above, both aligned with the From
+        under multiticketing.com.
+
+    Then wait for SES to report each identity verified (DKIM "SUCCESS" and
+    MAIL FROM "SUCCESS"), for example:
+      aws sesv2 get-email-identity --email-identity <domain> --profile <profile>
+    Nothing sends through SES until email_provider or digest_email_provider is
+    set to "ses"; applying this changes no delivery.
+  EOT
+}
+
+output "ses_dns_setup" {
+  description = "Operator checklist of every DNS record SES needs at Namecheap for both sending identities: Easy DKIM CNAMEs and the custom MAIL FROM's MX and SPF. Terraform does NOT create any of them."
+  value       = local.ses_dns_setup
+}
+
+output "ses_dns_records" {
+  description = "The records in ses_dns_setup as data, keyed by sending domain."
+  value       = local.ses_dns_records
+}
+
+output "ses_role_arn" {
+  description = "IAM role the API assumes through Workload Identity Federation (AWS_ROLE_ARN on the service)."
+  value       = aws_iam_role.ses_sender.arn
+}
+
+output "ses_configuration_set_name" {
+  description = "SES configuration set every message is sent through (SES_CONFIGURATION_SET on the service)."
+  value       = aws_sesv2_configuration_set.main.configuration_set_name
 }

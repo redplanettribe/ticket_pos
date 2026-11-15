@@ -54,6 +54,12 @@ type Config struct {
 	S3Region      string
 	ResendAPIKey  string
 	EmailFrom     string
+	// EmailProvider is the transactional identity's provider, chosen by
+	// EMAIL_PROVIDER rather than by which credentials are present (ADR 0077).
+	EmailProvider EmailProvider
+	// SES is the Amazon SES configuration, read and validated only when an
+	// identity selects ses (ADR 0077); otherwise it is the zero value.
+	SES SESConfig
 	// DigestEmail is the Follow Digest's OWN sending identity, configured
 	// independently of the transactional one above. See DigestEmailConfig.
 	DigestEmail DigestEmailConfig
@@ -193,8 +199,12 @@ func (c PayPhoneConfig) Configured() bool {
 	return c.APIToken != "" && c.StoreID != ""
 }
 
-// DigestEmailConfig is the Follow Digest's sending identity: its own Resend API
-// key and its own From address, on its own subdomain (#225, ADR 0030).
+// DigestEmailConfig is the Follow Digest's sending identity: its own provider,
+// its own From address on its own subdomain and, on Resend, its own Resend API
+// key (#225, ADR 0030). On SES the identity is its From alone: SES
+// authenticates with the deployment's AWS role and SESConfig, which both
+// identities share (ADR 0077), so the Resend key and its shared-domain
+// fallback below apply only while the Digest's provider is Resend.
 //
 // It exists because the Digest is the platform's first NON-TRANSACTIONAL mail.
 // Marketing mail attracts spam complaints in a way transactional mail never
@@ -225,16 +235,23 @@ func (c PayPhoneConfig) Configured() bool {
 // what a typo in DIGEST_EMAIL_FROM looks like, and that one should still be
 // refused.
 type DigestEmailConfig struct {
+	// Provider is the Digest identity's provider, chosen by
+	// DIGEST_EMAIL_PROVIDER independently of the transactional one (ADR 0077).
+	Provider                 EmailProvider
 	ResendAPIKey             string
 	From                     string
 	AllowSharedSendingDomain bool
 }
 
 // Configured reports whether a usable Digest identity is present — the switch
-// that selects a real Digest sender over the refusing one. BOTH halves are
-// required: a key with no From has nothing to send as, and a From with no key
-// cannot authenticate.
+// that selects a real Digest sender over the refusing one. On Resend BOTH
+// halves are required: a key with no From has nothing to send as, and a From
+// with no key cannot authenticate. On SES only the From is: the credentials
+// belong to the deployment, not to the identity.
 func (c DigestEmailConfig) Configured() bool {
+	if c.Provider.OrDefault() == EmailProviderSES {
+		return c.From != ""
+	}
 	return c.ResendAPIKey != "" && c.From != ""
 }
 
@@ -243,7 +260,12 @@ func (c DigestEmailConfig) Configured() bool {
 // Digest mail on" from "somebody tried and stopped halfway", which are the same
 // outcome and very different bugs. An operator in the second case is told which
 // half is missing at startup rather than watching Digests silently not arrive.
+//
+// A Digest on SES has one setting, its From, so it is never half configured.
 func (c DigestEmailConfig) PartiallyConfigured() bool {
+	if c.Provider.OrDefault() == EmailProviderSES {
+		return false
+	}
 	return (c.ResendAPIKey == "") != (c.From == "")
 }
 
@@ -275,6 +297,29 @@ func (c DigestEmailConfig) SharesSendingDomainWith(transactionalFrom string) boo
 // (nothing set, half set, set to the transactional domain without saying so)
 // deserve to be listed together and phrased as instructions.
 func (c DigestEmailConfig) UnconfiguredReason(transactionalFrom string) string {
+	if reason := c.missingSettingReason(); reason != "" {
+		return reason
+	}
+	if c.SharesSendingDomainWith(transactionalFrom) && !c.AllowSharedSendingDomain {
+		// Named as a choice with two exits, because both are legitimate and the
+		// operator hitting this cannot tell from the symptom which one they are
+		// in: a typo pointing the Digest at the transactional domain looks
+		// identical to a deliberate single-domain deployment. The rule holds on
+		// both providers.
+		return fmt.Sprintf("DIGEST_EMAIL_FROM (%s) is on the same sending domain as EMAIL_FROM; give the Digest its own subdomain (ADR 0030), or set DIGEST_EMAIL_ALLOW_SHARED_DOMAIN=true to accept sharing the transactional domain's reputation", c.From)
+	}
+	return ""
+}
+
+// missingSettingReason names the identity setting that is not set, or "".
+// On SES the identity is its From alone; on Resend it is a key and a From.
+func (c DigestEmailConfig) missingSettingReason() string {
+	if c.Provider.OrDefault() == EmailProviderSES {
+		if c.From == "" {
+			return fmt.Sprintf("DIGEST_EMAIL_PROVIDER is %q but DIGEST_EMAIL_FROM is not set", EmailProviderSES)
+		}
+		return ""
+	}
 	switch {
 	case c.ResendAPIKey == "" && c.From == "":
 		return "neither DIGEST_RESEND_API_KEY nor DIGEST_EMAIL_FROM is set"
@@ -282,12 +327,6 @@ func (c DigestEmailConfig) UnconfiguredReason(transactionalFrom string) string {
 		return "DIGEST_EMAIL_FROM is set but DIGEST_RESEND_API_KEY is not"
 	case c.From == "":
 		return "DIGEST_RESEND_API_KEY is set but DIGEST_EMAIL_FROM is not"
-	case c.SharesSendingDomainWith(transactionalFrom) && !c.AllowSharedSendingDomain:
-		// Named as a choice with two exits, because both are legitimate and the
-		// operator hitting this cannot tell from the symptom which one they are
-		// in: a typo pointing the Digest at the transactional domain looks
-		// identical to a deliberate single-domain deployment.
-		return fmt.Sprintf("DIGEST_EMAIL_FROM (%s) is on the same sending domain as EMAIL_FROM; give the Digest its own subdomain (ADR 0030), or set DIGEST_EMAIL_ALLOW_SHARED_DOMAIN=true to accept sharing the transactional domain's reputation", c.From)
 	}
 	return ""
 }
@@ -307,16 +346,162 @@ func (c DigestEmailConfig) UnconfiguredReason(transactionalFrom string) string {
 // set, an unset DIGEST_RESEND_API_KEY still means no Digests, exactly as before.
 // Supplying the key outright always wins, so a separate restricted key remains
 // possible for anyone who wants one.
-func loadDigestEmailConfig(transactionalAPIKey string) DigestEmailConfig {
+//
+// All of that is about Resend. A Digest on SES reads neither the key nor the
+// fallback (#696): its credentials are the deployment's AWS role, so a Resend
+// key left behind from before the switch can neither be required nor used.
+func loadDigestEmailConfig(transactionalAPIKey string) (DigestEmailConfig, error) {
+	provider, err := loadEmailProvider("DIGEST_EMAIL_PROVIDER", emailProviders)
+	if err != nil {
+		return DigestEmailConfig{}, err
+	}
 	cfg := DigestEmailConfig{
-		ResendAPIKey:             strings.TrimSpace(os.Getenv("DIGEST_RESEND_API_KEY")),
+		Provider:                 provider,
 		From:                     strings.TrimSpace(os.Getenv("DIGEST_EMAIL_FROM")),
 		AllowSharedSendingDomain: envIsTrue("DIGEST_EMAIL_ALLOW_SHARED_DOMAIN"),
 	}
+	if provider == EmailProviderSES {
+		return cfg, nil
+	}
+	cfg.ResendAPIKey = strings.TrimSpace(os.Getenv("DIGEST_RESEND_API_KEY"))
 	if cfg.AllowSharedSendingDomain && cfg.ResendAPIKey == "" {
 		cfg.ResendAPIKey = strings.TrimSpace(transactionalAPIKey)
 	}
-	return cfg
+	return cfg, nil
+}
+
+// EmailProvider names the service a sending identity's mail leaves through.
+// It is chosen per identity by an explicit setting, never inferred from which
+// credentials happen to be present, so adding a provider's settings to a
+// deployment can never turn that provider on by accident (ADR 0077).
+type EmailProvider string
+
+const (
+	// EmailProviderResend is the default provider for both sending identities.
+	EmailProviderResend EmailProvider = "resend"
+	// EmailProviderSES is Amazon SES, dormant beside Resend until an identity
+	// selects it (ADR 0077).
+	EmailProviderSES EmailProvider = "ses"
+)
+
+// OrDefault reads an unset provider as Resend, the default for both sending
+// identities, so a Config built without LoadConfig wires as it always did.
+func (p EmailProvider) OrDefault() EmailProvider {
+	if p == "" {
+		return EmailProviderResend
+	}
+	return p
+}
+
+// emailProviders lists every value EMAIL_PROVIDER and DIGEST_EMAIL_PROVIDER
+// accept. Both identities can be on either provider, switched independently.
+var emailProviders = []EmailProvider{EmailProviderResend, EmailProviderSES}
+
+// loadEmailProvider reads one identity's provider switch, accepting only the
+// values in accepted. Unset means Resend, which is what every deployment did
+// before the switch existed. The value is trimmed and matched
+// case-insensitively; anything else is a startup failure rather than a
+// fallback, because an unrecognised value on switch day is a typo that must be
+// loud instead of quietly sending through the old provider.
+func loadEmailProvider(variable string, accepted []EmailProvider) (EmailProvider, error) {
+	raw := strings.TrimSpace(os.Getenv(variable))
+	value := strings.ToLower(raw)
+	if value == "" {
+		return EmailProviderResend, nil
+	}
+	names := make([]string, len(accepted))
+	for i, provider := range accepted {
+		if value == string(provider) {
+			return provider, nil
+		}
+		names[i] = strconv.Quote(string(provider))
+	}
+	return "", fmt.Errorf("%s must be one of %s, got %q", variable, strings.Join(names, ", "), raw)
+}
+
+// SESConfig is what an identity sending through Amazon SES needs beyond its
+// From (ADR 0077). Both identities share it: one AWS account, one region, one
+// configuration set.
+type SESConfig struct {
+	// Region is the AWS region SES sends from (SES_REGION). Production is
+	// us-east-1, where SES has its widest feature set.
+	Region string
+	// ConfigurationSet is the SES configuration set every message is sent
+	// through (SES_CONFIGURATION_SET), so delivery settings live in Terraform.
+	ConfigurationSet string
+	// RoleARN is the IAM role the API assumes through Workload Identity
+	// Federation (AWS_ROLE_ARN). Set, the SES sender trades a Google-signed ID
+	// token from the GCP metadata server for that role's credentials and uses
+	// nothing else. Unset, it uses the SDK's default credential chain, which
+	// only a deployment outside production may do.
+	RoleARN string
+	// WebIdentityAudience is the audience the ID token is minted for
+	// (SES_WEB_IDENTITY_AUDIENCE), the one the role's trust policy expects.
+	WebIdentityAudience string
+	// Endpoint overrides the SES API endpoint. It is never read from the
+	// environment: it exists for tests, which point it at a fake SES, the way
+	// the Resend sender's tests point at an httptest server.
+	Endpoint string
+	// STSEndpoint and MetadataEndpoint override the STS and GCP metadata
+	// server endpoints the federation exchange calls. Like Endpoint they are
+	// never read from the environment and exist for tests.
+	STSEndpoint      string
+	MetadataEndpoint string
+}
+
+// loadSESConfig reads the SES settings for the identity whose switch is
+// variable. The region and configuration set are required in every
+// environment: an identity that selected SES and cannot reach it must fail
+// startup naming what is missing, never send through another provider instead.
+//
+// In production the role to assume and its token audience are required too
+// (ADR 0077): Cloud Run authenticates to AWS through Workload Identity
+// Federation only, and a service left to the default credential chain could
+// silently pick up some other AWS credential. Elsewhere the role is optional,
+// so a developer's machine uses its own profile; a role set without an
+// audience is still refused, since the exchange cannot be made without one.
+func loadSESConfig(variable, appEnv string) (SESConfig, error) {
+	cfg, missing := readSESDeliverySettings()
+	cfg.RoleARN = strings.TrimSpace(os.Getenv("AWS_ROLE_ARN"))
+	cfg.WebIdentityAudience = strings.TrimSpace(os.Getenv("SES_WEB_IDENTITY_AUDIENCE"))
+	production := appEnv == "production"
+	if cfg.RoleARN == "" && production {
+		missing = append(missing, "AWS_ROLE_ARN")
+	}
+	if cfg.WebIdentityAudience == "" && (production || cfg.RoleARN != "") {
+		missing = append(missing, "SES_WEB_IDENTITY_AUDIENCE")
+	}
+	if len(missing) > 0 {
+		return SESConfig{}, fmt.Errorf("%s is %q but %s not set", variable, EmailProviderSES, describeMissing(missing))
+	}
+	return cfg, nil
+}
+
+// readSESDeliverySettings reads the two SES settings every SES sender needs,
+// the region and the configuration set, and names whichever is unset. The API
+// (loadSESConfig) and the send check (LoadSendCheckConfig) both read them
+// here, so the check proves the settings the API would send with.
+func readSESDeliverySettings() (SESConfig, []string) {
+	cfg := SESConfig{
+		Region:           strings.TrimSpace(os.Getenv("SES_REGION")),
+		ConfigurationSet: strings.TrimSpace(os.Getenv("SES_CONFIGURATION_SET")),
+	}
+	var missing []string
+	if cfg.Region == "" {
+		missing = append(missing, "SES_REGION")
+	}
+	if cfg.ConfigurationSet == "" {
+		missing = append(missing, "SES_CONFIGURATION_SET")
+	}
+	return cfg, missing
+}
+
+// describeMissing lists missing settings as "A is" or "A, B are".
+func describeMissing(missing []string) string {
+	if len(missing) == 1 {
+		return missing[0] + " is"
+	}
+	return strings.Join(missing, ", ") + " are"
 }
 
 // envIsTrue reads a boolean setting the permissive way round: anything Go does
@@ -382,6 +567,10 @@ type GoogleConfig struct {
 	TokenEndpoint string
 }
 
+// defaultEmailFrom is the transactional From a deployment that sets no
+// EMAIL_FROM sends as, the API and the SES send check alike.
+const defaultEmailFrom = "Multiticketing <noreply@send.multiticketing.com>"
+
 // LoadConfig reads configuration from environment variables.
 func LoadConfig() (Config, error) {
 	databaseURL := os.Getenv("DATABASE_URL")
@@ -410,7 +599,28 @@ func LoadConfig() (Config, error) {
 	}
 
 	resendAPIKey := os.Getenv("RESEND_API_KEY")
-	digestEmail := loadDigestEmailConfig(resendAPIKey)
+	emailProvider, err := loadEmailProvider("EMAIL_PROVIDER", emailProviders)
+	if err != nil {
+		return Config{}, err
+	}
+	digestEmail, err := loadDigestEmailConfig(resendAPIKey)
+	if err != nil {
+		return Config{}, err
+	}
+	// SES settings are read only when an identity selects SES, so half-written
+	// AWS settings on a Resend deployment change nothing (ADR 0077). Both
+	// identities share them, so they are read once; a refusal names the switch
+	// that asked for SES, the transactional one when both did.
+	var ses SESConfig
+	switch {
+	case emailProvider == EmailProviderSES:
+		ses, err = loadSESConfig("EMAIL_PROVIDER", appEnv)
+	case digestEmail.Provider == EmailProviderSES:
+		ses, err = loadSESConfig("DIGEST_EMAIL_PROVIDER", appEnv)
+	}
+	if err != nil {
+		return Config{}, err
+	}
 
 	google, err := loadGoogleConfig(appEnv)
 	if err != nil {
@@ -445,7 +655,9 @@ func LoadConfig() (Config, error) {
 		S3Bucket:      os.Getenv("S3_BUCKET"),
 		S3Region:      envOrDefault("S3_REGION", "us-east-1"),
 		ResendAPIKey:  resendAPIKey,
-		EmailFrom:     envOrDefault("EMAIL_FROM", "Multiticketing <noreply@send.multiticketing.com>"),
+		EmailFrom:     envOrDefault("EMAIL_FROM", defaultEmailFrom),
+		EmailProvider: emailProvider,
+		SES:           ses,
 
 		DigestEmail: digestEmail,
 

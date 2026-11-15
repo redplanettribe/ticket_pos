@@ -250,3 +250,99 @@ func TestOnlyATrueValueDeclaresSharing(t *testing.T) {
 		})
 	}
 }
+
+// On SES the Digest identity is its From and nothing else (#696): SES
+// authenticates with the deployment's AWS role, shared by both identities, so
+// a Digest Resend key is neither required nor read, and the shared-domain key
+// fallback, which exists to stop one Resend key being stored twice, does not
+// apply.
+
+func TestADigestOnSESNeedsOnlyItsFrom(t *testing.T) {
+	digestSESEnv(t, "development")
+	t.Setenv("RESEND_API_KEY", "re_transactional")
+	t.Setenv("EMAIL_FROM", "Multiticketing <noreply@send.multiticketing.com>")
+	t.Setenv("DIGEST_EMAIL_FROM", "Multiticketing <digest@digest.multiticketing.com>")
+	t.Setenv("DIGEST_RESEND_API_KEY", "")
+	t.Setenv("DIGEST_EMAIL_ALLOW_SHARED_DOMAIN", "")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg.DigestEmail.Configured() {
+		t.Fatal("a Digest on SES with a From is not configured; it must never need a Digest Resend key")
+	}
+	if reason := cfg.DigestEmail.UnconfiguredReason(cfg.EmailFrom); reason != "" {
+		t.Fatalf("a Digest on SES with its own From was refused: %s", reason)
+	}
+}
+
+func TestADigestOnSESIgnoresTheResendKeys(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		digestKey string
+		shared    string
+		from      string
+	}{
+		{"its own key", "re_digest", "", "Multiticketing <digest@digest.multiticketing.com>"},
+		{"the shared-domain fallback", "", "true", "Multiticketing <digest@send.multiticketing.com>"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			digestSESEnv(t, "development")
+			t.Setenv("RESEND_API_KEY", "re_transactional")
+			t.Setenv("EMAIL_FROM", "Multiticketing <noreply@send.multiticketing.com>")
+			t.Setenv("DIGEST_EMAIL_FROM", tc.from)
+			t.Setenv("DIGEST_RESEND_API_KEY", tc.digestKey)
+			t.Setenv("DIGEST_EMAIL_ALLOW_SHARED_DOMAIN", tc.shared)
+
+			cfg, err := LoadConfig()
+			if err != nil {
+				t.Fatalf("LoadConfig: %v", err)
+			}
+			if cfg.DigestEmail.ResendAPIKey != "" {
+				t.Fatalf("DigestEmail.ResendAPIKey = %q on SES; the Resend key settings apply only on Resend", cfg.DigestEmail.ResendAPIKey)
+			}
+			if !cfg.DigestEmail.Configured() {
+				t.Fatal("the Digest on SES is not configured")
+			}
+		})
+	}
+}
+
+// With no From, a Digest on SES has nothing to send as: it is unconfigured,
+// and the reason names the one setting that is missing, not a Resend key SES
+// does not use.
+func TestADigestOnSESWithoutAFromIsUnconfigured(t *testing.T) {
+	cfg := DigestEmailConfig{Provider: EmailProviderSES, ResendAPIKey: "re_digest"}
+
+	if cfg.Configured() {
+		t.Fatal("a Digest on SES with no From is configured")
+	}
+	if cfg.PartiallyConfigured() {
+		t.Fatal("a Digest on SES has one setting, so it cannot be half configured")
+	}
+	reason := cfg.UnconfiguredReason("Multiticketing <noreply@send.multiticketing.com>")
+	if !strings.Contains(reason, "DIGEST_EMAIL_FROM") {
+		t.Fatalf("reason %q does not name DIGEST_EMAIL_FROM", reason)
+	}
+	if strings.Contains(reason, "DIGEST_RESEND_API_KEY") {
+		t.Fatalf("reason %q names a Resend key the SES Digest does not use", reason)
+	}
+}
+
+// The transactional domain is refused under SES exactly as under Resend,
+// until sharing it is declared.
+func TestADigestOnSESOnTheTransactionalDomainIsRefusedUntilDeclared(t *testing.T) {
+	transactional := "Multiticketing <noreply@send.multiticketing.com>"
+	cfg := DigestEmailConfig{Provider: EmailProviderSES, From: "Multiticketing <digest@send.multiticketing.com>"}
+
+	reason := cfg.UnconfiguredReason(transactional)
+	if !strings.Contains(reason, "DIGEST_EMAIL_ALLOW_SHARED_DOMAIN") {
+		t.Fatalf("reason = %q, want a refusal naming DIGEST_EMAIL_ALLOW_SHARED_DOMAIN", reason)
+	}
+
+	cfg.AllowSharedSendingDomain = true
+	if reason := cfg.UnconfiguredReason(transactional); reason != "" {
+		t.Fatalf("a declared shared sending domain was still refused under SES: %s", reason)
+	}
+}
