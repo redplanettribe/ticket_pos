@@ -21,7 +21,7 @@ import { useLocale, useMessages, useTranslations } from "next-intl";
 
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
-import { type AppLocale, PLATFORM_TIME_ZONE, formatCalendarDay, formatDateTime, formatMoney } from "@/lib/format";
+import { type AppLocale, PLATFORM_TIME_ZONE, formatCalendarDay, formatDateTime, formatMoney, formatQuantity } from "@/lib/format";
 import { invoiceLevers } from "@/lib/invoice-actions";
 import { type OperatorInvoiceDetail, fetchOperatorInvoice } from "@/lib/operator-api";
 import { recipientWarningMessages } from "@/lib/recipient-warning";
@@ -438,7 +438,7 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
                 {invoice.lines.map((line) => (
                   <tr key={line.position} className="border-b last:border-b-0">
                     <td className="py-2 pr-4">{line.description}</td>
-                    <td className="py-2 pr-4 text-right tabular-nums">{line.quantity}</td>
+                    <td className="py-2 pr-4 text-right tabular-nums">{formatQuantity(line.quantity, locale)}</td>
                     <td className="py-2 pr-4 text-right tabular-nums">{money(line.unit_price_cents)}</td>
                     <td className="py-2 pr-4">{ivaLabel(line.iva_rate)}</td>
                     <td className="py-2 pr-4 text-right tabular-nums">{money(line.iva_cents)}</td>

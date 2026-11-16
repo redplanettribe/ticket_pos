@@ -9,6 +9,7 @@ import {
   formatInstant,
   formatMoney,
   formatNumber,
+  formatQuantity,
   formatTime,
   staffIntlLocale,
 } from "./format.ts";
@@ -42,6 +43,27 @@ test("a count is written with the reader's own group mark", () => {
 test("the same count is the same quantity in both languages", () => {
   const digits = (value: string) => value.replace(/\D/g, "");
   assert.equal(digits(formatNumber(1234567, "en")), digits(formatNumber(1234567, "es")));
+});
+
+// --- a decimal quantity: the reader's marks, the API's digits -------------
+
+test("a decimal quantity is written with the reader's own decimal mark", () => {
+  assert.equal(formatQuantity("1.00", "en"), "1.00");
+  assert.equal(formatQuantity("1.00", "es"), "1,00");
+  assert.equal(formatQuantity("2.5", "es"), "2,5");
+  assert.equal(formatQuantity("1", "es"), "1");
+});
+
+test("a decimal quantity keeps every digit it was given", () => {
+  // Six decimals is what the API allows; a float would round the last ones away.
+  assert.equal(formatQuantity("1234567.123456", "en"), "1,234,567.123456");
+  assert.equal(formatQuantity("1234567.123456", "es"), "1.234.567,123456");
+  assert.equal(formatQuantity("9007199254740993.000001", "en"), "9,007,199,254,740,993.000001");
+});
+
+test("a quantity that is not a decimal is shown as it came", () => {
+  assert.equal(formatQuantity("", "es"), "");
+  assert.equal(formatQuantity("abc", "es"), "abc");
 });
 
 // --- money: the locale decides NOTHING about which currency ----------------
