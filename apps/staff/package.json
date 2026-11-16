@@ -10,7 +10,9 @@
     "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@sentry/nextjs": "^11.13.0",
     "@ticket-pos/locale": "workspace:*",
+    "@ticket-pos/sentry-rules": "workspace:^",
     "@ticket-pos/ui": "workspace:*",
     "next": "^15.3.3",
     "next-intl": "^4.13.4",

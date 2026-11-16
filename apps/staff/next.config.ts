@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { withSentryConfig } from "@sentry/nextjs/config";
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
 
@@ -30,4 +31,17 @@ const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
 };
 
-export default withNextIntl(nextConfig);
+// Sentry's build plugin (ADR 0079), set so the build never talks to Sentry:
+// no source maps are produced or uploaded (that is the deploy's job, #776), no
+// release is created or injected (the release is SENTRY_RELEASE, read at
+// runtime by lib/sentry.ts), and the plugin's own telemetry, on by default, is
+// off. So a build with no Sentry token, as in CI, contacts nothing, and an
+// unreachable Sentry neither fails nor slows it. What remains is the SDK's
+// wrapping of server components, route handlers and middleware, which is what
+// reports their errors.
+export default withSentryConfig(withNextIntl(nextConfig), {
+  telemetry: false,
+  silent: true,
+  sourcemaps: { disable: true },
+  release: { create: false, finalize: false },
+});

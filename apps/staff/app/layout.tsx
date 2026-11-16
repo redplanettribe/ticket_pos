@@ -4,6 +4,8 @@ import { Inter } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale } from "next-intl/server";
 
+import { SENTRY_CONFIG_META, readSentryConfig, serializeSentryConfig } from "@/lib/sentry";
+
 import "./globals.css";
 
 const inter = Inter({
@@ -41,12 +43,18 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const locale = await getLocale();
+  // Sentry's browser configuration, read at request time (the DSN is a runtime
+  // value on the service) and handed to instrumentation-client.ts. No DSN, no
+  // meta, and the browser SDK is never initialised. Every page renders per
+  // request already: getLocale() reads the request's cookie.
+  const sentry = readSentryConfig(process.env);
 
   return (
     // The short token the person chose, not the Intl tag it formats under: the
     // document states the language it is written in, while "es-EC" is a claim
     // about number marks and month names.
     <html lang={locale} suppressHydrationWarning>
+      <head>{sentry && <meta name={SENTRY_CONFIG_META} content={serializeSentryConfig(sentry)} />}</head>
       <body className={`${inter.variable} surface-staff font-sans`}>
         {/* Hands the locale and the messages to client components — the login
             form is one — so `useTranslations` finds something to say. Both are

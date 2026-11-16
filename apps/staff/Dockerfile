@@ -11,6 +11,10 @@
 # never calls the Go API directly. It calls Staff's own route handlers, which
 # hold the httpOnly session cookie and proxy onwards using the server-only,
 # runtime API_URL.
+#
+# Sentry's DSN is likewise a runtime value (SENTRY_DSN, with SENTRY_ENVIRONMENT),
+# set on the service by Terraform and absent by default; the browser receives
+# it through the page. The only Sentry build argument is SENTRY_RELEASE, below.
 
 FROM node:26-alpine AS base
 ENV PNPM_HOME=/pnpm
@@ -28,6 +32,7 @@ COPY apps/staff/package.json apps/staff/
 COPY apps/storefront/package.json apps/storefront/
 COPY packages/api-client/package.json packages/api-client/
 COPY packages/locale/package.json packages/locale/
+COPY packages/sentry-rules/package.json packages/sentry-rules/
 COPY packages/ui/package.json packages/ui/
 COPY e2e/package.json e2e/
 RUN pnpm install --frozen-lockfile
@@ -56,6 +61,14 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3001
 ENV HOSTNAME=0.0.0.0
+
+# The commit SHA this image was built from, which Sentry reports as the release
+# (ADR 0079), read at runtime by lib/sentry.ts in the server and handed to the
+# browser through the page. The deploy workflow passes it; a build without it
+# still works, and its reports carry no release. Declared in this stage only, so
+# a new commit does not invalidate the build stage's cache.
+ARG SENTRY_RELEASE=""
+ENV SENTRY_RELEASE=${SENTRY_RELEASE}
 
 COPY --from=builder --chown=node:node /repo/apps/staff/.next/standalone ./
 COPY --from=builder --chown=node:node /repo/apps/staff/.next/static ./apps/staff/.next/static

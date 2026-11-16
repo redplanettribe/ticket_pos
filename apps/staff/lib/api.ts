@@ -1,3 +1,5 @@
+import { getTraceData } from "@sentry/nextjs";
+
 type APIEnvelope<T> = {
   data: T | null;
   error: {
@@ -143,6 +145,25 @@ async function applyServiceAuth(headers: Headers): Promise<void> {
 }
 
 /**
+ * applyTraceHeaders carries the active trace to the API (ADR 0079): the
+ * sentry-trace and baggage headers of the span this call runs in, beside the
+ * request id, so the API's span joins the trace the browser started and one
+ * trace runs from the browser through this app into the API.
+ *
+ * With the SDK not initialised (no DSN) getTraceData returns nothing and no
+ * header is added. A header the caller set is kept. Set here rather than left
+ * to the SDK's fetch instrumentation so that it holds in every runtime this
+ * module runs in, middleware included, and is tested where it is written.
+ */
+function applyTraceHeaders(headers: Headers): void {
+  for (const [name, value] of Object.entries(getTraceData())) {
+    if (value && !headers.has(name)) {
+      headers.set(name, value);
+    }
+  }
+}
+
+/**
  * fetchBackendRaw proxies a request to the Go API and returns the raw Response
  * without decoding it. Use it for endpoints that stream binary bodies (the
  * .xlsx template) or accept multipart uploads (preview/commit), where the JSON
@@ -159,6 +180,7 @@ export async function fetchBackendRaw(
   if (!headers.has("X-Request-ID")) {
     headers.set("X-Request-ID", crypto.randomUUID());
   }
+  applyTraceHeaders(headers);
   await applyServiceAuth(headers);
   return fetch(`${apiBaseUrl()}${path}`, { ...init, headers });
 }
@@ -177,6 +199,7 @@ export async function callBackend<T>(
   if (!headers.has("X-Request-ID")) {
     headers.set("X-Request-ID", crypto.randomUUID());
   }
+  applyTraceHeaders(headers);
   await applyServiceAuth(headers);
 
   const response = await fetch(`${apiBaseUrl()}${path}`, {

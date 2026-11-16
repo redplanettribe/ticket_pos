@@ -45,3 +45,38 @@ a surface awaiting its turn: `eslint.config.mjs` runs
 `i18next/no-literal-string` at `error` over every `.tsx` in the app, and `pnpm turbo lint`
 is what CI runs. What the allowlist covers, and why, is documented in
 `messages/README.md`.
+
+## Error reporting
+
+The app reports to its own Sentry project (ADR 0079), and does nothing until `SENTRY_DSN` is set.
+Locally, in CI and in agent runs no DSN is set, so the SDK is never initialised in the browser, on the server or in middleware, and the tunnel route `/api/monitoring` answers 204 without forwarding.
+Never set a real DSN on a local stack: it may be serving a copy of production data.
+
+What it reads, all at runtime:
+
+- `SENTRY_DSN`, which turns it on.
+- `SENTRY_ENVIRONMENT`, `development` when unset; Terraform sets `production`.
+- `SENTRY_RELEASE`, the commit SHA, from the image's `SENTRY_RELEASE` build argument; without it events carry no release.
+
+The configuration lives in `lib/sentry.ts`, the server and middleware start in `instrumentation.ts`, the browser in `instrumentation-client.ts`.
+The browser gets the DSN from a `<meta>` the root layout writes, because the DSN is a value of the running service, not of the build.
+Browser envelopes go to `/api/monitoring`, which forwards only those addressed to this app's own project (`lib/sentry-tunnel.ts`, over `decideTunnel` from `@ticket-pos/sentry-rules`) and copies none of the browser's headers, so the client's address never reaches Sentry.
+Every event passes through the shared before-send from `@ticket-pos/sentry-rules`.
+BFF calls to the API carry `sentry-trace` and `baggage` beside `X-Request-ID` (`lib/api.ts`).
+The build plugin is configured to contact nothing: no source maps, no release, no telemetry (`next.config.ts`).
+
+### Walking it locally against a fake endpoint
+
+Sentry itself is never contacted.
+Run a stand-in that accepts and prints envelopes on `localhost:9999` (any HTTP server that answers 200 and logs the body), then:
+
+```sh
+pnpm build
+SENTRY_DSN=http://publickey@localhost:9999/1 pnpm start
+```
+
+- A server component, a route handler and middleware that throw each produce one envelope with an `event` item at `/api/1/envelope/`, with `server_name` `ticket-pos-staff` and no user or client address.
+- A page that calls `notFound()` produces none.
+- In the browser, `/login` carries `<meta name="ticket-pos-sentry">`, and an uncaught error is posted to `/api/monitoring`, which relays it to the stand-in with no `X-Forwarded-For`.
+- An API stand-in at `API_URL` sees `sentry-trace`, `baggage` and `X-Request-ID` on every BFF call.
+- Without `SENTRY_DSN`, none of this is sent, the meta is absent and the BFF calls carry `X-Request-ID` alone.
