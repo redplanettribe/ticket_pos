@@ -32,6 +32,7 @@ import {
   SRI_EN_LINEA_URL,
   annulmentCheckLine,
   annulmentCheckOffersCheckStatus,
+  annulmentNoticeLine,
   annulmentPanelMode,
   annulmentPortalFields,
   annulmentPortalPathKey,
@@ -47,6 +48,7 @@ import { ApiError } from "@/lib/events-api";
 import { type AppLocale, PLATFORM_TIME_ZONE, formatCalendarDay, formatDateTime } from "@/lib/format";
 import {
   type OperatorAnnulmentCheck,
+  type OperatorAnnulmentNotice,
   type OperatorAnnulmentPortal,
   type OperatorAnnulmentWindow,
   type OperatorInvoiceDetail,
@@ -206,9 +208,23 @@ function AnnulledPanel({
           </p>
         ) : null}
         {current?.late_acknowledged ? <p>{t("invoicingAnnulPanelTrailLate")}</p> : null}
+        {current?.notice ? <NoticeLine notice={current.notice} locale={locale} /> : null}
         <FollowUpChooserSection invoice={invoice} />
       </CardContent>
     </Card>
+  );
+}
+
+/** The trail's buyer-notice line (#748): held, being sent, sent at, or none owed. */
+function NoticeLine({ notice, locale }: { notice: OperatorAnnulmentNotice; locale: AppLocale }) {
+  const t = useTranslations("operator");
+  const line = annulmentNoticeLine(notice);
+  return (
+    <p>
+      {t(line.key, {
+        when: line.sentAt ? (formatDateTime(line.sentAt, PLATFORM_TIME_ZONE, locale) ?? line.sentAt) : "",
+      })}
+    </p>
   );
 }
 

@@ -146,9 +146,15 @@ func (s *Service) deliverDocument(ctx context.Context, row *repository.InvoiceRo
 // authorized and the buyer has it - unless an operator abandoned it, and
 // then the buyer never got it and the plain words are the true ones. Issue
 // again's predecessor never has one, because it replaces only a factura the
-// SRI never authorized. The status `annulled` is deliberately not the test:
-// the SRI annulment work (#710) annuls authorized facturas the buyer did
-// receive, and brings its own words.
+// SRI never authorized or one annulled there.
+//
+// AN ANNULLED PREDECESSOR THE BUYER WAS SENT (#748, spec #742) is the other
+// cause with words of its own: the Issue again or Reissue that follows an
+// annulment at the SRI says it replaces a factura annulled there. Credited
+// is still asked first. "Was sent" is the predecessor's delivered_at, the
+// same fact that owed the buyer the Annulment Notice: a factura annulled
+// before it was ever delivered was never in the buyer's inbox, so its
+// replacement is simply their factura, as an abandoned one's is.
 //
 // A predecessor that cannot be found reads as nothing to say: the mail is
 // still the buyer's factura, and silence is the safe default.
@@ -160,8 +166,12 @@ func (s *Service) replacesOf(ctx context.Context, inv *invoicing.Invoice) (platf
 	if err != nil {
 		return platform.TaxDocumentReplacesNothing, err
 	}
-	if predecessor != nil && predecessor.Invoice.CreditedByInvoiceID != "" {
+	switch {
+	case predecessor == nil:
+	case predecessor.Invoice.CreditedByInvoiceID != "":
 		return platform.TaxDocumentReplacesCredited, nil
+	case predecessor.Invoice.Status == invoicing.InvoiceStatusAnnulled && predecessor.Invoice.DeliveredAt != nil:
+		return platform.TaxDocumentReplacesAnnulled, nil
 	}
 	return platform.TaxDocumentReplacesNothing, nil
 }

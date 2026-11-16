@@ -240,3 +240,33 @@ func TestResendMessagesWithoutAttachmentsCarryNoAttachmentsKey(t *testing.T) {
 		t.Fatalf("body = %s, want no attachments key", gotBody)
 	}
 }
+
+// TestResendSendAnnulmentNoticeCarriesNoAttachments (#748): the Annulment
+// Notice is the rendered words to the factura's Recipient, and nothing is
+// attached - the documents it speaks of are void.
+func TestResendSendAnnulmentNoticeCarriesNoAttachments(t *testing.T) {
+	var gotBody string
+	sender := newTestSender(t, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"abc"}`))
+	})
+	n := AnnulmentNotice{
+		To: "buyer@example.com", CustomerName: "Ana Lopez", EventName: "House Fest", Reference: "REF1",
+		Number: "001-001-000000001", CustomerAreaURL: "https://example.test/tickets#sale-1", Locale: LocaleES,
+	}
+	if err := sender.SendAnnulmentNotice(context.Background(), n); err != nil {
+		t.Fatalf("SendAnnulmentNotice returned error: %v", err)
+	}
+	var payload resendRequest
+	if err := json.Unmarshal([]byte(gotBody), &payload); err != nil {
+		t.Fatalf("body was not valid JSON: %v", err)
+	}
+	if len(payload.To) != 1 || payload.To[0] != "buyer@example.com" || payload.Subject != n.Subject() || payload.Text != n.Text() {
+		t.Fatalf("payload = %+v, want the rendered notice to the buyer", payload)
+	}
+	if strings.Contains(gotBody, "attachments") {
+		t.Fatalf("body = %s, want no attachments", gotBody)
+	}
+}

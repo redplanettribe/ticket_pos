@@ -170,6 +170,17 @@ func (s *ResendEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDo
 	return nil
 }
 
+// SendAnnulmentNotice tells the buyer their factura was annulled at the SRI
+// (#748). No attachments. The Drainer reads the error and retries on the
+// delivery's ladder; the log names the reference, never the recipient.
+func (s *ResendEmailSender) SendAnnulmentNotice(ctx context.Context, n AnnulmentNotice) error {
+	if err := s.send(ctx, n.To, n.Subject(), n.Text()); err != nil {
+		s.logger.Error("resend send annulment notice failed", "reference", n.Reference, "error", err)
+		return err
+	}
+	return nil
+}
+
 // SendCertificateExpiryWarning delivers one Platform Operator's notice that
 // the signing certificate is about to lapse, or has (#502, ADR 0063). The
 // Drainer reads the error: its ledger row is written only once an address

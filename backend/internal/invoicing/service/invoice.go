@@ -920,7 +920,7 @@ type AnnulmentRecordView struct {
 // AnnulmentView is one Mark annulled on a factura: the state it was annulled
 // from, who, when, the optional note (null when none was left) and whether
 // the operator acknowledged a late annulment. ReinstatedAt is null while it
-// stands.
+// stands. Notice is where the buyer's Annulment Notice stands (#748).
 type AnnulmentView struct {
 	FromStatus       string     `json:"from_status"`
 	AnnulledBy       string     `json:"annulled_by"`
@@ -928,6 +928,8 @@ type AnnulmentView struct {
 	Note             *string    `json:"note"`
 	LateAcknowledged bool       `json:"late_acknowledged"`
 	ReinstatedAt     *time.Time `json:"reinstated_at"`
+	// Notice is the buyer's Annulment Notice on this annulment (#748).
+	Notice *AnnulmentNoticeView `json:"notice"`
 }
 
 // AnnulabilityView says whether Mark annulled is admitted on a factura as
@@ -1033,6 +1035,7 @@ func annulmentRecordView(annulments []invoicing.Annulment) *AnnulmentRecordView 
 			Note:             optional(a.Note),
 			LateAcknowledged: a.LateAcknowledged,
 			ReinstatedAt:     a.ReinstatedAt,
+			Notice:           annulmentNoticeView(&a),
 		}
 		if a.ReinstatedAt == nil {
 			out.Current = &v

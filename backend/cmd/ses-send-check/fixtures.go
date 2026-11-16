@@ -87,6 +87,12 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 				Attachments:     attachments, Locale: es,
 			})
 		}),
+		transactionalMessage("annulment notice", en, func(ctx context.Context) error {
+			return transactional.SendAnnulmentNotice(ctx, platform.AnnulmentNotice{
+				To: to, CustomerName: "Ana López", EventName: event, Reference: "TS-2026-0042",
+				Number: "001-001-000000042", CustomerAreaURL: fixtureStorefront + "/tickets#sale-fixture", Locale: en,
+			})
+		}),
 		transactionalMessage("consent withdrawal confirmation", en, func(ctx context.Context) error {
 			return transactional.SendConsentWithdrawalConfirmation(ctx, platform.ConsentWithdrawalConfirmation{
 				To: to, Locale: en, MarketingConsent: true, NetworkingConsent: true,

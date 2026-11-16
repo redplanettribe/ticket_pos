@@ -996,10 +996,9 @@ const (
 //
 // THE DEFAULT IS SILENCE. TaxDocumentReplacesNothing, and any value the
 // copy does not recognize, is mailed as the plain factura: Issue again (ADR
-// 0068) replaces a factura the SRI never held and the buyer never received,
-// so it is simply the buyer's factura. A future cause - an authorized
-// factura annulled at the SRI (#710) - opts into its own words here; it
-// never inherits the credit note's.
+// 0068) after an abandonment replaces a factura the SRI never held and the
+// buyer never received, so it is simply the buyer's factura. Each cause
+// that speaks opts into its own words here; none inherits another's.
 type TaxDocumentReplaces string
 
 const (
@@ -1010,6 +1009,12 @@ const (
 	// cancelled the factura this one stands in for - a Sale Invoice
 	// Reissue (#485, ADR 0061), at every hop of its chain.
 	TaxDocumentReplacesCredited TaxDocumentReplaces = "credited"
+	// TaxDocumentReplacesAnnulled: the factura this one stands in for was
+	// annulled at the SRI after the buyer was sent it (#748, spec #742) -
+	// the Issue again or Sale Invoice Reissue that follows an annulment. The
+	// buyer was told of it by the Annulment Notice, and this mail says it
+	// replaces that one.
+	TaxDocumentReplacesAnnulled TaxDocumentReplaces = "annulled"
 )
 
 // TaxDocumentDelivery is the mail that hands a buyer an authorized Tax
@@ -1040,11 +1045,13 @@ type TaxDocumentDelivery struct {
 	// on a Sale Invoice.
 	Reason string
 	// Replaces is, on a Sale Invoice that stands in for an earlier one, how
-	// that earlier one was replaced (#718). Only TaxDocumentReplacesCredited
-	// changes the words - the ordinary factura words then carry one more
-	// line saying it replaces the earlier factura the Credit Note cancelled
-	// (#485, ADR 0061). TaxDocumentReplacesNothing on a first factura, on an
-	// Issue again replacement (ADR 0068) and on every Credit Note.
+	// that earlier one was replaced (#718). TaxDocumentReplacesCredited and
+	// TaxDocumentReplacesAnnulled change the words - the ordinary factura
+	// words then carry one more line saying it replaces the earlier factura
+	// the Credit Note cancelled (#485, ADR 0061), or the one annulled at the
+	// SRI (#748). TaxDocumentReplacesNothing on a first factura, on an Issue
+	// again replacement of an abandoned one (ADR 0068) and on every Credit
+	// Note.
 	Replaces TaxDocumentReplaces
 	// CustomerName is the Recipient's legal name as printed on the document.
 	CustomerName string
@@ -1065,6 +1072,44 @@ type TaxDocumentDelivery struct {
 	Attachments []EmailAttachment
 	// Locale is the Sale's language, resolved by the caller through
 	// ResolveMailLocale exactly as the receipt's was.
+	Locale Locale
+}
+
+// AnnulmentNotice tells the buyer of a Sale Invoice that a factura they were
+// sent was annulled at the SRI and has no tax effect (#748, spec #742, ADR
+// 0078; CONTEXT.md's Annulment Notice, "Aviso de anulación").
+//
+// A MAIL OF ITS OWN, NOT A KIND OF TaxDocumentDelivery. That one hands over
+// a document and always carries both files; this one carries nothing,
+// because the files it speaks of are void, and it is sent on its own
+// schedule - once the Annulment Check is confirmed or unconfirmed - from the
+// annulment's own record, never the document's delivery.
+//
+// WORDED BY THE TICKET SALE AS IT STANDS WHEN SENT. A Sale that still stands
+// is told its purchase and tickets are unchanged and a new factura will
+// follow; a reversed one that nothing follows. The "purchase unchanged" line
+// is load-bearing in Spanish, where the Sale Voided mail says "Su compra ...
+// fue anulada" and this one must never read as that.
+type AnnulmentNotice struct {
+	// To is the factura's own Recipient email, frozen on the document: the
+	// inbox that holds the void XML and RIDE.
+	To string
+	// CustomerName is the Recipient's legal name as printed on the factura.
+	CustomerName string
+	// EventName and Reference name the purchase, as the delivery did.
+	EventName string
+	Reference string
+	// Number is the annulled factura's printed number, estab-ptoEmi-secuencial,
+	// so the reader knows which of their documents to discard.
+	Number string
+	// SaleReversed is whether the Ticket Sale no longer stands at send time,
+	// and decides whether anything is said to follow.
+	SaleReversed bool
+	// CustomerAreaURL points at the Sale's card in the Customer Area, behind
+	// a sign-in, or is "" when no storefront URL is configured.
+	CustomerAreaURL string
+	// Locale is the Sale's language, resolved through ResolveMailLocale as
+	// the delivery's was.
 	Locale Locale
 }
 
@@ -1128,6 +1173,12 @@ type EmailSender interface {
 	// records delivered_at only after this returns nil, and retries on its
 	// own ladder when it does not.
 	SendTaxDocumentDelivery(ctx context.Context, delivery TaxDocumentDelivery) error
+	// SendAnnulmentNotice tells a Sale Invoice's buyer that a factura they
+	// were sent was annulled at the SRI (#748, spec #742). No attachments.
+	// TRANSACTIONAL, as the delivery it follows: the Drainer's tick records
+	// the notice sent only after this returns nil, and retries on the
+	// delivery's ladder when it does not.
+	SendAnnulmentNotice(ctx context.Context, notice AnnulmentNotice) error
 	// SendConsentWithdrawalConfirmation delivers the confirmation of a Consent
 	// Withdrawal that actually took something away (#267). It is on the
 	// transactional half of this interface deliberately: it is sent to somebody
@@ -1256,6 +1307,14 @@ func (s *LoggingEmailSender) SendTaxDocumentDelivery(_ context.Context, d TaxDoc
 	}
 	attrs = append(attrs, "customer_area", d.CustomerAreaURL)
 	s.Logger.Info("tax document delivery sent", attrs...)
+	return nil
+}
+
+// SendAnnulmentNotice logs the Annulment Notice for local development: the
+// reference, the number and whether the Sale was reversed.
+func (s *LoggingEmailSender) SendAnnulmentNotice(_ context.Context, n AnnulmentNotice) error {
+	s.Logger.Info("annulment notice sent", "email", n.To, "reference", n.Reference, "number", n.Number,
+		"sale_reversed", n.SaleReversed, "customer_area", n.CustomerAreaURL, "locale", string(n.Locale))
 	return nil
 }
 
@@ -1425,6 +1484,11 @@ func (NoopEmailSender) SendTaxDocumentDelivery(_ context.Context, _ TaxDocumentD
 	return nil
 }
 
+// SendAnnulmentNotice does nothing.
+func (NoopEmailSender) SendAnnulmentNotice(_ context.Context, _ AnnulmentNotice) error {
+	return nil
+}
+
 // SendConsentWithdrawalConfirmation discards the Consent Withdrawal confirmation.
 func (NoopEmailSender) SendConsentWithdrawalConfirmation(_ context.Context, _ ConsentWithdrawalConfirmation) error {
 	return nil
@@ -1527,6 +1591,10 @@ type CaptureEmailSender struct {
 	// as by contents, since "sent exactly once" and "nothing was sent while
 	// the sender was down" are facts about how many there are.
 	TaxDocumentDeliveries []TaxDocumentDelivery
+	// The Annulment Notices (#748), kept whole so a test can render the
+	// words in the Sale's Locale; asserted on by LENGTH as much as by
+	// contents, since "held" and "at most once" are facts about how many.
+	AnnulmentNotices []AnnulmentNotice
 	// The Consent Withdrawal confirmations (#267), kept whole so a test can
 	// render Subject() and Text() and assert on the words the recipient reads —
 	// which is the only way the language, and the promise the copy is forbidden
@@ -1706,6 +1774,17 @@ func (s *CaptureEmailSender) SendTaxDocumentDelivery(_ context.Context, d TaxDoc
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.TaxDocumentDeliveries = append(s.TaxDocumentDeliveries, d)
+	return nil
+}
+
+// SendAnnulmentNotice records a delivered Annulment Notice.
+func (s *CaptureEmailSender) SendAnnulmentNotice(_ context.Context, n AnnulmentNotice) error {
+	if err := s.failed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.AnnulmentNotices = append(s.AnnulmentNotices, n)
 	return nil
 }
 
@@ -1966,6 +2045,16 @@ func (s *CaptureEmailSender) TaxDocumentDeliveriesSent() []TaxDocumentDelivery {
 	return out
 }
 
+// AnnulmentNoticesSent returns the Annulment Notices so far, in the order
+// they were sent.
+func (s *CaptureEmailSender) AnnulmentNoticesSent() []AnnulmentNotice {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]AnnulmentNotice, len(s.AnnulmentNotices))
+	copy(out, s.AnnulmentNotices)
+	return out
+}
+
 // CertificateExpiryWarningsSent returns the Certificate Expiry Warnings
 // delivered so far, in the order they were sent.
 func (s *CaptureEmailSender) CertificateExpiryWarningsSent() []CertificateExpiryWarning {
@@ -2143,6 +2232,7 @@ func (s *CaptureEmailSender) Reset() {
 	s.VoidedSales = nil
 	s.RefusedReversals = nil
 	s.TaxDocumentDeliveries = nil
+	s.AnnulmentNotices = nil
 	s.delay = 0
 	s.WithdrawalConfirmations = nil
 	s.HolderAnswerReminders = nil

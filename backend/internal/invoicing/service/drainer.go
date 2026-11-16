@@ -198,6 +198,9 @@ type SaleInvoiceDrainResult struct {
 	// counted apart from the documents above: it claims annulments, not
 	// documents due on the Drainer's queue.
 	AnnulmentCheck AnnulmentCheckResult `json:"annulment_check"`
+	// AnnulmentNotice is what the tick's Annulment Notice pass did (#748):
+	// notices sent to buyers, and sends refused and due again.
+	AnnulmentNotice AnnulmentNoticeResult `json:"annulment_notice"`
 }
 
 // DrainSaleInvoices works the Sale Invoices that are due, one at a time,
@@ -218,6 +221,7 @@ func (s *Service) DrainSaleInvoices(ctx context.Context) (*SaleInvoiceDrainResul
 	started := time.Now()
 	s.warnOfCertificateExpiry(ctx)
 	checks := s.checkAnnulments(ctx, annulmentCheckBudget)
+	notices := s.sendAnnulmentNotices(ctx, annulmentNoticeBudget)
 	if !s.saleInvoicingEnabled {
 		return nil, invoicing.ErrSaleInvoicingUnavailable()
 	}
@@ -228,6 +232,7 @@ func (s *Service) DrainSaleInvoices(ctx context.Context) (*SaleInvoiceDrainResul
 		return nil, err
 	}
 	out.AnnulmentCheck = checks
+	out.AnnulmentNotice = notices
 	return out, nil
 }
 

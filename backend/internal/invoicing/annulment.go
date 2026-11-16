@@ -126,6 +126,42 @@ type Annulment struct {
 	// Check is the annulment's Annulment Check (#746), nil for one recorded
 	// before the check existed: that reads unconfirmed and is never asked.
 	Check *AnnulmentCheck
+	// Notice is the buyer's Annulment Notice on this annulment (#748).
+	Notice AnnulmentNotice
+}
+
+// AnnulmentNoticeState is what the annulments row records of the buyer's
+// Annulment Notice (#748, spec #742). Held and due are not states of their
+// own: an owed notice is held while its annulment's check is checking or at
+// mismatch and due once it is confirmed or unconfirmed (AnnulmentNotice.Due).
+type AnnulmentNoticeState string
+
+const (
+	// AnnulmentNoticeOwed: Mark annulled was recorded on a Sale Invoice the
+	// buyer was sent, and the notice has not gone yet.
+	AnnulmentNoticeOwed AnnulmentNoticeState = "owed"
+	// AnnulmentNoticeSent: the sender took it. Never sent again.
+	AnnulmentNoticeSent AnnulmentNoticeState = "sent"
+	// AnnulmentNoticeDropped: a Reinstate withdrew it unsent.
+	AnnulmentNoticeDropped AnnulmentNoticeState = "dropped"
+	// AnnulmentNoticeNotOwed: a manual Tax Invoice, a factura the buyer was
+	// never sent, or an annulment recorded before the notice existed.
+	AnnulmentNoticeNotOwed AnnulmentNoticeState = "not_owed"
+)
+
+// AnnulmentNotice is one annulment's notice: its recorded state, when it
+// was sent, and how many sends were tried.
+type AnnulmentNotice struct {
+	State    AnnulmentNoticeState
+	SentAt   *time.Time
+	Attempts int
+}
+
+// AnnulmentNoticeReleased reports whether a check's verdict releases an owed
+// notice: confirmed or unconfirmed. Checking and mismatch hold it, and an
+// annulment with no check (recorded before it existed) owes none.
+func AnnulmentNoticeReleased(check *AnnulmentCheck) bool {
+	return check != nil && (check.Verdict == AnnulmentConfirmed || check.Verdict == AnnulmentUnconfirmed)
 }
 
 // AnnulmentCheck is where one annulment's check stands: the verdict and the

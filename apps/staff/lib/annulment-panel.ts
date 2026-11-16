@@ -17,6 +17,7 @@ import type {
   InvoiceStatus,
   OperatorAnnulmentCheck,
   OperatorAnnulmentFollowUp,
+  OperatorAnnulmentNotice,
   OperatorAnnulmentPortal,
   OperatorAnnulmentWindow,
   OperatorInvoiceAnnulability,
@@ -222,6 +223,31 @@ export function visibleWhitespace(value: string): { text: string; space: boolean
 /** Whether recording sends the buyer an Annulment Notice: on a Sale Invoice only, never a manual Tax Invoice. */
 export function annulmentSendsNotice(kind: InvoiceKind): boolean {
   return kind === "sale";
+}
+
+/** The trail's buyer-notice line per state (#748, story 76). */
+export const ANNULMENT_NOTICE_LINE_KEYS = {
+  held: "invoicingAnnulPanelNoticeHeld",
+  due: "invoicingAnnulPanelNoticeDue",
+  sent: "invoicingAnnulPanelNoticeSent",
+  dropped: "invoicingAnnulPanelNoticeDropped",
+  not_owed: "invoicingAnnulPanelNoticeNotOwed",
+} as const satisfies Record<OperatorAnnulmentNotice["state"], string>;
+
+/**
+ * The trail's buyer-notice line (#748, story 76): "waiting for the SRI to
+ * report ANULADO" while held, "sent <time>" once sent, or that no notice is
+ * owed. `sentAt` is the API's instant, for the page to format; null unless
+ * sent.
+ */
+export function annulmentNoticeLine(notice: OperatorAnnulmentNotice): {
+  key: (typeof ANNULMENT_NOTICE_LINE_KEYS)[OperatorAnnulmentNotice["state"]];
+  sentAt: string | null;
+} {
+  return {
+    key: ANNULMENT_NOTICE_LINE_KEYS[notice.state],
+    sentAt: notice.state === "sent" ? notice.sent_at : null,
+  };
 }
 
 // The follow-up chooser on the annulled face (#747, stories 54 to 58, 63 and

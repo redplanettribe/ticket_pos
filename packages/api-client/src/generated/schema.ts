@@ -2183,7 +2183,7 @@ export interface paths {
         };
         /**
          * List the Tax Documents of one of the Customer's Ticket Sales
-         * @description The Customer Area's read of a Sale's documents (ADR 0060): every Sale Invoice and Credit Note the Sale owes or was issued, each with its `kind` (`sale` for a factura, `credit_note`), a `status` in the platform's own words — `authorized`, or `on_its_way` for a document still owed, pending at the SRI or parked for an operator — and two download paths, `download_url` for the signed XML and `ride_url` for the RIDE (PDF), each set once authorized and null before (ADR 0062: the RIDE is rendered on request, so a document authorized before it existed carries one too). After a Sale Invoice Reissue (ADR 0061) the list holds the whole chain, and each document carries its `role` — `current` for the factura that stands, `superseded` for one a reissue corrected (still authorized and downloadable), `credit_note` — and the ids it points at: `supersedes_invoice_id`, `superseded_by_invoice_id`, `credits_invoice_id`, each another document of this list or null. Nothing the SRI said ever travels here. An empty list for a Sale that owes no document (a free, imported or non-House sale), for a Sale that is not this Customer's, and for any Sale but the one a Confirmation Link session names: not yours and not there are one answer. Requires a Customer Session; a Confirmation Link session is enough.
+         * @description The Customer Area's read of a Sale's documents (ADR 0060): every Sale Invoice and Credit Note the Sale owes or was issued, each with its `kind` (`sale` for a factura, `credit_note`), a `status` in the platform's own words - `authorized`, `on_its_way` for a document still owed, pending at the SRI or parked for an operator, or `annulled` for a Sale Invoice the buyer was sent and that was annulled at the SRI (listed, never downloadable, and both download routes refuse it; one annulled before it was ever delivered is not listed) - and two download paths, `download_url` for the signed XML and `ride_url` for the RIDE (PDF), each set once authorized and null before (ADR 0062: the RIDE is rendered on request, so a document authorized before it existed carries one too). After a Sale Invoice Reissue (ADR 0061) the list holds the whole chain, and each document carries its `role` - `current` for the factura that stands, `superseded` for one a reissue corrected (still authorized and downloadable), `credit_note` - and the ids it points at: `supersedes_invoice_id`, `superseded_by_invoice_id`, `credits_invoice_id`, each another document of this list or null. Nothing the SRI said ever travels here. An empty list for a Sale that owes no document (a free, imported or non-House sale), for a Sale that is not this Customer's, and for any Sale but the one a Confirmation Link session names: not yours and not there are one answer. Requires a Customer Session; a Confirmation Link session is enough.
          */
         get: {
             parameters: {
@@ -3065,7 +3065,7 @@ export interface paths {
         put?: never;
         /**
          * Work the owed Sale Invoices
-         * @description Runs the Sale Invoice Drainer (ADR 0060): claims the Sale Invoices due for work one at a time under a `next_attempt_at` lease, signs each `owed` one from its stored snapshot - consuming a secuencial only then, under the Issuer's current environment, with `fechaEmision` the signing date in America/Guayaquil - submits it to the SRI and polls autorización; polls a `pending` one the SRI already holds without resubmitting it, and resubmits - same signed bytes, same clave, same secuencial - one the SRI never acknowledged. Only a submit that came back received (RECIBIDA, or errors 43/70 "already registered / in processing") counts as acknowledgement; a query answer never does, neither EN PROCESAMIENTO nor `unknown`, the SRI reporting no record of the clave. A resubmit cannot duplicate: a document the SRI does hold answers 43/70. Transport failures, RECIBIDA / EN PROCESAMIENTO and `unknown` alike reschedule on the ladder 1 min, 5 min, 15 min, then hourly from the signing instant. A definite refusal parks the document `needs_attention` with the SRI's messages; 24 hours without a definite answer parks it `needs_attention` while the polling or resubmitting goes on, and a late AUTORIZADO heals it. A document that cannot be signed - no Issuer, no certificate, an expired certificate, an Issuer the schema refuses - is parked `needs_attention` at once with no number consumed and retried hourly. Every SRI call is an attempts row. Bounded by its own budget, which expires before Cloud Scheduler's attempt deadline. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token (ADR 0008). Safe to call by hand at any time; a no-op on an empty queue. Before the flag is read, the tick works the Certificate Expiry Warning (ADR 0063) and the Annulment Check (#746, ADR 0078): every annulled factura whose next ask is due is asked of the SRI's ConsultaComprobante (never autorización), one at a time under a lease and a budget of its own, and its verdict (checking, confirmed, mismatch, unconfirmed) recomputed; `annulment_check` counts what that pass did. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE and signs nothing, the two passes above having run. The response tallies what the run did and how many Sale Invoices stand in each state afterwards.
+         * @description Runs the Sale Invoice Drainer (ADR 0060): claims the Sale Invoices due for work one at a time under a `next_attempt_at` lease, signs each `owed` one from its stored snapshot - consuming a secuencial only then, under the Issuer's current environment, with `fechaEmision` the signing date in America/Guayaquil - submits it to the SRI and polls autorización; polls a `pending` one the SRI already holds without resubmitting it, and resubmits - same signed bytes, same clave, same secuencial - one the SRI never acknowledged. Only a submit that came back received (RECIBIDA, or errors 43/70 "already registered / in processing") counts as acknowledgement; a query answer never does, neither EN PROCESAMIENTO nor `unknown`, the SRI reporting no record of the clave. A resubmit cannot duplicate: a document the SRI does hold answers 43/70. Transport failures, RECIBIDA / EN PROCESAMIENTO and `unknown` alike reschedule on the ladder 1 min, 5 min, 15 min, then hourly from the signing instant. A definite refusal parks the document `needs_attention` with the SRI's messages; 24 hours without a definite answer parks it `needs_attention` while the polling or resubmitting goes on, and a late AUTORIZADO heals it. A document that cannot be signed - no Issuer, no certificate, an expired certificate, an Issuer the schema refuses - is parked `needs_attention` at once with no number consumed and retried hourly. Every SRI call is an attempts row. Bounded by its own budget, which expires before Cloud Scheduler's attempt deadline. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token (ADR 0008). Safe to call by hand at any time; a no-op on an empty queue. Before the flag is read, the tick works the Certificate Expiry Warning (ADR 0063) and the Annulment Check (#746, ADR 0078): every annulled factura whose next ask is due is asked of the SRI's ConsultaComprobante (never autorización), one at a time under a lease and a budget of its own, and its verdict (checking, confirmed, mismatch, unconfirmed) recomputed; `annulment_check` counts what that pass did. Then the Annulment Notice (#748): every owed notice whose annulment's check is confirmed or unconfirmed (never checking or at mismatch) is mailed to the buyer once, worded by the Sale as it then stands, a refused send due again on the delivery's ladder; `annulment_notice` counts the sends and refusals. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE and signs nothing, the three passes above having run. The response tallies what the run did and how many Sale Invoices stand in each state afterwards.
          */
         post: {
             parameters: {
@@ -16070,6 +16070,19 @@ export interface components {
             kind?: string;
             refusal?: components["schemas"]["service.RefusalView"];
         };
+        /**
+         * @description AnnulmentNotice is what the tick's Annulment Notice pass did (#748):
+         *     notices sent to buyers, and sends refused and due again.
+         */
+        "service.AnnulmentNoticeResult": {
+            failed?: number;
+            sent?: number;
+        };
+        /** @description Notice is the buyer's Annulment Notice on this annulment (#748). */
+        "service.AnnulmentNoticeView": {
+            sent_at?: string;
+            state?: string;
+        };
         "service.AnnulmentPortalView": {
             access_key?: string;
             authorization_date?: string;
@@ -16097,6 +16110,7 @@ export interface components {
             from_status?: string;
             late_acknowledged?: boolean;
             note?: string;
+            notice?: components["schemas"]["service.AnnulmentNoticeView"];
             reinstated_at?: string;
         };
         "service.AnnulmentWindowView": {
@@ -16761,10 +16775,11 @@ export interface components {
          */
         "service.CustomerDocumentRole": "current" | "superseded" | "credit_note";
         /**
-         * @description Status is `authorized` or `on_its_way`, and nothing else.
+         * @description Status is `authorized`, `on_its_way`, or `annulled` for a Sale Invoice
+         *     annulled at the SRI (#748), and nothing else.
          * @enum {string}
          */
-        "service.CustomerDocumentStatus": "authorized" | "on_its_way";
+        "service.CustomerDocumentStatus": "authorized" | "on_its_way" | "annulled";
         "service.CustomerDossier": {
             customer?: components["schemas"]["service.DossierCustomerView"];
             /**
@@ -19956,6 +19971,7 @@ export interface components {
         };
         "service.SaleInvoiceDrainResult": {
             annulment_check?: components["schemas"]["service.AnnulmentCheckResult"];
+            annulment_notice?: components["schemas"]["service.AnnulmentNoticeResult"];
             /**
              * @description Authorized, Pending and NeedsAttention are where those documents
              *     ended: authorized this run; still undecided and due again on the

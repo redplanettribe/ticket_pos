@@ -520,9 +520,15 @@ func (r *Repository) AnnulFactura(ctx context.Context, invoiceID string, a Factu
 	if n != 1 {
 		return false, nil
 	}
+	// The Annulment Notice (#748) is owed on a Sale Invoice the buyer was
+	// sent, read off the row the update above left: delivered_at is never
+	// touched by an annulment, and only an authorized document is ever
+	// delivered.
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO invoicing_annulments (invoice_id, from_status, annulled_by, annulled_at, note, late_acknowledged, check_verdict, next_ask_at)
-		VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6, $7, $8)
+		INSERT INTO invoicing_annulments (invoice_id, from_status, annulled_by, annulled_at, note, late_acknowledged, check_verdict, next_ask_at, notice_state)
+		SELECT $1, $2, $3, $4, NULLIF($5, ''), $6, $7, $8,
+		       CASE WHEN i.kind = 'sale' AND i.delivered_at IS NOT NULL THEN 'owed' ELSE 'not_owed' END
+		FROM invoicing_invoices i WHERE i.id = $1
 	`, invoiceID, a.FromStatus, a.AnnulledBy, a.AnnulledAt, a.Note, a.LateAcknowledged,
 		invoicing.AnnulmentChecking, invoicing.FirstAnnulmentAsk(a.AnnulledAt)); err != nil {
 		return false, fmt.Errorf("record annulment: %w", err)
@@ -564,7 +570,7 @@ func (r *Repository) loadAnnulmentFacts(ctx context.Context, row *InvoiceRow) er
 	}
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT id, invoice_id, from_status, annulled_by, annulled_at, COALESCE(note, ''), late_acknowledged, reinstated_at,
-		       check_verdict, check_verdict_at, next_ask_at
+		       check_verdict, check_verdict_at, next_ask_at, notice_state, notice_sent_at, notice_attempts
 		FROM invoicing_annulments WHERE invoice_id = $1 ORDER BY annulled_at, created_at, id
 	`, row.Invoice.ID)
 	if err != nil {
@@ -577,7 +583,7 @@ func (r *Repository) loadAnnulmentFacts(ctx context.Context, row *InvoiceRow) er
 		var verdict sql.NullString
 		var since, next sql.NullTime
 		if err := rows.Scan(&a.ID, &a.InvoiceID, &a.FromStatus, &a.AnnulledBy, &a.AnnulledAt, &a.Note, &a.LateAcknowledged, &a.ReinstatedAt,
-			&verdict, &since, &next); err != nil {
+			&verdict, &since, &next, &a.Notice.State, &a.Notice.SentAt, &a.Notice.Attempts); err != nil {
 			return fmt.Errorf("scan annulment: %w", err)
 		}
 		if verdict.Valid {
@@ -1170,8 +1176,8 @@ const annulmentMismatchSinceSQL = `(SELECT a.check_verdict_at FROM invoicing_ann
 // of the factura `i`. One spelling, read by the needs-attention queue's
 // third door, by Issue again's and Reissue's gates inside their
 // transactions (IssueAgainSaleFacts, ReissueSaleFacts), by the detail's
-// follow-up chooser (FollowUpFacts) and, in a later ticket, by the
-// Annulment Notice's claim.
+// follow-up chooser (FollowUpFacts) and by the Annulment Notice's claim
+// (ClaimDueAnnulmentNotice).
 //
 // KEYED ON THE VERDICT AND NOTHING ELSE. It never asks which state the
 // factura was annulled from: a pending factura the SRI silently authorized

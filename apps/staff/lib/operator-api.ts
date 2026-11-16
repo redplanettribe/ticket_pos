@@ -1305,6 +1305,21 @@ export type OperatorInvoiceAnnulment = {
   note: string | null;
   late_acknowledged: boolean;
   reinstated_at: string | null;
+  /** The buyer's Annulment Notice on this annulment (#748). */
+  notice: OperatorAnnulmentNotice;
+};
+
+/**
+ * Where the buyer's Annulment Notice stands (#748, spec #742): `held` while
+ * the Annulment Check is checking or at mismatch (waiting for the SRI to
+ * report ANULADO), `due` once it is confirmed or unconfirmed and the next
+ * tick or a retry will send it, `sent` with its instant, `dropped` (a
+ * Reinstate withdrew it unsent) or `not_owed` (a manual Tax Invoice, or a
+ * factura the buyer was never sent).
+ */
+export type OperatorAnnulmentNotice = {
+  state: "held" | "due" | "sent" | "dropped" | "not_owed";
+  sent_at: string | null;
 };
 
 /** Where an annulled factura's Annulment Check stands (#746). */

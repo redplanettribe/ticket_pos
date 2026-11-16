@@ -189,10 +189,10 @@ func TestTaxDocumentDeliveryReplacesLineIsKeyedOnHowThePredecessorWasReplaced(t 
 
 		// Nothing, then causes the copy deliberately does not know: how an
 		// Issue again predecessor died, and one nobody has invented yet.
-		for _, cause := range []TaxDocumentReplaces{TaxDocumentReplacesNothing, "abandoned", "annulled", "something_new"} {
+		for _, cause := range []TaxDocumentReplaces{TaxDocumentReplacesNothing, "abandoned", "something_new"} {
 			d.Replaces = cause
 			text := strings.ToLower(d.Text())
-			for _, banned := range []string{"replaces", "credit note", "nota de crédito", "sustituye", "corregida", "corrected"} {
+			for _, banned := range []string{"replaces", "credit note", "nota de crédito", "sustituye", "corregida", "corrected", "annulled", "anulada"} {
 				if strings.Contains(text, banned) {
 					t.Fatalf("%s cause %q: text = %q, says %q", locale, cause, text, banned)
 				}
@@ -202,6 +202,35 @@ func TestTaxDocumentDeliveryReplacesLineIsKeyedOnHowThePredecessorWasReplaced(t 
 		// A Credit Note never carries the line, whatever it is handed.
 		d.Kind = TaxDocumentKindCreditNote
 		d.Replaces = TaxDocumentReplacesCredited
+		if text := d.Text(); strings.Contains(text, line) {
+			t.Fatalf("%s credit note: text = %q, carries the factura's replaces line", locale, text)
+		}
+	}
+}
+
+// TestTaxDocumentDeliveryReplacesLineForAnAnnulledFactura (#748): the
+// factura that follows an annulment at the SRI says it replaces the earlier
+// one, annulled there, and never speaks of a credit note the buyer was
+// never sent. A Credit Note never carries the line.
+func TestTaxDocumentDeliveryReplacesLineForAnAnnulledFactura(t *testing.T) {
+	lines := map[Locale]string{
+		LocaleEN: "This tax invoice (factura) replaces the earlier one for this purchase, which was annulled at the SRI.",
+		LocaleES: "Esta factura sustituye a la anterior de esta compra, que fue anulada en el SRI.",
+	}
+	for locale, line := range lines {
+		d := spanishDelivery()
+		d.Locale = locale
+		d.Replaces = TaxDocumentReplacesAnnulled
+		text := d.Text()
+		if !strings.Contains(text, line) {
+			t.Fatalf("%s annulled: text = %q, want the replaces line", locale, text)
+		}
+		for _, banned := range []string{"credit note", "nota de crédito", "corrected", "corregida"} {
+			if strings.Contains(strings.ToLower(text), banned) {
+				t.Fatalf("%s annulled: text = %q, says %q", locale, text, banned)
+			}
+		}
+		d.Kind = TaxDocumentKindCreditNote
 		if text := d.Text(); strings.Contains(text, line) {
 			t.Fatalf("%s credit note: text = %q, carries the factura's replaces line", locale, text)
 		}

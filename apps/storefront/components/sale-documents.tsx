@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import {
   hasSaleDocuments,
+  saleDocumentAnnulledKey,
   orderSaleDocuments,
   saleDocumentBadgeKey,
   saleDocumentDownloadHref,
@@ -32,6 +33,10 @@ import {
  * a platform problem is the platform's to fix and not the buyer's to be told
  * (#471 story 15). The API already speaks in those two words, so nothing here
  * has a third to show.
+ *
+ * A FACTURA ANNULLED AT THE SRI STAYS IN THE LIST (#748), labelled annulled
+ * and without downloads, so the factura that replaces it points at something
+ * the buyer can see; the buyer was mailed an Annulment Notice to discard it.
  *
  * AFTER A SALE INVOICE REISSUE IT DRAWS THE WHOLE CHAIN (#485, ADR 0061):
  * the corrected factura first, then the credit note that cancelled the earlier
@@ -90,6 +95,7 @@ export function SaleDocuments({ ticketSaleId }: { ticketSaleId: string }) {
           const rideHref = saleDocumentRideHref(ticketSaleId, document);
           const pending = saleDocumentPendingKey(document);
           const badge = saleDocumentBadgeKey(document);
+          const annulled = saleDocumentAnnulledKey(document);
           return (
             <li key={document.id} className="flex flex-wrap items-center justify-between gap-2">
               <span>
@@ -116,6 +122,8 @@ export function SaleDocuments({ ticketSaleId }: { ticketSaleId: string }) {
                 </span>
               ) : pending ? (
                 <span className="text-muted-foreground">{t(`documents.${pending}`)}</span>
+              ) : annulled ? (
+                <span className="text-muted-foreground">{t(`documents.${annulled}`)}</span>
               ) : null}
             </li>
           );

@@ -50,6 +50,10 @@ func sesTransactionalMessages() []sesMessageCase {
 		},
 		Locale: LocaleES,
 	}
+	annulmentNotice := AnnulmentNotice{
+		To: "ana@example.com", CustomerName: "Ana", EventName: "Noche de Jazz", Reference: "TS-1004",
+		Number: "001-001-000000007", CustomerAreaURL: "https://shop.example.com/me", Locale: LocaleES,
+	}
 	withdrawal := ConsentWithdrawalConfirmation{To: "ana@example.com", Locale: LocaleEN, MarketingConsent: true}
 	answerReminder := HolderAnswerReminder{
 		To:              "ana@example.com",
@@ -91,6 +95,8 @@ func sesTransactionalMessages() []sesMessageCase {
 			}},
 		{"tax document delivery", taxDocument.To, taxDocument.Subject(), taxDocument.Text(), taxDocument.Attachments,
 			func(ctx context.Context, s *SESEmailSender) error { return s.SendTaxDocumentDelivery(ctx, taxDocument) }},
+		{"annulment notice", annulmentNotice.To, annulmentNotice.Subject(), annulmentNotice.Text(), nil,
+			func(ctx context.Context, s *SESEmailSender) error { return s.SendAnnulmentNotice(ctx, annulmentNotice) }},
 		{"consent withdrawal confirmation", withdrawal.To, withdrawal.Subject(), withdrawal.Text(), nil,
 			func(ctx context.Context, s *SESEmailSender) error {
 				return s.SendConsentWithdrawalConfirmation(ctx, withdrawal)

@@ -13,7 +13,9 @@ import {
   annulmentPortalFields,
   annulmentPortalPathKey,
   annulmentRecordReady,
+  annulmentNoticeLine,
   annulmentSendsNotice,
+  ANNULMENT_NOTICE_LINE_KEYS,
   annulmentWindowProgress,
   annulmentWindowTone,
   FOLLOW_UP_CARD_KEYS,
@@ -389,5 +391,27 @@ test("every follow-up card's copy exists in both catalogs, and the mismatch refu
       assert.ok(catalog.operator[key], `${locale}: operator.${key}`);
     }
     assert.ok(catalog.errors.envelope.INVOICE_ANNULMENT_MISMATCH, `${locale}: errors.envelope.INVOICE_ANNULMENT_MISMATCH`);
+  }
+});
+
+// The buyer-notice line of the annulled face's trail (#748): held reads
+// "waiting for the SRI to report ANULADO", sent carries its instant, and
+// every state has its words in both languages.
+test("the trail's buyer-notice line follows the notice's state", () => {
+  assert.deepEqual(annulmentNoticeLine({ state: "held", sent_at: null }), {
+    key: "invoicingAnnulPanelNoticeHeld",
+    sentAt: null,
+  });
+  assert.deepEqual(annulmentNoticeLine({ state: "sent", sent_at: "2026-07-07T12:05:00Z" }), {
+    key: "invoicingAnnulPanelNoticeSent",
+    sentAt: "2026-07-07T12:05:00Z",
+  });
+  assert.equal(annulmentNoticeLine({ state: "not_owed", sent_at: null }).key, "invoicingAnnulPanelNoticeNotOwed");
+  assert.equal(annulmentNoticeLine({ state: "due", sent_at: null }).key, "invoicingAnnulPanelNoticeDue");
+  for (const locale of ["en", "es"]) {
+    const catalog = loadCatalog(locale);
+    for (const key of Object.values(ANNULMENT_NOTICE_LINE_KEYS)) {
+      assert.ok(catalog.operator[key], `${locale}: operator.${key}`);
+    }
   }
 });
