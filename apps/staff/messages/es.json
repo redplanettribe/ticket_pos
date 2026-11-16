@@ -1771,7 +1771,7 @@
     "invoicingAnnulPanelLatePhrase": "anulada en el portal",
     "invoicingAnnulPanelNoteLabel": "Nota (opcional)",
     "invoicingAnnulPanelNotePlaceholder": "Receptor equivocado, el comprador lo pidió por teléfono",
-    "invoicingAnnulPanelReminder": "El SRI no anula una factura que el comprador usó para una devolución de impuestos, ni una ya declarada, y la plataforma no puede ver ninguna de las dos cosas: usted responde por ello. El registro es irreversible.",
+    "invoicingAnnulPanelReminder": "El SRI no anula una factura que el comprador usó para una devolución de impuestos, ni una ya declarada, y la plataforma no puede ver ninguna de las dos cosas: usted responde por ello. Solo Restablecer deshace el registro, una vez terminado el plazo de anulación con el SRI aún reportando la factura como autorizada.",
     "invoicingAnnulPanelSubmit": "Marcar como anulada",
     "invoicingAnnulPanelSubmitting": "Marcando como anulada…",
     "invoicingAnnulPanelDone": "La factura quedó registrada como anulada en el SRI.",
