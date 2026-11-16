@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -29,26 +28,21 @@ func (e kickLogEntry) attr(key string) any {
 	return nil
 }
 
-// kickLogger captures every line and announces the first one at Warn or
-// Error, which is how a kick that ran in the background reports its end.
+// kickLogger hands over the first line at Warn or Error, which is how a kick
+// that ran in the background reports its end.
 type kickLogger struct {
-	mu      sync.Mutex
-	entries []kickLogEntry
-	done    chan kickLogEntry
+	done chan kickLogEntry
 }
 
 func newKickLogger() *kickLogger { return &kickLogger{done: make(chan kickLogEntry, 1)} }
 
 func (l *kickLogger) log(level, msg string, args []any) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	entry := kickLogEntry{level: level, msg: msg, args: args}
-	l.entries = append(l.entries, entry)
-	if level != "INFO" {
-		select {
-		case l.done <- entry:
-		default:
-		}
+	if level == "INFO" {
+		return
+	}
+	select {
+	case l.done <- kickLogEntry{level: level, msg: msg, args: args}:
+	default:
 	}
 }
 

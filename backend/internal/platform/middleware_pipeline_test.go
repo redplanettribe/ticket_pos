@@ -368,12 +368,12 @@ func TestRequestPipelineLogsTheCauseOfAnUnexpected500UnderTheRequestsID(t *testi
 	}
 	var cause logLine
 	for _, line := range linesAt(t, buf, "ERROR") {
-		if line.str("msg") != "request" {
+		if line.str("msg") == "unexpected error" {
 			cause = line
 		}
 	}
 	if cause == nil {
-		t.Fatalf("no ERROR line other than the request line carries the cause (log: %s)", buf.String())
+		t.Fatalf("no ERROR line \"unexpected error\" carries the cause (log: %s)", buf.String())
 	}
 	if got := cause.str("error"); got != "load event: connection refused" {
 		t.Fatalf("logged error = %q, want the original error (line: %v)", got, cause)
