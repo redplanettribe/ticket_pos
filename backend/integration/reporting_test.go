@@ -18,8 +18,8 @@ import (
 // startAppReportingTo boots an app over the shared database that reports to
 // fake, wired as cmd/server wires the real reporter (ADR 0079): the request
 // pipeline and the Logger every service is handed both report to it. Its
-// clock reads now.
-func startAppReportingTo(t *testing.T, fake platform.Reporter, now *atomic.Int64) (*testEnv, *server.App) {
+// clock reads now. opts are added to the app's.
+func startAppReportingTo(t *testing.T, fake platform.Reporter, now *atomic.Int64, opts ...server.Option) (*testEnv, *server.App) {
 	t.Helper()
 	cfg := platform.Config{
 		DatabaseURL:       sharedConnStr,
@@ -31,12 +31,12 @@ func startAppReportingTo(t *testing.T, fake platform.Reporter, now *atomic.Int64
 		},
 	}
 	clock := func() time.Time { return time.Unix(0, now.Load()).UTC() }
-	app, err := server.NewApp(context.Background(), cfg,
+	app, err := server.NewApp(context.Background(), cfg, append([]server.Option{
 		server.WithEmailSender(sharedEmail),
 		server.WithClock(clock),
 		server.WithObjectStorage(&mockObjectStorage{}),
 		server.WithReporter(fake),
-	)
+	}, opts...)...)
 	if err != nil {
 		t.Fatalf("new reporting app: %v", err)
 	}

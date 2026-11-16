@@ -17,13 +17,16 @@ type Router interface {
 }
 
 // NewHandler is the API's whole HTTP handler: every route, wrapped in the
-// request pipeline (request id, request log, panic recovery), which reports to
-// the App's Reporter. The server and the integration suites serve this same
+// request pipeline (request id, request span, request log, panic recovery),
+// which reports and traces to the App's Reporter, sampling as alwaysTraced
+// and neverTraced say. The server and the integration suites serve this same
 // value, so the suites exercise the middleware production runs.
 func NewHandler(app *App) http.Handler {
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, app)
-	return platform.RequestPipeline(app.Logger, app.Reporter, mux)
+	registered := &recordingRouter{next: mux, patterns: map[string]bool{}}
+	RegisterRoutes(registered, app)
+	requireTracedRoutesRegistered(registered.patterns)
+	return platform.TracedRequestPipeline(app.Logger, app.Reporter, traceSampling(app.traceRandom), mux)
 }
 
 // RegisterRoutes wires all HTTP routes onto mux.

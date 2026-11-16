@@ -24,9 +24,6 @@ import (
 // and which on a developer's machine that opted in can be a person's name.
 const serverName = "ticket-pos-api"
 
-// tracesSampleRate is the share of traces kept: one request in ten (ADR 0079).
-const tracesSampleRate = 0.1
-
 // New returns the reporter cfg describes. With no DSN it is
 // platform.NoopReporter and nothing of the SDK is constructed. Otherwise it is
 // the SDK client behind a platform.AsyncReporter, whose first failure,
@@ -55,12 +52,15 @@ func newWithTransport(cfg platform.ReporterConfig, logger platform.Logger, trans
 	}}
 
 	client, err := sentry.NewClient(sentry.ClientOptions{
-		Dsn:              cfg.DSN,
-		Environment:      cfg.Environment,
-		Release:          cfg.Release,
-		ServerName:       serverName,
+		Dsn:         cfg.DSN,
+		Environment: cfg.Environment,
+		Release:     cfg.Release,
+		ServerName:  serverName,
+		// Every transaction is started with the decision the platform took
+		// at the head of the trace (platform.TraceSampling), which overrides
+		// the SDK's own rate: with none, nothing is kept.
 		EnableTracing:    true,
-		TracesSampleRate: tracesSampleRate,
+		TracesSampleRate: 0,
 		// No personal data is collected by default: no request bodies,
 		// cookies, headers, query strings or user fields (ADR 0079).
 		DataCollection: &sentry.DataCollection{
@@ -319,7 +319,17 @@ func (r *sentryReporter) StartSpan(ctx context.Context, options platform.SpanOpt
 	}
 	spanOptions := []sentry.SpanOption{sentry.WithDescription(options.Name)}
 	if sentry.TransactionFromContext(ctx) == nil {
-		spanOptions = append(spanOptions, sentry.WithTransactionName(options.Name))
+		sampled := sentry.SampledFalse
+		if options.Sampled {
+			sampled = sentry.SampledTrue
+		}
+		spanOptions = append(spanOptions,
+			sentry.WithTransactionName(options.Name),
+			sentry.WithTransactionSource(sentry.SourceRoute),
+			// The decision taken at the head; it wins over the propagated
+			// one, which the platform has already weighed.
+			sentry.WithSpanSampled(sampled),
+		)
 		if options.SentryTrace != "" {
 			spanOptions = append(spanOptions, sentry.ContinueFromHeaders(options.SentryTrace, options.Baggage))
 		}

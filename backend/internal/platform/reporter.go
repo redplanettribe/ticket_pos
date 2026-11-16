@@ -68,6 +68,10 @@ type SpanOptions struct {
 	// continues the caller's trace from. Empty starts a new trace.
 	SentryTrace string
 	Baggage     string
+	// Sampled is whether a span that starts a trace on this process, a
+	// request span, is traced: decided once, at the head (TraceSampling). A
+	// span started under another inherits its decision and ignores this.
+	Sampled bool
 }
 
 // Span is a started span.

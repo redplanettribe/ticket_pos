@@ -18,19 +18,35 @@ import (
 //
 //  1. the request id, outermost, so everything inside can report it: the
 //     request log line, a recovered panic's log line and its 500 envelope;
-//  2. the request log, which sees the request only after the id is on its
+//  2. the request span (tracingMiddleware), so every report the request makes
+//     links to its trace;
+//  3. the request log, which sees the request only after the id is on its
 //     context, and which writes its line even when the handler aborts. It
 //     holds what the request has reported, so that one failed request is one
 //     event, and reports a 5xx nothing inside it reported;
-//  3. panic recovery, innermost, so the 500 it writes is the status the request
+//  4. panic recovery, innermost, so the 500 it writes is the status the request
 //     log records. It reports the panic to reporter, with its stack.
 //
-// The three are unexported so that nothing can assemble them in another order.
+// The four are unexported so that nothing can assemble them in another order.
 // That is how the request log came to read `"request_id":""` for every request:
 // the log wrapped the id middleware, so the id was attached to a request the log
 // line never saw.
+//
+// RequestPipeline traces every request at OrdinaryTraceRate, honouring a
+// propagated decision; TracedRequestPipeline takes the routes that are always
+// and never traced.
 func RequestPipeline(logger *slog.Logger, reporter Reporter, next http.Handler) http.Handler {
-	return requestIDMiddleware(loggingMiddleware(logger, reporter, recoverMiddleware(logger, reporter, next)))
+	return TracedRequestPipeline(logger, reporter, TraceSampling{}, next)
+}
+
+// TracedRequestPipeline is RequestPipeline with sampling deciding which
+// requests are traced. The request span is named by the pattern next routes
+// the request by, which next, a *http.ServeMux, tells before it routes; any
+// other handler's requests are "unrouted".
+func TracedRequestPipeline(logger *slog.Logger, reporter Reporter, sampling TraceSampling, next http.Handler) http.Handler {
+	routes, _ := next.(routeMatcher)
+	return requestIDMiddleware(tracingMiddleware(reporter, sampling, routes,
+		loggingMiddleware(logger, reporter, recoverMiddleware(logger, reporter, next))))
 }
 
 // RequestIDHeader carries a request's id, inbound from a BFF and outbound on
@@ -137,6 +153,7 @@ func loggingMiddleware(logger *slog.Logger, reporter Reporter, next http.Handler
 				attrs = append(attrs, "aborted", true)
 			}
 			logger.Log(r.Context(), level, "request", attrs...)
+			setRequestSpanStatus(r.Context(), status)
 			if level == slog.LevelError {
 				reportRequestFailure(r.Context(), reporter, ErrorReport{
 					Err:       fmt.Errorf("%s answered %d", routePattern(r), status),

@@ -216,6 +216,13 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
   A reported error is one exception: its text scrubbed through the recipient redaction's `redactedError` (`platform.ScrubError`), and its type its `platform.ErrorClass`, words that carry nothing of the error's text.
   A stack frame's variables are dropped, and the event keeps only the user's id.
 - A sweep that gives up on something for good logs it at Error and is reported; failures it retries, and the counts it answers with, keep their levels.
+- Every request is one span, named by the route pattern the mux is about to route it by (`unrouted` when none matches), started second in the pipeline, inside the request id and outside the request log, so every report the request makes links to its trace.
+  A request carrying `sentry-trace` and `baggage` continues the Next app's trace; one without starts its own.
+- Sampling is decided once per trace, at its head, by `platform.TraceSampling`: a health check never, a checkout, payment or SRI invoicing route always, any other request as the Next app's propagated decision says, or one in ten when there is none.
+  The routes always and never traced are named once, in `alwaysTraced` and `neverTraced` (`server/traced_routes.go`), and the server refuses to start when one of them is not registered.
+  The SDK keeps the decision it is handed and samples nothing on its own.
+- Every query on the pool is a `db.sql` span under its request, through one pgx tracer set in `platform.OpenDB`: the statement text with its `$n` placeholders, never the arguments.
+  A query outside a request starts no trace, and with no DSN, or in the migrate job, the pool has no tracer and no span is created.
 - Every scheduled job checks in: each internal route is registered through `server.CheckInJobs`, which serves it through `platform.JobRoute` under the job name `scheduledJobs` (`server/jobs.go`) gives its pattern, and refuses to register a route it has no name for.
   The run checks in as started when the route is entered, and as ok, or failed on a 5xx or a panic, with the time it took; a 4xx is a refusal as designed and checks in ok.
   The name is the monitor's slug, the Cloud Scheduler job's name without its environment (`ticket-pos-answer-purge`), and the `job` tag on everything the run reports; Terraform's monitors must carry the same nine slugs.

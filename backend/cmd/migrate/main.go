@@ -22,7 +22,8 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	db, err := platform.OpenDB(ctx, cfg.DatabaseURL)
+	// The migrate job does not report or trace (ADR 0079).
+	db, err := platform.OpenDB(ctx, cfg.DatabaseURL, platform.NoopReporter{})
 	if err != nil {
 		log.Fatalf("database: %v", err)
 	}

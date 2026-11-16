@@ -90,14 +90,15 @@ func TestARefusedDSNLeavesTheNoOpAndSaysSo(t *testing.T) {
 }
 
 // ingest stands in for Sentry's ingest endpoint on localhost: a test never
-// contacts Sentry. It keeps every event item it is sent.
+// contacts Sentry. It keeps every event and transaction item it is sent.
 type ingest struct {
 	server *httptest.Server
 	status int
 
-	mu     sync.Mutex
-	events []map[string]any
-	posts  int
+	mu           sync.Mutex
+	events       []map[string]any
+	transactions []map[string]any
+	posts        int
 }
 
 func newIngest(t *testing.T, status int) *ingest {
@@ -119,7 +120,7 @@ func (in *ingest) receive(w http.ResponseWriter, r *http.Request) {
 	lines := bufio.NewScanner(bytes.NewReader(body))
 	lines.Buffer(make([]byte, 1<<20), 1<<24)
 	lines.Scan() // envelope header
-	var events []map[string]any
+	var events, transactions []map[string]any
 	for lines.Scan() {
 		var item struct {
 			Type string `json:"type"`
@@ -128,14 +129,19 @@ func (in *ingest) receive(w http.ResponseWriter, r *http.Request) {
 		if !lines.Scan() {
 			break
 		}
-		if item.Type == "event" {
-			var event map[string]any
-			_ = json.Unmarshal(lines.Bytes(), &event)
-			events = append(events, event)
+		var payload map[string]any
+		switch item.Type {
+		case "event":
+			_ = json.Unmarshal(lines.Bytes(), &payload)
+			events = append(events, payload)
+		case "transaction":
+			_ = json.Unmarshal(lines.Bytes(), &payload)
+			transactions = append(transactions, payload)
 		}
 	}
 	in.mu.Lock()
 	in.events = append(in.events, events...)
+	in.transactions = append(in.transactions, transactions...)
 	in.posts++
 	in.mu.Unlock()
 	w.WriteHeader(in.status)
@@ -145,6 +151,12 @@ func (in *ingest) received() ([]map[string]any, int) {
 	in.mu.Lock()
 	defer in.mu.Unlock()
 	return append([]map[string]any(nil), in.events...), in.posts
+}
+
+func (in *ingest) receivedTransactions() []map[string]any {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	return append([]map[string]any(nil), in.transactions...)
 }
 
 func panicking(http.ResponseWriter, *http.Request) {

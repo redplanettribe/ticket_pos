@@ -60,7 +60,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "connection string: %v\n", err)
 		os.Exit(1)
 	}
-	db, err := platform.OpenDB(ctx, connStr)
+	db, err := platform.OpenDB(ctx, connStr, platform.NoopReporter{})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "open database: %v\n", err)
 		os.Exit(1)

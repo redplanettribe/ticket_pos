@@ -56,7 +56,10 @@ type App struct {
 	// Reporter is where unexpected failures are reported (ADR 0079):
 	// platform.NoopReporter unless cmd/server passes one with WithReporter, so
 	// the test suites never construct a real one.
-	Reporter          platform.Reporter
+	Reporter platform.Reporter
+	// traceRandom is the draw for an ordinary request's trace (WithTraceRandom);
+	// nil in production.
+	traceRandom       func() float64
 	DB                *platform.DB
 	EmailSender       platform.EmailSender
 	OTPService        *otp.Service
@@ -110,6 +113,15 @@ type appOptions struct {
 	// integration harness, which publishes editions mid-run.
 	legalTextCacheTTL *time.Duration
 	reporter          platform.Reporter
+	traceRandom       func() float64
+}
+
+// WithTraceRandom replaces the draw that decides whether an ordinary request
+// is traced (platform.TraceSampling.Random), so a test decides it.
+func WithTraceRandom(random func() float64) Option {
+	return func(o *appOptions) {
+		o.traceRandom = random
+	}
 }
 
 // WithReporter sets the error reporter the request pipeline reports to.
@@ -158,7 +170,13 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
 
-	db, err := platform.OpenDB(ctx, cfg.DatabaseURL)
+	reporter := options.reporter
+	if reporter == nil {
+		reporter = platform.NoopReporter{}
+	}
+
+	// Every query on the pool is a span under its request (ADR 0079).
+	db, err := platform.OpenDB(ctx, cfg.DatabaseURL, reporter)
 	if err != nil {
 		return nil, fmt.Errorf("database: %w", err)
 	}
@@ -170,10 +188,6 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		}
 	}
 
-	reporter := options.reporter
-	if reporter == nil {
-		reporter = platform.NoopReporter{}
-	}
 	// Every Error line through it is reported (ADR 0079).
 	platformLogger := platform.NewSlogLogger(logger, reporter)
 	emailSender := options.emailSender
@@ -698,6 +712,7 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		Config:            cfg,
 		Logger:            logger,
 		Reporter:          reporter,
+		traceRandom:       options.traceRandom,
 		DB:                db,
 		EmailSender:       emailSender,
 		OTPService:        otpService,
