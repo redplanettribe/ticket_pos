@@ -37,10 +37,11 @@ import type { InvoiceKind, InvoiceStatus } from "./operator-api";
  * for a manual one, whose refusals are recorded rather than parked — of any
  * kind, since the number is dead whoever typed the document. Not from
  * `pending`: the SRI still has the document and it is checked, not given up
- * on. The API asks for one thing more that this cannot see, a fresh Check
- * status immediately beforehand, and answers INVOICE_CHECK_NOT_FRESH when
- * there is none; that is a refusal with a next step — press Check status —
- * rather than a lever that should not be drawn.
+ * on. The API asks for one thing more that this does not judge, two Check
+ * status answers of "nothing known", at least a minute apart, immediately
+ * beforehand, and answers INVOICE_CHECK_NOT_FRESH when they are not there;
+ * that is a refusal with a next step - Check status twice, at least a minute
+ * apart, then Abandon - rather than a lever that should not be drawn.
  *
  * `resend` alone falls away on a document the SRI refuses by NUMBER (#577,
  * ADR 0068). Resend sends the same clave and the same secuencial, which is
@@ -176,4 +177,26 @@ function reissueOffered(status: InvoiceStatus, chain: InvoiceChainFacts): boolea
  */
 export function hasInvoiceLevers(levers: InvoiceLevers): boolean {
   return levers.check || levers.resend || levers.annul || levers.abandon;
+}
+
+/**
+ * When the SRI gave the answer the resend hint reports (#728): the last
+ * attempt's start, which is the query answered `unknown` that turned the
+ * hint on. Null when the hint is off.
+ *
+ * The hint says only what the SRI answered and when, never that the document
+ * was not received: the SRI's status services answer "nothing under this
+ * clave" for documents they hold (#722), and production factura 225 was
+ * told "never received" on one such answer while the SRI held it authorized.
+ * Resending is safe either way - a clave the SRI holds is answered as
+ * already registered (43/70), never duplicated.
+ */
+export function resendHintAskedAt(invoice: {
+  resend_hint: boolean;
+  attempts: readonly { started_at: string }[];
+}): string | null {
+  if (!invoice.resend_hint || invoice.attempts.length === 0) {
+    return null;
+  }
+  return invoice.attempts[invoice.attempts.length - 1].started_at;
 }

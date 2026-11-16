@@ -305,9 +305,10 @@ func (s *Service) rebuildAndSign(ctx context.Context, row *repository.InvoiceRow
 // 001-001-000000001 actually had — a Submit that died in transport, then
 // query after query answered "received" — turned the hint on and steered
 // the operator away from the resend that was the one thing that would fix
-// it. An `unknown` answer is the authority saying it has no record of the
-// clave at all; a `received` one describes a document it is processing, and
-// it can only be processing one it took from a Submit.
+// it. An `unknown` answer is the authority saying it holds nothing under the
+// clave, which is not proof (it gives that answer for documents it holds,
+// #722); a `received` one describes a document it is processing, and it can
+// only be processing one it took from a Submit.
 //
 // The resend hint (resendHint) is this hint's opposite, and the two are
 // mutually exclusive: a document the authority never acknowledged carries
@@ -322,16 +323,21 @@ func checkStatusHint(inv *invoicing.Invoice, attempts []invoicing.Attempt) bool 
 	return undecidedAttempt(attempts[len(attempts)-1].Outcome)
 }
 
-// resendHint says whether the page should tell the operator "the SRI has no
-// record of this document — it was never received; resend it" (#516).
+// resendHint says whether the page should report the SRI's last answer -
+// "nothing under this clave", and when it was given - and ask for a resend
+// (#516, reworded by #728).
 //
-// It is true when the last thing the authority said was `unknown` (#514) —
+// It is true when the last thing the authority said was `unknown` (#514) -
 // asked directly about the clave, autorización answered with no comprobante
-// under it — and no Submit was ever acknowledged. That is the ledger a
-// Submit killed in transport leaves behind, and the document is nowhere: not
-// with the platform's authority to wait on, not with the SRI. Sending the
-// same bytes again under the same clave and secuencial is what fixes it, and
-// cannot duplicate anything (invoicing.AcknowledgedByAuthority explains why).
+// under it - and no Submit was ever acknowledged. That is the ledger a
+// Submit killed in transport leaves behind. It is also the ledger of a
+// document the SRI holds: its status services answer `unknown` for
+// documents they hold (#722, production factura 225), so the hint reports
+// the answer and never states that the SRI has no record. Resending is the
+// fix either way: the same bytes under the same clave and secuencial cannot
+// duplicate anything, and a clave the SRI holds is answered 43/70
+// (invoicing.AcknowledgedByAuthority explains why). The condition does not
+// wait for several `unknown` answers, because a resend is harmless.
 //
 // The latest attempt is what is read, not any attempt, because an `unknown`
 // answered before a later Submit or a later decision is history: the page

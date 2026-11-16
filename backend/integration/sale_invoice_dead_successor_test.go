@@ -88,9 +88,7 @@ func deadSuccessor(t *testing.T, death string) (env *testEnv, operatorSessionID,
 		sriStub.setAuthorization(func(accessKey string) (int, string) {
 			return http.StatusOK, emptyAuthorizationSOAP(accessKey)
 		})
-		if resp, body := checkInvoice(t, operatorSessionID, correctedID); resp.StatusCode != http.StatusOK {
-			t.Fatalf("setup check status=%d error=%+v", resp.StatusCode, body.Error)
-		}
+		checkTwice(t, operatorSessionID, correctedID, fixedClock)
 		resp, body := abandonInvoice(t, operatorSessionID, correctedID, map[string]any{"note": "not registered at the portal"})
 		if view := abandonedView(t, resp, body); view.Status != "abandoned" {
 			t.Fatalf("setup abandon left the corrected factura %s", view.Status)

@@ -77,9 +77,7 @@ func abandonedSaleInvoice(t *testing.T) (env *testEnv, operatorSessionID, invoic
 	sriStub.setAuthorization(func(accessKey string) (int, string) {
 		return http.StatusOK, emptyAuthorizationSOAP(accessKey)
 	})
-	if resp, body := checkInvoice(t, operatorSessionID, invoiceID); resp.StatusCode != http.StatusOK {
-		t.Fatalf("setup check status=%d error=%+v", resp.StatusCode, body.Error)
-	}
+	checkTwice(t, operatorSessionID, invoiceID, fixedClock)
 	resp, body := abandonInvoice(t, operatorSessionID, invoiceID, map[string]any{"note": "not registered at the portal"})
 	if view := abandonedView(t, resp, body); view.Status != "abandoned" {
 		t.Fatalf("setup abandon left the document %s", view.Status)
@@ -246,9 +244,7 @@ func TestTheChainSurvivesMoreThanOneHop(t *testing.T) {
 	if result := drainSaleInvoices(t); result.NeedsAttention != 1 {
 		t.Fatalf("drain of the first replacement = %+v; want it parked needs_attention on the same refusal", result)
 	}
-	if resp, body := checkInvoice(t, operatorSessionID, second.ID); resp.StatusCode != http.StatusOK {
-		t.Fatalf("check the first replacement: status=%d error=%+v", resp.StatusCode, body.Error)
-	}
+	checkTwice(t, operatorSessionID, second.ID, fixedClock)
 	resp, body := abandonInvoice(t, operatorSessionID, second.ID, map[string]any{"note": "refused by number again"})
 	if view := abandonedView(t, resp, body); view.Status != "abandoned" {
 		t.Fatalf("the first replacement is %s; want abandoned", view.Status)

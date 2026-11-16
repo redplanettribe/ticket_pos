@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/invoicing/service"
 )
 
 // The needs-attention queue widens (#581, parent #575, ADR 0068): it lists
@@ -122,9 +124,7 @@ func TestAnAbandonedSaleReturnsToTheQueueWhenItsReplacementDies(t *testing.T) {
 	if n := getNeedsAttentionCount(t, operatorSessionID); n != 1 {
 		t.Fatalf("count while the replacement is parked = %d; want 1 — the parked replacement, and the first document replaced by a live one", n)
 	}
-	if resp, body := checkInvoice(t, operatorSessionID, second.ID); resp.StatusCode != http.StatusOK {
-		t.Fatalf("check the replacement: status=%d error=%+v", resp.StatusCode, body.Error)
-	}
+	checkTwice(t, operatorSessionID, second.ID, fixedClock)
 	resp, body := abandonInvoice(t, operatorSessionID, second.ID, map[string]any{"note": "refused by number again"})
 	if view := abandonedView(t, resp, body); view.Status != "abandoned" {
 		t.Fatalf("the replacement is %s; want abandoned", view.Status)
@@ -223,9 +223,7 @@ func TestAnAbandonedCreditNoteIsNotInTheQueue(t *testing.T) {
 	sriStub.setAuthorization(func(accessKey string) (int, string) {
 		return http.StatusOK, emptyAuthorizationSOAP(accessKey)
 	})
-	if resp, body := checkInvoice(t, operatorSessionID, noteID); resp.StatusCode != http.StatusOK {
-		t.Fatalf("check the credit note: status=%d error=%+v", resp.StatusCode, body.Error)
-	}
+	checkTwice(t, operatorSessionID, noteID, fixedClock)
 	resp, body := abandonInvoice(t, operatorSessionID, noteID, map[string]any{"note": "the SRI refuses the credit note's number"})
 	if view := abandonedView(t, resp, body); view.Status != "abandoned" {
 		t.Fatalf("the credit note is %s; want abandoned", view.Status)
@@ -284,13 +282,11 @@ func TestTheQueuesTwoHalvesShareOneClock(t *testing.T) {
 	// Two hours on, the operator abandons the one that has waited LONGEST.
 	// It stays in the queue — the Sale still has no factura — but it entered
 	// it again, now, so it goes to the back.
-	atInvoicingClock(t, fixedClock.Add(3*time.Hour))
 	sriStub.setAuthorization(func(accessKey string) (int, string) {
 		return http.StatusOK, emptyAuthorizationSOAP(accessKey)
 	})
-	if resp, body := checkInvoice(t, operatorSessionID, firstParked); resp.StatusCode != http.StatusOK {
-		t.Fatalf("check: status=%d error=%+v", resp.StatusCode, body.Error)
-	}
+	// Its two Checks end at the third hour, where the Abandon is pressed.
+	checkTwice(t, operatorSessionID, firstParked, fixedClock.Add(3*time.Hour-service.AbandonCheckSpacing))
 	resp, body := abandonInvoice(t, operatorSessionID, firstParked, map[string]any{"note": "not registered at the portal"})
 	if view := abandonedView(t, resp, body); view.Status != "abandoned" {
 		t.Fatalf("abandon left the document %s", view.Status)

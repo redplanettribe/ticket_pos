@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { hasInvoiceLevers, invoiceLevers } from "./invoice-actions.ts";
+import { formatDateTime, PLATFORM_TIME_ZONE } from "./format.ts";
+import { hasInvoiceLevers, invoiceLevers, resendHintAskedAt } from "./invoice-actions.ts";
 import type { InvoiceStatus } from "./operator-api.ts";
 
 // Every status, spelled here rather than imported from operator-api: that
@@ -27,6 +28,12 @@ const INVOICE_STATUSES = [
 // integration-tested against it — and the last test is what makes sure the
 // queue, the annulment and the trail cannot reach an operator with nothing
 // to say in either language.
+
+type Catalog = { operator: Record<string, string>; errors: { envelope: Record<string, string> } };
+
+function loadCatalog(locale: string): Catalog {
+  return JSON.parse(readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8")) as Catalog;
+}
 
 const NONE = { check: false, resend: false, annul: false, reissue: false, abandon: false, issueAgain: false };
 
@@ -293,9 +300,7 @@ test("every surface has its words in both languages", () => {
     "invoicingIssueAgainFailed",
   ];
   for (const locale of ["en", "es"]) {
-    const catalog = JSON.parse(
-      readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8"),
-    ) as { operator: Record<string, string>; errors: { envelope: Record<string, string> } };
+    const catalog = loadCatalog(locale);
     for (const key of keys) {
       assert.ok(catalog.operator[key]?.trim(), `${locale}: operator.${key} is missing or empty`);
     }
@@ -322,6 +327,47 @@ test("every surface has its words in both languages", () => {
       "INVOICE_ALREADY_REPLACED",
     ]) {
       assert.ok(catalog.errors.envelope[code]?.trim(), `${locale}: errors.envelope.${code} is missing`);
+    }
+  }
+});
+
+// The resend hint says what the SRI last answered and when (#728, parent
+// #722), never that the document was not received: production factura 225
+// got "never received" from one `unknown` answer while the SRI held it
+// authorized. This is the ledger it had - a Submit lost in transport, then
+// one query answered `unknown` - and the hint must carry that query's time,
+// in Guayaquil time like the page's other timestamps.
+const LOST_SUBMIT_THEN_UNKNOWN = {
+  resend_hint: true,
+  attempts: [
+    { operation: "submit", outcome: "error", started_at: "2026-11-15T16:30:00Z" },
+    { operation: "query", outcome: "unknown", started_at: "2026-11-15T16:32:00Z" },
+  ],
+} as const;
+
+
+test("the resend hint is asked at the last attempt's time", () => {
+  assert.equal(resendHintAskedAt(LOST_SUBMIT_THEN_UNKNOWN), "2026-11-15T16:32:00Z");
+  assert.equal(resendHintAskedAt({ ...LOST_SUBMIT_THEN_UNKNOWN, resend_hint: false }), null);
+});
+
+test("the resend hint says when the SRI answered, in both languages", () => {
+  for (const locale of ["en", "es"] as const) {
+    const when = formatDateTime(resendHintAskedAt(LOST_SUBMIT_THEN_UNKNOWN)!, PLATFORM_TIME_ZONE, locale);
+    assert.ok(when?.includes("11:32"), `${locale}: ${when} is not Guayaquil time`);
+    const { operator } = loadCatalog(locale);
+    assert.ok(operator.invoicingResendHint.includes("{time}"), `${locale}: the hint does not say when`);
+    const shown = `${operator.invoicingResendHintTitle} ${operator.invoicingResendHint.replace("{time}", when!)}`;
+    assert.ok(shown.includes(when!), locale);
+    // What one answer cannot establish is never said as fact.
+    for (const claim of [
+      /never received/i,
+      /has no record/i,
+      /nunca fue recibido/i,
+      /no tiene registro/i,
+      /nunca lo recibi/i,
+    ]) {
+      assert.doesNotMatch(shown, claim, `${locale}: ${shown}`);
     }
   }
 });

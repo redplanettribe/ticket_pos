@@ -255,11 +255,11 @@ func domainHTTPStatus(code string) int {
 	// The Abandon's refusals (#578, ADR 0068), and Mark annulled's new one.
 	// Each is a fact about the document as it stands: it is already
 	// abandoned, it is in a state no refusal put it in, the authority did
-	// not refuse its number, or the ledger carries no fresh Check for the
-	// act to rest on. INVOICE_CHECK_NOT_FRESH is the one with a next step —
-	// press Check status, then Abandon — and it is still a conflict, not a
-	// 400: the request was well formed and the document's ledger is what
-	// forbids it.
+	// not refuse its number, or the ledger does not end on the two spaced
+	// Checks the act rests on. INVOICE_CHECK_NOT_FRESH is the one with a
+	// next step - Check status twice, at least a minute apart, then Abandon -
+	// and it is still a conflict, not a 400: the request was well formed and
+	// the document's ledger is what forbids it.
 	case "INVOICE_ABANDONED", "INVOICE_NOT_ABANDONABLE", "INVOICE_NOT_REFUSED_BY_NUMBER",
 		"INVOICE_CHECK_NOT_FRESH", "INVOICE_ABANDON_INSTEAD":
 		return http.StatusConflict

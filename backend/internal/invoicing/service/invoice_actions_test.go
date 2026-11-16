@@ -9,17 +9,21 @@ import (
 // The two hints on the operator's invoice page (#455, tightened by #516):
 // who holds the document, told from the attempts ledger.
 //
-// The check-status hint says "the SRI has this document — check status
-// rather than resending it", and is true only when the authority really
-// holds it: some Submit came back received (invoicing.AcknowledgedByAuthority,
-// the Submit-only rule of #513) and nothing has been decided since. A query
-// answer, whatever it says, is never acknowledgement — the production ledger
+// The check-status hint says the document was received and is still being
+// processed, so check status rather than resending it, and is true only when
+// the authority really holds it: some Submit came back received
+// (invoicing.AcknowledgedByAuthority, the Submit-only rule of #513) and
+// nothing has been decided since. A query answer, whatever it says, is never
+// acknowledgement - the production ledger
 // of 001-001-000000001 was [Submit error, Query received ×N] and the SRI had
 // never seen the document.
 //
-// The resend hint says the opposite — "the SRI has no record of this
-// document, resend it" — and is true when the last thing the authority said
-// was `unknown` (#514) and no Submit was ever received.
+// The resend hint is its opposite, and is true when the last thing the
+// authority said was `unknown` (#514) and no Submit was ever received. It
+// reports that last answer - nothing under this clave - and when it was
+// given (#728), never as proof: the SRI answers `unknown` for documents it
+// holds (#722). It asks for a resend, which is safe either way, since a
+// clave the SRI holds is answered 43/70 and never duplicated.
 //
 // Neither hint is shown where its action cannot be taken: both read the
 // status, and a document that is authorized, annulled or withdrawn is past

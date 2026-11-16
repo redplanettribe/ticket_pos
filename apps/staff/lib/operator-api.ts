@@ -1259,7 +1259,7 @@ export type OperatorInvoiceMessage = {
 export type OperatorInvoiceAttempt = {
   id: number;
   operation: "submit" | "query";
-  outcome: "received" | "authorized" | "not_authorized" | "rejected" | "error";
+  outcome: "received" | "authorized" | "not_authorized" | "rejected" | "unknown" | "error";
   messages: OperatorInvoiceMessage[];
   error: string;
   started_at: string;
@@ -1362,10 +1362,13 @@ export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
    * never both true. `check_status_hint` is true when the SRI really holds
    * it — a submit came back received (RECIBIDA, or 43/70 on a resend) — and
    * it is still undecided: the page says "check status" rather than showing
-   * an error. `resend_hint` is its opposite: the SRI answered that it has no
-   * record of the clave and never took the document, so sending the same
-   * bytes again is the fix. A document whose ledger says neither shows
-   * neither banner.
+   * an error. `resend_hint` is its opposite: no submit was ever
+   * acknowledged and the SRI's last answer was that it holds nothing under
+   * the clave. That answer is not proof - the SRI gives it for documents it
+   * holds (#722) - but sending the same bytes again is the fix either way,
+   * since a clave it holds is answered as already registered. The page shows
+   * the answer's time, the last attempt's `started_at` (#728). A document
+   * whose ledger says neither shows neither banner.
    */
   check_status_hint: boolean;
   resend_hint: boolean;
@@ -1602,11 +1605,14 @@ export async function annulOperatorInvoice(id: string): Promise<OperatorInvoiceD
  * number, clave, bytes and every attempt — the secuencial stays consumed and
  * is never handed out again.
  *
- * Requires a fresh Check status immediately beforehand, so the decision
- * rests on the SRI's own current answer: without one it is refused with
- * INVOICE_CHECK_NOT_FRESH, whose remedy is to press Check status and try
- * again. Also refused with INVOICE_NOT_REFUSED_BY_NUMBER on a document the
- * SRI refused for any other reason, INVOICE_NOT_ABANDONABLE outside
+ * Requires a fresh Check status, twice, immediately beforehand: the last two
+ * attempts must be checks the SRI answered "nothing known", at least a
+ * minute apart, the later within the last 15 minutes, so the decision rests
+ * on the SRI's own word given twice. Otherwise it is refused with
+ * INVOICE_CHECK_NOT_FRESH, whose remedy is to Check status twice, at least a
+ * minute apart, then Abandon. Also refused with
+ * INVOICE_NOT_REFUSED_BY_NUMBER on a document the SRI refused for any other
+ * reason, INVOICE_NOT_ABANDONABLE outside
  * `needs_attention`, `rejected` and `not_authorized`, and by the shared
  * codes every finished document answers — INVOICE_ALREADY_AUTHORIZED,
  * INVOICE_ABANDONED, INVOICE_ANNULLED, INVOICE_WITHDRAWN,

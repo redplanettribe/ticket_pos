@@ -164,14 +164,18 @@ func ErrInvoiceNotRefusedByNumber() apperror.DomainError {
 	return apperror.New("INVOICE_NOT_REFUSED_BY_NUMBER", "Only a document the Tax Authority refuses for its number — error 45, secuencial registrado — can be abandoned. This document was refused for another reason, which has its own remedy.", nil)
 }
 
-// ErrInvoiceCheckNotFresh: Abandon was pressed without a fresh Check status
-// immediately beforehand (#578, ADR 0068). Abandoning rests on the
-// authority's own CURRENT answer, and the attempts ledger must carry that
-// answer, timestamped, immediately before the act — the strongest record
-// available if the authority later asks why a number was never declared.
-// The remedy is one press: Check status, then Abandon.
+// ErrInvoiceCheckNotFresh: Abandon was pressed without a fresh Check
+// immediately beforehand (#578, ADR 0068 as amended for #722). The last two
+// attempts on the ledger must be Check status answers that the authority
+// holds nothing under the clave, at least a minute apart, the later within
+// AbandonCheckFreshness: one such answer is not evidence, because the SRI
+// gives it for documents it holds. The ledger then carries the authority's
+// word, twice and timestamped, immediately before the act - the strongest
+// record available if the authority later asks why a number was never
+// declared. The remedy is buttons the operator already has: Check status
+// twice, at least a minute apart, then Abandon.
 func ErrInvoiceCheckNotFresh() apperror.DomainError {
-	return apperror.New("INVOICE_CHECK_NOT_FRESH", "Check status first: a document is abandoned only on the Tax Authority's current answer, so a Check must be the last thing on its ledger and recent.", nil)
+	return apperror.New("INVOICE_CHECK_NOT_FRESH", "Check status twice, at least a minute apart, then Abandon: a document is abandoned only when the Tax Authority has answered twice, and recently, that it holds nothing under its clave, and those two checks are the last things on its ledger.", nil)
 }
 
 // ErrInvoiceAbandonInstead: Mark annulled is refused on a document that

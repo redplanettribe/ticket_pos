@@ -846,3 +846,98 @@ func TestSaleInvoiceDrainerPollsAfterAnAlreadyHeldResubmit(t *testing.T) {
 		t.Fatalf("attempts = %+v; want exactly one more query", detail.AttemptRows)
 	}
 }
+
+// TestSaleInvoiceDrainerResubmitsOnAFalseUnknownAndHoldsItsStatus (#729,
+// parent #722): the shape of production factura 225 on 2026-11-15. The
+// submit died in transport, and the SRI, which by then held the document,
+// answered autorización numeroComprobantes 0 - "unknown", a false negative.
+// The Drainer trusts no query, so a false unknown costs only a resubmit of
+// the same bytes under the same clave, which the SRI answers 43 for a clave
+// it already holds. And no unknown answer moves the document's status: it
+// is pending while the ladder is young and needs_attention past 24 h,
+// whatever the SRI says it knows, until a decision arrives.
+func TestSaleInvoiceDrainerResubmitsOnAFalseUnknownAndHoldsItsStatus(t *testing.T) {
+	env := setupTest(t)
+	operatorSessionID, invoiceID := houseSaleOwed(t, env, 1000, 1)
+	issuerReady(t, operatorSessionID)
+	sriStub.setReception(func(accessKey string) (int, string) { return http.StatusInternalServerError, "" })
+	sriStub.setAuthorization(func(accessKey string) (int, string) { return http.StatusOK, emptyAuthorizationSOAP(accessKey) })
+
+	if result := drainSaleInvoices(t); result.Claimed != 1 || result.Pending != 1 {
+		t.Fatalf("first drain = %+v; want the document claimed and left pending", result)
+	}
+	first, ok := sriStub.lastReceived()
+	if !ok {
+		t.Fatal("the SRI recorded no submission at all")
+	}
+
+	// checkLeavesStatus presses Check status once, asserts the ledger ends
+	// on a query answered unknown, and that the status is the one the
+	// document had.
+	checkLeavesStatus := func(want string) {
+		t.Helper()
+		resp, body := checkInvoice(t, operatorSessionID, invoiceID)
+		actionOK(t, "check status", resp, body)
+		detail := getDrainedInvoice(t, operatorSessionID, invoiceID)
+		last := detail.AttemptRows[len(detail.AttemptRows)-1]
+		if last.Operation != "query" || last.Outcome != "unknown" {
+			t.Fatalf("attempts = %+v; want the ledger to end on a query answered unknown", detail.AttemptRows)
+		}
+		if detail.Status != want {
+			t.Fatalf("after an unknown answer: status %s; want %s, as it was", detail.Status, want)
+		}
+	}
+	checkLeavesStatus("pending")
+	checkLeavesStatus("pending")
+
+	// Past 24 h the clock parks it; the unknown answers after that leave it
+	// parked, and do not take it back to pending.
+	atInvoicingClock(t, fixedClock.Add(24*time.Hour))
+	if late := drainSaleInvoices(t); late.Claimed != 1 || late.NeedsAttention != 1 {
+		t.Fatalf("drain at 24 h = %+v; want the document parked needs_attention", late)
+	}
+	checkLeavesStatus("needs_attention")
+	before := sriStub.receptionCount()
+
+	// The SRI holds it after all: the resubmit is answered 43, and
+	// autorización goes on answering nothing known.
+	sriStub.setReception(func(accessKey string) (int, string) {
+		return http.StatusOK, returnedSOAP(accessKey, sriMessage("43", "CLAVE ACCESO REGISTRADA", "", "ERROR"))
+	})
+	atInvoicingClock(t, fixedClock.Add(25*time.Hour))
+	if result := drainSaleInvoices(t); result.Claimed != 1 || result.NeedsAttention != 1 {
+		t.Fatalf("drain at 25 h = %+v; want the resubmission and the document still needs_attention", result)
+	}
+	if n := sriStub.receptionCount(); n != before+1 {
+		t.Fatalf("the SRI received %d submissions; want %d: a latest unknown is answered by a resubmit", n, before+1)
+	}
+	again, _ := sriStub.lastReceived()
+	if !bytes.Equal(again.signedXML, first.signedXML) {
+		t.Fatal("the resubmission is not byte-identical to the first send")
+	}
+	detail := getDrainedInvoice(t, operatorSessionID, invoiceID)
+	if again.accessKey != first.accessKey || detail.EcuadorFull.AccessKey != first.accessKey {
+		t.Fatalf("clave: first %s, resubmission %s, on file %s; want one clave throughout",
+			first.accessKey, again.accessKey, detail.EcuadorFull.AccessKey)
+	}
+	if detail.Number == nil || *detail.Number != "001-001-000000001" {
+		t.Fatalf("number = %v; want the first number kept: a resubmission consumes none", detail.Number)
+	}
+	if detail.Status != "needs_attention" {
+		t.Fatalf("after the 43 and more unknown answers: status %s; want needs_attention still", detail.Status)
+	}
+
+	// The decision arrives: AUTORIZADO on the next rung, polled and never
+	// sent again, since the 43 acknowledged it.
+	sriStub.setAuthorization(func(accessKey string) (int, string) { return http.StatusOK, authorizedSOAP(accessKey) })
+	atInvoicingClock(t, fixedClock.Add(26*time.Hour))
+	if result := drainSaleInvoices(t); result.Claimed != 1 || result.Authorized != 1 {
+		t.Fatalf("drain at 26 h = %+v; want the document authorized", result)
+	}
+	if detail = getDrainedInvoice(t, operatorSessionID, invoiceID); detail.Status != "authorized" {
+		t.Fatalf("after AUTORIZADO: status %s; want authorized", detail.Status)
+	}
+	if n := sriStub.receptionCount(); n != before+1 {
+		t.Fatalf("the SRI received %d submissions; want still %d: the 43 acknowledged the document", n, before+1)
+	}
+}

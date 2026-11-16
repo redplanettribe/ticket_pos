@@ -101,3 +101,21 @@ func TestQueryOutcomeReadsTheLastEntryOnly(t *testing.T) {
 		t.Fatalf("state = %q, want the last entry's %q", outcome.State, invoicing.OutcomeReceived)
 	}
 }
+
+// TestQueryOutcomeRedirectedToHTMLIsAnErrorNotUnknown (#729, parent #722):
+// the same 302 to an HTML page, read through the adapter the platform
+// calls. It is an error, which the ledger writes as a transport failure and
+// which decides nothing - never OutcomeUnknown, the SRI answering it holds
+// nothing under the clave.
+func TestQueryOutcomeRedirectedToHTMLIsAnErrorNotUnknown(t *testing.T) {
+	srv, _ := redirectingSRI(t)
+	a := NewAuthority(invoicing.EnvironmentTest, WithBaseURL(srv.URL))
+
+	outcome, err := a.QueryOutcome(context.Background(), "x")
+	if err == nil {
+		t.Fatalf("outcome = %+v and no error; want an error", outcome)
+	}
+	if outcome.State == invoicing.OutcomeUnknown {
+		t.Fatalf("outcome = %+v alongside err %v; a redirect must never read as unknown", outcome, err)
+	}
+}
