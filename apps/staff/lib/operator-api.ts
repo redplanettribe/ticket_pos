@@ -1713,10 +1713,11 @@ export type OperatorInvoiceActionDetail = OperatorInvoiceDetail & {
 
 /**
  * Asks the SRI again about a non-authorized invoice (#455) and returns it as
- * it then stands, with the attempt the check recorded. Refused with
- * INVOICE_ALREADY_AUTHORIZED on an authorized one, INVOICE_ANNULLED on an
- * annulled one, INVOICE_WITHDRAWN on a withdrawn one, and INVOICE_NOT_ISSUED
- * on one still owed and unsigned.
+ * it then stands, with the attempt the check recorded. On an annulled one it
+ * makes one ask of the SRI's ConsultaComprobante instead (#744), up to three
+ * `status` attempts, and changes nothing. Refused with
+ * INVOICE_ALREADY_AUTHORIZED on an authorized one, INVOICE_WITHDRAWN on a
+ * withdrawn one, and INVOICE_NOT_ISSUED on one still owed and unsigned.
  */
 export async function checkOperatorInvoice(id: string): Promise<OperatorInvoiceActionDetail> {
   return fetchEventsJSON<OperatorInvoiceActionDetail>(`${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/check`, {

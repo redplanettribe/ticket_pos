@@ -2991,13 +2991,24 @@ components:
           type: array
           uniqueItems: false
         operation:
+          description: |-
+            Operation is which call it was: `submit` (recepción), `query`
+            (autorización) or `status` (the status service, ConsultaComprobante,
+            #744).
+          enum:
+          - submit
+          - query
+          - status
           type: string
         outcome:
           description: |-
             Outcome is what the authority answered, as the core understands it:
             `received` (it holds the document and has not decided), `authorized`,
             `not_authorized`, `rejected`, `unknown` (it has no record of the
-            reference, #514) — or `error` when no answer could be read at all.
+            reference, #514) - or `error` when no answer could be read at all. A
+            `status` row's outcome is its reading instead: `annulled`,
+            `authorized` or `none` (no reading, the error or the authority's
+            messages saying why).
           enum:
           - received
           - authorized
@@ -3005,6 +3016,8 @@ components:
           - rejected
           - unknown
           - error
+          - annulled
+          - none
           type: string
         started_at:
           type: string
@@ -11842,7 +11855,8 @@ paths:
         CHECK STATUS, TWICE, IMMEDIATELY BEFOREHAND (ADR 0068 as amended): the last
         two attempts on the document''s ledger must both be a `check` the SRI answered
         `unknown` (it holds nothing under the clave), started at least a minute apart,
-        the later within the last 15 minutes. One such answer is not evidence, since
+        the later within the last 15 minutes; a `status` call to ConsultaComprobante
+        (#744) is not a check and is not read. One such answer is not evidence, since
         the SRI gives it for documents it holds; a `received` answer, a check that
         failed in transport or anything sent in between does not count. The decision
         then rests on the authority''s own word, twice and timestamped, immediately
@@ -11918,22 +11932,23 @@ paths:
   /api/v1/operator/invoicing/invoices/{id}/annul:
     post:
       description: 'Records that the Platform Operator annulled the document by hand
-        at the SRI portal — the SRI offers no web service for annulment (ADR 0060)
-        — and answers with the document as it then stands: status `annulled`, `annulled_by`
+        at the SRI portal - the SRI offers no web service for annulment (ADR 0060)
+        - and answers with the document as it then stands: status `annulled`, `annulled_by`
         the operator''s email from the session and `annulled_at` the moment. Nothing
         is sent to or asked of the SRI. The row keeps its number, clave de acceso,
         signed XML and the SRI''s last messages; `next_attempt_at` is cleared so the
         Sale Invoice Drainer never claims it again, and it leaves the needs-attention
-        queue. Allowed only from `pending` or `needs_attention` — the states in which
-        the operator may have acted at the portal — and irreversible: INVOICE_NOT_ANNULLABLE
+        queue. Allowed only from `pending` or `needs_attention` - the states in which
+        the operator may have acted at the portal - and irreversible: INVOICE_NOT_ANNULLABLE
         (409) on an authorized, withdrawn, abandoned or already annulled document,
         INVOICE_ABANDON_INSTEAD (409) on a document the SRI refuses for its NUMBER
-        — error 45, `secuencial registrado` (ADR 0068) — since the SRI never took
+        - error 45, `secuencial registrado` (ADR 0068) - since the SRI never took
         that number and there is nothing at its portal to have been annulled; that
         document is abandoned instead, INVOICE_NOT_ISSUED (409) on one still owed
         or parked unsigned (nothing exists at the SRI to have been annulled), INVOICE_NOT_FOUND
-        (404) otherwise. Afterwards Check status and Resend answer INVOICE_ANNULLED.
-        Platform Operator only.'
+        (404) otherwise. Afterwards Resend answers INVOICE_ANNULLED, and Check status
+        asks the SRI''s ConsultaComprobante and changes nothing (#744). Platform Operator
+        only.'
       parameters:
       - description: Document id
         in: path
@@ -12030,32 +12045,39 @@ paths:
         answer: `AUTORIZADO` stores the authorization number, date and XML; `NO AUTORIZADO`
         stores the SRI''s messages; an answer that decides nothing (still in processing,
         or nothing known under the clave) leaves the status as it was. Nothing is
-        sent. Exactly one attempts row is written. INVOICE_ALREADY_AUTHORIZED (409)
-        on an authorized invoice; INVOICE_ANNULLED (409) on one marked annulled; INVOICE_ABANDONED
-        (409) on one abandoned (ADR 0068), which the SRI never took and never will;
-        INVOICE_WITHDRAWN (409) on a withdrawn Sale Invoice or Credit Note, which
-        was never sent; INVOICE_NOT_ISSUED (409) on one still owed and unsigned; INVOICE_NOT_FOUND
-        (404) otherwise. A document the SRI refuses by NUMBER keeps this action, though
-        Resend is refused on it (#577, ADR 0068): asking what the authority holds
-        under the clave sends nothing and is the one thing still worth doing there.
-        Returns the invoice as it then stands, with its two hints about who holds
-        the document (#516): `check_status_hint` is true only when the SRI really
-        holds it - some submit to recepción came back received (`RECIBIDA`, or 43/70
-        on a resend) - and it is still undecided (`pending` or `needs_attention`);
-        `resend_hint` is true when the SRI''s last answer was that it holds nothing
-        under the clave (`unknown`) and no submit was ever received. That answer is
-        not proof - the SRI gives it for documents it holds (#722) - but resending
-        the same bytes is the fix either way, since a clave it holds is answered 43/70.
-        A query answer never counts as the SRI holding the document, so the two are
-        never both true, and a document whose ledger says neither shows neither. `attempt_id`
-        names the row in `attempts` this check wrote; its `outcome` is what the SRI
-        answered (`received`, `authorized`, `not_authorized`, `rejected`, `unknown`)
-        or `error` when the call got no usable answer, and is what to report rather
-        than the status, which an undecided answer or a failed call leaves as it was.
-        It is the id and not the newest row because a Sale Invoice Drainer round can
-        write a row in between; it is null only when the ledger write failed. A Sale
-        Invoice or Credit Note this check finds authorized is made due for the Sale
-        Invoice Drainer to deliver. Platform Operator only.'
+        sent. Exactly one attempts row is written, with operation `query`. On a document
+        marked `annulled` it asks the SRI''s ConsultaComprobante service instead (#744,
+        ADR 0078), never autorización: ONE ASK of up to three calls 5 s apart, stopping
+        at the first real reading, each written to the attempts ledger with operation
+        `status` and as its `outcome` the reading - `annulled` (ANULADO), `authorized`
+        (AUTORIZADO) or `none` (any refusal, unrecognised state, redirect, non-SOAP
+        body, reset or timeout, with the SRI''s messages or the error). The status
+        and everything else about the document are left as they are, and `attempt_id`
+        names the ask''s last call. INVOICE_ALREADY_AUTHORIZED (409) on an authorized
+        invoice; INVOICE_ABANDONED (409) on one abandoned (ADR 0068), which the SRI
+        never took and never will; INVOICE_WITHDRAWN (409) on a withdrawn Sale Invoice
+        or Credit Note, which was never sent; INVOICE_NOT_ISSUED (409) on one still
+        owed and unsigned; INVOICE_NOT_FOUND (404) otherwise. A document the SRI refuses
+        by NUMBER keeps this action, though Resend is refused on it (#577, ADR 0068):
+        asking what the authority holds under the clave sends nothing and is the one
+        thing still worth doing there. Returns the invoice as it then stands, with
+        its two hints about who holds the document (#516): `check_status_hint` is
+        true only when the SRI really holds it - some submit to recepción came back
+        received (`RECIBIDA`, or 43/70 on a resend) - and it is still undecided (`pending`
+        or `needs_attention`); `resend_hint` is true when the SRI''s last answer was
+        that it holds nothing under the clave (`unknown`) and no submit was ever received.
+        That answer is not proof - the SRI gives it for documents it holds (#722)
+        - but resending the same bytes is the fix either way, since a clave it holds
+        is answered 43/70. A query answer never counts as the SRI holding the document,
+        so the two are never both true, and a document whose ledger says neither shows
+        neither. `attempt_id` names the row in `attempts` this check wrote; its `outcome`
+        is what the SRI answered (`received`, `authorized`, `not_authorized`, `rejected`,
+        `unknown`) or `error` when the call got no usable answer, and is what to report
+        rather than the status, which an undecided answer or a failed call leaves
+        as it was. It is the id and not the newest row because a Sale Invoice Drainer
+        round can write a row in between; it is null only when the ledger write failed.
+        A Sale Invoice or Credit Note this check finds authorized is made due for
+        the Sale Invoice Drainer to deliver. Platform Operator only.'
       parameters:
       - description: Tax Invoice id
         in: path

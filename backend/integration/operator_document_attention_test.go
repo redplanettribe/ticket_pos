@@ -283,7 +283,8 @@ func TestNeedsAttentionQueueListsAnUnsignableDocument(t *testing.T) {
 // document by hand at the SRI portal and records so. The document is
 // annulled with who and when, keeps its number and its signed XML, leaves
 // the queue, and is never claimed by the Drainer again; nothing about it
-// can be checked, resent or annulled a second time.
+// can be resent or annulled a second time, and Check status asks
+// ConsultaComprobante and changes nothing (#744).
 func TestOperatorMarksARefusedDocumentAnnulled(t *testing.T) {
 	env := setupTest(t)
 	operatorSessionID, invoiceID := houseSaleOwed(t, env, 1000, 1)
@@ -337,12 +338,14 @@ func TestOperatorMarksARefusedDocumentAnnulled(t *testing.T) {
 		t.Fatalf("list = %+v; want the annulled document still listed", list.Data)
 	}
 
-	// Irreversible: nothing is asked or sent for it again, and it cannot be
-	// annulled twice.
+	// Irreversible: nothing is sent for it again, and it cannot be annulled
+	// twice. Check status is no longer refused (#744): it asks the status
+	// service, and the document stays as it is.
 	resp, body := annulInvoice(t, operatorSessionID, invoiceID)
 	expectRefusal(t, "annul twice", resp, body, http.StatusConflict, "INVOICE_NOT_ANNULLABLE")
-	resp, body = checkInvoice(t, operatorSessionID, invoiceID)
-	expectRefusal(t, "check an annulled document", resp, body, http.StatusConflict, "INVOICE_ANNULLED")
+	if checked := checkAnnulledOK(t, operatorSessionID, invoiceID); checked.Status != "annulled" {
+		t.Fatalf("check an annulled document: status %s; want still annulled", checked.Status)
+	}
 	resp, body = resendInvoice(t, operatorSessionID, invoiceID)
 	expectRefusal(t, "resend an annulled document", resp, body, http.StatusConflict, "INVOICE_ANNULLED")
 	if n := sriStub.receptionCount(); n != 1 {

@@ -771,13 +771,19 @@ type EcuadorInvoiceView struct {
 
 // AttemptView is one row of the attempts ledger.
 type AttemptView struct {
-	ID        int64  `json:"id"`
-	Operation string `json:"operation"`
+	ID int64 `json:"id"`
+	// Operation is which call it was: `submit` (recepción), `query`
+	// (autorización) or `status` (the status service, ConsultaComprobante,
+	// #744).
+	Operation string `json:"operation" enums:"submit,query,status"`
 	// Outcome is what the authority answered, as the core understands it:
 	// `received` (it holds the document and has not decided), `authorized`,
 	// `not_authorized`, `rejected`, `unknown` (it has no record of the
-	// reference, #514) — or `error` when no answer could be read at all.
-	Outcome    string                 `json:"outcome" enums:"received,authorized,not_authorized,rejected,unknown,error"`
+	// reference, #514) - or `error` when no answer could be read at all. A
+	// `status` row's outcome is its reading instead: `annulled`,
+	// `authorized` or `none` (no reading, the error or the authority's
+	// messages saying why).
+	Outcome    string                 `json:"outcome" enums:"received,authorized,not_authorized,rejected,unknown,error,annulled,none"`
 	Messages   []AuthorityMessageView `json:"messages"`
 	Error      string                 `json:"error"`
 	StartedAt  time.Time              `json:"started_at"`

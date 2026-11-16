@@ -26,6 +26,9 @@ type Service struct {
 	authority  func(invoicing.Environment) invoicing.TaxAuthority
 	pollDelays []time.Duration
 	pollBudget time.Duration
+	// statusAskSpacing is the pause between the calls of one ask of the
+	// authority's status service (#744, status_ask.go).
+	statusAskSpacing time.Duration
 	// kick says whether a committed Sale Invoice is worked at once in the
 	// background (#474); drainBatch narrows one drain's bound (tests).
 	kick       bool
@@ -68,7 +71,9 @@ func New(repo *repository.Repository, custody *invoicing.Custody, logger platfor
 		pollDelays: DefaultPollDelays,
 		pollBudget: DefaultPollBudget,
 		kick:       true,
-		email:      platform.NoopEmailSender{},
+
+		statusAskSpacing: DefaultStatusAskSpacing,
+		email:            platform.NoopEmailSender{},
 	}
 }
 

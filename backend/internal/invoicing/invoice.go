@@ -406,12 +406,17 @@ type Authorization struct {
 	Date   time.Time
 }
 
-// AttemptOperation names which of the two TaxAuthority calls an attempt was.
+// AttemptOperation names which TaxAuthority call an attempt was.
 type AttemptOperation string
 
 const (
 	AttemptSubmit AttemptOperation = "submit"
 	AttemptQuery  AttemptOperation = "query"
+	// AttemptStatus is one call to the authority's status service
+	// (QueryStatus, #744). Its outcome is a StatusReading. It is its own word
+	// and never AttemptQuery, so Abandon's fresh-Check rule, which reads the
+	// ledger's queries, never reads one.
+	AttemptStatus AttemptOperation = "status"
 )
 
 // AttemptOutcomeError is the attempts-ledger outcome when no answer could be
@@ -423,7 +428,8 @@ type Attempt struct {
 	ID        int64
 	InvoiceID string
 	Operation AttemptOperation
-	// Outcome is an OutcomeState, or AttemptOutcomeError.
+	// Outcome is an OutcomeState, or AttemptOutcomeError; on an
+	// AttemptStatus row it is the StatusReading.
 	Outcome   string
 	Messages  []AuthorityMessage
 	Error     string

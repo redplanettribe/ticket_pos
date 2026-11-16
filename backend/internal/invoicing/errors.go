@@ -101,11 +101,13 @@ func ErrInvoiceNotAnnullable() apperror.DomainError {
 	return apperror.New("INVOICE_NOT_ANNULLABLE", "Only a document that is pending or needs attention can be marked annulled.", nil)
 }
 
-// ErrInvoiceAnnulled: Check status and Resend are refused on an annulled
-// document (#477) — the operator recorded that the authority no longer holds
-// it as valid, and nothing about it is asked or sent again.
+// ErrInvoiceAnnulled: Resend and Abandon are refused on an annulled document
+// (#477) - the operator recorded that the authority no longer holds it as
+// valid, and nothing about it is sent again. Check status is not refused
+// there since #744: it asks the authority's status service and changes
+// nothing.
 func ErrInvoiceAnnulled() apperror.DomainError {
-	return apperror.New("INVOICE_ANNULLED", "The document has been marked annulled. Nothing can be checked or resent for it.", nil)
+	return apperror.New("INVOICE_ANNULLED", "The document has been marked annulled. Nothing can be resent or abandoned for it.", nil)
 }
 
 // ErrInvoiceWithdrawn: Check status and Resend are refused on a withdrawn

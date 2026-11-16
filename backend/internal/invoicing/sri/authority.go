@@ -8,8 +8,8 @@ import (
 )
 
 // Authority is the Ecuador adapter behind the core's TaxAuthority seam: it
-// carries a prepared factura to the SRI's recepción and asks autorización
-// what became of it, and translates the SRI's answers into the core's
+// carries a prepared factura to the SRI's recepción, asks autorización
+// what became of it and ConsultaComprobante where it now stands, and translates the SRI's answers into the core's
 // Outcome. It never touches a table, and the core never sees SOAP, XML or an
 // SRI error code through it — only the messages, verbatim, as data.
 type Authority struct {
@@ -117,6 +117,16 @@ func (a *Authority) QueryOutcome(ctx context.Context, accessKey string) (invoici
 		return invoicing.Outcome{State: invoicing.OutcomeReceived, Messages: messages}, nil
 	}
 	return invoicing.Outcome{}, fmt.Errorf("%w: authorization state %q", ErrResponse, latest.State)
+}
+
+// QueryStatus asks ConsultaComprobante where a clave now stands (#744, ADR
+// 0078): ANULADO is StatusAnnulled, AUTORIZADO is StatusAuthorized, and
+// everything else is StatusNone - a RECHAZADA refusal with its messages, or
+// any answer that could not be read, with why in Error. Never an error: the
+// caller is never aborted by this service's unreliability (ClassifyConsulta).
+func (a *Authority) QueryStatus(ctx context.Context, accessKey string) invoicing.StatusAnswer {
+	r := a.client.ConsultarEstado(ctx, accessKey)
+	return invoicing.StatusAnswer{Reading: r.Reading, Messages: coreMessages(r.Messages), Error: r.Problem}
 }
 
 func coreMessages(in []Message) []invoicing.AuthorityMessage {

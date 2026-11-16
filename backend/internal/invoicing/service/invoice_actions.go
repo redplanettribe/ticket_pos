@@ -71,9 +71,23 @@ func (s *Service) actionDetail(ctx context.Context, id string, attemptID int64) 
 
 // CheckInvoice asks the authority what became of a non-authorized invoice
 // and returns it as it then stands, with the attempt that holds the answer.
+//
+// ON AN ANNULLED DOCUMENT IT ASKS THE STATUS SERVICE INSTEAD (#744, spec
+// #742, ADR 0078): one ask of ConsultaComprobante, every call on the ledger
+// under AttemptStatus, and nothing about the document changed - the reading
+// feeds the Annulment Check, never the status, so a late AUTORIZADO cannot
+// undo the operator's record. autorización is never asked there: it returns
+// the stored authorization record, which may keep saying AUTORIZADO after an
+// annulment.
 func (s *Service) CheckInvoice(ctx context.Context, id string) (*InvoiceActionDetail, error) {
-	row, err := s.actionable(ctx, id)
+	row, err := s.loadInvoice(ctx, id)
 	if err != nil {
+		return nil, err
+	}
+	if row.Invoice.Status == invoicing.InvoiceStatusAnnulled && row.Ecuador != nil {
+		return s.checkAnnulled(ctx, row)
+	}
+	if err := actionableRow(row); err != nil {
 		return nil, err
 	}
 	callCtx, cancel := context.WithTimeout(ctx, s.pollBudget)
@@ -88,6 +102,16 @@ func (s *Service) CheckInvoice(ctx context.Context, id string) (*InvoiceActionDe
 	s.logger.Info("invoicing: tax invoice checked", "invoice_id", id, "outcome", outcome.State, "error", err)
 	s.dueForDelivery(ctx, row)
 	return s.actionDetail(ctx, id, attemptID)
+}
+
+// checkAnnulled is Check status on an annulled document: one ask of the
+// status service, answered with the document and the ask's last attempt.
+// No verdict is reached here yet; the Annulment Check's rule reads the
+// ledger's status rows.
+func (s *Service) checkAnnulled(ctx context.Context, row *repository.InvoiceRow) (*InvoiceActionDetail, error) {
+	ask := s.askStatus(ctx, row)
+	s.logger.Info("invoicing: annulled tax invoice checked", "invoice_id", row.Invoice.ID, "reading", ask.Reading, "calls", ask.Calls)
+	return s.actionDetail(ctx, row.Invoice.ID, ask.LastAttemptID)
 }
 
 // dueForDelivery makes a Sale-side document the operator's action has just
@@ -161,6 +185,18 @@ func (s *Service) ResendInvoice(ctx context.Context, id string) (*InvoiceActionD
 // speak for: a document with no clave recorded has nothing to ask the
 // authority about and nothing to send.
 func (s *Service) actionable(ctx context.Context, id string) (*repository.InvoiceRow, error) {
+	row, err := s.loadInvoice(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := actionableRow(row); err != nil {
+		return nil, err
+	}
+	return row, nil
+}
+
+// loadInvoice reads one invoice, INVOICE_NOT_FOUND when there is none.
+func (s *Service) loadInvoice(ctx context.Context, id string) (*repository.InvoiceRow, error) {
 	row, err := s.repo.GetInvoice(ctx, id)
 	if err != nil {
 		return nil, err
@@ -168,20 +204,27 @@ func (s *Service) actionable(ctx context.Context, id string) (*repository.Invoic
 	if row == nil {
 		return nil, invoicing.ErrInvoiceNotFound()
 	}
+	return row, nil
+}
+
+// actionableRow is actionable's refusal on a row already read.
+func actionableRow(row *repository.InvoiceRow) error {
 	if err := actionableRefusal(&row.Invoice); err != nil {
-		return nil, err
+		return err
 	}
 	if row.Ecuador == nil {
-		return nil, invoicing.ErrInvoiceNotIssued()
+		return invoicing.ErrInvoiceNotIssued()
 	}
-	return row, nil
+	return nil
 }
 
 // actionableRefusal is what BOTH Check status and Resend refuse, decided
 // from the document alone: an authorized one — a legal artifact is neither
 // asked about nor sent again — an annulled one (#477): the operator recorded
 // that the authority no longer holds it as valid, and a Check that found a
-// late AUTORIZADO would undo that record — an abandoned one (#578): the
+// late AUTORIZADO would undo that record (Check status asks the status
+// service there instead and changes nothing, #744; CheckInvoice) - an
+// abandoned one (#578): the
 // authority never took it and never will, so there is nothing to ask about
 // and nothing that would ever be sent — a withdrawn one (#476): never
 // sent, and never will be, its sale having been reversed first — and one not

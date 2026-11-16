@@ -61,6 +61,12 @@ func unknownAt(ago time.Duration) invoicing.Attempt {
 	return invoicing.Attempt{Operation: invoicing.AttemptQuery, Outcome: string(invoicing.OutcomeUnknown), StartedAt: abandonAt.Add(-ago)}
 }
 
+// statusAt is a call to the authority's status service with the given
+// reading, started the given time before abandonAt (#744).
+func statusAt(reading invoicing.StatusReading, ago time.Duration) invoicing.Attempt {
+	return invoicing.Attempt{Operation: invoicing.AttemptStatus, Outcome: string(reading), StartedAt: abandonAt.Add(-ago)}
+}
+
 // abandonable is a document exactly as the two production facturas stand:
 // a Sale Invoice parked needs_attention, signed, carrying the SRI's 45 as
 // an error, with a fresh Check behind it.
@@ -199,6 +205,27 @@ func TestAbandonRefusal(t *testing.T) {
 			{Operation: invoicing.AttemptQuery, Outcome: string(invoicing.OutcomeReceived), StartedAt: abandonAt.Add(-3 * time.Minute)},
 			{Operation: invoicing.AttemptQuery, Outcome: string(invoicing.OutcomeReceived), StartedAt: abandonAt.Add(-time.Minute)},
 		}, "INVOICE_CHECK_NOT_FRESH"},
+
+		// ---- the status service is never read (#744) --------------------
+		// A ConsultaComprobante call is its own operation on the ledger: it
+		// is never one of the two answers Abandon rests on, and it never
+		// stands between them either. Every row reads as it would on the
+		// same ledger without the status calls.
+		{"two status calls with no reading, spaced and fresh, are not a Check", abandonable, []invoicing.Attempt{
+			statusAt(invoicing.StatusNone, 3*time.Minute), statusAt(invoicing.StatusNone, time.Minute),
+		}, "INVOICE_CHECK_NOT_FRESH"},
+		{"a status call is not the later of the two Checks", abandonable, []invoicing.Attempt{
+			unknownAt(3 * time.Minute), statusAt(invoicing.StatusNone, time.Minute),
+		}, "INVOICE_CHECK_NOT_FRESH"},
+		{"a status call is not the earlier of the two Checks", abandonable, []invoicing.Attempt{
+			statusAt(invoicing.StatusNone, 3*time.Minute), unknownAt(time.Minute),
+		}, "INVOICE_CHECK_NOT_FRESH"},
+		{"status calls after a fresh Check leave it standing", abandonable, append(checkedTwiceLedger(),
+			statusAt(invoicing.StatusAuthorized, 30*time.Second), statusAt(invoicing.StatusNone, 10*time.Second),
+		), ""},
+		{"a status call between the two Checks does not part them", abandonable, []invoicing.Attempt{
+			unknownAt(3 * time.Minute), statusAt(invoicing.StatusAnnulled, 2*time.Minute), unknownAt(time.Minute),
+		}, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -219,6 +219,11 @@ test("every surface has its words in both languages", () => {
     "invoicingAttentionNoMessages",
     "invoicingKindFilterLabel",
     "invoicingKindFilterAll",
+    // A ConsultaComprobante call on the Attempts table (#744): its operation
+    // and the two readings no autorización answer has.
+    "invoicingAttemptStatus",
+    "invoicingAttemptOutcomeAnnulled",
+    "invoicingAttemptOutcomeNone",
     // Who holds the document, said in both languages (#514, #516): the
     // Attempts row for an answer that found no record of the clave, and the
     // two banners that must never both be shown.

@@ -192,7 +192,12 @@ func abandonRefusal(inv *invoicing.Invoice, attempts []invoicing.Attempt, now ti
 // spaced, stands at the end of the ledger, timestamped, ready to be the
 // record of why this number was never declared. AbandonCheckFreshness states
 // the rule in full and why each part of it is there.
+//
+// A call to the authority's status service (AttemptStatus, #744) is never
+// read: it is not a Check, asks a different service and sends nothing, so
+// the rule stands exactly as it would on a ledger without it.
 func checkedFreshly(attempts []invoicing.Attempt, now time.Time) bool {
+	attempts = withoutStatusCalls(attempts)
 	if len(attempts) < 2 {
 		return false
 	}
@@ -204,6 +209,17 @@ func checkedFreshly(attempts []invoicing.Attempt, now time.Time) bool {
 		return false
 	}
 	return !later.StartedAt.Before(now.Add(-AbandonCheckFreshness))
+}
+
+// withoutStatusCalls is the ledger with every AttemptStatus row left out.
+func withoutStatusCalls(attempts []invoicing.Attempt) []invoicing.Attempt {
+	out := make([]invoicing.Attempt, 0, len(attempts))
+	for _, a := range attempts {
+		if a.Operation != invoicing.AttemptStatus {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // answeredNothingKnown is a query the authority answered by holding nothing

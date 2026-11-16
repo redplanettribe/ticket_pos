@@ -95,13 +95,15 @@ type ChainLabel =
 const OPERATION_KEYS = {
   submit: "invoicingAttemptSubmit",
   query: "invoicingAttemptQuery",
+  status: "invoicingAttemptStatus",
 } as const;
 
 // Every outcome the attempts ledger can hold, one label each. `unknown`
 // (#514) is the SRI answering that it has no record of the clave — a row an
 // operator must be able to tell from `received`, which is the SRI saying it
 // holds the document; without its own label it would fall through to "Error",
-// which it is not.
+// which it is not. `annulled` and `none` are a `status` row's readings
+// (#744): ConsultaComprobante's ANULADO, and no reading at all.
 const OUTCOME_KEYS = {
   received: "invoicingAttemptOutcomeReceived",
   authorized: "invoicingAttemptOutcomeAuthorized",
@@ -109,6 +111,8 @@ const OUTCOME_KEYS = {
   rejected: "invoicingAttemptOutcomeRejected",
   unknown: "invoicingAttemptOutcomeUnknown",
   error: "invoicingAttemptOutcomeError",
+  annulled: "invoicingAttemptOutcomeAnnulled",
+  none: "invoicingAttemptOutcomeNone",
 } as const;
 
 /**
