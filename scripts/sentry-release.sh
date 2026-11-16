@@ -22,6 +22,7 @@
 # The CLI is the `sentry` npm package at the version @sentry/nextjs's build
 # plugin uses for the source map upload (see pnpm-lock.yaml), run through npx.
 # SENTRY_CLI overrides the command, for trying this without Sentry.
+# No `set -e`, unlike the other scripts: a failed call is handled, never fatal.
 set -uo pipefail
 
 SENTRY_ORG="redplanettribe"
