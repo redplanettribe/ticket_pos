@@ -24,6 +24,15 @@ type EnvelopeInvoiceDetail struct {
 	RequestID string                `json:"request_id"`
 }
 
+// EnvelopeInvoiceActionDetail documents POST
+// /operator/invoicing/invoices/{id}/check and /resend success responses: the
+// invoice detail plus the attempt that holds the SRI's answer (#736).
+type EnvelopeInvoiceActionDetail struct {
+	Data      service.InvoiceActionDetail `json:"data"`
+	Error     *platform.APIError          `json:"error"`
+	RequestID string                      `json:"request_id"`
+}
+
 // EnvelopeInvoiceList documents GET /operator/invoicing/invoices success
 // responses: the ADR-0006 nested envelope inside the standard one.
 type EnvelopeInvoiceList struct {

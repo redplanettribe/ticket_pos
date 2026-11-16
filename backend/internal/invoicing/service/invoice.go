@@ -296,21 +296,25 @@ func numberAndSign(parts facturaParts, cert *sri.Certificate, now time.Time) fun
 // Resend is this function over a re-signed document, with onReceived (may be
 // nil) called once the authority has taken it — where the document on file
 // is replaced.
-func (s *Service) submitAndPoll(ctx context.Context, row *repository.InvoiceRow, onReceived func(context.Context, invoicing.Outcome)) {
+//
+// It returns the id of the last attempts row it wrote (zero if that write
+// failed): the answer the whole exchange ended on, which Resend reports to
+// the operator (#736).
+func (s *Service) submitAndPoll(ctx context.Context, row *repository.InvoiceRow, onReceived func(context.Context, invoicing.Outcome)) int64 {
 	ctx, cancel := context.WithTimeout(ctx, s.pollBudget)
 	defer cancel()
 	authority := s.authority(row.Invoice.Environment)
 	id := row.Invoice.ID
 
-	outcome, err := s.attempt(ctx, id, invoicing.AttemptSubmit, func() (invoicing.Outcome, error) {
+	outcome, last, err := s.attempt(ctx, id, invoicing.AttemptSubmit, func() (invoicing.Outcome, error) {
 		return authority.Submit(ctx, invoicing.PreparedDocument{AuthorityReference: row.Ecuador.AccessKey, Body: row.Invoice.SignedXML})
 	})
 	if err != nil {
-		return
+		return last
 	}
 	if outcome.State != invoicing.OutcomeReceived {
 		s.applyOutcome(ctx, row, outcome)
-		return
+		return last
 	}
 	// Received: the messages so far (warnings, or the 43/70 "it is there")
 	// are worth keeping while it stays pending.
@@ -323,14 +327,15 @@ func (s *Service) submitAndPoll(ctx context.Context, row *repository.InvoiceRow,
 		select {
 		case <-time.After(delay):
 		case <-ctx.Done():
-			return
+			return last
 		}
-		outcome, err := s.attempt(ctx, id, invoicing.AttemptQuery, func() (invoicing.Outcome, error) {
+		outcome, recorded, err := s.attempt(ctx, id, invoicing.AttemptQuery, func() (invoicing.Outcome, error) {
 			return authority.QueryOutcome(ctx, row.Ecuador.AccessKey)
 		})
+		last = recorded
 		if err != nil {
 			if ctx.Err() != nil {
-				return
+				return last
 			}
 			continue
 		}
@@ -338,8 +343,9 @@ func (s *Service) submitAndPoll(ctx context.Context, row *repository.InvoiceRow,
 			continue
 		}
 		s.applyOutcome(ctx, row, outcome)
-		return
+		return last
 	}
+	return last
 }
 
 // undecided reports whether an answer settles nothing about the document:
@@ -366,7 +372,11 @@ func undecidedAttempt(outcome string) bool {
 // whatever happens. The ledger write is detached from the request's
 // cancellation: a budget that ran out is exactly the kind of thing the
 // ledger exists to show.
-func (s *Service) attempt(ctx context.Context, invoiceID string, op invoicing.AttemptOperation, call func() (invoicing.Outcome, error)) (invoicing.Outcome, error) {
+//
+// It returns the ledger row's id beside the answer, zero when the row could
+// not be written, so the operator's actions can say which answer the press
+// got (#736) rather than leave the page to guess it from the ledger.
+func (s *Service) attempt(ctx context.Context, invoiceID string, op invoicing.AttemptOperation, call func() (invoicing.Outcome, error)) (invoicing.Outcome, int64, error) {
 	started := s.clock()
 	wall := time.Now()
 	outcome, err := call()
@@ -383,10 +393,11 @@ func (s *Service) attempt(ctx context.Context, invoiceID string, op invoicing.At
 		a.Error = err.Error()
 		s.logger.Warn("invoicing: tax authority call failed", "invoice_id", invoiceID, "operation", op, "error", err)
 	}
-	if rerr := s.repo.RecordAttempt(context.WithoutCancel(ctx), a); rerr != nil {
+	recorded, rerr := s.repo.RecordAttempt(context.WithoutCancel(ctx), a)
+	if rerr != nil {
 		s.logger.Error("invoicing: could not record attempt", "invoice_id", invoiceID, "error", rerr)
 	}
-	return outcome, err
+	return outcome, recorded, err
 }
 
 // applyOutcome maps the authority's verdict onto the invoice's status.

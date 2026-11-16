@@ -80,6 +80,7 @@ type invoiceDetailView struct {
 		AuthorizationDate   *string `json:"authorization_date"`
 	} `json:"ecuador"`
 	Attempts []struct {
+		ID         int64  `json:"id"`
 		Operation  string `json:"operation"`
 		Outcome    string `json:"outcome"`
 		DurationMS int64  `json:"duration_ms"`

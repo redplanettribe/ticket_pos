@@ -2277,6 +2277,20 @@
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeInvoiceActionDetail": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.InvoiceActionDetail"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeInvoiceDetail": {
                 "properties": {
                     "data": {
@@ -5459,6 +5473,196 @@
                         "type": "string"
                     },
                     "ticket_type_name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.InvoiceActionDetail": {
+                "properties": {
+                    "abandon_note": {
+                        "type": "string"
+                    },
+                    "abandoned_at": {
+                        "type": "string"
+                    },
+                    "abandoned_by": {
+                        "description": "The abandonment's trail (#578, ADR 0068): the operator who declared\nthat the Tax Authority never took this document, the instant, and\ntheir optional note (\"not registered at the portal, confirmed by\nphone\"). All null unless abandoned, and the note null on an abandoned\ndocument that carries none. Deliberately not the annulment's pair:\na reader who finds annulled_at set must be able to conclude that a\nportal annulment happened, and for an abandoned document none did.",
+                        "type": "string"
+                    },
+                    "additional_fields": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.AdditionalFieldView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "annulled_at": {
+                        "type": "string"
+                    },
+                    "annulled_by": {
+                        "description": "AnnulledBy and AnnulledAt are the operator who marked the document\nannulled after annulling it by hand at the SRI portal, and when (#477).\nBoth null unless the document is annulled.",
+                        "type": "string"
+                    },
+                    "attempt_id": {
+                        "description": "AttemptID is the id of the attempts row (in `attempts`) holding the\nlast SRI call this press made; its `outcome` is what the SRI answered.",
+                        "type": "integer"
+                    },
+                    "attempts": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.AttemptView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "attention_since": {
+                        "description": "AttentionSince is when the document was parked needs_attention — how\nlong it has been waiting for an operator (#477); null in every other\nstate.",
+                        "type": "string"
+                    },
+                    "backfilled_at": {
+                        "type": "string"
+                    },
+                    "backfilled_by": {
+                        "description": "The Sale Invoice Backfill's trail (#509, ADR 0064): on a Sale Invoice\na Platform Operator owed to an Uninvoiced House Sale, who and when,\nso the detail page tells it from one born at checkout. Both null on a\ncheckout-born document and on every other kind.",
+                        "type": "string"
+                    },
+                    "check_status_hint": {
+                        "description": "CheckStatusHint and ResendHint are what the page tells the operator\nabout who holds the document (#455, tightened by #516). CheckStatusHint\nis true when the authority really holds it - some Submit came back\nreceived (RECIBIDA, or 43/70 on a resend) - and has decided nothing\nyet, so the page says \"check status\" rather than showing an error.\nResendHint is its opposite: the authority's last answer was that it\nholds nothing under the clave (`unknown`, #514) and no Submit was ever\nacknowledged. That answer is not proof - the SRI gives it for documents\nit holds (#722) - but resending the same bytes is the fix either way,\nsince a clave it holds is answered 43/70. The page reports the answer\nand the last attempt's time (#728), never that the SRI has no record.\nA query answer never counts as acknowledgement, which is\nwhat makes the two mutually exclusive; neither is true of a document\nwhose position the ledger does not say (checkStatusHint, resendHint).",
+                        "type": "boolean"
+                    },
+                    "country": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "credit_note_reason": {
+                        "type": "string"
+                    },
+                    "credited_by_invoice_id": {
+                        "description": "CreditedByInvoiceID is, on a Sale Invoice, the Credit Note that\ncredits it (#476); null on every other document and until one does.\nA withdrawn or annulled Credit Note credits nothing (#484): the link\nnames a live one, and is null again once the only one died.",
+                        "type": "string"
+                    },
+                    "credits_invoice_id": {
+                        "type": "string"
+                    },
+                    "currency": {
+                        "type": "string"
+                    },
+                    "delivered_at": {
+                        "type": "string"
+                    },
+                    "ecuador": {
+                        "$ref": "#/components/schemas/service.EcuadorInvoiceView"
+                    },
+                    "environment": {
+                        "description": "Environment is the authority environment the document was signed\nunder; null until signed.",
+                        "type": "string"
+                    },
+                    "has_authorization_xml": {
+                        "description": "HasAuthorizationXML says whether the authority's document is on file\n(#456 serves it).",
+                        "type": "boolean"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "issued_at": {
+                        "type": "string"
+                    },
+                    "issued_by": {
+                        "type": "string"
+                    },
+                    "issued_on": {
+                        "description": "IssuedOn is the emission date, YYYY-MM-DD in the Issuer's country;\nIssuedAt the instant; IssuedBy the operator (or the Drainer). All null\nuntil signed.",
+                        "type": "string"
+                    },
+                    "issuer": {
+                        "$ref": "#/components/schemas/invoicing.IssuerSnapshot"
+                    },
+                    "iva_rate": {
+                        "description": "The Sale side (#473): the one IVA rate a platform-priced document was\npriced under, when its authorized document was mailed to the buyer,\nwhen the Drainer next works it, and — on a Credit Note — the Sale\nInvoice it credits and why: a reversal route, or \"reissue\" (#481, ADR\n0061), under the field name the first reason gave it. All null on a\nmanual Tax Invoice.",
+                        "type": "string"
+                    },
+                    "kind": {
+                        "description": "Kind is why the document exists: manual, sale or credit_note.",
+                        "type": "string"
+                    },
+                    "lines": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.LineView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "messages": {
+                        "description": "Messages are the authority's messages from its last answer.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.AuthorityMessageView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "next_attempt_at": {
+                        "type": "string"
+                    },
+                    "number": {
+                        "description": "Number is the document number as printed: estab-ptoEmi-secuencial,\ne.g. 001-001-000000012. Null until signed.",
+                        "type": "string"
+                    },
+                    "payment_method": {
+                        "type": "string"
+                    },
+                    "payment_method_label": {
+                        "type": "string"
+                    },
+                    "recipient": {
+                        "$ref": "#/components/schemas/service.RecipientView"
+                    },
+                    "recipient_warning": {
+                        "description": "RecipientWarning is true on an authorized Sale Invoice the SRI warned\nabout — the Recipient's Tax ID does not exist (advertencia 59) or is\nincorrect (62) — until the document is superseded (#482, ADR 0061).\nThe status is unaffected. Always false while SALE_INVOICING_ENABLED is\nclosed.",
+                        "type": "boolean"
+                    },
+                    "refused_by_number": {
+                        "description": "RefusedByNumber says the authority refused this document for the NUMBER\nit carries and not for anything in it — the SRI's 45, \"secuencial\nregistrado\" (#576, ADR 0068). It tells the one refusal no ordinary\nremedy can mend from a schema error or a bad Tax ID, which park the\ndocument in the same status and until now read the same on every\nsurface. DERIVED from the messages on the row, never stored: a\ndocument refused before this field existed answers exactly as one\nrefused after it, with no backfill.",
+                        "type": "boolean"
+                    },
+                    "reissue_note": {
+                        "type": "string"
+                    },
+                    "reissued_at": {
+                        "type": "string"
+                    },
+                    "reissued_by": {
+                        "type": "string"
+                    },
+                    "resend_hint": {
+                        "type": "boolean"
+                    },
+                    "sale_confirmation_ref": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "superseded_by_invoice_id": {
+                        "description": "SupersededByInvoiceID is, on a reissued Sale Invoice, the live\ncorrected one — the list's superseded marker (#486, ADR 0061), so an\noperator tells a superseded factura from the current one without\nopening it. Null on every other row, and always null while\nSALE_INVOICING_ENABLED is closed. The status stays authorized:\nsuperseded is a relation, not a state.",
+                        "type": "string"
+                    },
+                    "supersedes_invoice_id": {
+                        "description": "The Sale Invoice Reissue's chain and trail (#483, ADR 0061).\nSupersedesInvoiceID is, on a corrected Sale Invoice, the factura it\ncorrects; the list row's SupersededByInvoiceID is, on a reissued\nfactura, the live corrected one — the current Sale Invoice is the one\nwith neither a live successor nor a terminal-dead state of its own,\nwhere dead is withdrawn, annulled or abandoned (#579, ADR 0068).\nReissuedBy,\nReissuedAt and ReissueNote are who reissued, when and the optional\nnote, shown on the corrected factura, the superseded one and the\nreissue's Credit Note alike. All null where no reissue concerns the\ndocument.",
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
+                        "description": "TicketSaleID and SaleConfirmationRef name the Ticket Sale a sale\ndocument or credit note is about; null on a manual document.",
+                        "type": "string"
+                    },
+                    "total_cents": {
+                        "type": "integer"
+                    },
+                    "totals": {
+                        "$ref": "#/components/schemas/service.TotalsView"
+                    },
+                    "updated_at": {
                         "type": "string"
                     }
                 },
@@ -12981,7 +13185,7 @@
         },
         "/api/v1/operator/invoicing/invoices/{id}/check": {
             "post": {
-                "description": "Asks the SRI's autorización service again about a Tax Invoice that is `pending`, `rejected` or `not_authorized`, and updates it from the answer: `AUTORIZADO` stores the authorization number, date and XML; `NO AUTORIZADO` stores the SRI's messages; an answer that decides nothing (still in processing, or nothing known under the clave) leaves the status as it was. Nothing is sent. Exactly one attempts row is written. INVOICE_ALREADY_AUTHORIZED (409) on an authorized invoice; INVOICE_ANNULLED (409) on one marked annulled; INVOICE_ABANDONED (409) on one abandoned (ADR 0068), which the SRI never took and never will; INVOICE_WITHDRAWN (409) on a withdrawn Sale Invoice or Credit Note, which was never sent; INVOICE_NOT_ISSUED (409) on one still owed and unsigned; INVOICE_NOT_FOUND (404) otherwise. A document the SRI refuses by NUMBER keeps this action, though Resend is refused on it (#577, ADR 0068): asking what the authority holds under the clave sends nothing and is the one thing still worth doing there. Returns the invoice as it then stands, with its two hints about who holds the document (#516): `check_status_hint` is true only when the SRI really holds it - some submit to recepción came back received (`RECIBIDA`, or 43/70 on a resend) - and it is still undecided (`pending` or `needs_attention`); `resend_hint` is true when the SRI's last answer was that it holds nothing under the clave (`unknown`) and no submit was ever received. That answer is not proof - the SRI gives it for documents it holds (#722) - but resending the same bytes is the fix either way, since a clave it holds is answered 43/70. A query answer never counts as the SRI holding the document, so the two are never both true, and a document whose ledger says neither shows neither. A Sale Invoice or Credit Note this check finds authorized is made due for the Sale Invoice Drainer to deliver. Platform Operator only.",
+                "description": "Asks the SRI's autorización service again about a Tax Invoice that is `pending`, `rejected` or `not_authorized`, and updates it from the answer: `AUTORIZADO` stores the authorization number, date and XML; `NO AUTORIZADO` stores the SRI's messages; an answer that decides nothing (still in processing, or nothing known under the clave) leaves the status as it was. Nothing is sent. Exactly one attempts row is written. INVOICE_ALREADY_AUTHORIZED (409) on an authorized invoice; INVOICE_ANNULLED (409) on one marked annulled; INVOICE_ABANDONED (409) on one abandoned (ADR 0068), which the SRI never took and never will; INVOICE_WITHDRAWN (409) on a withdrawn Sale Invoice or Credit Note, which was never sent; INVOICE_NOT_ISSUED (409) on one still owed and unsigned; INVOICE_NOT_FOUND (404) otherwise. A document the SRI refuses by NUMBER keeps this action, though Resend is refused on it (#577, ADR 0068): asking what the authority holds under the clave sends nothing and is the one thing still worth doing there. Returns the invoice as it then stands, with its two hints about who holds the document (#516): `check_status_hint` is true only when the SRI really holds it - some submit to recepción came back received (`RECIBIDA`, or 43/70 on a resend) - and it is still undecided (`pending` or `needs_attention`); `resend_hint` is true when the SRI's last answer was that it holds nothing under the clave (`unknown`) and no submit was ever received. That answer is not proof - the SRI gives it for documents it holds (#722) - but resending the same bytes is the fix either way, since a clave it holds is answered 43/70. A query answer never counts as the SRI holding the document, so the two are never both true, and a document whose ledger says neither shows neither. `attempt_id` names the row in `attempts` this check wrote; its `outcome` is what the SRI answered (`received`, `authorized`, `not_authorized`, `rejected`, `unknown`) or `error` when the call got no usable answer, and is what to report rather than the status, which an undecided answer or a failed call leaves as it was. It is the id and not the newest row because a Sale Invoice Drainer round can write a row in between; it is null only when the ledger write failed. A Sale Invoice or Credit Note this check finds authorized is made due for the Sale Invoice Drainer to deliver. Platform Operator only.",
                 "parameters": [
                     {
                         "description": "Tax Invoice id",
@@ -12998,7 +13202,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeInvoiceDetail"
+                                    "$ref": "#/components/schemas/openapi.EnvelopeInvoiceActionDetail"
                                 }
                             }
                         },
@@ -13271,7 +13475,7 @@
         },
         "/api/v1/operator/invoicing/invoices/{id}/resend": {
             "post": {
-                "description": "Rebuilds the factura of a `pending`, `rejected` or `not_authorized` Tax Invoice from its recorded Recipient, lines and fields — with the Issuer's editable details as they now stand, under the SAME clave de acceso and secuencial — re-signs it with the certificate now in custody, submits it to recepción and polls autorización as an issue does. The signed XML on file is replaced by the re-signed bytes only when the SRI answered `RECIBIDA`, so the artifact the platform holds is always the one the SRI holds. SRI errors 43 (clave already registered) and 70 (in processing) mean the SRI has it: the invoice is `pending` with `check_status_hint` true and the messages kept, never an error. A resend whose call to recepción fails outright leaves the document unacknowledged: `check_status_hint` is false, and `resend_hint` turns on once a check answers `unknown` (#516). One attempts row per SRI call. INVOICE_ALREADY_AUTHORIZED (409) on an authorized invoice; INVOICE_ANNULLED (409) on one marked annulled; INVOICE_ABANDONED (409) on one abandoned (ADR 0068); INVOICE_WITHDRAWN (409) on a withdrawn Sale Invoice or Credit Note; INVOICE_NOT_ISSUED (409) on one still owed and unsigned; INVOICE_REFUSED_BY_NUMBER (409) on one the SRI refused for the NUMBER it carries — error 45, `secuencial registrado` (#577, ADR 0068) — since a resend under the same secuencial is exactly what that answer objects to and can only earn it again, and nothing is sent; INVOICE_NOT_FOUND (404); ISSUER_NOT_FOUND (404), CERTIFICATE_NOT_UPLOADED (409), CERTIFICATE_KEY_NOT_CONFIGURED (503) and ISSUER_INCOMPLETE (409) before anything is sent. Returns the invoice as it then stands. A Sale Invoice or Credit Note the resend gets authorized is delivered by the Sale Invoice Drainer on its next round. Platform Operator only.",
+                "description": "Rebuilds the factura of a `pending`, `rejected` or `not_authorized` Tax Invoice from its recorded Recipient, lines and fields — with the Issuer's editable details as they now stand, under the SAME clave de acceso and secuencial — re-signs it with the certificate now in custody, submits it to recepción and polls autorización as an issue does. The signed XML on file is replaced by the re-signed bytes only when the SRI answered `RECIBIDA`, so the artifact the platform holds is always the one the SRI holds. SRI errors 43 (clave already registered) and 70 (in processing) mean the SRI has it: the invoice is `pending` with `check_status_hint` true and the messages kept, never an error. A resend whose call to recepción fails outright leaves the document unacknowledged: `check_status_hint` is false, and `resend_hint` turns on once a check answers `unknown` (#516). One attempts row per SRI call. INVOICE_ALREADY_AUTHORIZED (409) on an authorized invoice; INVOICE_ANNULLED (409) on one marked annulled; INVOICE_ABANDONED (409) on one abandoned (ADR 0068); INVOICE_WITHDRAWN (409) on a withdrawn Sale Invoice or Credit Note; INVOICE_NOT_ISSUED (409) on one still owed and unsigned; INVOICE_REFUSED_BY_NUMBER (409) on one the SRI refused for the NUMBER it carries — error 45, `secuencial registrado` (#577, ADR 0068) — since a resend under the same secuencial is exactly what that answer objects to and can only earn it again, and nothing is sent; INVOICE_NOT_FOUND (404); ISSUER_NOT_FOUND (404), CERTIFICATE_NOT_UPLOADED (409), CERTIFICATE_KEY_NOT_CONFIGURED (503) and ISSUER_INCOMPLETE (409) before anything is sent. Returns the invoice as it then stands, with `attempt_id` naming the last row in `attempts` this resend wrote - the submit, or the last poll after it - whose `outcome` is the SRI's last answer to this press, or `error` when that call got no usable answer; it is null only when the ledger write failed. A Sale Invoice or Credit Note the resend gets authorized is delivered by the Sale Invoice Drainer on its next round. Platform Operator only.",
                 "parameters": [
                     {
                         "description": "Tax Invoice id",
@@ -13288,7 +13492,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeInvoiceDetail"
+                                    "$ref": "#/components/schemas/openapi.EnvelopeInvoiceActionDetail"
                                 }
                             }
                         },
