@@ -1771,7 +1771,7 @@
     "invoicingAnnulPanelLatePhrase": "annulled at the portal",
     "invoicingAnnulPanelNoteLabel": "Note (optional)",
     "invoicingAnnulPanelNotePlaceholder": "Wrong Recipient, the buyer asked by phone",
-    "invoicingAnnulPanelReminder": "The SRI does not annul a factura the buyer used for a tax refund, or one already declared, and the platform cannot see either: you answer for that. Only Reinstate undoes the record, once the annulment window has closed with the SRI still reporting the factura authorized.",
+    "invoicingAnnulPanelReminder": "The SRI does not annul a factura the buyer used for a tax refund, or one already declared, and the platform cannot see either: you answer for that. Once recorded, the factura returns to authorized only by Reinstate, after the annulment window has closed with the SRI still reporting it authorized. The annulment stays on file as history.",
     "invoicingAnnulPanelSubmit": "Mark annulled",
     "invoicingAnnulPanelSubmitting": "Marking annulled…",
     "invoicingAnnulPanelDone": "The factura is recorded as annulled at the SRI.",

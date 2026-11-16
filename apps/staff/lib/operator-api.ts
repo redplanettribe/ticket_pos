@@ -1862,7 +1862,9 @@ export type AnnulInvoiceConfirm = {
  * Nothing is sent to the SRI. On a factura (#745) it is admitted from
  * `pending`, `needs_attention` and `authorized` with the confirm; on a
  * Credit Note from `pending` and `needs_attention`, with no body.
- * Irreversible.
+ * A Credit Note's is irreversible; a factura's is undone only by
+ * reinstateOperatorInvoice, once its Annulment Window has closed with the
+ * Annulment Check at mismatch.
  */
 export async function annulOperatorInvoice(id: string, confirm?: AnnulInvoiceConfirm): Promise<OperatorInvoiceDetail> {
   return fetchEventsJSON<OperatorInvoiceDetail>(`${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/annul`, {

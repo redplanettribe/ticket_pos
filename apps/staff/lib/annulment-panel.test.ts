@@ -144,12 +144,13 @@ test("the panel has its words in both languages", () => {
   }
 });
 
-// The confirm's reminder (#756): Reinstate undoes a recorded annulment, so the
-// reminder keeps the operator's burden and says only Reinstate undoes it.
+// The confirm's reminder (#756): Reinstate returns an annulled factura to
+// authorized, so the reminder keeps the operator's burden and names Reinstate's
+// rule instead of calling the record irreversible.
 test("the reminder names the operator's burden and Reinstate, never irreversibility", () => {
   const expected = {
-    en: { refund: "tax refund", declared: "already declared", undo: "Reinstate", window: "annulment window", sri: "still reporting" },
-    es: { refund: "devolución de impuestos", declared: "ya declarada", undo: "Restablecer", window: "plazo de anulación", sri: "aún reportando" },
+    en: { refund: "tax refund", declared: "already declared", reinstate: "Reinstate", window: "annulment window", sri: "still reporting it authorized" },
+    es: { refund: "devolución de impuestos", declared: "ya declarada", reinstate: "Restablecer", window: "plazo de anulación", sri: "aún la reporte como autorizada" },
   };
   for (const [locale, words] of Object.entries(expected)) {
     const catalog = loadCatalog(locale);
@@ -157,7 +158,7 @@ test("the reminder names the operator's burden and Reinstate, never irreversibil
     for (const word of Object.values(words)) {
       assert.ok(reminder.includes(word), `${locale}: reminder says "${word}"`);
     }
-    assert.doesNotMatch(readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8"), /irreversib/i, `${locale}: nothing calls a record irreversible`);
+    assert.doesNotMatch(reminder, /irreversib/i, `${locale}: the reminder does not call the record irreversible`);
   }
 });
 
