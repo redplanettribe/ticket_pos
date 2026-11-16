@@ -37,9 +37,21 @@ function loadCatalog(locale: string): Catalog {
 
 const NONE = { check: false, resend: false, annul: false, reissue: false, abandon: false, issueAgain: false };
 
-test("a pending or parked document offers check, resend and mark annulled", () => {
-  assert.deepEqual(invoiceLevers("pending", true), { ...NONE, check: true, resend: true, annul: true });
-  assert.deepEqual(invoiceLevers("needs_attention", true), { ...NONE, check: true, resend: true, annul: true });
+const CREDIT_NOTE = { kind: "credit_note" as const, superseded_by_invoice_id: null, credited_by_invoice_id: null };
+const SALE_INVOICE = { kind: "sale" as const, superseded_by_invoice_id: null, credited_by_invoice_id: null };
+
+test("a pending or parked Credit Note offers check, resend and mark annulled", () => {
+  assert.deepEqual(invoiceLevers("pending", true, CREDIT_NOTE), { ...NONE, check: true, resend: true, annul: true });
+  assert.deepEqual(invoiceLevers("needs_attention", true, CREDIT_NOTE), { ...NONE, check: true, resend: true, annul: true });
+});
+
+// A factura's Mark annulled is the annulment panel's since #745 (ADR 0078):
+// the card offers its remedies and never the button.
+test("a pending or parked factura offers check and resend, and its mark annulled is the panel's", () => {
+  for (const chain of [SALE_INVOICE, undefined]) {
+    assert.deepEqual(invoiceLevers("pending", true, chain), { ...NONE, check: true, resend: true });
+    assert.deepEqual(invoiceLevers("needs_attention", true, chain), { ...NONE, check: true, resend: true });
+  }
 });
 
 // A manual Tax Invoice the SRI refused keeps the two remedies it always had
@@ -109,12 +121,17 @@ test("reissue is offered again once the reissue's Credit Note died", () => {
 // card, so a dead document still offers nothing among the SRI's remedies.
 const DEAD_SALE_INVOICE = { kind: "sale", superseded_by_invoice_id: null, credited_by_invoice_id: null } as const;
 
-test("an abandoned or annulled Sale Invoice offers issue again and nothing else", () => {
-  for (const status of ["abandoned", "annulled"] as const) {
-    const levers = invoiceLevers(status, true, DEAD_SALE_INVOICE);
-    assert.deepEqual(levers, { ...NONE, issueAgain: true }, status);
-    assert.equal(hasInvoiceLevers(levers), false, status);
-  }
+test("an abandoned Sale Invoice offers issue again and nothing else", () => {
+  const levers = invoiceLevers("abandoned", true, DEAD_SALE_INVOICE);
+  assert.deepEqual(levers, { ...NONE, issueAgain: true });
+  assert.equal(hasInvoiceLevers(levers), false);
+});
+
+// An annulled factura's follow-ups are the annulment panel's chooser since
+// #747 (annulment-panel.ts followUpChooser), which the API's gates decide,
+// mismatch included; the page draws no Issue again card of its own beside it.
+test("an annulled Sale Invoice offers nothing of its own: its follow-ups are the chooser's", () => {
+  assert.deepEqual(invoiceLevers("annulled", true, DEAD_SALE_INVOICE), NONE);
 });
 
 test("issue again is offered only on a Sale Invoice", () => {
@@ -128,7 +145,7 @@ test("issue again is offered only on a Sale Invoice", () => {
 // followed died, and neither is owed a fresh factura.
 test("issue again is offered on no other state, withdrawn included", () => {
   for (const status of INVOICE_STATUSES) {
-    if (status === "abandoned" || status === "annulled") continue;
+    if (status === "abandoned") continue;
     assert.equal(invoiceLevers(status, status !== "owed", DEAD_SALE_INVOICE).issueAgain, false, status);
   }
 });
@@ -177,7 +194,7 @@ test("a document the SRI refuses by number keeps check and loses resend", () => 
 test("no document is ever offered both abandon and mark annulled", () => {
   for (const status of INVOICE_STATUSES) {
     for (const refusedByNumber of [true, false]) {
-      const levers = invoiceLevers(status, true, undefined, refusedByNumber);
+      const levers = invoiceLevers(status, true, CREDIT_NOTE, refusedByNumber);
       assert.ok(!(levers.abandon && levers.annul), `${status} refusedByNumber=${refusedByNumber}`);
     }
   }
@@ -219,6 +236,11 @@ test("every surface has its words in both languages", () => {
     "invoicingAttentionNoMessages",
     "invoicingKindFilterLabel",
     "invoicingKindFilterAll",
+    // A ConsultaComprobante call on the Attempts table (#744): its operation
+    // and the two readings no autorización answer has.
+    "invoicingAttemptStatus",
+    "invoicingAttemptOutcomeAnnulled",
+    "invoicingAttemptOutcomeNone",
     // Who holds the document, said in both languages (#514, #516): the
     // Attempts row for an answer that found no record of the clave, and the
     // two banners that must never both be shown.

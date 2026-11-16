@@ -149,6 +149,13 @@ func TestAnnulledReissueCreditNoteWithdrawsTheCorrectedSaleInvoiceAndReopensTheR
 	if view := annulOK(t, operatorSessionID, noteID); view.Status != "annulled" {
 		t.Fatalf("annul = %s", view.Status)
 	}
+	// A Credit Note's annulment has no check (#742, #744): Check status on
+	// it is still refused, and ConsultaComprobante is never asked.
+	resp, body = checkInvoice(t, operatorSessionID, noteID)
+	expectRefusal(t, "check an annulled Credit Note", resp, body, http.StatusConflict, "INVOICE_ANNULLED")
+	if calls := sriStub.consultaCalls(); len(calls) != 0 {
+		t.Fatalf("consultas = %v; want none for a Credit Note", calls)
+	}
 
 	corrected := getDrainedInvoice(t, operatorSessionID, correctedID)
 	if corrected.Status != "withdrawn" || corrected.Number != nil || corrected.EcuadorFull != nil || corrected.NextAttemptAt != nil || len(corrected.AttemptRows) != 0 {

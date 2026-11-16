@@ -108,6 +108,16 @@ func TestIssueAgainRefusalAnswersByKindThenStateThenSale(t *testing.T) {
 			repository.IssueAgainSaleFacts{SaleStatus: "active", SaleHasLiveFactura: true}, "INVOICE_ALREADY_REPLACED"},
 		{"reversed sale outranks the sale's factura", abandonedFactura,
 			repository.IssueAgainSaleFacts{SaleStatus: "reversed", SaleHasLiveFactura: true}, "INVOICE_SALE_REVERSED"},
+
+		// Then the mismatch gate (#747): an annulled factura the SRI still
+		// reports authorized is not replaced, keyed on the verdict alone.
+		// The Sale's facts outrank it.
+		{"annulled at mismatch", dead(invoicing.InvoiceStatusAnnulled),
+			repository.IssueAgainSaleFacts{SaleStatus: "active", AnnulmentAtMismatch: true}, "INVOICE_ANNULMENT_MISMATCH"},
+		{"reversed sale outranks the mismatch", dead(invoicing.InvoiceStatusAnnulled),
+			repository.IssueAgainSaleFacts{SaleStatus: "reversed", AnnulmentAtMismatch: true}, "INVOICE_SALE_REVERSED"},
+		{"a replacement outranks the mismatch", dead(invoicing.InvoiceStatusAnnulled),
+			repository.IssueAgainSaleFacts{SaleStatus: "active", SaleHasLiveFactura: true, AnnulmentAtMismatch: true}, "INVOICE_ALREADY_REPLACED"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

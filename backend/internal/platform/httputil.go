@@ -263,6 +263,25 @@ func domainHTTPStatus(code string) int {
 	case "INVOICE_ABANDONED", "INVOICE_NOT_ABANDONABLE", "INVOICE_NOT_REFUSED_BY_NUMBER",
 		"INVOICE_CHECK_NOT_FRESH", "INVOICE_ABANDON_INSTEAD":
 		return http.StatusConflict
+	// Mark annulled's refusals on a factura (#745, ADR 0078). All 409, on the
+	// Abandon's terms: the typed number and the late acknowledgement are the
+	// confirm, compared against the document as it stands, and the Credit
+	// Note, the Reissue and the window are facts about it that no retry with
+	// the same body changes.
+	case "INVOICE_NUMBER_MISMATCH", "INVOICE_CREDIT_NOTE_STANDS", "INVOICE_REISSUE_STANDS",
+		"INVOICE_ANNULMENT_LATE", "INVOICE_ANNULMENT_NOT_LATE":
+		return http.StatusConflict
+	// Reinstate's refusals (#749, ADR 0078): the factura is not annulled,
+	// its window is still open, its check is not at mismatch, or the SRI
+	// did not return the authorization the platform never stored.
+	case "INVOICE_NOT_REINSTATABLE", "INVOICE_REINSTATE_WINDOW_OPEN", "INVOICE_REINSTATE_NOT_MISMATCH",
+		"INVOICE_REINSTATE_UNAUTHORIZED":
+		return http.StatusConflict
+	// Acknowledging an Unrecorded Annulment (#750, ADR 0078): the factura
+	// carries no flag to acknowledge, it was acknowledged already, or Mark
+	// annulled is admitted on it and is the true act.
+	case "INVOICE_NO_UNRECORDED_ANNULMENT", "INVOICE_UNRECORDED_ANNULMENT_ACKNOWLEDGED", "INVOICE_ANNUL_INSTEAD":
+		return http.StatusConflict
 	// The Sale Invoice Reissue's refusals (#483, ADR 0061): the document
 	// exists and the request was well formed, and what stands in the way is
 	// a fact about the document or its Sale — its kind, its state, a reversed
@@ -280,6 +299,12 @@ func domainHTTPStatus(code string) int {
 	// because it is the same fact about the same Sale.
 	case "INVOICE_MANUAL_NOT_ISSUABLE_AGAIN", "CREDIT_NOTE_NOT_ISSUABLE_AGAIN",
 		"INVOICE_NOT_TERMINALLY_DEAD", "INVOICE_ALREADY_REPLACED":
+		return http.StatusConflict
+	// The follow-ups' mismatch gate (#747, ADR 0078): an annulled factura the
+	// SRI still reports authorized is replaced by neither Issue again nor
+	// Reissue until a Check status reads ANULADO. A fact about the document,
+	// not the body, so a conflict.
+	case "INVOICE_ANNULMENT_MISMATCH":
 		return http.StatusConflict
 	case "NOT_FOUND", "ORGANIZATION_NOT_FOUND", "MEMBER_NOT_FOUND", "EVENT_NOT_FOUND":
 		return http.StatusNotFound

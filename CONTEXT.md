@@ -733,7 +733,7 @@ In Spanish, **Plazo de anulación**.
 _Avoid_: Grace period, deadline (alone), 90 days (the SRI's repealed rule)
 
 **Annulment Check**:
-The platform asking the Tax Authority, after a factura is recorded annulled, whether it agrees: in Ecuador `ConsultaComprobante` alone, on a schedule over the first hour and then every six hours to the close of the Annulment Window, never trusting a single negative answer.
+The platform asking the Tax Authority, after a factura is recorded annulled, whether it agrees: in Ecuador `ConsultaComprobante` alone, on a schedule over the first hour and then every six hours until the later of a week after the recording and the close of the Annulment Window, never trusting a single negative answer.
 It reads *checking* until a verdict, then *confirmed* (the authority reports it annulled, once), *mismatch* (the authority still reports it authorized, on two separate asks half an hour apart) or *unconfirmed* (no answer either way within the hour, which admits everything on the operator's word).
 A mismatch never undoes the annulment: it warns, queues the document for an operator, holds the Annulment Notice, and refuses Issue Again and a Sale Invoice Reissue on it until a later answer confirms.
 In Spanish, **Verificación de anulación**.

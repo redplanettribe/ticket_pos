@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/invoicing"
 )
@@ -15,18 +16,37 @@ import (
 
 // ArchiveCriteria names a set of documents by the facts the archive is
 // defined over: whose they are, where the authority holds them, what it made
-// of them, and the Emission Date range they were emitted in, both ends
-// included. Every field is required: a criteria is always built whole by the
-// service, never narrowed piecemeal by a request.
+// of them, which kinds, whether the Closing Sweep found them annulled at the
+// SRI, and the Emission Date range they were emitted in, both ends included.
+// Every field is required: a criteria is always built whole by the service,
+// never narrowed piecemeal by a request.
 type ArchiveCriteria struct {
 	IssuerID    string
 	Environment invoicing.Environment
 	Statuses    []invoicing.InvoiceStatus
+	Kinds       []invoicing.DocumentKind
+	// Unrecorded narrows by the Unrecorded Annulment flag
+	// (unrecorded_annulment_found_at, #750), acknowledged or not.
+	Unrecorded ArchiveUnrecorded
 	// From and To are "YYYY-MM-DD", compared against issued_on as calendar
 	// days. A document with no Emission Date (an owed one) fails both.
 	From string
 	To   string
 }
+
+// ArchiveUnrecorded is how a criteria reads the Unrecorded Annulment flag.
+type ArchiveUnrecorded int
+
+// Its zero value is no value: a criteria left without one is a programming
+// error that archiveWhere refuses loudly rather than reading as "either".
+const (
+	// ArchiveUnrecordedEither does not read the flag.
+	ArchiveUnrecordedEither ArchiveUnrecorded = iota + 1
+	// ArchiveUnrecordedNone names only documents the flag is not on.
+	ArchiveUnrecordedNone
+	// ArchiveUnrecordedOnly names only documents the flag is on.
+	ArchiveUnrecordedOnly
+)
 
 // ArchiveDocument is one document as the archive writes it: its kind (a
 // factura or a Credit Note), its Emission Date, its clave de acceso and the
@@ -60,15 +80,32 @@ func archiveWhere(c ArchiveCriteria) (string, []any) {
 	for i, status := range c.Statuses {
 		statuses[i] = string(status)
 	}
+	kinds := make([]string, len(c.Kinds))
+	for i, kind := range c.Kinds {
+		kinds[i] = string(kind)
+	}
+	var unrecorded string
+	switch c.Unrecorded {
+	case ArchiveUnrecordedEither:
+	case ArchiveUnrecordedNone:
+		unrecorded = `
+		  AND i.unrecorded_annulment_found_at IS NULL`
+	case ArchiveUnrecordedOnly:
+		unrecorded = `
+		  AND i.unrecorded_annulment_found_at IS NOT NULL`
+	default:
+		panic(fmt.Sprintf("archive criteria: Unrecorded %d is not a reading of the flag", c.Unrecorded))
+	}
 	return `
 		FROM invoicing_invoices i
 		JOIN invoicing_invoices_ec e ON e.invoice_id = i.id
 		WHERE i.issuer_id = $1
 		  AND i.environment = $2
 		  AND i.status = ANY($3)
-		  AND i.issued_on >= $4::date
-		  AND i.issued_on <= $5::date`,
-		[]any{c.IssuerID, string(c.Environment), statuses, c.From, c.To}
+		  AND i.kind = ANY($4)
+		  AND i.issued_on >= $5::date
+		  AND i.issued_on <= $6::date` + unrecorded,
+		[]any{c.IssuerID, string(c.Environment), statuses, kinds, c.From, c.To}
 }
 
 // StreamArchiveDocuments reads the documents a criteria names ONE ROW AT A
@@ -122,4 +159,41 @@ func (r *Repository) CountArchiveDocuments(ctx context.Context, c ArchiveCriteri
 		return ArchiveCounts{}, fmt.Errorf("count archive documents: %w", err)
 	}
 	return counts, nil
+}
+
+// ArchiveListedFactura is one factura an archive's readme lists without its
+// XML: its printed number, its clave de acceso, and the two moments a list
+// may be dated by, each nil when it is not so: when the platform recorded
+// it annulled, and when the Closing Sweep found it annulled at the SRI.
+type ArchiveListedFactura struct {
+	Number            string
+	AccessKey         string
+	AnnulledAt        *time.Time
+	UnrecordedFoundAt *time.Time
+}
+
+// ListArchiveFacturas reads the documents a criteria names, in Emission Date
+// then clave order, all at once: the readme's lists are a handful of rows,
+// never the archive's XML.
+func (r *Repository) ListArchiveFacturas(ctx context.Context, c ArchiveCriteria) ([]ArchiveListedFactura, error) {
+	where, args := archiveWhere(c)
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT `+invoicePrintedNumberSQL+`, e.access_key, i.annulled_at, i.unrecorded_annulment_found_at`+where+`
+		ORDER BY i.issued_on, e.access_key`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list archive facturas: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var listed []ArchiveListedFactura
+	for rows.Next() {
+		var f ArchiveListedFactura
+		if err := rows.Scan(&f.Number, &f.AccessKey, &f.AnnulledAt, &f.UnrecordedFoundAt); err != nil {
+			return nil, fmt.Errorf("scan archive factura: %w", err)
+		}
+		listed = append(listed, f)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list archive facturas: %w", err)
+	}
+	return listed, nil
 }

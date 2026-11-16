@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   hasSaleDocuments,
+  saleDocumentAnnulledKey,
   orderSaleDocuments,
   saleDocumentBadgeKey,
   saleDocumentDownloadHref,
@@ -210,4 +211,19 @@ test("a superseded factura keeps its label and its download", () => {
     `/api/customer/ticket-sales/${SALE_ID}/tax-documents/${OLD}/xml`,
   );
   assert.equal(saleDocumentPendingKey(old), null);
+});
+
+// A factura annulled at the SRI (#748): listed, labelled annulled, never a
+// download and never "on its way"; the label wins over superseded once a
+// replacement points at it.
+test("an annulled factura is labelled annulled and offers no download", () => {
+  const annulled: SaleDocument = { id: DOC_ID, kind: "sale", status: "annulled", download_url: null, ride_url: null };
+  assert.equal(saleDocumentBadgeKey(annulled), "annulled");
+  assert.equal(saleDocumentBadgeKey({ ...annulled, role: "superseded" }), "annulled");
+  assert.equal(saleDocumentAnnulledKey(annulled), "annulledNote");
+  assert.equal(saleDocumentPendingKey(annulled), null);
+  assert.equal(saleDocumentDownloadHref(SALE_ID, annulled), null);
+  assert.equal(saleDocumentRideHref(SALE_ID, annulled), null);
+  assert.equal(saleDocumentAnnulledKey(authorized()), null);
+  assert.equal(saleDocumentAnnulledKey(onItsWay()), null);
 });

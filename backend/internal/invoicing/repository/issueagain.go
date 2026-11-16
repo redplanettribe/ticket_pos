@@ -64,6 +64,12 @@ type IssueAgainSaleFacts struct {
 	// owe the Sale a second live factura — leaving the buyer two, which is
 	// exactly what #575 story 41 forbids.
 	SaleHasLiveFactura bool
+	// AnnulmentAtMismatch says the dead document is annulled and its current
+	// annulment stands at mismatch (annulmentAtMismatchSQL, #747): the SRI
+	// still reports it authorized. Read after the document's own lock, with
+	// the annulment row held FOR SHARE, so a check settling the verdict at
+	// the same instant is either seen or waits for this decision.
+	AnnulmentAtMismatch bool
 }
 
 // IssueSaleInvoiceAgain runs Issue again's transaction. decide is called
@@ -115,6 +121,9 @@ func (r *Repository) IssueSaleInvoiceAgain(ctx context.Context, deadID string, d
 	if err := loadInvoiceChildrenFrom(ctx, tx, dead); err != nil {
 		return "", err
 	}
+	if facts.AnnulmentAtMismatch, err = annulmentAtMismatchUnderLock(ctx, tx, deadID); err != nil {
+		return "", fmt.Errorf("issue again: %w", err)
+	}
 
 	replacement, err := decide(dead, facts)
 	if err != nil {
@@ -128,4 +137,23 @@ func (r *Repository) IssueSaleInvoiceAgain(ctx context.Context, deadID string, d
 		return "", fmt.Errorf("commit issue again: %w", err)
 	}
 	return replacementID, nil
+}
+
+// annulmentAtMismatchUnderLock reads the mismatch predicate of one document
+// inside a transaction that already holds the document's row, after taking
+// its standing annulment FOR SHARE: the Annulment Check records an ask
+// under that row's FOR UPDATE (RecordAnnulmentAsk), so the verdict the
+// caller decides on cannot move until the caller commits. False for a
+// document with no standing annulment.
+func annulmentAtMismatchUnderLock(ctx context.Context, tx *sql.Tx, invoiceID string) (bool, error) {
+	if _, err := tx.ExecContext(ctx, `
+		SELECT 1 FROM invoicing_annulments WHERE invoice_id = $1 AND reinstated_at IS NULL FOR SHARE
+	`, invoiceID); err != nil {
+		return false, fmt.Errorf("lock standing annulment: %w", err)
+	}
+	var mismatch bool
+	if err := tx.QueryRowContext(ctx, `SELECT `+annulmentAtMismatchSQL+` FROM invoicing_invoices i WHERE i.id = $1`, invoiceID).Scan(&mismatch); err != nil {
+		return false, fmt.Errorf("read annulment mismatch: %w", err)
+	}
+	return mismatch, nil
 }

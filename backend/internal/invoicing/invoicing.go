@@ -92,10 +92,11 @@ type CertificateMetadata struct {
 	UploadedAt        time.Time
 }
 
-// TaxAuthority is the seam a country adapter implements: the two things the
-// core ever asks an authority to do. A prepared document is submitted, and the
-// outcome of an earlier submission is asked for by the reference the authority
-// knows it under (in Ecuador, the clave de acceso).
+// TaxAuthority is the seam a country adapter implements: the things the core
+// ever asks an authority to do. A prepared document is submitted, the outcome
+// of an earlier submission is asked for by the reference the authority knows
+// it under (in Ecuador, the clave de acceso), and from #744 where a document
+// now stands is asked of the authority's status service.
 //
 // The core drives the status machine — pending, authorized, not authorized,
 // rejected — off these two calls and the attempts ledger it keeps around them;
@@ -116,6 +117,49 @@ type TaxAuthority interface {
 	// QueryOutcome asks the authority what became of the document it knows by
 	// reference.
 	QueryOutcome(ctx context.Context, authorityReference string) (Outcome, error)
+	// QueryStatus asks the authority's status service where the document it
+	// knows by reference now stands (#744, ADR 0078): in Ecuador
+	// ConsultaComprobante, the one service that reports an annulment. It has
+	// no error return on purpose: a refusal, a redirect, a non-SOAP body, a
+	// reset or a timeout is StatusNone with the reason in Error, never a
+	// failure that aborts the caller, because this service answers wrongly
+	// about two times in ten (#716) and only a positive answer is evidence.
+	QueryStatus(ctx context.Context, authorityReference string) StatusAnswer
+}
+
+// StatusReading is what one answer of the authority's status service says,
+// as the core reads it: exactly one of three words (#744, ADR 0078).
+type StatusReading string
+
+const (
+	// StatusAnnulled: the authority reports the document annulled (SRI
+	// estadoAutorizacion ANULADO).
+	StatusAnnulled StatusReading = "annulled"
+	// StatusAuthorized: the authority reports the document authorized and
+	// standing (SRI estadoAutorizacion AUTORIZADO).
+	StatusAuthorized StatusReading = "authorized"
+	// StatusNone is NO READING: the answer says nothing about the document.
+	// It is never "not annulled" and never "unknown" (#716): the SRI refuses
+	// documents it holds with "fuera del rango permitido", redirects to an
+	// HTML page and resets connections, all at random.
+	StatusNone StatusReading = "none"
+)
+
+// Real reports whether the reading is evidence: annulled or authorized.
+func (r StatusReading) Real() bool {
+	return r == StatusAnnulled || r == StatusAuthorized
+}
+
+// StatusAnswer is one call to the authority's status service.
+type StatusAnswer struct {
+	Reading StatusReading
+	// Messages are the authority's messages, verbatim: on a refusal, why it
+	// refused.
+	Messages []AuthorityMessage
+	// Error says why there was no reading when the authority gave no
+	// refusal of its own: a transport failure, a redirect, a body that was
+	// not its SOAP, a state it does not document. "" otherwise.
+	Error string
 }
 
 // PreparedDocument is a document as the adapter built and signed it, ready to

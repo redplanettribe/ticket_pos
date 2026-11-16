@@ -37,6 +37,8 @@ The gates are uniform across the three states (#713):
   The platform claims day 7 strictly and keeps no holiday calendar, so it never relies on the SRI's rollover day.
   Past the deadline, recording is still admitted, but only with a typed acknowledgement that the annulment was done at the portal, because a rollover-day annulment is real.
 - **Refusals.** A live Credit Note against the factura (owed, pending, needs_attention, authorized) refuses; a dead one (withdrawn, abandoned, annulled, rejected, not_authorized) does not.
+  Ruled when #745 was built: the Credit Note refuses on an authorized factura only.
+  On a pending or needs_attention factura a Credit Note can only be owed and waiting for it, since the Drainer signs one only once its factura is authorized, and annulling the factura is what withdraws it; refusing there would strand that path.
   A live Reissue successor refuses.
   `INVOICE_ABANDON_INSTEAD` stays as ADR 0068 built it.
 - **Consumidor final** has no code gate, because the platform cannot issue one: identification codes 07 and 08 are absent.

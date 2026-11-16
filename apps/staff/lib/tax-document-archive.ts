@@ -116,13 +116,28 @@ export function taxDocumentArchiveSummaryUrl(range: TaxDocumentArchiveRange): st
 
 /**
  * What the archive of a range would hold (#631), as the API answers it: the
- * facturas and Credit Notes it would contain, and the production documents
- * emitted in the range still pending or needing attention, which it leaves out.
+ * facturas and Credit Notes it would contain, the production documents
+ * emitted in the range still pending or needing attention, which it leaves
+ * out, and the facturas its readme lists without XML (#751): those now
+ * annulled, and the Unrecorded Annulments.
  */
 export type TaxDocumentArchiveSummary = {
   facturas: number;
   credit_notes: number;
   unsettled: number;
+  annulled: number;
+  unrecorded: number;
+};
+
+/**
+ * The facturas of the range the readme lists without their XML, so the
+ * accountant can correct an earlier archive. Said beside every outcome, an
+ * empty one included: a period whose only factura was annulled still has a
+ * correction to tell.
+ */
+export type TaxDocumentArchiveCorrections = {
+  annulled: number;
+  unrecorded: number;
 };
 
 /**
@@ -131,12 +146,15 @@ export type TaxDocumentArchiveSummary = {
  * - `unsettled`: those counts, and a warning that `unsettled` documents of
  *   the period are not authorized yet and will not be in it;
  * - `empty`: nothing qualifies, and — when `unsettled` is above zero — that
- *   the period's only documents are still waiting on the SRI.
+ *   the period's only documents are still waiting on the SRI;
+ * and, with each, the annulled and unrecorded counts the readme lists.
  */
-export type TaxDocumentArchiveSummaryDisplay =
-  | { kind: "counts"; facturas: number; creditNotes: number }
-  | { kind: "unsettled"; facturas: number; creditNotes: number; unsettled: number }
-  | { kind: "empty"; unsettled: number };
+export type TaxDocumentArchiveSummaryDisplay = TaxDocumentArchiveCorrections &
+  (
+    | { kind: "counts"; facturas: number; creditNotes: number }
+    | { kind: "unsettled"; facturas: number; creditNotes: number; unsettled: number }
+    | { kind: "empty"; unsettled: number }
+  );
 
 /**
  * Chooses between the plain counts, the unsettled warning and the
@@ -145,12 +163,13 @@ export type TaxDocumentArchiveSummaryDisplay =
  * still an answer.
  */
 export function taxDocumentArchiveSummaryDisplay(summary: TaxDocumentArchiveSummary): TaxDocumentArchiveSummaryDisplay {
-  const { facturas, credit_notes: creditNotes, unsettled } = summary;
+  const { facturas, credit_notes: creditNotes, unsettled, annulled, unrecorded } = summary;
+  const corrections = { annulled, unrecorded };
   if (facturas + creditNotes === 0) {
-    return { kind: "empty", unsettled };
+    return { kind: "empty", unsettled, ...corrections };
   }
   if (unsettled > 0) {
-    return { kind: "unsettled", facturas, creditNotes, unsettled };
+    return { kind: "unsettled", facturas, creditNotes, unsettled, ...corrections };
   }
-  return { kind: "counts", facturas, creditNotes };
+  return { kind: "counts", facturas, creditNotes, ...corrections };
 }

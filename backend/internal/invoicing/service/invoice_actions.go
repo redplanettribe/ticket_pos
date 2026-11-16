@@ -71,9 +71,25 @@ func (s *Service) actionDetail(ctx context.Context, id string, attemptID int64) 
 
 // CheckInvoice asks the authority what became of a non-authorized invoice
 // and returns it as it then stands, with the attempt that holds the answer.
+//
+// ON AN ANNULLED DOCUMENT IT ASKS THE STATUS SERVICE INSTEAD (#744, spec
+// #742, ADR 0078): one ask of ConsultaComprobante, every call on the ledger
+// under AttemptStatus, and nothing about the document changed - the reading
+// feeds the Annulment Check, never the status, so a late AUTORIZADO cannot
+// undo the operator's record. autorización is never asked there: it returns
+// the stored authorization record, which may keep saying AUTORIZADO after an
+// annulment. Facturas only: an annulled Credit Note keeps today's refusal,
+// INVOICE_ANNULLED, since the spec leaves a Credit Note's annulment with no
+// check (#742).
 func (s *Service) CheckInvoice(ctx context.Context, id string) (*InvoiceActionDetail, error) {
-	row, err := s.actionable(ctx, id)
+	row, err := s.loadInvoice(ctx, id)
 	if err != nil {
+		return nil, err
+	}
+	if row.Invoice.Status == invoicing.InvoiceStatusAnnulled && row.Invoice.Kind != invoicing.DocumentKindCreditNote && row.Ecuador != nil {
+		return s.checkAnnulled(ctx, row)
+	}
+	if err := actionableRow(row); err != nil {
 		return nil, err
 	}
 	callCtx, cancel := context.WithTimeout(ctx, s.pollBudget)
@@ -88,6 +104,32 @@ func (s *Service) CheckInvoice(ctx context.Context, id string) (*InvoiceActionDe
 	s.logger.Info("invoicing: tax invoice checked", "invoice_id", id, "outcome", outcome.State, "error", err)
 	s.dueForDelivery(ctx, row)
 	return s.actionDetail(ctx, id, attemptID)
+}
+
+// checkAnnulled is Check status on an annulled document: one ask of the
+// status service, answered with the document and the ask's last attempt.
+//
+// The ask feeds the current annulment's Annulment Check (#746) as a manual
+// ask: the same verdict rule, whose +30 min floor keeps two quick presses
+// from reaching a mismatch, and the schedule left alone - the next
+// scheduled ask stays where it was, unless this ask confirmed and the check
+// ends. An annulment recorded before the check existed has none, and the
+// ask is on the ledger only. A press the caller abandoned mid-ask is no ask.
+func (s *Service) checkAnnulled(ctx context.Context, row *repository.InvoiceRow) (*InvoiceActionDetail, error) {
+	at := s.clock()
+	ask := s.askStatus(ctx, row)
+	verdict := invoicing.AnnulmentVerdict("")
+	if current := currentAnnulment(row); current != nil && current.Check != nil && !cutShort(ctx, ask) {
+		check, err := s.recordAnnulmentAsk(context.WithoutCancel(ctx), row, current.ID, at, ask, true)
+		if err != nil {
+			return nil, err
+		}
+		if check != nil {
+			verdict = check.Verdict
+		}
+	}
+	s.logger.Info("invoicing: annulled tax invoice checked", "invoice_id", row.Invoice.ID, "reading", ask.Reading, "calls", ask.Calls, "verdict", verdict)
+	return s.actionDetail(ctx, row.Invoice.ID, ask.LastAttemptID)
 }
 
 // dueForDelivery makes a Sale-side document the operator's action has just
@@ -161,6 +203,18 @@ func (s *Service) ResendInvoice(ctx context.Context, id string) (*InvoiceActionD
 // speak for: a document with no clave recorded has nothing to ask the
 // authority about and nothing to send.
 func (s *Service) actionable(ctx context.Context, id string) (*repository.InvoiceRow, error) {
+	row, err := s.loadInvoice(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := actionableRow(row); err != nil {
+		return nil, err
+	}
+	return row, nil
+}
+
+// loadInvoice reads one invoice, INVOICE_NOT_FOUND when there is none.
+func (s *Service) loadInvoice(ctx context.Context, id string) (*repository.InvoiceRow, error) {
 	row, err := s.repo.GetInvoice(ctx, id)
 	if err != nil {
 		return nil, err
@@ -168,20 +222,27 @@ func (s *Service) actionable(ctx context.Context, id string) (*repository.Invoic
 	if row == nil {
 		return nil, invoicing.ErrInvoiceNotFound()
 	}
+	return row, nil
+}
+
+// actionableRow is actionable's refusal on a row already read.
+func actionableRow(row *repository.InvoiceRow) error {
 	if err := actionableRefusal(&row.Invoice); err != nil {
-		return nil, err
+		return err
 	}
 	if row.Ecuador == nil {
-		return nil, invoicing.ErrInvoiceNotIssued()
+		return invoicing.ErrInvoiceNotIssued()
 	}
-	return row, nil
+	return nil
 }
 
 // actionableRefusal is what BOTH Check status and Resend refuse, decided
 // from the document alone: an authorized one — a legal artifact is neither
 // asked about nor sent again — an annulled one (#477): the operator recorded
 // that the authority no longer holds it as valid, and a Check that found a
-// late AUTORIZADO would undo that record — an abandoned one (#578): the
+// late AUTORIZADO would undo that record (Check status asks the status
+// service there instead and changes nothing, #744; CheckInvoice) - an
+// abandoned one (#578): the
 // authority never took it and never will, so there is nothing to ask about
 // and nothing that would ever be sent — a withdrawn one (#476): never
 // sent, and never will be, its sale having been reversed first — and one not
@@ -392,6 +453,11 @@ func resendHint(inv *invoicing.Invoice, attempts []invoicing.Attempt) bool {
 		return false
 	}
 	if invoicing.AcknowledgedByAuthority(attempts) {
+		return false
+	}
+	// A status call (#744) says nothing about who holds the document.
+	attempts = withoutStatusCalls(attempts)
+	if len(attempts) == 0 {
 		return false
 	}
 	return attempts[len(attempts)-1].Outcome == string(invoicing.OutcomeUnknown)

@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/invoicing"
@@ -55,33 +57,64 @@ func (s *Service) deliverDocument(ctx context.Context, row *repository.InvoiceRo
 	}
 	now := s.clock()
 
-	facts, err := s.repo.GetSaleDeliveryFacts(ctx, inv.TicketSaleID)
+	delivery, err := s.taxDocumentDeliveryOf(ctx, row)
+	if errors.Is(err, errNotDeliverable) {
+		// Nothing a retry would change - no Sale, no signed bytes, or a RIDE
+		// that cannot be rendered, a deterministic failure over stored data -
+		// so it stays authorized and undelivered for an operator to see, and
+		// off the queue, not on the ladder: retrying a deterministic render
+		// hourly forever would only hide the bug.
+		s.logger.Error("invoicing: an authorized document cannot be delivered", "invoice_id", inv.ID, "kind", inv.Kind, "error", err)
+		return false, s.rescheduleDelivery(ctx, inv, nil, now)
+	}
 	if err != nil {
 		return false, err
 	}
-	if facts == nil || row.Ecuador == nil || !inv.Signed() {
-		// Nothing a retry would change; it stays authorized and undelivered
-		// for an operator to see, and off the queue.
-		s.logger.Error("invoicing: an authorized document cannot be delivered; it has no Sale or no signed bytes",
-			"invoice_id", inv.ID, "kind", inv.Kind)
-		return false, s.rescheduleDelivery(ctx, inv, nil, now)
-	}
 
-	// The RIDE, before the send: the mail carries both files or goes out
-	// not at all. A render failure is the same dead end as above — off the
-	// queue, not on the ladder — because retrying a deterministic render
-	// hourly forever would only hide the bug.
+	if err := s.email.SendTaxDocumentDelivery(ctx, *delivery); err != nil {
+		// The ladder from the signing instant, as every other retry of this
+		// document: a minute, five, fifteen, then hourly.
+		next := now.Add(ladderDelay(now.Sub(inv.IssuedAt)))
+		s.logger.Warn("invoicing: tax document delivery failed; due again on the ladder",
+			"invoice_id", inv.ID, "kind", inv.Kind, "next_attempt_at", next, "error", err)
+		return false, s.rescheduleDelivery(ctx, inv, &next, now)
+	}
+	if err := s.repo.MarkDelivered(context.WithoutCancel(ctx), inv.ID, now); err != nil {
+		return true, err
+	}
+	s.logger.Info("invoicing: tax document delivered", "invoice_id", inv.ID, "kind", inv.Kind, "locale", delivery.Locale)
+	return true, nil
+}
+
+// errNotDeliverable marks a document the mail cannot be put together for
+// from what is stored: no Sale, no signed bytes, or a RIDE that cannot be
+// rendered.
+var errNotDeliverable = errors.New("not deliverable")
+
+// taxDocumentDeliveryOf puts together the mail that hands an authorized
+// document to its buyer: the words by kind, reason and what it replaces,
+// both files attached, the Sale's Locale and the Customer Area link. The
+// RIDE is rendered here, before anything is sent: the mail carries both
+// files or goes out not at all. A document it cannot be put together for
+// answers errNotDeliverable; any other error is the database's.
+func (s *Service) taxDocumentDeliveryOf(ctx context.Context, row *repository.InvoiceRow) (*platform.TaxDocumentDelivery, error) {
+	inv := &row.Invoice
+	facts, err := s.repo.GetSaleDeliveryFacts(ctx, inv.TicketSaleID)
+	if err != nil {
+		return nil, err
+	}
+	if facts == nil || row.Ecuador == nil || !inv.Signed() {
+		return nil, fmt.Errorf("%w: it has no Sale or no signed bytes", errNotDeliverable)
+	}
 	rideDoc, err := ride.Render(inv, row.Ecuador)
 	if err != nil {
-		s.logger.Error("invoicing: an authorized document cannot be delivered; its RIDE could not be rendered",
-			"invoice_id", inv.ID, "kind", inv.Kind, "error", err)
-		return false, s.rescheduleDelivery(ctx, inv, nil, now)
+		return nil, fmt.Errorf("%w: its RIDE could not be rendered: %v", errNotDeliverable, err)
 	}
 
 	// A reissue's Credit Note promises a corrected factura. When the Sale was
 	// reversed while that nota was still unanswered (#484), the corrected
 	// factura was withdrawn and the reversal's own Credit Note stood down
-	// because this one already credits the factura — so this mail is the
+	// because this one already credits the factura - so this mail is the
 	// buyer's only word that the purchase is undone, and it reads as a
 	// reversal's would. The document itself is unchanged: the SRI holds the
 	// correction motivo it was signed with.
@@ -91,9 +124,9 @@ func (s *Service) deliverDocument(ctx context.Context, row *repository.InvoiceRo
 	}
 	replaces, err := s.replacesOf(ctx, inv)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	delivery := platform.TaxDocumentDelivery{
+	delivery := &platform.TaxDocumentDelivery{
 		To:           inv.Recipient.Email,
 		Kind:         string(inv.Kind),
 		Reason:       reason,
@@ -118,20 +151,7 @@ func (s *Service) deliverDocument(ctx context.Context, row *repository.InvoiceRo
 	if s.storefrontBaseURL != "" {
 		delivery.CustomerAreaURL = s.storefrontBaseURL + customerAreaPath + "#sale-" + inv.TicketSaleID
 	}
-
-	if err := s.email.SendTaxDocumentDelivery(ctx, delivery); err != nil {
-		// The ladder from the signing instant, as every other retry of this
-		// document: a minute, five, fifteen, then hourly.
-		next := now.Add(ladderDelay(now.Sub(inv.IssuedAt)))
-		s.logger.Warn("invoicing: tax document delivery failed; due again on the ladder",
-			"invoice_id", inv.ID, "kind", inv.Kind, "next_attempt_at", next, "error", err)
-		return false, s.rescheduleDelivery(ctx, inv, &next, now)
-	}
-	if err := s.repo.MarkDelivered(context.WithoutCancel(ctx), inv.ID, now); err != nil {
-		return true, err
-	}
-	s.logger.Info("invoicing: tax document delivered", "invoice_id", inv.ID, "kind", inv.Kind, "locale", delivery.Locale)
-	return true, nil
+	return delivery, nil
 }
 
 // replacesOf says how the factura a Sale Invoice stands in for was replaced,
@@ -146,9 +166,15 @@ func (s *Service) deliverDocument(ctx context.Context, row *repository.InvoiceRo
 // authorized and the buyer has it - unless an operator abandoned it, and
 // then the buyer never got it and the plain words are the true ones. Issue
 // again's predecessor never has one, because it replaces only a factura the
-// SRI never authorized. The status `annulled` is deliberately not the test:
-// the SRI annulment work (#710) annuls authorized facturas the buyer did
-// receive, and brings its own words.
+// SRI never authorized or one annulled there.
+//
+// AN ANNULLED PREDECESSOR THE BUYER WAS SENT (#748, spec #742) is the other
+// cause with words of its own: the Issue again or Reissue that follows an
+// annulment at the SRI says it replaces a factura annulled there. Credited
+// is still asked first. "Was sent" is the predecessor's delivered_at, the
+// same fact that owed the buyer the Annulment Notice: a factura annulled
+// before it was ever delivered was never in the buyer's inbox, so its
+// replacement is simply their factura, as an abandoned one's is.
 //
 // A predecessor that cannot be found reads as nothing to say: the mail is
 // still the buyer's factura, and silence is the safe default.
@@ -160,8 +186,12 @@ func (s *Service) replacesOf(ctx context.Context, inv *invoicing.Invoice) (platf
 	if err != nil {
 		return platform.TaxDocumentReplacesNothing, err
 	}
-	if predecessor != nil && predecessor.Invoice.CreditedByInvoiceID != "" {
+	switch {
+	case predecessor == nil:
+	case predecessor.Invoice.CreditedByInvoiceID != "":
 		return platform.TaxDocumentReplacesCredited, nil
+	case predecessor.Invoice.Status == invoicing.InvoiceStatusAnnulled && predecessor.Invoice.DeliveredAt != nil:
+		return platform.TaxDocumentReplacesAnnulled, nil
 	}
 	return platform.TaxDocumentReplacesNothing, nil
 }

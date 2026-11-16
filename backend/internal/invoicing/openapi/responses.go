@@ -125,3 +125,12 @@ type EnvelopeCustomerDocuments struct {
 	Error     *platform.APIError         `json:"error"`
 	RequestID string                     `json:"request_id"`
 }
+
+// EnvelopeClosingSweepStatus documents GET /operator/invoicing/closing-sweep
+// and POST /operator/invoicing/closing-sweep/sweep-again success responses
+// (#750).
+type EnvelopeClosingSweepStatus struct {
+	Data      service.ClosingSweepStatus `json:"data"`
+	Error     *platform.APIError         `json:"error"`
+	RequestID string                     `json:"request_id"`
+}

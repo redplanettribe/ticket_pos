@@ -84,9 +84,43 @@ func getNeedsAttentionCount(t *testing.T, sessionID string) int {
 	return view.NeedsAttentionCount
 }
 
+// annulInvoice presses Mark annulled with the confirm the staff page sends:
+// on a factura (#745) its number typed in full, and the late acknowledgement
+// once its Annulment Window has closed; on a Credit Note, or a document the
+// detail does not answer for, no body at all, as before #745.
 func annulInvoice(t *testing.T, sessionID, id string) (*http.Response, envelope) {
 	t.Helper()
-	return sriEnv.post(t, invoicesPath+"/"+id+"/annul", nil, authHeader(sessionID))
+	return sriEnv.post(t, invoicesPath+"/"+id+"/annul", annulConfirmFor(t, sessionID, id), authHeader(sessionID))
+}
+
+// annulConfirmFor is the confirm a factura's record form would send as it
+// now stands, or nil where Mark annulled takes no body.
+func annulConfirmFor(t *testing.T, sessionID, id string) any {
+	t.Helper()
+	resp, env := sriEnv.get(t, invoicesPath+"/"+id, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	var view struct {
+		Kind         string  `json:"kind"`
+		Number       *string `json:"number"`
+		Annulability *struct {
+			Window *struct {
+				Open bool `json:"open"`
+			} `json:"window"`
+		} `json:"annulability"`
+	}
+	if err := json.Unmarshal(env.Data, &view); err != nil {
+		t.Fatalf("decode invoice: %v", err)
+	}
+	if view.Kind == "credit_note" || view.Number == nil {
+		return nil
+	}
+	body := map[string]any{"number": *view.Number}
+	if view.Annulability != nil && view.Annulability.Window != nil && !view.Annulability.Window.Open {
+		body["late_acknowledged"] = true
+	}
+	return body
 }
 
 func annulOK(t *testing.T, sessionID, id string) annulledInvoiceView {
@@ -283,7 +317,8 @@ func TestNeedsAttentionQueueListsAnUnsignableDocument(t *testing.T) {
 // document by hand at the SRI portal and records so. The document is
 // annulled with who and when, keeps its number and its signed XML, leaves
 // the queue, and is never claimed by the Drainer again; nothing about it
-// can be checked, resent or annulled a second time.
+// can be resent or annulled a second time, and Check status asks
+// ConsultaComprobante and changes nothing (#744).
 func TestOperatorMarksARefusedDocumentAnnulled(t *testing.T) {
 	env := setupTest(t)
 	operatorSessionID, invoiceID := houseSaleOwed(t, env, 1000, 1)
@@ -321,12 +356,14 @@ func TestOperatorMarksARefusedDocumentAnnulled(t *testing.T) {
 		t.Fatal("the signed XML on file changed on annulment")
 	}
 
-	// Gone from the queue and from the Drainer's claim set.
-	if n := getNeedsAttentionCount(t, operatorSessionID); n != 0 {
-		t.Fatalf("count after annulment = %d; want 0", n)
+	// Out of the Drainer's claim set, and no longer parked: it stays in the
+	// queue by the other door alone (#747), an annulled Sale Invoice whose
+	// standing Sale now has no factura, until Issue again or Reissue owes one.
+	if n := getNeedsAttentionCount(t, operatorSessionID); n != 1 {
+		t.Fatalf("count after annulment = %d; want 1, the Sale has no factura", n)
 	}
-	if queue := getNeedsAttentionQueue(t, operatorSessionID); len(queue.Data) != 0 {
-		t.Fatalf("queue after annulment = %+v; want empty", queue.Data)
+	if item := needsAttentionItem(t, operatorSessionID, invoiceID); item == nil || item.Status != "annulled" || item.AttentionReason != "annulled" {
+		t.Fatalf("queue item after annulment = %+v; want the annulled factura, reason annulled", item)
 	}
 	atInvoicingClock(t, fixedClock.Add(48*time.Hour))
 	if result := drainSaleInvoices(t); result.Claimed != 0 || result.Standing["annulled"] != 1 {
@@ -337,12 +374,14 @@ func TestOperatorMarksARefusedDocumentAnnulled(t *testing.T) {
 		t.Fatalf("list = %+v; want the annulled document still listed", list.Data)
 	}
 
-	// Irreversible: nothing is asked or sent for it again, and it cannot be
-	// annulled twice.
+	// Irreversible: nothing is sent for it again, and it cannot be annulled
+	// twice. Check status is no longer refused (#744): it asks the status
+	// service, and the document stays as it is.
 	resp, body := annulInvoice(t, operatorSessionID, invoiceID)
 	expectRefusal(t, "annul twice", resp, body, http.StatusConflict, "INVOICE_NOT_ANNULLABLE")
-	resp, body = checkInvoice(t, operatorSessionID, invoiceID)
-	expectRefusal(t, "check an annulled document", resp, body, http.StatusConflict, "INVOICE_ANNULLED")
+	if checked := checkAnnulledOK(t, operatorSessionID, invoiceID); checked.Status != "annulled" {
+		t.Fatalf("check an annulled document: status %s; want still annulled", checked.Status)
+	}
 	resp, body = resendInvoice(t, operatorSessionID, invoiceID)
 	expectRefusal(t, "resend an annulled document", resp, body, http.StatusConflict, "INVOICE_ANNULLED")
 	if n := sriStub.receptionCount(); n != 1 {
@@ -375,10 +414,10 @@ func TestOperatorMarksAPendingDocumentAnnulled(t *testing.T) {
 	}
 }
 
-// TestMarkAnnulledIsRefusedWhereNothingWasAnnulled: an authorized document is
-// a legal artifact the Credit Note handles; an owed one, and a document
-// parked unsigned, have no number at the SRI to have been annulled; a
-// document that does not exist is 404.
+// TestMarkAnnulledIsRefusedWhereNothingWasAnnulled: an owed document, and a
+// document parked unsigned, have no number at the SRI to have been annulled;
+// a document that does not exist is 404. An authorized factura is admitted
+// since #745 (invoicing_annul_authorized_test.go).
 func TestMarkAnnulledIsRefusedWhereNothingWasAnnulled(t *testing.T) {
 	env := setupTest(t)
 	operatorSessionID, invoiceID := houseSaleOwed(t, env, 1000, 1)
@@ -392,17 +431,6 @@ func TestMarkAnnulledIsRefusedWhereNothingWasAnnulled(t *testing.T) {
 	}
 	resp, body = annulInvoice(t, operatorSessionID, invoiceID)
 	expectRefusal(t, "annul an unsigned document", resp, body, http.StatusConflict, "INVOICE_NOT_ISSUED")
-
-	issuerReady(t, operatorSessionID)
-	atInvoicingClock(t, fixedClock.Add(time.Hour))
-	if result := drainSaleInvoices(t); result.Authorized != 1 {
-		t.Fatalf("drain once fixed = %+v; want authorized", result)
-	}
-	resp, body = annulInvoice(t, operatorSessionID, invoiceID)
-	expectRefusal(t, "annul an authorized document", resp, body, http.StatusConflict, "INVOICE_NOT_ANNULLABLE")
-	if detail := getDrainedInvoice(t, operatorSessionID, invoiceID); detail.Status != "authorized" {
-		t.Fatalf("after the refusal: %s; want still authorized", detail.Status)
-	}
 
 	resp, body = annulInvoice(t, operatorSessionID, "00000000-0000-0000-0000-000000000000")
 	expectRefusal(t, "annul an unknown document", resp, body, http.StatusNotFound, "INVOICE_NOT_FOUND")
@@ -594,8 +622,10 @@ func TestMarkAnnulledWinsAgainstADrainersLateAuthorization(t *testing.T) {
 	if n := len(deliveriesSent(t, env)); n != 0 {
 		t.Fatalf("%d delivery mails; want none for an annulled document", n)
 	}
-	if n := getNeedsAttentionCount(t, operatorSessionID); n != 0 {
-		t.Fatalf("needs_attention count = %d; want 0", n)
+	// Queued as annulled with its Sale owed a factura (#747), and no longer
+	// as a parked document.
+	if item := needsAttentionItem(t, operatorSessionID, invoiceID); item == nil || item.AttentionReason != "annulled" {
+		t.Fatalf("queue item = %+v; want the annulled factura, reason annulled", item)
 	}
 	atInvoicingClock(t, fixedClock.Add(2*time.Hour))
 	if again := drainSaleInvoices(t); again.Claimed != 0 {

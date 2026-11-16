@@ -454,6 +454,8 @@
       "onItsWay": "Su factura está en camino. Se la enviaremos por correo en cuanto esté lista, y aparecerá aquí.",
       "creditNoteOnItsWay": "Su nota de crédito está en camino. Se la enviaremos por correo en cuanto esté lista, y aparecerá aquí.",
       "superseded": "Sustituida por la factura corregida",
+      "annulled": "Anulada en el SRI",
+      "annulledNote": "No tiene efecto tributario y ya no se puede descargar.",
       "downloadXml": "Descargar XML",
       "downloadRide": "Descargar PDF (RIDE)"
     },

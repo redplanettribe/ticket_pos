@@ -161,6 +161,16 @@ func issuableAgainDocument(inv *invoicing.Invoice) error {
 // Sale's fact is what actually holds the line #575 story 41 draws, that the
 // buyer ends with exactly one valid factura.
 //
+// THE MISMATCH GATE COMES LAST (#747, spec #742, ADR 0078). An annulled
+// document whose current annulment stands at mismatch - the SRI still
+// reports it authorized - is refused INVOICE_ANNULMENT_MISMATCH, whatever
+// state it was annulled from, because a replacement now could put a second
+// authorized factura at the SRI for one Sale. It is asked after the Sale's
+// facts: a reversed Sale is owed nothing either way, and a replacement
+// owed while the check was still unconfirmed is the truer answer than the
+// warning that came after it. An unconfirmed check is admitted; the
+// confirm says the SRI has not confirmed the annulment.
+//
 // LIVE IS #579'S LIVE throughout. A replacement that is itself withdrawn,
 // annulled or abandoned stands for nothing, so a Sale whose every document
 // has died is issued again — the second hop, and the first behavioural
@@ -171,11 +181,24 @@ func issueAgainRefusal(inv *invoicing.Invoice, facts repository.IssueAgainSaleFa
 	if err := issuableAgainDocument(inv); err != nil {
 		return err
 	}
+	return replacementRefusal(inv, facts.SaleStatus, facts.SaleHasLiveFactura, facts.AnnulmentAtMismatch)
+}
+
+// replacementRefusal is the Sale's half of every act that owes a dead
+// document's Sale one factura and nothing else: Issue again, and a Reissue
+// of an annulled factura (#747). A reversed Sale is owed nothing; a Sale a
+// factura already stands for (this document's live successor, or any
+// document's) is already replaced; and an annulled document whose current
+// annulment stands at mismatch is refused while the SRI still reports it
+// authorized. One function, so the two gates cannot drift apart.
+func replacementRefusal(inv *invoicing.Invoice, saleStatus string, saleHasLiveFactura, annulmentAtMismatch bool) error {
 	switch {
-	case facts.SaleStatus == "reversed":
+	case saleStatus == "reversed":
 		return invoicing.ErrInvoiceSaleReversed()
-	case inv.SupersededByInvoiceID != "", facts.SaleHasLiveFactura:
+	case inv.SupersededByInvoiceID != "", saleHasLiveFactura:
 		return invoicing.ErrInvoiceAlreadyReplaced()
+	case annulmentAtMismatch:
+		return invoicing.ErrInvoiceAnnulmentMismatch()
 	}
 	return nil
 }

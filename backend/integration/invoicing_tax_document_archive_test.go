@@ -601,6 +601,8 @@ type taxArchiveSummaryView struct {
 	Facturas    int `json:"facturas"`
 	CreditNotes int `json:"credit_notes"`
 	Unsettled   int `json:"unsettled"`
+	Annulled    int `json:"annulled"`
+	Unrecorded  int `json:"unrecorded"`
 }
 
 // fetchTaxArchiveSummary reads the summary for a range, which must answer 200.
@@ -661,7 +663,9 @@ func TestTheTaxDocumentArchiveSummaryCountsWhatTheArchiveHolds(t *testing.T) {
 	}
 
 	// And the fixture's own expectation, so agreeing-but-wrong cannot pass.
-	want := taxArchiveSummaryView{Facturas: taxArchiveFacturas, CreditNotes: taxArchiveCreditNotes, Unsettled: taxArchiveUnsettled}
+	// The manual factura annulled while pending is the readme's one annulled
+	// factura (#751).
+	want := taxArchiveSummaryView{Facturas: taxArchiveFacturas, CreditNotes: taxArchiveCreditNotes, Unsettled: taxArchiveUnsettled, Annulled: 1}
 	if got := fetchTaxArchiveSummary(t, f.operatorSessionID, taxArchiveFrom, taxArchiveTo); got != want {
 		t.Fatalf("summary = %+v; want %+v", got, want)
 	}

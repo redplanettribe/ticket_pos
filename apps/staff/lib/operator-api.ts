@@ -1214,6 +1214,25 @@ export type OperatorInvoiceListItem = {
    * authorized: superseded is a relation, not a state.
    */
   superseded_by_invoice_id: string | null;
+  /**
+   * The Closing Sweep's warning (#750, ADR 0078): the SRI reports this
+   * authorized factura annulled and the platform has no record of it. Null
+   * unless the sweep found one; cleared when Mark annulled records it, kept
+   * (acknowledged) when a live Credit Note keeps Mark annulled from it.
+   */
+  unrecorded_annulment: OperatorUnrecordedAnnulment | null;
+};
+
+/**
+ * An Unrecorded Annulment (#750): when the Closing Sweep found the SRI
+ * reporting the factura annulled, the status call that read it, and the
+ * operator's acknowledgement, null until given.
+ */
+export type OperatorUnrecordedAnnulment = {
+  found_at: string;
+  attempt_id: number | null;
+  acknowledged_by: string | null;
+  acknowledged_at: string | null;
 };
 
 /** One line as recorded, with its arithmetic. */
@@ -1292,6 +1311,146 @@ export type OperatorInvoiceEcuador = {
   authorization_date: string | null;
 };
 
+/**
+ * One Mark annulled on a factura (#745, spec #742, ADR 0078), as the
+ * annulments ledger keeps it: the state it was annulled from, who, when, the
+ * optional note and whether the operator acknowledged a late annulment.
+ * `reinstated_at` is null while it stands.
+ */
+export type OperatorInvoiceAnnulment = {
+  from_status: "pending" | "needs_attention" | "authorized";
+  annulled_by: string;
+  annulled_at: string;
+  note: string | null;
+  late_acknowledged: boolean;
+  reinstated_at: string | null;
+  /** The buyer's Annulment Notice on this annulment (#748). */
+  notice: OperatorAnnulmentNotice;
+  /** Who reinstated it (#749), null while it stands. */
+  reinstated_by: string | null;
+  /** The note left with the Reinstate, null when none was left. */
+  reinstate_note: string | null;
+  /**
+   * The reinstatement notice (#749): `owed` when the buyer was sent the
+   * Annulment Notice and no Credit Note follows, so the factura is mailed
+   * again with its RIDE and XML; `sent` with its instant; `not_owed`. Null
+   * while the annulment stands.
+   */
+  reinstatement_notice: { state: "owed" | "sent" | "not_owed"; sent_at: string | null } | null;
+  /**
+   * The annulment's own check as it ended or stands: the verdict, since
+   * when, and every ask. Kept on a reinstated annulment as the evidence it
+   * was reinstated on; null for one recorded before the check existed.
+   */
+  check_trail: {
+    verdict: AnnulmentVerdict;
+    since: string | null;
+    asks: { asked_at: string; reading: StatusReading; manual: boolean }[];
+  } | null;
+  /**
+   * True when this annulment recorded an Unrecorded Annulment the Closing
+   * Sweep found (#750): its check started confirmed, with no asks.
+   */
+  from_unrecorded: boolean;
+};
+
+/**
+ * Where the buyer's Annulment Notice stands (#748, spec #742): `held` while
+ * the Annulment Check is checking or at mismatch (waiting for the SRI to
+ * report ANULADO), `due` once it is confirmed or unconfirmed and the next
+ * tick or a retry will send it, `sent` with its instant, `dropped` (a
+ * Reinstate withdrew it unsent) or `not_owed` (a manual Tax Invoice, or a
+ * factura the buyer was never sent).
+ */
+export type OperatorAnnulmentNotice = {
+  state: "held" | "due" | "sent" | "dropped" | "not_owed";
+  sent_at: string | null;
+};
+
+/** Where an annulled factura's Annulment Check stands (#746). */
+export type AnnulmentVerdict = "checking" | "confirmed" | "mismatch" | "unconfirmed";
+
+/** One reading of the SRI's status service. */
+export type StatusReading = "annulled" | "authorized" | "none";
+
+/**
+ * The Annulment Check of an annulled factura (#746, spec #742, ADR 0078): the
+ * verdict and the instant of the ask that reached it (null while checking),
+ * the next scheduled ask (null when none will come) and when the schedule
+ * ends (null once confirmed, and on an annulment recorded before the check
+ * existed, which reads unconfirmed with `scheduled` false), every ask made,
+ * and every ConsultaComprobante answer since the annulment was recorded, with
+ * the SRI's raw messages and the reason on a no reading.
+ */
+export type OperatorAnnulmentCheck = {
+  verdict: AnnulmentVerdict;
+  scheduled: boolean;
+  since: string | null;
+  next_ask_at: string | null;
+  asks_until: string | null;
+  asks: { asked_at: string; reading: StatusReading; manual: boolean }[];
+  answers: {
+    attempt_id: number;
+    started_at: string;
+    service: string;
+    reading: StatusReading;
+    messages: OperatorInvoiceMessage[];
+    error: string | null;
+  }[];
+};
+
+/**
+ * The Annulment Window at the moment of the read: day 7 of the month after
+ * the Emission Date, to the end of that day in Guayaquil, never the SRI's
+ * holiday rollover; the warning stretch from day 1 of that month. Every date
+ * is the API's, YYYY-MM-DD, so the page never computes one.
+ */
+export type OperatorAnnulmentWindow = {
+  issued_on: string;
+  deadline: string;
+  warning_from: string;
+  today: string;
+  closes_at: string;
+  open: boolean;
+  warning: boolean;
+  days_left: number;
+  days_total: number;
+};
+
+/** What the SRI portal's annulment form asks for, ready to copy. */
+export type OperatorAnnulmentPortal = {
+  access_key: string;
+  /** On an authorized document only. */
+  authorization_date: string | null;
+  /** The same authorization's day as the portal's form takes it, DD/MM/YYYY in Guayaquil (#752). */
+  authorization_day: string | null;
+  /** Exactly as the signed XML carries it, spaces included. */
+  receptor_id: string;
+  receptor_email: string;
+  environment: EcuadorIssuerEnvironment;
+};
+
+/**
+ * One follow-up an annulled factura's chooser offers (#747): Issue again,
+ * Reissue and Reverse the Sale on a standing Sale's factura, "nothing
+ * follows" on a reversed Sale's, "type it again by hand" on a manual Tax
+ * Invoice. Admitted, or refused with the code its press would answer
+ * (INVOICE_ANNULMENT_MISMATCH while the SRI still reports it authorized).
+ */
+export type OperatorAnnulmentFollowUp = {
+  kind: "issue_again" | "reissue" | "reverse_sale" | "nothing_follows" | "type_again";
+  admitted: boolean;
+  refusal: { code: string; message: string } | null;
+};
+
+/** Whether Mark annulled is admitted on a factura as it stands, before anything is typed. */
+export type OperatorInvoiceAnnulability = {
+  admitted: boolean;
+  refusal: { code: string; message: string } | null;
+  window: OperatorAnnulmentWindow | null;
+  portal: OperatorAnnulmentPortal | null;
+};
+
 /** One Tax Invoice in full. `issuer` and `ecuador` are null until the document is signed (#473). */
 export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
   issuer: OperatorInvoiceIssuerSnapshot | null;
@@ -1356,6 +1515,39 @@ export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
    * answers exactly as one refused after it.
    */
   refused_by_number: boolean;
+  /**
+   * A factura's Mark annulled (#745): its annulments ledger, the one
+   * standing and those since reinstated, and whether the act is admitted on
+   * it now, with the window and the portal's fields. Both null on a Credit
+   * Note, whose Mark annulled keeps no record and has no window.
+   */
+  annulment: {
+    current: OperatorInvoiceAnnulment | null;
+    past: OperatorInvoiceAnnulment[];
+    /** The Annulment Check (#746), null unless the factura is annulled. */
+    check: OperatorAnnulmentCheck | null;
+    /**
+     * The follow-up chooser (#747), null unless the factura is annulled, and
+     * empty where a factura already stands for its Sale. Each card is
+     * admitted, or refused with the code its press would answer.
+     */
+    follow_ups: OperatorAnnulmentFollowUp[] | null;
+    /**
+     * Whether Reinstate is admitted (#749), null unless the factura is
+     * annulled: only once the window has closed with the check at mismatch.
+     * Refused with the code its press would answer.
+     */
+    reinstate: { admitted: boolean; refusal: { code: string; message: string } | null } | null;
+    /**
+     * Whether the acknowledgement of an Unrecorded Annulment is admitted
+     * (#750), null unless the factura carries one: only where a live Credit
+     * Note (or Reissue successor) refuses Mark annulled. Refused with the code
+     * its press would answer - INVOICE_ANNUL_INSTEAD where Mark annulled is
+     * the act, INVOICE_UNRECORDED_ANNULMENT_ACKNOWLEDGED once given.
+     */
+    acknowledge: { admitted: boolean; refusal: { code: string; message: string } | null } | null;
+  } | null;
+  annulability: OperatorInvoiceAnnulability | null;
   has_authorization_xml: boolean;
   /**
    * The two hints about who holds the document (#455, tightened by #516),
@@ -1443,6 +1635,50 @@ export type OperatorRecipientWarningCount = {
  */
 export async function fetchOperatorRecipientWarningCount(): Promise<OperatorRecipientWarningCount> {
   return fetchEventsJSON<OperatorRecipientWarningCount>("/api/operator/invoicing/recipient-warnings/count");
+}
+
+// ---- The Closing Sweep (#750, ADR 0078) ---------------------------------
+
+/**
+ * The Operator Dashboard's Closing Sweep line: the latest month whose sweep
+ * has ended (`YYYY-MM`), how many of its production facturas couldn't be
+ * swept (no reading from the SRI), and how many of those a Sweep again has
+ * made due that no tick has asked yet. Zero unswept draws nothing.
+ */
+export type OperatorClosingSweepStatus = {
+  month: string;
+  unswept_count: number;
+  due_again_count: number;
+};
+
+const CLOSING_SWEEP_PATH = "/api/operator/invoicing/closing-sweep";
+
+/** The dashboard's Closing Sweep line. Alive whatever Sale Invoicing's flag. */
+export async function fetchOperatorClosingSweep(): Promise<OperatorClosingSweepStatus> {
+  return fetchEventsJSON<OperatorClosingSweepStatus>(CLOSING_SWEEP_PATH);
+}
+
+/**
+ * Sweep again: makes just the unswept facturas of that month due on the
+ * Drainer's next tick, and answers the line as it then stands.
+ */
+export async function sweepAgainOperatorClosingSweep(): Promise<OperatorClosingSweepStatus> {
+  return fetchEventsJSON<OperatorClosingSweepStatus>(`${CLOSING_SWEEP_PATH}/sweep-again`, { method: "POST" });
+}
+
+/**
+ * Acknowledges a factura's Unrecorded Annulment where a live Credit Note
+ * keeps Mark annulled from recording it (#750), and returns the factura as
+ * it then stands: who and when on `unrecorded_annulment`, the queue entry
+ * cleared, the flag kept. Refused with INVOICE_ANNUL_INSTEAD where Mark
+ * annulled is admitted, INVOICE_UNRECORDED_ANNULMENT_ACKNOWLEDGED once
+ * given and INVOICE_NO_UNRECORDED_ANNULMENT on a factura carrying none.
+ */
+export async function acknowledgeUnrecordedAnnulment(id: string): Promise<OperatorInvoiceDetail> {
+  return fetchEventsJSON<OperatorInvoiceDetail>(
+    `${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/acknowledge-unrecorded-annulment`,
+    { method: "POST" },
+  );
 }
 
 // ---- The Uninvoiced House Sales (#507-#509, ADR 0064) ------------------
@@ -1545,6 +1781,28 @@ export async function backfillOperatorUninvoicedHouseSales(ticketSaleIds: string
  * be signed — so the queue says why without a click through.
  */
 export type OperatorNeedsAttentionItem = OperatorInvoiceListItem & {
+  /**
+   * Which door of the union put it there (#746, #747): parked; abandoned or
+   * annulled with no factura standing for its standing Sale; or annulled
+   * with its Annulment Check at mismatch - the SRI still reports it
+   * authorized - since `mismatch_since`, which wins where an annulled Sale
+   * Invoice comes in by both.
+   */
+  attention_reason: "needs_attention" | "abandoned" | "annulled" | "annulment_mismatch" | "unrecorded_annulment";
+  mismatch_since: string | null;
+  /** When the factura was annulled, on the `annulled` reason alone: the queue's "since" for it. */
+  annulled_at: string | null;
+  /**
+   * Reinstate is admitted on the entry (#749): at mismatch once the factura's
+   * Annulment Window has closed. False on every other reason.
+   */
+  reinstate_admitted: boolean;
+  /**
+   * On the `unrecorded_annulment` reason (#750): the acknowledgement is the
+   * act the entry offers, because a live Credit Note refuses Mark annulled.
+   * False otherwise, where Mark annulled on the factura's page records it.
+   */
+  acknowledge_admitted: boolean;
   messages: OperatorInvoiceMessage[];
 };
 
@@ -1563,7 +1821,9 @@ const NEEDS_ATTENTION_PATH = "/api/operator/invoicing/needs-attention";
 /**
  * The needs-attention queue, longest waiting first: every kind parked
  * `needs_attention`, and — since #581 — every `abandoned` Sale Invoice with
- * no live successor whose Ticket Sale still stands. A union of two
+ * no live successor whose Ticket Sale still stands, and - since #746 - every
+ * annulled factura whose Annulment Check stands at mismatch, and - since
+ * #750 - every unacknowledged Unrecorded Annulment. A union of
  * conditions, not one status: a Sale can sit abandoned-and-unreplaced
  * between Abandon (#578) and Issue again (#580), and this is where it is
  * seen. It self-clears when a replacement is owed.
@@ -1586,15 +1846,54 @@ export async function fetchOperatorNeedsAttentionCount(): Promise<OperatorNeedsA
 }
 
 /**
+ * The confirm Mark annulled takes on a factura (#745): the number typed in
+ * full, an optional note, and past the Annulment Window the operator's
+ * acknowledgement that the portal took it. A Credit Note takes none.
+ */
+export type AnnulInvoiceConfirm = {
+  number: string;
+  note: string | null;
+  late_acknowledged: boolean;
+};
+
+/**
  * Records that the operator annulled the document by hand at the SRI portal
  * (#477) and returns it as it then stands: `annulled`, with who and when.
- * Nothing is sent to the SRI. Refused with INVOICE_NOT_ANNULLABLE outside
- * `pending` and `needs_attention`, and with INVOICE_NOT_ISSUED on a document
- * never signed. Irreversible.
+ * Nothing is sent to the SRI. On a factura (#745) it is admitted from
+ * `pending`, `needs_attention` and `authorized` with the confirm; on a
+ * Credit Note from `pending` and `needs_attention`, with no body.
+ * A Credit Note's is irreversible. A factura returns to `authorized` only
+ * by Reinstate (reinstateOperatorInvoice), once its Annulment Window has
+ * closed with the Annulment Check at mismatch; the annulment stays on file
+ * as history.
  */
-export async function annulOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
+export async function annulOperatorInvoice(id: string, confirm?: AnnulInvoiceConfirm): Promise<OperatorInvoiceDetail> {
   return fetchEventsJSON<OperatorInvoiceDetail>(`${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/annul`, {
     method: "POST",
+    ...(confirm ? { body: JSON.stringify(confirm) } : {}),
+  });
+}
+
+/** The confirm Reinstate takes (#749): the number typed in full and an optional note. */
+export type ReinstateInvoiceConfirm = {
+  number: string;
+  note: string | null;
+};
+
+/**
+ * Returns an annulled factura to authorized because the SRI never took the
+ * annulment and its window has closed (#749, ADR 0078), and returns it as it
+ * then stands. Admitted only while the Annulment Check stands at mismatch
+ * after the window; it may owe a Credit Note (a reversed Sale, or a
+ * successor standing for the Sale). Refused with INVOICE_REINSTATE_WINDOW_OPEN,
+ * INVOICE_REINSTATE_NOT_MISMATCH, INVOICE_REINSTATE_UNAUTHORIZED (a factura
+ * annulled before it stored its authorization, which the SRI did not
+ * return), INVOICE_NOT_REINSTATABLE and INVOICE_NUMBER_MISMATCH.
+ */
+export async function reinstateOperatorInvoice(id: string, confirm: ReinstateInvoiceConfirm): Promise<OperatorInvoiceDetail> {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/reinstate`, {
+    method: "POST",
+    body: JSON.stringify(confirm),
   });
 }
 
@@ -1640,10 +1939,12 @@ export type ReissueInvoiceBody = {
  * Reissues an authorized Sale Invoice to a corrected Recipient (#483, ADR
  * 0061): owes a Credit Note against it and a corrected Sale Invoice in one
  * act, and returns the CORRECTED document — a new id — as it stands, owed.
- * Refused with INVOICE_MANUAL_NOT_REISSUABLE, CREDIT_NOTE_NOT_REISSUABLE,
- * INVOICE_NOT_AUTHORIZED, INVOICE_SALE_REVERSED, REISSUE_IN_FLIGHT,
- * INVOICE_SUPERSEDED or INVOICE_ALREADY_CREDITED, each by code, and with
- * VALIDATION_FAILED naming the fields.
+ * On an annulled Sale Invoice (#747) it owes the corrected factura alone, no
+ * Credit Note. Refused with INVOICE_MANUAL_NOT_REISSUABLE,
+ * CREDIT_NOTE_NOT_REISSUABLE, INVOICE_NOT_AUTHORIZED, INVOICE_SALE_REVERSED,
+ * REISSUE_IN_FLIGHT, INVOICE_SUPERSEDED, INVOICE_ALREADY_CREDITED,
+ * INVOICE_ALREADY_REPLACED or INVOICE_ANNULMENT_MISMATCH, each by code, and
+ * with VALIDATION_FAILED naming the fields.
  */
 export async function reissueOperatorInvoice(id: string, body: ReissueInvoiceBody): Promise<OperatorInvoiceDetail> {
   return fetchEventsJSON<OperatorInvoiceDetail>(`${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/reissue`, {
@@ -1667,7 +1968,9 @@ export async function reissueOperatorInvoice(id: string, body: ReissueInvoiceBod
  * secuencial; the abandoned number stays consumed and is never handed out
  * again. Refused with INVOICE_MANUAL_NOT_ISSUABLE_AGAIN,
  * CREDIT_NOTE_NOT_ISSUABLE_AGAIN, INVOICE_NOT_TERMINALLY_DEAD,
- * INVOICE_SALE_REVERSED or INVOICE_ALREADY_REPLACED, each by code.
+ * INVOICE_SALE_REVERSED, INVOICE_ALREADY_REPLACED or, on an annulled one the
+ * SRI still reports authorized (#747), INVOICE_ANNULMENT_MISMATCH, each by
+ * code.
  */
 export async function issueOperatorInvoiceAgain(id: string, note: string | null): Promise<OperatorInvoiceDetail> {
   return fetchEventsJSON<OperatorInvoiceDetail>(`${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/issue-again`, {
@@ -1713,10 +2016,11 @@ export type OperatorInvoiceActionDetail = OperatorInvoiceDetail & {
 
 /**
  * Asks the SRI again about a non-authorized invoice (#455) and returns it as
- * it then stands, with the attempt the check recorded. Refused with
- * INVOICE_ALREADY_AUTHORIZED on an authorized one, INVOICE_ANNULLED on an
- * annulled one, INVOICE_WITHDRAWN on a withdrawn one, and INVOICE_NOT_ISSUED
- * on one still owed and unsigned.
+ * it then stands, with the attempt the check recorded. On an annulled one it
+ * makes one ask of the SRI's ConsultaComprobante instead (#744), up to three
+ * `status` attempts, and changes nothing. Refused with
+ * INVOICE_ALREADY_AUTHORIZED on an authorized one, INVOICE_WITHDRAWN on a
+ * withdrawn one, and INVOICE_NOT_ISSUED on one still owed and unsigned.
  */
 export async function checkOperatorInvoice(id: string): Promise<OperatorInvoiceActionDetail> {
   return fetchEventsJSON<OperatorInvoiceActionDetail>(`${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/check`, {

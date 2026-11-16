@@ -13,12 +13,15 @@ import (
 // The Customer Area's view of a Sale's documents (#475, ADR 0060): what the
 // buyer sees on their Sale's card, and the download behind it.
 //
-// THE BUYER IS TOLD TWO THINGS AND NEVER A THIRD. A document is either
-// authorized — here it is, download it — or on its way; owed, pending and
-// needs_attention are all "on its way", because whatever the authority said
-// or the platform could not do is the Operator's to read and remedy, never
-// the buyer's problem to be handed (#471 story 15). No message, no attempt,
-// no number travels here. A document that was withdrawn was never sent and
+// THE BUYER IS TOLD TWO THINGS, AND A THIRD ONLY OF AN ANNULMENT. A
+// document is either authorized - here it is, download it - or on its way;
+// owed, pending and needs_attention are all "on its way", because whatever
+// the authority said or the platform could not do is the Operator's to read
+// and remedy, never the buyer's problem to be handed (#471 story 15). A Sale
+// Invoice authorized and then annulled at the SRI is the one third word
+// (#748): `annulled`, with no download, because the buyer could have held it
+// and a replacement points at it. No message, no attempt, no number travels
+// here. A document that was withdrawn was never sent and
 // is never shown: to the buyer it does not exist, exactly as the sale it
 // belonged to no longer stands.
 //
@@ -55,6 +58,10 @@ const (
 	// CustomerDocumentOnItsWay: owed, pending or parked for an operator —
 	// the buyer is told the same thing in every case.
 	CustomerDocumentOnItsWay CustomerDocumentStatus = "on_its_way"
+	// CustomerDocumentAnnulled: a Sale Invoice authorized and then annulled
+	// at the SRI (#748, spec #742). Listed, labelled, never
+	// downloadable: the Annulment Notice told the buyer to discard it.
+	CustomerDocumentAnnulled CustomerDocumentStatus = "annulled"
 )
 
 // CustomerDocumentRole is what a document is to the Sale today.
@@ -78,7 +85,8 @@ type CustomerDocument struct {
 	// Kind is `sale` (a factura) or `credit_note`; the card names each by
 	// its own word.
 	Kind string `json:"kind"`
-	// Status is `authorized` or `on_its_way`, and nothing else.
+	// Status is `authorized`, `on_its_way`, or `annulled` for a Sale Invoice
+	// annulled at the SRI (#748), and nothing else.
 	Status CustomerDocumentStatus `json:"status"`
 	// DownloadURL is the API path of the signed XML once authorized, null
 	// before: the card draws the download exactly where this is set.
@@ -207,6 +215,19 @@ func customerDocumentView(row *repository.InvoiceRow) (CustomerDocument, bool) {
 		doc.RideURL = &rideURL
 	case invoicing.InvoiceStatusOwed, invoicing.InvoiceStatusPending, invoicing.InvoiceStatusNeedsAttention:
 		doc.Status = CustomerDocumentOnItsWay
+	case invoicing.InvoiceStatusAnnulled:
+		// A Sale Invoice annulled at the SRI stays on the buyer's list,
+		// labelled, so a replacement's link to it makes sense; it offers no
+		// download, and both routes refuse it (they require authorized).
+		// Only one the SRI AUTHORIZED before the annulment, which the buyer
+		// could have downloaded here even if its mail never arrived: one
+		// annulled from pending or needs_attention was never theirs to
+		// hold, carries no authorization, and stays unlisted as an
+		// abandoned one is.
+		if inv.Kind != invoicing.DocumentKindSale || row.Ecuador == nil || row.Ecuador.Authorization == nil {
+			return CustomerDocument{}, false
+		}
+		doc.Status = CustomerDocumentAnnulled
 	default:
 		// withdrawn, annulled, abandoned, and the manual-only refusals a
 		// Sale document never carries: nothing the buyer is shown. An

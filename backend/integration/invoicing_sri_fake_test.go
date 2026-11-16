@@ -26,6 +26,11 @@ import (
 // Every scenario the ticket names is a closure a test installs: RECIBIDA,
 // DEVUELTA with messages, AUTORIZADO with the authorization XML, NO AUTORIZADO
 // with messages, EN PROCESAMIENTO, HTTP 500 and a hang past the budget.
+//
+// ConsultaComprobante, the status service (#744), is a third path with a
+// closure of its own: AUTORIZADO or ANULADO, a RECHAZADA refusal, a 302 to an
+// HTML page, an HTML body, a reset (status consultaReset), and scripted
+// sequences of them (consultaSequence).
 
 var (
 	sriStub *fakeSRI
@@ -39,6 +44,9 @@ var (
 var (
 	testPollDelays = []time.Duration{5 * time.Millisecond, 5 * time.Millisecond, 5 * time.Millisecond}
 	testPollBudget = 400 * time.Millisecond
+	// testStatusAskSpacing collapses the 5 s between the calls of one ask
+	// of ConsultaComprobante (#744).
+	testStatusAskSpacing = time.Millisecond
 )
 
 type receivedComprobante struct {
@@ -60,6 +68,15 @@ type fakeSRI struct {
 	authorization func(accessKey string) (int, string)
 	sleep         time.Duration
 
+	// consulta answers consultarEstadoAutorizacionComprobante; consultas is
+	// the clave of every call it took, in order. A 3xx status is sent with a
+	// Location header, and consultaReset drops the connection unanswered.
+	consulta  func(accessKey string) (int, string)
+	consultas []string
+	// authorizationQueries counts autorizacionComprobante calls, so a test
+	// can see a service was NOT asked.
+	authorizationQueries int
+
 	// A one-shot gate on the next autorización call (holdAuthorization):
 	// the fake signals on holdArrived once the query is in, and answers
 	// only once holdRelease is closed — so a test can do something to the
@@ -76,6 +93,7 @@ func startSRIStub() *fakeSRI {
 	f := &fakeSRI{}
 	f.reception = func(accessKey string) (int, string) { return http.StatusOK, receivedSOAP(accessKey) }
 	f.authorization = func(accessKey string) (int, string) { return http.StatusOK, authorizedSOAP(accessKey) }
+	f.consulta = func(accessKey string) (int, string) { return http.StatusOK, consultaSOAP(accessKey, "AUTORIZADO") }
 	f.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		body := string(raw)
@@ -98,7 +116,15 @@ func startSRIStub() *fakeSRI {
 			if m := claveInQuery.FindStringSubmatch(body); m != nil {
 				key = m[1]
 			}
+			f.authorizationQueries++
 			status, out = f.authorization(key)
+		case strings.HasPrefix(r.URL.Path, sri.ConsultaPath):
+			key := ""
+			if m := claveInXML.FindStringSubmatch(body); m != nil {
+				key = m[1]
+			}
+			f.consultas = append(f.consultas, key)
+			status, out = f.consulta(key)
 		default:
 			status, out = http.StatusNotFound, ""
 		}
@@ -115,6 +141,15 @@ func startSRIStub() *fakeSRI {
 		}
 		if sleep > 0 {
 			time.Sleep(sleep)
+		}
+		if status == consultaReset {
+			if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+				_ = conn.Close()
+			}
+			return
+		}
+		if status >= 300 && status < 400 {
+			w.Header().Set("Location", "https://181.113.227.222/")
 		}
 		w.Header().Set("Content-Type", "text/xml; charset=utf-8")
 		w.WriteHeader(status)
@@ -141,10 +176,13 @@ func (f *fakeSRI) reset() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.received = nil
+	f.consultas = nil
+	f.authorizationQueries = 0
 	f.sleep = 0
 	f.holdArrived, f.holdRelease = nil, nil
 	f.reception = func(accessKey string) (int, string) { return http.StatusOK, receivedSOAP(accessKey) }
 	f.authorization = func(accessKey string) (int, string) { return http.StatusOK, authorizedSOAP(accessKey) }
+	f.consulta = func(accessKey string) (int, string) { return http.StatusOK, consultaSOAP(accessKey, "AUTORIZADO") }
 }
 
 // holdAuthorization gates the NEXT autorización call: arrived is closed
@@ -170,6 +208,7 @@ func (f *fakeSRI) answerAsUsual() {
 	f.sleep = 0
 	f.reception = func(accessKey string) (int, string) { return http.StatusOK, receivedSOAP(accessKey) }
 	f.authorization = func(accessKey string) (int, string) { return http.StatusOK, authorizedSOAP(accessKey) }
+	f.consulta = func(accessKey string) (int, string) { return http.StatusOK, consultaSOAP(accessKey, "AUTORIZADO") }
 }
 
 func (f *fakeSRI) setReception(fn func(accessKey string) (int, string)) {
@@ -182,6 +221,28 @@ func (f *fakeSRI) setAuthorization(fn func(accessKey string) (int, string)) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.authorization = fn
+}
+
+// setConsulta installs the ConsultaComprobante answer.
+func (f *fakeSRI) setConsulta(fn func(accessKey string) (int, string)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.consulta = fn
+}
+
+// consultaCalls is the clave of every ConsultaComprobante call so far.
+func (f *fakeSRI) consultaCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.consultas...)
+}
+
+// authorizationQueryCount is how many autorizacionComprobante calls the
+// fake has taken since its last reset.
+func (f *fakeSRI) authorizationQueryCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.authorizationQueries
 }
 
 func (f *fakeSRI) setSleep(d time.Duration) {
@@ -253,6 +314,62 @@ func emptyAuthorizationSOAP(accessKey string) string {
 	return autorizacionEnvelope(accessKey, `<autorizaciones/>`)
 }
 
+// consultaReset is the status a consulta closure answers to have the fake
+// drop the connection unanswered, as the SRI resets the dev machine (#716).
+const consultaReset = -1
+
+// consultaSOAP is a ConsultaComprobante success: estadoAutorizacion and no
+// estadoConsulta, the shape the #716 probe recorded.
+func consultaSOAP(accessKey, estado string) string {
+	return consultaEnvelope(fmt.Sprintf(
+		`<claveAcceso>%s</claveAcceso><mensajes/><estadoAutorizacion>%s</estadoAutorizacion><tipoComprobante>Factura</tipoComprobante><rucEmisor>1790012345001</rucEmisor><fechaAutorizacion>2026-07-07T12:00:05-05:00</fechaAutorizacion>`,
+		accessKey, estado))
+}
+
+// consultaRefusedSOAP is a ConsultaComprobante refusal: estadoConsulta
+// RECHAZADA with its mensaje, the wrong negative the SRI gives about two
+// times in ten (#716).
+func consultaRefusedSOAP(accessKey string) string {
+	return consultaEnvelope(fmt.Sprintf(
+		`<estadoConsulta>RECHAZADA</estadoConsulta><claveAcceso>%s</claveAcceso><mensajes>%s</mensajes>`,
+		accessKey, sriMessage("99", "No es posible validar la clave de acceso ya que la fecha de emision esta fuera del rango permitido.", "", "ERROR")))
+}
+
+// consultaFoundHTML is the HTML page the SRI's edge redirects a consulta to.
+const consultaFoundHTML = `<html><head><title>302 Found</title></head><body><h1>Found</h1></body></html>`
+
+func consultaEnvelope(inner string) string {
+	return `<?xml version="1.0" encoding="UTF-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><ns2:consultarEstadoAutorizacionComprobanteResponse xmlns:ns2="http://ec.gob.sri.ws.consultas"><return>` +
+		inner +
+		`</return></ns2:consultarEstadoAutorizacionComprobanteResponse></soap:Body></soap:Envelope>`
+}
+
+// consultaSequence scripts the status service call by call: the first call
+// gets the first answer, and so on, the last answer repeating once the
+// script is spent. Installed with setConsulta, whose lock it runs under.
+func consultaSequence(answers ...func(accessKey string) (int, string)) func(accessKey string) (int, string) {
+	next := 0
+	return func(accessKey string) (int, string) {
+		answer := answers[min(next, len(answers)-1)]
+		next++
+		return answer(accessKey)
+	}
+}
+
+// The status service's answers, one per kind, for consultaSequence.
+func consultaAuthorized(accessKey string) (int, string) {
+	return http.StatusOK, consultaSOAP(accessKey, "AUTORIZADO")
+}
+func consultaAnnulled(accessKey string) (int, string) {
+	return http.StatusOK, consultaSOAP(accessKey, "ANULADO")
+}
+func consultaRefused(accessKey string) (int, string) {
+	return http.StatusOK, consultaRefusedSOAP(accessKey)
+}
+func consultaRedirected(string) (int, string) { return http.StatusFound, consultaFoundHTML }
+func consultaHTML(string) (int, string)       { return http.StatusOK, consultaFoundHTML }
+func consultaDropped(string) (int, string)    { return consultaReset, "" }
+
 func recepcionEnvelope(inner string) string {
 	return `<?xml version="1.0" encoding="UTF-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><ns2:validarComprobanteResponse xmlns:ns2="http://ec.gob.sri.ws.recepcion"><RespuestaRecepcionComprobante>` +
 		inner +
@@ -305,7 +422,8 @@ func startSRIEnv(ctx context.Context, connStr string, email *platform.CaptureEma
 	}
 	// Milliseconds, not the production ~15 s: the tests prove the state
 	// machine, not that Go can wait.
-	app.InvoicingService.WithPollSchedule(testPollDelays, testPollBudget).WithSaleInvoiceKick(false)
+	app.InvoicingService.WithPollSchedule(testPollDelays, testPollBudget).WithSaleInvoiceKick(false).
+		WithStatusAskSpacing(testStatusAskSpacing)
 	sriApp = app
 
 	sriSrv = httptest.NewServer(server.NewHandler(app))

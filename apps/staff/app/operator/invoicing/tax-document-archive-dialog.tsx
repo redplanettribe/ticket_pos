@@ -41,7 +41,9 @@ type SummaryState =
 
 /**
  * What the archive of the chosen range will hold (#631): the counts, the
- * warning that unsettled documents are left out, or the empty-period message.
+ * warning that unsettled documents are left out, or the empty-period message,
+ * and the annulled facturas and Unrecorded Annulments its readme lists
+ * without XML (#751).
  * Nothing here holds the download back — a failed read says so and leaves the
  * button alone.
  */
@@ -69,6 +71,14 @@ function TaxDocumentArchiveSummaryNote({ state }: { state: SummaryState }) {
       {unsettled > 0 ? (
         <Alert variant="warning">
           <AlertDescription>{t("summaryUnsettled", { count: unsettled })}</AlertDescription>
+        </Alert>
+      ) : null}
+      {display.annulled > 0 ? (
+        <p className="text-sm text-muted-foreground">{t("summaryAnnulled", { count: display.annulled })}</p>
+      ) : null}
+      {display.unrecorded > 0 ? (
+        <Alert variant="warning">
+          <AlertDescription>{t("summaryUnrecorded", { count: display.unrecorded })}</AlertDescription>
         </Alert>
       ) : null}
     </div>

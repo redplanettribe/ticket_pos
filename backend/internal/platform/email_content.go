@@ -1911,6 +1911,26 @@ var (
 		"This corrected tax invoice (factura) replaces the earlier one for this purchase, which the credit note (nota de crédito) you received cancelled.",
 		"Esta factura corregida sustituye a la anterior de esta compra, que quedó sin efecto con la nota de crédito que recibió.",
 	)
+	// The factura that follows an annulment at the SRI (#748): the reader was
+	// sent the earlier factura and then the Annulment Notice, and must know
+	// this one stands in its place. No credit note is named, because none
+	// was ever sent.
+	taxDocumentSaleInvoiceReplacesAnnulledCopy = translated(
+		"This tax invoice (factura) replaces the earlier one for this purchase, which was annulled at the SRI.",
+		"Esta factura sustituye a la anterior de esta compra, que fue anulada en el SRI.",
+	)
+	// The reinstatement notice (#749, spec #742, ADR 0078): the reader was
+	// sent this factura and then the Annulment Notice telling them to discard
+	// it. The SRI never took the annulment, so the factura stands, and the
+	// mail hands it over again with words that undo the notice's.
+	taxDocumentReinstatedSubjectCopy = translated(
+		"Your tax invoice (factura) for %s stands",
+		"Su factura de %s sigue vigente",
+	)
+	taxDocumentReinstatedOpeningCopy = translated(
+		"Hi %s,\n\nWe told you that the tax invoice (factura) %s for your purchase for %s was annulled at the SRI. The SRI never took that annulment: the factura stands and is valid. Please keep it; we attach it again.\nReference: %s",
+		"Hola %s:\n\nLe informamos anteriormente que la factura %s de su compra de %s había sido anulada en el SRI. El SRI no registró esa anulación: la factura sigue vigente y es válida. Consérvela; se la adjuntamos de nuevo.\nReferencia: %s",
+	)
 	// Both forms the SRI obliges the emisor to deliver (#496, ADR 0062),
 	// named in the order they are attached: the XML is the record, the RIDE
 	// its reading.
@@ -1930,6 +1950,9 @@ var (
 // Subject is the delivery's subject line, naming the document and the Event
 // in the Sale's language.
 func (d TaxDocumentDelivery) Subject() string {
+	if d.Reinstated {
+		return fmt.Sprintf(taxDocumentReinstatedSubjectCopy.in(d.Locale), d.EventName)
+	}
 	if d.Kind == TaxDocumentKindCreditNote {
 		return fmt.Sprintf(taxDocumentCreditNoteSubjectCopy.in(d.Locale), d.EventName)
 	}
@@ -1947,12 +1970,70 @@ func (d TaxDocumentDelivery) Text() string {
 		}
 	}
 	text := fmt.Sprintf(opening.in(d.Locale), d.CustomerName, d.EventName, d.Reference)
-	if d.Kind != TaxDocumentKindCreditNote && d.Replaces == TaxDocumentReplacesCredited {
-		text += "\n\n" + taxDocumentSaleInvoiceSupersedesCopy.in(d.Locale)
+	if d.Reinstated {
+		text = fmt.Sprintf(taxDocumentReinstatedOpeningCopy.in(d.Locale), d.CustomerName, d.Number, d.EventName, d.Reference)
+	} else if d.Kind != TaxDocumentKindCreditNote {
+		switch d.Replaces {
+		case TaxDocumentReplacesCredited:
+			text += "\n\n" + taxDocumentSaleInvoiceSupersedesCopy.in(d.Locale)
+		case TaxDocumentReplacesAnnulled:
+			text += "\n\n" + taxDocumentSaleInvoiceReplacesAnnulledCopy.in(d.Locale)
+		}
 	}
 	text += "\n\n" + taxDocumentAttachmentCopy.in(d.Locale)
 	if d.CustomerAreaURL != "" {
 		text += "\n\n" + fmt.Sprintf(taxDocumentLinkCopy.in(d.Locale), d.CustomerAreaURL)
+	}
+	return text
+}
+
+// The Annulment Notice (#748, spec #742, ADR 0078): the buyer learns that a
+// factura they were sent was annulled at the SRI. The opening names the
+// document by its number, the purchase and the reference as one block, and
+// says the factura has no tax effect and is to be discarded. Then one line by
+// the Sale as it stands at send time: unchanged with a new factura to follow,
+// or nothing to follow. The Spanish standing line says the purchase and the
+// tickets are unchanged in so many words, because the Sale Voided mail says
+// "Su compra ... fue anulada" and a buyer must not read this as that.
+var (
+	annulmentNoticeSubjectCopy = translated(
+		"Your tax invoice (factura) for %s was annulled at the SRI",
+		"Su factura de %s fue anulada en el SRI",
+	)
+	annulmentNoticeOpeningCopy = translated(
+		"Hi %s,\n\nThe tax invoice (factura) %s for your purchase for %s was annulled at the SRI. It has no tax effect: please discard it, both the XML and the PDF (RIDE) we sent you.\nReference: %s",
+		"Hola %s:\n\nLa factura %s de su compra de %s fue anulada en el SRI. No tiene efecto tributario: descártela, tanto el XML como el PDF (RIDE) que le enviamos.\nReferencia: %s",
+	)
+	annulmentNoticeStandingCopy = translated(
+		"Your purchase and your tickets are unchanged. A new tax invoice (factura) will follow by email.",
+		"Su compra y sus entradas no cambian. Recibirá una nueva factura por correo.",
+	)
+	annulmentNoticeReversedCopy = translated(
+		"Nothing else follows: no new tax invoice (factura) will be sent.",
+		"No se enviará nada más: no habrá una nueva factura.",
+	)
+	annulmentNoticeLinkCopy = translated(
+		"You can see your purchase's documents after signing in:\n%s",
+		"Puede ver los documentos de su compra después de iniciar sesión:\n%s",
+	)
+)
+
+// Subject names the Event and that its factura was annulled.
+func (n AnnulmentNotice) Subject() string {
+	return fmt.Sprintf(annulmentNoticeSubjectCopy.in(n.Locale), n.EventName)
+}
+
+// Text is the notice's body: which factura, that it is void, what follows by
+// the Sale as it stands, and the way back to the Sale.
+func (n AnnulmentNotice) Text() string {
+	text := fmt.Sprintf(annulmentNoticeOpeningCopy.in(n.Locale), n.CustomerName, n.Number, n.EventName, n.Reference)
+	if n.SaleReversed {
+		text += "\n\n" + annulmentNoticeReversedCopy.in(n.Locale)
+	} else {
+		text += "\n\n" + annulmentNoticeStandingCopy.in(n.Locale)
+	}
+	if n.CustomerAreaURL != "" {
+		text += "\n\n" + fmt.Sprintf(annulmentNoticeLinkCopy.in(n.Locale), n.CustomerAreaURL)
 	}
 	return text
 }

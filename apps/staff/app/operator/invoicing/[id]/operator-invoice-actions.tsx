@@ -76,10 +76,12 @@ import {
  * asks and never sends.
  *
  * MARK ANNULLED (#477) is the third lever, offered only on a pending or
- * needs_attention document — where the operator may have annulled it by
+ * needs_attention CREDIT NOTE - where the operator may have annulled it by
  * hand at the SRI portal, which the SRI offers no web service for. It is a
  * record, not a request: nothing goes to the SRI, and it is irreversible,
- * so it is confirmed first.
+ * so it is confirmed first. A factura's Mark annulled is the annulment
+ * panel at the top of its page since #745 (operator-invoice-annulment.tsx),
+ * which admits an authorized one too and is confirmed by the typed number.
  *
  * ABANDON TAKES ITS PLACE WHERE THE NUMBER IS REFUSED (#578, ADR 0068). On
  * such a document there is nothing at the portal to have been annulled, so
@@ -125,7 +127,16 @@ export function OperatorInvoiceActions({
   const [abandonNote, setAbandonNote] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const levers = invoiceLevers(invoice.status, invoice.ecuador !== null, undefined, invoice.refused_by_number);
+  const levers = invoiceLevers(
+    invoice.status,
+    invoice.ecuador !== null,
+    {
+      kind: invoice.kind,
+      superseded_by_invoice_id: invoice.superseded_by_invoice_id,
+      credited_by_invoice_id: invoice.credited_by_invoice_id,
+    },
+    invoice.refused_by_number,
+  );
   const resendAskedAt = resendHintAskedAt(invoice);
   if (!hasInvoiceLevers(levers)) {
     return null;
@@ -245,11 +256,12 @@ export function OperatorInvoiceActions({
             </Button>
           ) : null}
         </div>
-        {levers.abandon ? (
+        {levers.abandon && invoice.kind === "credit_note" ? (
           // Why Mark annulled is gone and what stands in its place (#578,
           // ADR 0068). The operator reaching for it on a refused-by-number
           // document is reaching for the one act that would be a falsehood,
-          // and a lever that simply vanishes teaches nothing.
+          // and a lever that simply vanishes teaches nothing. On a factura
+          // the annulment panel says it, in its one refused sentence (#745).
           <p className="text-xs text-muted-foreground">{t("invoicingAnnulRefusedByNumber")}</p>
         ) : null}
         {levers.abandon ? <p className="text-xs text-muted-foreground">{t("invoicingAbandonHint")}</p> : null}

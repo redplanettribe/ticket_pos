@@ -27,7 +27,7 @@ type abandonInvoiceBody struct {
 // AbandonInvoice records that the authority never took the document.
 //
 // @Summary      Abandon a document the SRI refuses by number
-// @Description  Records that the SRI never took this document and never will - its recepción answer was 45, `ERROR SECUENCIAL REGISTRADO`, the authority refusing the NUMBER the document carries (ADR 0068) - and answers with the document as it then stands: status `abandoned`, `abandoned_by` the operator's email from the session, `abandoned_at` the moment and `abandon_note` the optional `note` (at most 500 characters). `abandoned` is a TERMINAL state of its own and not an annulment: it says the document was never a legal document, so nothing is owed at the SRI portal and nothing is ever declared for it, where `annulled` says the SRI held the document and the operator disowned it by hand there. Nothing is sent to or asked of the SRI. The row keeps its number, clave de acceso, signed XML, the SRI's last messages and every attempt, and the secuencial stays consumed - an abandoned number is never handed out again. `next_attempt_at` is cleared so the Sale Invoice Drainer never claims it again, and it leaves the needs-attention queue; a late `AUTORIZADO` for the clave is recorded in the attempts ledger and does not heal the row. Offered on any document kind, since the number is dead whoever typed it. Requires A FRESH CHECK STATUS, TWICE, IMMEDIATELY BEFOREHAND (ADR 0068 as amended): the last two attempts on the document's ledger must both be a `check` the SRI answered `unknown` (it holds nothing under the clave), started at least a minute apart, the later within the last 15 minutes. One such answer is not evidence, since the SRI gives it for documents it holds; a `received` answer, a check that failed in transport or anything sent in between does not count. The decision then rests on the authority's own word, twice and timestamped, immediately before the act - otherwise INVOICE_CHECK_NOT_FRESH (409), whose remedy is to Check status twice, at least a minute apart, then Abandon. Refused with INVOICE_NOT_REFUSED_BY_NUMBER (409) on a document the SRI refused for any other reason, INVOICE_NOT_ABANDONABLE (409, `details.status`) outside `needs_attention`, `rejected` and `not_authorized`, INVOICE_ALREADY_AUTHORIZED (409) on an authorized document, INVOICE_ABANDONED (409) on one already abandoned - as Check status and Resend also answer there - INVOICE_ANNULLED (409), INVOICE_WITHDRAWN (409), INVOICE_NOT_ISSUED (409) on one still owed and unsigned, INVOICE_NOT_FOUND (404) otherwise. Mark annulled answers INVOICE_ABANDON_INSTEAD (409) wherever this action qualifies. Irreversible. Platform Operator only.
+// @Description  Records that the SRI never took this document and never will - its recepción answer was 45, `ERROR SECUENCIAL REGISTRADO`, the authority refusing the NUMBER the document carries (ADR 0068) - and answers with the document as it then stands: status `abandoned`, `abandoned_by` the operator's email from the session, `abandoned_at` the moment and `abandon_note` the optional `note` (at most 500 characters). `abandoned` is a TERMINAL state of its own and not an annulment: it says the document was never a legal document, so nothing is owed at the SRI portal and nothing is ever declared for it, where `annulled` says the SRI held the document and the operator disowned it by hand there. Nothing is sent to or asked of the SRI. The row keeps its number, clave de acceso, signed XML, the SRI's last messages and every attempt, and the secuencial stays consumed - an abandoned number is never handed out again. `next_attempt_at` is cleared so the Sale Invoice Drainer never claims it again, and it leaves the needs-attention queue; a late `AUTORIZADO` for the clave is recorded in the attempts ledger and does not heal the row. Offered on any document kind, since the number is dead whoever typed it. Requires A FRESH CHECK STATUS, TWICE, IMMEDIATELY BEFOREHAND (ADR 0068 as amended): the last two attempts on the document's ledger must both be a `check` the SRI answered `unknown` (it holds nothing under the clave), started at least a minute apart, the later within the last 15 minutes; a `status` call to ConsultaComprobante (#744) is not a check and is not read. One such answer is not evidence, since the SRI gives it for documents it holds; a `received` answer, a check that failed in transport or anything sent in between does not count. The decision then rests on the authority's own word, twice and timestamped, immediately before the act - otherwise INVOICE_CHECK_NOT_FRESH (409), whose remedy is to Check status twice, at least a minute apart, then Abandon. Refused with INVOICE_NOT_REFUSED_BY_NUMBER (409) on a document the SRI refused for any other reason, INVOICE_NOT_ABANDONABLE (409, `details.status`) outside `needs_attention`, `rejected` and `not_authorized`, INVOICE_ALREADY_AUTHORIZED (409) on an authorized document, INVOICE_ABANDONED (409) on one already abandoned - as Check status and Resend also answer there - INVOICE_ANNULLED (409), INVOICE_WITHDRAWN (409), INVOICE_NOT_ISSUED (409) on one still owed and unsigned, INVOICE_NOT_FOUND (404) otherwise. Mark annulled answers INVOICE_ABANDON_INSTEAD (409) wherever this action qualifies. Irreversible. Platform Operator only.
 // @Tags         operator
 // @Accept       json
 // @Produce      json
@@ -64,7 +64,7 @@ func (h *Handler) AbandonInvoice(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	note, fields := abandonNote(body.Note)
+	note, fields := operatorNote(body.Note)
 	if len(fields) > 0 {
 		_ = platform.WriteValidationError(w, reqID, fields)
 		return
@@ -84,12 +84,13 @@ func errorIsEmptyBody(err error) bool {
 	return err != nil && err.Error() == "EOF"
 }
 
-// abandonNote trims the operator's note and bounds it exactly as the
+// operatorNote trims an operator act's note - the Abandon's, Issue again's,
+// a factura's Mark annulled (#745) - and bounds it exactly as the
 // reissue's is (invoicing.MaxReissueNoteLength, migration 102's 500
 // characters): one sentence for a colleague — "not registered at the portal,
 // confirmed by phone" — so the reason survives with the record. Blank is no
 // note, never an empty one.
-func abandonNote(raw *string) (string, []platform.FieldError) {
+func operatorNote(raw *string) (string, []platform.FieldError) {
 	if raw == nil {
 		return "", nil
 	}

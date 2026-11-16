@@ -28,6 +28,7 @@ import { recipientWarningMessages } from "@/lib/recipient-warning";
 
 import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from "../invoice-status";
 import { OperatorInvoiceActions } from "./operator-invoice-actions";
+import { OperatorInvoiceAnnulment } from "./operator-invoice-annulment";
 import { OperatorInvoiceIssueAgain } from "./operator-invoice-issue-again";
 import { OperatorInvoiceReissue } from "./operator-invoice-reissue";
 import { InvoiceDownloads } from "./invoice-downloads";
@@ -95,13 +96,15 @@ type ChainLabel =
 const OPERATION_KEYS = {
   submit: "invoicingAttemptSubmit",
   query: "invoicingAttemptQuery",
+  status: "invoicingAttemptStatus",
 } as const;
 
 // Every outcome the attempts ledger can hold, one label each. `unknown`
 // (#514) is the SRI answering that it has no record of the clave — a row an
 // operator must be able to tell from `received`, which is the SRI saying it
 // holds the document; without its own label it would fall through to "Error",
-// which it is not.
+// which it is not. `annulled` and `none` are a `status` row's readings
+// (#744): ConsultaComprobante's ANULADO, and no reading at all.
 const OUTCOME_KEYS = {
   received: "invoicingAttemptOutcomeReceived",
   authorized: "invoicingAttemptOutcomeAuthorized",
@@ -109,6 +112,8 @@ const OUTCOME_KEYS = {
   rejected: "invoicingAttemptOutcomeRejected",
   unknown: "invoicingAttemptOutcomeUnknown",
   error: "invoicingAttemptOutcomeError",
+  annulled: "invoicingAttemptOutcomeAnnulled",
+  none: "invoicingAttemptOutcomeNone",
 } as const;
 
 /**
@@ -242,6 +247,13 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
         }
       />
 
+      {/*
+        The annulment panel (#745, ADR 0078): at the top, above the Recipient,
+        on every factura Mark annulled admits, as "Annulled at the SRI" once
+        it was, and as one sentence where a fact about the factura refuses.
+      */}
+      <OperatorInvoiceAnnulment invoice={invoice} onUpdated={setInvoice} />
+
       {invoice.sale_confirmation_ref ? (
         <Card>
           <CardHeader>
@@ -351,9 +363,11 @@ export function OperatorInvoiceClient({ invoiceId }: { invoiceId: string }) {
         </Card>
       ) : null}
 
-      {invoice.annulled_by && invoice.annulled_at ? (
+      {invoice.annulled_by && invoice.annulled_at && invoice.annulability === null ? (
         // The annulment trail (#477): who recorded the portal act and when.
         // The operator's email and the moment are data; the sentence is copy.
+        // A Credit Note's alone since #745: a factura's trail is the
+        // annulment panel's "Annulled at the SRI".
         <Card>
           <CardHeader>
             <CardTitle>{t("invoicingAnnulmentTitle")}</CardTitle>

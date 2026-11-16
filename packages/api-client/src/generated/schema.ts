@@ -2183,7 +2183,7 @@ export interface paths {
         };
         /**
          * List the Tax Documents of one of the Customer's Ticket Sales
-         * @description The Customer Area's read of a Sale's documents (ADR 0060): every Sale Invoice and Credit Note the Sale owes or was issued, each with its `kind` (`sale` for a factura, `credit_note`), a `status` in the platform's own words — `authorized`, or `on_its_way` for a document still owed, pending at the SRI or parked for an operator — and two download paths, `download_url` for the signed XML and `ride_url` for the RIDE (PDF), each set once authorized and null before (ADR 0062: the RIDE is rendered on request, so a document authorized before it existed carries one too). After a Sale Invoice Reissue (ADR 0061) the list holds the whole chain, and each document carries its `role` — `current` for the factura that stands, `superseded` for one a reissue corrected (still authorized and downloadable), `credit_note` — and the ids it points at: `supersedes_invoice_id`, `superseded_by_invoice_id`, `credits_invoice_id`, each another document of this list or null. Nothing the SRI said ever travels here. An empty list for a Sale that owes no document (a free, imported or non-House sale), for a Sale that is not this Customer's, and for any Sale but the one a Confirmation Link session names: not yours and not there are one answer. Requires a Customer Session; a Confirmation Link session is enough.
+         * @description The Customer Area's read of a Sale's documents (ADR 0060): every Sale Invoice and Credit Note the Sale owes or was issued, each with its `kind` (`sale` for a factura, `credit_note`), a `status` in the platform's own words - `authorized`, `on_its_way` for a document still owed, pending at the SRI or parked for an operator, or `annulled` for a Sale Invoice authorized and then annulled at the SRI (listed, never downloadable, and both download routes refuse it; one annulled from pending or needs_attention, never authorized, is not listed) - and two download paths, `download_url` for the signed XML and `ride_url` for the RIDE (PDF), each set once authorized and null before (ADR 0062: the RIDE is rendered on request, so a document authorized before it existed carries one too). After a Sale Invoice Reissue (ADR 0061) the list holds the whole chain, and each document carries its `role` - `current` for the factura that stands, `superseded` for one a reissue corrected (still authorized and downloadable), `credit_note` - and the ids it points at: `supersedes_invoice_id`, `superseded_by_invoice_id`, `credits_invoice_id`, each another document of this list or null. Nothing the SRI said ever travels here. An empty list for a Sale that owes no document (a free, imported or non-House sale), for a Sale that is not this Customer's, and for any Sale but the one a Confirmation Link session names: not yours and not there are one answer. Requires a Customer Session; a Confirmation Link session is enough.
          */
         get: {
             parameters: {
@@ -3065,7 +3065,7 @@ export interface paths {
         put?: never;
         /**
          * Work the owed Sale Invoices
-         * @description Runs the Sale Invoice Drainer (ADR 0060): claims the Sale Invoices due for work one at a time under a `next_attempt_at` lease, signs each `owed` one from its stored snapshot — consuming a secuencial only then, under the Issuer's current environment, with `fechaEmision` the signing date in America/Guayaquil — submits it to the SRI and polls autorización; polls a `pending` one the SRI already holds without resubmitting it, and resubmits — same signed bytes, same clave, same secuencial — one the SRI never acknowledged. Only a submit that came back received (RECIBIDA, or errors 43/70 "already registered / in processing") counts as acknowledgement; a query answer never does, neither EN PROCESAMIENTO nor `unknown`, the SRI reporting no record of the clave. A resubmit cannot duplicate: a document the SRI does hold answers 43/70. Transport failures, RECIBIDA / EN PROCESAMIENTO and `unknown` alike reschedule on the ladder 1 min, 5 min, 15 min, then hourly from the signing instant. A definite refusal parks the document `needs_attention` with the SRI's messages; 24 hours without a definite answer parks it `needs_attention` while the polling or resubmitting goes on, and a late AUTORIZADO heals it. A document that cannot be signed — no Issuer, no certificate, an expired certificate, an Issuer the schema refuses — is parked `needs_attention` at once with no number consumed and retried hourly. Every SRI call is an attempts row. Bounded by its own budget, which expires before Cloud Scheduler's attempt deadline. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token (ADR 0008). Safe to call by hand at any time; a no-op on an empty queue. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE and signs nothing. The response tallies what the run did and how many Sale Invoices stand in each state afterwards.
+         * @description Runs the Sale Invoice Drainer (ADR 0060): claims the Sale Invoices due for work one at a time under a `next_attempt_at` lease, signs each `owed` one from its stored snapshot - consuming a secuencial only then, under the Issuer's current environment, with `fechaEmision` the signing date in America/Guayaquil - submits it to the SRI and polls autorización; polls a `pending` one the SRI already holds without resubmitting it, and resubmits - same signed bytes, same clave, same secuencial - one the SRI never acknowledged. Only a submit that came back received (RECIBIDA, or errors 43/70 "already registered / in processing") counts as acknowledgement; a query answer never does, neither EN PROCESAMIENTO nor `unknown`, the SRI reporting no record of the clave. A resubmit cannot duplicate: a document the SRI does hold answers 43/70. Transport failures, RECIBIDA / EN PROCESAMIENTO and `unknown` alike reschedule on the ladder 1 min, 5 min, 15 min, then hourly from the signing instant. A definite refusal parks the document `needs_attention` with the SRI's messages; 24 hours without a definite answer parks it `needs_attention` while the polling or resubmitting goes on, and a late AUTORIZADO heals it. A document that cannot be signed - no Issuer, no certificate, an expired certificate, an Issuer the schema refuses - is parked `needs_attention` at once with no number consumed and retried hourly. Every SRI call is an attempts row. Bounded by its own budget, which expires before Cloud Scheduler's attempt deadline. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token (ADR 0008). Safe to call by hand at any time; a no-op on an empty queue. Before the flag is read, the tick works the Certificate Expiry Warning (ADR 0063) and the Annulment Check (#746, ADR 0078): every annulled factura whose next ask is due is asked of the SRI's ConsultaComprobante (never autorización), one at a time under a lease and a budget of its own, and its verdict (checking, confirmed, mismatch, unconfirmed) recomputed; `annulment_check` counts what that pass did. Then the Annulment Notice (#748): every owed notice whose annulment's check is confirmed or unconfirmed (never checking or at mismatch) is mailed to the buyer once, worded by the Sale as it then stands, a refused send due again on the delivery's ladder; `annulment_notice` counts the sends and refusals. Then the reinstatement notice (#749): every one a Reinstate owed - the buyer had been sent the Annulment Notice and no Credit Note follows - is mailed once with the RIDE and XML attached again, a refused send due again on the same ladder; `reinstatement_notice` counts them. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE and signs nothing, the four passes above having run. The response tallies what the run did and how many Sale Invoices stand in each state afterwards.
          */
         post: {
             parameters: {
@@ -3325,6 +3325,120 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/invoicing/closing-sweep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count the facturas the Closing Sweep couldn't sweep
+         * @description Returns the Operator Dashboard's Closing Sweep line (#750, spec #742, ADR 0078). Once a month, from 00:00 America/Guayaquil on day 8 of the following month through the end of day 12, the Sale Invoice Drainer's tick asks the SRI's ConsultaComprobante about every production factura of the month just closed that the platform holds as authorized (Sale Invoices and manual Tax Invoices, credited ones included), one at a time and paced; one reading per factura is final. `month` is the latest month whose sweep has ended ("YYYY-MM": the month just closed from day 13, the month before it until then), `unswept_count` how many of its facturas still have no reading - the dashboard says "N facturas from <month> couldn't be swept" when it is not zero - and `due_again_count` how many of those a Sweep again has made due that no tick has asked yet. Zero is the ordinary answer. Read-only. Not behind SALE_INVOICING_ENABLED: manual Tax Invoices are swept with the flag closed. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeClosingSweepStatus"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/invoicing/closing-sweep/sweep-again": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sweep the unswept facturas again
+         * @description Makes the facturas the Operator Dashboard counts as unswept - those of the latest month whose Closing Sweep has ended that still have no reading - and just those, due again on the Sale Invoice Drainer's next tick, whatever the day (#750, ADR 0078). The tick asks each once more, paced as the sweep always is; one that again gets no reading stays unswept. A factura with a reading is final and is never asked again. Answers the dashboard's line as it then stands. Safe to press twice; with nothing unswept it does nothing. No body. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeClosingSweepStatus"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -3591,7 +3705,7 @@ export interface paths {
         put?: never;
         /**
          * Abandon a document the SRI refuses by number
-         * @description Records that the SRI never took this document and never will - its recepción answer was 45, `ERROR SECUENCIAL REGISTRADO`, the authority refusing the NUMBER the document carries (ADR 0068) - and answers with the document as it then stands: status `abandoned`, `abandoned_by` the operator's email from the session, `abandoned_at` the moment and `abandon_note` the optional `note` (at most 500 characters). `abandoned` is a TERMINAL state of its own and not an annulment: it says the document was never a legal document, so nothing is owed at the SRI portal and nothing is ever declared for it, where `annulled` says the SRI held the document and the operator disowned it by hand there. Nothing is sent to or asked of the SRI. The row keeps its number, clave de acceso, signed XML, the SRI's last messages and every attempt, and the secuencial stays consumed - an abandoned number is never handed out again. `next_attempt_at` is cleared so the Sale Invoice Drainer never claims it again, and it leaves the needs-attention queue; a late `AUTORIZADO` for the clave is recorded in the attempts ledger and does not heal the row. Offered on any document kind, since the number is dead whoever typed it. Requires A FRESH CHECK STATUS, TWICE, IMMEDIATELY BEFOREHAND (ADR 0068 as amended): the last two attempts on the document's ledger must both be a `check` the SRI answered `unknown` (it holds nothing under the clave), started at least a minute apart, the later within the last 15 minutes. One such answer is not evidence, since the SRI gives it for documents it holds; a `received` answer, a check that failed in transport or anything sent in between does not count. The decision then rests on the authority's own word, twice and timestamped, immediately before the act - otherwise INVOICE_CHECK_NOT_FRESH (409), whose remedy is to Check status twice, at least a minute apart, then Abandon. Refused with INVOICE_NOT_REFUSED_BY_NUMBER (409) on a document the SRI refused for any other reason, INVOICE_NOT_ABANDONABLE (409, `details.status`) outside `needs_attention`, `rejected` and `not_authorized`, INVOICE_ALREADY_AUTHORIZED (409) on an authorized document, INVOICE_ABANDONED (409) on one already abandoned - as Check status and Resend also answer there - INVOICE_ANNULLED (409), INVOICE_WITHDRAWN (409), INVOICE_NOT_ISSUED (409) on one still owed and unsigned, INVOICE_NOT_FOUND (404) otherwise. Mark annulled answers INVOICE_ABANDON_INSTEAD (409) wherever this action qualifies. Irreversible. Platform Operator only.
+         * @description Records that the SRI never took this document and never will - its recepción answer was 45, `ERROR SECUENCIAL REGISTRADO`, the authority refusing the NUMBER the document carries (ADR 0068) - and answers with the document as it then stands: status `abandoned`, `abandoned_by` the operator's email from the session, `abandoned_at` the moment and `abandon_note` the optional `note` (at most 500 characters). `abandoned` is a TERMINAL state of its own and not an annulment: it says the document was never a legal document, so nothing is owed at the SRI portal and nothing is ever declared for it, where `annulled` says the SRI held the document and the operator disowned it by hand there. Nothing is sent to or asked of the SRI. The row keeps its number, clave de acceso, signed XML, the SRI's last messages and every attempt, and the secuencial stays consumed - an abandoned number is never handed out again. `next_attempt_at` is cleared so the Sale Invoice Drainer never claims it again, and it leaves the needs-attention queue; a late `AUTORIZADO` for the clave is recorded in the attempts ledger and does not heal the row. Offered on any document kind, since the number is dead whoever typed it. Requires A FRESH CHECK STATUS, TWICE, IMMEDIATELY BEFOREHAND (ADR 0068 as amended): the last two attempts on the document's ledger must both be a `check` the SRI answered `unknown` (it holds nothing under the clave), started at least a minute apart, the later within the last 15 minutes; a `status` call to ConsultaComprobante (#744) is not a check and is not read. One such answer is not evidence, since the SRI gives it for documents it holds; a `received` answer, a check that failed in transport or anything sent in between does not count. The decision then rests on the authority's own word, twice and timestamped, immediately before the act - otherwise INVOICE_CHECK_NOT_FRESH (409), whose remedy is to Check status twice, at least a minute apart, then Abandon. Refused with INVOICE_NOT_REFUSED_BY_NUMBER (409) on a document the SRI refused for any other reason, INVOICE_NOT_ABANDONABLE (409, `details.status`) outside `needs_attention`, `rejected` and `not_authorized`, INVOICE_ALREADY_AUTHORIZED (409) on an authorized document, INVOICE_ABANDONED (409) on one already abandoned - as Check status and Resend also answer there - INVOICE_ANNULLED (409), INVOICE_WITHDRAWN (409), INVOICE_NOT_ISSUED (409) on one still owed and unsigned, INVOICE_NOT_FOUND (404) otherwise. Mark annulled answers INVOICE_ABANDON_INSTEAD (409) wherever this action qualifies. Irreversible. Platform Operator only.
          */
         post: {
             parameters: {
@@ -3672,7 +3786,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/operator/invoicing/invoices/{id}/annul": {
+    "/api/v1/operator/invoicing/invoices/{id}/acknowledge-unrecorded-annulment": {
         parameters: {
             query?: never;
             header?: never;
@@ -3682,8 +3796,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Mark a document annulled
-         * @description Records that the Platform Operator annulled the document by hand at the SRI portal — the SRI offers no web service for annulment (ADR 0060) — and answers with the document as it then stands: status `annulled`, `annulled_by` the operator's email from the session and `annulled_at` the moment. Nothing is sent to or asked of the SRI. The row keeps its number, clave de acceso, signed XML and the SRI's last messages; `next_attempt_at` is cleared so the Sale Invoice Drainer never claims it again, and it leaves the needs-attention queue. Allowed only from `pending` or `needs_attention` — the states in which the operator may have acted at the portal — and irreversible: INVOICE_NOT_ANNULLABLE (409) on an authorized, withdrawn, abandoned or already annulled document, INVOICE_ABANDON_INSTEAD (409) on a document the SRI refuses for its NUMBER — error 45, `secuencial registrado` (ADR 0068) — since the SRI never took that number and there is nothing at its portal to have been annulled; that document is abandoned instead, INVOICE_NOT_ISSUED (409) on one still owed or parked unsigned (nothing exists at the SRI to have been annulled), INVOICE_NOT_FOUND (404) otherwise. Afterwards Check status and Resend answer INVOICE_ANNULLED. Platform Operator only.
+         * Acknowledge an Unrecorded Annulment
+         * @description Records that a Platform Operator has seen a factura's Unrecorded Annulment - the Closing Sweep found the SRI reporting annulled a factura the platform holds as authorized - where Mark annulled cannot record it because a live Credit Note (or a live Reissue successor) stands against the factura (#750, spec #742, ADR 0078). Who (the session's email) and when are recorded on `unrecorded_annulment`; the needs-attention entry clears; the flag itself stays, for the Tax Document Archive. The factura stays authorized and credited, and nothing is sent to the buyer: whether that Credit Note holds against a factura the SRI holds as annulled is the accountant's question. No body. Refused with INVOICE_NO_UNRECORDED_ANNULMENT (409) on a document carrying none, INVOICE_UNRECORDED_ANNULMENT_ACKNOWLEDGED (409) when acknowledged already, INVOICE_ANNUL_INSTEAD (409) when Mark annulled is admitted and is the true act, INVOICE_NOT_FOUND (404) otherwise. Not behind SALE_INVOICING_ENABLED. Platform Operator only.
          */
         post: {
             parameters: {
@@ -3704,6 +3818,98 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["openapi.EnvelopeInvoiceDetail"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/invoicing/invoices/{id}/annul": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark a document annulled
+         * @description Records that the Platform Operator annulled the document by hand at the SRI portal - the SRI offers no web service for annulment (ADR 0060, ADR 0078) - and answers with the document as it then stands: status `annulled`, `annulled_by` the operator's email from the session and `annulled_at` the moment. Nothing is sent to or asked of the SRI. The row keeps its number, clave de acceso, signed XML, authorization and the SRI's last messages; `next_attempt_at` is cleared so the Sale Invoice Drainer never claims it again, and it leaves the needs-attention queue. Irreversible here, but for Reinstate on a factura whose window has closed with its Annulment Check at mismatch (#749). ON A FACTURA (kind `sale` or `manual`, #745) it is one act from `pending`, `needs_attention` or `authorized`, whether the portal step came before the recording or after it, with one set of gates in every state, and the test environment is admitted as production is. The body is the confirm: `number`, the document's printed number `estab-ptoEmi-secuencial` typed in full (required); `note`, optional, at most 500 characters (blank is no note); `late_acknowledged`, the operator's word that the portal took the annulment, REQUIRED once the Annulment Window has closed and REFUSED while it is open. The window closes at the end of day 7 of the month after the Emission Date, in America/Guayaquil, read strictly - the SRI's rollover to the next business day is never claimed; `annulability.window` on the detail carries it. Each Mark annulled on a factura is a row of the detail's `annulment` (`current`: `from_status`, `annulled_by`, `annulled_at`, `note`, `late_acknowledged`). Refused with INVOICE_NUMBER_MISMATCH (409) when the typed number is missing or not the document's, INVOICE_REISSUE_STANDS (409) while a live Reissue successor stands in its place, INVOICE_CREDIT_NOTE_STANDS (409) on an authorized factura while a live Credit Note - owed, pending, needs_attention or authorized - stands against it (a withdrawn, abandoned, annulled, rejected or not_authorized one does not refuse; on a pending or needs_attention factura a Credit Note can only be owed and waiting for it, and annulling the factura withdraws it, so it never refuses there), INVOICE_ANNULMENT_LATE (409, `details.deadline`) past the deadline without the acknowledgement, INVOICE_ANNULMENT_NOT_LATE (409, `details.deadline`) with it before. The factura's facts are judged before what was typed. ON A CREDIT NOTE it is unchanged: only from `pending` or `needs_attention`, the body is not read, no window and no annulments row; annulling a Reissue's Credit Note withdraws the unsigned corrected factura in the same transaction (#484). On either: INVOICE_NOT_ANNULLABLE (409) on a document in any other state, INVOICE_ABANDON_INSTEAD (409) on a document parked `needs_attention` that the SRI refuses for its NUMBER - error 45, `secuencial registrado` (ADR 0068) - since the SRI never took that number and there is nothing at its portal to have been annulled; that document is abandoned instead, INVOICE_NOT_ISSUED (409) on one still owed or parked unsigned, INVOICE_NOT_FOUND (404) otherwise. The write is guarded on the state the document was read in, so a press racing a late AUTORIZADO or a reversal is refused rather than double-written. Afterwards Resend answers INVOICE_ANNULLED, and Check status asks the SRI's ConsultaComprobante and changes nothing (#744). Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Document id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description The confirm, on a factura */
+            requestBody?: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.annulInvoiceBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeInvoiceDetail"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
                     };
                 };
                 /** @description Unauthorized */
@@ -3830,7 +4036,7 @@ export interface paths {
         put?: never;
         /**
          * Check a Tax Invoice's status with the SRI
-         * @description Asks the SRI's autorización service again about a Tax Invoice that is `pending`, `rejected` or `not_authorized`, and updates it from the answer: `AUTORIZADO` stores the authorization number, date and XML; `NO AUTORIZADO` stores the SRI's messages; an answer that decides nothing (still in processing, or nothing known under the clave) leaves the status as it was. Nothing is sent. Exactly one attempts row is written. INVOICE_ALREADY_AUTHORIZED (409) on an authorized invoice; INVOICE_ANNULLED (409) on one marked annulled; INVOICE_ABANDONED (409) on one abandoned (ADR 0068), which the SRI never took and never will; INVOICE_WITHDRAWN (409) on a withdrawn Sale Invoice or Credit Note, which was never sent; INVOICE_NOT_ISSUED (409) on one still owed and unsigned; INVOICE_NOT_FOUND (404) otherwise. A document the SRI refuses by NUMBER keeps this action, though Resend is refused on it (#577, ADR 0068): asking what the authority holds under the clave sends nothing and is the one thing still worth doing there. Returns the invoice as it then stands, with its two hints about who holds the document (#516): `check_status_hint` is true only when the SRI really holds it - some submit to recepción came back received (`RECIBIDA`, or 43/70 on a resend) - and it is still undecided (`pending` or `needs_attention`); `resend_hint` is true when the SRI's last answer was that it holds nothing under the clave (`unknown`) and no submit was ever received. That answer is not proof - the SRI gives it for documents it holds (#722) - but resending the same bytes is the fix either way, since a clave it holds is answered 43/70. A query answer never counts as the SRI holding the document, so the two are never both true, and a document whose ledger says neither shows neither. `attempt_id` names the row in `attempts` this check wrote; its `outcome` is what the SRI answered (`received`, `authorized`, `not_authorized`, `rejected`, `unknown`) or `error` when the call got no usable answer, and is what to report rather than the status, which an undecided answer or a failed call leaves as it was. It is the id and not the newest row because a Sale Invoice Drainer round can write a row in between; it is null only when the ledger write failed. A Sale Invoice or Credit Note this check finds authorized is made due for the Sale Invoice Drainer to deliver. Platform Operator only.
+         * @description Asks the SRI's autorización service again about a Tax Invoice that is `pending`, `rejected` or `not_authorized`, and updates it from the answer: `AUTORIZADO` stores the authorization number, date and XML; `NO AUTORIZADO` stores the SRI's messages; an answer that decides nothing (still in processing, or nothing known under the clave) leaves the status as it was. Nothing is sent. Exactly one attempts row is written, with operation `query`. On a document marked `annulled` it asks the SRI's ConsultaComprobante service instead (#744, ADR 0078), never autorización: ONE ASK of up to three calls 5 s apart, stopping at the first real reading, each written to the attempts ledger with operation `status` and as its `outcome` the reading - `annulled` (ANULADO), `authorized` (AUTORIZADO) or `none` (any refusal, unrecognised state, redirect, non-SOAP body, reset or timeout, with the SRI's messages or the error). The status and everything else about the document are left as they are, and `attempt_id` names the ask's last call. INVOICE_ALREADY_AUTHORIZED (409) on an authorized invoice; INVOICE_ABANDONED (409) on one abandoned (ADR 0068), which the SRI never took and never will; INVOICE_WITHDRAWN (409) on a withdrawn Sale Invoice or Credit Note, which was never sent; INVOICE_NOT_ISSUED (409) on one still owed and unsigned; INVOICE_NOT_FOUND (404) otherwise. A document the SRI refuses by NUMBER keeps this action, though Resend is refused on it (#577, ADR 0068): asking what the authority holds under the clave sends nothing and is the one thing still worth doing there. Returns the invoice as it then stands, with its two hints about who holds the document (#516): `check_status_hint` is true only when the SRI really holds it - some submit to recepción came back received (`RECIBIDA`, or 43/70 on a resend) - and it is still undecided (`pending` or `needs_attention`); `resend_hint` is true when the SRI's last answer was that it holds nothing under the clave (`unknown`) and no submit was ever received. That answer is not proof - the SRI gives it for documents it holds (#722) - but resending the same bytes is the fix either way, since a clave it holds is answered 43/70. A query answer never counts as the SRI holding the document, so the two are never both true, and a document whose ledger says neither shows neither. `attempt_id` names the row in `attempts` this check wrote; its `outcome` is what the SRI answered (`received`, `authorized`, `not_authorized`, `rejected`, `unknown`) or `error` when the call got no usable answer, and is what to report rather than the status, which an undecided answer or a failed call leaves as it was. It is the id and not the newest row because a Sale Invoice Drainer round can write a row in between; it is null only when the ledger write failed. A Sale Invoice or Credit Note this check finds authorized is made due for the Sale Invoice Drainer to deliver. Platform Operator only.
          */
         post: {
             parameters: {
@@ -3908,7 +4114,7 @@ export interface paths {
         put?: never;
         /**
          * Issue a terminally dead Sale Invoice again
-         * @description Owes the Ticket Sale a FRESH Sale Invoice to replace one that is terminally dead — `abandoned`, because the SRI refuses the number it carries and never took it (ADR 0068), or `annulled`, because a Platform Operator disowned it by hand at the SRI portal — and answers 201 with the replacement's detail, `owed` and unsigned. The replacement carries the dead document's lines, amounts, IVA rate, currency, payment method and RECIPIENT verbatim, including its email: reinvoicing never changes what was sold or to whom, and a Recipient that needs correcting is the reissue's business (ADR 0061) once the replacement is authorized. It is NOT a special signing route: it is inserted as an ordinary owed document inside a transaction, with no number, no clave de acceso and no signature, and the Sale Invoice Drainer signs it on a later round under a FRESHLY allocated secuencial by the ordinary path. The abandoned number stays consumed and is never handed out again. No Credit Note is owed — a document the SRI never authorized has nothing to cancel — which is why this reaches a Sale a reissue answers INVOICE_ALREADY_CREDITED on. The replacement is linked to the document it replaces through ADR 0061's supersede chain, so both detail pages show the chain in both directions, and it records who pressed (the session's email), when, and the optional `note` (at most 500 characters) in the same trail a reissue writes. The chain survives any number of hops: a replacement that is itself abandoned or annulled is issued again in its turn. The dead document is untouched — its number, clave, signed bytes, attempts and trail stand forever — and is never delivered to the buyer, who receives the replacement alone. Refused with INVOICE_MANUAL_NOT_ISSUABLE_AGAIN (409) on a manual Tax Invoice, which is typed again by hand, CREDIT_NOTE_NOT_ISSUABLE_AGAIN (409) on a Credit Note, INVOICE_NOT_TERMINALLY_DEAD (409, `details.status`) on a Sale Invoice that is owed, pending, authorized, rejected, not_authorized, needs_attention or withdrawn, INVOICE_SALE_REVERSED (409) when the Ticket Sale no longer stands, INVOICE_ALREADY_REPLACED (409) when a live replacement already exists — one that is itself withdrawn, annulled or abandoned does not count — and INVOICE_NOT_FOUND (404) otherwise. The decision is made under the Ticket Sale's lock, so a press racing a reversal is refused rather than double-written. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE. Platform Operator only.
+         * @description Owes the Ticket Sale a FRESH Sale Invoice to replace one that is terminally dead - `abandoned`, because the SRI refuses the number it carries and never took it (ADR 0068), or `annulled`, because a Platform Operator disowned it by hand at the SRI portal - and answers 201 with the replacement's detail, `owed` and unsigned. The replacement carries the dead document's lines, amounts, IVA rate, currency, payment method and RECIPIENT verbatim, including its email: reinvoicing never changes what was sold or to whom, and a Recipient that needs correcting is the reissue's business (ADR 0061) once the replacement is authorized. It is NOT a special signing route: it is inserted as an ordinary owed document inside a transaction, with no number, no clave de acceso and no signature, and the Sale Invoice Drainer signs it on a later round under a FRESHLY allocated secuencial by the ordinary path. The abandoned number stays consumed and is never handed out again. No Credit Note is owed - a document the SRI never authorized has nothing to cancel - which is why this reaches a Sale a reissue answers INVOICE_ALREADY_CREDITED on. The replacement is linked to the document it replaces through ADR 0061's supersede chain, so both detail pages show the chain in both directions, and it records who pressed (the session's email), when, and the optional `note` (at most 500 characters) in the same trail a reissue writes. The chain survives any number of hops: a replacement that is itself abandoned or annulled is issued again in its turn. The dead document is untouched - its number, clave, signed bytes, attempts and trail stand forever - and is never delivered to the buyer, who receives the replacement alone. Refused with INVOICE_MANUAL_NOT_ISSUABLE_AGAIN (409) on a manual Tax Invoice, which is typed again by hand, CREDIT_NOTE_NOT_ISSUABLE_AGAIN (409) on a Credit Note, INVOICE_NOT_TERMINALLY_DEAD (409, `details.status`) on a Sale Invoice that is owed, pending, authorized, rejected, not_authorized, needs_attention or withdrawn, INVOICE_SALE_REVERSED (409) when the Ticket Sale no longer stands, INVOICE_ALREADY_REPLACED (409) when a live replacement already exists - one that is itself withdrawn, annulled or abandoned does not count - INVOICE_ANNULMENT_MISMATCH (409) on an annulled Sale Invoice whose Annulment Check stands at mismatch, the SRI still reporting it authorized, whatever state it was annulled from (press Check status; once the SRI reports ANULADO it is admitted; an unconfirmed check is admitted, the SRI not having confirmed the annulment), and INVOICE_NOT_FOUND (404) otherwise. The decision is made under the Ticket Sale's lock, so a press racing a reversal is refused rather than double-written. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE. Platform Operator only.
          */
         post: {
             parameters: {
@@ -3989,6 +4195,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/invoicing/invoices/{id}/reinstate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reinstate an annulled factura
+         * @description Returns an annulled factura (a Sale Invoice or a manual Tax Invoice) to `authorized` because the SRI never took the annulment and its Annulment Window has closed (#749, spec #742, ADR 0078): the platform's record follows the SRI's. Never automatic. Admitted only while the current annulment's Annulment Check stands at MISMATCH - the SRI reported the factura AUTORIZADO on two asks - and only once the window has closed (the end of day 7 of the month after the Emission Date, in America/Guayaquil). The body is the confirm: `number`, the factura's printed number `estab-ptoEmi-secuencial` typed in full (required), and `note`, optional, at most 500 characters (blank is no note). In one transaction: the status returns to `authorized`, `annulled_by` and `annulled_at` are cleared, and the annulment is kept as history (`annulment.past`) stamped with `reinstated_by` (the session's email), `reinstated_at` and `reinstate_note`, its check stopped and its held Annulment Notice dropped, never sent. ONE RULE decides what it owes: a Credit Note when the Ticket Sale was reversed (the reversal's route as its reason) or when another factura stands for the Sale in its place, an Issue again or Reissue successor (reason `reissue`, so the pair takes a Reissue's shape, and an unsigned successor then waits for that Credit Note before it is signed); otherwise none, and the factura is the Sale's current one again. A manual Tax Invoice simply returns to authorized. The Credit Note is owed and drained by the Sale Invoice Drainer's ordinary path. A Sale Invoice never delivered is delivered as any authorized one is. A buyer already sent the Annulment Notice is sent, when no Credit Note follows, a reinstatement notice carrying the RIDE and XML again (`reinstatement_notice` on the past annulment); when one follows, its own mail is what they hear. A factura annulled from `pending` or `needs_attention` never stored its authorization: Reinstate asks the SRI's autorizacionComprobante for it at the press (an attempt on the ledger) and stores it, and is refused with INVOICE_REINSTATE_UNAUTHORIZED (409) unless the answer is AUTORIZADO with the authorized XML. A reinstated factura can be annulled again, past the deadline with the late acknowledgement, which starts a fresh Annulment Check. Refused with INVOICE_NOT_REINSTATABLE (409, `details.status`) on a document that is not an annulled factura, INVOICE_REINSTATE_WINDOW_OPEN (409, `details.deadline`) while the window is open, INVOICE_REINSTATE_NOT_MISMATCH (409, `details.verdict`) when the check is checking, confirmed or unconfirmed, INVOICE_NUMBER_MISMATCH (409) when the typed number is missing or not the factura's, INVOICE_NOT_FOUND (404) otherwise. The facts are judged before what was typed. Not behind SALE_INVOICING_ENABLED, as Mark annulled is not: a manual Tax Invoice is reinstated with the flag closed. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Document id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description The confirm */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.reinstateInvoiceBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeInvoiceDetail"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/invoicing/invoices/{id}/reissue": {
         parameters: {
             query?: never;
@@ -4000,7 +4298,7 @@ export interface paths {
         put?: never;
         /**
          * Reissue a Sale Invoice to a corrected Recipient
-         * @description Corrects an authorized Sale Invoice whose Recipient is wrong (ADR 0061) by owing, in one transaction, a Credit Note for the full amount against it — the same Recipient as the factura, reason `reissue`, motivo "Corrección de los datos del receptor" — and a corrected Sale Invoice to the Recipient as entered: `recipient.tax_id_type` (`cedula`, `ruc` or `passport`), `recipient.tax_id` validated exactly as a checkout Tax ID with the same field-level errors, `recipient.legal_name` required, `recipient.address` optional. The corrected document's email is the one the Ticket Sale carries at that moment (after any Sale Re-addressing) and is never taken from the body; its lines, totals and IVA rate are the factura's; it names the factura it supersedes and records who reissued (the session's email), when, and the optional `note` (at most 500 characters). The superseded factura stays authorized and on file; the Sale, its buyer, its Tickets and the Customer's stored Tax ID are untouched. The Sale Invoice Drainer is kicked as after a checkout and works the Credit Note first; the corrected factura is signed only once that Credit Note is authorized. Answers 201 with the corrected document's detail, `owed` and unsigned. Refused with INVOICE_MANUAL_NOT_REISSUABLE (409) on a manual Tax Invoice, CREDIT_NOTE_NOT_REISSUABLE (409) on a Credit Note, INVOICE_NOT_AUTHORIZED (409, `details.status`) on a document that is owed, pending, needs_attention, withdrawn or annulled, INVOICE_SALE_REVERSED (409) when the Ticket Sale was reversed, REISSUE_IN_FLIGHT (409) while another reissue on the Sale has not settled, INVOICE_SUPERSEDED (409) on a factura already superseded, INVOICE_ALREADY_CREDITED (409) on one an authorized Credit Note already stands against, INVOICE_NOT_FOUND (404) otherwise. The decision is made under the Sale's lock, so a reissue racing a reversal is refused rather than double-written. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE. Platform Operator only.
+         * @description Corrects an authorized Sale Invoice whose Recipient is wrong (ADR 0061) by owing, in one transaction, a Credit Note for the full amount against it - the same Recipient as the factura, reason `reissue`, motivo "Corrección de los datos del receptor" - and a corrected Sale Invoice to the Recipient as entered: `recipient.tax_id_type` (`cedula`, `ruc` or `passport`), `recipient.tax_id` validated exactly as a checkout Tax ID with the same field-level errors, `recipient.legal_name` required, `recipient.address` optional. The corrected document's email is the one the Ticket Sale carries at that moment (after any Sale Re-addressing) and is never taken from the body; its lines, totals and IVA rate are the factura's; it names the factura it supersedes and records who reissued (the session's email), when, and the optional `note` (at most 500 characters). The superseded factura stays authorized and on file; the Sale, its buyer, its Tickets and the Customer's stored Tax ID are untouched. The Sale Invoice Drainer is kicked as after a checkout and works the Credit Note first; the corrected factura is signed only once that Credit Note is authorized. Answers 201 with the corrected document's detail, `owed` and unsigned. ON AN ANNULLED Sale Invoice (spec #742, ADR 0078) the same act owes the corrected factura ALONE: the annulment discharged the original at the portal, so no Credit Note is owed, and the corrected factura is signed on the Drainer's next round with nothing to wait behind; it is refused with INVOICE_SALE_REVERSED (409) when the Sale was reversed, INVOICE_ALREADY_REPLACED (409) when a factura already stands for the Sale, and INVOICE_ANNULMENT_MISMATCH (409) while the Annulment Check stands at mismatch, whatever state the factura was annulled from (an unconfirmed check is admitted). Refused with INVOICE_MANUAL_NOT_REISSUABLE (409) on a manual Tax Invoice, CREDIT_NOTE_NOT_REISSUABLE (409) on a Credit Note, INVOICE_NOT_AUTHORIZED (409, `details.status`) on a document that is owed, pending, needs_attention, withdrawn or abandoned, INVOICE_SALE_REVERSED (409) when the Ticket Sale was reversed, REISSUE_IN_FLIGHT (409) while another reissue on the Sale has not settled, INVOICE_SUPERSEDED (409) on a factura already superseded, INVOICE_ALREADY_CREDITED (409) on one an authorized Credit Note already stands against, INVOICE_NOT_FOUND (404) otherwise. The decision is made under the Sale's lock, so a reissue racing a reversal is refused rather than double-written. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE. Platform Operator only.
          */
         post: {
             parameters: {
@@ -4588,7 +4886,7 @@ export interface paths {
         };
         /**
          * List the documents that need attention
-         * @description Returns a page of the needs-attention queue, which is a UNION OF TWO CONDITIONS and not one status (ADR 0068): every document parked `needs_attention` (ADR 0060) — a Sale Invoice or Credit Note the SRI refused, one unanswered for 24 hours and still polled, or one that could not be signed — OR every `abandoned` Sale Invoice with no live successor whose Ticket Sale still stands: a Sale whose buyer holds no valid factura and which nothing yet owes one, the state a Sale sits in between Abandon and Issue again. It self-clears: the moment Issue again owes a replacement, the abandoned document has a live successor and leaves. An abandoned document on a reversed Sale is not listed, nor is an abandoned Credit Note or manual Tax Invoice, since no act could ever clear such a row. LONGEST WAITING FIRST by the instant each entered the queue — `attention_since` when it was parked, `abandoned_at` when it was abandoned — one clock, so the two halves interleave. Every row is the invoicing list row (kind, number when signed, Sale Confirmation reference, Recipient, total, status, `attention_since` and `abandoned_at`) plus `messages`: the SRI's last messages verbatim, or the platform's own PLATFORM-typed message saying why the document could not be signed. Each row opens the document detail by its id. An empty page is the ordinary answer. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
+         * @description Returns a page of the needs-attention queue, which is a UNION OF FOUR CONDITIONS and not one status (ADR 0068, ADR 0078): every document parked `needs_attention` (ADR 0060) - a Sale Invoice or Credit Note the SRI refused, one unanswered for 24 hours and still polled, or one that could not be signed - OR every `abandoned` or `annulled` Sale Invoice whose Ticket Sale still stands and has no factura standing for it: a Sale whose buyer holds no valid factura and which nothing yet owes one, the state a Sale sits in between Abandon or Mark annulled and its Issue again or Reissue - OR every annulled factura (Sale Invoice or manual Tax Invoice) whose Annulment Check stands at mismatch: the SRI still reports it authorized - OR every authorized factura carrying an unacknowledged Unrecorded Annulment: the Closing Sweep found the SRI reporting it annulled and the platform has no record of it (#750). The first two self-clear: the moment Issue again or a Reissue owes a replacement, or the Sale is reversed, the dead document leaves; the third clears when the SRI reports ANULADO; the fourth when Mark annulled records the annulment or, where a live Credit Note refuses Mark annulled (`acknowledge_admitted` true), an operator acknowledges it. A dead document on a reversed Sale is not listed by the second door, nor is an abandoned or annulled Credit Note or manual Tax Invoice, since no act could ever clear such a row. Each row says which door it came in by in `attention_reason`: `needs_attention`, `abandoned`, `annulled`, `annulment_mismatch` or `unrecorded_annulment`, `annulment_mismatch` winning where an annulled Sale Invoice comes in by both, with `mismatch_since` on that reason alone, and `reinstate_admitted` true there once the factura's Annulment Window has closed, when Reinstate is offered (#749). LONGEST WAITING FIRST by the instant each entered the queue - `attention_since` when it was parked, `abandoned_at` when it was abandoned, `mismatch_since` at mismatch, `annulled_at` when annulled, `unrecorded_annulment.found_at` when the sweep found it - one clock, so the doors interleave. Every row is the invoicing list row (kind, number when signed, Sale Confirmation reference, Recipient, total, status, `attention_since` and `abandoned_at`) plus `messages`: the SRI's last messages verbatim, or the platform's own PLATFORM-typed message saying why the document could not be signed. Each row opens the document detail by its id. An empty page is the ordinary answer. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
          */
         get: {
             parameters: {
@@ -4650,7 +4948,7 @@ export interface paths {
         };
         /**
          * Count the documents that need attention
-         * @description Returns needs_attention_count: how many documents are in the needs-attention queue — the badge the Operator Dashboard shows so that a stuck document is never silent (ADR 0060). It counts the same UNION the queue lists and not one status (ADR 0068): documents parked `needs_attention` across every kind, plus `abandoned` Sale Invoices with no live successor whose Ticket Sale still stands, so a Sale left without a factura between Abandon and Issue again is counted in the number the operator watches daily. It counts exactly what the queue lists, so the two can never disagree. Zero is an ordinary answer. Read-only. Platform Operator only.
+         * @description Returns needs_attention_count: how many documents are in the needs-attention queue - the badge the Operator Dashboard shows so that a stuck document is never silent (ADR 0060). It counts the same UNION the queue lists and not one status (ADR 0068, ADR 0078): documents parked `needs_attention` across every kind, plus `abandoned` or `annulled` Sale Invoices of a Ticket Sale that still stands and has no factura standing for it, plus annulled facturas whose Annulment Check stands at mismatch, plus authorized facturas carrying an unacknowledged Unrecorded Annulment (#750), so a Sale left without a factura between Abandon or Mark annulled and its replacement is counted in the number the operator watches daily. It counts exactly what the queue lists, so the two can never disagree. Zero is an ordinary answer. Read-only. Platform Operator only.
          */
         get: {
             parameters: {
@@ -14293,6 +14591,11 @@ export interface components {
             name?: string;
             value?: string;
         };
+        "handler.annulInvoiceBody": {
+            late_acknowledged?: boolean;
+            note?: string;
+            number?: string;
+        };
         "handler.answerBody": {
             /** @description Checked answers checkbox. */
             checked?: boolean;
@@ -14952,6 +15255,10 @@ export interface components {
             note?: string;
             paid_at?: string;
         };
+        "handler.reinstateInvoiceBody": {
+            note?: string;
+            number?: string;
+        };
         "handler.reissueInvoiceBody": {
             note?: string;
             recipient?: components["schemas"]["handler.reissueRecipientBody"];
@@ -15328,6 +15635,11 @@ export interface components {
         };
         "openapi.EnvelopeCheckoutReversal": {
             data?: components["schemas"]["service.ReversalOffer"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeClosingSweepStatus": {
+            data?: components["schemas"]["service.ClosingSweepStatus"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -15900,6 +16212,14 @@ export interface components {
              */
             policy_acceptance?: string;
         };
+        /**
+         * @description Acknowledge is the acknowledgement of an Unrecorded Annulment (#750),
+         *     null unless the factura carries one.
+         */
+        "service.AcknowledgeView": {
+            admitted?: boolean;
+            refusal?: components["schemas"]["service.RefusalView"];
+        };
         "service.ActiveMemberView": {
             member_id?: string;
             organization_id?: string;
@@ -16004,6 +16324,122 @@ export interface components {
             hour?: string;
             link_id?: string;
             views?: number;
+        };
+        "service.AnnulabilityView": {
+            admitted?: boolean;
+            portal?: components["schemas"]["service.AnnulmentPortalView"];
+            refusal?: components["schemas"]["service.RefusalView"];
+            window?: components["schemas"]["service.AnnulmentWindowView"];
+        };
+        "service.AnnulmentAnswerView": {
+            attempt_id?: number;
+            error?: string;
+            messages?: components["schemas"]["service.AuthorityMessageView"][];
+            reading?: string;
+            service?: string;
+            started_at?: string;
+        };
+        "service.AnnulmentAskView": {
+            asked_at?: string;
+            manual?: boolean;
+            reading?: string;
+        };
+        /**
+         * @description AnnulmentCheck is what the tick's Annulment Check pass did (#746),
+         *     counted apart from the documents above: it claims annulments, not
+         *     documents due on the Drainer's queue.
+         */
+        "service.AnnulmentCheckResult": {
+            asked?: number;
+            checking?: number;
+            confirmed?: number;
+            mismatch?: number;
+            unconfirmed?: number;
+            unfinished?: number;
+        };
+        "service.AnnulmentCheckTrailView": {
+            asks?: components["schemas"]["service.AnnulmentAskView"][];
+            since?: string;
+            verdict?: string;
+        };
+        "service.AnnulmentCheckView": {
+            answers?: components["schemas"]["service.AnnulmentAnswerView"][];
+            asks?: components["schemas"]["service.AnnulmentAskView"][];
+            asks_until?: string;
+            next_ask_at?: string;
+            scheduled?: boolean;
+            since?: string;
+            verdict?: string;
+        };
+        "service.AnnulmentFollowUpView": {
+            admitted?: boolean;
+            kind?: string;
+            refusal?: components["schemas"]["service.RefusalView"];
+        };
+        /**
+         * @description AnnulmentNotice is what the tick's Annulment Notice pass did (#748):
+         *     notices sent to buyers, and sends refused and due again.
+         */
+        "service.AnnulmentNoticeResult": {
+            failed?: number;
+            sent?: number;
+        };
+        /** @description Notice is the buyer's Annulment Notice on this annulment (#748). */
+        "service.AnnulmentNoticeView": {
+            sent_at?: string;
+            state?: string;
+        };
+        "service.AnnulmentPortalView": {
+            access_key?: string;
+            authorization_date?: string;
+            authorization_day?: string;
+            environment?: string;
+            receptor_email?: string;
+            receptor_id?: string;
+        };
+        /**
+         * @description Annulment and Annulability are a factura's Mark annulled (#745, spec
+         *     #742, ADR 0078): the record of every annulment it carries, and
+         *     whether the act is admitted on it as it stands, with the Annulment
+         *     Window and the fields the SRI portal's form asks for. Both null on a
+         *     Credit Note, whose Mark annulled keeps no record and has no window.
+         */
+        "service.AnnulmentRecordView": {
+            acknowledge?: components["schemas"]["service.AcknowledgeView"];
+            check?: components["schemas"]["service.AnnulmentCheckView"];
+            current?: components["schemas"]["service.AnnulmentView"];
+            follow_ups?: components["schemas"]["service.AnnulmentFollowUpView"][];
+            past?: components["schemas"]["service.AnnulmentView"][];
+            reinstate?: components["schemas"]["service.ReinstateView"];
+        };
+        "service.AnnulmentView": {
+            annulled_at?: string;
+            annulled_by?: string;
+            check_trail?: components["schemas"]["service.AnnulmentCheckTrailView"];
+            from_status?: string;
+            /**
+             * @description FromUnrecorded is true when this annulment recorded an Unrecorded
+             *     Annulment the Closing Sweep found (#750): its check started confirmed.
+             */
+            from_unrecorded?: boolean;
+            late_acknowledged?: boolean;
+            note?: string;
+            notice?: components["schemas"]["service.AnnulmentNoticeView"];
+            reinstate_note?: string;
+            reinstated_at?: string;
+            reinstated_by?: string;
+            reinstatement_notice?: components["schemas"]["service.ReinstatementNoticeView"];
+        };
+        "service.AnnulmentWindowView": {
+            closes_at?: string;
+            days_left?: number;
+            days_total?: number;
+            deadline?: string;
+            issued_on?: string;
+            open?: boolean;
+            today?: string;
+            warning?: boolean;
+            warning_from?: string;
         };
         "service.AnswerOptionView": {
             /**
@@ -16224,15 +16660,24 @@ export interface components {
             error?: string;
             id?: number;
             messages?: components["schemas"]["service.AuthorityMessageView"][];
-            operation?: string;
+            /**
+             * @description Operation is which call it was: `submit` (recepción), `query`
+             *     (autorización) or `status` (the status service, ConsultaComprobante,
+             *     #744).
+             * @enum {string}
+             */
+            operation?: "submit" | "query" | "status";
             /**
              * @description Outcome is what the authority answered, as the core understands it:
              *     `received` (it holds the document and has not decided), `authorized`,
              *     `not_authorized`, `rejected`, `unknown` (it has no record of the
-             *     reference, #514) — or `error` when no answer could be read at all.
+             *     reference, #514) - or `error` when no answer could be read at all. A
+             *     `status` row's outcome is its reading instead: `annulled`,
+             *     `authorized` or `none` (no reading, the error or the authority's
+             *     messages saying why).
              * @enum {string}
              */
-            outcome?: "received" | "authorized" | "not_authorized" | "rejected" | "unknown" | "error";
+            outcome?: "received" | "authorized" | "not_authorized" | "rejected" | "unknown" | "error" | "annulled" | "none";
             started_at?: string;
         };
         "service.AuthorityMessageView": {
@@ -16343,6 +16788,22 @@ export interface components {
              */
             ticket_id?: string;
             ticket_type_name?: string;
+        };
+        /**
+         * @description ClosingSweep is what the tick's Closing Sweep did (#750): asks made
+         *     about the month just closed, and how each read.
+         */
+        "service.ClosingSweepResult": {
+            annulled?: number;
+            asked?: number;
+            authorized?: number;
+            no_reading?: number;
+            unfinished?: number;
+        };
+        "service.ClosingSweepStatus": {
+            due_again_count?: number;
+            month?: string;
+            unswept_count?: number;
         };
         "service.ConfirmCheckoutResult": {
             client_transaction_id?: string;
@@ -16647,10 +17108,11 @@ export interface components {
          */
         "service.CustomerDocumentRole": "current" | "superseded" | "credit_note";
         /**
-         * @description Status is `authorized` or `on_its_way`, and nothing else.
+         * @description Status is `authorized`, `on_its_way`, or `annulled` for a Sale Invoice
+         *     annulled at the SRI (#748), and nothing else.
          * @enum {string}
          */
-        "service.CustomerDocumentStatus": "authorized" | "on_its_way";
+        "service.CustomerDocumentStatus": "authorized" | "on_its_way" | "annulled";
         "service.CustomerDossier": {
             customer?: components["schemas"]["service.DossierCustomerView"];
             /**
@@ -16857,6 +17319,7 @@ export interface components {
              */
             ticket_sale_id?: string;
             total_cents?: number;
+            unrecorded_annulment?: components["schemas"]["service.UnrecordedAnnulmentView"];
         };
         /** @enum {string} */
         "service.DocumentRole": "current" | "superseded" | "credit_note" | "not_current";
@@ -17629,6 +18092,7 @@ export interface components {
              */
             abandoned_by?: string;
             additional_fields?: components["schemas"]["service.AdditionalFieldView"][];
+            annulability?: components["schemas"]["service.AnnulabilityView"];
             annulled_at?: string;
             /**
              * @description AnnulledBy and AnnulledAt are the operator who marked the document
@@ -17636,6 +18100,7 @@ export interface components {
              *     Both null unless the document is annulled.
              */
             annulled_by?: string;
+            annulment?: components["schemas"]["service.AnnulmentRecordView"];
             /**
              * @description AttemptID is the id of the attempts row (in `attempts`) holding the
              *     last SRI call this press made; its `outcome` is what the SRI answered.
@@ -17785,6 +18250,7 @@ export interface components {
             ticket_sale_id?: string;
             total_cents?: number;
             totals?: components["schemas"]["service.TotalsView"];
+            unrecorded_annulment?: components["schemas"]["service.UnrecordedAnnulmentView"];
             updated_at?: string;
         };
         "service.InvoiceDetail": {
@@ -17801,6 +18267,7 @@ export interface components {
              */
             abandoned_by?: string;
             additional_fields?: components["schemas"]["service.AdditionalFieldView"][];
+            annulability?: components["schemas"]["service.AnnulabilityView"];
             annulled_at?: string;
             /**
              * @description AnnulledBy and AnnulledAt are the operator who marked the document
@@ -17808,6 +18275,7 @@ export interface components {
              *     Both null unless the document is annulled.
              */
             annulled_by?: string;
+            annulment?: components["schemas"]["service.AnnulmentRecordView"];
             attempts?: components["schemas"]["service.AttemptView"][];
             /**
              * @description AttentionSince is when the document was parked needs_attention — how
@@ -17952,6 +18420,7 @@ export interface components {
             ticket_sale_id?: string;
             total_cents?: number;
             totals?: components["schemas"]["service.TotalsView"];
+            unrecorded_annulment?: components["schemas"]["service.UnrecordedAnnulmentView"];
             updated_at?: string;
         };
         "service.InvoiceList": {
@@ -18023,6 +18492,7 @@ export interface components {
              */
             ticket_sale_id?: string;
             total_cents?: number;
+            unrecorded_annulment?: components["schemas"]["service.UnrecordedAnnulmentView"];
         };
         "service.InvoicePagination": {
             page?: number;
@@ -18120,6 +18590,9 @@ export interface components {
              *     a replacement began — the one the queue orders it by.
              */
             abandoned_at?: string;
+            acknowledge_admitted?: boolean;
+            annulled_at?: string;
+            attention_reason?: string;
             /**
              * @description AttentionSince is when the document was parked needs_attention — how
              *     long it has been waiting for an operator (#477); null in every other
@@ -18145,6 +18618,7 @@ export interface components {
             /** @description Kind is why the document exists: manual, sale or credit_note. */
             kind?: string;
             messages?: components["schemas"]["service.AuthorityMessageView"][];
+            mismatch_since?: string;
             /**
              * @description Number is the document number as printed: estab-ptoEmi-secuencial,
              *     e.g. 001-001-000000012. Null until signed.
@@ -18159,6 +18633,7 @@ export interface components {
              *     closed.
              */
             recipient_warning?: boolean;
+            reinstate_admitted?: boolean;
             sale_confirmation_ref?: string;
             status?: string;
             /**
@@ -18176,6 +18651,7 @@ export interface components {
              */
             ticket_sale_id?: string;
             total_cents?: number;
+            unrecorded_annulment?: components["schemas"]["service.UnrecordedAnnulmentView"];
         };
         "service.NeedsAttentionQueue": {
             data?: components["schemas"]["service.NeedsAttentionItem"][];
@@ -19644,9 +20120,29 @@ export interface components {
         "service.RecipientWarningCount": {
             recipient_warning_count?: number;
         };
+        "service.RefusalView": {
+            code?: string;
+            message?: string;
+        };
         "service.RefusedBackfillSale": {
             code?: string;
             ticket_sale_id?: string;
+        };
+        "service.ReinstateView": {
+            admitted?: boolean;
+            refusal?: components["schemas"]["service.RefusalView"];
+        };
+        /**
+         * @description ReinstatementNotice is what the tick's reinstatement notice pass did
+         *     (#749): sends and refusals, run right after the Annulment Notice's.
+         */
+        "service.ReinstatementNoticeResult": {
+            failed?: number;
+            sent?: number;
+        };
+        "service.ReinstatementNoticeView": {
+            sent_at?: string;
+            state?: string;
         };
         "service.ReversalDrainResult": {
             /**
@@ -19830,6 +20326,8 @@ export interface components {
             refused?: components["schemas"]["service.RefusedBackfillSale"][];
         };
         "service.SaleInvoiceDrainResult": {
+            annulment_check?: components["schemas"]["service.AnnulmentCheckResult"];
+            annulment_notice?: components["schemas"]["service.AnnulmentNoticeResult"];
             /**
              * @description Authorized, Pending and NeedsAttention are where those documents
              *     ended: authorized this run; still undecided and due again on the
@@ -19842,6 +20340,7 @@ export interface components {
              *     answer: nothing was due.
              */
             claimed?: number;
+            closing_sweep?: components["schemas"]["service.ClosingSweepResult"];
             /**
              * @description Delivered is how many authorized documents this run mailed to their
              *     buyers (#475). Each is counted under Authorized as well; an authorized
@@ -19856,6 +20355,7 @@ export interface components {
             failed?: number;
             needs_attention?: number;
             pending?: number;
+            reinstatement_notice?: components["schemas"]["service.ReinstatementNoticeResult"];
             /**
              * @description Standing is how many Sale Invoices sit in each state once this run
              *     finished, so two curls apart say whether a backlog is shrinking.
@@ -20161,8 +20661,10 @@ export interface components {
             name?: string;
         };
         "service.TaxDocumentArchiveSummary": {
+            annulled?: number;
             credit_notes?: number;
             facturas?: number;
+            unrecorded?: number;
             unsettled?: number;
         };
         /**
@@ -20593,6 +21095,18 @@ export interface components {
         "service.UninvoicedHouseSaleList": {
             data?: components["schemas"]["service.UninvoicedHouseSale"][];
             pagination?: components["schemas"]["service.InvoicePagination"];
+        };
+        /**
+         * @description UnrecordedAnnulment is the Closing Sweep's warning (#750, ADR 0078):
+         *     the SRI reports this authorized factura annulled and the platform has
+         *     no record of it. Null unless the sweep found one; cleared when Mark
+         *     annulled records it, kept when an operator acknowledges it.
+         */
+        "service.UnrecordedAnnulmentView": {
+            acknowledged_at?: string;
+            acknowledged_by?: string;
+            attempt_id?: number;
+            found_at?: string;
         };
         "service.UnresolvedReversal": {
             attempt_count?: number;

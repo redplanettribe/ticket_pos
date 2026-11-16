@@ -189,10 +189,10 @@ func TestTaxDocumentDeliveryReplacesLineIsKeyedOnHowThePredecessorWasReplaced(t 
 
 		// Nothing, then causes the copy deliberately does not know: how an
 		// Issue again predecessor died, and one nobody has invented yet.
-		for _, cause := range []TaxDocumentReplaces{TaxDocumentReplacesNothing, "abandoned", "annulled", "something_new"} {
+		for _, cause := range []TaxDocumentReplaces{TaxDocumentReplacesNothing, "abandoned", "something_new"} {
 			d.Replaces = cause
 			text := strings.ToLower(d.Text())
-			for _, banned := range []string{"replaces", "credit note", "nota de crédito", "sustituye", "corregida", "corrected"} {
+			for _, banned := range []string{"replaces", "credit note", "nota de crédito", "sustituye", "corregida", "corrected", "annulled", "anulada"} {
 				if strings.Contains(text, banned) {
 					t.Fatalf("%s cause %q: text = %q, says %q", locale, cause, text, banned)
 				}
@@ -204,6 +204,72 @@ func TestTaxDocumentDeliveryReplacesLineIsKeyedOnHowThePredecessorWasReplaced(t 
 		d.Replaces = TaxDocumentReplacesCredited
 		if text := d.Text(); strings.Contains(text, line) {
 			t.Fatalf("%s credit note: text = %q, carries the factura's replaces line", locale, text)
+		}
+	}
+}
+
+// TestTaxDocumentDeliveryReplacesLineForAnAnnulledFactura (#748): the
+// factura that follows an annulment at the SRI says it replaces the earlier
+// one, annulled there, and never speaks of a credit note the buyer was
+// never sent. A Credit Note never carries the line.
+func TestTaxDocumentDeliveryReplacesLineForAnAnnulledFactura(t *testing.T) {
+	lines := map[Locale]string{
+		LocaleEN: "This tax invoice (factura) replaces the earlier one for this purchase, which was annulled at the SRI.",
+		LocaleES: "Esta factura sustituye a la anterior de esta compra, que fue anulada en el SRI.",
+	}
+	for locale, line := range lines {
+		d := spanishDelivery()
+		d.Locale = locale
+		d.Replaces = TaxDocumentReplacesAnnulled
+		text := d.Text()
+		if !strings.Contains(text, line) {
+			t.Fatalf("%s annulled: text = %q, want the replaces line", locale, text)
+		}
+		for _, banned := range []string{"credit note", "nota de crédito", "corrected", "corregida"} {
+			if strings.Contains(strings.ToLower(text), banned) {
+				t.Fatalf("%s annulled: text = %q, says %q", locale, text, banned)
+			}
+		}
+		d.Kind = TaxDocumentKindCreditNote
+		if text := d.Text(); strings.Contains(text, line) {
+			t.Fatalf("%s credit note: text = %q, carries the factura's replaces line", locale, text)
+		}
+	}
+}
+
+// TestTaxDocumentDeliveryAsAReinstatementNotice: the reinstatement notice
+// (#749) is the factura's delivery worded as one - it names the factura by
+// its number, says the SRI never took the annulment the buyer was told of
+// and that the factura stands, and still says what is attached. Never the
+// replaces line, never "discard".
+func TestTaxDocumentDeliveryAsAReinstatementNotice(t *testing.T) {
+	for _, locale := range []Locale{LocaleEN, LocaleES} {
+		d := spanishDelivery()
+		d.Locale = locale
+		d.Reinstated = true
+		d.Number = "001-001-000000042"
+		d.Replaces = TaxDocumentReplacesAnnulled
+		subject, text := d.Subject(), d.Text()
+		wantSubject, wantLines := "Your tax invoice (factura) for Noche de Jazz stands", []string{
+			"001-001-000000042", "was annulled at the SRI", "The SRI never took that annulment: the factura stands and is valid", "Reference: ABC123", "Attached are the XML",
+		}
+		if locale == LocaleES {
+			wantSubject, wantLines = "Su factura de Noche de Jazz sigue vigente", []string{
+				"001-001-000000042", "Le informamos anteriormente", "había sido anulada en el SRI", "El SRI no registró esa anulación: la factura sigue vigente y es válida", "Referencia: ABC123", "Adjuntamos el XML",
+			}
+		}
+		if subject != wantSubject {
+			t.Fatalf("%s subject = %q; want %q", locale, subject, wantSubject)
+		}
+		for _, line := range wantLines {
+			if !strings.Contains(text, line) {
+				t.Fatalf("%s text lacks %q:\n%s", locale, line, text)
+			}
+		}
+		for _, never := range []string{"replaces the earlier", "sustituye a la anterior", "discard", "descártela"} {
+			if strings.Contains(text, never) {
+				t.Fatalf("%s text says %q:\n%s", locale, never, text)
+			}
 		}
 	}
 }

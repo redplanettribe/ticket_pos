@@ -480,9 +480,16 @@ func registerOperatorRoutes(mux Router, app *App) {
 	// authority again, or send the same document under the same clave.
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/check", operator(http.HandlerFunc(inv.CheckInvoice)))
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/resend", operator(http.HandlerFunc(inv.ResendInvoice)))
-	// Mark annulled (#477): the operator's record of a manual portal act,
-	// allowed from pending or needs_attention, irreversible.
+	// Mark annulled (#477, #745): the operator's record of a manual portal
+	// act, on a factura from pending, needs_attention or authorized.
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/annul", operator(http.HandlerFunc(inv.AnnulInvoice)))
+	// Reinstate (#749, ADR 0078): an annulled factura back to authorized,
+	// once its window has closed with the SRI still reporting it authorized.
+	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/reinstate", operator(http.HandlerFunc(inv.ReinstateInvoice)))
+	// The acknowledgement of an Unrecorded Annulment (#750, ADR 0078): where
+	// a live Credit Note keeps Mark annulled from recording what the Closing
+	// Sweep found, the operator's word that they saw it clears the queue.
+	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/acknowledge-unrecorded-annulment", operator(http.HandlerFunc(inv.AcknowledgeUnrecordedAnnulment)))
 	// Abandon (#578, ADR 0068): the operator's record that the SRI never
 	// took the document and never will, because it refuses the number it
 	// carries. Any kind, from the three states a refusal leaves, and only
@@ -511,6 +518,11 @@ func registerOperatorRoutes(mux Router, app *App) {
 	// the needs_attention one; the documents themselves are the invoicing
 	// list under its recipient_warning filter.
 	mux.Handle("GET /api/v1/operator/invoicing/recipient-warnings/count", operator(http.HandlerFunc(inv.CountRecipientWarnings)))
+	// The Closing Sweep (#750, ADR 0078): the dashboard's count of the
+	// facturas the latest ended month's sweep couldn't read, and Sweep again,
+	// which makes just those due on the Drainer's next tick.
+	mux.Handle("GET /api/v1/operator/invoicing/closing-sweep", operator(http.HandlerFunc(inv.GetClosingSweepStatus)))
+	mux.Handle("POST /api/v1/operator/invoicing/closing-sweep/sweep-again", operator(http.HandlerFunc(inv.SweepAgain)))
 	// The Uninvoiced House Sales (#507, ADR 0064): the backlog a Sale
 	// Invoice Backfill works from, oldest sale first, and its count. The
 	// first operator surface listing Ticket Sales — read-only, House-scoped,

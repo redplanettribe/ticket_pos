@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/invoicing"
 	"github.com/peter/ticket_pos/backend/internal/invoicing/repository"
 	"github.com/peter/ticket_pos/backend/internal/invoicing/sri"
+	"github.com/peter/ticket_pos/backend/internal/platform/apperror"
 )
 
 // The issue flow (#454, parent #450): a Platform Operator presses Issue, and
@@ -708,6 +710,11 @@ type InvoiceListItem struct {
 	// SALE_INVOICING_ENABLED is closed. The status stays authorized:
 	// superseded is a relation, not a state.
 	SupersededByInvoiceID *string `json:"superseded_by_invoice_id"`
+	// UnrecordedAnnulment is the Closing Sweep's warning (#750, ADR 0078):
+	// the SRI reports this authorized factura annulled and the platform has
+	// no record of it. Null unless the sweep found one; cleared when Mark
+	// annulled records it, kept when an operator acknowledges it.
+	UnrecordedAnnulment *UnrecordedAnnulmentView `json:"unrecorded_annulment"`
 }
 
 // InvoiceList is the ADR-0006 nested envelope for the list.
@@ -771,13 +778,19 @@ type EcuadorInvoiceView struct {
 
 // AttemptView is one row of the attempts ledger.
 type AttemptView struct {
-	ID        int64  `json:"id"`
-	Operation string `json:"operation"`
+	ID int64 `json:"id"`
+	// Operation is which call it was: `submit` (recepción), `query`
+	// (autorización) or `status` (the status service, ConsultaComprobante,
+	// #744).
+	Operation string `json:"operation" enums:"submit,query,status"`
 	// Outcome is what the authority answered, as the core understands it:
 	// `received` (it holds the document and has not decided), `authorized`,
 	// `not_authorized`, `rejected`, `unknown` (it has no record of the
-	// reference, #514) — or `error` when no answer could be read at all.
-	Outcome    string                 `json:"outcome" enums:"received,authorized,not_authorized,rejected,unknown,error"`
+	// reference, #514) - or `error` when no answer could be read at all. A
+	// `status` row's outcome is its reading instead: `annulled`,
+	// `authorized` or `none` (no reading, the error or the authority's
+	// messages saying why).
+	Outcome    string                 `json:"outcome" enums:"received,authorized,not_authorized,rejected,unknown,error,annulled,none"`
 	Messages   []AuthorityMessageView `json:"messages"`
 	Error      string                 `json:"error"`
 	StartedAt  time.Time              `json:"started_at"`
@@ -877,10 +890,147 @@ type InvoiceDetail struct {
 	// A query answer never counts as acknowledgement, which is
 	// what makes the two mutually exclusive; neither is true of a document
 	// whose position the ledger does not say (checkStatusHint, resendHint).
-	CheckStatusHint bool      `json:"check_status_hint"`
-	ResendHint      bool      `json:"resend_hint"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	CheckStatusHint bool `json:"check_status_hint"`
+	ResendHint      bool `json:"resend_hint"`
+	// Annulment and Annulability are a factura's Mark annulled (#745, spec
+	// #742, ADR 0078): the record of every annulment it carries, and
+	// whether the act is admitted on it as it stands, with the Annulment
+	// Window and the fields the SRI portal's form asks for. Both null on a
+	// Credit Note, whose Mark annulled keeps no record and has no window.
+	Annulment    *AnnulmentRecordView `json:"annulment"`
+	Annulability *AnnulabilityView    `json:"annulability"`
+	CreatedAt    time.Time            `json:"created_at"`
+	UpdatedAt    time.Time            `json:"updated_at"`
+}
+
+// AnnulmentRecordView is a factura's annulments ledger as the detail shows
+// it: the one standing, if any, and those a Reinstate has closed, oldest
+// first. A factura annulled before the ledger existed (#477) has none, and
+// its trail is the detail's own annulled_by / annulled_at.
+//
+// Check is where the Annulment Check of an annulled factura stands (#746),
+// null on one that is not annulled.
+//
+// FollowUps is the follow-up chooser of an annulled factura (#747): one
+// entry per card, admitted or refused by the same gates the presses
+// answer with (annulmentFollowUps). Null unless the factura is annulled,
+// and empty where a factura already stands for its Sale.
+//
+// Reinstate says whether Reinstate is admitted on an annulled factura as it
+// stands, or the refusal the press would earn (#749): null unless the
+// factura is annulled.
+type AnnulmentRecordView struct {
+	Current   *AnnulmentView          `json:"current"`
+	Past      []AnnulmentView         `json:"past"`
+	Check     *AnnulmentCheckView     `json:"check"`
+	FollowUps []AnnulmentFollowUpView `json:"follow_ups"`
+	Reinstate *ReinstateView          `json:"reinstate"`
+	// Acknowledge is the acknowledgement of an Unrecorded Annulment (#750),
+	// null unless the factura carries one.
+	Acknowledge *AcknowledgeView `json:"acknowledge"`
+}
+
+// AnnulmentView is one Mark annulled on a factura: the state it was annulled
+// from, who, when, the optional note (null when none was left) and whether
+// the operator acknowledged a late annulment. ReinstatedAt is null while it
+// stands. Notice is where the buyer's Annulment Notice stands (#748).
+//
+// A Reinstate (#749) closes it and keeps it as history: who reinstated,
+// the optional note and the reinstatement notice owed to the buyer, null
+// while it stands. CheckTrail is the annulment's own Annulment Check as it
+// ended or stands - verdict, since when, every ask - so a past annulment
+// keeps the evidence it was reinstated on; null for one recorded before the
+// check existed.
+type AnnulmentView struct {
+	FromStatus       string     `json:"from_status"`
+	AnnulledBy       string     `json:"annulled_by"`
+	AnnulledAt       time.Time  `json:"annulled_at"`
+	Note             *string    `json:"note"`
+	LateAcknowledged bool       `json:"late_acknowledged"`
+	ReinstatedAt     *time.Time `json:"reinstated_at"`
+	// Notice is the buyer's Annulment Notice on this annulment (#748).
+	Notice              *AnnulmentNoticeView     `json:"notice"`
+	ReinstatedBy        *string                  `json:"reinstated_by"`
+	ReinstateNote       *string                  `json:"reinstate_note"`
+	ReinstatementNotice *ReinstatementNoticeView `json:"reinstatement_notice"`
+	CheckTrail          *AnnulmentCheckTrailView `json:"check_trail"`
+	// FromUnrecorded is true when this annulment recorded an Unrecorded
+	// Annulment the Closing Sweep found (#750): its check started confirmed.
+	FromUnrecorded bool `json:"from_unrecorded"`
+}
+
+// AnnulmentCheckTrailView is one annulment's check as its record keeps it:
+// the verdict, the instant it was reached (null while checking) and every
+// ask, oldest first.
+type AnnulmentCheckTrailView struct {
+	Verdict string             `json:"verdict"`
+	Since   *time.Time         `json:"since"`
+	Asks    []AnnulmentAskView `json:"asks"`
+}
+
+// AnnulabilityView says whether Mark annulled is admitted on a factura as
+// it stands, before anything is typed: Admitted, or the Refusal the press
+// would earn (its code and message). Window is the Annulment Window, and
+// Portal the fields the SRI portal's annulment form asks for, both null
+// until the factura is signed. The staff page draws from these alone and
+// never computes a date itself.
+type AnnulabilityView struct {
+	Admitted bool                 `json:"admitted"`
+	Refusal  *RefusalView         `json:"refusal"`
+	Window   *AnnulmentWindowView `json:"window"`
+	Portal   *AnnulmentPortalView `json:"portal"`
+}
+
+// RefusalView is a refusal as the API would answer it: its code and its
+// message.
+type RefusalView struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// refusalView is a domain refusal as the detail shows it, nil for none.
+func refusalView(err error) *RefusalView {
+	var de apperror.DomainError
+	if errors.As(err, &de) {
+		return &RefusalView{Code: de.Code(), Message: de.Message()}
+	}
+	return nil
+}
+
+// AnnulmentWindowView is the Annulment Window at the moment of the read
+// (ADR 0078 sections 1 and 8): the Emission Date, the deadline (day 7 of the
+// following month, to the end of that day in Guayaquil, never a holiday
+// rollover), the day the warning tone starts (day 1 of that month), today
+// in Guayaquil, the instant it closes, whether it is open, whether it is in
+// its warning stretch, the whole days left after today (0 on the last day
+// and once closed) and the window's length in days, which the timeline is
+// drawn over. Dates are YYYY-MM-DD.
+type AnnulmentWindowView struct {
+	IssuedOn    string    `json:"issued_on"`
+	Deadline    string    `json:"deadline"`
+	WarningFrom string    `json:"warning_from"`
+	Today       string    `json:"today"`
+	ClosesAt    time.Time `json:"closes_at"`
+	Open        bool      `json:"open"`
+	Warning     bool      `json:"warning"`
+	DaysLeft    int       `json:"days_left"`
+	DaysTotal   int       `json:"days_total"`
+}
+
+// AnnulmentPortalView is what the SRI portal's annulment form asks for:
+// the clave de acceso, the authorization date on an authorized document
+// (null otherwise) with its day as the portal's form takes it, DD/MM/YYYY
+// in Guayaquil, so the page copies it without formatting a date (#752),
+// the receptor's ID EXACTLY as the signed XML carries it,
+// spaces included, the receptor's email, and the environment, which decides
+// whether the portal's Produccion or Pruebas branch is the one to use.
+type AnnulmentPortalView struct {
+	AccessKey         string     `json:"access_key"`
+	AuthorizationDate *time.Time `json:"authorization_date"`
+	AuthorizationDay  *string    `json:"authorization_day"`
+	ReceptorID        string     `json:"receptor_id"`
+	ReceptorEmail     string     `json:"receptor_email"`
+	Environment       string     `json:"environment"`
 }
 
 // FormatNumber renders the printed document number.
@@ -911,7 +1061,103 @@ func (s *Service) detailView(row *repository.InvoiceRow) *InvoiceDetail {
 	if !s.saleInvoicingEnabled {
 		d.RecipientWarning = false
 	}
+	if invoicing.IsFactura(row.Invoice.Kind) {
+		d.Annulment = annulmentRecordView(row.Annulments)
+		d.Annulment.Check = annulmentCheckView(row)
+		d.Annulment.FollowUps = annulmentFollowUps(row, s.saleInvoicingEnabled)
+		d.Annulment.Reinstate = reinstateView(row, s.clock())
+		d.Annulment.Acknowledge = acknowledgeView(row)
+		d.Annulability = s.annulabilityView(row, s.clock())
+	}
 	return d
+}
+
+func annulmentRecordView(annulments []invoicing.Annulment) *AnnulmentRecordView {
+	out := &AnnulmentRecordView{Past: []AnnulmentView{}}
+	for _, a := range annulments {
+		v := AnnulmentView{
+			FromStatus:       string(a.FromStatus),
+			AnnulledBy:       a.AnnulledBy,
+			AnnulledAt:       a.AnnulledAt,
+			Note:             optional(a.Note),
+			LateAcknowledged: a.LateAcknowledged,
+			ReinstatedAt:     a.ReinstatedAt,
+			Notice:           annulmentNoticeView(&a),
+			CheckTrail:       annulmentCheckTrailView(a.Check),
+			FromUnrecorded:   a.FromUnrecorded,
+		}
+		if r := a.Reinstatement; r != nil {
+			v.ReinstatedBy = optional(r.By)
+			v.ReinstateNote = optional(r.Note)
+			v.ReinstatementNotice = reinstatementNoticeView(r)
+		}
+		if a.ReinstatedAt == nil {
+			out.Current = &v
+		} else {
+			out.Past = append(out.Past, v)
+		}
+	}
+	return out
+}
+
+func annulmentCheckTrailView(c *invoicing.AnnulmentCheck) *AnnulmentCheckTrailView {
+	if c == nil {
+		return nil
+	}
+	out := &AnnulmentCheckTrailView{Verdict: string(c.Verdict), Since: c.Since, Asks: []AnnulmentAskView{}}
+	for _, a := range c.Asks {
+		out.Asks = append(out.Asks, AnnulmentAskView{AskedAt: a.At, Reading: string(a.Reading), Manual: a.Manual})
+	}
+	return out
+}
+
+func (s *Service) annulabilityView(row *repository.InvoiceRow, now time.Time) *AnnulabilityView {
+	inv := &row.Invoice
+	out := &AnnulabilityView{Admitted: true}
+	if err := annulFacturaRefusal(row); err != nil {
+		out.Admitted = false
+		var de apperror.DomainError
+		if errors.As(err, &de) {
+			out.Refusal = &RefusalView{Code: de.Code(), Message: de.Message()}
+		}
+	}
+	if !inv.Signed() || row.Ecuador == nil {
+		return out
+	}
+	w := annulmentWindowOf(inv)
+	out.Window = &AnnulmentWindowView{
+		IssuedOn:    w.IssuedOn.Format(time.DateOnly),
+		Deadline:    w.Deadline.Format(time.DateOnly),
+		WarningFrom: w.WarningFrom.Format(time.DateOnly),
+		Today:       w.Today(now).Format(time.DateOnly),
+		ClosesAt:    w.ClosesAt,
+		Open:        w.Open(now),
+		Warning:     w.Warning(now),
+		DaysLeft:    w.DaysLeft(now),
+		DaysTotal:   w.TotalDays(),
+	}
+	receptorID, err := sri.ReceptorID(inv.SignedXML)
+	if err != nil {
+		// The signed bytes are the platform's own; a factura they do not
+		// parse is a fault worth a line, and the portal field falls back to
+		// the Recipient as recorded rather than leaving the form blank.
+		s.logger.Warn("invoicing: receptor id unreadable from the signed xml", "invoice_id", inv.ID, "error", err)
+		receptorID = inv.Recipient.TaxID
+	}
+	portal := &AnnulmentPortalView{
+		AccessKey:     row.Ecuador.AccessKey,
+		ReceptorID:    receptorID,
+		ReceptorEmail: inv.Recipient.Email,
+		Environment:   string(inv.Environment),
+	}
+	if inv.Status == invoicing.InvoiceStatusAuthorized && row.Ecuador.Authorization != nil {
+		date := row.Ecuador.Authorization.Date
+		day := date.In(sri.Guayaquil).Format("02/01/2006")
+		portal.AuthorizationDate = &date
+		portal.AuthorizationDay = &day
+	}
+	out.Portal = portal
+	return out
 }
 
 func invoiceListItem(row *repository.InvoiceRow) InvoiceListItem {
@@ -936,6 +1182,7 @@ func invoiceListItem(row *repository.InvoiceRow) InvoiceListItem {
 		AbandonedAt:           optionalTime(inv.AbandonedAt),
 		RecipientWarning:      inv.RecipientWarning,
 		SupersededByInvoiceID: optional(inv.SupersededByInvoiceID),
+		UnrecordedAnnulment:   unrecordedAnnulmentView(inv.UnrecordedAnnulment),
 	}
 	if inv.Signed() {
 		item.Environment = optional(string(inv.Environment))

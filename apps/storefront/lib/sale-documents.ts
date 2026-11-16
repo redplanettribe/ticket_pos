@@ -3,9 +3,11 @@
  * ADR 0060): the factura a paid House sale owes, and the nota de crédito its
  * reversal will owe, as rules rather than as markup.
  *
- * WHAT THE BUYER IS TOLD IS TWO THINGS. The API already speaks in the buyer's
- * words — `authorized` or `on_its_way`, never a state the SRI named and never
- * a message it sent — so nothing here maps or softens anything. It decides
+ * WHAT THE BUYER IS TOLD IS TWO THINGS, AND A THIRD OF AN ANNULMENT. The API
+ * already speaks in the buyer's words - `authorized` or `on_its_way`, never a
+ * state the SRI named and never a message it sent, and `annulled` for a
+ * factura annulled at the SRI (#748), which is listed labelled and without
+ * downloads - so nothing here maps or softens anything. It decides
  * only where a download is offered and which word names each document.
  *
  * AFTER A SALE INVOICE REISSUE THE SALE HAS A CHAIN (#485, ADR 0061): a
@@ -25,7 +27,8 @@ export type SaleDocument = {
   id: string;
   /** `sale` is a factura; `credit_note` a nota de crédito. */
   kind: string;
-  /** `authorized`, or `on_its_way` for everything before that. */
+  /** `authorized`, `on_its_way` for everything before that, or `annulled`
+   * for a factura annulled at the SRI (#748): listed, never downloadable. */
   status: string;
   /** The API's own download path once authorized, null before. Not the path
    * this app fetches — a browser never addresses the Go API (ADR 0008) — but
@@ -89,12 +92,32 @@ export function orderSaleDocuments(documents: SaleDocument[]): SaleDocument[] {
 
 /**
  * saleDocumentBadgeKey names the message drawn beside a document's label, or
- * null when it carries none: only a superseded factura is marked, so the
- * buyer holding two facturas knows which one stands. A credit note and the
- * current factura are labelled by their kind alone.
+ * null when it carries none: a factura annulled at the SRI is marked so
+ * (#748), and otherwise only a superseded factura is, so the buyer holding
+ * two facturas knows which one stands. Annulled wins over superseded: a
+ * factura replaced after its annulment is void, which is the more important
+ * word. A credit note and the current factura are labelled by their kind
+ * alone.
  */
-export function saleDocumentBadgeKey(document: SaleDocument): "superseded" | null {
+export function saleDocumentBadgeKey(document: SaleDocument): "annulled" | "superseded" | null {
+  if (isAnnulled(document)) {
+    return "annulled";
+  }
   return saleDocumentRole(document) === "superseded" ? "superseded" : null;
+}
+
+/** Whether the API lists the document as annulled at the SRI (#748). */
+function isAnnulled(document: SaleDocument): boolean {
+  return document.status === "annulled";
+}
+
+/**
+ * saleDocumentAnnulledKey names the sentence drawn where an annulled
+ * factura's downloads would be, or null for any other document: it has no
+ * tax effect and is not offered for download (#748).
+ */
+export function saleDocumentAnnulledKey(document: SaleDocument): "annulledNote" | null {
+  return isAnnulled(document) ? "annulledNote" : null;
 }
 
 /**
@@ -147,12 +170,13 @@ export function saleDocumentLabelKey(document: SaleDocument): "invoice" | "credi
 /**
  * saleDocumentPendingKey names the "on its way" sentence for a document not
  * yet authorized, or null once it is — the sentence and the download are
- * never drawn together.
+ * never drawn together - and null for an annulled factura, which is not on
+ * its way to anywhere (#748).
  */
 export function saleDocumentPendingKey(
   document: SaleDocument,
 ): "onItsWay" | "creditNoteOnItsWay" | null {
-  if (document.status === "authorized") {
+  if (document.status === "authorized" || isAnnulled(document)) {
     return null;
   }
   return document.kind === "credit_note" ? "creditNoteOnItsWay" : "onItsWay";

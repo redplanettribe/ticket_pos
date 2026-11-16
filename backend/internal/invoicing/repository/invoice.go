@@ -28,6 +28,30 @@ type InvoiceRow struct {
 	Invoice  invoicing.Invoice
 	Ecuador  *invoicing.EcuadorInvoiceDetails
 	Attempts []invoicing.Attempt
+	// Annulments and StandingCreditNoteID are read by GetInvoice on a
+	// factura alone (#745): its Mark annulled ledger, oldest first, and the
+	// live Credit Note standing against it ("" when none). Empty on every
+	// other read.
+	Annulments           []invoicing.Annulment
+	StandingCreditNoteID string
+	// FollowUps is read by GetInvoice on an ANNULLED factura alone (#747):
+	// the facts its follow-up chooser is decided on, by the same gates
+	// Issue again and Reissue decide on. Nil on every other read.
+	FollowUps *FollowUpFacts
+}
+
+// FollowUpFacts is what an annulled factura's follow-ups are decided on
+// beyond its own row (#747, spec #742, ADR 0078), read as the detail is:
+// the Ticket Sale's status ("" on a manual Tax Invoice, which has none),
+// whether a Sale Invoice already stands for that Sale (saleHasLiveFactura),
+// and whether the factura's current annulment stands at mismatch
+// (annulmentAtMismatchSQL). The gates read the same facts again under the
+// Sale's lock when pressed (IssueAgainSaleFacts, ReissueSaleFacts); these
+// only decide which cards the page draws.
+type FollowUpFacts struct {
+	SaleStatus          string
+	SaleHasLiveFactura  bool
+	AnnulmentAtMismatch bool
 }
 
 // NewInvoice is everything the service knows before a number is allocated:
@@ -430,6 +454,198 @@ func (r *Repository) AnnulInvoice(ctx context.Context, invoiceID, annulledBy str
 	return true, withdrawnSuccessorID, nil
 }
 
+// FacturaAnnulment is what Mark annulled on a factura records beside the
+// status (#745, ADR 0078): the state the row was READ in, which the write is
+// guarded on, and the operator's optional note and late acknowledgement.
+type FacturaAnnulment struct {
+	FromStatus       invoicing.InvoiceStatus
+	AnnulledBy       string
+	AnnulledAt       time.Time
+	Note             string
+	LateAcknowledged bool
+}
+
+// standingCreditNoteSQL is "a LIVE Credit Note stands against this factura"
+// as Mark annulled reads it (#745, ADR 0078): owed, pending, needs_attention
+// or authorized. It is deliberately NARROWER than creditedByLiveID, which
+// counts every status but the three deaths: a Credit Note the authority
+// rejected or did not authorize credits nothing at the authority either, so
+// it never stands in the way of the annulment that cures its factura.
+const standingCreditNoteSQL = `(SELECT c.id FROM invoicing_invoices c WHERE c.credits_invoice_id = i.id AND c.status IN ('owed', 'pending', 'needs_attention', 'authorized') ORDER BY c.created_at DESC, c.id DESC LIMIT 1)`
+
+// AnnulFactura records Mark annulled on a factura (#745, spec #742, ADR
+// 0078): the row's current state - status, who, when - and one new row on
+// the append-only annulments ledger, in one transaction. The number, the
+// clave, the signed XML, the authorization and the authority's last
+// messages stay exactly as they were; next_attempt_at and attention_since
+// are cleared, as a Credit Note's Mark annulled clears them.
+//
+// GUARDED ON WHAT THE GATE READ. The write lands only on a row still in the
+// state the service read it in, still signed, still a factura, with no live
+// successor in its place and, when authorized, no live Credit Note against
+// it, so a press racing a late AUTORIZADO, a Sale Reversal owing a Credit Note, or a
+// second press, finds no row to update and the service reads the row back
+// to say which. The partial unique index on the ledger is the last word on
+// a second open annulment.
+//
+// THE ANNULMENT CHECK STARTS WITH THE ROW (#746): `checking`, its first ask
+// due one rung after the recording, for the Drainer's tick to claim.
+//
+// AN UNRECORDED ANNULMENT IS RECORDED BY IT (#750): on a factura the Closing
+// Sweep flagged, the SRI has said ANULADO already, so the check starts
+// `confirmed` at the recording with no asks and none scheduled, the row is
+// marked from_unrecorded, and the flag is cleared in the same transaction:
+// the annulment is now on the platform's record.
+func (r *Repository) AnnulFactura(ctx context.Context, invoiceID string, a FacturaAnnulment) (bool, error) {
+	tx, err := r.db.Pool.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin annul factura: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx, `
+		UPDATE invoicing_invoices i SET
+			status = $2,
+			annulled_by = $3,
+			annulled_at = $4,
+			next_attempt_at = NULL,
+			attention_since = NULL,
+			updated_at = NOW()
+		WHERE i.id = $1 AND i.status = $5 AND i.signed_xml IS NOT NULL
+		  AND i.kind IN ('sale', 'manual')
+		  AND (i.status <> 'authorized' OR `+standingCreditNoteSQL+` IS NULL)
+		  AND `+liveSuccessorID+` IS NULL
+	`, invoiceID, invoicing.InvoiceStatusAnnulled, a.AnnulledBy, a.AnnulledAt, a.FromStatus)
+	if err != nil {
+		return false, fmt.Errorf("annul factura: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("annul factura: %w", err)
+	}
+	if n != 1 {
+		return false, nil
+	}
+	// The Annulment Notice (#748) is owed on a Sale Invoice the buyer was
+	// sent, read off the row the update above left: delivered_at is never
+	// touched by an annulment, and only an authorized document is ever
+	// delivered.
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO invoicing_annulments (invoice_id, from_status, annulled_by, annulled_at, note, late_acknowledged,
+		                                  check_verdict, check_verdict_at, next_ask_at, notice_state, from_unrecorded)
+		SELECT $1, $2, $3, $4::timestamptz, NULLIF($5, ''), $6,
+		       CASE WHEN u.flagged THEN $9::text ELSE $7::text END,
+		       CASE WHEN u.flagged THEN $4::timestamptz END,
+		       CASE WHEN u.flagged THEN NULL ELSE $8::timestamptz END,
+		       CASE WHEN i.kind = 'sale' AND i.delivered_at IS NOT NULL THEN 'owed' ELSE 'not_owed' END,
+		       u.flagged
+		FROM invoicing_invoices i
+		CROSS JOIN LATERAL (SELECT i.unrecorded_annulment_found_at IS NOT NULL AS flagged) u
+		WHERE i.id = $1
+	`, invoiceID, a.FromStatus, a.AnnulledBy, a.AnnulledAt, a.Note, a.LateAcknowledged,
+		invoicing.AnnulmentChecking, invoicing.FirstAnnulmentAsk(a.AnnulledAt), invoicing.AnnulmentConfirmed); err != nil {
+		return false, fmt.Errorf("record annulment: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE invoicing_invoices SET
+			unrecorded_annulment_found_at = NULL,
+			unrecorded_annulment_attempt_id = NULL,
+			unrecorded_annulment_acknowledged_by = NULL,
+			unrecorded_annulment_acknowledged_at = NULL
+		WHERE id = $1 AND unrecorded_annulment_found_at IS NOT NULL
+	`, invoiceID); err != nil {
+		return false, fmt.Errorf("clear unrecorded annulment: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit annul factura: %w", err)
+	}
+	return true, nil
+}
+
+// loadAnnulmentFacts reads what Mark annulled on a factura is decided on
+// beyond the row itself (#745): its annulments, oldest first, and the live
+// Credit Note standing against it, if any. Read for a factura only; a Credit
+// Note has neither.
+func (r *Repository) loadAnnulmentFacts(ctx context.Context, row *InvoiceRow) error {
+	if !invoicing.IsFactura(row.Invoice.Kind) {
+		return nil
+	}
+	var standing sql.NullString
+	if err := r.db.Pool.QueryRowContext(ctx, `SELECT `+standingCreditNoteSQL+` FROM invoicing_invoices i WHERE i.id = $1`, row.Invoice.ID).Scan(&standing); err != nil {
+		return fmt.Errorf("standing credit note: %w", err)
+	}
+	row.StandingCreditNoteID = standing.String
+	if row.Invoice.Status == invoicing.InvoiceStatusAnnulled {
+		var facts FollowUpFacts
+		var saleStatus sql.NullString
+		if err := r.db.Pool.QueryRowContext(ctx, `
+			SELECT ts.status,
+			       COALESCE(`+saleHasLiveFactura("i.ticket_sale_id")+`, false),
+			       `+annulmentAtMismatchSQL+`
+			FROM invoicing_invoices i
+			LEFT JOIN ticket_sales ts ON ts.id = i.ticket_sale_id
+			WHERE i.id = $1
+		`, row.Invoice.ID).Scan(&saleStatus, &facts.SaleHasLiveFactura, &facts.AnnulmentAtMismatch); err != nil {
+			return fmt.Errorf("follow-up facts: %w", err)
+		}
+		facts.SaleStatus = saleStatus.String
+		row.FollowUps = &facts
+	}
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT id, invoice_id, from_status, annulled_by, annulled_at, COALESCE(note, ''), late_acknowledged, reinstated_at,
+		       check_verdict, check_verdict_at, next_ask_at, notice_state, notice_sent_at, notice_attempts,
+		       reinstated_by, COALESCE(reinstate_note, ''), reinstatement_notice_state, reinstatement_notice_sent_at,
+		       reinstatement_notice_attempts, from_unrecorded
+		FROM invoicing_annulments WHERE invoice_id = $1 ORDER BY annulled_at, created_at, id
+	`, row.Invoice.ID)
+	if err != nil {
+		return fmt.Errorf("annulments: %w", err)
+	}
+	defer rows.Close()
+	var checked []string
+	for rows.Next() {
+		var a invoicing.Annulment
+		var verdict sql.NullString
+		var since, next sql.NullTime
+		var reinstatedBy, reinstatementNotice sql.NullString
+		var rein invoicing.Reinstatement
+		if err := rows.Scan(&a.ID, &a.InvoiceID, &a.FromStatus, &a.AnnulledBy, &a.AnnulledAt, &a.Note, &a.LateAcknowledged, &a.ReinstatedAt,
+			&verdict, &since, &next, &a.Notice.State, &a.Notice.SentAt, &a.Notice.Attempts,
+			&reinstatedBy, &rein.Note, &reinstatementNotice, &rein.Notice.SentAt, &rein.Notice.Attempts, &a.FromUnrecorded); err != nil {
+			return fmt.Errorf("scan annulment: %w", err)
+		}
+		if a.ReinstatedAt != nil {
+			rein.By = reinstatedBy.String
+			rein.Notice.State = invoicing.ReinstatementNoticeState(reinstatementNotice.String)
+			a.Reinstatement = &rein
+		}
+		if verdict.Valid {
+			a.Check = &invoicing.AnnulmentCheck{Verdict: invoicing.AnnulmentVerdict(verdict.String)}
+			if since.Valid {
+				a.Check.Since = &since.Time
+			}
+			if next.Valid {
+				a.Check.NextAskAt = &next.Time
+			}
+			checked = append(checked, a.ID)
+		}
+		row.Annulments = append(row.Annulments, a)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("annulments: %w", err)
+	}
+	asks, err := annulmentAsksOf(ctx, r.db.Pool, checked)
+	if err != nil {
+		return err
+	}
+	for i := range row.Annulments {
+		if c := row.Annulments[i].Check; c != nil {
+			c.Asks = asks[row.Annulments[i].ID]
+		}
+	}
+	return nil
+}
+
 // AbandonInvoice records that the Tax Authority never took the document and
 // never will (#578, parent #575, ADR 0068): the status, who, when and the
 // operator's optional note, AND NOTHING ELSE. The number, the clave de
@@ -542,6 +758,8 @@ const invoiceColumns = `
 	` + liveSuccessorID + `,
 	rr.reissued_by, rr.reissued_at, rr.reissue_note,
 	i.backfilled_by, i.backfilled_at,
+	i.unrecorded_annulment_found_at, i.unrecorded_annulment_attempt_id,
+	i.unrecorded_annulment_acknowledged_by, i.unrecorded_annulment_acknowledged_at,
 	i.created_at, i.updated_at,
 	e.cod_doc, e.estab, e.pto_emi, e.secuencial, e.access_key, e.authorization_number, e.authorization_date`
 
@@ -609,6 +827,9 @@ func (r *Repository) GetInvoice(ctx context.Context, id string) (*InvoiceRow, er
 		return nil, fmt.Errorf("get invoice: %w", err)
 	}
 	if err := r.loadInvoiceChildren(ctx, row); err != nil {
+		return nil, err
+	}
+	if err := r.loadAnnulmentFacts(ctx, row); err != nil {
 		return nil, err
 	}
 	return row, nil
@@ -887,44 +1108,55 @@ func (r *Repository) ListInvoices(ctx context.Context, filter InvoiceFilter, pag
 }
 
 // needsAttentionWhere is THE needs-attention queue's membership rule, and
-// it is A UNION OF TWO CONDITIONS rather than a status equality (#581,
-// parent #575, ADR 0068). It is written once, here, because the list and
-// the count must be incapable of disagreeing: the badge an operator watches
-// daily and the page it opens are one claim.
+// it is A UNION OF CONDITIONS rather than a status equality (#581,
+// parent #575, ADR 0068; widened by #746 and #747, spec #742, ADR 0078).
+// It is written once, here, because the list and the count must be
+// incapable of disagreeing: the badge an operator watches daily and the
+// page it opens are one claim. THE FULL UNION, door by door:
 //
-//	needs_attention                          — a document parked for an
+//	needs_attention                          - a document parked for an
 //	                                           operator: refused with a
 //	                                           remedy, unanswered and still
 //	                                           polled, or unsignable.
-//	OR abandoned, sale-kind, unreplaced,     — a Ticket Sale that stands and
-//	   on a Sale that still stands             has no factura, and nothing
-//	                                           yet owes it one.
+//	OR abandoned or annulled, sale-kind,     - a Ticket Sale that stands and
+//	   on a Sale that still stands, with       has no factura, and nothing
+//	   no factura standing for that Sale       yet owes it one (reason
+//	                                           `abandoned` or `annulled`).
+//	OR annulled, any kind, its standing      - the SRI still reports the
+//	   annulment's check at mismatch           annulled factura authorized
+//	                                           (reason `annulment_mismatch`).
+//	OR authorized, carrying an               - the SRI reports the factura
+//	   unacknowledged Unrecorded               annulled and the platform has
+//	   Annulment                               no record of it (reason
+//	                                           `unrecorded_annulment`).
 //
-// WHY THE SECOND HALF IS HERE AT ALL. Abandon (#578) and Issue again (#580)
-// are deliberately two presses, so a Sale can sit abandoned-and-unreplaced
-// between them — its buyer holding no valid tax document — and until this,
-// nothing on any surface said so, because `abandoned` is not
+// WHY THE SECOND DOOR IS HERE AT ALL. Abandon (#578) and Issue again (#580)
+// are deliberately two presses, and so are Mark annulled and its follow-up
+// (#747): a Sale can sit dead-and-unreplaced between them - its buyer
+// holding no valid tax document - and until the widening nothing on any
+// surface said so, because neither `abandoned` nor `annulled` is
 // `needs_attention`. The queue that already means "unfinished invoicing
 // work" widens to say what its name promises, rather than a second badge
 // beside it: two badges meaning the same thing is how an operator learns to
 // ignore one.
 //
 // IT SELF-CLEARS, which is what makes a union safe here. The moment Issue
-// again owes a replacement, the abandoned document has a live successor and
-// drops out with no second act to remember.
+// again or a Reissue owes a replacement, the Sale has a factura standing
+// for it and the dead document drops out with no second act to remember; a
+// Sale Reversal clears it too, since a reversed Sale is owed nothing.
 //
-// EACH CLAUSE OF THE SECOND HALF IS LOAD-BEARING:
+// EACH CLAUSE OF THE SECOND DOOR IS LOAD-BEARING:
 //
 //   - sale-kind. A Credit Note and a manual Tax Invoice are never issued
-//     again — #580 refuses both by their own codes, and a manual document is
-//     typed again by hand — so a row for either could never be cleared by
+//     again - #580 refuses both by their own codes, and a manual document is
+//     typed again by hand - so a row for either could never be cleared by
 //     any press the platform offers, and a permanent row is not a queue.
 //   - the SALE has no factura standing for it, read from saleHasLiveFactura
 //     and NEVER re-derived. Asked of the Sale and not of the document, for
 //     the reason that function gives: over a chain of more than one hop a
 //     document whose own successor died reads unreplaced while its Sale is
 //     invoiced, and queueing it would post work no press could clear. It is
-//     #579's live throughout — a replacement that is itself withdrawn,
+//     #579's live throughout - a replacement that is itself withdrawn,
 //     annulled or abandoned stands for nothing, so a Sale whose every
 //     document has died returns to the queue, where the operator can act.
 //   - the Sale still stands. Income that no longer stands is never declared
@@ -934,15 +1166,79 @@ func (r *Repository) ListInvoices(ctx context.Context, filter InvoiceFilter, pag
 //     document with no Ticket Sale answers NULL here and is excluded, which
 //     is the same answer as the kind clause and deliberately redundant with
 //     it.
+//
+// THE THIRD DOOR, THE ANNULMENT CHECK'S MISMATCH (#746): an annulled
+// factura whose standing annulment's check stands at mismatch
+// (annulmentAtMismatchSQL). The annulment is never undone by it; the entry
+// is the warning, and it clears itself when a later ask reads ANULADO (the
+// check is confirmed) or a Reinstate closes the annulment. Any kind: a
+// manual Tax Invoice at mismatch is as much the operator's to look at as a
+// Sale Invoice.
+//
+// THE FOURTH DOOR, THE UNRECORDED ANNULMENT (#750): the Closing Sweep read
+// ANULADO for a factura the platform holds as authorized
+// (unrecordedAnnulmentSQL). The platform never records the annulment
+// itself; the entry clears when an operator does, with Mark annulled (the
+// factura is then annulled and the flag cleared), or acknowledges it where
+// a live Credit Note refuses Mark annulled. It is disjoint from the other
+// three on the status.
+//
+// THE DOORS OVERLAP ON ONE CASE: an annulled Sale Invoice of a standing,
+// unreplaced Sale whose check is at mismatch comes in by both. It is one
+// row all the same (a WHERE clause, not a UNION ALL), and its reason is
+// the mismatch: that is the warning that also holds back the follow-ups
+// that would clear the second door. The list item says which door it came
+// in by (service.attentionReason).
 var needsAttentionWhere = `(
 	i.status = 'needs_attention'
+	OR ` + deadUnreplacedSaleInvoiceSQL + `
 	OR (
-		i.status = 'abandoned'
+		i.status = 'annulled'
+		AND ` + annulmentAtMismatchSQL + `
+	)
+	OR ` + unrecordedAnnulmentSQL + `
+)`
+
+// unrecordedAnnulmentSQL is the queue's fourth door: the factura `i` is held
+// as authorized, the Closing Sweep found the SRI reporting it annulled, and
+// no operator has acknowledged it.
+const unrecordedAnnulmentSQL = `(
+		i.status = 'authorized'
+		AND i.unrecorded_annulment_found_at IS NOT NULL
+		AND i.unrecorded_annulment_acknowledged_at IS NULL
+	)`
+
+// deadUnreplacedSaleInvoiceSQL is the queue's second door: the Sale Invoice
+// `i` is abandoned or annulled, its Ticket Sale still stands, and nothing
+// stands for that Sale in its place (needsAttentionWhere says why each
+// clause is there).
+var deadUnreplacedSaleInvoiceSQL = `(
+		i.status IN ('abandoned', 'annulled')
 		AND i.kind = 'sale'
 		AND ts.status <> 'reversed'
 		AND NOT ` + saleHasLiveFactura("i.ticket_sale_id") + `
-	)
-)`
+	)`
+
+// annulmentMismatchSinceSQL is the instant the standing annulment of the
+// factura `i` reached a mismatch, NULL when it has none at mismatch: the
+// queue's third door, and the instant it entered by it.
+const annulmentMismatchSinceSQL = `(SELECT a.check_verdict_at FROM invoicing_annulments a
+	WHERE a.invoice_id = i.id AND a.reinstated_at IS NULL AND a.check_verdict = 'mismatch')`
+
+// annulmentAtMismatchSQL is THE MISMATCH PREDICATE (#747, spec #742, ADR
+// 0078): "this annulled factura's current annulment stands at mismatch",
+// of the factura `i`. One spelling, read by the needs-attention queue's
+// third door, by Issue again's and Reissue's gates inside their
+// transactions (IssueAgainSaleFacts, ReissueSaleFacts), by the detail's
+// follow-up chooser (FollowUpFacts) and by the Annulment Notice's claim
+// (ClaimDueAnnulmentNotice).
+//
+// KEYED ON THE VERDICT AND NOTHING ELSE. It never asks which state the
+// factura was annulled from: a pending factura the SRI silently authorized
+// and an authorized one whose portal step never finished are caught alike.
+// An annulment recorded before the check existed has no verdict and is
+// never at mismatch; a reinstated one is not the current annulment.
+const annulmentAtMismatchSQL = `(` + annulmentMismatchSinceSQL + ` IS NOT NULL)`
 
 // needsAttentionOrder is the composition of the queue's TWO ORDERINGS, and
 // the reason it needed a second sort key (#581): `attention_since` is NULL
@@ -958,11 +1254,18 @@ var needsAttentionWhere = `(
 // status ahead of the other was rejected: the badge's oldest entry would
 // then not be the oldest work, which is the one thing the ordering is for.
 //
+// A mismatch enters at the instant its check reached it (#746), the third
+// instant of the same clock, and an annulled Sale Invoice of a standing,
+// unreplaced Sale at the instant it was annulled (#747), the fourth, and an
+// Unrecorded Annulment at the instant the sweep found it (#750), the fifth.
+// Where an annulled one comes in by both doors the mismatch's instant is
+// read, matching the reason the item carries.
+//
 // Ties, which one drain round can produce, break on the row's own age as
 // they always have. Should both instants somehow be NULL, Postgres sorts
 // NULLs last on ASC and the row lands at the back rather than anywhere
 // undefined.
-const needsAttentionOrder = `ORDER BY COALESCE(i.attention_since, i.abandoned_at) ASC, i.created_at ASC, i.id ASC`
+const needsAttentionOrder = `ORDER BY COALESCE(i.attention_since, i.abandoned_at, ` + annulmentMismatchSinceSQL + `, i.annulled_at, i.unrecorded_annulment_found_at) ASC, i.created_at ASC, i.id ASC`
 
 // needsAttentionFrom is the least the membership rule can be decided from:
 // the row and the Ticket Sale it is about. The count reads through it and
@@ -973,9 +1276,11 @@ const needsAttentionFrom = `
 	FROM invoicing_invoices i
 	LEFT JOIN ticket_sales ts ON ts.id = i.ticket_sale_id`
 
-// ListNeedsAttention reads a page of the needs-attention queue — documents
-// parked needs_attention, of every kind, AND abandoned Sale Invoices with
-// no live successor whose Ticket Sale still stands (needsAttentionWhere) —
+// ListNeedsAttention reads a page of the needs-attention queue - documents
+// parked needs_attention, of every kind, abandoned or annulled Sale
+// Invoices of a standing Sale that has no factura, annulled facturas at
+// mismatch, and facturas carrying an unacknowledged Unrecorded Annulment
+// (needsAttentionWhere) -
 // LONGEST WAITING FIRST by the instant each entered the queue
 // (needsAttentionOrder), and how many there are in all (#477, #581).
 func (r *Repository) ListNeedsAttention(ctx context.Context, page, pageSize int) ([]InvoiceRow, int, error) {
@@ -1154,6 +1459,9 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 		reissuedAt                         sql.NullTime
 		backfilledBy                       sql.NullString
 		backfilledAt                       sql.NullTime
+		unrecordedFoundAt, unrecordedAckAt sql.NullTime
+		unrecordedAttemptID                sql.NullInt64
+		unrecordedAckBy                    sql.NullString
 		codDoc, estab, ptoEmi, accessKey   sql.NullString
 		secuencial                         sql.NullInt64
 		authNumber                         sql.NullString
@@ -1170,6 +1478,7 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 		&abandonedBy, &abandonedAt, &abandonNote,
 		&supersedesID, &supersededByID, &reissuedBy, &reissuedAt, &reissueNote,
 		&backfilledBy, &backfilledAt,
+		&unrecordedFoundAt, &unrecordedAttemptID, &unrecordedAckBy, &unrecordedAckAt,
 		&inv.CreatedAt, &inv.UpdatedAt,
 		&codDoc, &estab, &ptoEmi, &secuencial, &accessKey, &authNumber, &authDate,
 	); err != nil {
@@ -1230,6 +1539,17 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 	if backfilledAt.Valid {
 		t := backfilledAt.Time
 		inv.BackfilledAt = &t
+	}
+	if unrecordedFoundAt.Valid {
+		inv.UnrecordedAnnulment = &invoicing.UnrecordedAnnulment{
+			FoundAt:        unrecordedFoundAt.Time,
+			AttemptID:      unrecordedAttemptID.Int64,
+			AcknowledgedBy: unrecordedAckBy.String,
+		}
+		if unrecordedAckAt.Valid {
+			t := unrecordedAckAt.Time
+			inv.UnrecordedAnnulment.AcknowledgedAt = &t
+		}
 	}
 	if accessKey.Valid {
 		row.Ecuador = &invoicing.EcuadorInvoiceDetails{

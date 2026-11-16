@@ -210,6 +210,16 @@ func (s *SESEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDocum
 	return nil
 }
 
+// SendAnnulmentNotice tells the buyer their factura was annulled at the SRI
+// (#748). No attachments. The Drainer reads the error and retries on the
+// delivery's ladder.
+func (s *SESEmailSender) SendAnnulmentNotice(ctx context.Context, n AnnulmentNotice) error {
+	if err := s.send(ctx, "annulment notice", n.To, n.Subject(), n.Text()); err != nil {
+		return s.fail("annulment notice", err, "reference", n.Reference)
+	}
+	return nil
+}
+
 // SendConsentWithdrawalConfirmation delivers the confirmation that a Consent
 // Withdrawal took something away (#267). The error is returned because the
 // confirmation-sent stamp is written only where the provider took the message.

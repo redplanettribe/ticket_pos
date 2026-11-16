@@ -10,8 +10,9 @@ export const dynamic = "force-dynamic";
 
 /**
  * The Tax Documents of one of the buyer's Ticket Sales (#475, ADR 0060): the
- * factura a paid House sale owes, in the buyer's words — `authorized` with a
- * download, or `on_its_way` — and nothing the SRI ever said.
+ * factura a paid House sale owes, in the buyer's words - `authorized` with a
+ * download, `on_its_way`, or `annulled` for a factura annulled at the SRI
+ * (#748), listed without a download - and nothing the SRI ever said.
  *
  * The browser asks here, this handler forwards under the Customer Session token
  * held in this app's httpOnly cookie, and hands back what the API said — no
