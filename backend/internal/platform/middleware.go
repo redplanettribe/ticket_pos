@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -91,7 +92,7 @@ func wellFormedRequestID(id string) bool {
 func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		rec := &statusRecorder{ResponseWriter: w}
+		rec := &statusRecorder{ResponseWriter: w, logger: logger}
 		defer func() {
 			aborted := recover()
 			level := slog.LevelInfo
@@ -134,9 +135,19 @@ func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 }
 
 // statusRecorder remembers the status a handler sent; 0 means none yet.
+//
+// It is also how the error mapping, which is handed only the writer, reaches
+// the pipeline's logger: see reportUnexpectedError.
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
+	logger *slog.Logger
+}
+
+// reportUnexpectedError writes down the cause of an unexpected 500, which the
+// generic response hides (#763, ADR 0079).
+func (r *statusRecorder) reportUnexpectedError(requestID string, err error) {
+	r.logger.Error("unexpected error", "request_id", requestID, "error", err)
 }
 
 func (r *statusRecorder) WriteHeader(status int) {
@@ -237,7 +248,7 @@ func recoverMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 				if rec == http.ErrAbortHandler {
 					panic(rec)
 				}
-				logger.Error("panic recovered", "request_id", RequestID(r.Context()), "panic", rec)
+				logger.Error("panic recovered", "request_id", RequestID(r.Context()), "panic", rec, "stack", string(debug.Stack()))
 				_ = WriteHandlerError(w, RequestID(r.Context()), http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred", nil)
 			}
 		}()

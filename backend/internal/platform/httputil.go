@@ -76,6 +76,11 @@ func WriteHandlerError(w http.ResponseWriter, requestID string, status int, code
 }
 
 // WriteDomainError maps a domain error to HTTP and writes the envelope.
+//
+// Any other error is answered with the generic INTERNAL_ERROR 500, and its
+// cause is logged at ERROR under the request id by the request pipeline the
+// writer belongs to. A domain error is the platform refusing as designed and is
+// not logged here; the request line records it at the level its status calls.
 func WriteDomainError(w http.ResponseWriter, requestID string, err error) error {
 	var domainErr apperror.DomainError
 	if errors.As(err, &domainErr) {
@@ -85,7 +90,33 @@ func WriteDomainError(w http.ResponseWriter, requestID string, err error) error 
 		}
 		return WriteHandlerError(w, requestID, status, domainErr.Code(), domainErr.Message(), domainErr.Details())
 	}
+	reportUnexpectedError(w, requestID, err)
 	return WriteHandlerError(w, requestID, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred", nil)
+}
+
+// unexpectedErrorReporter is the request pipeline's response writer, which
+// writes down the cause of an unexpected 500 (statusRecorder).
+type unexpectedErrorReporter interface {
+	reportUnexpectedError(requestID string, err error)
+}
+
+// reportUnexpectedError hands a non-domain error to the request pipeline the
+// writer belongs to, looking through any writer wrapped around it the way
+// http.ResponseController does. The mapping is handed only a writer, and this
+// keeps its 250-odd call sites as they are. A writer outside the pipeline, a
+// test's recorder, reports nothing.
+func reportUnexpectedError(w http.ResponseWriter, requestID string, err error) {
+	for {
+		if reporter, ok := w.(unexpectedErrorReporter); ok {
+			reporter.reportUnexpectedError(requestID, err)
+			return
+		}
+		unwrapper, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return
+		}
+		w = unwrapper.Unwrap()
+	}
 }
 
 // retryAfterHeader is set only from domainRetryAfter, and the request log reads

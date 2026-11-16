@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -330,4 +331,108 @@ func TestRequestPipelineLeavesTheResponseControllerWorking(t *testing.T) {
 	if !rec.Flushed {
 		t.Fatal("the recorder underneath was never flushed")
 	}
+}
+
+// linesAt returns the log lines written at level.
+func linesAt(t *testing.T, buf *bytes.Buffer, level string) []logLine {
+	t.Helper()
+	var found []logLine
+	for _, line := range logLines(t, buf) {
+		if line.str("level") == level {
+			found = append(found, line)
+		}
+	}
+	return found
+}
+
+// AN UNEXPECTED 500 WRITES ITS CAUSE DOWN (#763, ADR 0079). The response stays
+// the generic INTERNAL_ERROR it always was; the original error goes to the log
+// at ERROR under the request's id, so the cause the response hides is recorded.
+func TestRequestPipelineLogsTheCauseOfAnUnexpected500UnderTheRequestsID(t *testing.T) {
+	handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = WriteDomainError(w, RequestID(r.Context()), fmt.Errorf("load event: %w", errors.New("connection refused")))
+	}))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/anything", nil))
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	var env Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("body is not an envelope: %v (%q)", err, rec.Body.String())
+	}
+	if env.Error == nil || env.Error.Code != "INTERNAL_ERROR" || env.Error.Message != "An unexpected error occurred" {
+		t.Fatalf("envelope error = %+v, want the generic INTERNAL_ERROR", env.Error)
+	}
+	var cause logLine
+	for _, line := range linesAt(t, buf, "ERROR") {
+		if line.str("msg") != "request" {
+			cause = line
+		}
+	}
+	if cause == nil {
+		t.Fatalf("no ERROR line other than the request line carries the cause (log: %s)", buf.String())
+	}
+	if got := cause.str("error"); got != "load event: connection refused" {
+		t.Fatalf("logged error = %q, want the original error (line: %v)", got, cause)
+	}
+	if got := cause.str("request_id"); got == "" || got != env.RequestID {
+		t.Fatalf("logged request_id = %q, want the envelope's %q", got, env.RequestID)
+	}
+}
+
+// A domain refusal answered with a 4xx is the platform working as designed and
+// writes nothing at ERROR (#763, ADR 0079).
+func TestRequestPipelineLogsNothingAtErrorForADomain4xx(t *testing.T) {
+	for _, code := range []string{"EVENT_NOT_FOUND", "CAPACITY_EXCEEDED", "OTP_RATE_LIMITED"} {
+		t.Run(code, func(t *testing.T) {
+			handler, buf := pipelineUnderTest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = WriteDomainError(w, RequestID(r.Context()), fmt.Errorf("wrapped: %w", apperror.New(code, "refused", nil)))
+			}))
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/anything", nil))
+
+			if rec.Code < 400 || rec.Code >= 500 {
+				t.Fatalf("status = %d, want a 4xx", rec.Code)
+			}
+			if lines := linesAt(t, buf, "ERROR"); len(lines) != 0 {
+				t.Fatalf("a domain 4xx logged at ERROR: %v", lines)
+			}
+		})
+	}
+}
+
+// A recovered panic's line carries the stack, so the line that panicked can be
+// found (#763, ADR 0079).
+func TestRequestPipelineLogsARecoveredPanicWithItsStack(t *testing.T) {
+	handler, buf := pipelineUnderTest(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		panicsWithBoom()
+	}))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/anything", nil))
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	var panicLine logLine
+	for _, line := range logLines(t, buf) {
+		if line.str("msg") == "panic recovered" {
+			panicLine = line
+		}
+	}
+	if panicLine == nil || panicLine.str("level") != "ERROR" {
+		t.Fatalf("panic log line = %v, want one at ERROR", panicLine)
+	}
+	if stack := panicLine.str("stack"); !strings.Contains(stack, "panicsWithBoom") {
+		t.Fatalf("panic stack = %q, want one naming the function that panicked", stack)
+	}
+}
+
+//go:noinline
+func panicsWithBoom() {
+	panic("boom")
 }
