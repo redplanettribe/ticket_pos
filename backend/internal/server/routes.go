@@ -71,7 +71,14 @@ func RegisterRoutes(mux Router, app *App) {
 // time, with no arguments worth trusting. Nothing here takes a body or a path
 // parameter, so a caller cannot aim it: WHAT is worked on is a property of the
 // queue in the database, never of the request.
+//
+// Every route here is a scheduled job, registered through CheckInJobs: it
+// checks in as started and as ok or failed under the job name scheduledJobs
+// gives its pattern, and flushes before it answers (ADR 0079). A route added
+// here needs its name in that list and nothing in its handler.
 func registerInternalRoutes(mux Router, app *App) {
+	mux = CheckInJobs(mux, app.Reporter, scheduledJobs)
+
 	// The Reversal Reconciler's tick (ADR 0024). Cloud Scheduler calls it (#159)
 	// and a Platform Operator can curl it, which is the order this shipped in:
 	// the runbook before the automation.

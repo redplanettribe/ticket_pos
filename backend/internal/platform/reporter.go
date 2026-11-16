@@ -93,8 +93,9 @@ const (
 // JobCheckIn is a job run that has checked in as started.
 type JobCheckIn interface {
 	// Finish checks the run in as ended with status, CheckInOK or
-	// CheckInFailed, with the time since it started.
-	Finish(status CheckInStatus)
+	// CheckInFailed, with the time the run took. The caller measures it,
+	// since the AsyncReporter hands the check-ins over later.
+	Finish(status CheckInStatus, duration time.Duration)
 }
 
 // ShutdownFlushTimeout bounds every flush: on graceful shutdown, after a
@@ -133,7 +134,7 @@ func (noopSpan) Finish()               {}
 
 type noopCheckIn struct{}
 
-func (noopCheckIn) Finish(CheckInStatus) {}
+func (noopCheckIn) Finish(CheckInStatus, time.Duration) {}
 
 // stackFrom returns the calling goroutine's stack, innermost first, skipping
 // skip frames above the caller of stackFrom.

@@ -132,11 +132,11 @@ type queuedCheckIn struct {
 	inner JobCheckIn
 }
 
-func (c *queuedCheckIn) Finish(status CheckInStatus) {
+func (c *queuedCheckIn) Finish(status CheckInStatus, duration time.Duration) {
 	c.reporter.enqueue(func() {
 		// A start dropped from a full queue leaves nothing to finish.
 		if c.inner != nil {
-			c.inner.Finish(status)
+			c.inner.Finish(status, duration)
 		}
 	})
 }

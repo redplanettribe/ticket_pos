@@ -215,6 +215,11 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
   A reported error is one exception: its text scrubbed through the recipient redaction's `redactedError` (`platform.ScrubError`), and its type its `platform.ErrorClass`, words that carry nothing of the error's text.
   A stack frame's variables are dropped, and the event keeps only the user's id.
 - A sweep that gives up on something for good logs it at Error and is reported; failures it retries, and the counts it answers with, keep their levels.
+- Every scheduled job checks in: each internal route is registered through `server.CheckInJobs`, which serves it through `platform.JobRoute` under the job name `scheduledJobs` (`server/jobs.go`) gives its pattern, and refuses to register a route it has no name for.
+  The run checks in as started when the route is entered, and as ok, or failed on a 5xx or a panic, with the time it took; a 4xx is a refusal as designed and checks in ok.
+  The name is the monitor's slug, the Cloud Scheduler job's name without its environment (`ticket-pos-answer-purge`), and the `job` tag on everything the run reports; Terraform's monitors must carry the same nine slugs.
+  The response is held while the run's check-ins and reports are flushed with `platform.ShutdownFlushTimeout`, because Cloud Run may freeze an instance between requests.
+  Every job checks in whether or not a monitor expects it; Sentry drops a check-in nobody expects.
 - On SIGTERM the API stops accepting, lets requests in flight finish for up to seven seconds, and flushes the reporter with a two second bound (`platform.ShutdownFlushTimeout`).
   A failure to start, from `LoadConfig` on, is reported and flushed with the same bound before the process exits.
 

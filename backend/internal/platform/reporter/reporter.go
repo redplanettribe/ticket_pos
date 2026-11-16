@@ -343,21 +343,20 @@ func (s sentrySpan) Finish() { s.span.Finish() }
 
 func (r *sentryReporter) CheckIn(_ context.Context, job string) platform.JobCheckIn {
 	id := r.client.CaptureCheckIn(&sentry.CheckIn{MonitorSlug: job, Status: sentry.CheckInStatusInProgress}, nil, nil)
-	return &sentryCheckIn{client: r.client, job: job, id: id, started: time.Now()}
+	return &sentryCheckIn{client: r.client, job: job, id: id}
 }
 
 type sentryCheckIn struct {
-	client  *sentry.Client
-	job     string
-	id      *sentry.EventID
-	started time.Time
+	client *sentry.Client
+	job    string
+	id     *sentry.EventID
 }
 
-func (c *sentryCheckIn) Finish(status platform.CheckInStatus) {
+func (c *sentryCheckIn) Finish(status platform.CheckInStatus, duration time.Duration) {
 	checkIn := &sentry.CheckIn{
 		MonitorSlug: c.job,
 		Status:      sentry.CheckInStatusOK,
-		Duration:    time.Since(c.started),
+		Duration:    duration,
 	}
 	if status != platform.CheckInOK {
 		checkIn.Status = sentry.CheckInStatusError

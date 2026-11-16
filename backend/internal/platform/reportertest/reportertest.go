@@ -45,7 +45,7 @@ type Span struct {
 type CheckIn struct {
 	Job    string
 	Status platform.CheckInStatus
-	// Duration is the time since the start, for an ok or failed check-in.
+	// Duration is the time the run took, for an ok or failed check-in.
 	Duration time.Duration
 }
 
@@ -89,19 +89,18 @@ func (r *Reporter) CheckIn(_ context.Context, job string) platform.JobCheckIn {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.checkIns = append(r.checkIns, CheckIn{Job: job, Status: platform.CheckInInProgress})
-	return &jobCheckIn{reporter: r, job: job, started: time.Now()}
+	return &jobCheckIn{reporter: r, job: job}
 }
 
 type jobCheckIn struct {
 	reporter *Reporter
 	job      string
-	started  time.Time
 }
 
-func (c *jobCheckIn) Finish(status platform.CheckInStatus) {
+func (c *jobCheckIn) Finish(status platform.CheckInStatus, duration time.Duration) {
 	c.reporter.mu.Lock()
 	defer c.reporter.mu.Unlock()
-	c.reporter.checkIns = append(c.reporter.checkIns, CheckIn{Job: c.job, Status: status, Duration: time.Since(c.started)})
+	c.reporter.checkIns = append(c.reporter.checkIns, CheckIn{Job: c.job, Status: status, Duration: duration})
 }
 
 func (r *Reporter) Flush(timeout time.Duration) bool {

@@ -19,7 +19,7 @@ import (
 // fake, wired as cmd/server wires the real reporter (ADR 0079): the request
 // pipeline and the Logger every service is handed both report to it. Its
 // clock reads now.
-func startAppReportingTo(t *testing.T, fake *reportertest.Reporter, now *atomic.Int64) (*testEnv, *server.App) {
+func startAppReportingTo(t *testing.T, fake platform.Reporter, now *atomic.Int64) (*testEnv, *server.App) {
 	t.Helper()
 	cfg := platform.Config{
 		DatabaseURL:       sharedConnStr,
