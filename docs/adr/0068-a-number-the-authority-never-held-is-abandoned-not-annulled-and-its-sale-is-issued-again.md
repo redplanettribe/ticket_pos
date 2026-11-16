@@ -1,5 +1,9 @@
 # A number the authority never held is abandoned, not annulled, and its Sale is issued again
 
+> Amended by [ADR 0078](./0078-an-authorized-factura-may-be-annulled-instead-of-credited-recorded-by-the-operator-and-checked-against-the-sri.md) (map #710): Mark annulled is also admitted on an **authorized** factura, within the SRI's window or past it with a typed acknowledgement, and is checked afterwards against `ConsultaComprobante`.
+> `annulled` keeps its meaning here, but is no longer terminal in every case: a Platform Operator may **reinstate** a factura the SRI never took as annulled, once its window has closed.
+> Issue again is refused while the annulled factura's Annulment Check stands at mismatch, and the needs-attention queue widens again.
+
 Specified as issue #575, from the triage of #574. Builds on
 [ADR 0059](./0059-the-platform-is-the-sole-issuer-and-its-signing-certificate-lives-encrypted-in-the-database.md),
 which made every issued document a legal artifact with a consumed sequence number that nothing deletes,

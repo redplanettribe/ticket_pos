@@ -1,5 +1,8 @@
 # A wrong Recipient is corrected by reissue: a Credit Note, then a fresh Sale Invoice, never an edit
 
+> Amended by [ADR 0078](./0078-an-authorized-factura-may-be-annulled-instead-of-credited-recorded-by-the-operator-and-checked-against-the-sri.md) (map #710): Reissue is also admitted on an **annulled** current Sale Invoice of a Ticket Sale that still stands, and then owes only the corrected factura, no Credit Note, since nothing stands at the authority to cancel.
+> It is refused while that factura's Annulment Check stands at mismatch.
+
 > Amended by [ADR 0068](./0068-a-number-the-authority-never-held-is-abandoned-not-annulled-and-its-sale-is-issued-again.md)
 > (#575, built as #578): the line below that "Mark annulled is for documents the authority refused" is
 > narrowed. Mark annulled is for a document the authority **held**, which a Platform Operator then

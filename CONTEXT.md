@@ -697,11 +697,14 @@ _Avoid_: Ticket invoice, receipt, automatic invoice, customer invoice
 **Credit Note**:
 The document that undoes a Sale Invoice at the Tax Authority — always for the whole amount, naming the same Recipient — when its Ticket Sale is reversed, or when the Sale Invoice is superseded by a Sale Invoice Reissue. Carries which of the two it is as its reason: the reversal's route, or the reissue. Owed by the reversal or the reissue itself and issued afterwards, like the Sale Invoice it refers to.
 Only an authorized Sale Invoice is credited. One never sent is withdrawn instead — the Tax Authority is told nothing about a sale that no longer stands — and one still unanswered waits for its answer before either happens. A Sale Reversal is never refused or delayed by the state of its paperwork. A Sale Invoice is credited at most once, whichever of a reversal or a reissue gets there first.
+One a Platform Operator annulled at the Tax Authority first is never credited: nothing stands there to undo, so a reversal or reissue that follows the annulment owes none.
+Every Sale Reversal still owes one automatically; annulling instead is always an operator's choice, made before the reversal, never the platform's.
 In Spanish, **Nota de crédito**.
 _Avoid_: Refund invoice, cancellation, anulación (the Tax Authority's manual portal act, which this is not), reversal note
 
 **Sale Invoice Reissue**:
 A Platform Operator's correction of an authorized Sale Invoice whose Recipient is wrong — a buyer's well-formed but mistaken Tax ID, or a name that is not the taxpayer's — by owing, in one act, a Credit Note against it and a fresh Sale Invoice to the corrected Recipient: Tax ID Type, number and legal name as the operator entered them, an address if one was given, and the email the Ticket Sale carries at that moment. Never an edit: the Ticket Sale, its money, its Tickets and its Reversal Window are untouched, and the superseded document stays on file. The fresh Sale Invoice follows the Credit Note and never precedes it, so a Sale has one current Sale Invoice at a time; a second reissue corrects the current one. Only a current, authorized Sale Invoice of a Ticket Sale that still stands is reissued, and one at a time. Operator-only: the buyer writes in.
+A current Sale Invoice already annulled at the Tax Authority is reissued too, and then owes only the corrected factura, no Credit Note; refused while its Annulment Check stands at mismatch.
 In Spanish, **Reemisión de factura**.
 _Avoid_: Correct, edit, amend, rectify, re-address (a Sale Re-addressing moves the buyer's email and never a Recipient), re-invoice, replace
 
@@ -714,8 +717,55 @@ What a document the Tax Authority never took and never will is: sent, refused by
 In Spanish, **Abandonado**.
 _Avoid_: Cancelled, void, annulled (the portal act, which this is not), deleted, failed, discarded, rejected (the authority's answer, not the platform's act)
 
+**Annulled**:
+What a factura is once the Tax Authority held it and a Platform Operator disowned it by hand at the authority's portal: an obligation discharged there, and a declaration as anulado.
+The SRI offers no web service for it, so the act happens at the portal and the platform only records it, with Mark annulled, typed by the document's number, from pending, needs attention or authorized, whether the portal step came before the recording or after it.
+Recorded within the Annulment Window, or past it only with a typed acknowledgement that the portal took it; refused while a live Credit Note or a live Sale Invoice Reissue stands against the factura.
+In place of a Credit Note, never welded to anything: what follows it (Issue Again, a Sale Invoice Reissue, an Operator Reversal, or for a manual Tax Invoice typing it again by hand) is a separate act.
+The number, clave de acceso and signed bytes stay on file. Left only by Reinstate.
+In Spanish, **Anulado**.
+_Avoid_: Cancelled, void, voided, deleted, credited (a Credit Note's work, which this replaces), abandoned (never held by the authority), withdrawn (never sent)
+
+**Annulment Window**:
+How long the Tax Authority lets a factura be annulled: in Ecuador until day 7 of the month after its Emission Date. The platform reads it strictly, in America/Guayaquil, and never claims the SRI's rollover to the next business day, which is why recording past it is admitted only with an acknowledgement.
+A factura's page shows "annullable until" while it is open, as a warning from day 1 of the following month; nothing else reminds an operator of it.
+In Spanish, **Plazo de anulación**.
+_Avoid_: Grace period, deadline (alone), 90 days (the SRI's repealed rule)
+
+**Annulment Check**:
+The platform asking the Tax Authority, after a factura is recorded annulled, whether it agrees: in Ecuador `ConsultaComprobante` alone, on a schedule over the first hour and then every six hours to the close of the Annulment Window, never trusting a single negative answer.
+It reads *checking* until a verdict, then *confirmed* (the authority reports it annulled, once), *mismatch* (the authority still reports it authorized, on two separate asks half an hour apart) or *unconfirmed* (no answer either way within the hour, which admits everything on the operator's word).
+A mismatch never undoes the annulment: it warns, queues the document for an operator, holds the Annulment Notice, and refuses Issue Again and a Sale Invoice Reissue on it until a later answer confirms.
+In Spanish, **Verificación de anulación**.
+_Avoid_: Check status (the operator's button, which on an annulled factura is one more ask of this), unknown (a Query outcome meaning "no record"), validation, confirmation
+
+**Annulment Notice**:
+The mail telling a Sale Invoice's buyer that a factura they were sent was annulled at the Tax Authority and has no tax effect: no attachments, to the factura's own Recipient email, sent once the Annulment Check is confirmed or unconfirmed and held while it is checking or at mismatch.
+Worded by the Ticket Sale as it stands when sent: a Sale that still stands is told the purchase and tickets are unchanged and a new factura will follow, a reversed one that nothing follows. Never sent for a manual Tax Invoice.
+In Spanish, **Aviso de anulación**.
+_Avoid_: Cancellation email, void notice, Sale Voided (the reversal's mail, which speaks of the purchase)
+
+**Reinstate**:
+A Platform Operator returning a factura recorded annulled to authorized, because the Tax Authority never took the annulment and its Annulment Window has closed: admitted only while the Annulment Check stands at mismatch after the window, typed by the document's number, never automatic.
+Owes a Credit Note if the Ticket Sale was reversed or the factura has a live successor; otherwise the factura is the Sale's current one again. The annulment's record stays on file as history.
+In Spanish, **Restablecer**.
+_Avoid_: Undo, un-annul, restore, revert, reopen
+
+**Unrecorded Annulment**:
+A factura the platform holds as authorized that the Tax Authority reports annulled: annulled at the portal by somebody holding the issuer's credentials, the accountant included, who never told the platform.
+Found by the Closing Sweep and never recorded by the platform itself: it warns and queues the document until an operator records it with Mark annulled, or, where a live Credit Note forbids that, acknowledges it.
+In Spanish, **Anulación no registrada**.
+_Avoid_: Orphan annulment, external annulment, drift
+
+**Closing Sweep**:
+The platform's one pass a month, from day 8 of the month after a month closes and retrying through day 12, asking the Tax Authority about every production factura it holds as authorized from that month, paced and never in a burst, to find Unrecorded Annulments before the month is declared.
+One answer per factura is final, because nothing can be annulled once the Annulment Window has closed; facturas it could not get an answer for are counted on the Operator Dashboard and can be swept again.
+In Spanish, **Barrido de cierre**.
+_Avoid_: Reconciliation, audit, nightly job, sync
+
 **Issue Again**:
 A Platform Operator's second, separate act after a Ticket Sale's Sale Invoice has died terminally — abandoned or annulled — owing the Sale a fresh Sale Invoice that carries the dead document's lines, amounts and Recipient unchanged, linked to the document it replaces. It corrects nothing: what was wrong was the number or the portal, never who the document names, which is what distinguishes it from a Sale Invoice Reissue. No Credit Note is owed — a document the authority never held has nothing to undo, and one annulled at the portal was already disowned there. Never welded to Abandon: abandoning without issuing again is legal, and the two claims may honestly be made days apart. The Sale Invoice Drainer signs the replacement in a later round under the next free sequence number by the ordinary owed path, and the buyer is sent the replacement alone, so the Sale ends with exactly one valid factura. Refused on a manual Tax Invoice, which is typed again by hand, on a Credit Note, on a Sale that no longer stands, and on a Sale that already has a live replacement.
+Refused too on an annulled document whose Annulment Check stands at mismatch, since the Tax Authority may still hold it and a second factura would declare the sale twice.
 In Spanish, **Volver a emitir**.
 _Avoid_: Reissue (a Sale Invoice Reissue corrects a Recipient and owes a Credit Note), resend, retry, re-invoice, regenerate, duplicate
 
@@ -730,6 +780,7 @@ _Avoid_: Pending invoice, missing factura, backlog sale, retroactive sale
 
 **Tax Document Archive**:
 Every document the Issuer emitted in a chosen range of Emission Dates that the Tax Authority authorized in its production environment and that still stands — manual Tax Invoices, Sale Invoices including Superseded ones, and Credit Notes — as the signed documents themselves, downloaded together by a Platform Operator for the platform's accountant to register as the platform's income. Never withdrawn, abandoned, annulled, refused or test-environment documents, which are not legal documents in the books; and never shaped by whatever the Tax Invoices list happens to be filtered to, so the archive of a period is the same whoever takes it. A document emitted in the range and not yet settled by the Tax Authority is left out and counted: the archive says how many there are, before download and inside the file, so a period is never booked short in silence — taking the archive again later includes it once authorized. Carries a note in the reader's Staff Locale naming the range, the moment it was generated, and how many facturas and Credit Notes it holds, and every archive taken is logged with who took it.
+The next archive corrects the last: its note lists, without their XML, every factura emitted in the range that is now annulled (number, clave de acceso, date annulled) and every Unrecorded Annulment (number, clave de acceso, date found), so an accountant who booked an earlier archive learns what no longer stands. Archives taken are still not stored.
 In Spanish, **Archivo de comprobantes**.
 _Avoid_: Invoice export, XML export, XML dump, backup, "the ZIP"
 

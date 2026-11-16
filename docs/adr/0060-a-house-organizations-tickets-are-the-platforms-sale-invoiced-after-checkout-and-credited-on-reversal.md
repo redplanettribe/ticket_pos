@@ -1,5 +1,9 @@
 # A House Organization's tickets are the platform's sale, invoiced after checkout and credited on reversal
 
+> Amended by [ADR 0078](./0078-an-authorized-factura-may-be-annulled-instead-of-credited-recorded-by-the-operator-and-checked-against-the-sri.md) (map #710): the Credit Note stays the automatic undo of a Sale Invoice, and every Sale Reversal still owes one.
+> But within the SRI's window a Platform Operator may annul an authorized factura at the portal instead, record it with Mark annulled, and then reverse the Sale, which then owes no Credit Note.
+> The portal annulment rejected below as *the* way to undo is now an operator's alternative, never the platform's choice.
+
 Specified as issue #471.
 
 Builds on [ADR 0059](./0059-the-platform-is-the-sole-issuer-and-its-signing-certificate-lives-encrypted-in-the-database.md),
