@@ -112,9 +112,6 @@ type consultaEnvelope struct {
 // reading. It never fails: whatever cannot be read is StatusNone with the
 // reason in Problem.
 func ClassifyConsulta(statusCode int, body []byte) ConsultaReading {
-	none := func(problem string) ConsultaReading {
-		return ConsultaReading{Reading: invoicing.StatusNone, Problem: problem}
-	}
 	var env consultaEnvelope
 	err := xml.Unmarshal(body, &env)
 	if err == nil && env.Body.Fault != nil {
@@ -155,6 +152,11 @@ func ClassifyConsulta(statusCode int, body []byte) ConsultaReading {
 	return out
 }
 
+// none is no reading, for the given reason.
+func none(problem string) ConsultaReading {
+	return ConsultaReading{Reading: invoicing.StatusNone, Problem: problem}
+}
+
 // normalised folds case and every run of whitespace, so "  anulado ",
 // "Anulado" and "ANULADO" read alike, and "NO  AUTORIZADO" reads as
 // "NO AUTORIZADO".
@@ -169,7 +171,7 @@ func normalised(s string) string {
 func (c *Client) ConsultarEstado(ctx context.Context, accessKey string) ConsultaReading {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+ConsultaPath, bytes.NewReader(BuildConsultarEstadoRequest(accessKey)))
 	if err != nil {
-		return ConsultaReading{Reading: invoicing.StatusNone, Problem: fmt.Sprintf("sri: request: %v", err)}
+		return none(fmt.Sprintf("sri: request: %v", err))
 	}
 	req.Header.Set("Content-Type", "text/xml; charset=utf-8")
 	req.Header.Set("SOAPAction", "")
@@ -177,12 +179,12 @@ func (c *Client) ConsultarEstado(ctx context.Context, accessKey string) Consulta
 	noRedirect.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := noRedirect.Do(req)
 	if err != nil {
-		return ConsultaReading{Reading: invoicing.StatusNone, Problem: fmt.Sprintf("sri: %v", err)}
+		return none(fmt.Sprintf("sri: %v", err))
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil && !errors.Is(err, io.EOF) {
-		return ConsultaReading{Reading: invoicing.StatusNone, Problem: fmt.Sprintf("sri: read response: %v", err)}
+		return none(fmt.Sprintf("sri: read response: %v", err))
 	}
 	return ClassifyConsulta(resp.StatusCode, body)
 }

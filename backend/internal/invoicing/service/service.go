@@ -63,15 +63,14 @@ func New(repo *repository.Repository, custody *invoicing.Custody, logger platfor
 		custody, _ = invoicing.NewCustody(nil)
 	}
 	return &Service{
-		repo:       repo,
-		custody:    custody,
-		logger:     logger,
-		clock:      time.Now,
-		authority:  sri.AuthorityFactory(),
-		pollDelays: DefaultPollDelays,
-		pollBudget: DefaultPollBudget,
-		kick:       true,
-
+		repo:             repo,
+		custody:          custody,
+		logger:           logger,
+		clock:            time.Now,
+		authority:        sri.AuthorityFactory(),
+		pollDelays:       DefaultPollDelays,
+		pollBudget:       DefaultPollBudget,
+		kick:             true,
 		statusAskSpacing: DefaultStatusAskSpacing,
 		email:            platform.NoopEmailSender{},
 	}

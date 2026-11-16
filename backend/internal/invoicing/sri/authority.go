@@ -9,9 +9,10 @@ import (
 
 // Authority is the Ecuador adapter behind the core's TaxAuthority seam: it
 // carries a prepared factura to the SRI's recepción, asks autorización
-// what became of it and ConsultaComprobante where it now stands, and translates the SRI's answers into the core's
-// Outcome. It never touches a table, and the core never sees SOAP, XML or an
-// SRI error code through it — only the messages, verbatim, as data.
+// what became of it and ConsultaComprobante where it now stands, and
+// translates the SRI's answers into the core's Outcome and StatusAnswer. It
+// never touches a table, and the core never sees SOAP, XML or an SRI error
+// code through it - only the messages, verbatim, as data.
 type Authority struct {
 	client *Client
 }

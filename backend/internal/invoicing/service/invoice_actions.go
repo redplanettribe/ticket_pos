@@ -78,13 +78,15 @@ func (s *Service) actionDetail(ctx context.Context, id string, attemptID int64) 
 // feeds the Annulment Check, never the status, so a late AUTORIZADO cannot
 // undo the operator's record. autorización is never asked there: it returns
 // the stored authorization record, which may keep saying AUTORIZADO after an
-// annulment.
+// annulment. Facturas only: an annulled Credit Note keeps today's refusal,
+// INVOICE_ANNULLED, since the spec leaves a Credit Note's annulment with no
+// check (#742).
 func (s *Service) CheckInvoice(ctx context.Context, id string) (*InvoiceActionDetail, error) {
 	row, err := s.loadInvoice(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if row.Invoice.Status == invoicing.InvoiceStatusAnnulled && row.Ecuador != nil {
+	if row.Invoice.Status == invoicing.InvoiceStatusAnnulled && row.Invoice.Kind != invoicing.DocumentKindCreditNote && row.Ecuador != nil {
 		return s.checkAnnulled(ctx, row)
 	}
 	if err := actionableRow(row); err != nil {
@@ -435,6 +437,11 @@ func resendHint(inv *invoicing.Invoice, attempts []invoicing.Attempt) bool {
 		return false
 	}
 	if invoicing.AcknowledgedByAuthority(attempts) {
+		return false
+	}
+	// A status call (#744) says nothing about who holds the document.
+	attempts = withoutStatusCalls(attempts)
+	if len(attempts) == 0 {
 		return false
 	}
 	return attempts[len(attempts)-1].Outcome == string(invoicing.OutcomeUnknown)
