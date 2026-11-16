@@ -759,7 +759,7 @@ Two tokens, never the same one: one acts for Terraform and can create things, th
 
 - **Do:** with `.env` sourced and every `sentry_*_enabled` still absent from `terraform.tfvars`, `terraform plan` then `terraform apply` in `envs/prod` ([Running it](#running-it)).
   Then the steps Terraform could not declare, below.
-- **Makes true:** the `ticket-pos` team, the three projects and their keys, the Storefront's rate limit and inbound filters, and nine alert rules, 19 resources in all ([What a first apply creates](#sentry)).
+- **Makes true:** the `ticket-pos` team, the three projects and their keys, the Storefront's rate limit and inbound filters, and nine alert rules, 19 resources in all (the [Sentry](#sentry) section's table, "What a first apply creates").
   No Cloud Run service changes and no DSN is set anywhere, so nothing reports yet.
 - **Check:** the plan adds 19 and changes or destroys nothing; stop if it touches a Cloud Run service.
   A second plan reports no changes.
@@ -774,7 +774,7 @@ What Terraform could not declare, each found by the ticket that tried (#777, #77
 | Server-side data scrubbing: the provider has no scrubbing setting at either level | `SENTRY_AUTH_TOKEN="$TF_VAR_sentry_auth_token" scripts/sentry-scrubbing.sh`, after this apply and again whenever the script changes; project settings only, never the shared organization's | the script reads every setting back and stops on the first project that did not keep one; Project Settings, Security & Privacy shows them |
 | Who receives the alert emails | the operator adds each recipient to the `ticket-pos` team (Settings, Teams); no email address is committed | the team's member list |
 | Whether the error spike rule counts the whole project | open `error_spike` on each project once and read it | it reads as every error in the project above 50 in an hour, not per issue |
-| A cron monitor's slug: the provider sends a name and Sentry makes the slug | each monitor is named its slug | after step 6 creates a monitor, Crons shows the slug exactly as in [Cron and uptime monitors](#sentry); a suffix means the slug was taken in the organization |
+| A cron monitor's slug: the provider sends a name and Sentry makes the slug | each monitor is named its slug | after step 6 creates a monitor, Crons shows the slug exactly as in the [Sentry](#sentry) section's slug table; a suffix means the slug was taken in the organization |
 | The plan, the tokens, the Actions secret, the Policy Version | steps 1, 2 and 4 of this list | as each step says |
 
 ### 4. Publish the Policy Version that names Sentry
@@ -799,7 +799,7 @@ What Terraform could not declare, each found by the ticket that tried (#777, #77
 - **Makes true:** that service gets its project's `SENTRY_DSN` (and the Next apps `SENTRY_ENVIRONMENT=production`) and rolls a new revision; no other service changes.
   For the API it also makes the cron monitors of the jobs already unpaused: five in production today (the Sale Invoice Drainer, Owed Assignment Mail, the Holder Address Purge and the two reminders) and the check-in alert, so the plan adds 6.
   For the Staff app it makes the uptime monitor on `https://pos.multiticketing.com/login`, for the Storefront the one on `https://discover.multiticketing.com/api/health`, and whichever comes first the uptime alert.
-- **Check:** the plan changes that one service and adds only what is above.
+- **Check:** the plan changes that one service and adds only what is above, apart from one in-place update: switching on the second Next app adds its monitor to the uptime alert that already exists.
   The service carries the DSN:
 
   ```bash
@@ -811,14 +811,16 @@ What Terraform could not declare, each found by the ticket that tried (#777, #77
   The API: within five minutes Crons shows check-ins from `ticket-pos-owed-assignment-mail` (every minute) and `ticket-pos-sale-invoice-drainer` (every five).
   A Next app: its pages carry `<meta name="ticket-pos-sentry">`, and Uptime shows its monitor passing.
   That an event arrives readable, a trace joins browser to API and an alert email reaches the team is the end-to-end walk of #780, done after the first switch is on.
-- **Undo:** set the switch to `false` (or delete the line) and apply: the DSN leaves the service, which rolls a revision that reports nothing, and its monitors and their alert go with it.
+- **Undo:** set the switch to `false` (or delete the line) and apply: the DSN leaves the service, which rolls a revision that reports nothing, and its monitors go with it.
+  An alert rule goes only with the last monitor it watches; switching off one Next app while the other reports updates the uptime alert in place.
 
 ### 6. Unpause and monitor each job
 
 - **Do:** for each job still paused (today the Reversal Reconciler, the Follow Digest enqueue and drain, and the Abandoned Answer Purge), set its `<job>_enabled = true` in `terraform.tfvars` when the job itself is ready to run, and apply.
   Each job has its own preconditions, in its own section of this README; a monitor is never a reason to unpause one.
 - **Makes true:** with the API switched on, the one change unpauses the Cloud Scheduler job and creates its cron monitor, with the scheduler's own schedule and time zone, so the job is never running unmonitored.
-- **Check:** the plan changes the job's `paused` and adds one `sentry_cron_monitor`; after the job's next run, Crons shows the monitor, its slug as in [Cron and uptime monitors](#sentry), and an ok check-in.
+- **Check:** the plan changes the job's `paused`, adds one `sentry_cron_monitor` and updates `sentry_alert.job_check_in` in place to watch it too.
+  After the job's next run, Crons shows the monitor, its slug as in the [Sentry](#sentry) section's slug table, and an ok check-in.
 - **Undo:** set `<job>_enabled = false` and apply, which pauses the job and removes its monitor together.
   Not `gcloud scheduler jobs pause`: that leaves the monitor reporting missed runs until the job resumes.
 
