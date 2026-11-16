@@ -150,7 +150,7 @@ func TestTheSaleInvoiceDrainerKickReportsAPanicUnderTheKickingRequestsID(t *test
 	svc.KickSaleInvoiceDrainer(platform.WithRequestID(t.Context(), "checkout-request-1"), "sale-1")
 
 	report := awaitReport(t, fake)
-	if !strings.Contains(report.Err.Error(), "the post-commit kick panicked") {
+	if !strings.HasSuffix(report.Err.Error(), "the post-commit kick panicked; the scheduled drain will: panic: the clock broke") {
 		t.Errorf("reported %q, want the kick's panic line", report.Err)
 	}
 	if report.RequestID != "checkout-request-1" {

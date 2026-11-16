@@ -48,13 +48,14 @@ func (l *SlogLogger) Warn(msg string, args ...any) {
 }
 
 // Error logs the line and reports it as one error: the message, wrapping the
-// first error among args. No other argument is reported; they may name a
-// person, and the log is where they belong (ADR 0079). The report's stack is
-// the caller's or, logged while recovering a panic, the frame that panicked.
+// first error among args or, failing one, the value logged under "panic". No
+// other argument is reported; they may name a person, and the log is where
+// they belong (ADR 0079). The report's stack is the caller's or, logged while
+// recovering a panic, the frame that panicked.
 func (l *SlogLogger) Error(ctx context.Context, msg string, args ...any) {
 	l.inner.ErrorContext(ctx, msg, args...)
 	reportInRequest(ctx, l.reporter, ErrorReport{
-		Err:       loggedError{msg: msg, cause: firstError(args)},
+		Err:       loggedError{msg: msg, cause: reportedCause(args)},
 		Stack:     stackOrPanicStack(1),
 		RequestID: RequestID(ctx),
 	})
@@ -74,6 +75,20 @@ func (e loggedError) Error() string {
 }
 
 func (e loggedError) Unwrap() error { return e.cause }
+
+// reportedCause is the first error value among a log line's arguments or,
+// with none, a recovered panic's value logged under "panic"; nil otherwise.
+func reportedCause(args []any) error {
+	if err := firstError(args); err != nil {
+		return err
+	}
+	for i := 0; i+1 < len(args); i += 2 {
+		if args[i] == "panic" {
+			return recoveredPanic{value: args[i+1]}
+		}
+	}
+	return nil
+}
 
 // firstError is the first error value among a log line's arguments, nil when
 // there is none.

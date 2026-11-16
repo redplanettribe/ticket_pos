@@ -251,3 +251,30 @@ func TestARefusalAndAWarnAreNotReported(t *testing.T) {
 		})
 	}
 }
+
+// Work detached from a request with DetachFromRequest, such as the drainer
+// kick, reports under the request's id but is not the request's report: the
+// request's own 5xx is still reported (ADR 0079).
+func TestAnErrorLogDetachedFromItsRequestDoesNotStandInForTheRequestsReport(t *testing.T) {
+	server, fake := reportingServer(t, func(mux *http.ServeMux, logger platform.Logger) {
+		mux.HandleFunc("GET /checkouts", func(w http.ResponseWriter, r *http.Request) {
+			logger.Error(platform.DetachFromRequest(r.Context()), "the post-commit kick could not drain", "error", errConnectionRefused)
+			_ = platform.WriteDomainError(w, platform.RequestID(r.Context()), errors.New("commit failed"))
+		})
+	})
+
+	_, requestID := get(t, server, "/checkouts")
+
+	reports := fake.Errors()
+	if len(reports) != 2 {
+		t.Fatalf("got %d reports, want the detached line's and the request's: %+v", len(reports), reports)
+	}
+	if got := reports[1].Err.Error(); got != "commit failed" {
+		t.Errorf("second report %q, want the request's own 500", got)
+	}
+	for _, report := range reports {
+		if report.RequestID != requestID {
+			t.Errorf("report %q has request id %q, want %q", report.Err, report.RequestID, requestID)
+		}
+	}
+}

@@ -186,10 +186,26 @@ func withRequestReports(ctx context.Context) context.Context {
 	return context.WithValue(ctx, requestReportsKey{}, &requestReports{})
 }
 
+// requestReportsOn is the request's record on ctx, nil outside a request or
+// detached from one.
+func requestReportsOn(ctx context.Context) *requestReports {
+	reports, _ := ctx.Value(requestReportsKey{}).(*requestReports)
+	return reports
+}
+
+// DetachFromRequest is ctx for work that outlives the request it was started
+// by, such as a fire-and-forget goroutine: not cancelled with the request, and
+// still carrying its id, so what the work reports names the request; but no
+// longer counted as the request's report, so it can never stand in for the
+// request's own 5xx (ADR 0079).
+func DetachFromRequest(ctx context.Context) context.Context {
+	return context.WithValue(context.WithoutCancel(ctx), requestReportsKey{}, (*requestReports)(nil))
+}
+
 // reportInRequest reports, and marks the request on ctx, if any, as having
 // reported. An Error line takes this path: each one is reported.
 func reportInRequest(ctx context.Context, reporter Reporter, report ErrorReport) {
-	if reports, ok := ctx.Value(requestReportsKey{}).(*requestReports); ok {
+	if reports := requestReportsOn(ctx); reports != nil {
 		reports.reported.Store(true)
 	}
 	reporter.ReportError(ctx, report)
@@ -200,7 +216,7 @@ func reportInRequest(ctx context.Context, reporter Reporter, report ErrorReport)
 // unless the request has already reported: the Error line that wrote its cause
 // down, or the panic recovery before the request line.
 func reportRequestFailure(ctx context.Context, reporter Reporter, report ErrorReport) {
-	if reports, ok := ctx.Value(requestReportsKey{}).(*requestReports); ok && reports.reported.Swap(true) {
+	if reports := requestReportsOn(ctx); reports != nil && reports.reported.Swap(true) {
 		return
 	}
 	reporter.ReportError(ctx, report)

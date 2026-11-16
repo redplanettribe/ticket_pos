@@ -283,8 +283,8 @@ func (s *Service) KickSaleInvoiceDrainer(ctx context.Context, ticketSaleID strin
 	}
 	// Detached from the request, which is finishing, but still carrying its
 	// id: a failed or panicking kick is reported under the checkout that
-	// kicked it (ADR 0079).
-	kickCtx := context.WithoutCancel(ctx)
+	// kicked it, and never counts as that checkout's own report (ADR 0079).
+	kickCtx := platform.DetachFromRequest(ctx)
 	go func() {
 		// Nothing above this goroutine recovers it: a panic here would take
 		// the whole API process down with every request it is serving. The
