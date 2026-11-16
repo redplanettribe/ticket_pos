@@ -64,6 +64,32 @@ func TestARecoveredPanicIsReportedOnceWithItsStack(t *testing.T) {
 	}
 }
 
+// dereferencingHandler panics in the runtime, not with panic().
+func dereferencingHandler(w http.ResponseWriter, _ *http.Request) {
+	var missing *http.Request
+	_, _ = w.Write([]byte(missing.Method))
+}
+
+func TestARuntimePanicsStackStartsAtTheFrameThatPanicked(t *testing.T) {
+	fake := reportertest.New()
+	server := httptest.NewServer(platform.RequestPipeline(discardLogger(), fake, http.HandlerFunc(dereferencingHandler)))
+	defer server.Close()
+
+	resp, err := http.Get(server.URL)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	reports := fake.Errors()
+	if len(reports) != 1 || len(reports[0].Stack) == 0 {
+		t.Fatalf("reports = %+v, want one with a stack", reports)
+	}
+	if top := reports[0].Stack[0].Function; !strings.HasSuffix(top, ".dereferencingHandler") {
+		t.Errorf("stack starts at %q, want dereferencingHandler, not the runtime's frames", top)
+	}
+}
+
 func TestAPanicValueThatIsAnErrorIsReportedAsThatError(t *testing.T) {
 	cause := errors.New("nil map write")
 	fake := reportertest.New()

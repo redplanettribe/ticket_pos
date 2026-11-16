@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"runtime"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -41,8 +42,17 @@ func New(cfg platform.ReporterConfig, logger platform.Logger) platform.Reporter 
 }
 
 func newWithTransport(cfg platform.ReporterConfig, logger platform.Logger, transport http.RoundTripper) platform.Reporter {
-	var async *platform.AsyncReporter
-	failures := &failureReportingTransport{next: transport, failed: func(err error) { async.Failed(err) }}
+	// The transport is built before the AsyncReporter it reports failures to,
+	// which wraps the client built on it. A failure before that is not lost
+	// silently by a nil dereference on the SDK's goroutine: it is logged.
+	var async atomic.Pointer[platform.AsyncReporter]
+	deliveries := &failureReportingTransport{next: transport, failed: func(err error) {
+		if r := async.Load(); r != nil {
+			r.Failed(err)
+			return
+		}
+		logger.Warn("error reporting failed", "error", err)
+	}}
 
 	client, err := sentry.NewClient(sentry.ClientOptions{
 		Dsn:              cfg.DSN,
@@ -65,14 +75,15 @@ func newWithTransport(cfg platform.ReporterConfig, logger platform.Logger, trans
 		// Delivery goes through the SDK's own asynchronous transport, over
 		// this RoundTripper, which turns a failed delivery into the
 		// reporter's failure.
-		HTTPTransport: failures,
+		HTTPTransport: deliveries,
 	})
 	if err != nil {
 		logger.Warn("error reporting disabled: SENTRY_DSN refused", "error", err)
 		return platform.NoopReporter{}
 	}
-	async = platform.NewAsyncReporter(&sentryReporter{client: client}, logger)
-	return async
+	reporter := platform.NewAsyncReporter(&sentryReporter{client: client}, logger)
+	async.Store(reporter)
+	return reporter
 }
 
 // stripPersonalData drops what an event may carry about a person beyond an
@@ -102,7 +113,9 @@ func (t *failureReportingTransport) RoundTrip(req *http.Request) (*http.Response
 }
 
 // sentryReporter is platform.Reporter over one SDK client, never the SDK's
-// global hub. It runs behind an AsyncReporter, on its goroutine.
+// global hub. It runs behind an AsyncReporter: error reports and check-ins on
+// its worker goroutine, Flush on a goroutine of its own, spans on the caller's.
+// The SDK client is safe for that concurrent use.
 type sentryReporter struct {
 	client *sentry.Client
 }

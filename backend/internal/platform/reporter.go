@@ -2,7 +2,6 @@ package platform
 
 import (
 	"context"
-	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -99,11 +98,11 @@ type JobCheckIn interface {
 // requests.
 const ShutdownFlushTimeout = 2 * time.Second
 
-// ReportStartupFailure reports a failure that stops the process from starting
-// and flushes it with ShutdownFlushTimeout, so the report is out before the
+// ReportStartupFailure reports a failure that stops the process, at startup or
+// when the server stops on its own, and flushes it with ShutdownFlushTimeout, so the report is out before the
 // process exits.
 func ReportStartupFailure(reporter Reporter, err error) {
-	reporter.ReportError(context.Background(), ErrorReport{Err: err, Tags: map[string]string{"startup": "true"}})
+	reporter.ReportError(context.Background(), ErrorReport{Err: err})
 	reporter.Flush(ShutdownFlushTimeout)
 }
 
@@ -131,38 +130,6 @@ type noopCheckIn struct{}
 
 func (noopCheckIn) Finish(CheckInStatus) {}
 
-// ReporterConfig is the error reporter's configuration, read once at startup
-// by LoadReporterConfig.
-type ReporterConfig struct {
-	// DSN is where reports go, from SENTRY_DSN. Empty is the shipped state and
-	// means no reporter is constructed at all (ADR 0079).
-	DSN string
-	// Environment is "production" when APP_ENV is production, and
-	// "development" otherwise: a developer who opts a local stack in with a
-	// DSN reports as development.
-	Environment string
-	// Release is the commit SHA the image was built from, from SENTRY_RELEASE,
-	// which the API image takes as a build argument. Empty is harmless: the
-	// reports then carry no release.
-	Release string
-}
-
-// LoadReporterConfig reads the reporter's configuration from the environment.
-//
-// It is separate from LoadConfig, and cannot fail, so that a LoadConfig failure
-// is itself reported. The migrate job and the operator CLIs never call it.
-func LoadReporterConfig() ReporterConfig {
-	environment := "development"
-	if os.Getenv("APP_ENV") == "production" {
-		environment = "production"
-	}
-	return ReporterConfig{
-		DSN:         strings.TrimSpace(os.Getenv("SENTRY_DSN")),
-		Environment: environment,
-		Release:     strings.TrimSpace(os.Getenv("SENTRY_RELEASE")),
-	}
-}
-
 // stackFrom returns the calling goroutine's stack, innermost first, skipping
 // skip frames above the caller of stackFrom.
 func stackFrom(skip int) []runtime.Frame {
@@ -180,13 +147,20 @@ func stackFrom(skip int) []runtime.Frame {
 }
 
 // panicStack returns, from inside a deferred recover, the stack of the frame
-// that panicked: everything above runtime.gopanic is the recovery itself.
+// that panicked: everything above runtime.gopanic is the recovery itself, and
+// the runtime frames just below it (runtime.panicmem and runtime.sigpanic for
+// a nil dereference, runtime.panicdivide, ...) are how the runtime raised it.
 func panicStack() []runtime.Frame {
 	stack := stackFrom(1)
 	for i, frame := range stack {
-		if frame.Function == "runtime.gopanic" {
-			return stack[i+1:]
+		if frame.Function != "runtime.gopanic" {
+			continue
 		}
+		stack = stack[i+1:]
+		for len(stack) > 1 && strings.HasPrefix(stack[0].Function, "runtime.") {
+			stack = stack[1:]
+		}
+		return stack
 	}
 	return stack
 }

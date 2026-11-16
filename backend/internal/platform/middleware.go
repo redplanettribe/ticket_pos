@@ -258,7 +258,7 @@ func recoverMiddleware(logger *slog.Logger, reporter Reporter, next http.Handler
 					Stack:     panicStack(),
 					RequestID: requestID,
 				})
-				_ = WriteHandlerError(w, RequestID(r.Context()), http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred", nil)
+				_ = WriteHandlerError(w, requestID, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred", nil)
 			}
 		}()
 		next.ServeHTTP(w, r)

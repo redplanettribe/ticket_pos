@@ -182,6 +182,7 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
 - Staff and Storefront Next apps forward `X-Request-ID` on server-side calls to the Go API.
 - Error reporting, distributed tracing, scheduled-job check-ins and uptime checks go to Sentry, behind one seam in `platform`, carrying no personal data and dormant until a DSN is set.
   See [ADR 0079](./adr/0079-sentry-reports-errors-traces-and-job-check-ins-behind-one-seam-holding-no-personal-data-and-dormant-until-a-dsn-is-set.md).
+  Metrics remain deferred.
 - The seam is `platform.Reporter`: report an error with its stack, request id and id-only tags, start and finish a span, check a job in, and flush with a bound.
   `internal/platform/reporter` builds it, and is the only package that imports `sentry-go`; a test fails if any other does.
   `internal/platform/reportertest` is the capturing fake tests assert on.
@@ -194,7 +195,6 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
 - A panic recovered by the request pipeline is reported once, with the stack of the frame that panicked and the request id.
 - On SIGTERM the API stops accepting, lets requests in flight finish for up to seven seconds, and flushes the reporter with a two second bound (`platform.ShutdownFlushTimeout`).
   A failure to start, from `LoadConfig` on, is reported and flushed with the same bound before the process exits.
-  Metrics remain deferred.
 
 ## PostgreSQL and data access
 

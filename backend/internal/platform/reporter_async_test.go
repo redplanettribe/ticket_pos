@@ -126,30 +126,28 @@ func TestAReporterThatFailsNeitherFailsTheRequestNorLogsPerEvent(t *testing.T) {
 }
 
 func TestAsyncReporterFlushKeepsItsBoundWhenTheReporterIsStuck(t *testing.T) {
-	inner := blockingReporter{release: make(chan struct{})}
-	defer close(inner.release)
-	reporter := NewAsyncReporter(inner, NewSlogLogger(slog.New(slog.DiscardHandler)))
-	reporter.ReportError(context.Background(), ErrorReport{Err: http.ErrHandlerTimeout})
+	for _, tc := range []struct {
+		name   string
+		report bool
+	}{
+		{name: "stuck reporting", report: true},
+		{name: "stuck flushing", report: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			inner := blockingReporter{release: make(chan struct{})}
+			defer close(inner.release)
+			reporter := NewAsyncReporter(inner, NewSlogLogger(slog.New(slog.DiscardHandler)))
+			if tc.report {
+				reporter.ReportError(context.Background(), ErrorReport{Err: http.ErrHandlerTimeout})
+			}
 
-	start := time.Now()
-	if reporter.Flush(50 * time.Millisecond) {
-		t.Fatal("Flush reported success with the reporter stuck")
-	}
-	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
-		t.Fatalf("Flush(50ms) took %s", elapsed)
-	}
-}
-
-func TestAsyncReporterFlushKeepsItsBoundWhenTheReporterIsStuckFlushing(t *testing.T) {
-	inner := blockingReporter{release: make(chan struct{})}
-	defer close(inner.release)
-	reporter := NewAsyncReporter(inner, NewSlogLogger(slog.New(slog.DiscardHandler)))
-
-	start := time.Now()
-	if reporter.Flush(50 * time.Millisecond) {
-		t.Fatal("Flush reported success with the reporter stuck")
-	}
-	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
-		t.Fatalf("Flush(50ms) took %s", elapsed)
+			start := time.Now()
+			if reporter.Flush(50 * time.Millisecond) {
+				t.Fatal("Flush reported success with the reporter stuck")
+			}
+			if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+				t.Fatalf("Flush(50ms) took %s", elapsed)
+			}
+		})
 	}
 }

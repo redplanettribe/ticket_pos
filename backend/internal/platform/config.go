@@ -891,3 +891,35 @@ func parseLogLevel(raw string) slog.Level {
 		return slog.LevelInfo
 	}
 }
+
+// ReporterConfig is the error reporter's configuration, read once at startup
+// by LoadReporterConfig.
+type ReporterConfig struct {
+	// DSN is where reports go, from SENTRY_DSN. Empty is the shipped state and
+	// means no reporter is constructed at all (ADR 0079).
+	DSN string
+	// Environment is "production" when APP_ENV is production, and
+	// "development" otherwise: a developer who opts a local stack in with a
+	// DSN reports as development.
+	Environment string
+	// Release is the commit SHA the image was built from, from SENTRY_RELEASE,
+	// which the API image takes as a build argument. Empty is harmless: the
+	// reports then carry no release.
+	Release string
+}
+
+// LoadReporterConfig reads the reporter's configuration from the environment.
+//
+// It is separate from LoadConfig, and cannot fail, so that a LoadConfig failure
+// is itself reported. The migrate job and the operator CLIs never call it.
+func LoadReporterConfig() ReporterConfig {
+	environment := "development"
+	if os.Getenv("APP_ENV") == "production" {
+		environment = "production"
+	}
+	return ReporterConfig{
+		DSN:         strings.TrimSpace(os.Getenv("SENTRY_DSN")),
+		Environment: environment,
+		Release:     strings.TrimSpace(os.Getenv("SENTRY_RELEASE")),
+	}
+}
