@@ -1262,6 +1262,12 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 	if payment == nil {
 		return nil, sales.ErrPaymentNotFound()
 	}
+	// The confirmation is addressed by a client transaction id, which is not
+	// reported; the ids the Payment names place what this request reports
+	// (ADR 0079). The Ticket Sale exists once the Payment was approved.
+	platform.SetReportTag(ctx, platform.ReportTagOrganization, payment.OrganizationID)
+	platform.SetReportTag(ctx, platform.ReportTagEvent, payment.EventID)
+	platform.SetReportTag(ctx, platform.ReportTagSale, payment.TicketSaleID)
 	// 'expired' is NOT settled: lazy expiry only released the Payment's
 	// Capacity Hold, it passed no verdict on the money. When the Customer
 	// returns from the provider after the window, the honest outcome is the

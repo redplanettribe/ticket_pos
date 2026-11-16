@@ -20,14 +20,14 @@ import (
 // line, the request line of a 5xx):
 //
 //   - the route pattern it was routed by, under "route", never the raw path;
-//   - the Organization, Event and Sale ids in its path, read from the
+//   - the Organization, Event and Ticket Sale ids in its path, read from the
 //     pattern: a wildcard whose literal segment in front is "organizations",
 //     "events", "sales" or "ticket-sales", the same key the path-id guard
 //     uses (server.pathIDs), and whose value is a UUID, so a slug or a
 //     Confirmation reference in the same place is never sent;
 //   - what the authentication middleware supplied with SetReportActor and
 //     SetReportTag: the person as a Member or Customer id with the audience,
-//     and the Organization or Sale their session is for;
+//     and the Organization or Ticket Sale their session is for;
 //   - what a handler supplied with SetReportTag, for an id it resolved that is
 //     not in its path, such as the Event of a checkout addressed by slug.
 
@@ -108,8 +108,10 @@ type requestReports struct {
 	reported atomic.Bool
 
 	// request is the request as the pipeline handed it to the router, which
-	// sets its pattern and path values on it before any handler runs. Nil
-	// when detached.
+	// sets its pattern and path values on it before any handler runs. That
+	// holds only while nothing between the pipeline and the ServeMux replaces
+	// the request (r.WithContext): a middleware there would leave every
+	// report "unrouted" and without its path ids. Nil when detached.
 	request *http.Request
 
 	mu     sync.Mutex
@@ -147,13 +149,18 @@ func DetachFromRequest(ctx context.Context) context.Context {
 	return context.WithValue(context.WithoutCancel(ctx), requestReportsKey{}, detached)
 }
 
-// place is report placed by the request: its user, and its tags under the
+// place is report placed by the request: its user, and its tags over the
 // report's own. Outside a request, report as it is.
 func (reports *requestReports) place(report ErrorReport) ErrorReport {
 	if reports == nil {
 		return report
 	}
-	tags := map[string]string{}
+	// The report's own tags first: what places the request is not theirs to
+	// overwrite.
+	tags := maps.Clone(report.Tags)
+	if tags == nil {
+		tags = map[string]string{}
+	}
 	if r := reports.request; r != nil {
 		tags[reportTagRoute] = routePattern(r)
 		for tag, id := range pathIDTags(r) {
@@ -166,12 +173,11 @@ func (reports *requestReports) place(report ErrorReport) ErrorReport {
 		report.UserID = reports.userID
 	}
 	reports.mu.Unlock()
-	maps.Copy(tags, report.Tags)
 	report.Tags = tags
 	return report
 }
 
-// pathIDTags are the Organization, Event and Sale ids in r's path, read from
+// pathIDTags are the Organization, Event and Ticket Sale ids in r's path, read from
 // the pattern it was routed by.
 func pathIDTags(r *http.Request) map[ReportTag]string {
 	pattern := r.Pattern

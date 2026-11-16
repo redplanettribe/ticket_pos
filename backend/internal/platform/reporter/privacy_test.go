@@ -152,11 +152,20 @@ func TestEveryTextOfAnEventIsScrubbedBeforeSend(t *testing.T) {
 		Spans: []*sentry.Span{{
 			Description: "GET https://pay.example.com/confirm?id=" + seededIdentityNumber,
 			Tags:        map[string]string{"buyer": seededEmail},
-			Data:        map[string]any{"http.url": "https://pay.example.com/c?email=" + seededEmail, "db.statement": "select 1 where email = '" + seededEmail + "'", "count": 3},
+			Name:        "GET /checkout?token=" + seededToken,
+			Data:        map[string]any{"http.query": "token=" + seededToken, "http.fragment": "t=" + seededToken, "http.url": "https://pay.example.com/c?email=" + seededEmail, "db.statement": "select 1 where email = '" + seededEmail + "'", "count": 3},
 		}},
 	}
 
+	scopesBreadcrumb := event.Breadcrumbs[0]
+	scopesTags := event.Tags
+
 	out := stripPersonalData(event, nil)
+
+	// What the event shares with the hub's scope is replaced, not edited.
+	if scopesBreadcrumb.Message != "signed in as "+seededEmail || scopesTags["note"] != seededEmail {
+		t.Errorf("the scope's breadcrumb or tags were edited in place: %q, %v", scopesBreadcrumb.Message, scopesTags)
+	}
 
 	raw, _ := json.Marshal(out)
 	for _, leaked := range []string{seededEmail, seededIdentityNumber, seededToken, seededIP, seededCookie, "Ana Pérez", "token="} {

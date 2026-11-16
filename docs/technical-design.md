@@ -205,7 +205,7 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
 - A report made inside a request is placed by that request, as opaque ids only (`platform/reporter_context.go`).
   It carries the request id, and the route pattern as the `route` tag, never the raw path.
   The user is the staff Active Member's id or the Customer's id, with the `audience` tag `staff` or `customer`; a staff person has no id of their own beyond a Member, and the session token is a credential, so a session with no Active Member reports the audience alone.
-  `organization_id`, `event_id` and `sale_id` are tagged three ways.
+  `organization_id`, `event_id` and `sale_id` (a Ticket Sale) are tagged three ways.
   The pipeline reads them from the path: a wildcard whose segment in front is `organizations`, `events`, `sales` or `ticket-sales`, the key the path-id guard uses, and whose value is a UUID, so a slug or Confirmation reference in the same place is never sent.
   The staff session middleware supplies the Active Member's Organization, and the Customer Session middleware a Confirmation Link session's Ticket Sale, through `platform.SetReportActor` and `platform.SetReportTag`.
   A handler or service supplies an id it resolved that is not in its path the same way, as the checkout does for the Event and Organization its slugs name.

@@ -52,7 +52,7 @@ type ErrorReport struct {
 	// Empty when nobody is known.
 	UserID string
 	// Tags are id-only context: the route pattern, the audience, and the
-	// Organization, Event and Sale ids a request concerns (reportPlacement).
+	// Organization, Event and Ticket Sale ids a request concerns (reportPlacement).
 	Tags map[string]string
 }
 

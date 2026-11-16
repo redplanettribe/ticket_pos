@@ -91,35 +91,51 @@ func newWithTransport(cfg platform.ReporterConfig, logger platform.Logger, trans
 // its opaque id, and every string that could carry text, platform.ScrubText
 // runs on. The request and the user's other fields are never attached; this
 // is the net under that.
+//
+// What the event shares with the hub's scope (breadcrumbs, fingerprint,
+// tags, contexts) is replaced by scrubbed copies, never edited in place,
+// since another goroutine may be reading the scope.
 func stripPersonalData(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
 	event.Request = nil
 	event.User = sentry.User{ID: event.User.ID}
 	event.Message = platform.ScrubText(event.Message)
 	event.Transaction = platform.ScrubURL(event.Transaction)
-	for i := range event.Fingerprint {
-		event.Fingerprint[i] = platform.ScrubText(event.Fingerprint[i])
-	}
+	event.Fingerprint = scrubStrings(event.Fingerprint)
 	for i := range event.Exception {
 		exception := &event.Exception[i]
 		exception.Type = platform.ScrubText(exception.Type)
 		exception.Value = platform.ScrubText(exception.Value)
 		if exception.Mechanism != nil {
-			exception.Mechanism.Data = scrubMap(exception.Mechanism.Data)
+			mechanism := *exception.Mechanism
+			mechanism.Data = scrubMap(mechanism.Data)
+			exception.Mechanism = &mechanism
 		}
-		scrubStacktrace(exception.Stacktrace)
+		exception.Stacktrace = scrubStacktrace(exception.Stacktrace)
 	}
 	for i := range event.Threads {
-		scrubStacktrace(event.Threads[i].Stacktrace)
+		event.Threads[i].Stacktrace = scrubStacktrace(event.Threads[i].Stacktrace)
 	}
-	for _, breadcrumb := range event.Breadcrumbs {
-		breadcrumb.Message = platform.ScrubText(breadcrumb.Message)
-		breadcrumb.Data = scrubMap(breadcrumb.Data)
+	if event.Breadcrumbs != nil {
+		breadcrumbs := make([]*sentry.Breadcrumb, len(event.Breadcrumbs))
+		for i, breadcrumb := range event.Breadcrumbs {
+			scrubbed := *breadcrumb
+			scrubbed.Message = platform.ScrubText(breadcrumb.Message)
+			scrubbed.Data = scrubMap(breadcrumb.Data)
+			breadcrumbs[i] = &scrubbed
+		}
+		event.Breadcrumbs = breadcrumbs
 	}
 	event.Tags = scrubTags(event.Tags)
-	for key, context := range event.Contexts {
-		event.Contexts[key] = scrubMap(context)
+	if event.Contexts != nil {
+		contexts := make(map[string]sentry.Context, len(event.Contexts))
+		for key, values := range event.Contexts {
+			contexts[key] = scrubMap(values)
+		}
+		event.Contexts = contexts
 	}
+	// A transaction's spans are finished and belong to it alone.
 	for _, span := range event.Spans {
+		span.Name = platform.ScrubText(span.Name)
 		span.Description = platform.ScrubText(span.Description)
 		span.Tags = scrubTags(span.Tags)
 		span.Data = scrubMap(span.Data)
@@ -127,43 +143,72 @@ func stripPersonalData(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
 	return event
 }
 
-// scrubStacktrace drops each frame's local variables, where a value of any
-// kind could be, and scrubs its paths.
-func scrubStacktrace(stacktrace *sentry.Stacktrace) {
+// scrubStacktrace is stacktrace with each frame's local variables dropped,
+// where a value of any kind could be, and its paths scrubbed.
+func scrubStacktrace(stacktrace *sentry.Stacktrace) *sentry.Stacktrace {
 	if stacktrace == nil {
-		return
+		return nil
 	}
-	for i := range stacktrace.Frames {
-		frame := &stacktrace.Frames[i]
+	scrubbed := *stacktrace
+	scrubbed.Frames = make([]sentry.Frame, len(stacktrace.Frames))
+	for i, frame := range stacktrace.Frames {
 		frame.Vars = nil
 		frame.AbsPath = platform.ScrubURL(frame.AbsPath)
 		frame.Filename = platform.ScrubURL(frame.Filename)
+		scrubbed.Frames[i] = frame
 	}
+	return &scrubbed
 }
 
 func scrubTags(tags map[string]string) map[string]string {
-	for key, value := range tags {
-		tags[key] = platform.ScrubText(value)
+	if tags == nil {
+		return nil
 	}
-	return tags
+	scrubbed := make(map[string]string, len(tags))
+	for key, value := range tags {
+		scrubbed[key] = platform.ScrubText(value)
+	}
+	return scrubbed
 }
 
-// scrubMap scrubs the strings of a free-form map, at any depth. A key that
+func scrubStrings(texts []string) []string {
+	if texts == nil {
+		return nil
+	}
+	scrubbed := make([]string, len(texts))
+	for i, text := range texts {
+		scrubbed[i] = platform.ScrubText(text)
+	}
+	return scrubbed
+}
+
+// scrubMap is a scrubbed copy of a free-form map, at any depth. A key that
 // names a URL loses everything from its query string on.
 func scrubMap(data map[string]any) map[string]any {
+	if data == nil {
+		return nil
+	}
+	scrubbed := make(map[string]any, len(data))
 	for key, value := range data {
-		if text, ok := value.(string); ok && urlKeys[key] {
-			data[key] = platform.ScrubURL(text)
+		if droppedKeys[key] {
 			continue
 		}
-		data[key] = scrubValue(value)
+		if text, ok := value.(string); ok && urlKeys[key] {
+			scrubbed[key] = platform.ScrubURL(text)
+			continue
+		}
+		scrubbed[key] = scrubValue(value)
 	}
-	return data
+	return scrubbed
 }
 
 // urlKeys are the keys of span and breadcrumb data whose whole value is a URL,
 // as the Next apps' scrubber names them.
 var urlKeys = map[string]bool{"url": true, "from": true, "to": true, "http.url": true, "url.full": true}
+
+// droppedKeys hold a query string or fragment already split off its URL,
+// which has no "?" left to mark it, so they are not sent at all.
+var droppedKeys = map[string]bool{"url.query": true, "url.fragment": true, "http.query": true, "http.fragment": true}
 
 func scrubValue(value any) any {
 	switch v := value.(type) {
@@ -172,16 +217,14 @@ func scrubValue(value any) any {
 	case map[string]any:
 		return scrubMap(v)
 	case []any:
+		scrubbed := make([]any, len(v))
 		for i := range v {
-			v[i] = scrubValue(v[i])
+			scrubbed[i] = scrubValue(v[i])
 		}
-		return v
+		return scrubbed
 	case []string:
-		for i := range v {
-			v[i] = platform.ScrubText(v[i])
-		}
-		return v
-	case nil, bool, int, int32, int64, uint, uint32, uint64, float32, float64:
+		return scrubStrings(v)
+	case nil, bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
 		return v
 	default:
 		// A value of a type this cannot see into is sent as scrubbed text.
