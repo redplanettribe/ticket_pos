@@ -203,14 +203,7 @@ export function resendHintAskedAt(invoice: {
 
 /** The toast a Check status or Resend press ends on: its catalog key and how loudly it is shown. */
 export type PressToast = {
-  key:
-    | "invoicingCheckedAuthorized"
-    | "invoicingCheckedNotAuthorized"
-    | "invoicingCheckedRejected"
-    | "invoicingCheckedReceived"
-    | "invoicingCheckedUnknown"
-    | "invoicingCheckedError"
-    | "invoicingCheckedUnrecorded";
+  key: (typeof PRESS_TOASTS)[keyof typeof PRESS_TOASTS]["key"] | "invoicingCheckedUnrecorded";
   tone: "success" | "info" | "warning";
 };
 
@@ -221,7 +214,7 @@ const PRESS_TOASTS = {
   received: { key: "invoicingCheckedReceived", tone: "info" },
   unknown: { key: "invoicingCheckedUnknown", tone: "info" },
   error: { key: "invoicingCheckedError", tone: "warning" },
-} as const satisfies Record<OperatorInvoiceAttempt["outcome"], PressToast>;
+} as const satisfies Record<OperatorInvoiceAttempt["outcome"], { key: string; tone: PressToast["tone"] }>;
 
 const UNRECORDED: PressToast = { key: "invoicingCheckedUnrecorded", tone: "info" };
 
@@ -247,5 +240,7 @@ export function pressToast(pressed: {
   attempts: readonly { id: number; outcome: OperatorInvoiceAttempt["outcome"] }[];
 }): PressToast {
   const attempt = pressed.attempts.find((a) => a.id === pressed.attempt_id);
+  // The map covers every outcome the type knows; `??` is for a word the API
+  // learns before this page does, which is reported as unknown, not guessed.
   return attempt ? (PRESS_TOASTS[attempt.outcome] ?? UNRECORDED) : UNRECORDED;
 }

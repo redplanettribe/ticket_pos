@@ -1674,7 +1674,7 @@
     "invoicingCheckedReceived": "El SRI respondió que aún está procesando la factura.",
     "invoicingCheckedUnknown": "El SRI respondió que no tiene nada con esta clave. Sus servicios de consulta a veces responden así sobre documentos que sí tienen.",
     "invoicingCheckedError": "No se pudo contactar al SRI o no dio una respuesta utilizable, así que no se supo nada. Inténtelo de nuevo.",
-    "invoicingCheckedUnrecorded": "Hecho, pero no se pudo registrar la respuesta del SRI. Revise el estado y los intentos más abajo.",
+    "invoicingCheckedUnrecorded": "La acción terminó, pero su llamada al SRI no quedó registrada, así que no se puede mostrar su respuesta. Revise el estado y los intentos más abajo.",
     "invoicingActionFailedTitle": "La acción falló",
     "invoicingCheckFailed": "No se pudo consultar el estado.",
     "invoicingResendFailed": "No se pudo reenviar la factura.",

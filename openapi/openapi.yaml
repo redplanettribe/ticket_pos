@@ -12284,9 +12284,9 @@ paths:
   /api/v1/operator/invoicing/invoices/{id}/resend:
     post:
       description: 'Rebuilds the factura of a `pending`, `rejected` or `not_authorized`
-        Tax Invoice from its recorded Recipient, lines and fields — with the Issuer''s
+        Tax Invoice from its recorded Recipient, lines and fields - with the Issuer''s
         editable details as they now stand, under the SAME clave de acceso and secuencial
-        — re-signs it with the certificate now in custody, submits it to recepción
+        - re-signs it with the certificate now in custody, submits it to recepción
         and polls autorización as an issue does. The signed XML on file is replaced
         by the re-signed bytes only when the SRI answered `RECIBIDA`, so the artifact
         the platform holds is always the one the SRI holds. SRI errors 43 (clave already
@@ -12299,8 +12299,8 @@ paths:
         INVOICE_ABANDONED (409) on one abandoned (ADR 0068); INVOICE_WITHDRAWN (409)
         on a withdrawn Sale Invoice or Credit Note; INVOICE_NOT_ISSUED (409) on one
         still owed and unsigned; INVOICE_REFUSED_BY_NUMBER (409) on one the SRI refused
-        for the NUMBER it carries — error 45, `secuencial registrado` (#577, ADR 0068)
-        — since a resend under the same secuencial is exactly what that answer objects
+        for the NUMBER it carries - error 45, `secuencial registrado` (#577, ADR 0068)
+        - since a resend under the same secuencial is exactly what that answer objects
         to and can only earn it again, and nothing is sent; INVOICE_NOT_FOUND (404);
         ISSUER_NOT_FOUND (404), CERTIFICATE_NOT_UPLOADED (409), CERTIFICATE_KEY_NOT_CONFIGURED
         (503) and ISSUER_INCOMPLETE (409) before anything is sent. Returns the invoice
