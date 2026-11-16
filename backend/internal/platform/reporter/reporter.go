@@ -288,12 +288,20 @@ func (r *sentryReporter) ReportError(ctx context.Context, report platform.ErrorR
 }
 
 // scope is a fresh scope, or a copy of the scope of the hub on ctx, so that a
-// report made inside a request span joins its trace.
+// report made inside a request span joins its trace. The span it links to is
+// the one on ctx, the span the report was made under: the hub's scope holds
+// whichever span of the request started last, a query still running on
+// another goroutine included, and this runs later, on the AsyncReporter's.
 func (r *sentryReporter) scope(ctx context.Context) *sentry.Scope {
-	if hub := sentry.GetHubFromContext(ctx); hub != nil {
-		return hub.Scope().Clone()
+	hub := sentry.GetHubFromContext(ctx)
+	if hub == nil {
+		return sentry.NewScope()
 	}
-	return sentry.NewScope()
+	scope := hub.Scope().Clone()
+	if span := sentry.SpanFromContext(ctx); span != nil {
+		scope.SetSpan(span)
+	}
+	return scope
 }
 
 // stacktrace converts a platform stack, innermost first, into Sentry's,

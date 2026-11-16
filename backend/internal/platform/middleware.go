@@ -168,10 +168,14 @@ func loggingMiddleware(logger *slog.Logger, reporter Reporter, next http.Handler
 	})
 }
 
-// routePattern is the pattern the request was routed by, or "unrouted".
+// unroutedPattern names a request no route matched, in a report and as a
+// request span.
+const unroutedPattern = "unrouted"
+
+// routePattern is the pattern the request was routed by, or unroutedPattern.
 func routePattern(r *http.Request) string {
 	if r.Pattern == "" {
-		return "unrouted"
+		return unroutedPattern
 	}
 	return r.Pattern
 }

@@ -21,7 +21,10 @@ const (
 // tracedAPI serves a failing checkout confirmation, always traced, and an
 // ordinary route, through the traced pipeline over the real SDK reporting to
 // the ingest stand-in. The ordinary draw never samples.
-func tracedAPI(t *testing.T, in *ingest) (*httptest.Server, platform.Reporter) {
+//
+// When hold is not nil, the confirmation keeps its query open until hold is
+// closed.
+func tracedAPI(t *testing.T, in *ingest, hold chan struct{}) (*httptest.Server, platform.Reporter) {
 	t.Helper()
 	reporter := New(platform.ReporterConfig{DSN: in.dsn(), Environment: "development"}, platform.NewSlogLogger(slog.New(slog.DiscardHandler), platform.NoopReporter{}))
 	logger := platform.NewSlogLogger(slog.New(slog.DiscardHandler), reporter)
@@ -29,9 +32,14 @@ func tracedAPI(t *testing.T, in *ingest) (*httptest.Server, platform.Reporter) {
 	mux.HandleFunc(tracedRoute, func(w http.ResponseWriter, r *http.Request) {
 		// A child span whose statement text carries an email, as a literal
 		// in SQL would: the scrubber runs on every span.
+		// The query is still open when the request reports: the report is
+		// made under the request's context and links to the request span.
 		_, span := reporter.StartSpan(r.Context(), platform.SpanOptions{Op: "db.sql", Name: "SELECT id FROM customers WHERE email = 'ana.perez@example.com'"})
-		span.Finish()
 		logger.Error(r.Context(), "could not confirm the payment", "error", errors.New("provider unreachable"))
+		if hold != nil {
+			<-hold
+		}
+		span.Finish()
 		_ = platform.WriteDomainError(w, platform.RequestID(r.Context()), errors.New("provider unreachable"))
 	})
 	mux.HandleFunc("GET "+ordinaryPath, func(w http.ResponseWriter, r *http.Request) {
@@ -76,12 +84,28 @@ func traceContext(t *testing.T, item map[string]any) map[string]any {
 // decision "not sampled"; the route is always traced, so it is. One
 // transaction leaves, named by the route pattern, in the Next app's trace
 // under the Next app's span; the event the request reports carries the same
-// trace and the request span; the statement's email is scrubbed.
+// trace and the request span, though the request's query was still open when
+// it reported; the statement's email is scrubbed.
 func TestASampledRequestContinuesTheTraceAndItsEventLinksToIt(t *testing.T) {
 	in := newIngest(t, http.StatusOK)
-	api, reporter := tracedAPI(t, in)
+	hold := make(chan struct{})
+	api, reporter := tracedAPI(t, in, hold)
 
-	call(t, api, http.MethodPost, "/api/v1/public/checkout/ctx-123/confirm", nextTraceID+"-"+nextSpanID+"-0")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		call(t, api, http.MethodPost, "/api/v1/public/checkout/ctx-123/confirm", nextTraceID+"-"+nextSpanID+"-0")
+	}()
+	// The event leaves while the query is still open.
+	deadline := time.Now().Add(5 * time.Second)
+	for events, _ := in.received(); len(events) == 0; events, _ = in.received() {
+		if time.Now().After(deadline) {
+			t.Fatal("no event while the query was open")
+		}
+		reporter.Flush(100 * time.Millisecond)
+	}
+	close(hold)
+	<-done
 	if !reporter.Flush(5 * time.Second) {
 		t.Fatal("not flushed")
 	}
@@ -123,7 +147,7 @@ func TestASampledRequestContinuesTheTraceAndItsEventLinksToIt(t *testing.T) {
 // A REQUEST WITHOUT TRACE HEADERS STARTS ITS OWN TRACE (#768).
 func TestARequestWithoutTraceHeadersStartsItsOwnTrace(t *testing.T) {
 	in := newIngest(t, http.StatusOK)
-	api, reporter := tracedAPI(t, in)
+	api, reporter := tracedAPI(t, in, nil)
 
 	call(t, api, http.MethodPost, "/api/v1/public/checkout/ctx-123/confirm", "")
 	if !reporter.Flush(5 * time.Second) {
@@ -149,7 +173,7 @@ func TestARequestWithoutTraceHeadersStartsItsOwnTrace(t *testing.T) {
 // draw both say no; its event still leaves.
 func TestAnUnsampledRequestSendsNoTransaction(t *testing.T) {
 	in := newIngest(t, http.StatusOK)
-	api, reporter := tracedAPI(t, in)
+	api, reporter := tracedAPI(t, in, nil)
 
 	call(t, api, http.MethodGet, ordinaryPath, nextTraceID+"-"+nextSpanID+"-0")
 	call(t, api, http.MethodGet, ordinaryPath, "")

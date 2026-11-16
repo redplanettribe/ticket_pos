@@ -25,8 +25,8 @@ const (
 //   - payment: settling a Payment on the Payment Provider's return, and
 //     reversing a Ticket Sale, which asks the Payment Provider for the money
 //     back, by the Customer, staff, an operator and the Reversal Reconciler;
-//   - sri_invoicing: the routes that send a Tax Document to the SRI or ask it
-//     about one: the Sale Invoice Drainer, an operator issuing, checking,
+//   - sri_invoicing: the routes that send a Tax Invoice or Credit Note to the
+//     Tax Authority, the SRI, or ask it about one: the Sale Invoice Drainer, an operator issuing, checking,
 //     reissuing, issuing again and abandoning, and the closing sweep run
 //     again.
 var alwaysTraced = map[string]string{

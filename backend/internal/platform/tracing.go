@@ -23,9 +23,8 @@ const (
 // traced (ADR 0079):
 //
 //  1. a route in Never, a health check, never is, whatever the caller decided;
-//  2. a route in Always, a checkout, payment or SRI invoicing route, always
-//     is, whatever the caller decided, so those flows are never missing from
-//     the sample;
+//  2. a route in Always always is, whatever the caller decided, so the flows
+//     that matter most are never missing from the sample;
 //  3. any other request arriving with a sampling decision in its sentry-trace
 //     header keeps it: the Next app that started the trace decided;
 //  4. any other request is traced with probability OrdinaryTraceRate.
@@ -33,9 +32,8 @@ const (
 // The routes are named by their ServeMux pattern. The server names them once,
 // in its list of traced routes.
 type TraceSampling struct {
-	// Always maps each pattern always traced to the flow it belongs to:
-	// "checkout", "payment" or "sri_invoicing". The flow is the request span's
-	// "flow" tag.
+	// Always maps each pattern always traced to the flow the server names it
+	// part of, the request span's "flow" tag.
 	Always map[string]string
 	// Never holds the patterns never traced.
 	Never map[string]bool
@@ -108,7 +106,7 @@ func tracingMiddleware(reporter Reporter, sampling TraceSampling, routes routeMa
 		}
 		name := pattern
 		if name == "" {
-			name = "unrouted"
+			name = unroutedPattern
 		}
 		sentryTrace := r.Header.Get(SentryTraceHeader)
 		sampled, flow := sampling.decide(pattern, sentryTrace)
@@ -128,10 +126,16 @@ func tracingMiddleware(reporter Reporter, sampling TraceSampling, routes routeMa
 	})
 }
 
+// requestSpan is the request span on ctx, if any.
+func requestSpan(ctx context.Context) (Span, bool) {
+	span, ok := ctx.Value(requestSpanKey{}).(Span)
+	return span, ok
+}
+
 // setRequestSpanStatus records on the request span, if ctx carries one, the
 // status the request answered.
 func setRequestSpanStatus(ctx context.Context, status int) {
-	if span, ok := ctx.Value(requestSpanKey{}).(Span); ok {
+	if span, ok := requestSpan(ctx); ok {
 		span.SetHTTPStatus(status)
 	}
 }
@@ -140,7 +144,7 @@ func setRequestSpanStatus(ctx context.Context, status int) {
 // request it starts nothing and returns ctx and nil: a query at startup or in
 // a background loop is not the start of a trace.
 func startChildSpan(ctx context.Context, reporter Reporter, options SpanOptions) (context.Context, Span) {
-	if _, ok := ctx.Value(requestSpanKey{}).(Span); !ok {
+	if _, ok := requestSpan(ctx); !ok {
 		return ctx, nil
 	}
 	return reporter.StartSpan(ctx, options)

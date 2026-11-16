@@ -48,6 +48,8 @@ func OpenDB(ctx context.Context, databaseURL string, reporter Reporter) (*DB, er
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
+	// The no-op's spans would cost nothing to send, but a tracer still runs
+	// on every query; with no DSN there is none, as "dormant" promises.
 	if _, noop := reporter.(NoopReporter); !noop {
 		config.Tracer = queryTracer{reporter: reporter}
 	}
