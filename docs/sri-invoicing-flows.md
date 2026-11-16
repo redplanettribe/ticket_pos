@@ -54,6 +54,7 @@ stateDiagram-v2
     needs_attention --> authorized : late AUTORIZADO on a poll
 
     authorized --> authorized : delivery mail failed<br/>→ retried on the ladder<br/>(delivered_at stays null)
+    authorized --> annulled : operator Mark annulled<br/>(portal annulment recorded,<br/>number typed in full,<br/>past the Annulment Window only with<br/>the late acknowledgement,<br/>refused while a live Credit Note<br/>or Reissue successor stands)<br/>then the Annulment Check asks the SRI
     authorized --> [*] : delivered (XML + link mailed)
 
     note right of authorized
@@ -70,9 +71,13 @@ stateDiagram-v2
         reader may conclude about the
         authority (ADR 0068): withdrawn was
         never sent, abandoned was sent and
-        never held — never a legal document —
+        never held - never a legal document -
         annulled was held and disowned at the
-        portal. Issue again never moves this
+        portal, from pending, needs_attention
+        or authorized, and is checked against
+        the SRI by the Annulment Check; only
+        Reinstate leads out of it. Issue again
+        never moves this
         row: it owes the Sale a NEW one,
         linked through the supersede chain and
         signed later under a fresh secuencial.
@@ -319,7 +324,7 @@ flowchart LR
 | 36 | Reversal while the factura is pending at the SRI | **Built** | `saleinvoice.go:222`; `B/invoicing/repository/drainer.go:81-90` | Credit Note owed but unclaimable until the factura is terminal. |
 | 37 | Reversal of an authorized factura | **Built** | `saleinvoice.go:253` `creditNoteOf`; motivo `B/invoicing/invoice.go` `CreditNoteMotivo` | Same Recipient, lines and totals; full amount; route as reason and motivo. |
 | 38 | Reversal while the factura is `needs_attention` with a number consumed | **Built** | `saleinvoice.go:195` | Credit Note waits; if the factura later dies (annulled) the Credit Note is withdrawn (`drainer.go:378`). Waits indefinitely otherwise. |
-| 39 | The Credit Note itself is refused | **Built**: cured by annulling the factura (#745, #747, spec #742, ADR 0078) | `invoice.go:423`; cure `B/invoicing/service/attention.go` `annulFacturaRefusal`; follow-ups `B/invoicing/service/followups.go` `annulmentFollowUps` | `needs_attention` for the operator. If the Credit Note is annulled, the reversed Sale keeps an authorized, uncredited factura, and the operator annuls that factura at the portal and records it with Mark annulled: a dead Credit Note (withdrawn, abandoned, annulled, rejected, not authorized) does not refuse it. The annulled factura of a reversed Sale owes nothing more - the reversal owes no Credit Note against an annulled factura, mismatch or not, and Issue again and Reissue refuse a reversed Sale - so its follow-up chooser shows only "Nothing follows". Still no automatic follow-up: the cure is the operator's act. → U6 |
+| 39 | The Credit Note itself is refused | **Built**: cured by annulling the factura (#745, #747, spec #742, ADR 0078) | `invoice.go:423`; cure `B/invoicing/service/attention.go` `annulFacturaRefusal`; follow-ups `B/invoicing/service/followups.go` `annulmentFollowUps` | `needs_attention` for the operator. If the Credit Note is annulled, the reversed Sale keeps an authorized, uncredited factura, and the operator annuls that factura at the portal and records it with Mark annulled: a dead Credit Note (withdrawn, abandoned, annulled, rejected, not authorized) does not refuse it. The annulled factura of a reversed Sale owes nothing more - the reversal owes no Credit Note against an annulled factura, mismatch or not, and Issue again and Reissue refuse a reversed Sale - so its follow-up chooser shows only "Nothing follows". Still no automatic follow-up: the cure is the operator's act. U6 closed. |
 | 40 | Routes that produce a Credit Note | **Built** for customer + reconciler-agreed (`customer`) and operator (`platform`) | `B/sales/service/reversal.go:967`, `B/sales/service/operator.go:529` | Staff reversal, import undo and correction pass no seam — correct, import-channel Sales never owe a document. A refused Reversal Request reverses nothing. |
 | 41 | Reversal during a reissue | **Built** | see 2.5 #47 | |
 
@@ -376,7 +381,7 @@ Nothing here has an issue or a ruling. Which ones become tickets is a decision, 
 | U3 | No schema uniqueness on "one Sale Invoice per Ticket Sale" | 8 | Control-flow-only invariant, and the second issuance path it feared now exists: Issue again (row 30b) owes a Sale another Sale Invoice, guarded by the live-successor index of migration 120 and a read under the Sale's lock, not by a uniqueness constraint on the Sale. |
 | U4 | Every definite refusal is one bucket; error 50 (SRI internal error) parks instead of retrying; emisor-side codes (37/46/56/57/63) are not marked "resend won't help" | 22–28 | An SRI hiccup becomes operator work; operators cannot tell a fixable refusal from a dead one without reading the Ficha. Data is already stored to derive it. |
 | U5 | No reconciliation against `consultarEstadoAutorizacionComprobante` | 31 | Research doc §3.3 rule 10 proposed a daily check. Since #744 the service is asked about an annulled factura (Check status, the Annulment Check since #746), and since #750 the Closing Sweep asks once a month about every authorized production factura of the month just closed, after its window has closed. A pending, parked or refused document is still reconciled only by the ladder poll and Check status on autorización. |
-| U6 | A reversal's Credit Note annulled leaves a reversed Sale with an authorized, uncredited factura and nothing chasing it | 39 | Declared income for a sale that no longer stands, invisible after the operator acts. Was the sibling of #480, which ADR 0068 closed; this half is still unanswered, and Issue again does not reach it — a reversed Sale is owed nothing. |
+| U6 | ~~A reversal's Credit Note annulled leaves a reversed Sale with an authorized, uncredited factura and nothing chasing it~~ - closed by #745 and #747 (spec #742, ADR 0078) | 39 | Built: the operator annuls the factura at the portal and records it with Mark annulled, which a dead Credit Note no longer refuses; the annulled factura of a reversed Sale owes nothing more, so its follow-up chooser shows only "Nothing follows" (row 39). Was the sibling of #480, which ADR 0068 closed. |
 | U7 | No RIDE for the buyer (XML only) | 51 | S6 Q21: the emisor must deliver XML **and** RIDE; a RIDE without the número de autorización is worthless, so it can only be produced after authorization — which is when the mail goes. |
 | U8 | ~~Mark annulled sends the buyer nothing~~ - closed by #748 (spec #742, ADR 0078) | 56 | Built: the Annulment Notice, held on the Annulment Check and worded by the Sale at send time (row 56). |
 | U9 | ~~No certificate-expiry early warning~~ — closed by ADR 0063 / #490 (#500–#505) | 59 | Built: the Drainer's tick warns the operator allowlist at 30, 7, 1 and 0 days and the staff app banners it. What remains is deployment, not code: the Drainer's Cloud Scheduler job ships paused (row 58) and must be unpaused before the production certificate's first rung, and the mail's Issuer-page link takes its origin from `STAFF_BASE_URL`, which Terraform now mounts on the API from `staff_domain` (nothing to set by hand once the staff domain is mapped). |
