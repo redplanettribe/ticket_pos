@@ -21,6 +21,15 @@ import (
 // uptime target asks (#775).
 const deepHealthPath = "/api/v1/public/health"
 
+// linkMode is how a databaseLink treats a connection the app opens.
+type linkMode string
+
+const (
+	linkUp      linkMode = "up"
+	linkRefused linkMode = "refused"
+	linkHung    linkMode = "hung"
+)
+
 // databaseLink stands between the app and the test database, so a test can
 // take the database away from a running app without touching the shared
 // container: "up" forwards, "refused" closes every connection as it arrives,
@@ -29,7 +38,7 @@ const deepHealthPath = "/api/v1/public/health"
 type databaseLink struct {
 	listener net.Listener
 	target   string
-	mode     atomic.Value // "up", "refused" or "hung"
+	mode     atomic.Value // a linkMode
 
 	mu    sync.Mutex
 	conns map[net.Conn]bool
@@ -53,7 +62,7 @@ func newDatabaseLink(t *testing.T, target string) *databaseLink {
 		t.Fatalf("listen: %v", err)
 	}
 	link := &databaseLink{listener: listener, target: target, conns: map[net.Conn]bool{}}
-	link.mode.Store("up")
+	link.mode.Store(linkUp)
 	go link.serve()
 	t.Cleanup(func() {
 		_ = listener.Close()
@@ -62,7 +71,7 @@ func newDatabaseLink(t *testing.T, target string) *databaseLink {
 	return link
 }
 
-func (l *databaseLink) setMode(mode string) {
+func (l *databaseLink) setMode(mode linkMode) {
 	l.mode.Store(mode)
 	l.dropAll()
 }
@@ -89,9 +98,9 @@ func (l *databaseLink) serve() {
 			return
 		}
 		switch l.mode.Load() {
-		case "refused":
+		case linkRefused:
 			_ = conn.Close()
-		case "hung":
+		case linkHung:
 			l.track(conn)
 			go func() {
 				// Read until the app lets go; nothing is ever answered.
@@ -185,8 +194,8 @@ func TestTheDeepHealthRouteAnswersByTheDatabaseAndIsNeverTracedOrReported(t *tes
 		t.Errorf("up: body = %s, want data.status ok", body)
 	}
 
-	for _, mode := range []string{"refused", "hung"} {
-		t.Run(mode, func(t *testing.T) {
+	for _, mode := range []linkMode{linkRefused, linkHung} {
+		t.Run(string(mode), func(t *testing.T) {
 			link.setMode(mode)
 			resp, body, took := getDeepHealth(t, env, sampled)
 			if resp.StatusCode != http.StatusServiceUnavailable {
@@ -208,13 +217,13 @@ func TestTheDeepHealthRouteAnswersByTheDatabaseAndIsNeverTracedOrReported(t *tes
 			if stats := app.DB.Pool.Stats(); stats.InUse != 0 {
 				t.Errorf("connections in use after the answer = %d, want 0", stats.InUse)
 			}
-			if mode == "hung" {
-				waitFor(t, "the check to let go of the hung database", func() bool { return link.hungOpen.Load() == 0 })
+			if mode == linkHung {
+				link.waitUntilLetGo(t)
 			}
 		})
 	}
 
-	link.setMode("up")
+	link.setMode(linkUp)
 	resp, body, _ = getDeepHealth(t, env, sampled)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("back up: status = %d, want 200; body %s", resp.StatusCode, body)
@@ -244,7 +253,7 @@ func TestTheDeepHealthRouteAnswersByTheDatabaseAndIsNeverTracedOrReported(t *tes
 func TestTheShallowHealthCheckAnswersWithTheDatabaseDown(t *testing.T) {
 	setupTest(t)
 	env, _, link := startAppBehindLink(t, reportertest.New())
-	link.setMode("refused")
+	link.setMode(linkRefused)
 
 	resp, err := http.Get(env.server.URL + "/health")
 	if err != nil {
@@ -257,12 +266,14 @@ func TestTheShallowHealthCheckAnswersWithTheDatabaseDown(t *testing.T) {
 	}
 }
 
-func waitFor(t *testing.T, what string, done func() bool) {
+// waitUntilLetGo waits briefly for the app to close every hung connection
+// it opened, cancel requests aside.
+func (l *databaseLink) waitUntilLetGo(t *testing.T) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
-	for !done() {
+	for l.hungOpen.Load() != 0 {
 		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", what)
+			t.Fatalf("the check still holds %d hung connection(s)", l.hungOpen.Load())
 		}
 		time.Sleep(10 * time.Millisecond)
 	}

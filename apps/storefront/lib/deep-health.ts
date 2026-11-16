@@ -26,10 +26,10 @@ export const API_DEEP_HEALTH_PATH = "/api/v1/public/health";
 /**
  * How long the check waits for the API, its service credential included.
  * The API bounds its database check at 2 seconds (platform.DeepHealthTimeout);
- * this leaves room for that and the hop, and stays well under an uptime
- * probe's own timeout, so the probe always reads our 503 rather than its own.
+ * this leaves room for that and the hop. The uptime monitor's own timeout must
+ * be longer than this, so the probe reads our 503 rather than timing out.
  */
-export const DEEP_HEALTH_TIMEOUT_MS = 5_000;
+export const DEEP_HEALTH_TIMEOUT_MS = 4_000;
 
 /** Asks the API's deep health route, giving up when signal aborts. */
 export type AskAPI = (signal: AbortSignal) => Promise<Response>;

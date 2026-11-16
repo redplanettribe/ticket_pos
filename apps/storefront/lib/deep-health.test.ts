@@ -96,5 +96,8 @@ test("a check answers 503 within its bound when the API never answers, and lets 
 });
 
 test("the route is never traced, whatever the caller decided", () => {
-  assert.equal(serverTracesSampler({ name: `GET ${DEEP_HEALTH_PATH}`, inheritOrSampleWith: () => 1 }), 0);
+  for (const method of ["GET", "HEAD"]) {
+    assert.equal(serverTracesSampler({ name: `${method} ${DEEP_HEALTH_PATH}`, inheritOrSampleWith: () => 1 }), 0);
+  }
+  assert.equal(serverTracesSampler({ name: `GET ${DEEP_HEALTH_PATH}z`, inheritOrSampleWith: () => 1 }), 1);
 });

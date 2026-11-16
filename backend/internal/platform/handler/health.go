@@ -41,7 +41,7 @@ type deepHealthEnvelope struct {
 
 // errDatabaseUnreachable is DeepHealth's answer when the database did not
 // answer within platform.DeepHealthTimeout.
-var errDatabaseUnreachable = apperror.New("DATABASE_UNREACHABLE", "The database did not answer", nil)
+var errDatabaseUnreachable = apperror.New("DATABASE_UNREACHABLE", "The database did not answer.", nil)
 
 // DeepHealth answers whether the API can reach its database (#775, ADR 0079):
 // the Storefront's deep health route asks it, and that route is the uptime

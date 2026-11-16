@@ -46,7 +46,7 @@ The build plugin is configured to contact nothing: no source maps, no release, n
 ### Deep health, the uptime probe's target
 
 `GET /api/health` (`app/api/health/route.ts`, `lib/deep-health.ts`) answers whether the Storefront can actually serve a buyer (#775).
-It answers 200 `ok` only when it reaches the API and the API's `GET /api/v1/public/health` reached the database, and 503 `unavailable` otherwise, within five seconds (`DEEP_HEALTH_TIMEOUT_MS`).
+It answers 200 `ok` only when it reaches the API and the API's `GET /api/v1/public/health` reached the database, and 503 `unavailable` otherwise, within four seconds (`DEEP_HEALTH_TIMEOUT_MS`); the uptime monitor's own timeout must be longer.
 The body carries no data, nothing is cached, and the server's sampler never traces it.
 A failing check is a log line, never a thrown error, so an outage raises the uptime alert and not one issue per probe.
 The API is asked as every BFF call asks it, with the service credential and no session.
