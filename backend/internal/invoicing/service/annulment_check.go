@@ -6,6 +6,7 @@ import (
 
 	"github.com/peter/ticket_pos/backend/internal/invoicing"
 	"github.com/peter/ticket_pos/backend/internal/invoicing/repository"
+	"github.com/peter/ticket_pos/backend/internal/invoicing/sri"
 )
 
 // The Annulment Check's pass on the Drainer's tick (#746, spec #742, ADR
@@ -22,14 +23,16 @@ import (
 // rung, so "+1 min" means "due from +1 min". The checkout-kicked round does
 // not run it.
 //
-// A BUDGET OF ITS OWN INSIDE THE TICK'S. The pass stops starting asks at
-// annulmentCheckBudget and every ask runs under the pass's deadline, so the
-// pass as a whole ends by it; the drain that follows gets what is left of
-// the tick's budget. An ask the deadline cut short, with no real reading, is
-// NO ASK: its calls stay on the attempts ledger as evidence, but it is not
-// recorded on the check, the claim is released and the same ask is due on
-// the next tick. A truncated ask that counted would let one call stand for
-// the +60 min ask.
+// A BUDGET OF ITS OWN INSIDE THE TICK'S. The pass stops STARTING asks at
+// annulmentCheckBudget, and an ask once started runs to its end - all three
+// calls, each bounded by the client's own timeout - under annulmentAskBound,
+// so an SRI that only times out still yields finished asks of no reading
+// that move the schedule and reach unconfirmed, rather than asks cut short
+// forever. The drain that follows gets what is left of the tick's budget.
+// Only an ask the CALLER cut short (the request ended), with no real
+// reading, is NO ASK: its calls stay on the attempts ledger as evidence,
+// the claim is released and the same ask is due on the next tick. A
+// truncated ask that counted would let one call stand for the +60 min ask.
 //
 // CLAIMED UNDER A LEASE (repository.ClaimDueAnnulmentCheck), one annulment
 // at a time, so two concurrent ticks never ask about one factura twice.
@@ -47,12 +50,20 @@ import (
 // nothing on a check.
 
 // annulmentCheckBudget bounds the pass inside the tick's
-// saleInvoiceDrainBudget: asks are started until it and cut at it.
-// annulmentCheckBatch is the belt beside it.
+// saleInvoiceDrainBudget: no ask is started once it is spent.
+// annulmentCheckBatch caps the asks one pass makes, beside it.
 const (
 	annulmentCheckBudget = 20 * time.Second
 	annulmentCheckBatch  = 20
 )
+
+// annulmentAskBound is the most one ask may take: three calls at the
+// client's timeout and the two pauses between them, with a margin. It is a
+// belt; the client's own timeout ends every call first. The tick's worst
+// case is therefore annulmentCheckBudget + annulmentAskBound before the
+// drain, which then gets nothing of saleInvoiceDrainBudget, inside the
+// scheduler's deadline.
+const annulmentAskBound = StatusAskCalls*sri.DefaultTimeout + (StatusAskCalls-1)*DefaultStatusAskSpacing + 5*time.Second
 
 // annulmentCheckLease is how long a claimed check is hidden from other
 // ticks: the fallback for an instance that died mid-ask. An ordinary ask
@@ -78,12 +89,10 @@ type AnnulmentCheckResult struct {
 func (s *Service) checkAnnulments(ctx context.Context, budget time.Duration) AnnulmentCheckResult {
 	var out AnnulmentCheckResult
 	wall := time.Now()
-	passCtx, cancel := context.WithTimeout(ctx, budget)
-	defer cancel()
 	deadline := s.clock().Add(budget)
 
 	for out.Asked+out.Unfinished < annulmentCheckBatch {
-		if passCtx.Err() != nil {
+		if ctx.Err() != nil {
 			break
 		}
 		now := s.clock()
@@ -92,7 +101,7 @@ func (s *Service) checkAnnulments(ctx context.Context, budget time.Duration) Ann
 		if !now.Before(deadline) || time.Since(wall) >= budget {
 			break
 		}
-		claim, err := s.repo.ClaimDueAnnulmentCheck(passCtx, now, now.Add(annulmentCheckLease))
+		claim, err := s.repo.ClaimDueAnnulmentCheck(ctx, now, now.Add(annulmentCheckLease))
 		if err != nil {
 			s.logger.Warn("invoicing: could not claim an annulment check", "error", err)
 			break
@@ -100,25 +109,28 @@ func (s *Service) checkAnnulments(ctx context.Context, budget time.Duration) Ann
 		if claim == nil {
 			break
 		}
+		invoiceID := claim.Invoice.Invoice.ID
 		if claim.Invoice.Ecuador == nil {
 			// An annulled factura is signed, or it could not have been
 			// annulled; one without its Ecuador row is a fault, left leased.
-			s.logger.Error("invoicing: annulled factura has no clave to ask about", "invoice_id", claim.Invoice.Invoice.ID)
+			s.logger.Error("invoicing: annulled factura has no clave to ask about", "invoice_id", invoiceID)
 			out.Unfinished++
 			continue
 		}
-		at := now
-		ask := s.askStatus(passCtx, claim.Invoice)
-		if cutShort(passCtx, ask) {
+		askCtx, cancel := context.WithTimeout(ctx, annulmentAskBound)
+		ask := s.askStatus(askCtx, claim.Invoice)
+		cut := cutShort(askCtx, ask)
+		cancel()
+		if cut {
 			if err := s.repo.ReleaseAnnulmentCheck(context.WithoutCancel(ctx), claim.AnnulmentID); err != nil {
-				s.logger.Warn("invoicing: could not release a cut annulment check; its lease will", "invoice_id", claim.Invoice.Invoice.ID, "error", err)
+				s.logger.Warn("invoicing: could not release a cut annulment check; its lease will", "invoice_id", invoiceID, "error", err)
 			}
 			out.Unfinished++
 			break
 		}
-		check, err := s.recordAnnulmentAsk(context.WithoutCancel(ctx), claim.Invoice, claim.AnnulmentID, at, ask, false)
+		check, err := s.recordAnnulmentAsk(context.WithoutCancel(ctx), claim.Invoice, claim.AnnulmentID, now, ask, false)
 		if err != nil || check == nil {
-			s.logger.Warn("invoicing: could not record an annulment ask; it is due again once its lease expires", "invoice_id", claim.Invoice.Invoice.ID, "error", err)
+			s.logger.Warn("invoicing: could not record an annulment ask; it is due again once its lease expires", "invoice_id", invoiceID, "error", err)
 			out.Unfinished++
 			continue
 		}
@@ -133,7 +145,7 @@ func (s *Service) checkAnnulments(ctx context.Context, budget time.Duration) Ann
 		default:
 			out.Checking++
 		}
-		s.logger.Info("invoicing: annulment checked", "invoice_id", claim.Invoice.Invoice.ID,
+		s.logger.Info("invoicing: annulment checked", "invoice_id", invoiceID,
 			"reading", ask.Reading, "calls", ask.Calls, "verdict", check.Verdict)
 	}
 	if out.Asked+out.Unfinished > 0 {

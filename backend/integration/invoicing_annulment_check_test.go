@@ -531,31 +531,40 @@ func TestCheckStatusThatReadsANULADOEndsTheCheck(t *testing.T) {
 }
 
 // TestAFacturaAnnulledBeforeTheCheckReadsUnconfirmedAndIsNeverAsked: an
-// annulment recorded before the check existed - the #477 shape, the row's
-// own pair and no ledger row - reads unconfirmed, unscheduled, and no tick
-// asks about it. Its Check status still asks, onto the ledger alone.
+// annulment recorded before the check existed reads unconfirmed,
+// unscheduled, and no tick asks about it. Two shapes are in production's
+// past: the #477 one (the row's own pair, no ledger row) and a #745 ledger
+// row migration 132 left with no check. Its Check status still asks, onto
+// the attempts ledger alone.
 func TestAFacturaAnnulledBeforeTheCheckReadsUnconfirmedAndIsNeverAsked(t *testing.T) {
-	t0 := fixedClock
-	operatorSessionID, invoiceID := annulledManualInvoiceAt(t, t0)
-	// The state a pre-check annulment is in: no annulments ledger row.
-	if _, err := sriEnv.db.Exec(`DELETE FROM invoicing_annulments WHERE invoice_id = $1`, invoiceID); err != nil {
-		t.Fatalf("setup: %v", err)
+	shapes := map[string]string{
+		"no ledger row":              `DELETE FROM invoicing_annulments WHERE invoice_id = $1`,
+		"a ledger row with no check": `UPDATE invoicing_annulments SET check_verdict = NULL, next_ask_at = NULL WHERE invoice_id = $1`,
 	}
-	status, check := getAnnulmentCheck(t, operatorSessionID, invoiceID)
-	if status != "annulled" || check.Verdict != "unconfirmed" || check.Scheduled || check.NextAskAt != nil || check.AsksUntil != nil {
-		t.Fatalf("a pre-check annulment: %s %+v; want unconfirmed, never scheduled", status, check)
-	}
-	for _, after := range []time.Duration{time.Minute, time.Hour, 7 * time.Hour, 8 * 24 * time.Hour} {
-		wantAsked(t, "a pre-check annulment", tickAt(t, t0.Add(after)), 0, 0)
-	}
-	if item := needsAttentionItem(t, operatorSessionID, invoiceID); item != nil {
-		t.Fatalf("a pre-check annulment is queued: %+v", item)
-	}
+	for name, setup := range shapes {
+		t.Run(name, func(t *testing.T) {
+			t0 := fixedClock
+			operatorSessionID, invoiceID := annulledManualInvoiceAt(t, t0)
+			if _, err := sriEnv.db.Exec(setup, invoiceID); err != nil {
+				t.Fatalf("setup: %v", err)
+			}
+			status, check := getAnnulmentCheck(t, operatorSessionID, invoiceID)
+			if status != "annulled" || check.Verdict != "unconfirmed" || check.Scheduled || check.NextAskAt != nil || check.AsksUntil != nil {
+				t.Fatalf("a pre-check annulment: %s %+v; want unconfirmed, never scheduled", status, check)
+			}
+			for _, after := range []time.Duration{time.Minute, time.Hour, 7 * time.Hour, 8 * 24 * time.Hour} {
+				wantAsked(t, "a pre-check annulment", tickAt(t, t0.Add(after)), 0, 0)
+			}
+			if item := needsAttentionItem(t, operatorSessionID, invoiceID); item != nil {
+				t.Fatalf("a pre-check annulment is queued: %+v", item)
+			}
 
-	sriStub.setConsulta(consultaAuthorized)
-	checkAnnulledOK(t, operatorSessionID, invoiceID)
-	_, check = getAnnulmentCheck(t, operatorSessionID, invoiceID)
-	if check.Verdict != "unconfirmed" || len(check.Asks) != 0 || len(check.Answers) != 1 {
-		t.Fatalf("after a Check status: %+v; want still unconfirmed, the answer on the ledger only", check)
+			sriStub.setConsulta(consultaAuthorized)
+			checkAnnulledOK(t, operatorSessionID, invoiceID)
+			_, check = getAnnulmentCheck(t, operatorSessionID, invoiceID)
+			if check.Verdict != "unconfirmed" || len(check.Asks) != 0 || len(check.Answers) != 1 {
+				t.Fatalf("after a Check status: %+v; want still unconfirmed, the answer on the ledger only", check)
+			}
+		})
 	}
 }

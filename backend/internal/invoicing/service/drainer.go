@@ -221,7 +221,9 @@ func (s *Service) DrainSaleInvoices(ctx context.Context) (*SaleInvoiceDrainResul
 	if !s.saleInvoicingEnabled {
 		return nil, invoicing.ErrSaleInvoicingUnavailable()
 	}
-	out, err := s.drainSaleInvoices(ctx, "", saleInvoiceDrainBudget-time.Since(started))
+	// What is left of the tick's budget; a pass that took it all leaves the
+	// drain none this tick, and the queue waits five minutes.
+	out, err := s.drainSaleInvoices(ctx, "", max(0, saleInvoiceDrainBudget-time.Since(started)))
 	if err != nil {
 		return nil, err
 	}

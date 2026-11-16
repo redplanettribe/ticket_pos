@@ -167,12 +167,8 @@ func (r *Repository) RecordAnnulmentAsk(ctx context.Context, annulmentID string,
 	return check, nil
 }
 
-type queryer interface {
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-}
-
 // annulmentAsks reads one annulment's asks, oldest first.
-func annulmentAsks(ctx context.Context, q queryer, annulmentID string) ([]invoicing.AnnulmentAsk, error) {
+func annulmentAsks(ctx context.Context, q querier, annulmentID string) ([]invoicing.AnnulmentAsk, error) {
 	byID, err := annulmentAsksOf(ctx, q, []string{annulmentID})
 	if err != nil {
 		return nil, err
@@ -182,7 +178,7 @@ func annulmentAsks(ctx context.Context, q queryer, annulmentID string) ([]invoic
 
 // annulmentAsksOf reads the asks of several annulments, oldest first, keyed
 // by annulment.
-func annulmentAsksOf(ctx context.Context, q queryer, annulmentIDs []string) (map[string][]invoicing.AnnulmentAsk, error) {
+func annulmentAsksOf(ctx context.Context, q querier, annulmentIDs []string) (map[string][]invoicing.AnnulmentAsk, error) {
 	out := map[string][]invoicing.AnnulmentAsk{}
 	if len(annulmentIDs) == 0 {
 		return out, nil

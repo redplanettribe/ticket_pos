@@ -68,7 +68,7 @@ function AttentionRow({ item, locale }: { item: OperatorNeedsAttentionItem; loca
       </td>
       <td className="py-3 pr-4 whitespace-nowrap">
         {formatDateTime(item.attention_since ?? item.abandoned_at ?? item.mismatch_since, PLATFORM_TIME_ZONE, locale) ??
-          "—"}
+          "-"}
       </td>
       <td className="py-3 pr-4">
         {item.attention_reason === "annulment_mismatch" ? (
