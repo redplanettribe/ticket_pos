@@ -164,7 +164,10 @@ Nothing reaches an operator who is not on that page.
   Its documentation must state the full union.
 - The flows doc's U6 and U8 close.
 - Every `ConsultaComprobante` call is an attempt on the document's ledger, so the platform calls the SRI about 100-200 more times a month for the Closing Sweep, paced.
-- **ANULADO has never been observed.** Its reading, and what `autorizacionComprobante` answers after an annulment, are assumptions until the first real annulment is checked with `REPEAT=10 SPACING=5 scripts/probe-sri-status.sh <clave>` (branch `worktree-sri-status-probe`).
-  If ANULADO reads differently, the reading is the one place to change.
+- **ANULADO was unobserved when this was decided, and was first observed on 2026-11-16.**
+  Factura 001-001-000000238, annulled at the SRI portal, answered `ConsultaComprobante` with `estadoAutorizacion` reading exactly `ANULADO` on every call that answered, its `fechaAutorizacion` unchanged.
+  That first check also showed the fields arrive wrapped in `<EstadoAutorizacionComprobante>`, not `<return>`: the adapter had been written from the recorded field list and read every answer as no reading until it was corrected.
+  The verbatim answers are the adapter's test fixtures.
+  What `autorizacionComprobante` answers after an annulment is still unobserved: the one call made got an HTTP 302.
 - **Revisit trigger for the nudge:** reopen §8 if Recipient Warnings start occurring, or if a Reissue (with its Credit Note) happens past the window on a factura that annulling would have spared.
 - **Invariant:** if consumidor final identification (codes 07, 08) is ever added, Mark annulled must refuse those facturas.

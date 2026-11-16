@@ -339,9 +339,9 @@ func consultaRefusedSOAP(accessKey string) string {
 const consultaFoundHTML = `<html><head><title>302 Found</title></head><body><h1>Found</h1></body></html>`
 
 func consultaEnvelope(inner string) string {
-	return `<?xml version="1.0" encoding="UTF-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><ns2:consultarEstadoAutorizacionComprobanteResponse xmlns:ns2="http://ec.gob.sri.ws.consultas"><return>` +
+	return `<?xml version="1.0" encoding="UTF-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><ns2:consultarEstadoAutorizacionComprobanteResponse xmlns:ns2="http://ec.gob.sri.ws.consultas"><EstadoAutorizacionComprobante>` +
 		inner +
-		`</return></ns2:consultarEstadoAutorizacionComprobanteResponse></soap:Body></soap:Envelope>`
+		`</EstadoAutorizacionComprobante></ns2:consultarEstadoAutorizacionComprobanteResponse></soap:Body></soap:Envelope>`
 }
 
 // consultaSequence scripts the status service call by call: the first call

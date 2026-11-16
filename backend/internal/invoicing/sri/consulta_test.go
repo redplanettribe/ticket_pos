@@ -18,19 +18,30 @@ import (
 // production on 2026-11-15: a success carries estadoAutorizacion and no
 // estadoConsulta, a refusal carries estadoConsulta RECHAZADA, mensajes and no
 // estadoAutorizacion, both as HTTP 200; and 6 consultas in 40 were an HTTP
-// 302 to an HTML page. ANULADO was never observed; its rows are the
-// assumption the first real annulment will check.
+// 302 to an HTML page. ANULADO was first observed on 2026-11-16, for factura
+// 238; that answer and two of factura 225's are kept verbatim below.
 
 // consultaFixtureClave is a well-formed clave, not a real document's.
 const consultaFixtureClave = "1809202601179322846800120010010000002251234567812"
 
 func consultaSuccessSOAP(estado string) string {
-	return `<?xml version="1.0" encoding="UTF-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><ns2:consultarEstadoAutorizacionComprobanteResponse xmlns:ns2="http://ec.gob.sri.ws.consultas"><return><claveAcceso>` + consultaFixtureClave + `</claveAcceso><mensajes/><estadoAutorizacion>` + estado + `</estadoAutorizacion><tipoComprobante>Factura</tipoComprobante><rucEmisor>1793228468001</rucEmisor><fechaAutorizacion>2026-09-18T13:07:57-05:00</fechaAutorizacion></return></ns2:consultarEstadoAutorizacionComprobanteResponse></soap:Body></soap:Envelope>`
+	return `<?xml version="1.0" encoding="UTF-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><ns2:consultarEstadoAutorizacionComprobanteResponse xmlns:ns2="http://ec.gob.sri.ws.consultas"><EstadoAutorizacionComprobante><claveAcceso>` + consultaFixtureClave + `</claveAcceso><mensajes/><estadoAutorizacion>` + estado + `</estadoAutorizacion><tipoComprobante>Factura</tipoComprobante><rucEmisor>1793228468001</rucEmisor><fechaAutorizacion>2026-09-18T13:07:57-05:00</fechaAutorizacion></EstadoAutorizacionComprobante></ns2:consultarEstadoAutorizacionComprobanteResponse></soap:Body></soap:Envelope>`
 }
 
 func consultaRefusalSOAP(estadoConsulta, identificador, mensaje string) string {
-	return `<?xml version="1.0" encoding="UTF-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><ns2:consultarEstadoAutorizacionComprobanteResponse xmlns:ns2="http://ec.gob.sri.ws.consultas"><return><estadoConsulta>` + estadoConsulta + `</estadoConsulta><claveAcceso>` + consultaFixtureClave + `</claveAcceso><mensajes><mensaje><identificador>` + identificador + `</identificador><mensaje>` + mensaje + `</mensaje><tipo>ERROR</tipo></mensaje></mensajes></return></ns2:consultarEstadoAutorizacionComprobanteResponse></soap:Body></soap:Envelope>`
+	return `<?xml version="1.0" encoding="UTF-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><ns2:consultarEstadoAutorizacionComprobanteResponse xmlns:ns2="http://ec.gob.sri.ws.consultas"><EstadoAutorizacionComprobante><estadoConsulta>` + estadoConsulta + `</estadoConsulta><claveAcceso>` + consultaFixtureClave + `</claveAcceso><mensajes><mensaje><identificador>` + identificador + `</identificador><mensaje>` + mensaje + `</mensaje><tipo>ERROR</tipo></mensaje></mensajes></EstadoAutorizacionComprobante></ns2:consultarEstadoAutorizacionComprobanteResponse></soap:Body></soap:Envelope>`
 }
+
+// The status service's answers kept byte for byte from production's egress
+// path on 2026-11-16 (scripts/probe-sri-status.sh): factura 238, annulled at
+// the SRI portal, and factura 225, authorized, with the wrong negative it
+// also got. Note there is no XML declaration and the fields sit in
+// <EstadoAutorizacionComprobante>.
+const (
+	consultaAnnulled238   = `<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><ns2:consultarEstadoAutorizacionComprobanteResponse xmlns:ns2="http://ec.gob.sri.ws.consultas"><EstadoAutorizacionComprobante><claveAcceso>2710202601179322846800120010010000002387161147214</claveAcceso><mensajes/><estadoAutorizacion>ANULADO</estadoAutorizacion><tipoComprobante>Factura</tipoComprobante><rucEmisor>1793228468001</rucEmisor><fechaAutorizacion>2026-10-27T18:03:18-05:00</fechaAutorizacion></EstadoAutorizacionComprobante></ns2:consultarEstadoAutorizacionComprobanteResponse></soap:Body></soap:Envelope>`
+	consultaAuthorized225 = `<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><ns2:consultarEstadoAutorizacionComprobanteResponse xmlns:ns2="http://ec.gob.sri.ws.consultas"><EstadoAutorizacionComprobante><claveAcceso>1809202601179322846800120010010000002250312603419</claveAcceso><mensajes/><estadoAutorizacion>AUTORIZADO</estadoAutorizacion><tipoComprobante>Factura</tipoComprobante><rucEmisor>1793228468001</rucEmisor><fechaAutorizacion>2026-09-18T13:07:57-05:00</fechaAutorizacion></EstadoAutorizacionComprobante></ns2:consultarEstadoAutorizacionComprobanteResponse></soap:Body></soap:Envelope>`
+	consultaRefused225    = `<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><ns2:consultarEstadoAutorizacionComprobanteResponse xmlns:ns2="http://ec.gob.sri.ws.consultas"><EstadoAutorizacionComprobante><estadoConsulta>RECHAZADA</estadoConsulta><claveAcceso>1809202601179322846800120010010000002250312603419</claveAcceso><mensajes><mensaje><identificador>99</identificador><mensaje>ERROR AL CONSULTAR DATOS DEL SERVICIO WEB</mensaje><informacionAdicional>No es posible validar la clave de acceso ya que la fecha de emision esta fuera del rango permitido.</informacionAdicional><tipo>ERROR</tipo></mensaje></mensajes></EstadoAutorizacionComprobante></ns2:consultarEstadoAutorizacionComprobanteResponse></soap:Body></soap:Envelope>`
+)
 
 const (
 	consultaOutOfRange = "No es posible validar la clave de acceso ya que la fecha de emision esta fuera del rango permitido."
@@ -50,14 +61,15 @@ func TestClassifyConsulta(t *testing.T) {
 	}{
 		// ---- the two readings -------------------------------------------
 		{"AUTORIZADO, as factura 225 answered on 8 calls in 10", http.StatusOK, consultaSuccessSOAP("AUTORIZADO"), invoicing.StatusAuthorized, 0, false, "AUTORIZADO"},
-		{"ANULADO, the documented word, never yet observed", http.StatusOK, consultaSuccessSOAP("ANULADO"), invoicing.StatusAnnulled, 0, false, "ANULADO"},
+		{"ANULADO", http.StatusOK, consultaSuccessSOAP("ANULADO"), invoicing.StatusAnnulled, 0, false, "ANULADO"},
 		{"anulado in lower case", http.StatusOK, consultaSuccessSOAP("anulado"), invoicing.StatusAnnulled, 0, false, "anulado"},
 		{"Anulado padded with whitespace", http.StatusOK, consultaSuccessSOAP("\n  Anulado \t"), invoicing.StatusAnnulled, 0, false, "Anulado"},
 		{"autorizado in mixed case", http.StatusOK, consultaSuccessSOAP(" Autorizado"), invoicing.StatusAuthorized, 0, false, "Autorizado"},
-		{"the fields directly under the response, without <return>", http.StatusOK,
-			strings.Replace(strings.Replace(consultaSuccessSOAP("ANULADO"), "<return>", "", 1), "</return>", "", 1), invoicing.StatusAnnulled, 0, false, "ANULADO"},
+		{"factura 238's answer from production on 2026-11-16, verbatim", http.StatusOK, consultaAnnulled238, invoicing.StatusAnnulled, 0, false, "ANULADO"},
+		{"factura 225's answer from production on 2026-11-16, verbatim", http.StatusOK, consultaAuthorized225, invoicing.StatusAuthorized, 0, false, "AUTORIZADO"},
 
 		// ---- refusals: the SRI's own no, with its reason -----------------
+		{"factura 225's wrong negative from production on 2026-11-16, verbatim", http.StatusOK, consultaRefused225, invoicing.StatusNone, 1, false, ""},
 		{"RECHAZADA 99 fuera del rango permitido, the wrong negative", http.StatusOK, consultaRefusalSOAP("RECHAZADA", "99", consultaOutOfRange), invoicing.StatusNone, 1, false, ""},
 		{"RECHAZADA 99 error en el formato", http.StatusOK, consultaRefusalSOAP("RECHAZADA", "99", consultaMalformed), invoicing.StatusNone, 1, false, ""},
 		{"rechazada in lower case", http.StatusOK, consultaRefusalSOAP(" rechazada ", "99", consultaOutOfRange), invoicing.StatusNone, 1, false, ""},
@@ -75,6 +87,9 @@ func TestClassifyConsulta(t *testing.T) {
 		{"an empty body", http.StatusOK, "", invoicing.StatusNone, 0, true, ""},
 		{"HTTP 503", http.StatusServiceUnavailable, "Service Unavailable", invoicing.StatusNone, 0, true, ""},
 		{"a SOAP fault", http.StatusInternalServerError, `<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><soap:Fault><faultcode>soap:Server</faultcode><faultstring>Could not find xsd null</faultstring></soap:Fault></soap:Body></soap:Envelope>`, invoicing.StatusNone, 0, true, ""},
+		{"the fields under <return>, the wrapper guessed before any answer was kept", http.StatusOK,
+			strings.NewReplacer("<EstadoAutorizacionComprobante>", "<return>", "</EstadoAutorizacionComprobante>", "</return>").Replace(consultaSuccessSOAP("ANULADO")), invoicing.StatusNone, 0, true, ""},
+		{"a response with nothing in it", http.StatusOK, `<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><ns2:consultarEstadoAutorizacionComprobanteResponse xmlns:ns2="http://ec.gob.sri.ws.consultas"/></soap:Body></soap:Envelope>`, invoicing.StatusNone, 0, true, ""},
 		{"another service's SOAP", http.StatusOK, authorizedResponse, invoicing.StatusNone, 0, true, ""},
 	}
 	for _, c := range cases {
