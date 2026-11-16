@@ -200,13 +200,21 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
 - What is reported: a panic recovered by the request pipeline, with the stack of the frame that panicked; a non-domain error `platform.WriteDomainError` answers with the generic 500, with the original error; a domain error it answers with a 5xx and no `Retry-After`, such as a failed commit; and every line logged at Error through `platform.Logger`.
   Not a domain error answered with a 4xx, not a Warn, and so not a capacity refusal.
   Promoting a line to Error, or demoting one, is an alerting decision.
-- `Logger.Error` takes the context it is logged under, and Info and Warn do not, because only an Error line is reported: inside a request the context carries the request id the event needs, and the request's other context as reports gain it.
-  The event is the message wrapping the first error among the arguments, and nothing else of them, since they can name a person.
-  A background goroutine passes a context detached from the request that started it, so its report still carries that request's id.
+- `Logger.Error(ctx, msg, args...)` takes the context it is logged under, and Info and Warn do not, because only an Error line is reported: inside a request the context carries the request id the event needs, and the Organization, Event and Sale it concerns.
+  This is how an Error-log event gets its request id (#765).
+  The context is a required parameter so that the compiler finds every call site and no Error line can ship without the request it belongs to; a line outside any request passes its job's or goroutine's context and reports with no request id.
+  An `ErrorContext` beside a context-less `Error` was rejected because call sites would drift back to the one without, and reading a `request_id` argument because that key already names other things, such as a Payout Request.
+  The event is the message wrapping the first error among the arguments, or the value logged under `panic` when there is none, and nothing else of them, since they can name a person.
+  A background goroutine logs under `platform.DetachFromRequest(ctx)`, which outlives the request but keeps its id and placement, so the drainer kick's report names the checkout that kicked it.
+  It drops the request's "already reported" mark, so the goroutine's failure and the request's own 5xx are two events, as they are two failures.
+  `platform.NewSlogLogger` is given its reporter explicitly; the logger the `AsyncReporter` writes its own warnings through is given `NoopReporter`, so a failing reporter never reports to itself.
 - One failed request produces one event.
   The pipeline remembers on the request context whether anything in the request has reported.
   An Error line always reports; a panic, the error mapping's 5xx, and the `request` line of a 5xx report only when nothing in the request did, so an Error line that writes a failure's cause down, followed by the 500 it ends in, is one event.
   The `request` line reports a 5xx nothing else reported, such as one a handler writes by hand, naming the route pattern rather than the path.
+  An Error line earlier in a request stands for the request's later 5xx even when the two are unrelated, by decision: the line before a 500 is nearly always its cause being written down, and the 500 is still in the log.
+  Two Error lines in one request are two events.
+  The pipeline's own "unexpected error" and "panic recovered" lines are written to the `slog` logger underneath, not through `platform.Logger`, so they never report a second time.
 - A report made inside a request is placed by that request, as opaque ids only (`platform/reporter_context.go`).
   It carries the request id, and the route pattern as the `route` tag, never the raw path.
   The user is the staff Active Member's id or the Customer's id, with the `audience` tag `staff` or `customer`; a staff person has no id of their own beyond a Member, and the session token is a credential, so a session with no Active Member reports the audience alone.
@@ -243,6 +251,12 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
   Every job checks in whether or not a monitor expects it; Sentry drops a check-in nobody expects.
 - On SIGTERM the API stops accepting, lets requests in flight finish for up to seven seconds, and flushes the reporter with a two second bound (`platform.ShutdownFlushTimeout`).
   A failure to start, from `LoadConfig` on, is reported and flushed with the same bound before the process exits.
+- The Staff app and the Storefront report through the official Next.js SDK, each to its own project, and initialise nothing without `SENTRY_DSN`; what they share is `@ticket-pos/sentry-rules`, pure functions under the Node test runner.
+  Every event passes its before-send: the same redaction shapes as the API, no query strings, and, in the Storefront, no event from a known bot, nor a browser error with no frame from our own bundles.
+  The browser sends to the app's own `/api/monitoring`, which forwards only envelopes for that app's own project and none of the browser's headers.
+  What Next catches on the server (a server component, route handler, server action or middleware) is one `request failed` log line with the request id, Next's digest and the route pattern, and is reported, except a client component that failed while server-rendering: the browser renders it again, and its error screen reports it if it fails there too (`createOnRequestError`).
+  An error screen reports the error it caught once, unless it carries Next's digest, which says the server already reported it (`reportCaughtError`); a not-found or a redirect is control flow, never shown as an error and never reported.
+  The Storefront's browser SDK loads after hydration, and an inline handler holds what is thrown before it does.
 
 ## PostgreSQL and data access
 
