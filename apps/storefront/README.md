@@ -31,6 +31,11 @@ What it reads, all at runtime:
 The configuration lives in `lib/sentry.ts`, and reading it in `@ticket-pos/sentry-rules`, shared with the Staff app.
 The server and middleware start in `instrumentation.ts`, and errors in server components, route handlers and middleware are reported through Next's `onRequestError`.
 
+Source maps come from the build only when it is given `SENTRY_AUTH_TOKEN`, which only the deploy does (`sentryBuildOptions` in `@ticket-pos/sentry-rules`, #776).
+Then `next build` uploads them to `ticket-pos-storefront`, failing soft, and the Dockerfile deletes every map left in the output and refuses an image that still holds one.
+Without the token, as locally, in CI and in agent runs, the build plugin contacts nothing: no browser source maps, no upload, no release, no telemetry.
+The release itself is created and each deploy marked by the deploy workflow (`scripts/sentry-release.sh`; terraform/README.md, "Sentry releases and source maps").
+
 The browser is where the Storefront differs from the Staff app: a buyer's first load must not pay for monitoring.
 
 - With a DSN, the root layout writes the configuration into `<meta name="ticket-pos-sentry">`, an inline handler first in the head (`lib/early-errors.ts`), and renders `components/sentry-loader.tsx`.

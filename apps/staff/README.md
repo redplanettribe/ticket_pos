@@ -63,7 +63,10 @@ The browser gets the DSN from a `<meta>` the root layout writes, because the DSN
 Browser envelopes go to `/api/monitoring`, which forwards only those addressed to this app's own project (`relayEnvelope` over `decideTunnel`, both from `@ticket-pos/sentry-rules`) and copies none of the browser's headers, so the client's address never reaches Sentry.
 Every event passes through the shared before-send from `@ticket-pos/sentry-rules`.
 BFF calls to the API carry `sentry-trace` and `baggage` beside `X-Request-ID` (`lib/api.ts`).
-The build plugin is configured to contact nothing: no source maps, no release, no telemetry (`next.config.ts`).
+Source maps come from the build only when it is given `SENTRY_AUTH_TOKEN`, which only the deploy does (`sentryBuildOptions` in `@ticket-pos/sentry-rules`, #776).
+Then `next build` uploads them to `ticket-pos-staff`, failing soft, and the Dockerfile deletes every map left in the output and refuses an image that still holds one.
+Without the token, as locally, in CI and in agent runs, the build plugin contacts nothing: no browser source maps, no upload, no release, no telemetry.
+The release itself is created and each deploy marked by the deploy workflow (`scripts/sentry-release.sh`; terraform/README.md, "Sentry releases and source maps").
 
 ### Walking it locally against a fake endpoint
 

@@ -20,6 +20,13 @@
 #      not be restated here (terraform/README.md). image is in Terraform's
 #      ignore_changes, so this does not drift a later plan.
 #
+# Sentry, as the workflow (#776): every image is built with SENTRY_RELEASE set
+# to the SHA. With SENTRY_AUTH_TOKEN exported (the same organization token as
+# the GitHub Actions secret), the Next builds upload their source maps, and the
+# release is created after the migration and a deploy marked after each
+# service, all failing soft (scripts/sentry-release.sh). Without it, nothing is
+# sent to Sentry.
+#
 # Authentication is your own gcloud login (`gcloud auth login`), not the WIF
 # exchange the workflow uses -- that provider only issues tokens to GitHub. To
 # deploy as the same service account CI uses instead of your user, export
@@ -48,7 +55,7 @@ PULL=1
 for arg in "$@"; do
   case "$arg" in
     --no-pull) PULL=0 ;;
-    -h|--help) sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -104,18 +111,23 @@ gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 # Terraform and always wins (see the comments in deploy.yml).
 step "Building and pushing the API image"
 docker build --platform linux/amd64 \
+  --build-arg SENTRY_RELEASE="$SHA" \
   -t "${IMAGE_REPO}/api:${SHA}" \
   -f backend/Dockerfile backend
 docker push "${IMAGE_REPO}/api:${SHA}"
 
 step "Building and pushing the Storefront image"
 docker build --platform linux/amd64 \
+  --build-arg SENTRY_RELEASE="$SHA" \
+  --secret id=sentry_auth_token,env=SENTRY_AUTH_TOKEN \
   -t "${IMAGE_REPO}/storefront:${SHA}" \
   -f apps/storefront/Dockerfile .
 docker push "${IMAGE_REPO}/storefront:${SHA}"
 
 step "Building and pushing the Staff image"
 docker build --platform linux/amd64 \
+  --build-arg SENTRY_RELEASE="$SHA" \
+  --secret id=sentry_auth_token,env=SENTRY_AUTH_TOKEN \
   -t "${IMAGE_REPO}/staff:${SHA}" \
   -f apps/staff/Dockerfile .
 docker push "${IMAGE_REPO}/staff:${SHA}"
@@ -129,20 +141,25 @@ gcloud run jobs execute "$MIGRATE_JOB" \
   --region "$REGION" \
   --wait
 
+scripts/sentry-release.sh create "$SHA"
+
 # --- 4. Deploy -----------------------------------------------------------------
 step "Deploying the API"
 gcloud run deploy "$API_SERVICE" \
   --region "$REGION" \
   --image "${IMAGE_REPO}/api:${SHA}"
+scripts/sentry-release.sh deploy "$SHA" "$API_SERVICE"
 
 step "Deploying the Storefront"
 gcloud run deploy "$STOREFRONT_SERVICE" \
   --region "$REGION" \
   --image "${IMAGE_REPO}/storefront:${SHA}"
+scripts/sentry-release.sh deploy "$SHA" "$STOREFRONT_SERVICE"
 
 step "Deploying the Staff console"
 gcloud run deploy "$STAFF_SERVICE" \
   --region "$REGION" \
   --image "${IMAGE_REPO}/staff:${SHA}"
+scripts/sentry-release.sh deploy "$SHA" "$STAFF_SERVICE"
 
 step "Deployed $SHA to $PROJECT_ID ($REGION)"

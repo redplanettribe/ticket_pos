@@ -7,3 +7,4 @@ export { relayEnvelope, type Send } from "./relay.ts";
 export { REQUEST_ID_COOKIE, REQUEST_ID_HEADER, cookieValue, mintedRequestId, readReferenceCode, referenceCodeCookie } from "./reference-code.ts";
 export { digestOf, isNavigationSignal, reportCaughtError, type CaptureCaughtError, type CaughtError } from "./caught-error.ts";
 export { createOnRequestError, tagRequestId } from "./request-error.ts";
+export { SENTRY_ORG, sentryBuildOptions, type SentryBuildOptions } from "./build.ts";

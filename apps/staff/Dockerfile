@@ -48,7 +48,17 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
-RUN pnpm --filter @ticket-pos/staff exec next build
+# The Sentry auth token, when the deploy has one, is a BuildKit secret: it is
+# in this step's environment only, never in a layer, the image or the build
+# cache key. With it, next build uploads the source maps to ticket-pos-staff
+# and fails soft (sentryBuildOptions in @ticket-pos/sentry-rules); without it,
+# as in CI and every local build, no source map is produced for the browser and
+# nothing talks to Sentry. Every map left in the output is deleted in the same
+# step, uploaded or not, so none reaches the image: the runner stage refuses
+# one. SENTRY_CLI_NO_TELEMETRY keeps the upload's CLI from reporting on itself.
+RUN --mount=type=secret,id=sentry_auth_token,env=SENTRY_AUTH_TOKEN \
+    SENTRY_CLI_NO_TELEMETRY=1 pnpm --filter @ticket-pos/staff exec next build \
+    && find apps/staff/.next -name '*.map' -delete
 
 # --- runtime ----------------------------------------------------------------
 # Standalone output is laid out relative to outputFileTracingRoot (the
@@ -72,6 +82,12 @@ ENV SENTRY_RELEASE=${SENTRY_RELEASE}
 
 COPY --from=builder --chown=node:node /repo/apps/staff/.next/standalone ./
 COPY --from=builder --chown=node:node /repo/apps/staff/.next/static ./apps/staff/.next/static
+
+# No source map ships, whether or not the upload ran: a .map anywhere in the
+# image fails the build (ADR 0079, #776). The source is not published.
+RUN if find /app -name '*.map' | grep .; then \
+      echo "error: source maps in the image, listed above; they must never be served" >&2; exit 1; \
+    fi
 
 USER node
 EXPOSE 3001

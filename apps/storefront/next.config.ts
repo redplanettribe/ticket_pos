@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import { withSentryConfig } from "@sentry/nextjs/config";
+import { sentryBuildOptions } from "@ticket-pos/sentry-rules";
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
 
@@ -24,21 +25,21 @@ const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
 };
 
-// Sentry's build plugin (ADR 0079), set as the Staff app's is, so the build
-// never talks to Sentry: no source maps are produced or uploaded (that is the
-// deploy's job, #776), no release is created or injected (the release is
-// SENTRY_RELEASE, read at runtime by lib/sentry.ts), and the plugin's own
-// telemetry, on by default, is off. What remains is the SDK's wrapping of
-// server components, route handlers and middleware, which reports their errors.
+// Sentry's build plugin (ADR 0079), with the options both apps share
+// (sentryBuildOptions in @ticket-pos/sentry-rules). With no SENTRY_AUTH_TOKEN,
+// as in CI and every local build, the build never talks to Sentry: no source
+// maps are produced or uploaded, no release is created or injected (the release
+// is SENTRY_RELEASE, read at runtime by lib/sentry.ts), and the plugin's own
+// telemetry is off. With the token the deploy's image build hands it (#776), the
+// browser and server source maps are uploaded to ticket-pos-storefront and
+// deleted, failing soft. Either way the SDK wraps server components, route
+// handlers and middleware, which reports their errors.
 //
 // One more, for the Storefront's first load: the plugin injects a manifest of
 // every route into instrumentation-client.ts, part of the initial bundle, so the
 // SDK can name navigations. That is off; the lazily loaded SDK names them itself
 // (lib/navigation-route.ts).
 export default withSentryConfig(withNextIntl(nextConfig), {
-  telemetry: false,
-  silent: true,
-  sourcemaps: { disable: true },
-  release: { create: false, finalize: false },
+  ...sentryBuildOptions("ticket-pos-storefront", process.env),
   routeManifestInjection: false,
 });

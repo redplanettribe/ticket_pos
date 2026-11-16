@@ -244,6 +244,34 @@ terraform -chdir=envs/prod output workload_identity_provider
 terraform -chdir=envs/prod output deploy_service_account_email
 ```
 
+### Sentry releases and source maps (#776)
+
+A release in Sentry is a commit (ADR 0079).
+The workflow builds all three images with `--build-arg SENTRY_RELEASE=<sha>`, the release each deployable reports.
+
+With one GitHub Actions secret it also tells Sentry about the release:
+
+- **Name:** `SENTRY_AUTH_TOKEN`, a repository secret of `redplanettribe/ticket_pos`.
+- **What it is:** an organization auth token of the `redplanettribe` Sentry organization (Settings, Developer Settings, Organization Tokens).
+  Its fixed scope, `org:ci`, is the release scope: it can create releases and deploys and upload source maps, and read nothing else.
+  A personal token would need `project:releases` (and `org:read`); prefer the organization token, which outlives any one person.
+- **Who creates it:** the operator, by hand. It is never committed, and no agent creates it.
+
+With the secret set:
+
+- The Storefront and Staff builds receive it as a BuildKit secret (never a build argument, so it is in no layer or image), produce source maps, upload them to `ticket-pos-storefront` and `ticket-pos-staff`, and delete them.
+- After the migration, `scripts/sentry-release.sh create` creates the release in all three projects and finalizes it.
+- After each service's deploy, `scripts/sentry-release.sh deploy` marks a deploy of it to `production`, named after the service.
+
+Every one of these fails soft.
+An unreachable Sentry or a wrong token is a warning in the job's log and annotations, and the build and the deploy go on; that release's browser stack traces stay minified.
+A Sentry that accepts the connection and never answers costs time, not the deploy: the upload's CLI gives up on its own (about 90 seconds per attempt, three attempts per Next build, seen locally), and each release step is bounded by a timeout.
+
+Without the secret the Sentry steps are skipped, the Next builds produce no browser source maps and contact nothing, and the deploy is what it was before, apart from the release build argument.
+Either way, a Next image that holds any `.map` file fails its own build: no source map is ever served.
+
+`make deploy` does the same when `SENTRY_AUTH_TOKEN` is exported in the operator's shell.
+
 ### Rolling back
 
 Every image is tagged with its commit SHA, never `latest` — that is what makes a rollback one command.
