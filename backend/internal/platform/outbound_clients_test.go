@@ -32,13 +32,6 @@ func outboundNames(t *testing.T, fake *reportertest.Reporter, request *reportert
 	return names
 }
 
-func assertNames(t *testing.T, got []string, want ...string) {
-	t.Helper()
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("outbound spans =\n  %s\nwant\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))
-	}
-}
-
 // A PAYPHONE CALL IN A SAMPLED REQUEST IS A CHILD SPAN (#769).
 func TestAPayPhoneCallIsAChildSpan(t *testing.T) {
 	payphone := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -55,7 +48,7 @@ func TestAPayPhoneCallIsAChildSpan(t *testing.T) {
 		}
 	})
 
-	assertNames(t, outboundNames(t, fake, request), "POST "+payphone.URL+"/api/button/Prepare")
+	fake.OnlyOutboundCall(t, request, "POST "+payphone.URL+"/api/button/Prepare", http.StatusOK)
 }
 
 // A RESEND CALL IN A SAMPLED REQUEST IS A CHILD SPAN (#769), named by
@@ -73,7 +66,7 @@ func TestAResendCallIsAChildSpan(t *testing.T) {
 		}
 	})
 
-	assertNames(t, outboundNames(t, fake, request), "POST https://api.resend.com/emails")
+	fake.OnlyOutboundCall(t, request, "POST https://api.resend.com/emails", http.StatusOK)
 }
 
 // AN SES SEND IN A SAMPLED REQUEST IS A CHILD SPAN, AND SO ARE THE METADATA

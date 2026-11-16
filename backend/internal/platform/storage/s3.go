@@ -83,6 +83,11 @@ func NewS3Storage(cfg S3Config) (*S3Storage, error) {
 	}, nil
 }
 
+// noHTTPTimeout is the storage client's timeout: none, the SDK's default
+// client's, as it was before the client went through the shared transport.
+// A write is bounded by its caller's context.
+const noHTTPTimeout time.Duration = 0
+
 func newS3Client(endpoint, accessKey, secretKey, region string) (*s3.Client, error) {
 	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
 	if endpoint == "" {
@@ -101,7 +106,7 @@ func newS3Client(endpoint, accessKey, secretKey, region string) (*s3.Client, err
 		Credentials:                 credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
 		EndpointResolverWithOptions: resolver,
 		// The SDK's default client, behind the shared outbound transport.
-		HTTPClient: platform.NewOutboundAWSClient(0),
+		HTTPClient: platform.NewOutboundAWSClient(noHTTPTimeout),
 	}
 
 	return s3.NewFromConfig(awsCfg, func(o *s3.Options) {

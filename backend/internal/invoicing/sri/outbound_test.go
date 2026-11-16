@@ -28,13 +28,5 @@ func TestAnSRICallIsAChildSpan(t *testing.T) {
 		_, _ = client.AuthorizationComprobante(ctx, "1234567890")
 	})
 
-	children := fake.ChildrenOf(request)
-	if len(children) != 1 {
-		t.Fatalf("child spans = %d, want the SRI call", len(children))
-	}
-	want := "POST " + authority.URL + sri.AuthorizationPath
-	if span := children[0]; span.Options.Op != "http.client" || span.Options.Name != want || !span.Finished || span.HTTPStatus != http.StatusOK {
-		t.Errorf("span = %s %q finished %v status %d, want http.client %q finished with 200",
-			span.Options.Op, span.Options.Name, span.Finished, span.HTTPStatus, want)
-	}
+	fake.OnlyOutboundCall(t, request, "POST "+authority.URL+sri.AuthorizationPath, http.StatusOK)
 }

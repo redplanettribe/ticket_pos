@@ -135,9 +135,15 @@ func tracingMiddleware(reporter Reporter, sampling TraceSampling, routes routeMa
 	})
 }
 
+// requestTraceOn is the request's trace on ctx, if any.
+func requestTraceOn(ctx context.Context) (requestTrace, bool) {
+	trace, ok := ctx.Value(requestTraceKey{}).(requestTrace)
+	return trace, ok
+}
+
 // requestSpan is the request span on ctx, if any.
 func requestSpan(ctx context.Context) (Span, bool) {
-	trace, ok := ctx.Value(requestTraceKey{}).(requestTrace)
+	trace, ok := requestTraceOn(ctx)
 	return trace.span, ok
 }
 
@@ -156,7 +162,7 @@ func setRequestSpanStatus(ctx context.Context, status int) {
 // not to trace, whose spans would never leave; and with the NoopReporter,
 // which is what no DSN means.
 func startChildSpan(ctx context.Context, options SpanOptions) (context.Context, Span) {
-	trace, ok := ctx.Value(requestTraceKey{}).(requestTrace)
+	trace, ok := requestTraceOn(ctx)
 	if !ok || !trace.sampled {
 		return ctx, nil
 	}

@@ -35,13 +35,5 @@ func TestAStorageWriteIsAChildSpan(t *testing.T) {
 		}
 	})
 
-	children := fake.ChildrenOf(request)
-	if len(children) != 1 {
-		t.Fatalf("child spans = %d, want the write", len(children))
-	}
-	want := "PUT " + bucket.URL + "/ticket-pos/avatars/c1/a.png"
-	if span := children[0]; span.Options.Op != "http.client" || span.Options.Name != want || !span.Finished || span.HTTPStatus != http.StatusOK {
-		t.Errorf("span = %s %q finished %v status %d, want http.client %q finished with 200",
-			span.Options.Op, span.Options.Name, span.Finished, span.HTTPStatus, want)
-	}
+	fake.OnlyOutboundCall(t, request, "PUT "+bucket.URL+"/ticket-pos/avatars/c1/a.png", http.StatusOK)
 }

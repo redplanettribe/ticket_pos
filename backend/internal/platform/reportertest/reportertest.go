@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/platform"
@@ -161,6 +162,31 @@ func (r *Reporter) InSampledRequest(fn func(ctx context.Context)) *Span {
 		}
 	}
 	return nil
+}
+
+// OnlyOutboundCall fails t unless exactly one span under request is an
+// outbound call ("http.client"), finished, named want and recording status,
+// and returns it.
+func (r *Reporter) OnlyOutboundCall(t testing.TB, request *Span, want string, status int) *Span {
+	t.Helper()
+	if request == nil {
+		t.Fatal("no request span")
+	}
+	var calls []*Span
+	for _, span := range r.ChildrenOf(request) {
+		if span.Options.Op == "http.client" {
+			calls = append(calls, span)
+		}
+	}
+	if len(calls) != 1 {
+		t.Fatalf("outbound call spans = %d, want 1", len(calls))
+	}
+	call := calls[0]
+	if call.Options.Name != want || !call.Finished || call.HTTPStatus != status {
+		t.Errorf("outbound span = %q finished %v status %d, want %q finished with %d",
+			call.Options.Name, call.Finished, call.HTTPStatus, want, status)
+	}
+	return call
 }
 
 // ChildrenOf returns the spans started directly under parent, in order.

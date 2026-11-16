@@ -34,15 +34,7 @@ func TestATokenExchangeIsAChildSpan(t *testing.T) {
 		_, _ = client.VerifiedEmail(ctx, googleauth.Exchange{Code: "seeded-code", CodeVerifier: "v", RedirectURI: "http://storefront.example/cb"})
 	})
 
-	children := fake.ChildrenOf(request)
-	if len(children) != 1 {
-		t.Fatalf("child spans = %d, want the token exchange", len(children))
-	}
-	span := children[0]
-	if span.Options.Op != "http.client" || span.Options.Name != "POST "+google.URL+"/token" || !span.Finished || span.HTTPStatus != http.StatusOK {
-		t.Errorf("span = %s %q finished %v status %d, want http.client %q finished with 200",
-			span.Options.Op, span.Options.Name, span.Finished, span.HTTPStatus, "POST "+google.URL+"/token")
-	}
+	span := fake.OnlyOutboundCall(t, request, "POST "+google.URL+"/token", http.StatusOK)
 	for _, value := range span.Tags {
 		if strings.Contains(value, "seeded") {
 			t.Errorf("span tag %q carries the seeded body", value)

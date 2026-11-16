@@ -27,8 +27,9 @@ func (discardStorage) Put(_ context.Context, _, _ string, body io.Reader) error 
 func (discardStorage) Delete(context.Context, string) error { return nil }
 func (discardStorage) PublicURL(key string) string          { return key }
 
-// A GOOGLE PICTURE FETCH IN A SAMPLED REQUEST IS A CHILD SPAN (#769), named
-// by the picture's method, host and path, never its query string. The
+// THE FETCH THAT SEEDS A CUSTOMER'S AVATAR FROM GOOGLE, IN A SAMPLED REQUEST,
+// IS A CHILD SPAN (#769), named by the method, host and path of the URL
+// Google vouched for, never its query string. The
 // service is the one New builds; nothing here reaches its repository.
 func TestAnAvatarFetchIsAChildSpanWithoutItsQueryString(t *testing.T) {
 	google := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -46,16 +47,7 @@ func TestAnAvatarFetchIsAChildSpanWithoutItsQueryString(t *testing.T) {
 		}
 	})
 
-	children := fake.ChildrenOf(request)
-	if len(children) != 1 {
-		t.Fatalf("child spans = %d, want the picture fetch", len(children))
-	}
-	span := children[0]
-	want := "GET " + google.URL + "/a/picture-id"
-	if span.Options.Op != "http.client" || span.Options.Name != want || !span.Finished || span.HTTPStatus != http.StatusOK {
-		t.Errorf("span = %s %q finished %v status %d, want http.client %q finished with 200",
-			span.Options.Op, span.Options.Name, span.Finished, span.HTTPStatus, want)
-	}
+	span := fake.OnlyOutboundCall(t, request, "GET "+google.URL+"/a/picture-id", http.StatusOK)
 	for _, value := range span.Tags {
 		if strings.Contains(value, "ana.perez") || strings.Contains(value, "sz=") {
 			t.Errorf("span tag %q carries the query string", value)
