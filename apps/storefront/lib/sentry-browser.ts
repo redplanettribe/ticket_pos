@@ -41,13 +41,13 @@ import { forwardRouterTransitionsTo } from "./sentry-navigation.ts";
  * and says whether it is running. Starting twice is a no-op; a page without the
  * configuration never starts it.
  *
- * `written` is that configuration as read earlier, for the root-level error
+ * `writtenConfig` is that configuration as read earlier, for the root-level error
  * screen: by the time it reports, its own document has replaced the root
  * layout's, meta included.
  */
-export function startBrowserSentry(written: string | null = readPageSentryConfig(document)): boolean {
+export function startBrowserSentry(writtenConfig: string | null = readPageSentryConfig(document)): boolean {
   if (Sentry.getClient()) return true;
-  const config = parseSentryConfig(written);
+  const config = parseSentryConfig(writtenConfig);
   if (!config) return false;
   Sentry.init({
     ...sentryOptions(config, browserBeforeSend),
@@ -75,7 +75,7 @@ export function startBrowserSentry(written: string | null = readPageSentryConfig
  * configuration, nothing starts and nothing is sent. Whether to report at all
  * (once, not a server error) is reportCaughtError's, before this.
  */
-export function captureCaughtError(error: unknown, requestId: string | null, written: string | null): void {
-  if (!startBrowserSentry(written ?? readPageSentryConfig(document))) return;
+export function captureCaughtError(error: unknown, requestId: string | null, writtenConfig: string | null): void {
+  if (!startBrowserSentry(writtenConfig ?? readPageSentryConfig(document))) return;
   Sentry.captureException(error, requestId ? { tags: { request_id: requestId } } : undefined);
 }

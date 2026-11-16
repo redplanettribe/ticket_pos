@@ -22,7 +22,7 @@ export type ErrorScreenCopy = Omit<ErrorScreenLabels, "description"> & {
 };
 
 /** For useSyncExternalStore over a value that announces no change of its own. */
-export function noSubscription() {
+function noSubscription() {
   return () => {};
 }
 
@@ -62,18 +62,18 @@ export function ErrorScreenBody({ error, reset, copy }: ErrorBoundaryProps & { c
   const router = useRouter();
   const [retrying, startRetry] = useTransition();
   const referenceCode = useReferenceCode();
-  const [writtenAtFirstRender] = useState(() =>
+  const [configAtFirstRender] = useState(() =>
     typeof document === "undefined" ? null : readPageSentryConfig(document),
   );
 
   useEffect(() => {
     const capture = captureFromScreen({
-      written: writtenAtFirstRender ?? readPageSentryConfig(document),
+      writtenConfig: configAtFirstRender ?? readPageSentryConfig(document),
       requested: sentryBrowserRequested,
       load: loadSentryBrowser,
     });
     reportCaughtError(error, readReferenceCode(document.cookie), capture);
-  }, [error, writtenAtFirstRender]);
+  }, [error, configAtFirstRender]);
 
   return (
     <ErrorScreen

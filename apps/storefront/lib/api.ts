@@ -1,5 +1,5 @@
 import { getTraceData } from "@sentry/nextjs";
-import { REQUEST_ID_HEADER } from "@ticket-pos/sentry-rules";
+import { REQUEST_ID_HEADER, mintedRequestId } from "@ticket-pos/sentry-rules";
 
 import type { CheckoutAnswerBody, CheckoutQuestion } from "./checkout-answers";
 import type { CheckoutHolderBody } from "./named-tickets";
@@ -161,10 +161,13 @@ function applyTraceHeaders(headers: Headers): void {
  * Inside a server render or server action it is on the request headers, so
  * every API call one page makes carries the id its error screen shows as the
  * reference code, and the API's request lines in Cloud Logging are found by it.
- * The middleware does not run on the BFF routes under /api/, and a test or a
- * cached function has no request to read: there this answers null and the call
- * gets an id of its own, as before. Next's own control flow (a static render
- * bailing out to dynamic) is rethrown, never swallowed. As in the Staff app.
+ * A test or a cached function has no request to read: there this answers null
+ * and the call gets an id of its own, as before. The middleware does not run on
+ * the route handlers (under /api/, /checkout/return, /tickets/confirm), so
+ * there the header is whatever the browser sent: only an id of the shape the
+ * middleware mints is taken (mintedRequestId), so a browser can at most pick a
+ * UUID, never put text in the API's log lines. Next's own control flow (a
+ * static render bailing out to dynamic) is rethrown, never swallowed.
  */
 async function renderRequestId(): Promise<string | null> {
   // Loaded here rather than at the top: this module also runs under the plain
@@ -175,7 +178,7 @@ async function renderRequestId(): Promise<string | null> {
     import("next/navigation.js"),
   ]);
   try {
-    return (await headers()).get(REQUEST_ID_HEADER);
+    return mintedRequestId((await headers()).get(REQUEST_ID_HEADER));
   } catch (error) {
     unstable_rethrow(error);
     return null;

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  mintedRequestId,
   REQUEST_ID_COOKIE,
   readReferenceCode,
   referenceCodeCookie,
@@ -44,4 +45,14 @@ test("the reference code is read back from document.cookie", () => {
   // Anything but an id shape is not shown to a person as a code to quote.
   assert.equal(readReferenceCode(`${REQUEST_ID_COOKIE}=<script>`), null);
   assert.equal(readReferenceCode(`${REQUEST_ID_COOKIE}=`), null);
+});
+
+test("only an id of the shape the middleware mints is forwarded to the API", () => {
+  assert.equal(mintedRequestId(ID), ID);
+  const minted = crypto.randomUUID();
+  assert.equal(mintedRequestId(minted), minted);
+  // What a browser could send where the middleware does not run.
+  for (const sent of [null, undefined, "", "abc", `${ID} injected`, `${ID}\nseverity=ERROR`, ID.toUpperCase(), "x".repeat(36)]) {
+    assert.equal(mintedRequestId(sent), null, String(sent));
+  }
 });

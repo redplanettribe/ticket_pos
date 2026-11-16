@@ -11,14 +11,14 @@ import type { CaptureCaughtError } from "@ticket-pos/sentry-rules";
 import { DEFAULT_APP_LOCALE, localePrefixOf, type AppLocale } from "./locale.ts";
 
 type SentryChunk = {
-  captureCaughtError: (error: unknown, requestId: string | null, written: string | null) => void;
+  captureCaughtError: (error: unknown, requestId: string | null, writtenConfig: string | null) => void;
 };
 
 /**
  * How an error screen reports what it caught, given what it knows of Sentry on
  * this page:
  *
- * - `written`: the configuration the root layout wrote (lib/sentry-lazy.ts),
+ * - `writtenConfig`: the configuration the root layout wrote (lib/sentry-lazy.ts),
  *   read while it was still in the document, or null;
  * - `requested`: whether the SDK's chunk was already asked for (the loader ran);
  * - `load`: the chunk.
@@ -30,15 +30,15 @@ type SentryChunk = {
  * the screen must render whatever happens to the report.
  */
 export function captureFromScreen(deps: {
-  written: string | null;
+  writtenConfig: string | null;
   requested: () => boolean;
   load: () => Promise<SentryChunk>;
 }): CaptureCaughtError {
   return (error, requestId) => {
-    if (deps.written === null && !deps.requested()) return;
+    if (deps.writtenConfig === null && !deps.requested()) return;
     deps
       .load()
-      .then((sentry) => sentry.captureCaughtError(error, requestId, deps.written))
+      .then((sentry) => sentry.captureCaughtError(error, requestId, deps.writtenConfig))
       .catch(() => {});
   };
 }

@@ -54,7 +54,8 @@ import { isUnlocalized } from "@/lib/unlocalized-paths";
  * would be a claim about content that is not true here.
  *
  * Every request it sees also gets one id (#774, the request id): minted here,
- * never taken from the browser, forwarded to the render on the request headers
+ * never taken from the browser (what a browser sends is overwritten; the route
+ * handlers it does not see keep only a UUID-shaped one, lib/api.ts), forwarded to the render on the request headers
  * so every API call the page makes carries it (lib/api.ts) and onRequestError
  * logs a failed render under it, echoed in X-Request-ID, and, for a page or an
  * RSC navigation, handed to the browser in the cookie the error screens read

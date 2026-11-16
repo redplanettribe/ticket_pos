@@ -70,6 +70,23 @@ export function referenceCodeCookie(
 /** The shape the middleware mints (a UUID) and the API adopts. */
 const REFERENCE_CODE = /^[0-9a-f-]{1,64}$/i;
 
+/** What crypto.randomUUID() mints, and nothing else. */
+const MINTED_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * The request id forwarded to a render, if it has the shape the middleware
+ * mints, else null.
+ *
+ * Where the middleware runs it overwrites whatever the browser sent, but the
+ * Storefront's middleware does not run on its route handlers (under /api/,
+ * /checkout/return, /tickets/confirm), so there the header is the browser's
+ * own. Kept to a UUID, a browser can at most choose an id that looks like one of
+ * ours: never text that would land in the API's log lines.
+ */
+export function mintedRequestId(value: string | null | undefined): string | null {
+  return value && MINTED_ID.test(value) ? value : null;
+}
+
 /** A cookie's value in a cookie string (document.cookie), or null. */
 export function cookieValue(cookies: string, name: string): string | null {
   for (const pair of cookies.split(";")) {
