@@ -164,6 +164,23 @@ function applyTraceHeaders(headers: Headers): void {
 }
 
 /**
+ * backendHeaders builds the headers every call to the API carries: the end
+ * user's session, the request id, the trace and this service's credential.
+ */
+async function backendHeaders(init: RequestInit & { sessionToken?: string }): Promise<Headers> {
+  const headers = new Headers(init.headers);
+  if (init.sessionToken) {
+    headers.set("Authorization", `Bearer ${init.sessionToken}`);
+  }
+  if (!headers.has("X-Request-ID")) {
+    headers.set("X-Request-ID", crypto.randomUUID());
+  }
+  applyTraceHeaders(headers);
+  await applyServiceAuth(headers);
+  return headers;
+}
+
+/**
  * fetchBackendRaw proxies a request to the Go API and returns the raw Response
  * without decoding it. Use it for endpoints that stream binary bodies (the
  * .xlsx template) or accept multipart uploads (preview/commit), where the JSON
@@ -173,15 +190,7 @@ export async function fetchBackendRaw(
   path: string,
   init: RequestInit & { sessionToken?: string } = {},
 ): Promise<Response> {
-  const headers = new Headers(init.headers);
-  if (init.sessionToken) {
-    headers.set("Authorization", `Bearer ${init.sessionToken}`);
-  }
-  if (!headers.has("X-Request-ID")) {
-    headers.set("X-Request-ID", crypto.randomUUID());
-  }
-  applyTraceHeaders(headers);
-  await applyServiceAuth(headers);
+  const headers = await backendHeaders(init);
   return fetch(`${apiBaseUrl()}${path}`, { ...init, headers });
 }
 
@@ -189,18 +198,10 @@ export async function callBackend<T>(
   path: string,
   init: RequestInit & { sessionToken?: string } = {},
 ): Promise<APIEnvelope<T>> {
-  const headers = new Headers(init.headers);
+  const headers = await backendHeaders(init);
   if (!headers.has("Content-Type") && init.body) {
     headers.set("Content-Type", "application/json");
   }
-  if (init.sessionToken) {
-    headers.set("Authorization", `Bearer ${init.sessionToken}`);
-  }
-  if (!headers.has("X-Request-ID")) {
-    headers.set("X-Request-ID", crypto.randomUUID());
-  }
-  applyTraceHeaders(headers);
-  await applyServiceAuth(headers);
 
   const response = await fetch(`${apiBaseUrl()}${path}`, {
     ...init,

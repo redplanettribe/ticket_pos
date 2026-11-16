@@ -1,3 +1,4 @@
+import { readSentryConfig } from "@/lib/sentry";
 import { relayEnvelope } from "@/lib/sentry-tunnel";
 
 /**
@@ -8,5 +9,5 @@ import { relayEnvelope } from "@/lib/sentry-tunnel";
  */
 export async function POST(request: Request) {
   const envelope = new Uint8Array(await request.arrayBuffer());
-  return relayEnvelope(envelope, process.env.SENTRY_DSN);
+  return relayEnvelope(envelope, readSentryConfig(process.env)?.dsn);
 }

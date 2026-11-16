@@ -78,7 +78,7 @@ test("an unreadable envelope is refused and nothing is sent", async () => {
 });
 
 test("with no DSN the tunnel answers without forwarding", async () => {
-  for (const dsn of [undefined, "", "   "]) {
+  for (const dsn of [undefined, ""]) {
     const { calls, send } = capturing();
 
     const response = await relayEnvelope(envelopeFor(OWN_DSN), dsn, send);

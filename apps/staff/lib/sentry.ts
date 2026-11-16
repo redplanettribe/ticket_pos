@@ -43,11 +43,16 @@ export interface SentryConfig {
  * "development"), SENTRY_RELEASE. Null without a DSN.
  */
 export function readSentryConfig(env: Record<string, string | undefined>): SentryConfig | null {
-  const dsn = env.SENTRY_DSN?.trim();
-  if (!dsn) return null;
-  const environment = env.SENTRY_ENVIRONMENT?.trim() || "development";
-  const release = env.SENTRY_RELEASE?.trim() || undefined;
-  return release ? { dsn, environment, release } : { dsn, environment };
+  return normalizeSentryConfig(env.SENTRY_DSN, env.SENTRY_ENVIRONMENT, env.SENTRY_RELEASE);
+}
+
+/** The one rule for what counts as set: blank is absent, in every source. */
+function normalizeSentryConfig(dsn: unknown, environment: unknown, release: unknown): SentryConfig | null {
+  const trimmed = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+  if (!trimmed(dsn)) return null;
+  const config: SentryConfig = { dsn: trimmed(dsn), environment: trimmed(environment) || "development" };
+  if (trimmed(release)) config.release = trimmed(release);
+  return config;
 }
 
 /** What the root layout writes into SENTRY_CONFIG_META. */
@@ -69,12 +74,7 @@ export function parseSentryConfig(content: string | null | undefined): SentryCon
   }
   if (value === null || typeof value !== "object") return null;
   const { dsn, environment, release } = value as Record<string, unknown>;
-  if (typeof dsn !== "string" || dsn.trim() === "") return null;
-  return readSentryConfig({
-    SENTRY_DSN: dsn,
-    SENTRY_ENVIRONMENT: typeof environment === "string" ? environment : undefined,
-    SENTRY_RELEASE: typeof release === "string" ? release : undefined,
-  });
+  return normalizeSentryConfig(dsn, environment, release);
 }
 
 /**

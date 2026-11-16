@@ -14,7 +14,7 @@
 import { decideTunnel } from "@ticket-pos/sentry-rules";
 
 /** How long a relay may wait on Sentry before the browser is answered 504. */
-export const TUNNEL_UPSTREAM_TIMEOUT_MS = 10_000;
+const TUNNEL_UPSTREAM_TIMEOUT_MS = 10_000;
 
 /**
  * Sentry's answers the browser SDK acts on: its rate limits. Passed back so the
@@ -25,12 +25,13 @@ const RELAYED_RESPONSE_HEADERS = ["x-sentry-rate-limits", "retry-after"];
 export type Send = (url: string, init: RequestInit) => Promise<Response>;
 
 /**
- * Answers one envelope: 204 without forwarding when no DSN is set (dormant),
+ * Answers one envelope: 204 without forwarding when no DSN is set (dormant;
+ * the caller passes lib/sentry's readSentryConfig, so a blank one is none),
  * 403 when it is addressed to anyone else, otherwise Sentry's own status, or
  * 502/504 when Sentry cannot be reached.
  */
 export async function relayEnvelope(envelope: Uint8Array<ArrayBuffer>, ownDsn: string | undefined, send: Send = fetch): Promise<Response> {
-  if (!ownDsn?.trim()) return new Response(null, { status: 204 });
+  if (!ownDsn) return new Response(null, { status: 204 });
 
   const decision = decideTunnel(envelope, ownDsn);
   if (!decision.forward) return new Response(null, { status: 403 });

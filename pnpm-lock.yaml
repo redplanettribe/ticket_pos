@@ -21,7 +21,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/locale
       '@ticket-pos/sentry-rules':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../../packages/sentry-rules
       '@ticket-pos/ui':
         specifier: workspace:*
