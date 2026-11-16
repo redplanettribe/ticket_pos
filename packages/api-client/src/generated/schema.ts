@@ -3065,7 +3065,7 @@ export interface paths {
         put?: never;
         /**
          * Work the owed Sale Invoices
-         * @description Runs the Sale Invoice Drainer (ADR 0060): claims the Sale Invoices due for work one at a time under a `next_attempt_at` lease, signs each `owed` one from its stored snapshot — consuming a secuencial only then, under the Issuer's current environment, with `fechaEmision` the signing date in America/Guayaquil — submits it to the SRI and polls autorización; polls a `pending` one the SRI already holds without resubmitting it, and resubmits — same signed bytes, same clave, same secuencial — one the SRI never acknowledged. Only a submit that came back received (RECIBIDA, or errors 43/70 "already registered / in processing") counts as acknowledgement; a query answer never does, neither EN PROCESAMIENTO nor `unknown`, the SRI reporting no record of the clave. A resubmit cannot duplicate: a document the SRI does hold answers 43/70. Transport failures, RECIBIDA / EN PROCESAMIENTO and `unknown` alike reschedule on the ladder 1 min, 5 min, 15 min, then hourly from the signing instant. A definite refusal parks the document `needs_attention` with the SRI's messages; 24 hours without a definite answer parks it `needs_attention` while the polling or resubmitting goes on, and a late AUTORIZADO heals it. A document that cannot be signed — no Issuer, no certificate, an expired certificate, an Issuer the schema refuses — is parked `needs_attention` at once with no number consumed and retried hourly. Every SRI call is an attempts row. Bounded by its own budget, which expires before Cloud Scheduler's attempt deadline. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token (ADR 0008). Safe to call by hand at any time; a no-op on an empty queue. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE and signs nothing. The response tallies what the run did and how many Sale Invoices stand in each state afterwards.
+         * @description Runs the Sale Invoice Drainer (ADR 0060): claims the Sale Invoices due for work one at a time under a `next_attempt_at` lease, signs each `owed` one from its stored snapshot - consuming a secuencial only then, under the Issuer's current environment, with `fechaEmision` the signing date in America/Guayaquil - submits it to the SRI and polls autorización; polls a `pending` one the SRI already holds without resubmitting it, and resubmits - same signed bytes, same clave, same secuencial - one the SRI never acknowledged. Only a submit that came back received (RECIBIDA, or errors 43/70 "already registered / in processing") counts as acknowledgement; a query answer never does, neither EN PROCESAMIENTO nor `unknown`, the SRI reporting no record of the clave. A resubmit cannot duplicate: a document the SRI does hold answers 43/70. Transport failures, RECIBIDA / EN PROCESAMIENTO and `unknown` alike reschedule on the ladder 1 min, 5 min, 15 min, then hourly from the signing instant. A definite refusal parks the document `needs_attention` with the SRI's messages; 24 hours without a definite answer parks it `needs_attention` while the polling or resubmitting goes on, and a late AUTORIZADO heals it. A document that cannot be signed - no Issuer, no certificate, an expired certificate, an Issuer the schema refuses - is parked `needs_attention` at once with no number consumed and retried hourly. Every SRI call is an attempts row. Bounded by its own budget, which expires before Cloud Scheduler's attempt deadline. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token (ADR 0008). Safe to call by hand at any time; a no-op on an empty queue. Before the flag is read, the tick works the Certificate Expiry Warning (ADR 0063) and the Annulment Check (#746, ADR 0078): every annulled factura whose next ask is due is asked of the SRI's ConsultaComprobante (never autorización), one at a time under a lease and a budget of its own, and its verdict (checking, confirmed, mismatch, unconfirmed) recomputed; `annulment_check` counts what that pass did. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE and signs nothing, the two passes above having run. The response tallies what the run did and how many Sale Invoices stand in each state afterwards.
          */
         post: {
             parameters: {
@@ -16030,6 +16030,41 @@ export interface components {
             refusal?: components["schemas"]["service.RefusalView"];
             window?: components["schemas"]["service.AnnulmentWindowView"];
         };
+        "service.AnnulmentAnswerView": {
+            attempt_id?: number;
+            error?: string;
+            messages?: components["schemas"]["service.AuthorityMessageView"][];
+            reading?: string;
+            service?: string;
+            started_at?: string;
+        };
+        "service.AnnulmentAskView": {
+            asked_at?: string;
+            manual?: boolean;
+            reading?: string;
+        };
+        /**
+         * @description AnnulmentCheck is what the tick's Annulment Check pass did (#746),
+         *     counted apart from the documents above: it claims annulments, not
+         *     documents due on the Drainer's queue.
+         */
+        "service.AnnulmentCheckResult": {
+            asked?: number;
+            checking?: number;
+            confirmed?: number;
+            mismatch?: number;
+            unconfirmed?: number;
+            unfinished?: number;
+        };
+        "service.AnnulmentCheckView": {
+            answers?: components["schemas"]["service.AnnulmentAnswerView"][];
+            asks?: components["schemas"]["service.AnnulmentAskView"][];
+            asks_until?: string;
+            next_ask_at?: string;
+            scheduled?: boolean;
+            since?: string;
+            verdict?: string;
+        };
         "service.AnnulmentPortalView": {
             access_key?: string;
             authorization_date?: string;
@@ -16045,6 +16080,7 @@ export interface components {
          *     Credit Note, whose Mark annulled keeps no record and has no window.
          */
         "service.AnnulmentRecordView": {
+            check?: components["schemas"]["service.AnnulmentCheckView"];
             current?: components["schemas"]["service.AnnulmentView"];
             past?: components["schemas"]["service.AnnulmentView"][];
         };
@@ -18195,6 +18231,7 @@ export interface components {
              *     a replacement began — the one the queue orders it by.
              */
             abandoned_at?: string;
+            attention_reason?: string;
             /**
              * @description AttentionSince is when the document was parked needs_attention — how
              *     long it has been waiting for an operator (#477); null in every other
@@ -18220,6 +18257,7 @@ export interface components {
             /** @description Kind is why the document exists: manual, sale or credit_note. */
             kind?: string;
             messages?: components["schemas"]["service.AuthorityMessageView"][];
+            mismatch_since?: string;
             /**
              * @description Number is the document number as printed: estab-ptoEmi-secuencial,
              *     e.g. 001-001-000000012. Null until signed.
@@ -19909,6 +19947,7 @@ export interface components {
             refused?: components["schemas"]["service.RefusedBackfillSale"][];
         };
         "service.SaleInvoiceDrainResult": {
+            annulment_check?: components["schemas"]["service.AnnulmentCheckResult"];
             /**
              * @description Authorized, Pending and NeedsAttention are where those documents
              *     ended: authorized this run; still undecided and due again on the

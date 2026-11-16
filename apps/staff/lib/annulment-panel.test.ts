@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  ANNULMENT_CHECK_BADGE,
   ANNULMENT_PANEL_REFUSALS,
+  annulmentCheckLine,
+  annulmentCheckOffersCheckStatus,
   annulmentPanelMode,
   annulmentRecordReady,
   annulmentWindowProgress,
@@ -125,4 +128,75 @@ test("the panel has its words in both languages", () => {
       assert.ok(catalog.errors.envelope[code], `${locale}: errors.envelope.${code}`);
     }
   }
+});
+
+// The Annulment Check on the annulled face (#746): one state line per verdict,
+// the badge, and the Check status row whenever the check is not confirmed.
+
+const CHECK = {
+  verdict: "checking" as const,
+  scheduled: true,
+  since: null,
+  next_ask_at: "2026-07-07T19:17:00Z",
+  asks_until: "2026-08-08T05:00:00Z",
+  asks: [],
+  answers: [],
+};
+const ANNULLED_AT = "2026-07-07T19:02:00Z";
+
+test("checking reads since the recording, with the next ask", () => {
+  assert.deepEqual(annulmentCheckLine(CHECK, ANNULLED_AT), {
+    kind: "checking",
+    since: ANNULLED_AT,
+    next: "2026-07-07T19:17:00Z",
+  });
+});
+
+test("confirmed reads ANULADO at the ask that read it", () => {
+  assert.deepEqual(
+    annulmentCheckLine({ ...CHECK, verdict: "confirmed", since: "2026-07-07T19:17:00Z", next_ask_at: null, asks_until: null }, ANNULLED_AT),
+    { kind: "confirmed", at: "2026-07-07T19:17:00Z" },
+  );
+});
+
+test("mismatch reads still authorized since the ask that settled it", () => {
+  assert.deepEqual(
+    annulmentCheckLine({ ...CHECK, verdict: "mismatch", since: "2026-07-07T19:32:00Z" }, ANNULLED_AT),
+    { kind: "mismatch", since: "2026-07-07T19:32:00Z" },
+  );
+});
+
+test("unconfirmed reads asking every 6 h until the schedule's end, or that the asks have ended", () => {
+  const unconfirmed = { ...CHECK, verdict: "unconfirmed" as const, since: "2026-07-07T20:02:00Z" };
+  assert.deepEqual(annulmentCheckLine(unconfirmed, ANNULLED_AT), {
+    kind: "unconfirmed",
+    at: "2026-07-07T20:02:00Z",
+    until: "2026-08-08T05:00:00Z",
+  });
+  assert.deepEqual(annulmentCheckLine({ ...unconfirmed, next_ask_at: null }, ANNULLED_AT), {
+    kind: "unconfirmed",
+    at: "2026-07-07T20:02:00Z",
+    until: null,
+  });
+});
+
+test("an annulment recorded before the check existed reads unchecked", () => {
+  assert.deepEqual(
+    annulmentCheckLine({ ...CHECK, verdict: "unconfirmed", scheduled: false, next_ask_at: null, asks_until: null }, ANNULLED_AT),
+    { kind: "unchecked" },
+  );
+});
+
+test("Check status is offered whenever the check is not confirmed", () => {
+  for (const verdict of ["checking", "mismatch", "unconfirmed"] as const) {
+    assert.equal(annulmentCheckOffersCheckStatus({ ...CHECK, verdict }), true, verdict);
+  }
+  assert.equal(annulmentCheckOffersCheckStatus({ ...CHECK, verdict: "confirmed" }), false);
+});
+
+test("the badge's tone follows the verdict", () => {
+  assert.equal(ANNULMENT_CHECK_BADGE.confirmed, "default");
+  assert.equal(ANNULMENT_CHECK_BADGE.mismatch, "destructive");
+  assert.equal(ANNULMENT_CHECK_BADGE.checking, "secondary");
+  assert.equal(ANNULMENT_CHECK_BADGE.unconfirmed, "outline");
 });

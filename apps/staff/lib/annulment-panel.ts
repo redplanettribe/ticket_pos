@@ -10,7 +10,13 @@
  * never computes a date.
  */
 
-import type { InvoiceStatus, OperatorAnnulmentWindow, OperatorInvoiceAnnulability } from "./operator-api";
+import type {
+  AnnulmentVerdict,
+  InvoiceStatus,
+  OperatorAnnulmentCheck,
+  OperatorAnnulmentWindow,
+  OperatorInvoiceAnnulability,
+} from "./operator-api";
 
 /**
  * The refusals a factura's panel shrinks to one sentence for (story 29): facts
@@ -97,3 +103,58 @@ export function annulmentRecordReady(input: {
   }
   return input.typedAcknowledgement.trim().toLocaleLowerCase() === input.phrase.trim().toLocaleLowerCase();
 }
+
+/**
+ * The Annulment Check's one state line on the annulled face (#746), decided
+ * from the API's `annulment.check` alone:
+ *
+ * - checking since the recording, with the next ask;
+ * - ANULADO at the ask that read it;
+ * - still reported as authorized since the ask that settled the mismatch;
+ * - the SRI didn't confirm at the +60 min ask, asking every 6 h until the
+ *   schedule's end, or `until` null once the asks have ended;
+ * - unchecked: recorded before the check existed, never asked.
+ */
+export type AnnulmentCheckLine =
+  | { kind: "checking"; since: string; next: string | null }
+  | { kind: "confirmed"; at: string }
+  | { kind: "mismatch"; since: string }
+  | { kind: "unconfirmed"; at: string; until: string | null }
+  | { kind: "unchecked" };
+
+export function annulmentCheckLine(check: OperatorAnnulmentCheck, annulledAt: string): AnnulmentCheckLine {
+  if (!check.scheduled) {
+    return { kind: "unchecked" };
+  }
+  switch (check.verdict) {
+    case "confirmed":
+      return { kind: "confirmed", at: check.since ?? annulledAt };
+    case "mismatch":
+      return { kind: "mismatch", since: check.since ?? annulledAt };
+    case "unconfirmed":
+      return {
+        kind: "unconfirmed",
+        at: check.since ?? annulledAt,
+        until: check.next_ask_at === null ? null : check.asks_until,
+      };
+    default:
+      return { kind: "checking", since: annulledAt, next: check.next_ask_at };
+  }
+}
+
+/**
+ * Whether the panel offers a Check status row: whenever the check is not
+ * confirmed. On an annulled factura it is one more ask of ConsultaComprobante,
+ * feeding the same verdict and leaving the schedule alone.
+ */
+export function annulmentCheckOffersCheckStatus(check: Pick<OperatorAnnulmentCheck, "verdict">): boolean {
+  return check.verdict !== "confirmed";
+}
+
+/** The check badge's tone, one per verdict. */
+export const ANNULMENT_CHECK_BADGE: Record<AnnulmentVerdict, "default" | "secondary" | "destructive" | "outline"> = {
+  checking: "secondary",
+  confirmed: "default",
+  mismatch: "destructive",
+  unconfirmed: "outline",
+};

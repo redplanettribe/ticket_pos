@@ -3608,6 +3608,105 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.AnnulmentAnswerView": {
+                "properties": {
+                    "attempt_id": {
+                        "type": "integer"
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "messages": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.AuthorityMessageView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "reading": {
+                        "type": "string"
+                    },
+                    "service": {
+                        "type": "string"
+                    },
+                    "started_at": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.AnnulmentAskView": {
+                "properties": {
+                    "asked_at": {
+                        "type": "string"
+                    },
+                    "manual": {
+                        "type": "boolean"
+                    },
+                    "reading": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.AnnulmentCheckResult": {
+                "description": "AnnulmentCheck is what the tick's Annulment Check pass did (#746),\ncounted apart from the documents above: it claims annulments, not\ndocuments due on the Drainer's queue.",
+                "properties": {
+                    "asked": {
+                        "type": "integer"
+                    },
+                    "checking": {
+                        "type": "integer"
+                    },
+                    "confirmed": {
+                        "type": "integer"
+                    },
+                    "mismatch": {
+                        "type": "integer"
+                    },
+                    "unconfirmed": {
+                        "type": "integer"
+                    },
+                    "unfinished": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.AnnulmentCheckView": {
+                "properties": {
+                    "answers": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.AnnulmentAnswerView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "asks": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.AnnulmentAskView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "asks_until": {
+                        "type": "string"
+                    },
+                    "next_ask_at": {
+                        "type": "string"
+                    },
+                    "scheduled": {
+                        "type": "boolean"
+                    },
+                    "since": {
+                        "type": "string"
+                    },
+                    "verdict": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.AnnulmentPortalView": {
                 "properties": {
                     "access_key": {
@@ -3631,6 +3730,9 @@ const docTemplate = `{
             "service.AnnulmentRecordView": {
                 "description": "Annulment and Annulability are a factura's Mark annulled (#745, spec\n#742, ADR 0078): the record of every annulment it carries, and\nwhether the act is admitted on it as it stands, with the Annulment\nWindow and the fields the SRI portal's form asks for. Both null on a\nCredit Note, whose Mark annulled keeps no record and has no window.",
                 "properties": {
+                    "check": {
+                        "$ref": "#/components/schemas/service.AnnulmentCheckView"
+                    },
                     "current": {
                         "$ref": "#/components/schemas/service.AnnulmentView"
                     },
@@ -6248,6 +6350,9 @@ const docTemplate = `{
                         "description": "AbandonedAt is when the operator abandoned the document, because the\nauthority refuses its number and never took it (#578, ADR 0068); null\nin every other state. It is on the LIST ROW and not only the detail\nbecause it is the queue's second \"waiting since\" (#581): an abandoned\nrow's attention_since is cleared, and this is the instant its wait for\na replacement began — the one the queue orders it by.",
                         "type": "string"
                     },
+                    "attention_reason": {
+                        "type": "string"
+                    },
                     "attention_since": {
                         "description": "AttentionSince is when the document was parked needs_attention — how\nlong it has been waiting for an operator (#477); null in every other\nstate.",
                         "type": "string"
@@ -6285,6 +6390,9 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "mismatch_since": {
+                        "type": "string"
                     },
                     "number": {
                         "description": "Number is the document number as printed: estab-ptoEmi-secuencial,\ne.g. 001-001-000000012. Null until signed.",
@@ -8416,6 +8524,9 @@ const docTemplate = `{
             },
             "service.SaleInvoiceDrainResult": {
                 "properties": {
+                    "annulment_check": {
+                        "$ref": "#/components/schemas/service.AnnulmentCheckResult"
+                    },
                     "authorized": {
                         "description": "Authorized, Pending and NeedsAttention are where those documents\nended: authorized this run; still undecided and due again on the\nladder; parked for an operator (refused, unsignable, or 24 h without an\nanswer). With Failed they sum to Claimed.",
                         "type": "integer"
@@ -12408,7 +12519,7 @@ const docTemplate = `{
         },
         "/api/v1/internal/sale-invoices/drain": {
             "post": {
-                "description": "Runs the Sale Invoice Drainer (ADR 0060): claims the Sale Invoices due for work one at a time under a ` + "`" + `next_attempt_at` + "`" + ` lease, signs each ` + "`" + `owed` + "`" + ` one from its stored snapshot — consuming a secuencial only then, under the Issuer's current environment, with ` + "`" + `fechaEmision` + "`" + ` the signing date in America/Guayaquil — submits it to the SRI and polls autorización; polls a ` + "`" + `pending` + "`" + ` one the SRI already holds without resubmitting it, and resubmits — same signed bytes, same clave, same secuencial — one the SRI never acknowledged. Only a submit that came back received (RECIBIDA, or errors 43/70 \"already registered / in processing\") counts as acknowledgement; a query answer never does, neither EN PROCESAMIENTO nor ` + "`" + `unknown` + "`" + `, the SRI reporting no record of the clave. A resubmit cannot duplicate: a document the SRI does hold answers 43/70. Transport failures, RECIBIDA / EN PROCESAMIENTO and ` + "`" + `unknown` + "`" + ` alike reschedule on the ladder 1 min, 5 min, 15 min, then hourly from the signing instant. A definite refusal parks the document ` + "`" + `needs_attention` + "`" + ` with the SRI's messages; 24 hours without a definite answer parks it ` + "`" + `needs_attention` + "`" + ` while the polling or resubmitting goes on, and a late AUTORIZADO heals it. A document that cannot be signed — no Issuer, no certificate, an expired certificate, an Issuer the schema refuses — is parked ` + "`" + `needs_attention` + "`" + ` at once with no number consumed and retried hourly. Every SRI call is an attempts row. Bounded by its own budget, which expires before Cloud Scheduler's attempt deadline. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token (ADR 0008). Safe to call by hand at any time; a no-op on an empty queue. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE and signs nothing. The response tallies what the run did and how many Sale Invoices stand in each state afterwards.",
+                "description": "Runs the Sale Invoice Drainer (ADR 0060): claims the Sale Invoices due for work one at a time under a ` + "`" + `next_attempt_at` + "`" + ` lease, signs each ` + "`" + `owed` + "`" + ` one from its stored snapshot - consuming a secuencial only then, under the Issuer's current environment, with ` + "`" + `fechaEmision` + "`" + ` the signing date in America/Guayaquil - submits it to the SRI and polls autorización; polls a ` + "`" + `pending` + "`" + ` one the SRI already holds without resubmitting it, and resubmits - same signed bytes, same clave, same secuencial - one the SRI never acknowledged. Only a submit that came back received (RECIBIDA, or errors 43/70 \"already registered / in processing\") counts as acknowledgement; a query answer never does, neither EN PROCESAMIENTO nor ` + "`" + `unknown` + "`" + `, the SRI reporting no record of the clave. A resubmit cannot duplicate: a document the SRI does hold answers 43/70. Transport failures, RECIBIDA / EN PROCESAMIENTO and ` + "`" + `unknown` + "`" + ` alike reschedule on the ladder 1 min, 5 min, 15 min, then hourly from the signing instant. A definite refusal parks the document ` + "`" + `needs_attention` + "`" + ` with the SRI's messages; 24 hours without a definite answer parks it ` + "`" + `needs_attention` + "`" + ` while the polling or resubmitting goes on, and a late AUTORIZADO heals it. A document that cannot be signed - no Issuer, no certificate, an expired certificate, an Issuer the schema refuses - is parked ` + "`" + `needs_attention` + "`" + ` at once with no number consumed and retried hourly. Every SRI call is an attempts row. Bounded by its own budget, which expires before Cloud Scheduler's attempt deadline. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token (ADR 0008). Safe to call by hand at any time; a no-op on an empty queue. Before the flag is read, the tick works the Certificate Expiry Warning (ADR 0063) and the Annulment Check (#746, ADR 0078): every annulled factura whose next ask is due is asked of the SRI's ConsultaComprobante (never autorización), one at a time under a lease and a budget of its own, and its verdict (checking, confirmed, mismatch, unconfirmed) recomputed; ` + "`" + `annulment_check` + "`" + ` counts what that pass did. Behind SALE_INVOICING_ENABLED: while the flag is closed this answers 404 SALE_INVOICING_UNAVAILABLE and signs nothing, the two passes above having run. The response tallies what the run did and how many Sale Invoices stand in each state afterwards.",
                 "responses": {
                     "200": {
                         "content": {

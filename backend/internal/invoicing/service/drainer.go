@@ -194,6 +194,10 @@ type SaleInvoiceDrainResult struct {
 	// Standing is how many Sale Invoices sit in each state once this run
 	// finished, so two curls apart say whether a backlog is shrinking.
 	Standing map[string]int `json:"standing"`
+	// AnnulmentCheck is what the tick's Annulment Check pass did (#746),
+	// counted apart from the documents above: it claims annulments, not
+	// documents due on the Drainer's queue.
+	AnnulmentCheck AnnulmentCheckResult `json:"annulment_check"`
 }
 
 // DrainSaleInvoices works the Sale Invoices that are due, one at a time,
@@ -204,12 +208,25 @@ type SaleInvoiceDrainResult struct {
 // (#503, ADR 0063 §1): a closed flag still answers SALE_INVOICING_UNAVAILABLE
 // and signs nothing, but the certificate uploaded ahead of launch is watched
 // from the day this deploys. See certificate_expiry_warning.go.
+//
+// Then, still above the flag, the Annulment Check's pass (#746), under a
+// budget of its own inside the tick's, so that a manual Tax Invoice's
+// annulment is checked with the flag closed. The drain that follows gets
+// what is left of the tick's budget, and its response carries the pass's
+// counts. See annulment_check.go.
 func (s *Service) DrainSaleInvoices(ctx context.Context) (*SaleInvoiceDrainResult, error) {
+	started := time.Now()
 	s.warnOfCertificateExpiry(ctx)
+	checks := s.checkAnnulments(ctx, annulmentCheckBudget)
 	if !s.saleInvoicingEnabled {
 		return nil, invoicing.ErrSaleInvoicingUnavailable()
 	}
-	return s.drainSaleInvoices(ctx, "")
+	out, err := s.drainSaleInvoices(ctx, "", saleInvoiceDrainBudget-time.Since(started))
+	if err != nil {
+		return nil, err
+	}
+	out.AnnulmentCheck = checks
+	return out, nil
 }
 
 // WithSaleInvoicingEnabled opens or closes Sale Invoicing on this service
@@ -243,7 +260,7 @@ func (s *Service) KickSaleInvoiceDrainer(ctx context.Context, ticketSaleID strin
 	go func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), saleInvoiceDrainBudget)
 		defer cancel()
-		if _, err := s.drainSaleInvoices(ctx, ticketSaleID); err != nil {
+		if _, err := s.drainSaleInvoices(ctx, ticketSaleID, saleInvoiceDrainBudget); err != nil {
 			s.logger.Warn("invoicing: the post-commit kick could not drain; the scheduled drain will", "error", err)
 		}
 	}()
@@ -271,9 +288,9 @@ func (s *Service) saleInvoiceDrainBatch() int {
 	return saleInvoiceDrainBatch
 }
 
-func (s *Service) drainSaleInvoices(ctx context.Context, ticketSaleID string) (*SaleInvoiceDrainResult, error) {
+func (s *Service) drainSaleInvoices(ctx context.Context, ticketSaleID string, budget time.Duration) (*SaleInvoiceDrainResult, error) {
 	out := &SaleInvoiceDrainResult{Standing: map[string]int{}}
-	deadline := s.clock().Add(saleInvoiceDrainBudget)
+	deadline := s.clock().Add(budget)
 	wall := time.Now()
 
 	for out.Claimed < s.saleInvoiceDrainBatch() {
@@ -284,7 +301,7 @@ func (s *Service) drainSaleInvoices(ctx context.Context, ticketSaleID string) (*
 		// The budget is measured on the wall as well as on the service clock:
 		// the clock is fixed in tests, and a run that could not tell time had
 		// passed would have no bound at all.
-		if !now.Before(deadline) || time.Since(wall) >= saleInvoiceDrainBudget {
+		if !now.Before(deadline) || time.Since(wall) >= budget {
 			break
 		}
 		row, err := s.repo.ClaimDueInvoice(ctx, now, now.Add(saleInvoiceClaimLease), ticketSaleID)

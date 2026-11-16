@@ -46,6 +46,11 @@ import { INVOICE_KIND_KEYS, INVOICE_STATUS_KEYS, INVOICE_STATUS_VARIANTS } from 
 // two fields — attention_since is cleared on an abandoned row, and
 // abandoned_at is the instant its wait began, which is the instant the
 // queue orders it by.
+//
+// AND, SINCE #746, an annulled factura whose Annulment Check stands at
+// mismatch: the SRI still reports it authorized. The row says so in place of
+// the SRI's messages, and waits since `mismatch_since`. The annulment stands;
+// the row clears itself when a later ask reads ANULADO.
 
 function AttentionRow({ item, locale }: { item: OperatorNeedsAttentionItem; locale: AppLocale }) {
   const t = useTranslations("operator");
@@ -62,10 +67,13 @@ function AttentionRow({ item, locale }: { item: OperatorNeedsAttentionItem; loca
         <Badge variant={INVOICE_STATUS_VARIANTS[item.status]}>{t(INVOICE_STATUS_KEYS[item.status])}</Badge>
       </td>
       <td className="py-3 pr-4 whitespace-nowrap">
-        {formatDateTime(item.attention_since ?? item.abandoned_at, PLATFORM_TIME_ZONE, locale) ?? "—"}
+        {formatDateTime(item.attention_since ?? item.abandoned_at ?? item.mismatch_since, PLATFORM_TIME_ZONE, locale) ??
+          "—"}
       </td>
       <td className="py-3 pr-4">
-        {item.messages.length === 0 ? (
+        {item.attention_reason === "annulment_mismatch" ? (
+          <span className="font-medium text-destructive">{t("invoicingAttentionAnnulmentMismatch")}</span>
+        ) : item.messages.length === 0 ? (
           <span className="text-muted-foreground">{t("invoicingAttentionNoMessages")}</span>
         ) : (
           <ul className="space-y-1">

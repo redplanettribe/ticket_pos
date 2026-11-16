@@ -123,6 +123,19 @@ type Annulment struct {
 	LateAcknowledged bool
 	// ReinstatedAt is nil while the annulment stands. Nothing writes it yet.
 	ReinstatedAt *time.Time
+	// Check is the annulment's Annulment Check (#746), nil for one recorded
+	// before the check existed: that reads unconfirmed and is never asked.
+	Check *AnnulmentCheck
+}
+
+// AnnulmentCheck is where one annulment's check stands: the verdict and the
+// instant of the ask that reached it, when the next scheduled ask falls due
+// (nil when none ever will), and every ask made, oldest first.
+type AnnulmentCheck struct {
+	Verdict   AnnulmentVerdict
+	Since     *time.Time
+	NextAskAt *time.Time
+	Asks      []AnnulmentAsk
 }
 
 // AnnulmentRequest is what the operator types to confirm Mark annulled on a

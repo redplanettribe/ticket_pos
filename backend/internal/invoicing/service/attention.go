@@ -42,7 +42,8 @@ import (
 // THE QUEUE IS A UNION, NOT A STATUS EQUALITY (#581, parent #575, ADR
 // 0068). It lists documents parked `needs_attention` OR Sale Invoices that
 // are `abandoned` with no live successor on a Ticket Sale that still
-// stands, and the count — the Operator Dashboard's daily badge — widens
+// stands OR, since #746, annulled facturas whose Annulment Check stands at
+// mismatch, and the count - the Operator Dashboard's daily badge - widens
 // identically. Stated here in full because the next reader will otherwise
 // "simplify" it back to one status: Abandon (#578) and Issue again (#580)
 // are deliberately two presses, so a Sale can sit abandoned-and-unreplaced
@@ -68,9 +69,38 @@ type NeedsAttentionQueue struct {
 // "Since when" is attention_since on a parked document and abandoned_at on
 // an abandoned one, the two instants the queue's order composes (#581); the
 // row carries both and the surface reads whichever the document has.
+//
+// AttentionReason says which door of the union put the document there
+// (#746): `needs_attention` (parked), `abandoned` (abandoned with no live
+// successor on a standing Sale) or `annulment_mismatch` (annulled, and its
+// Annulment Check stands at mismatch: the SRI still reports it authorized).
+// MismatchSince is the instant the mismatch was reached, on that reason
+// alone.
 type NeedsAttentionItem struct {
 	InvoiceListItem
-	Messages []AuthorityMessageView `json:"messages"`
+	AttentionReason string                 `json:"attention_reason"`
+	MismatchSince   *time.Time             `json:"mismatch_since"`
+	Messages        []AuthorityMessageView `json:"messages"`
+}
+
+// The needs-attention queue's reasons, one per door of the union.
+const (
+	AttentionReasonParked            = "needs_attention"
+	AttentionReasonAbandoned         = "abandoned"
+	AttentionReasonAnnulmentMismatch = "annulment_mismatch"
+)
+
+// attentionReason is the door a queued document came in by, read off its
+// status: the union's three halves are disjoint on it.
+func attentionReason(status invoicing.InvoiceStatus) string {
+	switch status {
+	case invoicing.InvoiceStatusAbandoned:
+		return AttentionReasonAbandoned
+	case invoicing.InvoiceStatusAnnulled:
+		return AttentionReasonAnnulmentMismatch
+	default:
+		return AttentionReasonParked
+	}
 }
 
 // NeedsAttentionCount is the queue's size as one number: the badge on the
@@ -109,12 +139,27 @@ func (s *Service) ListNeedsAttention(ctx context.Context, page, pageSize int) (*
 	if err != nil {
 		return nil, err
 	}
+	var annulled []string
+	for i := range rows {
+		if rows[i].Invoice.Status == invoicing.InvoiceStatusAnnulled {
+			annulled = append(annulled, rows[i].Invoice.ID)
+		}
+	}
+	mismatchSince, err := s.repo.AnnulmentMismatchSince(ctx, annulled)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]NeedsAttentionItem, 0, len(rows))
 	for i := range rows {
-		items = append(items, NeedsAttentionItem{
+		item := NeedsAttentionItem{
 			InvoiceListItem: s.listItem(&rows[i]),
+			AttentionReason: attentionReason(rows[i].Invoice.Status),
 			Messages:        messagesView(rows[i].Invoice.Messages),
-		})
+		}
+		if at, ok := mismatchSince[rows[i].Invoice.ID]; ok {
+			item.MismatchSince = &at
+		}
+		items = append(items, item)
 	}
 	return &NeedsAttentionQueue{Data: items, InvoicePagination: pagination(page, pageSize, total)}, nil
 }

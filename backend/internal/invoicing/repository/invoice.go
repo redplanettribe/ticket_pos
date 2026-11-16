@@ -465,11 +465,13 @@ const standingCreditNoteSQL = `(SELECT c.id FROM invoicing_invoices c WHERE c.cr
 // GUARDED ON WHAT THE GATE READ. The write lands only on a row still in the
 // state the service read it in, still signed, still a factura, with no live
 // successor in its place and, when authorized, no live Credit Note against
-// it, so a press
-// racing a late AUTORIZADO, a Sale Reversal owing a Credit Note, or a
+// it, so a press racing a late AUTORIZADO, a Sale Reversal owing a Credit Note, or a
 // second press, finds no row to update and the service reads the row back
 // to say which. The partial unique index on the ledger is the last word on
 // a second open annulment.
+//
+// THE ANNULMENT CHECK STARTS WITH THE ROW (#746): `checking`, its first ask
+// due one rung after the recording, for the Drainer's tick to claim.
 func (r *Repository) AnnulFactura(ctx context.Context, invoiceID string, a FacturaAnnulment) (bool, error) {
 	tx, err := r.db.Pool.BeginTx(ctx, nil)
 	if err != nil {
@@ -501,9 +503,10 @@ func (r *Repository) AnnulFactura(ctx context.Context, invoiceID string, a Factu
 		return false, nil
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO invoicing_annulments (invoice_id, from_status, annulled_by, annulled_at, note, late_acknowledged)
-		VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6)
-	`, invoiceID, a.FromStatus, a.AnnulledBy, a.AnnulledAt, a.Note, a.LateAcknowledged); err != nil {
+		INSERT INTO invoicing_annulments (invoice_id, from_status, annulled_by, annulled_at, note, late_acknowledged, check_verdict, next_ask_at)
+		VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6, $7, $8)
+	`, invoiceID, a.FromStatus, a.AnnulledBy, a.AnnulledAt, a.Note, a.LateAcknowledged,
+		invoicing.AnnulmentChecking, invoicing.FirstAnnulmentAsk(a.AnnulledAt)); err != nil {
 		return false, fmt.Errorf("record annulment: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -526,22 +529,46 @@ func (r *Repository) loadAnnulmentFacts(ctx context.Context, row *InvoiceRow) er
 	}
 	row.StandingCreditNoteID = standing.String
 	rows, err := r.db.Pool.QueryContext(ctx, `
-		SELECT id, invoice_id, from_status, annulled_by, annulled_at, COALESCE(note, ''), late_acknowledged, reinstated_at
+		SELECT id, invoice_id, from_status, annulled_by, annulled_at, COALESCE(note, ''), late_acknowledged, reinstated_at,
+		       check_verdict, check_verdict_at, next_ask_at
 		FROM invoicing_annulments WHERE invoice_id = $1 ORDER BY annulled_at, created_at, id
 	`, row.Invoice.ID)
 	if err != nil {
 		return fmt.Errorf("annulments: %w", err)
 	}
 	defer rows.Close()
+	var checked []string
 	for rows.Next() {
 		var a invoicing.Annulment
-		if err := rows.Scan(&a.ID, &a.InvoiceID, &a.FromStatus, &a.AnnulledBy, &a.AnnulledAt, &a.Note, &a.LateAcknowledged, &a.ReinstatedAt); err != nil {
+		var verdict sql.NullString
+		var since, next sql.NullTime
+		if err := rows.Scan(&a.ID, &a.InvoiceID, &a.FromStatus, &a.AnnulledBy, &a.AnnulledAt, &a.Note, &a.LateAcknowledged, &a.ReinstatedAt,
+			&verdict, &since, &next); err != nil {
 			return fmt.Errorf("scan annulment: %w", err)
+		}
+		if verdict.Valid {
+			a.Check = &invoicing.AnnulmentCheck{Verdict: invoicing.AnnulmentVerdict(verdict.String)}
+			if since.Valid {
+				a.Check.Since = &since.Time
+			}
+			if next.Valid {
+				a.Check.NextAskAt = &next.Time
+			}
+			checked = append(checked, a.ID)
 		}
 		row.Annulments = append(row.Annulments, a)
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("annulments: %w", err)
+	}
+	asks, err := annulmentAsksOf(ctx, r.db.Pool, checked)
+	if err != nil {
+		return err
+	}
+	for i := range row.Annulments {
+		if c := row.Annulments[i].Check; c != nil {
+			c.Asks = asks[row.Annulments[i].ID]
+		}
 	}
 	return nil
 }
@@ -1006,7 +1033,7 @@ func (r *Repository) ListInvoices(ctx context.Context, filter InvoiceFilter, pag
 }
 
 // needsAttentionWhere is THE needs-attention queue's membership rule, and
-// it is A UNION OF TWO CONDITIONS rather than a status equality (#581,
+// it is A UNION OF CONDITIONS rather than a status equality (#581,
 // parent #575, ADR 0068). It is written once, here, because the list and
 // the count must be incapable of disagreeing: the badge an operator watches
 // daily and the page it opens are one claim.
@@ -1053,6 +1080,15 @@ func (r *Repository) ListInvoices(ctx context.Context, filter InvoiceFilter, pag
 //     document with no Ticket Sale answers NULL here and is excluded, which
 //     is the same answer as the kind clause and deliberately redundant with
 //     it.
+//
+// A THIRD DOOR, THE ANNULMENT CHECK'S MISMATCH (#746, spec #742, ADR 0078):
+// an annulled factura whose standing annulment's check stands at mismatch -
+// the SRI still reports it authorized, on two asks half an hour apart. The
+// annulment is never undone by it; the entry is the warning, and it clears
+// itself when a later ask reads ANULADO (the check is confirmed) or a
+// Reinstate closes the annulment. Any kind: a manual Tax Invoice at
+// mismatch is as much the operator's to look at as a Sale Invoice. The
+// list item says which door it came in by (service.attentionReason).
 var needsAttentionWhere = `(
 	i.status = 'needs_attention'
 	OR (
@@ -1061,7 +1097,17 @@ var needsAttentionWhere = `(
 		AND ts.status <> 'reversed'
 		AND NOT ` + saleHasLiveFactura("i.ticket_sale_id") + `
 	)
+	OR (
+		i.status = 'annulled'
+		AND ` + annulmentMismatchSinceSQL + ` IS NOT NULL
+	)
 )`
+
+// annulmentMismatchSinceSQL is the instant the standing annulment of the
+// factura `i` reached a mismatch, NULL when it has none at mismatch: the
+// queue's third door, and the instant it entered by it.
+const annulmentMismatchSinceSQL = `(SELECT a.check_verdict_at FROM invoicing_annulments a
+	WHERE a.invoice_id = i.id AND a.reinstated_at IS NULL AND a.check_verdict = 'mismatch')`
 
 // needsAttentionOrder is the composition of the queue's TWO ORDERINGS, and
 // the reason it needed a second sort key (#581): `attention_since` is NULL
@@ -1077,11 +1123,14 @@ var needsAttentionWhere = `(
 // status ahead of the other was rejected: the badge's oldest entry would
 // then not be the oldest work, which is the one thing the ordering is for.
 //
+// A mismatch enters at the instant its check reached it (#746), the third
+// instant of the same clock.
+//
 // Ties, which one drain round can produce, break on the row's own age as
 // they always have. Should both instants somehow be NULL, Postgres sorts
 // NULLs last on ASC and the row lands at the back rather than anywhere
 // undefined.
-const needsAttentionOrder = `ORDER BY COALESCE(i.attention_since, i.abandoned_at) ASC, i.created_at ASC, i.id ASC`
+const needsAttentionOrder = `ORDER BY COALESCE(i.attention_since, i.abandoned_at, ` + annulmentMismatchSinceSQL + `) ASC, i.created_at ASC, i.id ASC`
 
 // needsAttentionFrom is the least the membership rule can be decided from:
 // the row and the Ticket Sale it is about. The count reads through it and

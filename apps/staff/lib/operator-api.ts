@@ -1307,6 +1307,38 @@ export type OperatorInvoiceAnnulment = {
   reinstated_at: string | null;
 };
 
+/** Where an annulled factura's Annulment Check stands (#746). */
+export type AnnulmentVerdict = "checking" | "confirmed" | "mismatch" | "unconfirmed";
+
+/** One reading of the SRI's status service. */
+export type StatusReading = "annulled" | "authorized" | "none";
+
+/**
+ * The Annulment Check of an annulled factura (#746, spec #742, ADR 0078): the
+ * verdict and the instant of the ask that reached it (null while checking),
+ * the next scheduled ask (null when none will come) and when the schedule
+ * ends (null once confirmed, and on an annulment recorded before the check
+ * existed, which reads unconfirmed with `scheduled` false), every ask made,
+ * and every ConsultaComprobante answer since the annulment was recorded, with
+ * the SRI's raw messages and the reason on a no reading.
+ */
+export type OperatorAnnulmentCheck = {
+  verdict: AnnulmentVerdict;
+  scheduled: boolean;
+  since: string | null;
+  next_ask_at: string | null;
+  asks_until: string | null;
+  asks: { asked_at: string; reading: StatusReading; manual: boolean }[];
+  answers: {
+    attempt_id: number;
+    started_at: string;
+    service: string;
+    reading: StatusReading;
+    messages: OperatorInvoiceMessage[];
+    error: string | null;
+  }[];
+};
+
 /**
  * The Annulment Window at the moment of the read: day 7 of the month after
  * the Emission Date, to the end of that day in Guayaquil, never the SRI's
@@ -1414,7 +1446,12 @@ export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
    * it now, with the window and the portal's fields. Both null on a Credit
    * Note, whose Mark annulled keeps no record and has no window.
    */
-  annulment: { current: OperatorInvoiceAnnulment | null; past: OperatorInvoiceAnnulment[] } | null;
+  annulment: {
+    current: OperatorInvoiceAnnulment | null;
+    past: OperatorInvoiceAnnulment[];
+    /** The Annulment Check (#746), null unless the factura is annulled. */
+    check: OperatorAnnulmentCheck | null;
+  } | null;
   annulability: OperatorInvoiceAnnulability | null;
   has_authorization_xml: boolean;
   /**
@@ -1605,6 +1642,13 @@ export async function backfillOperatorUninvoicedHouseSales(ticketSaleIds: string
  * be signed — so the queue says why without a click through.
  */
 export type OperatorNeedsAttentionItem = OperatorInvoiceListItem & {
+  /**
+   * Which door of the union put it there (#746): parked, abandoned with no
+   * replacement, or annulled with its Annulment Check at mismatch - the SRI
+   * still reports it authorized - since `mismatch_since`.
+   */
+  attention_reason: "needs_attention" | "abandoned" | "annulment_mismatch";
+  mismatch_since: string | null;
   messages: OperatorInvoiceMessage[];
 };
 
@@ -1623,7 +1667,8 @@ const NEEDS_ATTENTION_PATH = "/api/operator/invoicing/needs-attention";
 /**
  * The needs-attention queue, longest waiting first: every kind parked
  * `needs_attention`, and — since #581 — every `abandoned` Sale Invoice with
- * no live successor whose Ticket Sale still stands. A union of two
+ * no live successor whose Ticket Sale still stands, and - since #746 - every
+ * annulled factura whose Annulment Check stands at mismatch. A union of
  * conditions, not one status: a Sale can sit abandoned-and-unreplaced
  * between Abandon (#578) and Issue again (#580), and this is where it is
  * seen. It self-clears when a replacement is owed.

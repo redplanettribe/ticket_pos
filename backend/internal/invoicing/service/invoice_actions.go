@@ -108,11 +108,27 @@ func (s *Service) CheckInvoice(ctx context.Context, id string) (*InvoiceActionDe
 
 // checkAnnulled is Check status on an annulled document: one ask of the
 // status service, answered with the document and the ask's last attempt.
-// No verdict is reached here yet; the Annulment Check's rule reads the
-// ledger's status rows.
+//
+// The ask feeds the current annulment's Annulment Check (#746) as a manual
+// ask: the same verdict rule, whose +30 min floor keeps two quick presses
+// from reaching a mismatch, and the schedule left alone - the next
+// scheduled ask stays where it was, unless this ask confirmed and the check
+// ends. An annulment recorded before the check existed has none, and the
+// ask is on the ledger only. A press the caller abandoned mid-ask is no ask.
 func (s *Service) checkAnnulled(ctx context.Context, row *repository.InvoiceRow) (*InvoiceActionDetail, error) {
+	at := s.clock()
 	ask := s.askStatus(ctx, row)
-	s.logger.Info("invoicing: annulled tax invoice checked", "invoice_id", row.Invoice.ID, "reading", ask.Reading, "calls", ask.Calls)
+	verdict := invoicing.AnnulmentVerdict("")
+	if current := currentAnnulment(row); current != nil && current.Check != nil && !cutShort(ctx, ask) {
+		check, err := s.recordAnnulmentAsk(context.WithoutCancel(ctx), row, current.ID, at, ask, true)
+		if err != nil {
+			return nil, err
+		}
+		if check != nil {
+			verdict = check.Verdict
+		}
+	}
+	s.logger.Info("invoicing: annulled tax invoice checked", "invoice_id", row.Invoice.ID, "reading", ask.Reading, "calls", ask.Calls, "verdict", verdict)
 	return s.actionDetail(ctx, row.Invoice.ID, ask.LastAttemptID)
 }
 

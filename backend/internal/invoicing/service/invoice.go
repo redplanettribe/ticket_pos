@@ -902,9 +902,13 @@ type InvoiceDetail struct {
 // it: the one standing, if any, and those a Reinstate has closed, oldest
 // first. A factura annulled before the ledger existed (#477) has none, and
 // its trail is the detail's own annulled_by / annulled_at.
+//
+// Check is where the Annulment Check of an annulled factura stands (#746),
+// null on one that is not annulled.
 type AnnulmentRecordView struct {
-	Current *AnnulmentView  `json:"current"`
-	Past    []AnnulmentView `json:"past"`
+	Current *AnnulmentView      `json:"current"`
+	Past    []AnnulmentView     `json:"past"`
+	Check   *AnnulmentCheckView `json:"check"`
 }
 
 // AnnulmentView is one Mark annulled on a factura: the state it was annulled
@@ -1003,6 +1007,7 @@ func (s *Service) detailView(row *repository.InvoiceRow) *InvoiceDetail {
 	}
 	if invoicing.IsFactura(row.Invoice.Kind) {
 		d.Annulment = annulmentRecordView(row.Annulments)
+		d.Annulment.Check = annulmentCheckView(row)
 		d.Annulability = s.annulabilityView(row, s.clock())
 	}
 	return d

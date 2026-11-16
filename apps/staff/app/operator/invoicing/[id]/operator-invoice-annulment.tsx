@@ -6,6 +6,7 @@ import {
   Alert,
   AlertDescription,
   AlertTitle,
+  Badge,
   Button,
   Card,
   CardContent,
@@ -21,6 +22,9 @@ import { toAppLocale } from "@ticket-pos/locale";
 import { useLocale, useMessages, useTranslations } from "next-intl";
 
 import {
+  ANNULMENT_CHECK_BADGE,
+  annulmentCheckLine,
+  annulmentCheckOffersCheckStatus,
   annulmentPanelMode,
   annulmentRecordReady,
   annulmentWindowProgress,
@@ -30,9 +34,11 @@ import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { type AppLocale, PLATFORM_TIME_ZONE, formatCalendarDay, formatDateTime } from "@/lib/format";
 import {
+  type OperatorAnnulmentCheck,
   type OperatorAnnulmentWindow,
   type OperatorInvoiceDetail,
   annulOperatorInvoice,
+  checkOperatorInvoice,
 } from "@/lib/operator-api";
 
 import { INVOICE_STATUS_KEYS } from "../invoice-status";
@@ -66,6 +72,14 @@ import { INVOICE_STATUS_KEYS } from "../invoice-status";
  * fail is not offered. After the act the panel reads "Annulled at the SRI"
  * with its trail: who, when, the note and the late acknowledgement.
  *
+ * THE ANNULMENT CHECK (#746) sits on the annulled face: its badge, one state
+ * line ("checking since 14:02, next ask 14:17", "ANULADO at ...", "still
+ * reported as authorized since ...", "SRI didn't confirm at ...; asking every
+ * 6 h until ..."), every ConsultaComprobante answer in a collapsed list, and a
+ * Check status row whenever the check is not confirmed. The verdict and every
+ * time come from `annulment.check`; this page decides only which line to draw
+ * (lib/annulment-panel.ts).
+ *
  * The portal checklist and its copy buttons are a later ticket; the portal
  * fields are already in `annulability.portal` for it.
  */
@@ -81,7 +95,7 @@ export function OperatorInvoiceAnnulment({
     return null;
   }
   if (mode === "annulled") {
-    return <AnnulledPanel invoice={invoice} />;
+    return <AnnulledPanel invoice={invoice} onUpdated={onUpdated} />;
   }
   if (mode === "refused") {
     return <RefusedPanel invoice={invoice} />;
@@ -110,20 +124,35 @@ function RefusedPanel({ invoice }: { invoice: OperatorInvoiceDetail }) {
   );
 }
 
-function AnnulledPanel({ invoice }: { invoice: OperatorInvoiceDetail }) {
+function AnnulledPanel({
+  invoice,
+  onUpdated,
+}: {
+  invoice: OperatorInvoiceDetail;
+  onUpdated: (invoice: OperatorInvoiceDetail) => void;
+}) {
   const t = useTranslations("operator");
   const locale = toAppLocale(useLocale());
   const current = invoice.annulment?.current ?? null;
+  const check = invoice.annulment?.check ?? null;
   // A factura annulled before the annulments ledger existed (#477) has no
   // record there; its trail is the row's own pair.
   const by = current?.annulled_by ?? invoice.annulled_by;
   const at = current?.annulled_at ?? invoice.annulled_at;
   return (
-    <Card className="border-l-4 border-l-neutral-500">
+    <Card className={cn("border-l-4", check?.verdict === "mismatch" ? "border-l-destructive" : "border-l-neutral-500")}>
       <CardHeader className="pb-3">
-        <CardTitle>{t("invoicingAnnulPanelAnnulledTitle")}</CardTitle>
+        <div className="flex flex-wrap items-center gap-2">
+          <CardTitle>{t("invoicingAnnulPanelAnnulledTitle")}</CardTitle>
+          {check ? (
+            <Badge variant={ANNULMENT_CHECK_BADGE[check.verdict]}>{t(ANNULMENT_CHECK_BADGE_KEYS[check.verdict])}</Badge>
+          ) : null}
+        </div>
       </CardHeader>
       <CardContent className="space-y-2 text-sm text-muted-foreground">
+        {check && at ? (
+          <AnnulmentCheckSection invoice={invoice} check={check} annulledAt={at} locale={locale} onUpdated={onUpdated} />
+        ) : null}
         {by && at ? (
           <p>
             {t("invoicingAnnulPanelTrail", {
@@ -144,6 +173,123 @@ function AnnulledPanel({ invoice }: { invoice: OperatorInvoiceDetail }) {
         {current?.late_acknowledged ? <p>{t("invoicingAnnulPanelTrailLate")}</p> : null}
       </CardContent>
     </Card>
+  );
+}
+
+const ANNULMENT_CHECK_BADGE_KEYS = {
+  checking: "invoicingAnnulCheckBadgeChecking",
+  confirmed: "invoicingAnnulCheckBadgeConfirmed",
+  mismatch: "invoicingAnnulCheckBadgeMismatch",
+  unconfirmed: "invoicingAnnulCheckBadgeUnconfirmed",
+} as const;
+
+const STATUS_READING_KEYS = {
+  annulled: "invoicingAnnulCheckReadingAnnulled",
+  authorized: "invoicingAnnulCheckReadingAuthorized",
+  none: "invoicingAnnulCheckReadingNone",
+} as const;
+
+function AnnulmentCheckSection({
+  invoice,
+  check,
+  annulledAt,
+  locale,
+  onUpdated,
+}: {
+  invoice: OperatorInvoiceDetail;
+  check: OperatorAnnulmentCheck;
+  annulledAt: string;
+  locale: AppLocale;
+  onUpdated: (invoice: OperatorInvoiceDetail) => void;
+}) {
+  const t = useTranslations("operator");
+  const errorCopy = useMessages().errors;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const when = (iso: string | null) => (iso ? (formatDateTime(iso, PLATFORM_TIME_ZONE, locale) ?? iso) : "");
+  const line = annulmentCheckLine(check, annulledAt);
+
+  async function askAgain() {
+    setBusy(true);
+    setError(null);
+    try {
+      onUpdated(await checkOperatorInvoice(invoice.id));
+    } catch (actionError) {
+      setError(
+        (actionError instanceof ApiError ? apiErrorMessage(errorCopy, actionError) : null) ?? t("invoicingCheckFailed"),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  let text: string;
+  switch (line.kind) {
+    case "checking":
+      text = line.next
+        ? t("invoicingAnnulCheckChecking", { since: when(line.since), next: when(line.next) })
+        : t("invoicingAnnulCheckCheckingNoNext", { since: when(line.since) });
+      break;
+    case "confirmed":
+      text = t("invoicingAnnulCheckConfirmed", { at: when(line.at) });
+      break;
+    case "mismatch":
+      text = t("invoicingAnnulCheckMismatch", { since: when(line.since) });
+      break;
+    case "unconfirmed":
+      text = line.until
+        ? t("invoicingAnnulCheckUnconfirmed", { at: when(line.at), until: when(line.until) })
+        : t("invoicingAnnulCheckUnconfirmedEnded", { at: when(line.at) });
+      break;
+    default:
+      text = t("invoicingAnnulCheckUnchecked");
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className={cn(line.kind === "mismatch" ? "font-medium text-destructive" : "text-foreground")}>{text}</p>
+      {line.kind === "mismatch" ? <p>{t("invoicingAnnulCheckMismatchHint")}</p> : null}
+      {check.answers.length > 0 ? (
+        <details className="rounded-md border px-3 py-2">
+          <summary className="cursor-pointer text-xs font-medium">
+            {t("invoicingAnnulCheckAnswers", { count: check.answers.length })}
+          </summary>
+          <ul className="mt-2 space-y-1 text-xs">
+            {check.answers.map((answer) => (
+              <li key={answer.attempt_id}>
+                <span className="whitespace-nowrap">{when(answer.started_at)}</span>{" "}
+                <span className="font-mono">{answer.service}</span>{" "}
+                <span className="font-medium text-foreground">{t(STATUS_READING_KEYS[answer.reading])}</span>
+                {answer.reading === "none"
+                  ? [
+                      ...answer.messages.map((message) => `${message.identifier} ${message.message}`),
+                      ...(answer.error ? [answer.error] : []),
+                    ].map((raw, index) => (
+                      <span key={index} className="block pl-4 font-mono text-muted-foreground">
+                        {raw}
+                      </span>
+                    ))
+                  : null}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+      {annulmentCheckOffersCheckStatus(check) ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-md bg-muted/40 px-3 py-2">
+          <p className="flex-1 text-xs">{t("invoicingAnnulCheckAskHint")}</p>
+          <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void askAgain()}>
+            {busy ? t("invoicingCheckingStatus") : t("invoicingCheckStatus")}
+          </Button>
+        </div>
+      ) : null}
+      {error ? (
+        <Alert variant="destructive">
+          <AlertTitle>{t("invoicingActionFailedTitle")}</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+    </div>
   );
 }
 
