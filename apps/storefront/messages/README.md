@@ -21,6 +21,7 @@ not one page file. Surfaces, in the order a Customer meets them:
 | `privacy`      | The Privacy Policy page's chrome — never the policy itself         |
 | `answerLink`   | The retired Answer Link's landing page at `/{locale}/answer` (ADR 0049) |
 | `errors`       | Failures that belong to no single surface, keyed by the API's code |
+| `errorScreen`  | The screen shown in place of a page that crashed, with a retry and a reference code (#774); the root-level one reads it straight from the catalog, with no provider |
 | `tags`         | Preset Tag names, which belong to no single surface either         |
 
 The two privacy namespaces are crossed over and it is worth reading twice:

@@ -10,7 +10,7 @@ import { SentryLoader } from "@/components/sentry-loader";
 import { routing } from "@/i18n/routing";
 import { BRAND_NAME } from "@/lib/brand";
 import { EARLY_ERROR_HANDLER_SCRIPT } from "@/lib/early-errors";
-import { SENTRY_CONFIG_META } from "@/lib/sentry";
+import { SENTRY_CONFIG_META } from "@/lib/sentry-lazy";
 import { storefrontBaseUrl } from "@/lib/site";
 
 import "../globals.css";

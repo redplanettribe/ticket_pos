@@ -18,9 +18,6 @@ import { createBeforeSend, scrubEvent, type SentryConfig } from "@ticket-pos/sen
  */
 export const SENTRY_TUNNEL_PATH = "/api/monitoring";
 
-/** The name of the <meta> the root layout writes the browser's configuration into. */
-export const SENTRY_CONFIG_META = "ticket-pos-sentry";
-
 /** One trace in ten, the ADR's default. A trace the browser started keeps its decision. */
 export const SENTRY_TRACES_SAMPLE_RATE = 0.1;
 

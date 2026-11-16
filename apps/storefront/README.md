@@ -43,6 +43,32 @@ Browser envelopes go to `/api/monitoring`, which forwards only those addressed t
 BFF calls to the API (`callBackend`, `fetchBackendRaw`) carry `sentry-trace` and `baggage` beside `X-Request-ID` (`lib/api.ts`).
 The build plugin is configured to contact nothing: no source maps, no release, no telemetry, and no route manifest in the initial bundle (`next.config.ts`).
 
+### Error screens
+
+A render crash shows a designed screen instead of Next's default page, in the page's language, with a retry and a reference code (#774).
+
+- Route level, `app/[locale]/error.tsx`: a page crashed.
+  It renders inside the root layout, so next-intl's provider is there and the words are the page's locale; it stands alone with the logo, because each page draws its own shell.
+- Root level, `app/global-error.tsx`: the root layout itself crashed, so it renders the whole document.
+  It depends on nothing the crash may have taken down: its words come straight from the catalogs, its language from the address (`rootErrorScreenLocale`), and it has no provider, Toaster or Sentry loader.
+- Both are `components/error-screen.tsx` around `ErrorScreen` from `@ticket-pos/ui`, the Staff app's screen, with the words of the `errorScreen` namespace.
+- Retry asks the server for the failed segment again and renders it (`router.refresh()` then `reset()`), on the same address with its query string; the screen touches no cookie or storage, so a checkout in progress is where it was.
+- A not-found is not an error: it is Next's 404, never these screens, and never reported.
+
+The reference code is the request id, as in the Staff app, through the pieces both apps share in `@ticket-pos/sentry-rules`:
+
+1. The middleware mints a UUID for every request it sees, never taking one from the browser, forwards it to the render as `x-request-id`, and echoes it in `X-Request-ID`.
+   It does not run on the BFF routes under `/api/`, so those keep an id per API call.
+2. `lib/api.ts` reads it inside a render or server action, so every API call of that page carries it and the API logs each under it.
+3. For a page or an RSC navigation, not a prefetch, the middleware sets the cookie `ticket_pos_request_id`, readable by script, which the screens show.
+   Like the Affiliate ref cookie, it rides beside the page and nothing renders from it.
+4. A server crash: `onRequestError` writes one JSON line to stdout, which Cloud Logging indexes, with `request_id`, Next's `digest`, the route pattern and the render source, never the error's text or the path, with or without a DSN; the server's event is tagged `request_id`.
+5. A crash only in the browser: the code is the id of the request that rendered the page, and the screen reports the error tagged with it.
+
+Reported exactly once: an error with a digest came from the server and was reported there; any other is reported by the screen, once.
+The screen may come before the SDK has loaded, so it loads the SDK's chunk itself to report (`lib/sentry-lazy.ts`, the same request the loader makes), with the configuration it read on its first render, before a root-level screen replaces the document that held it.
+With no DSN it requests nothing, and the screens render the same.
+
 ### Walking it locally against a fake endpoint
 
 Sentry itself is never contacted.
@@ -57,3 +83,5 @@ SENTRY_DSN=http://publickey@localhost:9999/1 API_URL=http://localhost:<api stand
 - In the browser, the chunks of `lib/sentry-browser.ts` are requested after the load event, and events are posted to `/api/monitoring` only.
 - Use an ordinary browser user agent: a headless one is a bot, and its events are dropped.
 - Without `SENTRY_DSN` the page has no meta, no inline handler and no loader, and nothing is sent.
+- For the error screens, temporary pages that throw on the server, in the browser while hydrating and after, in the root layout on either side, and an RSC navigation into a crash: each shows its screen in the address's language, the code equals the document's `X-Request-ID`, the cookie, the `request failed` line, the event's `request_id` tag and the id the API stand-in saw, and each is one event.
+  Without `SENTRY_DSN`, the same screens and codes, and nothing sent.

@@ -1,3 +1,4 @@
+import { REQUEST_ID_HEADER, referenceCodeCookie } from "@ticket-pos/sentry-rules";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
@@ -51,18 +52,41 @@ import { isUnlocalized } from "@/lib/unlocalized-paths";
  * by the checkout route and by nothing that renders. The invariant is about
  * content, so it survives — and that is also why this branch sets no Vary, which
  * would be a claim about content that is not true here.
+ *
+ * Every request it sees also gets one id (#774, the request id): minted here,
+ * never taken from the browser, forwarded to the render on the request headers
+ * so every API call the page makes carries it (lib/api.ts) and onRequestError
+ * logs a failed render under it, echoed in X-Request-ID, and, for a page or an
+ * RSC navigation, handed to the browser in the cookie the error screens read
+ * their reference code from (@ticket-pos/sentry-rules' reference-code.ts). That
+ * cookie is the same kind of rider as the ref cookie: nothing renders from it,
+ * so a prefixed page still says the same thing to everyone.
  */
 export function middleware(request: NextRequest) {
+  const requestId = crypto.randomUUID();
+  const response = route(request, requestId);
+  response.headers.set("X-Request-ID", requestId);
+  const cookie = referenceCodeCookie({ pathname: request.nextUrl.pathname, headers: request.headers }, requestId);
+  if (cookie) {
+    response.cookies.set(cookie.name, cookie.value, cookie.options);
+  }
+  return response;
+}
+
+function route(request: NextRequest, requestId: string): NextResponse {
   const { pathname } = request.nextUrl;
+  const forwarded = new Headers(request.headers);
+  forwarded.set(REQUEST_ID_HEADER, requestId);
+  const next = () => NextResponse.next({ request: { headers: forwarded } });
 
   if (isUnlocalized(pathname)) {
-    return NextResponse.next();
+    return next();
   }
 
   // Already in a language: served exactly as asked, with nothing read off the
   // request to decide what it says. This is the invariant above, enforced.
   if (localePrefixOf(pathname)) {
-    const response = NextResponse.next();
+    const response = next();
     rememberRefFromEventPage(request, response);
     return response;
   }

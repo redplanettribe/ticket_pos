@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/nextjs";
-
-import { readSentryConfig } from "@ticket-pos/sentry-rules";
+import { createOnRequestError, readSentryConfig, tagRequestId } from "@ticket-pos/sentry-rules";
+import type { Instrumentation } from "next";
 
 import { sentryOptions, serverBeforeSend, serverTracesSampler } from "@/lib/sentry";
 
@@ -11,10 +11,13 @@ import { sentryOptions, serverBeforeSend, serverTracesSampler } from "@/lib/sent
  * initialised.
  *
  * `onRequestError` is Next's hook for an error thrown while rendering a server
- * component, in a route handler, a server action or middleware; it reports the
- * error. Without an initialised SDK the report has no client to send to and
- * does nothing. A not-found (`notFound()`) and the redirects Next throws are
- * control flow, not errors, and Next does not call it for them.
+ * component, in a route handler, a server action or middleware. It logs one
+ * line with the request's id, the reference code the error screen shows, and
+ * reports the error, which the event processor tags with that id (#774,
+ * @ticket-pos/sentry-rules' request-error.ts). Without an initialised SDK the
+ * report has no client to send to and does nothing; the line is still written.
+ * A not-found (`notFound()`) and the redirects Next throws are control flow,
+ * not errors, and Next does not call it for them.
  */
 export function register() {
   const config = readSentryConfig(process.env);
@@ -25,6 +28,12 @@ export function register() {
     // This process's host name would otherwise name the Cloud Run instance.
     serverName: "ticket-pos-storefront",
   });
+  // Every server event carries the id of its request, the reference code an
+  // error screen shows.
+  Sentry.addEventProcessor((event) => tagRequestId(event));
 }
 
-export const onRequestError = Sentry.captureRequestError;
+export const onRequestError = createOnRequestError({
+  report: Sentry.captureRequestError,
+  log: (line) => console.error(line),
+}) satisfies Instrumentation.onRequestError;

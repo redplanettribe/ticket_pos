@@ -1,7 +1,8 @@
 /**
  * Starts Sentry in the browser: the Storefront's lazy chunk (ADR 0079). It is
- * imported only by components/sentry-loader.tsx, after hydration, and only on a
- * page the root layout rendered with a DSN, so neither the SDK nor anything here
+ * imported only through lib/sentry-lazy.ts: by components/sentry-loader.tsx,
+ * after hydration, or by an error screen that has something to report, and
+ * only on a page the root layout rendered with a DSN, so neither the SDK nor anything here
  * is part of the initial bundle, and with no DSN this chunk is never requested.
  *
  * What it turns on:
@@ -15,7 +16,10 @@
  *
  * Errors thrown before it loaded were kept by the inline handler
  * (lib/early-errors.ts) and are reported right after the SDK starts, in the
- * same task, so each is reported exactly once.
+ * same task, so each is reported exactly once. An error an error screen caught
+ * never reaches that handler (React hands it to the boundary, not to the
+ * window), so the screen reports it through captureCaughtError, loading this
+ * chunk itself if the loader has not yet (#774).
  */
 import * as Sentry from "@sentry/nextjs";
 import { parseSentryConfig } from "@ticket-pos/sentry-rules";
@@ -23,25 +27,27 @@ import { parseSentryConfig } from "@ticket-pos/sentry-rules";
 import { reportEarlyErrors } from "./early-errors.ts";
 import { nameNavigation } from "./navigation-route.ts";
 import {
-  SENTRY_CONFIG_META,
   SENTRY_TRACES_SAMPLE_RATE,
   SENTRY_TUNNEL_PATH,
   beforeSendTransaction,
   browserBeforeSend,
   sentryOptions,
 } from "./sentry.ts";
+import { readPageSentryConfig } from "./sentry-lazy.ts";
 import { forwardRouterTransitionsTo } from "./sentry-navigation.ts";
 
 /**
  * Starts the SDK from the configuration the root layout wrote into the page
  * and says whether it is running. Starting twice is a no-op; a page without the
  * configuration never starts it.
+ *
+ * `written` is that configuration as read earlier, for the root-level error
+ * screen: by the time it reports, its own document has replaced the root
+ * layout's, meta included.
  */
-export function startBrowserSentry(): boolean {
+export function startBrowserSentry(written: string | null = readPageSentryConfig(document)): boolean {
   if (Sentry.getClient()) return true;
-  const config = parseSentryConfig(
-    document.querySelector(`meta[name="${SENTRY_CONFIG_META}"]`)?.getAttribute("content"),
-  );
+  const config = parseSentryConfig(written);
   if (!config) return false;
   Sentry.init({
     ...sentryOptions(config, browserBeforeSend),
@@ -61,4 +67,15 @@ export function startBrowserSentry(): boolean {
   forwardRouterTransitionsTo(Sentry.captureRouterTransitionStart);
   reportEarlyErrors(window, Sentry.captureException);
   return true;
+}
+
+/**
+ * Reports an error an error screen caught (#774), tagged with the reference
+ * code the screen shows, starting the SDK first if the loader has not. With no
+ * configuration, nothing starts and nothing is sent. Whether to report at all
+ * (once, not a server error) is reportCaughtError's, before this.
+ */
+export function captureCaughtError(error: unknown, requestId: string | null, written: string | null): void {
+  if (!startBrowserSentry(written ?? readPageSentryConfig(document))) return;
+  Sentry.captureException(error, requestId ? { tags: { request_id: requestId } } : undefined);
 }

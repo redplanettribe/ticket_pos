@@ -693,6 +693,14 @@
       "TAG_NOT_FOUND": "This tag is no longer available."
     }
   },
+  "errorScreen": {
+    "title": "Something went wrong on our end",
+    "description": "This page could not be shown, and it was not anything you did. Try again. If it keeps happening, send the event organizer the reference code below.",
+    "descriptionWithoutReference": "This page could not be shown, and it was not anything you did. Try again. If it keeps happening, tell the event organizer what you were doing.",
+    "retry": "Try again",
+    "retrying": "Trying again…",
+    "referenceCode": "Reference code"
+  },
   "tags": {
     "music": "Music",
     "nightlife": "Nightlife",
