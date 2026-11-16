@@ -58,8 +58,10 @@ func ClosingSweepLastEnded(now time.Time, zone *time.Location) time.Time {
 // factura until an operator records it with Mark annulled or, where a live
 // Credit Note forbids that, acknowledges it.
 type UnrecordedAnnulment struct {
-	// FoundAt is when the sweep's ANULADO landed; AttemptID the status call
-	// that read it, on the attempts ledger (zero if its write failed).
+	// FoundAt is the instant of the sweep's ask that read ANULADO (the tick's
+	// clock when the ask began, as an Annulment Check ask is stamped);
+	// AttemptID the status call that read it, on the attempts ledger (zero
+	// if its write failed).
 	FoundAt   time.Time
 	AttemptID int64
 	// AcknowledgedBy and AcknowledgedAt are the operator's acknowledgement,

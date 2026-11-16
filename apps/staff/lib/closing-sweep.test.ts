@@ -92,7 +92,6 @@ test("the sweep and the warning have their words in both languages", () => {
     "invoicingUnrecordedAcknowledgeCancel",
     "invoicingAttentionUnrecordedAnnulment",
     "invoicingAnnulPanelFromUnrecorded",
-    "closingSweepCardTitle",
     "closingSweepUnswept",
     "closingSweepDescription",
     "closingSweepAgain",

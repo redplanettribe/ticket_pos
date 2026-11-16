@@ -1687,7 +1687,6 @@
     "recipientWarningCardTitle": "Advertencias sobre el receptor",
     "recipientWarningCardDescription": "Facturas de venta autorizadas sobre las que el SRI advirtió: la identificación del receptor no existe o es incorrecta. El documento es válido; la factura del comprador puede estar a nombre equivocado.",
     "openTheRecipientWarnings": "Abrir los documentos con advertencia",
-    "closingSweepCardTitle": "Barrido de cierre",
     "closingSweepUnswept": "{count, plural, one {# factura} other {# facturas}} de {month} no se pudieron barrer",
     "closingSweepDescription": "El SRI no respondió sobre ellas durante el barrido del mes, así que una anulación hecha en el portal podría seguir sin registrar. Barrer de nuevo pregunta solo por estas en la próxima ronda.",
     "closingSweepAgain": "Barrer de nuevo",

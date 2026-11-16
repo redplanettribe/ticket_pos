@@ -1687,7 +1687,6 @@
     "recipientWarningCardTitle": "Recipient warnings",
     "recipientWarningCardDescription": "Authorized Sale Invoices the SRI warned about: the Recipient's Tax ID does not exist or is incorrect. The document stands; the buyer's factura may be in the wrong name.",
     "openTheRecipientWarnings": "Open the warned documents",
-    "closingSweepCardTitle": "Closing Sweep",
     "closingSweepUnswept": "{count, plural, one {# factura} other {# facturas}} from {month} couldn't be swept",
     "closingSweepDescription": "The SRI gave no answer about them while the month was swept, so an annulment made at the portal could still be unrecorded. Sweep again asks about just these on the next tick.",
     "closingSweepAgain": "Sweep again",

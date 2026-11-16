@@ -24,14 +24,20 @@ import (
 // and an annulled one is the Annulment Check's, so both are out.
 func sweepPopulationSQL(month string) string {
 	return `(
-		i.environment = 'production'
-		AND i.kind IN ('sale', 'manual')
-		AND i.status = 'authorized'
-		AND i.signed_xml IS NOT NULL
+		` + sweepableSQL + `
 		AND i.issued_on >= ` + month + `::date
 		AND i.issued_on < (` + month + `::date + INTERVAL '1 month')
 	)`
 }
+
+// sweepableSQL is the population of every month at once: the factura `i`
+// is a production Sale Invoice or manual Tax Invoice, signed, held as
+// authorized. The month's population narrows it by issued_on; the tick's
+// claim reads it whole, since a Sweep again names no month of its own.
+const sweepableSQL = `i.environment = 'production'
+		AND i.kind IN ('sale', 'manual')
+		AND i.status = 'authorized'
+		AND i.signed_xml IS NOT NULL`
 
 // dateOnly is a date-only value as the database's DATE reads it.
 func dateOnly(t time.Time) string {
@@ -59,10 +65,7 @@ func (r *Repository) ClaimDueSweep(ctx context.Context, now, tickStart, leaseUnt
 		SET sweep_leased_until = $3
 		WHERE id = (
 			SELECT i.id FROM invoicing_invoices i
-			WHERE i.environment = 'production'
-			  AND i.kind IN ('sale', 'manual')
-			  AND i.status = 'authorized'
-			  AND i.signed_xml IS NOT NULL
+			WHERE `+sweepableSQL+`
 			  AND i.sweep_reading IS NULL
 			  AND (i.sweep_leased_until IS NULL OR i.sweep_leased_until <= $1)
 			  AND (i.sweep_asked_at IS NULL OR i.sweep_asked_at < $2)
