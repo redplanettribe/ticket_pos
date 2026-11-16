@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -19,14 +20,14 @@ import (
 //  2. the request log, which sees the request only after the id is on its
 //     context, and which writes its line even when the handler aborts;
 //  3. panic recovery, innermost, so the 500 it writes is the status the request
-//     log records.
+//     log records. It reports the panic to reporter, with its stack.
 //
 // The three are unexported so that nothing can assemble them in another order.
 // That is how the request log came to read `"request_id":""` for every request:
 // the log wrapped the id middleware, so the id was attached to a request the log
 // line never saw.
-func RequestPipeline(logger *slog.Logger, next http.Handler) http.Handler {
-	return requestIDMiddleware(loggingMiddleware(logger, recoverMiddleware(logger, next)))
+func RequestPipeline(logger *slog.Logger, reporter Reporter, next http.Handler) http.Handler {
+	return requestIDMiddleware(loggingMiddleware(logger, recoverMiddleware(logger, reporter, next)))
 }
 
 // RequestIDHeader carries a request's id, inbound from a BFF and outbound on
@@ -235,8 +236,10 @@ func BearerToken(r *http.Request) string {
 	return strings.TrimSpace(strings.TrimPrefix(auth, prefix))
 }
 
-// recoverMiddleware converts panics into 500 responses.
-func recoverMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
+// recoverMiddleware converts panics into 500 responses, logging each with its
+// stack and reporting it to reporter as one error report starting at the frame
+// that panicked (ADR 0079).
+func recoverMiddleware(logger *slog.Logger, reporter Reporter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
@@ -248,10 +251,31 @@ func recoverMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 				if rec == http.ErrAbortHandler {
 					panic(rec)
 				}
-				logger.Error("panic recovered", "request_id", RequestID(r.Context()), "panic", rec, "stack", string(debug.Stack()))
+				requestID := RequestID(r.Context())
+				logger.Error("panic recovered", "request_id", requestID, "panic", rec, "stack", string(debug.Stack()))
+				reporter.ReportError(r.Context(), ErrorReport{
+					Err:       recoveredPanic{value: rec},
+					Stack:     panicStack(),
+					RequestID: requestID,
+				})
 				_ = WriteHandlerError(w, RequestID(r.Context()), http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred", nil)
 			}
 		}()
 		next.ServeHTTP(w, r)
 	})
+}
+
+// recoveredPanic is a recovered panic value as an error.
+type recoveredPanic struct {
+	value any
+}
+
+func (p recoveredPanic) Error() string {
+	return fmt.Sprintf("panic: %v", p.value)
+}
+
+// Unwrap exposes a panic value that was itself an error.
+func (p recoveredPanic) Unwrap() error {
+	err, _ := p.value.(error)
+	return err
 }

@@ -135,6 +135,11 @@ services:
       # production charges; override in .env to try another rate locally.
       PLATFORM_FEE_BASIS_POINTS: ${PLATFORM_FEE_BASIS_POINTS:-}
       PLATFORM_FEE_IVA_BASIS_POINTS: ${PLATFORM_FEE_IVA_BASIS_POINTS:-}
+      # Error reporting to Sentry (ADR 0079), from the root .env. Empty (the
+      # default) builds no reporter and sends nothing, which matters because a
+      # local database can hold a copy of production data. Set it only to try
+      # the integration end to end; reports then go as `development`.
+      SENTRY_DSN: ${SENTRY_DSN:-}
     depends_on:
       postgres:
         condition: service_healthy

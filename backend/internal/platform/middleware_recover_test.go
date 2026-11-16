@@ -16,7 +16,7 @@ import (
 // truncated body into one that ends "cleanly".
 func TestRecoverMiddlewareRepanicsErrAbortHandlerWithoutWritingAnEnvelope(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	handler := recoverMiddleware(logger, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := recoverMiddleware(logger, NoopReporter{}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("PK partial"))
 		panic(http.ErrAbortHandler)
@@ -39,7 +39,7 @@ func TestRecoverMiddlewareRepanicsErrAbortHandlerWithoutWritingAnEnvelope(t *tes
 
 func TestRecoverMiddlewareWritesInternalErrorEnvelopeForOtherPanics(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	handler := recoverMiddleware(logger, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := recoverMiddleware(logger, NoopReporter{}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		panic("boom")
 	}))
 	rec := httptest.NewRecorder()

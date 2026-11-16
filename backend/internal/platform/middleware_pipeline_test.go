@@ -32,7 +32,7 @@ func (l logLine) status() int {
 func pipelineUnderTest(next http.Handler) (http.Handler, *bytes.Buffer) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	return RequestPipeline(logger, next), &buf
+	return RequestPipeline(logger, NoopReporter{}, next), &buf
 }
 
 func logLines(t *testing.T, buf *bytes.Buffer) []logLine {

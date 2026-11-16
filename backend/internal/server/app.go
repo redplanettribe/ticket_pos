@@ -51,8 +51,12 @@ import (
 
 // App holds wired application dependencies.
 type App struct {
-	Config            platform.Config
-	Logger            *slog.Logger
+	Config platform.Config
+	Logger *slog.Logger
+	// Reporter is where unexpected failures are reported (ADR 0079):
+	// platform.NoopReporter unless cmd/server passes one with WithReporter, so
+	// the test suites never construct a real one.
+	Reporter          platform.Reporter
 	DB                *platform.DB
 	EmailSender       platform.EmailSender
 	OTPService        *otp.Service
@@ -105,6 +109,14 @@ type appOptions struct {
 	// 60-second cache of the current legal editions. Set to zero by the
 	// integration harness, which publishes editions mid-run.
 	legalTextCacheTTL *time.Duration
+	reporter          platform.Reporter
+}
+
+// WithReporter sets the error reporter the request pipeline reports to.
+func WithReporter(reporter platform.Reporter) Option {
+	return func(o *appOptions) {
+		o.reporter = reporter
+	}
 }
 
 // WithEmailSender overrides the configured email sender.
@@ -677,9 +689,15 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// read (#639), tied here for the same reason.
 	catalogService = catalogService.WithDossierSaleDocuments(invoicingService)
 
+	reporter := options.reporter
+	if reporter == nil {
+		reporter = platform.NoopReporter{}
+	}
+
 	return &App{
 		Config:            cfg,
 		Logger:            logger,
+		Reporter:          reporter,
 		DB:                db,
 		EmailSender:       emailSender,
 		OTPService:        otpService,
