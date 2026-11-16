@@ -655,6 +655,15 @@ components:
         reason:
           type: string
       type: object
+    handler.deepHealthEnvelope:
+      properties:
+        data:
+          $ref: '#/components/schemas/handler.healthResponse'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
     handler.digestSubscriptionBody:
       properties:
         enabled:
@@ -16644,6 +16653,27 @@ paths:
                 $ref: '#/components/schemas/platform.Envelope'
           description: Bad Request
       summary: List public events
+      tags:
+      - public
+  /api/v1/public/health:
+    get:
+      description: Answers 200 when the API can reach its database, and 503 DATABASE_UNREACHABLE
+        when the database did not answer within a short bound. The Storefront's deep
+        health route asks it for the uptime probe; it carries no data.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/handler.deepHealthEnvelope'
+          description: OK
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Service Unavailable
+      summary: Deep health check
       tags:
       - public
   /api/v1/public/organizations/{slug}/events:

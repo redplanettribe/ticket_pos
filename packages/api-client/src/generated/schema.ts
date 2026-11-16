@@ -8639,6 +8639,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Deep health check
+         * @description Answers 200 when the API can reach its database, and 503 DATABASE_UNREACHABLE when the database did not answer within a short bound. The Storefront's deep health route asks it for the uptime probe; it carries no data.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handler.deepHealthEnvelope"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/organizations/{slug}/events": {
         parameters: {
             query?: never;
@@ -15053,6 +15101,11 @@ export interface components {
         };
         "handler.declinePayoutRequestBody": {
             reason?: string;
+        };
+        "handler.deepHealthEnvelope": {
+            data?: components["schemas"]["handler.healthResponse"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
         };
         "handler.digestSubscriptionBody": {
             enabled?: boolean;

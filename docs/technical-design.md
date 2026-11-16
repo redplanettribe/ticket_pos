@@ -222,6 +222,11 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
 - Sampling is decided once per trace, at its head, by `platform.TraceSampling`: a health check never, a checkout, payment or SRI invoicing route always, any other request as the Next app's propagated decision says, or one in ten when there is none.
   The routes always and never traced are named once, in `alwaysTraced` and `neverTraced` (`server/traced_routes.go`), and the server refuses to start when one of them is not registered.
   The SDK keeps the decision it is handed and samples nothing on its own.
+- Two health routes, and only one asks the database.
+  `GET /health`, the one Cloud Run's probes ask, answers while the process serves and asks nothing else, so a database outage never makes Cloud Run restart the API.
+  `GET /api/v1/public/health` pings the pool within `platform.DeepHealthTimeout` (two seconds) and answers 503 `DATABASE_UNREACHABLE`, with a Retry-After, when the database does not answer; that refusal logs at WARN and is never reported.
+  The Storefront's `GET /api/health` asks it, and is the uptime probe's target: 200 only when the Storefront reaches the API and the API reaches the database.
+  Neither deep route is traced or cached.
 - Every query on the pool is a `db.sql` span under its request, through one pgx tracer set in `platform.OpenDB`: the statement text with its `$n` placeholders, never the arguments.
   A query outside a sampled request starts no span, and with no DSN, or in the migrate job, the pool has no tracer at all.
 - Every call to a third party is an `http.client` span under its request, through one wrapped transport (`platform.OutboundTransport`, `platform/outbound.go`): the method, scheme, host and path, the status received, never the query string, headers or body.

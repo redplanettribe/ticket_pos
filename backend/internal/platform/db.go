@@ -30,6 +30,12 @@ const (
 	// Pause between attempts, so a fast-failing error (bad credentials) does not
 	// spin the window away in a tight loop.
 	pingRetryInterval = 2 * time.Second
+
+	// DeepHealthTimeout bounds the deep health route's database check (#775):
+	// a healthy pool answers a ping in milliseconds, and an uptime probe
+	// waits for the Storefront, which waits for this, so the bound stays well
+	// inside the Storefront's own.
+	DeepHealthTimeout = 2 * time.Second
 )
 
 // OpenDB connects to PostgreSQL using DATABASE_URL and verifies the connection,

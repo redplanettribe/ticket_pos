@@ -145,6 +145,13 @@ func domainRetryAfter(code string) string {
 	// exports finish in seconds, so a few seconds is when a retry is worth it.
 	case "HOLDER_EXPORT_BUSY":
 		return "5"
+	// The deep health route's database did not answer (#775). Not a capacity
+	// refusal, but the same kind of answer: the route refusing as designed,
+	// which the uptime probe reads, and which must log at WARN and never be
+	// reported, or a database outage would be one issue per probe. The probe
+	// asks again on its own schedule; the value is for any other caller.
+	case "DATABASE_UNREACHABLE":
+		return "30"
 	}
 	return ""
 }
@@ -660,6 +667,10 @@ func domainHTTPStatus(code string) int {
 	// 503 with a retry for SALE_REVERSAL_IN_PROGRESS's reason: it says nothing
 	// about the request, and trying again in a moment is exactly right.
 	case "HOLDER_EXPORT_BUSY":
+		return http.StatusServiceUnavailable
+	// The deep health route's database did not answer (#775): the API is up
+	// and cannot serve, which is what 503 says.
+	case "DATABASE_UNREACHABLE":
 		return http.StatusServiceUnavailable
 	// The three refusals about an Operator Reversal's money memo: a refund larger
 	// than the Ticket Sale ever collected (#125), money stated about a sale that

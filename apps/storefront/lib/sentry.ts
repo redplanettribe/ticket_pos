@@ -12,6 +12,8 @@
  */
 import { createBeforeSend, scrubEvent, type SentryConfig } from "@ticket-pos/sentry-rules";
 
+import { DEEP_HEALTH_PATH } from "./deep-health.ts";
+
 /**
  * The same-origin route browser events are posted to (app/api/monitoring).
  * Under /api/, which the middleware never sees.
@@ -84,13 +86,15 @@ export function sentryOptions(config: SentryConfig, beforeSend: BeforeSend) {
 /**
  * The server's sampler. The tunnel's own requests are never traced: each one
  * is a browser event being relayed, and tracing it would spend a transaction on
- * every error. Everything else keeps an incoming decision (a navigation the
- * browser traced) or is sampled one in ten.
+ * every error. Nor is the deep health route the uptime probe asks (#775),
+ * which would spend the quota on nothing. Everything else keeps an incoming
+ * decision (a navigation the browser traced) or is sampled one in ten.
  */
 export function serverTracesSampler(context: {
   name: string;
   inheritOrSampleWith: (fallbackSampleRate: number) => number;
 }): number {
   if (context.name.includes(SENTRY_TUNNEL_PATH)) return 0;
+  if (context.name === `GET ${DEEP_HEALTH_PATH}`) return 0;
   return context.inheritOrSampleWith(SENTRY_TRACES_SAMPLE_RATE);
 }

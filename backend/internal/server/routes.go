@@ -36,7 +36,12 @@ func NewHandler(app *App) http.Handler {
 // construction, rather than 500ing on its first malformed id.
 func RegisterRoutes(mux Router, app *App) {
 	mux = RequireDeclaredPathIDs(mux)
+	// The shallow check Cloud Run probes, which asks nothing of the database,
+	// and the deep one the Storefront's uptime target asks (#775). The deep one
+	// is in the public namespace because it reaches the API the way every BFF
+	// call does: with the BFF's service credential and no session.
 	mux.HandleFunc("GET /health", platformhandler.Health)
+	mux.HandleFunc("GET /api/v1/public/health", platformhandler.DeepHealth(app.DB.Pool))
 	mux.Handle("GET /swagger/", SwaggerHandler())
 
 	registerAuthRoutes(mux, app)

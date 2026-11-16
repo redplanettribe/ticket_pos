@@ -21,8 +21,15 @@ import (
 // clock reads now. opts are added to the app's.
 func startAppReportingTo(t *testing.T, fake platform.Reporter, now *atomic.Int64, opts ...server.Option) (*testEnv, *server.App) {
 	t.Helper()
+	return startAppReportingToDatabase(t, fake, now, sharedConnStr, opts...)
+}
+
+// startAppReportingToDatabase is startAppReportingTo with the database reached
+// at databaseURL, such as through a link a test can cut.
+func startAppReportingToDatabase(t *testing.T, fake platform.Reporter, now *atomic.Int64, databaseURL string, opts ...server.Option) (*testEnv, *server.App) {
+	t.Helper()
 	cfg := platform.Config{
-		DatabaseURL:       sharedConnStr,
+		DatabaseURL:       databaseURL,
 		RunMigrations:     false,
 		StorefrontBaseURL: "http://storefront.example",
 		Fees: platform.FeeConfig{

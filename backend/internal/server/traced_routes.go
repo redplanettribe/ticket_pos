@@ -47,10 +47,12 @@ var alwaysTraced = map[string]string{
 	"POST /api/v1/operator/invoicing/closing-sweep/sweep-again": flowSRIInvoicing,
 }
 
-// neverTraced names the routes never traced: the health check, which the
-// platform probes, and which would spend the quota on nothing.
+// neverTraced names the routes never traced: the health checks, the shallow
+// one Cloud Run probes and the deep one the uptime probe reaches through the
+// Storefront (#775), which would spend the quota on nothing.
 var neverTraced = map[string]bool{
-	"GET /health": true,
+	"GET /health":               true,
+	"GET /api/v1/public/health": true,
 }
 
 // traceSampling is the API's sampling at the head of a trace. random is the
