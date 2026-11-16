@@ -305,9 +305,10 @@ func (s *Service) rebuildAndSign(ctx context.Context, row *repository.InvoiceRow
 // 001-001-000000001 actually had — a Submit that died in transport, then
 // query after query answered "received" — turned the hint on and steered
 // the operator away from the resend that was the one thing that would fix
-// it. An `unknown` answer is the authority saying it has no record of the
-// clave at all; a `received` one describes a document it is processing, and
-// it can only be processing one it took from a Submit.
+// it. An `unknown` answer is the authority saying it holds nothing under the
+// clave, which is not proof (it gives that answer for documents it holds,
+// #722); a `received` one describes a document it is processing, and it can
+// only be processing one it took from a Submit.
 //
 // The resend hint (resendHint) is this hint's opposite, and the two are
 // mutually exclusive: a document the authority never acknowledged carries

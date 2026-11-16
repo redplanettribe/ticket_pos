@@ -9,11 +9,12 @@ import (
 // The two hints on the operator's invoice page (#455, tightened by #516):
 // who holds the document, told from the attempts ledger.
 //
-// The check-status hint says "the SRI has this document — check status
-// rather than resending it", and is true only when the authority really
-// holds it: some Submit came back received (invoicing.AcknowledgedByAuthority,
-// the Submit-only rule of #513) and nothing has been decided since. A query
-// answer, whatever it says, is never acknowledgement — the production ledger
+// The check-status hint says the document was received and is still being
+// processed, so check status rather than resending it, and is true only when
+// the authority really holds it: some Submit came back received
+// (invoicing.AcknowledgedByAuthority, the Submit-only rule of #513) and
+// nothing has been decided since. A query answer, whatever it says, is never
+// acknowledgement - the production ledger
 // of 001-001-000000001 was [Submit error, Query received ×N] and the SRI had
 // never seen the document.
 //
