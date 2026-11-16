@@ -33,6 +33,7 @@ import {
 } from "@/lib/operator-api";
 
 import { CertificateExpiryBanner } from "./invoicing/certificate-expiry-warning";
+import { ClosingSweepBanner } from "./invoicing/closing-sweep-banner";
 
 /**
  * The one place platform revenue stops being "active sales only": fees kept on
@@ -240,6 +241,13 @@ export function OperatorDashboardClient() {
         and draws nothing while the certificate is valid or absent.
       */}
       <CertificateExpiryBanner />
+
+      {/*
+        The Closing Sweep (#750, ADR 0078): the facturas of the latest swept
+        month the SRI gave no answer about, with Sweep again. Read on its own,
+        alive whatever Sale Invoicing's flag; nothing while all were swept.
+      */}
+      <ClosingSweepBanner />
 
       <div className="grid gap-6 sm:grid-cols-2">
         {/*

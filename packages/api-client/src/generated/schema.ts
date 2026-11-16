@@ -3331,6 +3331,120 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/invoicing/closing-sweep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count the facturas the Closing Sweep couldn't sweep
+         * @description Returns the Operator Dashboard's Closing Sweep line (#750, spec #742, ADR 0078). Once a month, from 00:00 America/Guayaquil on day 8 of the following month through the end of day 12, the Sale Invoice Drainer's tick asks the SRI's ConsultaComprobante about every production factura of the month just closed that the platform holds as authorized (Sale Invoices and manual Tax Invoices, credited ones included), one at a time and paced; one reading per factura is final. `month` is the latest month whose sweep has ended ("YYYY-MM": the month just closed from day 13, the month before it until then), `unswept_count` how many of its facturas still have no reading - the dashboard says "N facturas from <month> couldn't be swept" when it is not zero - and `due_again_count` how many of those a Sweep again has made due that no tick has asked yet. Zero is the ordinary answer. Read-only. Not behind SALE_INVOICING_ENABLED: manual Tax Invoices are swept with the flag closed. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeClosingSweepStatus"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/invoicing/closing-sweep/sweep-again": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sweep the unswept facturas again
+         * @description Makes the facturas the Operator Dashboard counts as unswept - those of the latest month whose Closing Sweep has ended that still have no reading - and just those, due again on the Sale Invoice Drainer's next tick, whatever the day (#750, ADR 0078). The tick asks each once more, paced as the sweep always is; one that again gets no reading stays unswept. A factura with a reading is final and is never asked again. Answers the dashboard's line as it then stands. Safe to press twice; with nothing unswept it does nothing. No body. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeClosingSweepStatus"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/invoicing/invoices": {
         parameters: {
             query?: never;
@@ -3626,6 +3740,84 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/invoicing/invoices/{id}/acknowledge-unrecorded-annulment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Acknowledge an Unrecorded Annulment
+         * @description Records that a Platform Operator has seen a factura's Unrecorded Annulment - the Closing Sweep found the SRI reporting annulled a factura the platform holds as authorized - where Mark annulled cannot record it because a live Credit Note (or a live Reissue successor) stands against the factura (#750, spec #742, ADR 0078). Who (the session's email) and when are recorded on `unrecorded_annulment`; the needs-attention entry clears; the flag itself stays, for the Tax Document Archive. The factura stays authorized and credited, and nothing is sent to the buyer: whether that Credit Note holds against a factura the SRI holds as annulled is the accountant's question. No body. Refused with INVOICE_NO_UNRECORDED_ANNULMENT (409) on a document carrying none, INVOICE_UNRECORDED_ANNULMENT_ACKNOWLEDGED (409) when acknowledged already, INVOICE_ANNUL_INSTEAD (409) when Mark annulled is admitted and is the true act, INVOICE_NOT_FOUND (404) otherwise. Not behind SALE_INVOICING_ENABLED. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Document id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeInvoiceDetail"];
                     };
                 };
                 /** @description Unauthorized */
@@ -4694,7 +4886,7 @@ export interface paths {
         };
         /**
          * List the documents that need attention
-         * @description Returns a page of the needs-attention queue, which is a UNION OF THREE CONDITIONS and not one status (ADR 0068, ADR 0078): every document parked `needs_attention` (ADR 0060) - a Sale Invoice or Credit Note the SRI refused, one unanswered for 24 hours and still polled, or one that could not be signed - OR every `abandoned` or `annulled` Sale Invoice whose Ticket Sale still stands and has no factura standing for it: a Sale whose buyer holds no valid factura and which nothing yet owes one, the state a Sale sits in between Abandon or Mark annulled and its Issue again or Reissue - OR every annulled factura (Sale Invoice or manual Tax Invoice) whose Annulment Check stands at mismatch: the SRI still reports it authorized. The first two self-clear: the moment Issue again or a Reissue owes a replacement, or the Sale is reversed, the dead document leaves; the third clears when the SRI reports ANULADO. A dead document on a reversed Sale is not listed by the second door, nor is an abandoned or annulled Credit Note or manual Tax Invoice, since no act could ever clear such a row. Each row says which door it came in by in `attention_reason`: `needs_attention`, `abandoned`, `annulled` or `annulment_mismatch`, the last winning where an annulled Sale Invoice comes in by both, with `mismatch_since` on that reason alone, and `reinstate_admitted` true there once the factura's Annulment Window has closed, when Reinstate is offered (#749). LONGEST WAITING FIRST by the instant each entered the queue - `attention_since` when it was parked, `abandoned_at` when it was abandoned, `mismatch_since` at mismatch, `annulled_at` when annulled - one clock, so the doors interleave. Every row is the invoicing list row (kind, number when signed, Sale Confirmation reference, Recipient, total, status, `attention_since` and `abandoned_at`) plus `messages`: the SRI's last messages verbatim, or the platform's own PLATFORM-typed message saying why the document could not be signed. Each row opens the document detail by its id. An empty page is the ordinary answer. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
+         * @description Returns a page of the needs-attention queue, which is a UNION OF FOUR CONDITIONS and not one status (ADR 0068, ADR 0078): every document parked `needs_attention` (ADR 0060) - a Sale Invoice or Credit Note the SRI refused, one unanswered for 24 hours and still polled, or one that could not be signed - OR every `abandoned` or `annulled` Sale Invoice whose Ticket Sale still stands and has no factura standing for it: a Sale whose buyer holds no valid factura and which nothing yet owes one, the state a Sale sits in between Abandon or Mark annulled and its Issue again or Reissue - OR every annulled factura (Sale Invoice or manual Tax Invoice) whose Annulment Check stands at mismatch: the SRI still reports it authorized - OR every authorized factura carrying an unacknowledged Unrecorded Annulment: the Closing Sweep found the SRI reporting it annulled and the platform has no record of it (#750). The first two self-clear: the moment Issue again or a Reissue owes a replacement, or the Sale is reversed, the dead document leaves; the third clears when the SRI reports ANULADO; the fourth when Mark annulled records the annulment or, where a live Credit Note refuses Mark annulled (`acknowledge_admitted` true), an operator acknowledges it. A dead document on a reversed Sale is not listed by the second door, nor is an abandoned or annulled Credit Note or manual Tax Invoice, since no act could ever clear such a row. Each row says which door it came in by in `attention_reason`: `needs_attention`, `abandoned`, `annulled`, `annulment_mismatch` or `unrecorded_annulment`, `annulment_mismatch` winning where an annulled Sale Invoice comes in by both, with `mismatch_since` on that reason alone, and `reinstate_admitted` true there once the factura's Annulment Window has closed, when Reinstate is offered (#749). LONGEST WAITING FIRST by the instant each entered the queue - `attention_since` when it was parked, `abandoned_at` when it was abandoned, `mismatch_since` at mismatch, `annulled_at` when annulled, `unrecorded_annulment.found_at` when the sweep found it - one clock, so the doors interleave. Every row is the invoicing list row (kind, number when signed, Sale Confirmation reference, Recipient, total, status, `attention_since` and `abandoned_at`) plus `messages`: the SRI's last messages verbatim, or the platform's own PLATFORM-typed message saying why the document could not be signed. Each row opens the document detail by its id. An empty page is the ordinary answer. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.
          */
         get: {
             parameters: {
@@ -4756,7 +4948,7 @@ export interface paths {
         };
         /**
          * Count the documents that need attention
-         * @description Returns needs_attention_count: how many documents are in the needs-attention queue - the badge the Operator Dashboard shows so that a stuck document is never silent (ADR 0060). It counts the same UNION the queue lists and not one status (ADR 0068, ADR 0078): documents parked `needs_attention` across every kind, plus `abandoned` or `annulled` Sale Invoices of a Ticket Sale that still stands and has no factura standing for it, plus annulled facturas whose Annulment Check stands at mismatch, so a Sale left without a factura between Abandon or Mark annulled and its replacement is counted in the number the operator watches daily. It counts exactly what the queue lists, so the two can never disagree. Zero is an ordinary answer. Read-only. Platform Operator only.
+         * @description Returns needs_attention_count: how many documents are in the needs-attention queue - the badge the Operator Dashboard shows so that a stuck document is never silent (ADR 0060). It counts the same UNION the queue lists and not one status (ADR 0068, ADR 0078): documents parked `needs_attention` across every kind, plus `abandoned` or `annulled` Sale Invoices of a Ticket Sale that still stands and has no factura standing for it, plus annulled facturas whose Annulment Check stands at mismatch, plus authorized facturas carrying an unacknowledged Unrecorded Annulment (#750), so a Sale left without a factura between Abandon or Mark annulled and its replacement is counted in the number the operator watches daily. It counts exactly what the queue lists, so the two can never disagree. Zero is an ordinary answer. Read-only. Platform Operator only.
          */
         get: {
             parameters: {
@@ -15446,6 +15638,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeClosingSweepStatus": {
+            data?: components["schemas"]["service.ClosingSweepStatus"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeConfirmCheckout": {
             data?: components["schemas"]["service.ConfirmCheckoutResult"];
             error?: components["schemas"]["platform.APIError"];
@@ -16015,6 +16212,14 @@ export interface components {
              */
             policy_acceptance?: string;
         };
+        /**
+         * @description Acknowledge is the acknowledgement of an Unrecorded Annulment (#750),
+         *     null unless the factura carries one.
+         */
+        "service.AcknowledgeView": {
+            admitted?: boolean;
+            refusal?: components["schemas"]["service.RefusalView"];
+        };
         "service.ActiveMemberView": {
             member_id?: string;
             organization_id?: string;
@@ -16200,6 +16405,7 @@ export interface components {
          *     Credit Note, whose Mark annulled keeps no record and has no window.
          */
         "service.AnnulmentRecordView": {
+            acknowledge?: components["schemas"]["service.AcknowledgeView"];
             check?: components["schemas"]["service.AnnulmentCheckView"];
             current?: components["schemas"]["service.AnnulmentView"];
             follow_ups?: components["schemas"]["service.AnnulmentFollowUpView"][];
@@ -16211,6 +16417,11 @@ export interface components {
             annulled_by?: string;
             check_trail?: components["schemas"]["service.AnnulmentCheckTrailView"];
             from_status?: string;
+            /**
+             * @description FromUnrecorded is true when this annulment recorded an Unrecorded
+             *     Annulment the Closing Sweep found (#750): its check started confirmed.
+             */
+            from_unrecorded?: boolean;
             late_acknowledged?: boolean;
             note?: string;
             notice?: components["schemas"]["service.AnnulmentNoticeView"];
@@ -16577,6 +16788,22 @@ export interface components {
              */
             ticket_id?: string;
             ticket_type_name?: string;
+        };
+        /**
+         * @description ClosingSweep is what the tick's Closing Sweep did (#750): asks made
+         *     about the month just closed, and how each read.
+         */
+        "service.ClosingSweepResult": {
+            annulled?: number;
+            asked?: number;
+            authorized?: number;
+            no_reading?: number;
+            unfinished?: number;
+        };
+        "service.ClosingSweepStatus": {
+            due_again_count?: number;
+            month?: string;
+            unswept_count?: number;
         };
         "service.ConfirmCheckoutResult": {
             client_transaction_id?: string;
@@ -17092,6 +17319,7 @@ export interface components {
              */
             ticket_sale_id?: string;
             total_cents?: number;
+            unrecorded_annulment?: components["schemas"]["service.UnrecordedAnnulmentView"];
         };
         /** @enum {string} */
         "service.DocumentRole": "current" | "superseded" | "credit_note" | "not_current";
@@ -18022,6 +18250,7 @@ export interface components {
             ticket_sale_id?: string;
             total_cents?: number;
             totals?: components["schemas"]["service.TotalsView"];
+            unrecorded_annulment?: components["schemas"]["service.UnrecordedAnnulmentView"];
             updated_at?: string;
         };
         "service.InvoiceDetail": {
@@ -18191,6 +18420,7 @@ export interface components {
             ticket_sale_id?: string;
             total_cents?: number;
             totals?: components["schemas"]["service.TotalsView"];
+            unrecorded_annulment?: components["schemas"]["service.UnrecordedAnnulmentView"];
             updated_at?: string;
         };
         "service.InvoiceList": {
@@ -18262,6 +18492,7 @@ export interface components {
              */
             ticket_sale_id?: string;
             total_cents?: number;
+            unrecorded_annulment?: components["schemas"]["service.UnrecordedAnnulmentView"];
         };
         "service.InvoicePagination": {
             page?: number;
@@ -18359,6 +18590,7 @@ export interface components {
              *     a replacement began — the one the queue orders it by.
              */
             abandoned_at?: string;
+            acknowledge_admitted?: boolean;
             annulled_at?: string;
             attention_reason?: string;
             /**
@@ -18419,6 +18651,7 @@ export interface components {
              */
             ticket_sale_id?: string;
             total_cents?: number;
+            unrecorded_annulment?: components["schemas"]["service.UnrecordedAnnulmentView"];
         };
         "service.NeedsAttentionQueue": {
             data?: components["schemas"]["service.NeedsAttentionItem"][];
@@ -20107,6 +20340,7 @@ export interface components {
              *     answer: nothing was due.
              */
             claimed?: number;
+            closing_sweep?: components["schemas"]["service.ClosingSweepResult"];
             /**
              * @description Delivered is how many authorized documents this run mailed to their
              *     buyers (#475). Each is counted under Authorized as well; an authorized
@@ -20859,6 +21093,18 @@ export interface components {
         "service.UninvoicedHouseSaleList": {
             data?: components["schemas"]["service.UninvoicedHouseSale"][];
             pagination?: components["schemas"]["service.InvoicePagination"];
+        };
+        /**
+         * @description UnrecordedAnnulment is the Closing Sweep's warning (#750, ADR 0078):
+         *     the SRI reports this authorized factura annulled and the platform has
+         *     no record of it. Null unless the sweep found one; cleared when Mark
+         *     annulled records it, kept when an operator acknowledges it.
+         */
+        "service.UnrecordedAnnulmentView": {
+            acknowledged_at?: string;
+            acknowledged_by?: string;
+            attempt_id?: number;
+            found_at?: string;
         };
         "service.UnresolvedReversal": {
             attempt_count?: number;

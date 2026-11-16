@@ -44,7 +44,9 @@ import (
 // 0068). It lists documents parked `needs_attention` OR Sale Invoices that
 // are `abandoned` or, since #747, `annulled` on a Ticket Sale that still
 // stands and has no factura standing for it OR, since #746, annulled
-// facturas whose Annulment Check stands at mismatch, and the count - the
+// facturas whose Annulment Check stands at mismatch OR, since #750,
+// authorized facturas carrying an unacknowledged Unrecorded Annulment the
+// Closing Sweep found, and the count - the
 // Operator Dashboard's daily badge - widens identically. Stated here in
 // full because the next reader will otherwise "simplify" it back to one
 // status: Abandon (#578) and Issue again (#580)
@@ -85,13 +87,21 @@ type NeedsAttentionQueue struct {
 // ReinstateAdmitted says Reinstate is admitted on the entry as it stands
 // (#749): at mismatch, once the factura's Annulment Window has closed, so
 // the queue offers it beside the warning. False on every other reason.
+//
+// The fourth door (#750) is `unrecorded_annulment`: an authorized factura
+// the Closing Sweep found the SRI reporting annulled, its "since" the
+// list row's unrecorded_annulment.found_at. AcknowledgeAdmitted says the
+// acknowledgement is the act the entry offers, because a live Credit Note
+// (or Reissue successor) refuses Mark annulled; false otherwise, and on
+// every other reason.
 type NeedsAttentionItem struct {
 	InvoiceListItem
-	AttentionReason   string                 `json:"attention_reason"`
-	MismatchSince     *time.Time             `json:"mismatch_since"`
-	AnnulledAt        *time.Time             `json:"annulled_at"`
-	ReinstateAdmitted bool                   `json:"reinstate_admitted"`
-	Messages          []AuthorityMessageView `json:"messages"`
+	AttentionReason     string                 `json:"attention_reason"`
+	MismatchSince       *time.Time             `json:"mismatch_since"`
+	AnnulledAt          *time.Time             `json:"annulled_at"`
+	ReinstateAdmitted   bool                   `json:"reinstate_admitted"`
+	AcknowledgeAdmitted bool                   `json:"acknowledge_admitted"`
+	Messages            []AuthorityMessageView `json:"messages"`
 }
 
 // The needs-attention queue's reasons, one per door of the union.
@@ -100,6 +110,8 @@ const (
 	AttentionReasonAbandoned         = "abandoned"
 	AttentionReasonAnnulled          = "annulled"
 	AttentionReasonAnnulmentMismatch = "annulment_mismatch"
+	// AttentionReasonUnrecordedAnnulment: the Closing Sweep's door (#750).
+	AttentionReasonUnrecordedAnnulment = "unrecorded_annulment"
 )
 
 // attentionReason is the door a queued document came in by: read off its
@@ -116,6 +128,8 @@ func attentionReason(status invoicing.InvoiceStatus, atMismatch bool) string {
 			return AttentionReasonAnnulmentMismatch
 		}
 		return AttentionReasonAnnulled
+	case invoicing.InvoiceStatusAuthorized:
+		return AttentionReasonUnrecordedAnnulment
 	default:
 		return AttentionReasonParked
 	}
@@ -151,20 +165,28 @@ func (s *Service) CountRecipientWarnings(ctx context.Context) (*RecipientWarning
 
 // ListNeedsAttention returns one page of the needs-attention queue - every
 // kind parked needs_attention, every abandoned or annulled Sale Invoice of
-// a standing Sale no factura stands for, and every annulled factura at
-// mismatch - longest waiting first.
+// a standing Sale no factura stands for, every annulled factura at
+// mismatch, and every unacknowledged Unrecorded Annulment - longest waiting
+// first.
 func (s *Service) ListNeedsAttention(ctx context.Context, page, pageSize int) (*NeedsAttentionQueue, error) {
 	rows, total, err := s.repo.ListNeedsAttention(ctx, page, pageSize)
 	if err != nil {
 		return nil, err
 	}
-	var annulled []string
+	var annulled, flagged []string
 	for i := range rows {
-		if rows[i].Invoice.Status == invoicing.InvoiceStatusAnnulled {
+		switch rows[i].Invoice.Status {
+		case invoicing.InvoiceStatusAnnulled:
 			annulled = append(annulled, rows[i].Invoice.ID)
+		case invoicing.InvoiceStatusAuthorized:
+			flagged = append(flagged, rows[i].Invoice.ID)
 		}
 	}
 	mismatchSince, err := s.repo.AnnulmentMismatchSince(ctx, annulled)
+	if err != nil {
+		return nil, err
+	}
+	refused, err := s.repo.MarkAnnulledRefused(ctx, flagged)
 	if err != nil {
 		return nil, err
 	}
@@ -183,6 +205,8 @@ func (s *Service) ListNeedsAttention(ctx context.Context, page, pageSize int) (*
 			item.ReinstateAdmitted = !annulmentWindowOf(&rows[i].Invoice).Open(now)
 		case AttentionReasonAnnulled:
 			item.AnnulledAt = rows[i].Invoice.AnnulledAt
+		case AttentionReasonUnrecordedAnnulment:
+			item.AcknowledgeAdmitted = refused[rows[i].Invoice.ID]
 		}
 		items = append(items, item)
 	}

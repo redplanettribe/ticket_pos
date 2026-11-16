@@ -204,6 +204,9 @@ type SaleInvoiceDrainResult struct {
 	// ReinstatementNotice is what the tick's reinstatement notice pass did
 	// (#749): sends and refusals, run right after the Annulment Notice's.
 	ReinstatementNotice ReinstatementNoticeResult `json:"reinstatement_notice"`
+	// ClosingSweep is what the tick's Closing Sweep did (#750): asks made
+	// about the month just closed, and how each read.
+	ClosingSweep ClosingSweepResult `json:"closing_sweep"`
 }
 
 // DrainSaleInvoices works the Sale Invoices that are due, one at a time,
@@ -220,10 +223,15 @@ type SaleInvoiceDrainResult struct {
 // annulment is checked with the flag closed. The drain that follows gets
 // what is left of the tick's budget, and its response carries the pass's
 // counts. See annulment_check.go.
+//
+// Then the Closing Sweep (#750), in what the check left of its budget, so
+// the two status-ask passes together start asks for at most
+// annulmentCheckBudget. See closing_sweep.go.
 func (s *Service) DrainSaleInvoices(ctx context.Context) (*SaleInvoiceDrainResult, error) {
 	started := time.Now()
 	s.warnOfCertificateExpiry(ctx)
 	checks := s.checkAnnulments(ctx, annulmentCheckBudget)
+	sweep := s.sweepClosedMonth(ctx, max(0, annulmentCheckBudget-time.Since(started)))
 	notices := s.sendAnnulmentNotices(ctx, annulmentNoticeBudget)
 	reinstatementNotices := s.sendReinstatementNotices(ctx, reinstatementNoticeBudget)
 	if !s.saleInvoicingEnabled {
@@ -238,6 +246,7 @@ func (s *Service) DrainSaleInvoices(ctx context.Context) (*SaleInvoiceDrainResul
 	out.AnnulmentCheck = checks
 	out.AnnulmentNotice = notices
 	out.ReinstatementNotice = reinstatementNotices
+	out.ClosingSweep = sweep
 	return out, nil
 }
 

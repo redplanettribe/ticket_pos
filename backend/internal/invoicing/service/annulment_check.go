@@ -65,7 +65,8 @@ const (
 // client's 10 s timeout (#748), and the reinstatement notice pass's
 // reinstatementNoticeBudget plus one send the same (#749), before the
 // drain, which then gets nothing of saleInvoiceDrainBudget, inside the
-// scheduler's deadline.
+// scheduler's deadline. The Closing Sweep (#750) adds nothing to it: it
+// starts asks only in what this pass left of annulmentCheckBudget.
 const annulmentAskBound = StatusAskCalls*sri.DefaultTimeout + (StatusAskCalls-1)*DefaultStatusAskSpacing + 5*time.Second
 
 // annulmentCheckLease is how long a claimed check is hidden from other

@@ -376,6 +376,12 @@ type Invoice struct {
 	BackfilledBy string
 	BackfilledAt *time.Time
 
+	// UnrecordedAnnulment is the Closing Sweep's flag (#750, ADR 0078): the
+	// SRI reports this factura annulled and the platform has no record of
+	// it. Nil when no sweep found one, and cleared by Mark annulled, which
+	// records it.
+	UnrecordedAnnulment *UnrecordedAnnulment
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

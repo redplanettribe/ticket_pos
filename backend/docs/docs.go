@@ -1863,6 +1863,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeClosingSweepStatus": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.ClosingSweepStatus"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeConfirmCheckout": {
                 "properties": {
                     "data": {
@@ -3448,6 +3462,18 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.AcknowledgeView": {
+                "description": "Acknowledge is the acknowledgement of an Unrecorded Annulment (#750),\nnull unless the factura carries one.",
+                "properties": {
+                    "admitted": {
+                        "type": "boolean"
+                    },
+                    "refusal": {
+                        "$ref": "#/components/schemas/service.RefusalView"
+                    }
+                },
+                "type": "object"
+            },
             "service.ActiveMemberView": {
                 "properties": {
                     "member_id": {
@@ -3800,6 +3826,9 @@ const docTemplate = `{
             "service.AnnulmentRecordView": {
                 "description": "Annulment and Annulability are a factura's Mark annulled (#745, spec\n#742, ADR 0078): the record of every annulment it carries, and\nwhether the act is admitted on it as it stands, with the Annulment\nWindow and the fields the SRI portal's form asks for. Both null on a\nCredit Note, whose Mark annulled keeps no record and has no window.",
                 "properties": {
+                    "acknowledge": {
+                        "$ref": "#/components/schemas/service.AcknowledgeView"
+                    },
                     "check": {
                         "$ref": "#/components/schemas/service.AnnulmentCheckView"
                     },
@@ -3839,6 +3868,10 @@ const docTemplate = `{
                     },
                     "from_status": {
                         "type": "string"
+                    },
+                    "from_unrecorded": {
+                        "description": "FromUnrecorded is true when this annulment recorded an Unrecorded\nAnnulment the Closing Sweep found (#750): its check started confirmed.",
+                        "type": "boolean"
                     },
                     "late_acknowledged": {
                         "type": "boolean"
@@ -4220,6 +4253,41 @@ const docTemplate = `{
                     },
                     "ticket_type_name": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.ClosingSweepResult": {
+                "description": "ClosingSweep is what the tick's Closing Sweep did (#750): asks made\nabout the month just closed, and how each read.",
+                "properties": {
+                    "annulled": {
+                        "type": "integer"
+                    },
+                    "asked": {
+                        "type": "integer"
+                    },
+                    "authorized": {
+                        "type": "integer"
+                    },
+                    "no_reading": {
+                        "type": "integer"
+                    },
+                    "unfinished": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.ClosingSweepStatus": {
+                "properties": {
+                    "due_again_count": {
+                        "type": "integer"
+                    },
+                    "month": {
+                        "type": "string"
+                    },
+                    "unswept_count": {
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -4823,6 +4891,9 @@ const docTemplate = `{
                     },
                     "total_cents": {
                         "type": "integer"
+                    },
+                    "unrecorded_annulment": {
+                        "$ref": "#/components/schemas/service.UnrecordedAnnulmentView"
                     }
                 },
                 "type": "object"
@@ -6004,6 +6075,9 @@ const docTemplate = `{
                     "totals": {
                         "$ref": "#/components/schemas/service.TotalsView"
                     },
+                    "unrecorded_annulment": {
+                        "$ref": "#/components/schemas/service.UnrecordedAnnulmentView"
+                    },
                     "updated_at": {
                         "type": "string"
                     }
@@ -6196,6 +6270,9 @@ const docTemplate = `{
                     "totals": {
                         "$ref": "#/components/schemas/service.TotalsView"
                     },
+                    "unrecorded_annulment": {
+                        "$ref": "#/components/schemas/service.UnrecordedAnnulmentView"
+                    },
                     "updated_at": {
                         "type": "string"
                     }
@@ -6281,6 +6358,9 @@ const docTemplate = `{
                     },
                     "total_cents": {
                         "type": "integer"
+                    },
+                    "unrecorded_annulment": {
+                        "$ref": "#/components/schemas/service.UnrecordedAnnulmentView"
                     }
                 },
                 "type": "object"
@@ -6447,6 +6527,9 @@ const docTemplate = `{
                         "description": "AbandonedAt is when the operator abandoned the document, because the\nauthority refuses its number and never took it (#578, ADR 0068); null\nin every other state. It is on the LIST ROW and not only the detail\nbecause it is the queue's second \"waiting since\" (#581): an abandoned\nrow's attention_since is cleared, and this is the instant its wait for\na replacement began — the one the queue orders it by.",
                         "type": "string"
                     },
+                    "acknowledge_admitted": {
+                        "type": "boolean"
+                    },
                     "annulled_at": {
                         "type": "string"
                     },
@@ -6524,6 +6607,9 @@ const docTemplate = `{
                     },
                     "total_cents": {
                         "type": "integer"
+                    },
+                    "unrecorded_annulment": {
+                        "$ref": "#/components/schemas/service.UnrecordedAnnulmentView"
                     }
                 },
                 "type": "object"
@@ -8675,6 +8761,9 @@ const docTemplate = `{
                         "description": "Claimed is how many documents this run took up. Zero is the ordinary\nanswer: nothing was due.",
                         "type": "integer"
                     },
+                    "closing_sweep": {
+                        "$ref": "#/components/schemas/service.ClosingSweepResult"
+                    },
                     "delivered": {
                         "description": "Delivered is how many authorized documents this run mailed to their\nbuyers (#475). Each is counted under Authorized as well; an authorized\ndocument the sender refused is not counted here and is due again.",
                         "type": "integer"
@@ -9633,6 +9722,24 @@ const docTemplate = `{
                     },
                     "pagination": {
                         "$ref": "#/components/schemas/service.InvoicePagination"
+                    }
+                },
+                "type": "object"
+            },
+            "service.UnrecordedAnnulmentView": {
+                "description": "UnrecordedAnnulment is the Closing Sweep's warning (#750, ADR 0078):\nthe SRI reports this authorized factura annulled and the platform has\nno record of it. Null unless the sweep found one; cleared when Mark\nannulled records it, kept when an operator acknowledges it.",
+                "properties": {
+                    "acknowledged_at": {
+                        "type": "string"
+                    },
+                    "acknowledged_by": {
+                        "type": "string"
+                    },
+                    "attempt_id": {
+                        "type": "integer"
+                    },
+                    "found_at": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -12930,6 +13037,98 @@ const docTemplate = `{
                 ]
             }
         },
+        "/api/v1/operator/invoicing/closing-sweep": {
+            "get": {
+                "description": "Returns the Operator Dashboard's Closing Sweep line (#750, spec #742, ADR 0078). Once a month, from 00:00 America/Guayaquil on day 8 of the following month through the end of day 12, the Sale Invoice Drainer's tick asks the SRI's ConsultaComprobante about every production factura of the month just closed that the platform holds as authorized (Sale Invoices and manual Tax Invoices, credited ones included), one at a time and paced; one reading per factura is final. ` + "`" + `month` + "`" + ` is the latest month whose sweep has ended (\"YYYY-MM\": the month just closed from day 13, the month before it until then), ` + "`" + `unswept_count` + "`" + ` how many of its facturas still have no reading - the dashboard says \"N facturas from \u003cmonth\u003e couldn't be swept\" when it is not zero - and ` + "`" + `due_again_count` + "`" + ` how many of those a Sweep again has made due that no tick has asked yet. Zero is the ordinary answer. Read-only. Not behind SALE_INVOICING_ENABLED: manual Tax Invoices are swept with the flag closed. Platform Operator only.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeClosingSweepStatus"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Count the facturas the Closing Sweep couldn't sweep",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/closing-sweep/sweep-again": {
+            "post": {
+                "description": "Makes the facturas the Operator Dashboard counts as unswept - those of the latest month whose Closing Sweep has ended that still have no reading - and just those, due again on the Sale Invoice Drainer's next tick, whatever the day (#750, ADR 0078). The tick asks each once more, paced as the sweep always is; one that again gets no reading stays unswept. A factura with a reading is final and is never asked again. Answers the dashboard's line as it then stands. Safe to press twice; with nothing unswept it does nothing. No body. Platform Operator only.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeClosingSweepStatus"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Sweep the unswept facturas again",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
         "/api/v1/operator/invoicing/invoices": {
             "get": {
                 "description": "Returns a page of every Tax Invoice the platform has issued or owes, in the order asked for and newest first by default: the document ` + "`" + `kind` + "`" + ` (` + "`" + `manual` + "`" + ` from the form; ` + "`" + `sale` + "`" + ` for a Sale Invoice a paid House checkout owed; ` + "`" + `credit_note` + "`" + ` for its reversal), the printed number (` + "`" + `001-001-000000012` + "`" + `), emission date, Recipient, total, status, country and the environment it was issued under (` + "`" + `test` + "`" + ` invoices are badged as such), and — on a ` + "`" + `sale` + "`" + ` or ` + "`" + `credit_note` + "`" + ` — the Ticket Sale id and its Sale Confirmation reference. A document still ` + "`" + `owed` + "`" + ` (ADR 0060) has no number, environment, emission date or signer yet: those are null until the Sale Invoice Drainer signs it. ` + "`" + `attention_since` + "`" + ` is when a ` + "`" + `needs_attention` + "`" + ` document was parked, null otherwise. ` + "`" + `recipient_warning` + "`" + ` is true on an authorized Sale Invoice the SRI warned about — the Recipient's Tax ID does not exist (advertencia 59) or is incorrect (62) — until the document is superseded (ADR 0061); the status is unaffected, and it is always false while SALE_INVOICING_ENABLED is closed. ` + "`" + `kind` + "`" + ` narrows the page to one document kind; a value that is not ` + "`" + `manual` + "`" + `, ` + "`" + `sale` + "`" + ` or ` + "`" + `credit_note` + "`" + ` is refused under VALIDATION_FAILED. ` + "`" + `status` + "`" + ` narrows the page to one status — ` + "`" + `owed` + "`" + `, ` + "`" + `pending` + "`" + `, ` + "`" + `authorized` + "`" + `, ` + "`" + `not_authorized` + "`" + `, ` + "`" + `rejected` + "`" + `, ` + "`" + `needs_attention` + "`" + `, ` + "`" + `withdrawn` + "`" + `, ` + "`" + `annulled` + "`" + ` or ` + "`" + `abandoned` + "`" + ` — so that, among other things, every number the platform has abandoned (ADR 0068) can be audited; any other value is refused under VALIDATION_FAILED rather than read as \"every status\". ` + "`" + `recipient_warning=true` + "`" + ` narrows the page to the documents carrying a Recipient Warning; any other value is refused under VALIDATION_FAILED, and while SALE_INVOICING_ENABLED is closed the filter answers 404 SALE_INVOICING_UNAVAILABLE. ` + "`" + `q` + "`" + ` narrows the page to the documents matching one case-insensitive substring, matched against the printed number, the Recipient's legal name, the Recipient's Tax ID and the Sale Confirmation reference of the Ticket Sale the document declares — any one of the four is enough. The term is matched literally, so ` + "`" + `%` + "`" + ` and ` + "`" + `_` + "`" + ` are those characters and not wildcards; there is no accent folding and no shortcut for a bare sequential number. Blank or absent is every document. ` + "`" + `issued_from` + "`" + ` and ` + "`" + `issued_to` + "`" + ` narrow the page to an EMISSION DATE range: inclusive calendar days (` + "`" + `YYYY-MM-DD` + "`" + `) compared against the emission date alone — the day in the Issuer's country the document itself carries, the one this list's date column shows — with no timezone conversion, and either bound may be given on its own. A document with NO emission date, an owed Sale Invoice the Drainer has not signed, does not match once either bound is given, so a fiscal period never counts a document the Tax Authority has not seen; that is deliberately different from the default order, which keeps un-issued documents at the newest end. A malformed date, or an ` + "`" + `issued_from` + "`" + ` after the ` + "`" + `issued_to` + "`" + `, is refused under VALIDATION_FAILED rather than answered with an empty list. ` + "`" + `sort` + "`" + ` and ` + "`" + `dir` + "`" + ` order the page: ` + "`" + `date` + "`" + ` (the emission date falling back to when the document was created, so an un-issued document sits at the newest end), ` + "`" + `number` + "`" + ` (the printed number's text, which within one establishment and point of emission is sequence order, so a gap in the numbering can be read off; a document with no number sorts last in BOTH directions), ` + "`" + `total` + "`" + ` (the document's total) and ` + "`" + `recipient` + "`" + ` (the Recipient's legal name as the document snapshotted it), each ` + "`" + `asc` + "`" + ` or ` + "`" + `desc` + "`" + `. Absent is ` + "`" + `date` + "`" + ` ` + "`" + `desc` + "`" + `, which is the order this list has always had. Every sort ends in the same tiebreakers — creation time, then id — so two documents that tie on the chosen column keep one order and paging never repeats or skips one. Any other sort key or direction is refused under VALIDATION_FAILED rather than silently read as the default. The other columns are not sortable: Kind, Status and Country are answered by their filters. ` + "`" + `environment` + "`" + ` narrows the page to the documents issued under one of the authority's environments, ` + "`" + `production` + "`" + ` or ` + "`" + `test` + "`" + `, so a month-end reconciliation never picks up a certification document; absent is every environment, and any other value is refused under VALIDATION_FAILED. A document with NO environment — an owed Sale Invoice the Drainer has not signed — does not match either value, for the reason it falls out of an Emission Date range: it was issued under no environment. Every filter combines. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.",
@@ -13448,6 +13647,83 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Abandon a document the SRI refuses by number",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/invoicing/invoices/{id}/acknowledge-unrecorded-annulment": {
+            "post": {
+                "description": "Records that a Platform Operator has seen a factura's Unrecorded Annulment - the Closing Sweep found the SRI reporting annulled a factura the platform holds as authorized - where Mark annulled cannot record it because a live Credit Note (or a live Reissue successor) stands against the factura (#750, spec #742, ADR 0078). Who (the session's email) and when are recorded on ` + "`" + `unrecorded_annulment` + "`" + `; the needs-attention entry clears; the flag itself stays, for the Tax Document Archive. The factura stays authorized and credited, and nothing is sent to the buyer: whether that Credit Note holds against a factura the SRI holds as annulled is the accountant's question. No body. Refused with INVOICE_NO_UNRECORDED_ANNULMENT (409) on a document carrying none, INVOICE_UNRECORDED_ANNULMENT_ACKNOWLEDGED (409) when acknowledged already, INVOICE_ANNUL_INSTEAD (409) when Mark annulled is admitted and is the true act, INVOICE_NOT_FOUND (404) otherwise. Not behind SALE_INVOICING_ENABLED. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Document id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeInvoiceDetail"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Acknowledge an Unrecorded Annulment",
                 "tags": [
                     "operator"
                 ]
@@ -14468,7 +14744,7 @@ const docTemplate = `{
         },
         "/api/v1/operator/invoicing/needs-attention": {
             "get": {
-                "description": "Returns a page of the needs-attention queue, which is a UNION OF THREE CONDITIONS and not one status (ADR 0068, ADR 0078): every document parked ` + "`" + `needs_attention` + "`" + ` (ADR 0060) - a Sale Invoice or Credit Note the SRI refused, one unanswered for 24 hours and still polled, or one that could not be signed - OR every ` + "`" + `abandoned` + "`" + ` or ` + "`" + `annulled` + "`" + ` Sale Invoice whose Ticket Sale still stands and has no factura standing for it: a Sale whose buyer holds no valid factura and which nothing yet owes one, the state a Sale sits in between Abandon or Mark annulled and its Issue again or Reissue - OR every annulled factura (Sale Invoice or manual Tax Invoice) whose Annulment Check stands at mismatch: the SRI still reports it authorized. The first two self-clear: the moment Issue again or a Reissue owes a replacement, or the Sale is reversed, the dead document leaves; the third clears when the SRI reports ANULADO. A dead document on a reversed Sale is not listed by the second door, nor is an abandoned or annulled Credit Note or manual Tax Invoice, since no act could ever clear such a row. Each row says which door it came in by in ` + "`" + `attention_reason` + "`" + `: ` + "`" + `needs_attention` + "`" + `, ` + "`" + `abandoned` + "`" + `, ` + "`" + `annulled` + "`" + ` or ` + "`" + `annulment_mismatch` + "`" + `, the last winning where an annulled Sale Invoice comes in by both, with ` + "`" + `mismatch_since` + "`" + ` on that reason alone, and ` + "`" + `reinstate_admitted` + "`" + ` true there once the factura's Annulment Window has closed, when Reinstate is offered (#749). LONGEST WAITING FIRST by the instant each entered the queue - ` + "`" + `attention_since` + "`" + ` when it was parked, ` + "`" + `abandoned_at` + "`" + ` when it was abandoned, ` + "`" + `mismatch_since` + "`" + ` at mismatch, ` + "`" + `annulled_at` + "`" + ` when annulled - one clock, so the doors interleave. Every row is the invoicing list row (kind, number when signed, Sale Confirmation reference, Recipient, total, status, ` + "`" + `attention_since` + "`" + ` and ` + "`" + `abandoned_at` + "`" + `) plus ` + "`" + `messages` + "`" + `: the SRI's last messages verbatim, or the platform's own PLATFORM-typed message saying why the document could not be signed. Each row opens the document detail by its id. An empty page is the ordinary answer. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.",
+                "description": "Returns a page of the needs-attention queue, which is a UNION OF FOUR CONDITIONS and not one status (ADR 0068, ADR 0078): every document parked ` + "`" + `needs_attention` + "`" + ` (ADR 0060) - a Sale Invoice or Credit Note the SRI refused, one unanswered for 24 hours and still polled, or one that could not be signed - OR every ` + "`" + `abandoned` + "`" + ` or ` + "`" + `annulled` + "`" + ` Sale Invoice whose Ticket Sale still stands and has no factura standing for it: a Sale whose buyer holds no valid factura and which nothing yet owes one, the state a Sale sits in between Abandon or Mark annulled and its Issue again or Reissue - OR every annulled factura (Sale Invoice or manual Tax Invoice) whose Annulment Check stands at mismatch: the SRI still reports it authorized - OR every authorized factura carrying an unacknowledged Unrecorded Annulment: the Closing Sweep found the SRI reporting it annulled and the platform has no record of it (#750). The first two self-clear: the moment Issue again or a Reissue owes a replacement, or the Sale is reversed, the dead document leaves; the third clears when the SRI reports ANULADO; the fourth when Mark annulled records the annulment or, where a live Credit Note refuses Mark annulled (` + "`" + `acknowledge_admitted` + "`" + ` true), an operator acknowledges it. A dead document on a reversed Sale is not listed by the second door, nor is an abandoned or annulled Credit Note or manual Tax Invoice, since no act could ever clear such a row. Each row says which door it came in by in ` + "`" + `attention_reason` + "`" + `: ` + "`" + `needs_attention` + "`" + `, ` + "`" + `abandoned` + "`" + `, ` + "`" + `annulled` + "`" + `, ` + "`" + `annulment_mismatch` + "`" + ` or ` + "`" + `unrecorded_annulment` + "`" + `, ` + "`" + `annulment_mismatch` + "`" + ` winning where an annulled Sale Invoice comes in by both, with ` + "`" + `mismatch_since` + "`" + ` on that reason alone, and ` + "`" + `reinstate_admitted` + "`" + ` true there once the factura's Annulment Window has closed, when Reinstate is offered (#749). LONGEST WAITING FIRST by the instant each entered the queue - ` + "`" + `attention_since` + "`" + ` when it was parked, ` + "`" + `abandoned_at` + "`" + ` when it was abandoned, ` + "`" + `mismatch_since` + "`" + ` at mismatch, ` + "`" + `annulled_at` + "`" + ` when annulled, ` + "`" + `unrecorded_annulment.found_at` + "`" + ` when the sweep found it - one clock, so the doors interleave. Every row is the invoicing list row (kind, number when signed, Sale Confirmation reference, Recipient, total, status, ` + "`" + `attention_since` + "`" + ` and ` + "`" + `abandoned_at` + "`" + `) plus ` + "`" + `messages` + "`" + `: the SRI's last messages verbatim, or the platform's own PLATFORM-typed message saying why the document could not be signed. Each row opens the document detail by its id. An empty page is the ordinary answer. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100). Platform Operator only.",
                 "parameters": [
                     {
                         "description": "Page number (default 1)",
@@ -14532,7 +14808,7 @@ const docTemplate = `{
         },
         "/api/v1/operator/invoicing/needs-attention/count": {
             "get": {
-                "description": "Returns needs_attention_count: how many documents are in the needs-attention queue - the badge the Operator Dashboard shows so that a stuck document is never silent (ADR 0060). It counts the same UNION the queue lists and not one status (ADR 0068, ADR 0078): documents parked ` + "`" + `needs_attention` + "`" + ` across every kind, plus ` + "`" + `abandoned` + "`" + ` or ` + "`" + `annulled` + "`" + ` Sale Invoices of a Ticket Sale that still stands and has no factura standing for it, plus annulled facturas whose Annulment Check stands at mismatch, so a Sale left without a factura between Abandon or Mark annulled and its replacement is counted in the number the operator watches daily. It counts exactly what the queue lists, so the two can never disagree. Zero is an ordinary answer. Read-only. Platform Operator only.",
+                "description": "Returns needs_attention_count: how many documents are in the needs-attention queue - the badge the Operator Dashboard shows so that a stuck document is never silent (ADR 0060). It counts the same UNION the queue lists and not one status (ADR 0068, ADR 0078): documents parked ` + "`" + `needs_attention` + "`" + ` across every kind, plus ` + "`" + `abandoned` + "`" + ` or ` + "`" + `annulled` + "`" + ` Sale Invoices of a Ticket Sale that still stands and has no factura standing for it, plus annulled facturas whose Annulment Check stands at mismatch, plus authorized facturas carrying an unacknowledged Unrecorded Annulment (#750), so a Sale left without a factura between Abandon or Mark annulled and its replacement is counted in the number the operator watches daily. It counts exactly what the queue lists, so the two can never disagree. Zero is an ordinary answer. Read-only. Platform Operator only.",
                 "responses": {
                     "200": {
                         "content": {

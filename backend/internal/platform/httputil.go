@@ -277,6 +277,11 @@ func domainHTTPStatus(code string) int {
 	case "INVOICE_NOT_REINSTATABLE", "INVOICE_REINSTATE_WINDOW_OPEN", "INVOICE_REINSTATE_NOT_MISMATCH",
 		"INVOICE_REINSTATE_UNAUTHORIZED":
 		return http.StatusConflict
+	// Acknowledging an Unrecorded Annulment (#750, ADR 0078): the factura
+	// carries no flag to acknowledge, it was acknowledged already, or Mark
+	// annulled is admitted on it and is the true act.
+	case "INVOICE_NO_UNRECORDED_ANNULMENT", "INVOICE_UNRECORDED_ANNULMENT_ACKNOWLEDGED", "INVOICE_ANNUL_INSTEAD":
+		return http.StatusConflict
 	// The Sale Invoice Reissue's refusals (#483, ADR 0061): the document
 	// exists and the request was well formed, and what stands in the way is
 	// a fact about the document or its Sale — its kind, its state, a reversed

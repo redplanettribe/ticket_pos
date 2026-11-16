@@ -62,6 +62,7 @@ import { INVOICE_STATUS_KEYS } from "../invoice-status";
 import { OperatorInvoiceIssueAgain } from "./operator-invoice-issue-again";
 import { OperatorInvoiceReinstate } from "./operator-invoice-reinstate";
 import { OperatorInvoiceReissue } from "./operator-invoice-reissue";
+import { UnrecordedAnnulmentWarning } from "./operator-invoice-unrecorded";
 
 /**
  * The annulment panel (#745, spec #742, ADR 0078): Mark annulled on a factura,
@@ -130,6 +131,12 @@ import { OperatorInvoiceReissue } from "./operator-invoice-reissue";
  * window closes. A reinstated factura's past annulments - who annulled and
  * reinstated, when, the notes, where the check stood, both buyer notices -
  * are drawn as a trail on whichever face the panel then shows.
+ *
+ * AN UNRECORDED ANNULMENT (#750) heads the panel of an authorized factura the
+ * Closing Sweep found the SRI reporting annulled: the warning, and either the
+ * pointer to the record form below (its check then starts confirmed) or,
+ * where a live Credit Note refuses Mark annulled, the acknowledgement; once
+ * acknowledged, who and when. The platform never records it by itself.
  */
 export function OperatorInvoiceAnnulment({
   invoice,
@@ -145,10 +152,15 @@ export function OperatorInvoiceAnnulment({
   if (mode === "annulled") {
     return <AnnulledPanel invoice={invoice} onUpdated={onUpdated} />;
   }
-  if (mode === "refused") {
-    return <RefusedPanel invoice={invoice} />;
-  }
-  return <RecordPanel invoice={invoice} onUpdated={onUpdated} />;
+  // The Unrecorded Annulment's warning (#750) heads the panel of an
+  // authorized factura the Closing Sweep flagged: above the record form it
+  // says to record it there, above the refusal it offers the acknowledgement.
+  return (
+    <div className="space-y-4">
+      <UnrecordedAnnulmentWarning invoice={invoice} onUpdated={onUpdated} />
+      {mode === "refused" ? <RefusedPanel invoice={invoice} /> : <RecordPanel invoice={invoice} onUpdated={onUpdated} />}
+    </div>
+  );
 }
 
 function RefusedPanel({ invoice }: { invoice: OperatorInvoiceDetail }) {
@@ -222,6 +234,7 @@ function AnnulledPanel({
           </p>
         ) : null}
         {current?.late_acknowledged ? <p>{t("invoicingAnnulPanelTrailLate")}</p> : null}
+        {current?.from_unrecorded ? <p>{t("invoicingAnnulPanelFromUnrecorded")}</p> : null}
         {current?.notice ? <NoticeLine notice={current.notice} locale={locale} /> : null}
         <ReinstateSection invoice={invoice} onUpdated={onUpdated} />
         <FollowUpChooserSection invoice={invoice} />

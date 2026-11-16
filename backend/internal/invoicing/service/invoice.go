@@ -710,6 +710,11 @@ type InvoiceListItem struct {
 	// SALE_INVOICING_ENABLED is closed. The status stays authorized:
 	// superseded is a relation, not a state.
 	SupersededByInvoiceID *string `json:"superseded_by_invoice_id"`
+	// UnrecordedAnnulment is the Closing Sweep's warning (#750, ADR 0078):
+	// the SRI reports this authorized factura annulled and the platform has
+	// no record of it. Null unless the sweep found one; cleared when Mark
+	// annulled records it, kept when an operator acknowledges it.
+	UnrecordedAnnulment *UnrecordedAnnulmentView `json:"unrecorded_annulment"`
 }
 
 // InvoiceList is the ADR-0006 nested envelope for the list.
@@ -920,6 +925,9 @@ type AnnulmentRecordView struct {
 	Check     *AnnulmentCheckView     `json:"check"`
 	FollowUps []AnnulmentFollowUpView `json:"follow_ups"`
 	Reinstate *ReinstateView          `json:"reinstate"`
+	// Acknowledge is the acknowledgement of an Unrecorded Annulment (#750),
+	// null unless the factura carries one.
+	Acknowledge *AcknowledgeView `json:"acknowledge"`
 }
 
 // AnnulmentView is one Mark annulled on a factura: the state it was annulled
@@ -946,6 +954,9 @@ type AnnulmentView struct {
 	ReinstateNote       *string                  `json:"reinstate_note"`
 	ReinstatementNotice *ReinstatementNoticeView `json:"reinstatement_notice"`
 	CheckTrail          *AnnulmentCheckTrailView `json:"check_trail"`
+	// FromUnrecorded is true when this annulment recorded an Unrecorded
+	// Annulment the Closing Sweep found (#750): its check started confirmed.
+	FromUnrecorded bool `json:"from_unrecorded"`
 }
 
 // AnnulmentCheckTrailView is one annulment's check as its record keeps it:
@@ -1055,6 +1066,7 @@ func (s *Service) detailView(row *repository.InvoiceRow) *InvoiceDetail {
 		d.Annulment.Check = annulmentCheckView(row)
 		d.Annulment.FollowUps = annulmentFollowUps(row, s.saleInvoicingEnabled)
 		d.Annulment.Reinstate = reinstateView(row, s.clock())
+		d.Annulment.Acknowledge = acknowledgeView(row)
 		d.Annulability = s.annulabilityView(row, s.clock())
 	}
 	return d
@@ -1072,6 +1084,7 @@ func annulmentRecordView(annulments []invoicing.Annulment) *AnnulmentRecordView 
 			ReinstatedAt:     a.ReinstatedAt,
 			Notice:           annulmentNoticeView(&a),
 			CheckTrail:       annulmentCheckTrailView(a.Check),
+			FromUnrecorded:   a.FromUnrecorded,
 		}
 		if r := a.Reinstatement; r != nil {
 			v.ReinstatedBy = optional(r.By)
@@ -1169,6 +1182,7 @@ func invoiceListItem(row *repository.InvoiceRow) InvoiceListItem {
 		AbandonedAt:           optionalTime(inv.AbandonedAt),
 		RecipientWarning:      inv.RecipientWarning,
 		SupersededByInvoiceID: optional(inv.SupersededByInvoiceID),
+		UnrecordedAnnulment:   unrecordedAnnulmentView(inv.UnrecordedAnnulment),
 	}
 	if inv.Signed() {
 		item.Environment = optional(string(inv.Environment))

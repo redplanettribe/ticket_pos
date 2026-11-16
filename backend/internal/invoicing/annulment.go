@@ -132,6 +132,10 @@ type Annulment struct {
 	Check *AnnulmentCheck
 	// Notice is the buyer's Annulment Notice on this annulment (#748).
 	Notice AnnulmentNotice
+	// FromUnrecorded is true when Mark annulled recorded an Unrecorded
+	// Annulment the Closing Sweep found (#750): its check started confirmed
+	// with no asks, the SRI having said so already.
+	FromUnrecorded bool
 }
 
 // AnnulmentNoticeState is what the annulments row records of the buyer's

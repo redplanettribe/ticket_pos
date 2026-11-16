@@ -321,6 +321,30 @@ func ErrInvoiceReinstateUnauthorized() apperror.DomainError {
 	return apperror.New("INVOICE_REINSTATE_UNAUTHORIZED", "The SRI did not return this factura's authorization, which the platform never stored. Try again later; it is reinstated once the SRI answers AUTORIZADO with the authorized XML.", nil)
 }
 
+// The acknowledgement's refusals (#750, spec #742, ADR 0078), all 409: an
+// Unrecorded Annulment is acknowledged only where Mark annulled cannot
+// record it, so the queue entry clears while the accountant decides about
+// the Credit Note that stands in the way.
+
+// ErrInvoiceNoUnrecordedAnnulment: the document carries no Unrecorded
+// Annulment: the Closing Sweep found none, or Mark annulled recorded it.
+func ErrInvoiceNoUnrecordedAnnulment() apperror.DomainError {
+	return apperror.New("INVOICE_NO_UNRECORDED_ANNULMENT", "The SRI has not been found reporting this document annulled without a record here, so there is nothing to acknowledge.", nil)
+}
+
+// ErrInvoiceUnrecordedAnnulmentAcknowledged: an operator acknowledged it
+// already; the acknowledgement is recorded once.
+func ErrInvoiceUnrecordedAnnulmentAcknowledged() apperror.DomainError {
+	return apperror.New("INVOICE_UNRECORDED_ANNULMENT_ACKNOWLEDGED", "This Unrecorded Annulment has already been acknowledged.", nil)
+}
+
+// ErrInvoiceAnnulInstead: Mark annulled is admitted on the factura, and
+// recording the annulment is the true act; an acknowledgement would leave
+// the platform declaring a factura the SRI holds as annulled.
+func ErrInvoiceAnnulInstead() apperror.DomainError {
+	return apperror.New("INVOICE_ANNUL_INSTEAD", "Nothing stands in the way of recording this annulment: record it with Mark annulled instead.", nil)
+}
+
 // ErrInvoiceSaleReversed: the Sale no longer stands, so income that no
 // longer stands is never re-declared.
 func ErrInvoiceSaleReversed() apperror.DomainError {

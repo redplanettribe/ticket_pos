@@ -146,6 +146,14 @@ function InvoiceRow({ item, locale }: { item: OperatorInvoiceListItem; locale: A
             {t("invoicingRecipientWarningBadge")}
           </Badge>
         ) : null}
+        {item.unrecorded_annulment ? (
+          // The Unrecorded Annulment (#750), beside the status for the same
+          // reason: the platform holds the factura authorized, and the SRI
+          // reports it annulled. Kept once acknowledged, as the warning is.
+          <Badge variant="destructive" className="ml-2">
+            {t("invoicingUnrecordedBadge")}
+          </Badge>
+        ) : null}
         {item.superseded_by_invoice_id ? (
           // The superseded marker (#486, ADR 0061), beside the status for the
           // same reason: a reissued factura is still authorized, and no

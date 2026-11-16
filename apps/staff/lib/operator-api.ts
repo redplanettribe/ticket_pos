@@ -1214,6 +1214,25 @@ export type OperatorInvoiceListItem = {
    * authorized: superseded is a relation, not a state.
    */
   superseded_by_invoice_id: string | null;
+  /**
+   * The Closing Sweep's warning (#750, ADR 0078): the SRI reports this
+   * authorized factura annulled and the platform has no record of it. Null
+   * unless the sweep found one; cleared when Mark annulled records it, kept
+   * (acknowledged) when a live Credit Note keeps Mark annulled from it.
+   */
+  unrecorded_annulment: OperatorUnrecordedAnnulment | null;
+};
+
+/**
+ * An Unrecorded Annulment (#750): when the Closing Sweep found the SRI
+ * reporting the factura annulled, the status call that read it, and the
+ * operator's acknowledgement, null until given.
+ */
+export type OperatorUnrecordedAnnulment = {
+  found_at: string;
+  attempt_id: number | null;
+  acknowledged_by: string | null;
+  acknowledged_at: string | null;
 };
 
 /** One line as recorded, with its arithmetic. */
@@ -1328,6 +1347,11 @@ export type OperatorInvoiceAnnulment = {
     since: string | null;
     asks: { asked_at: string; reading: StatusReading; manual: boolean }[];
   } | null;
+  /**
+   * True when this annulment recorded an Unrecorded Annulment the Closing
+   * Sweep found (#750): its check started confirmed, with no asks.
+   */
+  from_unrecorded: boolean;
 };
 
 /**
@@ -1514,6 +1538,14 @@ export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
      * Refused with the code its press would answer.
      */
     reinstate: { admitted: boolean; refusal: { code: string; message: string } | null } | null;
+    /**
+     * Whether the acknowledgement of an Unrecorded Annulment is admitted
+     * (#750), null unless the factura carries one: only where a live Credit
+     * Note (or Reissue successor) refuses Mark annulled. Refused with the code
+     * its press would answer - INVOICE_ANNUL_INSTEAD where Mark annulled is
+     * the act, INVOICE_UNRECORDED_ANNULMENT_ACKNOWLEDGED once given.
+     */
+    acknowledge: { admitted: boolean; refusal: { code: string; message: string } | null } | null;
   } | null;
   annulability: OperatorInvoiceAnnulability | null;
   has_authorization_xml: boolean;
@@ -1603,6 +1635,50 @@ export type OperatorRecipientWarningCount = {
  */
 export async function fetchOperatorRecipientWarningCount(): Promise<OperatorRecipientWarningCount> {
   return fetchEventsJSON<OperatorRecipientWarningCount>("/api/operator/invoicing/recipient-warnings/count");
+}
+
+// ---- The Closing Sweep (#750, ADR 0078) ---------------------------------
+
+/**
+ * The Operator Dashboard's Closing Sweep line: the latest month whose sweep
+ * has ended (`YYYY-MM`), how many of its production facturas couldn't be
+ * swept (no reading from the SRI), and how many of those a Sweep again has
+ * made due that no tick has asked yet. Zero unswept draws nothing.
+ */
+export type OperatorClosingSweepStatus = {
+  month: string;
+  unswept_count: number;
+  due_again_count: number;
+};
+
+const CLOSING_SWEEP_PATH = "/api/operator/invoicing/closing-sweep";
+
+/** The dashboard's Closing Sweep line. Alive whatever Sale Invoicing's flag. */
+export async function fetchOperatorClosingSweep(): Promise<OperatorClosingSweepStatus> {
+  return fetchEventsJSON<OperatorClosingSweepStatus>(CLOSING_SWEEP_PATH);
+}
+
+/**
+ * Sweep again: makes just the unswept facturas of that month due on the
+ * Drainer's next tick, and answers the line as it then stands.
+ */
+export async function sweepAgainOperatorClosingSweep(): Promise<OperatorClosingSweepStatus> {
+  return fetchEventsJSON<OperatorClosingSweepStatus>(`${CLOSING_SWEEP_PATH}/sweep-again`, { method: "POST" });
+}
+
+/**
+ * Acknowledges a factura's Unrecorded Annulment where a live Credit Note
+ * keeps Mark annulled from recording it (#750), and returns the factura as
+ * it then stands: who and when on `unrecorded_annulment`, the queue entry
+ * cleared, the flag kept. Refused with INVOICE_ANNUL_INSTEAD where Mark
+ * annulled is admitted, INVOICE_UNRECORDED_ANNULMENT_ACKNOWLEDGED once
+ * given and INVOICE_NO_UNRECORDED_ANNULMENT on a factura carrying none.
+ */
+export async function acknowledgeUnrecordedAnnulment(id: string): Promise<OperatorInvoiceDetail> {
+  return fetchEventsJSON<OperatorInvoiceDetail>(
+    `${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/acknowledge-unrecorded-annulment`,
+    { method: "POST" },
+  );
 }
 
 // ---- The Uninvoiced House Sales (#507-#509, ADR 0064) ------------------
@@ -1712,7 +1788,7 @@ export type OperatorNeedsAttentionItem = OperatorInvoiceListItem & {
    * authorized - since `mismatch_since`, which wins where an annulled Sale
    * Invoice comes in by both.
    */
-  attention_reason: "needs_attention" | "abandoned" | "annulled" | "annulment_mismatch";
+  attention_reason: "needs_attention" | "abandoned" | "annulled" | "annulment_mismatch" | "unrecorded_annulment";
   mismatch_since: string | null;
   /** When the factura was annulled, on the `annulled` reason alone: the queue's "since" for it. */
   annulled_at: string | null;
@@ -1721,6 +1797,12 @@ export type OperatorNeedsAttentionItem = OperatorInvoiceListItem & {
    * Annulment Window has closed. False on every other reason.
    */
   reinstate_admitted: boolean;
+  /**
+   * On the `unrecorded_annulment` reason (#750): the acknowledgement is the
+   * act the entry offers, because a live Credit Note refuses Mark annulled.
+   * False otherwise, where Mark annulled on the factura's page records it.
+   */
+  acknowledge_admitted: boolean;
   messages: OperatorInvoiceMessage[];
 };
 
@@ -1740,7 +1822,8 @@ const NEEDS_ATTENTION_PATH = "/api/operator/invoicing/needs-attention";
  * The needs-attention queue, longest waiting first: every kind parked
  * `needs_attention`, and — since #581 — every `abandoned` Sale Invoice with
  * no live successor whose Ticket Sale still stands, and - since #746 - every
- * annulled factura whose Annulment Check stands at mismatch. A union of
+ * annulled factura whose Annulment Check stands at mismatch, and - since
+ * #750 - every unacknowledged Unrecorded Annulment. A union of
  * conditions, not one status: a Sale can sit abandoned-and-unreplaced
  * between Abandon (#578) and Issue again (#580), and this is where it is
  * seen. It self-clears when a replacement is owed.

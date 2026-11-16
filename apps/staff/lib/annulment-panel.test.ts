@@ -466,6 +466,7 @@ test("a past annulment reads who, when, both notes, where its check stood and bo
           { asked_at: "2026-07-07T17:30:00Z", reading: "authorized", manual: false },
         ],
       },
+      from_unrecorded: false,
     },
   ]);
   assert.deepEqual(line, {
@@ -496,6 +497,7 @@ test("a past annulment from before the check has no verdict, and an unsent notic
       reinstate_note: null,
       reinstatement_notice: { state: "owed", sent_at: null },
       check_trail: null,
+      from_unrecorded: false,
     },
   ]);
   assert.equal(line.verdict, null);

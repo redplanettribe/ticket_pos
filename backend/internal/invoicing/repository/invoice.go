@@ -490,6 +490,12 @@ const standingCreditNoteSQL = `(SELECT c.id FROM invoicing_invoices c WHERE c.cr
 //
 // THE ANNULMENT CHECK STARTS WITH THE ROW (#746): `checking`, its first ask
 // due one rung after the recording, for the Drainer's tick to claim.
+//
+// AN UNRECORDED ANNULMENT IS RECORDED BY IT (#750): on a factura the Closing
+// Sweep flagged, the SRI has said ANULADO already, so the check starts
+// `confirmed` at the recording with no asks and none scheduled, the row is
+// marked from_unrecorded, and the flag is cleared in the same transaction:
+// the annulment is now on the platform's record.
 func (r *Repository) AnnulFactura(ctx context.Context, invoiceID string, a FacturaAnnulment) (bool, error) {
 	tx, err := r.db.Pool.BeginTx(ctx, nil)
 	if err != nil {
@@ -525,13 +531,30 @@ func (r *Repository) AnnulFactura(ctx context.Context, invoiceID string, a Factu
 	// touched by an annulment, and only an authorized document is ever
 	// delivered.
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO invoicing_annulments (invoice_id, from_status, annulled_by, annulled_at, note, late_acknowledged, check_verdict, next_ask_at, notice_state)
-		SELECT $1, $2, $3, $4, NULLIF($5, ''), $6, $7, $8,
-		       CASE WHEN i.kind = 'sale' AND i.delivered_at IS NOT NULL THEN 'owed' ELSE 'not_owed' END
-		FROM invoicing_invoices i WHERE i.id = $1
+		INSERT INTO invoicing_annulments (invoice_id, from_status, annulled_by, annulled_at, note, late_acknowledged,
+		                                  check_verdict, check_verdict_at, next_ask_at, notice_state, from_unrecorded)
+		SELECT $1, $2, $3, $4::timestamptz, NULLIF($5, ''), $6,
+		       CASE WHEN u.flagged THEN $9::text ELSE $7::text END,
+		       CASE WHEN u.flagged THEN $4::timestamptz END,
+		       CASE WHEN u.flagged THEN NULL ELSE $8::timestamptz END,
+		       CASE WHEN i.kind = 'sale' AND i.delivered_at IS NOT NULL THEN 'owed' ELSE 'not_owed' END,
+		       u.flagged
+		FROM invoicing_invoices i
+		CROSS JOIN LATERAL (SELECT i.unrecorded_annulment_found_at IS NOT NULL AS flagged) u
+		WHERE i.id = $1
 	`, invoiceID, a.FromStatus, a.AnnulledBy, a.AnnulledAt, a.Note, a.LateAcknowledged,
-		invoicing.AnnulmentChecking, invoicing.FirstAnnulmentAsk(a.AnnulledAt)); err != nil {
+		invoicing.AnnulmentChecking, invoicing.FirstAnnulmentAsk(a.AnnulledAt), invoicing.AnnulmentConfirmed); err != nil {
 		return false, fmt.Errorf("record annulment: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE invoicing_invoices SET
+			unrecorded_annulment_found_at = NULL,
+			unrecorded_annulment_attempt_id = NULL,
+			unrecorded_annulment_acknowledged_by = NULL,
+			unrecorded_annulment_acknowledged_at = NULL
+		WHERE id = $1 AND unrecorded_annulment_found_at IS NOT NULL
+	`, invoiceID); err != nil {
+		return false, fmt.Errorf("clear unrecorded annulment: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return false, fmt.Errorf("commit annul factura: %w", err)
@@ -572,7 +595,7 @@ func (r *Repository) loadAnnulmentFacts(ctx context.Context, row *InvoiceRow) er
 		SELECT id, invoice_id, from_status, annulled_by, annulled_at, COALESCE(note, ''), late_acknowledged, reinstated_at,
 		       check_verdict, check_verdict_at, next_ask_at, notice_state, notice_sent_at, notice_attempts,
 		       reinstated_by, COALESCE(reinstate_note, ''), reinstatement_notice_state, reinstatement_notice_sent_at,
-		       reinstatement_notice_attempts
+		       reinstatement_notice_attempts, from_unrecorded
 		FROM invoicing_annulments WHERE invoice_id = $1 ORDER BY annulled_at, created_at, id
 	`, row.Invoice.ID)
 	if err != nil {
@@ -588,7 +611,7 @@ func (r *Repository) loadAnnulmentFacts(ctx context.Context, row *InvoiceRow) er
 		var rein invoicing.Reinstatement
 		if err := rows.Scan(&a.ID, &a.InvoiceID, &a.FromStatus, &a.AnnulledBy, &a.AnnulledAt, &a.Note, &a.LateAcknowledged, &a.ReinstatedAt,
 			&verdict, &since, &next, &a.Notice.State, &a.Notice.SentAt, &a.Notice.Attempts,
-			&reinstatedBy, &rein.Note, &reinstatementNotice, &rein.Notice.SentAt, &rein.Notice.Attempts); err != nil {
+			&reinstatedBy, &rein.Note, &reinstatementNotice, &rein.Notice.SentAt, &rein.Notice.Attempts, &a.FromUnrecorded); err != nil {
 			return fmt.Errorf("scan annulment: %w", err)
 		}
 		if a.ReinstatedAt != nil {
@@ -735,6 +758,8 @@ const invoiceColumns = `
 	` + liveSuccessorID + `,
 	rr.reissued_by, rr.reissued_at, rr.reissue_note,
 	i.backfilled_by, i.backfilled_at,
+	i.unrecorded_annulment_found_at, i.unrecorded_annulment_attempt_id,
+	i.unrecorded_annulment_acknowledged_by, i.unrecorded_annulment_acknowledged_at,
 	i.created_at, i.updated_at,
 	e.cod_doc, e.estab, e.pto_emi, e.secuencial, e.access_key, e.authorization_number, e.authorization_date`
 
@@ -1100,9 +1125,10 @@ func (r *Repository) ListInvoices(ctx context.Context, filter InvoiceFilter, pag
 //	OR annulled, any kind, its standing      - the SRI still reports the
 //	   annulment's check at mismatch           annulled factura authorized
 //	                                           (reason `annulment_mismatch`).
-//
-// The spec's fourth door, a factura carrying an unacknowledged Unrecorded
-// Annulment, lands with the Closing Sweep's ticket.
+//	OR authorized, carrying an               - the SRI reports the factura
+//	   unacknowledged Unrecorded               annulled and the platform has
+//	   Annulment                               no record of it (reason
+//	                                           `unrecorded_annulment`).
 //
 // WHY THE SECOND DOOR IS HERE AT ALL. Abandon (#578) and Issue again (#580)
 // are deliberately two presses, and so are Mark annulled and its follow-up
@@ -1149,6 +1175,14 @@ func (r *Repository) ListInvoices(ctx context.Context, filter InvoiceFilter, pag
 // manual Tax Invoice at mismatch is as much the operator's to look at as a
 // Sale Invoice.
 //
+// THE FOURTH DOOR, THE UNRECORDED ANNULMENT (#750): the Closing Sweep read
+// ANULADO for a factura the platform holds as authorized
+// (unrecordedAnnulmentSQL). The platform never records the annulment
+// itself; the entry clears when an operator does, with Mark annulled (the
+// factura is then annulled and the flag cleared), or acknowledges it where
+// a live Credit Note refuses Mark annulled. It is disjoint from the other
+// three on the status.
+//
 // THE DOORS OVERLAP ON ONE CASE: an annulled Sale Invoice of a standing,
 // unreplaced Sale whose check is at mismatch comes in by both. It is one
 // row all the same (a WHERE clause, not a UNION ALL), and its reason is
@@ -1162,7 +1196,17 @@ var needsAttentionWhere = `(
 		i.status = 'annulled'
 		AND ` + annulmentAtMismatchSQL + `
 	)
+	OR ` + unrecordedAnnulmentSQL + `
 )`
+
+// unrecordedAnnulmentSQL is the queue's fourth door: the factura `i` is held
+// as authorized, the Closing Sweep found the SRI reporting it annulled, and
+// no operator has acknowledged it.
+const unrecordedAnnulmentSQL = `(
+		i.status = 'authorized'
+		AND i.unrecorded_annulment_found_at IS NOT NULL
+		AND i.unrecorded_annulment_acknowledged_at IS NULL
+	)`
 
 // deadUnreplacedSaleInvoiceSQL is the queue's second door: the Sale Invoice
 // `i` is abandoned or annulled, its Ticket Sale still stands, and nothing
@@ -1212,15 +1256,16 @@ const annulmentAtMismatchSQL = `(` + annulmentMismatchSinceSQL + ` IS NOT NULL)`
 //
 // A mismatch enters at the instant its check reached it (#746), the third
 // instant of the same clock, and an annulled Sale Invoice of a standing,
-// unreplaced Sale at the instant it was annulled (#747), the fourth. Where
-// an annulled one comes in by both doors the mismatch's instant is read,
-// matching the reason the item carries.
+// unreplaced Sale at the instant it was annulled (#747), the fourth, and an
+// Unrecorded Annulment at the instant the sweep found it (#750), the fifth.
+// Where an annulled one comes in by both doors the mismatch's instant is
+// read, matching the reason the item carries.
 //
 // Ties, which one drain round can produce, break on the row's own age as
 // they always have. Should both instants somehow be NULL, Postgres sorts
 // NULLs last on ASC and the row lands at the back rather than anywhere
 // undefined.
-const needsAttentionOrder = `ORDER BY COALESCE(i.attention_since, i.abandoned_at, ` + annulmentMismatchSinceSQL + `, i.annulled_at) ASC, i.created_at ASC, i.id ASC`
+const needsAttentionOrder = `ORDER BY COALESCE(i.attention_since, i.abandoned_at, ` + annulmentMismatchSinceSQL + `, i.annulled_at, i.unrecorded_annulment_found_at) ASC, i.created_at ASC, i.id ASC`
 
 // needsAttentionFrom is the least the membership rule can be decided from:
 // the row and the Ticket Sale it is about. The count reads through it and
@@ -1233,8 +1278,9 @@ const needsAttentionFrom = `
 
 // ListNeedsAttention reads a page of the needs-attention queue - documents
 // parked needs_attention, of every kind, abandoned or annulled Sale
-// Invoices of a standing Sale that has no factura, and annulled facturas at
-// mismatch (needsAttentionWhere) -
+// Invoices of a standing Sale that has no factura, annulled facturas at
+// mismatch, and facturas carrying an unacknowledged Unrecorded Annulment
+// (needsAttentionWhere) -
 // LONGEST WAITING FIRST by the instant each entered the queue
 // (needsAttentionOrder), and how many there are in all (#477, #581).
 func (r *Repository) ListNeedsAttention(ctx context.Context, page, pageSize int) ([]InvoiceRow, int, error) {
@@ -1413,6 +1459,9 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 		reissuedAt                         sql.NullTime
 		backfilledBy                       sql.NullString
 		backfilledAt                       sql.NullTime
+		unrecordedFoundAt, unrecordedAckAt sql.NullTime
+		unrecordedAttemptID                sql.NullInt64
+		unrecordedAckBy                    sql.NullString
 		codDoc, estab, ptoEmi, accessKey   sql.NullString
 		secuencial                         sql.NullInt64
 		authNumber                         sql.NullString
@@ -1429,6 +1478,7 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 		&abandonedBy, &abandonedAt, &abandonNote,
 		&supersedesID, &supersededByID, &reissuedBy, &reissuedAt, &reissueNote,
 		&backfilledBy, &backfilledAt,
+		&unrecordedFoundAt, &unrecordedAttemptID, &unrecordedAckBy, &unrecordedAckAt,
 		&inv.CreatedAt, &inv.UpdatedAt,
 		&codDoc, &estab, &ptoEmi, &secuencial, &accessKey, &authNumber, &authDate,
 	); err != nil {
@@ -1489,6 +1539,17 @@ func scanInvoice(scanner interface{ Scan(dest ...any) error }) (*InvoiceRow, err
 	if backfilledAt.Valid {
 		t := backfilledAt.Time
 		inv.BackfilledAt = &t
+	}
+	if unrecordedFoundAt.Valid {
+		inv.UnrecordedAnnulment = &invoicing.UnrecordedAnnulment{
+			FoundAt:        unrecordedFoundAt.Time,
+			AttemptID:      unrecordedAttemptID.Int64,
+			AcknowledgedBy: unrecordedAckBy.String,
+		}
+		if unrecordedAckAt.Valid {
+			t := unrecordedAckAt.Time
+			inv.UnrecordedAnnulment.AcknowledgedAt = &t
+		}
 	}
 	if accessKey.Valid {
 		row.Ecuador = &invoicing.EcuadorInvoiceDetails{
