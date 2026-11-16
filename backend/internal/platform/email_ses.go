@@ -8,7 +8,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
-	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sesv2"
 	sestypes "github.com/aws/aws-sdk-go-v2/service/sesv2/types"
@@ -65,7 +64,7 @@ const (
 // resolve on the first send, so building the sender at startup costs no
 // network call.
 func NewSESEmailSender(ctx context.Context, settings SESConfig, from string, logger Logger) (*SESEmailSender, error) {
-	httpClient := awshttp.NewBuildableClient().WithTimeout(sesHTTPTimeout)
+	httpClient := NewOutboundAWSClient(sesHTTPTimeout)
 	// The standard retryer retries throttling and transient faults with
 	// backoff, so a brief SES throttle does not drop a message. A rejection is
 	// not retried.

@@ -100,7 +100,7 @@ func NewPayPhoneProvider(apiToken, storeID, baseURL string, logger Logger) *PayP
 		apiToken: apiToken,
 		storeID:  storeID,
 		baseURL:  strings.TrimRight(baseURL, "/"),
-		client:   &http.Client{Timeout: payPhoneTimeout},
+		client:   NewOutboundClient(payPhoneTimeout),
 		logger:   logger,
 	}
 }

@@ -82,7 +82,7 @@ func New(creds Credentials, tokenEndpoint string, logger platform.Logger) *Clien
 	return &Client{
 		creds:         creds,
 		tokenEndpoint: tokenEndpoint,
-		httpClient:    &http.Client{Timeout: exchangeTimeout},
+		httpClient:    platform.NewOutboundClient(exchangeTimeout),
 		logger:        logger,
 	}
 }

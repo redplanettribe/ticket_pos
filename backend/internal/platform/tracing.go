@@ -84,7 +84,16 @@ type routeMatcher interface {
 	Handler(r *http.Request) (h http.Handler, pattern string)
 }
 
-type requestSpanKey struct{}
+type requestTraceKey struct{}
+
+// requestTrace is what a request carries of its trace: the request span, the
+// decision taken at the head, and the reporter the span was started through,
+// which every span under it is started through too.
+type requestTrace struct {
+	span     Span
+	sampled  bool
+	reporter Reporter
+}
 
 // tracingMiddleware starts one span per request, a transaction named by the
 // route pattern the request is about to be routed by ("unrouted" when none
@@ -121,15 +130,15 @@ func tracingMiddleware(reporter Reporter, sampling TraceSampling, routes routeMa
 		if flow != "" {
 			span.SetTag("flow", flow)
 		}
-		ctx = context.WithValue(ctx, requestSpanKey{}, span)
+		ctx = context.WithValue(ctx, requestTraceKey{}, requestTrace{span: span, sampled: sampled, reporter: reporter})
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
 // requestSpan is the request span on ctx, if any.
 func requestSpan(ctx context.Context) (Span, bool) {
-	span, ok := ctx.Value(requestSpanKey{}).(Span)
-	return span, ok
+	trace, ok := ctx.Value(requestTraceKey{}).(requestTrace)
+	return trace.span, ok
 }
 
 // setRequestSpanStatus records on the request span, if ctx carries one, the
@@ -140,12 +149,19 @@ func setRequestSpanStatus(ctx context.Context, status int) {
 	}
 }
 
-// startChildSpan starts a span under the request span on ctx. Outside a
-// request it starts nothing and returns ctx and nil: a query at startup or in
-// a background loop is not the start of a trace.
-func startChildSpan(ctx context.Context, reporter Reporter, options SpanOptions) (context.Context, Span) {
-	if _, ok := requestSpan(ctx); !ok {
+// startChildSpan starts a span under the request span on ctx, through the
+// reporter the request span was started through. It starts nothing and
+// returns ctx and nil outside a request, a query at startup or in a
+// background loop is not the start of a trace; in a request the head decided
+// not to trace, whose spans would never leave; and with the NoopReporter,
+// which is what no DSN means.
+func startChildSpan(ctx context.Context, options SpanOptions) (context.Context, Span) {
+	trace, ok := ctx.Value(requestTraceKey{}).(requestTrace)
+	if !ok || !trace.sampled {
 		return ctx, nil
 	}
-	return reporter.StartSpan(ctx, options)
+	if _, noop := trace.reporter.(NoopReporter); noop {
+		return ctx, nil
+	}
+	return trace.reporter.StartSpan(ctx, options)
 }

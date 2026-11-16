@@ -35,9 +35,9 @@ const (
 // OpenDB connects to PostgreSQL using DATABASE_URL and verifies the connection,
 // retrying the verification until pingRetryWindow elapses or ctx is done.
 //
-// Every query on the pool is traced through reporter by one tracer
-// (queryTracer): a span under the request span, carrying the statement text
-// and never its arguments. With the NoopReporter, no DSN or a process that
+// Every query on the pool is traced by one tracer (queryTracer): a span under
+// a sampled request span, carrying the statement text and never its
+// arguments. With the NoopReporter, no DSN or a process that
 // does not report (the migrate job), the pool has no tracer at all.
 func OpenDB(ctx context.Context, databaseURL string, reporter Reporter) (*DB, error) {
 	if databaseURL == "" {
@@ -51,7 +51,7 @@ func OpenDB(ctx context.Context, databaseURL string, reporter Reporter) (*DB, er
 	// The no-op's spans would cost nothing to send, but a tracer still runs
 	// on every query; with no DSN there is none, as "dormant" promises.
 	if _, noop := reporter.(NoopReporter); !noop {
-		config.Tracer = queryTracer{reporter: reporter}
+		config.Tracer = queryTracer{}
 	}
 	pool := stdlib.OpenDB(*config)
 	pool.SetMaxOpenConns(10)
@@ -109,15 +109,14 @@ func OpenDBFromEnv(ctx context.Context) (*DB, error) {
 // queryTracer is the pool's one tracer: each query run under a request is a
 // "db.sql" span named by its statement text, exactly as written with its $n
 // placeholders. pgx hands the tracer the arguments too, and they are never
-// read: a value bound to a statement is what a person typed (ADR 0079).
-type queryTracer struct {
-	reporter Reporter
-}
+// read: a value bound to a statement is what a person typed (ADR 0079). The
+// span is started through the request's own reporter (startChildSpan).
+type queryTracer struct{}
 
 type querySpanKey struct{}
 
 func (t queryTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
-	ctx, span := startChildSpan(ctx, t.reporter, SpanOptions{Op: "db.sql", Name: data.SQL})
+	ctx, span := startChildSpan(ctx, SpanOptions{Op: "db.sql", Name: data.SQL})
 	if span == nil {
 		return ctx
 	}

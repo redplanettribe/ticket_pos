@@ -5,7 +5,10 @@ package reportertest
 
 import (
 	"context"
+	"log/slog"
 	"maps"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"time"
 
@@ -137,4 +140,36 @@ func (r *Reporter) Flushes() []time.Duration {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]time.Duration(nil), r.flushes...)
+}
+
+// sampledRoute is the one route InSampledRequest serves.
+const sampledRoute = "POST /sampled"
+
+// InSampledRequest runs fn with the context of a request the real pipeline
+// traces through r and has sampled, as an always-traced route is, and returns
+// the request span once the request is done. A span fn starts under that
+// context, such as an outbound call's, is a child of it.
+func (r *Reporter) InSampledRequest(fn func(ctx context.Context)) *Span {
+	mux := http.NewServeMux()
+	mux.HandleFunc(sampledRoute, func(_ http.ResponseWriter, req *http.Request) { fn(req.Context()) })
+	sampling := platform.TraceSampling{Always: map[string]string{sampledRoute: "test"}}
+	pipeline := platform.TracedRequestPipeline(slog.New(slog.DiscardHandler), r, sampling, mux)
+	pipeline.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/sampled", nil))
+	for _, span := range r.Spans() {
+		if span.Parent == nil && span.Options.Name == sampledRoute {
+			return span
+		}
+	}
+	return nil
+}
+
+// ChildrenOf returns the spans started directly under parent, in order.
+func (r *Reporter) ChildrenOf(parent *Span) []*Span {
+	var children []*Span
+	for _, span := range r.Spans() {
+		if span.Parent == parent {
+			children = append(children, span)
+		}
+	}
+	return children
 }

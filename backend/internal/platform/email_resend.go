@@ -50,7 +50,7 @@ func NewResendEmailSender(apiKey, from string, logger Logger) *ResendEmailSender
 		from:   from,
 		// A bounded client: an unresponsive provider must not hang a login
 		// request until the Cloud Run request timeout.
-		client: &http.Client{Timeout: 10 * time.Second},
+		client: NewOutboundClient(10 * time.Second),
 		logger: logger,
 	}
 }

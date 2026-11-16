@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/invoicing"
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // SRI web service hosts per environment (Ficha §7.2; live WSDLs).
@@ -69,7 +70,7 @@ func WithHTTPClient(h *http.Client) ClientOption {
 // NewClient builds a client for an environment. Production and test differ
 // only in host; the SRI's TLS certificates are not pinned (Ficha §7.1.4).
 func NewClient(env Environment, opts ...ClientOption) *Client {
-	c := &Client{baseURL: BaseURL(env), http: &http.Client{Timeout: DefaultTimeout}}
+	c := &Client{baseURL: BaseURL(env), http: platform.NewOutboundClient(DefaultTimeout)}
 	for _, o := range opts {
 		o(c)
 	}

@@ -222,7 +222,11 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
   The routes always and never traced are named once, in `alwaysTraced` and `neverTraced` (`server/traced_routes.go`), and the server refuses to start when one of them is not registered.
   The SDK keeps the decision it is handed and samples nothing on its own.
 - Every query on the pool is a `db.sql` span under its request, through one pgx tracer set in `platform.OpenDB`: the statement text with its `$n` placeholders, never the arguments.
-  A query outside a request starts no trace, and with no DSN, or in the migrate job, the pool has no tracer and no span is created.
+  A query outside a sampled request starts no span, and with no DSN, or in the migrate job, the pool has no tracer at all.
+- Every call to a third party is an `http.client` span under its request, through one wrapped transport (`platform.OutboundTransport`, `platform/outbound.go`): the method, scheme, host and path, the status received, never the query string, headers or body.
+  Every outbound client is built by `platform.NewOutboundClient` (PayPhone, the SRI, Resend, the Google token exchange, the Customer Avatar fetch, the metadata server's ID token) or, for the AWS SDK, `platform.NewOutboundAWSClient`, given through the SDK's HTTP client option (SES, STS, the S3-compatible storage); a test refuses a bare `http.Client` anywhere else.
+  The span ends when the response headers arrive.
+  Outside a sampled request, or with no DSN, the transport only hands the call on, and it never adds our trace headers to a call.
 - Every scheduled job checks in: each internal route is registered through `server.CheckInJobs`, which serves it through `platform.JobRoute` under the job name `scheduledJobs` (`server/jobs.go`) gives its pattern, and refuses to register a route it has no name for.
   The run checks in as started when the route is entered, and as ok, or failed on a 5xx or a panic, with the time it took; a 4xx is a refusal as designed and checks in ok.
   The name is the monitor's slug, the Cloud Scheduler job's name without its environment (`ticket-pos-answer-purge`), and the `job` tag on everything the run reports; Terraform's monitors must carry the same nine slugs.

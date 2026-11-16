@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // S3Config holds S3-compatible object storage settings.
@@ -98,6 +100,8 @@ func newS3Client(endpoint, accessKey, secretKey, region string) (*s3.Client, err
 		Region:                      region,
 		Credentials:                 credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
 		EndpointResolverWithOptions: resolver,
+		// The SDK's default client, behind the shared outbound transport.
+		HTTPClient: platform.NewOutboundAWSClient(0),
 	}
 
 	return s3.NewFromConfig(awsCfg, func(o *s3.Options) {
