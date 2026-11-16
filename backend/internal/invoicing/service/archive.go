@@ -301,8 +301,8 @@ func (a *TaxDocumentArchive) write(ctx context.Context, w io.Writer) error {
 		Facturas:    written.Facturas(),
 		CreditNotes: written.CreditNotes,
 		Unsettled:   unsettled.Total(),
-		Annulled:    annulledLines(annulled),
-		Unrecorded:  unrecordedLines(unrecorded),
+		Annulled:    readmeLines(annulled, annulledOn),
+		Unrecorded:  readmeLines(unrecorded, foundOn),
 	}
 	entry, err := archive.CreateHeader(&zip.FileHeader{
 		Name:     readme.filename(),
@@ -335,25 +335,24 @@ func (a *TaxDocumentArchive) write(ctx context.Context, w io.Writer) error {
 	return nil
 }
 
-// annulledLines dates each annulled factura by the day the platform recorded
-// its annulment.
-func annulledLines(listed []repository.ArchiveListedFactura) []taxDocumentArchiveLine {
+// readmeLines turns listed facturas into readme lines, each dated by the
+// moment its list is dated by: annulledOn for the annulled list, foundOn for
+// the Unrecorded Annulments.
+func readmeLines(listed []repository.ArchiveListedFactura, dated func(repository.ArchiveListedFactura) *time.Time) []taxDocumentArchiveLine {
 	lines := make([]taxDocumentArchiveLine, 0, len(listed))
 	for _, f := range listed {
-		lines = append(lines, taxDocumentArchiveLine{Number: f.Number, AccessKey: f.AccessKey, On: ecuadorDay(f.AnnulledAt)})
+		lines = append(lines, taxDocumentArchiveLine{Number: f.Number, AccessKey: f.AccessKey, On: ecuadorDay(dated(f))})
 	}
 	return lines
 }
 
-// unrecordedLines dates each Unrecorded Annulment by the day the Closing
-// Sweep found it.
-func unrecordedLines(listed []repository.ArchiveListedFactura) []taxDocumentArchiveLine {
-	lines := make([]taxDocumentArchiveLine, 0, len(listed))
-	for _, f := range listed {
-		lines = append(lines, taxDocumentArchiveLine{Number: f.Number, AccessKey: f.AccessKey, On: ecuadorDay(f.UnrecordedFoundAt)})
-	}
-	return lines
-}
+// annulledOn dates an annulled factura by the moment the platform recorded
+// its annulment.
+func annulledOn(f repository.ArchiveListedFactura) *time.Time { return f.AnnulledAt }
+
+// foundOn dates an Unrecorded Annulment by the moment the Closing Sweep
+// found it.
+func foundOn(f repository.ArchiveListedFactura) *time.Time { return f.UnrecordedFoundAt }
 
 // ecuadorDay is an instant's calendar day in Guayaquil, "YYYY-MM-DD", the
 // way the readme writes every day. Both moments are NOT NULL on the rows

@@ -37,9 +37,11 @@ type ArchiveCriteria struct {
 // ArchiveUnrecorded is how a criteria reads the Unrecorded Annulment flag.
 type ArchiveUnrecorded int
 
+// Its zero value is no value: a criteria left without one is a programming
+// error that archiveWhere refuses loudly rather than reading as "either".
 const (
 	// ArchiveUnrecordedEither does not read the flag.
-	ArchiveUnrecordedEither ArchiveUnrecorded = iota
+	ArchiveUnrecordedEither ArchiveUnrecorded = iota + 1
 	// ArchiveUnrecordedNone names only documents the flag is not on.
 	ArchiveUnrecordedNone
 	// ArchiveUnrecordedOnly names only documents the flag is on.
@@ -84,12 +86,15 @@ func archiveWhere(c ArchiveCriteria) (string, []any) {
 	}
 	var unrecorded string
 	switch c.Unrecorded {
+	case ArchiveUnrecordedEither:
 	case ArchiveUnrecordedNone:
 		unrecorded = `
 		  AND i.unrecorded_annulment_found_at IS NULL`
 	case ArchiveUnrecordedOnly:
 		unrecorded = `
 		  AND i.unrecorded_annulment_found_at IS NOT NULL`
+	default:
+		panic(fmt.Sprintf("archive criteria: Unrecorded %d is not a reading of the flag", c.Unrecorded))
 	}
 	return `
 		FROM invoicing_invoices i
