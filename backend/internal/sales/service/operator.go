@@ -454,7 +454,7 @@ func (s *Service) ReverseSaleAsOperator(ctx context.Context, confirmationRef str
 	}
 	defer func() {
 		if err := release(); err != nil {
-			s.logger.Error("could not release the Sale Reversal lock after an Operator Reversal; further reversals of this Ticket Sale may be refused until the connection is recycled",
+			s.logger.Error(ctx, "could not release the Sale Reversal lock after an Operator Reversal; further reversals of this Ticket Sale may be refused until the connection is recycled",
 				"ticket_sale_id", row.ID,
 				"confirmation_ref", confirmationRef,
 				"error", err,

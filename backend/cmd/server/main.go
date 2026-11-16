@@ -46,7 +46,7 @@ func main() {
 	// The reporter comes first, from configuration of its own, so that every
 	// failure after it, LoadConfig's included, is reported and flushed before
 	// the process exits (ADR 0079). With no SENTRY_DSN it is the no-op.
-	reporterLogger := platform.NewSlogLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	reporterLogger := platform.NewSlogLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)), platform.NoopReporter{})
 	errorReporter := reporter.New(platform.LoadReporterConfig(), reporterLogger)
 
 	// Cloud Run sends SIGTERM and allows ten seconds before SIGKILL.
@@ -84,5 +84,5 @@ func run(ctx context.Context, errorReporter platform.Reporter) error {
 		Handler:           server.NewHandler(app),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	return platform.Serve(ctx, httpServer, listener, errorReporter, platform.NewSlogLogger(app.Logger))
+	return platform.Serve(ctx, httpServer, listener, errorReporter, platform.NewSlogLogger(app.Logger, errorReporter))
 }

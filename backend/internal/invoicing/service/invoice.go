@@ -397,7 +397,7 @@ func (s *Service) attempt(ctx context.Context, invoiceID string, op invoicing.At
 	}
 	recorded, rerr := s.repo.RecordAttempt(context.WithoutCancel(ctx), a)
 	if rerr != nil {
-		s.logger.Error("invoicing: could not record attempt", "invoice_id", invoiceID, "error", rerr)
+		s.logger.Error(ctx, "invoicing: could not record attempt", "invoice_id", invoiceID, "error", rerr)
 	}
 	return outcome, recorded, err
 }
@@ -465,7 +465,7 @@ func (s *Service) applyOutcome(ctx context.Context, row *repository.InvoiceRow, 
 	}
 	applied, err := s.repo.ApplyOutcome(context.WithoutCancel(ctx), inv.ID, u)
 	if err != nil {
-		s.logger.Error("invoicing: could not apply outcome", "invoice_id", inv.ID, "status", u.Status, "error", err)
+		s.logger.Error(ctx, "invoicing: could not apply outcome", "invoice_id", inv.ID, "status", u.Status, "error", err)
 		return
 	}
 	if !applied {

@@ -458,7 +458,7 @@ func (s *Service) mailTicketAssignment(
 
 	acceptURL := s.assignmentLinkURL(ticket.ID, assignedAt, holderEmail)
 	if acceptURL == "" {
-		s.logAssignmentMailFailure("assignment link unavailable: no link secret configured", nil)
+		s.logAssignmentMailFailure(ctx, "assignment link unavailable: no link secret configured", nil)
 		return false
 	}
 
@@ -470,7 +470,7 @@ func (s *Service) mailTicketAssignment(
 		Locale:         s.assignmentMailLocale(ctx, holderEmail, ticket.SaleLocale.String),
 	}
 	if err := s.mailer.SendTicketAssignment(ctx, mail); err != nil {
-		s.logAssignmentMailFailure("assignment mail delivery failed", err)
+		s.logAssignmentMailFailure(ctx, "assignment mail delivery failed", err)
 		return false
 	}
 	// TRUE MEANS A PROVIDER ACCEPTED IT, which is the only claim the #332 ledger
@@ -515,15 +515,15 @@ func (s *Service) assignmentLinkURL(ticketID string, assignedAt time.Time, holde
 // somebody who never came here; a log aggregator is a wider audience than an
 // inbox. What an operator needs from this line is that a Holder was not told,
 // which the count of these lines gives them.
-func (s *Service) logAssignmentMailFailure(message string, err error) {
+func (s *Service) logAssignmentMailFailure(ctx context.Context, message string, err error) {
 	if s.logger == nil {
 		return
 	}
 	if err != nil {
-		s.logger.Error(message, "error", err)
+		s.logger.Error(ctx, message, "error", err)
 		return
 	}
-	s.logger.Error(message)
+	s.logger.Error(ctx, message)
 }
 
 // assignmentMailLocale decides what language the Assignment mail is written in,

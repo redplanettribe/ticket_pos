@@ -119,7 +119,7 @@ func (s *Service) SweepAssignmentReminders(ctx context.Context) (*AssignmentRemi
 	}
 
 	if total, err := s.assignmentReminders.CountAssignmentRemindersDue(ctx); err != nil {
-		s.logger.Error("assignment reminder backlog read failed", "error", err)
+		s.logger.Error(ctx, "assignment reminder backlog read failed", "error", err)
 	} else {
 		result.Backlog = total
 	}
@@ -177,13 +177,13 @@ func (s *Service) sendAssignmentReminder(ctx context.Context, c catalog.Assignme
 	}
 	if err := s.email.SendAssignmentReminder(ctx, reminder); err != nil {
 		result.Failed++
-		s.logger.Error("assignment reminder send failed", "ticket_sale_id", c.TicketSaleID, "error", err)
+		s.logger.Error(ctx, "assignment reminder send failed", "ticket_sale_id", c.TicketSaleID, "error", err)
 		return
 	}
 	if err := s.assignmentReminders.RecordAssignmentReminderSent(ctx, c.TicketSaleID); err != nil {
 		result.Unrecorded++
 		result.Sent++
-		s.logger.Error("an Assignment Reminder was sent but could not be recorded; this buyer may receive one more than the cap allows",
+		s.logger.Error(ctx, "an Assignment Reminder was sent but could not be recorded; this buyer may receive one more than the cap allows",
 			"ticket_sale_id", c.TicketSaleID, "error", err)
 		return
 	}

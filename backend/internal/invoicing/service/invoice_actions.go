@@ -142,7 +142,7 @@ func (s *Service) dueForDelivery(ctx context.Context, row *repository.InvoiceRow
 	}
 	due, err := s.repo.DueForDelivery(context.WithoutCancel(ctx), row.Invoice.ID, s.clock())
 	if err != nil {
-		s.logger.Error("invoicing: could not make the healed document due for delivery", "invoice_id", row.Invoice.ID, "error", err)
+		s.logger.Error(ctx, "invoicing: could not make the healed document due for delivery", "invoice_id", row.Invoice.ID, "error", err)
 		return
 	}
 	if due {
@@ -191,7 +191,7 @@ func (s *Service) ResendInvoice(ctx context.Context, id string) (*InvoiceActionD
 			return
 		}
 		if err := s.repo.ReplaceSignedDocument(context.WithoutCancel(ctx), id, signed, snapshot); err != nil {
-			s.logger.Error("invoicing: could not replace the signed document after a received resend", "invoice_id", id, "error", err)
+			s.logger.Error(ctx, "invoicing: could not replace the signed document after a received resend", "invoice_id", id, "error", err)
 		}
 	})
 	s.dueForDelivery(ctx, row)

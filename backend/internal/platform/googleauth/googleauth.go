@@ -129,7 +129,7 @@ func (c *Client) VerifiedIdentity(ctx context.Context, in Exchange) (Identity, e
 	if !c.creds.configured() {
 		// A deployment fault, not a caller error, so it is loud in the log and
 		// silent on the wire.
-		c.logger.Error("google sign-in: no client credentials configured; the exchange cannot be attempted")
+		c.logger.Error(ctx, "google sign-in: no client credentials configured; the exchange cannot be attempted")
 		return Identity{}, ErrSignInFailed()
 	}
 

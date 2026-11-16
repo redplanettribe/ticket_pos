@@ -339,7 +339,7 @@ func (s *Service) mailAssignedTicket(
 	}
 	ticket, err := s.repo.GetAssignmentLinkTicket(ctx, ticketID)
 	if err != nil || ticket == nil {
-		s.logAssignmentMailFailure("assignment mail not composed: ticket unreadable", err)
+		s.logAssignmentMailFailure(ctx, "assignment mail not composed: ticket unreadable", err)
 		return false
 	}
 	sent := false
@@ -370,7 +370,7 @@ func (s *Service) tellDisplacedHolder(ctx context.Context, ticketID, displacedHo
 	}
 	ticket, err := s.repo.GetAssignmentLinkTicket(ctx, ticketID)
 	if err != nil || ticket == nil {
-		s.logAssignmentMailFailure("no longer holding mail not composed: ticket unreadable", err)
+		s.logAssignmentMailFailure(ctx, "no longer holding mail not composed: ticket unreadable", err)
 		return
 	}
 	s.tellHolderDisplacedByReassignment(ctx, ticket, displacedHolderEmail)
@@ -454,7 +454,7 @@ func (s *Service) assignmentMailAllowed(
 // would be that promise written backwards.
 func (s *Service) recordAssignmentMailSent(ctx context.Context, ticketID, buyerCustomerID string) {
 	if err := s.repo.RecordAssignmentMailSent(ctx, ticketID, buyerCustomerID, s.now()); err != nil {
-		s.logAssignmentMailFailure("assignment mail ledger not written: the cap under-counts by one", err)
+		s.logAssignmentMailFailure(ctx, "assignment mail ledger not written: the cap under-counts by one", err)
 	}
 }
 

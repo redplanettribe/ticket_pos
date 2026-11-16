@@ -425,7 +425,7 @@ func (s *Service) logHolderExportFinished(
 		if runtimeErr, ok := recovered.(runtime.Error); ok {
 			fields = append(fields, "panic", runtimeErr.Error())
 		}
-		s.logger.Error("holder export panicked", fields...)
+		s.logger.Error(ctx, "holder export panicked", fields...)
 	}
 	s.logger.Warn("holder export finished", append(who,
 		"outcome", "aborted",

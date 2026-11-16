@@ -756,7 +756,7 @@ func (s *Service) tellDisplacedHolders(ctx context.Context, ticketSaleIDs []stri
 		return
 	}
 	if err := s.displacedHolders.TellHoldersOfReversedSales(ctx, ticketSaleIDs, buyer); err != nil {
-		s.logger.Error("could not tell every Holder that a reversed Ticket Sale's tickets are no longer theirs; the reversal stands and some Holder was not told",
+		s.logger.Error(ctx, "could not tell every Holder that a reversed Ticket Sale's tickets are no longer theirs; the reversal stands and some Holder was not told",
 			"ticket_sale_count", len(ticketSaleIDs),
 			"error", err,
 		)

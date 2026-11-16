@@ -4,6 +4,7 @@ import (
 	"context"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -151,7 +152,14 @@ func stackFrom(skip int) []runtime.Frame {
 // the runtime frames just below it (runtime.panicmem and runtime.sigpanic for
 // a nil dereference, runtime.panicdivide, ...) are how the runtime raised it.
 func panicStack() []runtime.Frame {
-	stack := stackFrom(1)
+	return stackOrPanicStack(1)
+}
+
+// stackOrPanicStack returns the stack of the caller skip frames above the
+// caller of stackOrPanicStack or, when that is a deferred call running while a
+// panic unwinds, the stack of the frame that panicked (see panicStack).
+func stackOrPanicStack(skip int) []runtime.Frame {
+	stack := stackFrom(skip + 1)
 	for i, frame := range stack {
 		if frame.Function != "runtime.gopanic" {
 			continue
@@ -163,4 +171,37 @@ func panicStack() []runtime.Frame {
 		return stack
 	}
 	return stack
+}
+
+// requestReports is what one request has reported, so that one failed request
+// produces one event (ADR 0079). The request pipeline puts it on the request's
+// context; everything that reports inside the request finds it there.
+type requestReports struct {
+	reported atomic.Bool
+}
+
+type requestReportsKey struct{}
+
+func withRequestReports(ctx context.Context) context.Context {
+	return context.WithValue(ctx, requestReportsKey{}, &requestReports{})
+}
+
+// reportInRequest reports, and marks the request on ctx, if any, as having
+// reported. An Error line takes this path: each one is reported.
+func reportInRequest(ctx context.Context, reporter Reporter, report ErrorReport) {
+	if reports, ok := ctx.Value(requestReportsKey{}).(*requestReports); ok {
+		reports.reported.Store(true)
+	}
+	reporter.ReportError(ctx, report)
+}
+
+// reportRequestFailure reports what ends a request in a 5xx (a panic, an
+// unexpected error, a 5xx domain error, or the request line of any other 5xx)
+// unless the request has already reported: the Error line that wrote its cause
+// down, or the panic recovery before the request line.
+func reportRequestFailure(ctx context.Context, reporter Reporter, report ErrorReport) {
+	if reports, ok := ctx.Value(requestReportsKey{}).(*requestReports); ok && reports.reported.Swap(true) {
+		return
+	}
+	reporter.ReportError(ctx, report)
 }

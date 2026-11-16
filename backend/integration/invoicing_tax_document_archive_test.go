@@ -398,7 +398,7 @@ func TestTheTaxDocumentArchiveHoldsExactlyThePeriodsStandingProductionDocuments(
 	f := newTaxDocumentArchiveFixture(t, env)
 	capture := &captureLogger{}
 	sriApp.InvoicingService.WithLogger(capture)
-	t.Cleanup(func() { sriApp.InvoicingService.WithLogger(platform.NewSlogLogger(sriApp.Logger)) })
+	t.Cleanup(func() { sriApp.InvoicingService.WithLogger(platform.NewSlogLogger(sriApp.Logger, sriApp.Reporter)) })
 
 	pack := downloadPack(t, sriEnv, f.operatorSessionID, taxArchiveQuery(taxArchiveFrom, taxArchiveTo))
 
@@ -746,7 +746,7 @@ func TestATaxDocumentArchiveTheClientCancelsIsNotLoggedAsAFailure(t *testing.T) 
 		t.Run(tc.name, func(t *testing.T) {
 			capture := &captureLogger{}
 			sriApp.InvoicingService.WithLogger(capture)
-			t.Cleanup(func() { sriApp.InvoicingService.WithLogger(platform.NewSlogLogger(sriApp.Logger)) })
+			t.Cleanup(func() { sriApp.InvoicingService.WithLogger(platform.NewSlogLogger(sriApp.Logger, sriApp.Reporter)) })
 
 			archive, err := sriApp.InvoicingService.OpenTaxDocumentArchive(context.Background(), "operator@example.com", taxArchiveFrom, taxArchiveTo)
 			if err != nil {

@@ -1072,7 +1072,7 @@ func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.Chec
 		// reloading and no sale to report. Logged loudly for the same reason
 		// PAYMENT_APPROVED_WITHOUT_SALE is — an impossible state reached anyway is
 		// worth more than the generic 500 the caller gets.
-		s.logger.Error("FREE_CHECKOUT_NOT_SETTLED: a free Payment created in this request reported itself already settled; no Ticket Sale was recorded",
+		s.logger.Error(ctx, "FREE_CHECKOUT_NOT_SETTLED: a free Payment created in this request reported itself already settled; no Ticket Sale was recorded",
 			"client_transaction_id", clientTransactionID,
 		)
 		return nil, fmt.Errorf("sales: free checkout %s was settled by nobody", clientTransactionID)
@@ -1310,7 +1310,7 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 		// approved-without-sale as the durable marker, and the log line below is
 		// the loud path the parent spec demands.
 		if _, markErr := s.repo.MarkPaymentApprovedWithoutSale(ctx, clientTransactionID, confirmation.ProviderTransactionID, confirmation.Instrument, s.now()); markErr != nil {
-			s.logger.Error("PAYMENT_APPROVED_WITHOUT_SALE: marking the incident failed too; reconcile from provider records",
+			s.logger.Error(ctx, "PAYMENT_APPROVED_WITHOUT_SALE: marking the incident failed too; reconcile from provider records",
 				"client_transaction_id", clientTransactionID,
 				"provider_transaction_id", confirmation.ProviderTransactionID,
 				"commit_error", err,
@@ -1318,7 +1318,7 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 			)
 			return nil, sales.ErrPaymentSaleCommitFailed()
 		}
-		s.logger.Error("PAYMENT_APPROVED_WITHOUT_SALE: provider approved the charge but the Ticket Sale commit failed; resolve by hand",
+		s.logger.Error(ctx, "PAYMENT_APPROVED_WITHOUT_SALE: provider approved the charge but the Ticket Sale commit failed; resolve by hand",
 			"client_transaction_id", clientTransactionID,
 			"provider_transaction_id", confirmation.ProviderTransactionID,
 			"error", err,

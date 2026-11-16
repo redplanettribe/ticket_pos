@@ -210,18 +210,18 @@ func reAddressingLinkView(record *repository.ReAddressingLinkRecord) ReAddressin
 func (s *Service) sendReAddressedSaleConfirmation(ctx context.Context, record *repository.ReAddressingLinkRecord) {
 	sale, err := s.repo.GetRecordedSale(ctx, record.TicketSaleID)
 	if err != nil || sale == nil {
-		s.logger.Error("re-addressed sale could not be read back for its Sale Confirmation; the Sale has moved and no receipt went out",
+		s.logger.Error(ctx, "re-addressed sale could not be read back for its Sale Confirmation; the Sale has moved and no receipt went out",
 			"ticket_sale_id", record.TicketSaleID, "error", err)
 		return
 	}
 	event, ok, err := s.repo.GetEventImportContext(ctx, record.OrganizationID, record.EventID)
 	if err != nil || !ok {
-		s.logger.Error("re-addressed sale's Event could not be read for its Sale Confirmation; the Sale has moved and no receipt went out",
+		s.logger.Error(ctx, "re-addressed sale's Event could not be read for its Sale Confirmation; the Sale has moved and no receipt went out",
 			"ticket_sale_id", record.TicketSaleID, "error", err)
 		return
 	}
 	if err := s.email.SendSaleConfirmation(ctx, s.importedSaleConfirmation(ctx, event, *sale)); err != nil {
-		s.logger.Error("re-addressed sale's Sale Confirmation could not be sent; the Sale has moved",
+		s.logger.Error(ctx, "re-addressed sale's Sale Confirmation could not be sent; the Sale has moved",
 			"ticket_sale_id", record.TicketSaleID, "error", err)
 	}
 }

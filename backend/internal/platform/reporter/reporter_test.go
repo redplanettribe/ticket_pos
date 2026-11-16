@@ -72,7 +72,7 @@ func TestOnlyThisPackageImportsTheSentrySDK(t *testing.T) {
 }
 
 func TestWithNoDSNTheReporterIsTheNoOp(t *testing.T) {
-	got := New(platform.ReporterConfig{Environment: "development", Release: "abc"}, platform.NewSlogLogger(slog.New(slog.DiscardHandler)))
+	got := New(platform.ReporterConfig{Environment: "development", Release: "abc"}, platform.NewSlogLogger(slog.New(slog.DiscardHandler), platform.NoopReporter{}))
 	if _, ok := got.(platform.NoopReporter); !ok {
 		t.Fatalf("New with no DSN = %T, want platform.NoopReporter", got)
 	}
@@ -80,7 +80,7 @@ func TestWithNoDSNTheReporterIsTheNoOp(t *testing.T) {
 
 func TestARefusedDSNLeavesTheNoOpAndSaysSo(t *testing.T) {
 	var logBuf bytes.Buffer
-	got := New(platform.ReporterConfig{DSN: "not a dsn"}, platform.NewSlogLogger(slog.New(slog.NewJSONHandler(&logBuf, nil))))
+	got := New(platform.ReporterConfig{DSN: "not a dsn"}, platform.NewSlogLogger(slog.New(slog.NewJSONHandler(&logBuf, nil)), platform.NoopReporter{}))
 	if _, ok := got.(platform.NoopReporter); !ok {
 		t.Fatalf("New with a refused DSN = %T, want platform.NoopReporter", got)
 	}
@@ -153,7 +153,7 @@ func panicking(http.ResponseWriter, *http.Request) {
 
 func TestARecoveredPanicLeavesTheProcessAsOneEventWithItsStackAndNoRequest(t *testing.T) {
 	in := newIngest(t, http.StatusOK)
-	reporter := New(platform.ReporterConfig{DSN: in.dsn(), Environment: "development", Release: "0123abc"}, platform.NewSlogLogger(slog.New(slog.DiscardHandler)))
+	reporter := New(platform.ReporterConfig{DSN: in.dsn(), Environment: "development", Release: "0123abc"}, platform.NewSlogLogger(slog.New(slog.DiscardHandler), platform.NoopReporter{}))
 	api := httptest.NewServer(platform.RequestPipeline(slog.New(slog.DiscardHandler), reporter, http.HandlerFunc(panicking)))
 	defer api.Close()
 
@@ -223,7 +223,7 @@ func TestARecoveredPanicLeavesTheProcessAsOneEventWithItsStackAndNoRequest(t *te
 func TestAFailingDeliveryIsLoggedOnceAtWarn(t *testing.T) {
 	in := newIngest(t, http.StatusInternalServerError)
 	var logBuf syncBuffer
-	reporter := New(platform.ReporterConfig{DSN: in.dsn(), Environment: "development"}, platform.NewSlogLogger(slog.New(slog.NewJSONHandler(&logBuf, nil))))
+	reporter := New(platform.ReporterConfig{DSN: in.dsn(), Environment: "development"}, platform.NewSlogLogger(slog.New(slog.NewJSONHandler(&logBuf, nil)), platform.NoopReporter{}))
 	api := httptest.NewServer(platform.RequestPipeline(slog.New(slog.DiscardHandler), reporter, http.HandlerFunc(panicking)))
 	defer api.Close()
 

@@ -28,7 +28,7 @@ func discardLogger() *slog.Logger {
 func TestARecoveredPanicIsReportedOnceWithItsStack(t *testing.T) {
 	fake := reportertest.New()
 	// Behind the AsyncReporter, as cmd/server wires the real one.
-	reporter := platform.NewAsyncReporter(fake, platform.NewSlogLogger(discardLogger()))
+	reporter := platform.NewAsyncReporter(fake, platform.NewSlogLogger(discardLogger(), platform.NoopReporter{}))
 	server := httptest.NewServer(platform.RequestPipeline(discardLogger(), reporter, http.HandlerFunc(panickingHandler)))
 	defer server.Close()
 
@@ -136,7 +136,7 @@ func TestGracefulShutdownFlushesTheReporterWithATwoSecondBound(t *testing.T) {
 	ctx, shutdown := context.WithCancel(context.Background())
 	served := make(chan error, 1)
 	go func() {
-		served <- platform.Serve(ctx, &http.Server{Handler: http.NotFoundHandler()}, listener, fake, platform.NewSlogLogger(discardLogger()))
+		served <- platform.Serve(ctx, &http.Server{Handler: http.NotFoundHandler()}, listener, fake, platform.NewSlogLogger(discardLogger(), platform.NoopReporter{}))
 	}()
 
 	shutdown()

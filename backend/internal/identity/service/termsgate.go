@@ -227,7 +227,7 @@ func (s *Service) GetSessionWithTermsGate(ctx context.Context, sessionID string)
 
 	outstanding, err := s.TermsOutstanding(ctx, view.Email)
 	if err != nil {
-		s.logger.Error("staff terms gate read", "error", err)
+		s.logger.Error(ctx, "staff terms gate read", "error", err)
 		return view, nil
 	}
 	view.TermsOutstanding = &outstanding

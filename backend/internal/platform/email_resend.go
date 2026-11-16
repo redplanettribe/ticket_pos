@@ -140,7 +140,7 @@ func (s *ResendEmailSender) send(ctx context.Context, to, subject, text string, 
 func (s *ResendEmailSender) SendOTP(ctx context.Context, to string, code string, locale Locale) error {
 	message := OTPMessage{Code: code, Locale: locale}
 	if err := s.send(ctx, to, message.Subject(), message.Text()); err != nil {
-		s.logger.Error("resend send otp failed", "locale", string(locale), "error", err)
+		s.logger.Error(ctx, "resend send otp failed", "locale", string(locale), "error", err)
 		return err
 	}
 	return nil
@@ -151,7 +151,7 @@ func (s *ResendEmailSender) SendOTP(ctx context.Context, to string, code string,
 // discarded upstream — a delivery hiccup never reverses a recorded Ticket Sale.
 func (s *ResendEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConfirmation) error {
 	if err := s.send(ctx, c.To, c.Subject(), c.Text()); err != nil {
-		s.logger.Error("resend send sale confirmation failed", "reference", c.Reference, "error", err)
+		s.logger.Error(ctx, "resend send sale confirmation failed", "reference", c.Reference, "error", err)
 		return err
 	}
 	return nil
@@ -164,7 +164,7 @@ func (s *ResendEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConf
 // recipient.
 func (s *ResendEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDocumentDelivery) error {
 	if err := s.send(ctx, d.To, d.Subject(), d.Text(), d.Attachments...); err != nil {
-		s.logger.Error("resend send tax document delivery failed", "kind", d.Kind, "reference", d.Reference, "error", err)
+		s.logger.Error(ctx, "resend send tax document delivery failed", "kind", d.Kind, "reference", d.Reference, "error", err)
 		return err
 	}
 	return nil
@@ -175,7 +175,7 @@ func (s *ResendEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDo
 // delivery's ladder; the log names the reference, never the recipient.
 func (s *ResendEmailSender) SendAnnulmentNotice(ctx context.Context, n AnnulmentNotice) error {
 	if err := s.send(ctx, n.To, n.Subject(), n.Text()); err != nil {
-		s.logger.Error("resend send annulment notice failed", "reference", n.Reference, "error", err)
+		s.logger.Error(ctx, "resend send annulment notice failed", "reference", n.Reference, "error", err)
 		return err
 	}
 	return nil
@@ -188,7 +188,7 @@ func (s *ResendEmailSender) SendAnnulmentNotice(ctx context.Context, n Annulment
 // than a lost threshold.
 func (s *ResendEmailSender) SendCertificateExpiryWarning(ctx context.Context, w CertificateExpiryWarning) error {
 	if err := s.send(ctx, w.To, w.Subject(), w.Text()); err != nil {
-		s.logger.Error("resend send certificate expiry warning failed", "threshold_days", w.Threshold, "ruc", w.RUC, "error", err)
+		s.logger.Error(ctx, "resend send certificate expiry warning failed", "threshold_days", w.Threshold, "ruc", w.RUC, "error", err)
 		return err
 	}
 	return nil
@@ -198,7 +198,7 @@ func (s *ResendEmailSender) SendCertificateExpiryWarning(ctx context.Context, w 
 // Confirmation. Best-effort, as above.
 func (s *ResendEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) error {
 	if err := s.send(ctx, v.To, v.Subject(), v.Text()); err != nil {
-		s.logger.Error("resend send sale voided failed", "reference", v.Reference, "error", err)
+		s.logger.Error(ctx, "resend send sale voided failed", "reference", v.Reference, "error", err)
 		return err
 	}
 	return nil
@@ -211,7 +211,7 @@ func (s *ResendEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) er
 // Customer who still believes their refund is coming.
 func (s *ResendEmailSender) SendSaleReversalRefused(ctx context.Context, r SaleReversalRefused) error {
 	if err := s.send(ctx, r.To, r.Subject(), r.Text()); err != nil {
-		s.logger.Error("resend send sale reversal refused failed", "reference", r.Reference, "error", err)
+		s.logger.Error(ctx, "resend send sale reversal refused failed", "reference", r.Reference, "error", err)
 		return err
 	}
 	return nil
@@ -233,7 +233,7 @@ func (s *ResendEmailSender) SendSaleReversalRefused(ctx context.Context, r SaleR
 // committed.
 func (s *ResendEmailSender) SendConsentWithdrawalConfirmation(ctx context.Context, c ConsentWithdrawalConfirmation) error {
 	if err := s.send(ctx, c.To, c.Subject(), c.Text()); err != nil {
-		s.logger.Error("resend send consent withdrawal confirmation failed", "error", err)
+		s.logger.Error(ctx, "resend send consent withdrawal confirmation failed", "error", err)
 		return err
 	}
 	return nil
@@ -259,7 +259,7 @@ func (s *ResendEmailSender) SendConsentWithdrawalConfirmation(ctx context.Contex
 // an inbox.
 func (s *ResendEmailSender) SendHolderAnswerReminder(ctx context.Context, r HolderAnswerReminder) error {
 	if err := s.send(ctx, r.To, r.Subject(), r.Text()); err != nil {
-		s.logger.Error("resend send holder answer reminder failed", "error", err)
+		s.logger.Error(ctx, "resend send holder answer reminder failed", "error", err)
 		return err
 	}
 	return nil
@@ -279,7 +279,7 @@ func (s *ResendEmailSender) SendHolderAnswerReminder(ctx context.Context, r Hold
 // on failure; the Event and the link are not.
 func (s *ResendEmailSender) SendAssignmentReminder(ctx context.Context, r AssignmentReminder) error {
 	if err := s.send(ctx, r.To, r.Subject(), r.Text()); err != nil {
-		s.logger.Error("resend send assignment reminder failed", "error", err)
+		s.logger.Error(ctx, "resend send assignment reminder failed", "error", err)
 		return err
 	}
 	return nil
@@ -305,7 +305,7 @@ func (s *ResendEmailSender) SendAssignmentReminder(ctx context.Context, r Assign
 // is a wider audience than an inbox.
 func (s *ResendEmailSender) SendTicketAssignment(ctx context.Context, a TicketAssignment) error {
 	if err := s.send(ctx, a.To, a.Subject(), a.Text()); err != nil {
-		s.logger.Error("resend send ticket assignment failed", "error", err)
+		s.logger.Error(ctx, "resend send ticket assignment failed", "error", err)
 		return err
 	}
 	return nil
@@ -332,7 +332,7 @@ func (s *ResendEmailSender) SendTicketAssignment(ctx context.Context, a TicketAs
 // that a Holder was not told.
 func (s *ResendEmailSender) SendNoLongerHolding(ctx context.Context, n NoLongerHolding) error {
 	if err := s.send(ctx, n.To, n.Subject(), n.Text()); err != nil {
-		s.logger.Error("resend send no longer holding failed", "error", err)
+		s.logger.Error(ctx, "resend send no longer holding failed", "error", err)
 		return err
 	}
 	return nil
@@ -356,7 +356,7 @@ func (s *ResendEmailSender) SendNoLongerHolding(ctx context.Context, n NoLongerH
 // is a wider audience than an inbox.
 func (s *ResendEmailSender) SendSaleReAddressing(ctx context.Context, r SaleReAddressing) error {
 	if err := s.send(ctx, r.To, r.Subject(), r.Text()); err != nil {
-		s.logger.Error("resend send sale re-addressing failed", "error", err)
+		s.logger.Error(ctx, "resend send sale re-addressing failed", "error", err)
 		return err
 	}
 	return nil
@@ -369,7 +369,7 @@ func (s *ResendEmailSender) SendSaleReAddressing(ctx context.Context, r SaleReAd
 // not logged.
 func (s *ResendEmailSender) SendTicketQuestionRevoked(ctx context.Context, r TicketQuestionRevoked) error {
 	if err := s.send(ctx, r.To, r.Subject(), r.Text()); err != nil {
-		s.logger.Error("resend send ticket question revoked failed", "organization", r.OrganizationName, "error", err)
+		s.logger.Error(ctx, "resend send ticket question revoked failed", "organization", r.OrganizationName, "error", err)
 		return err
 	}
 	return nil
@@ -385,7 +385,7 @@ func (s *ResendEmailSender) SendTicketQuestionRevoked(ctx context.Context, r Tic
 // delivery failure, and a money email's contents are not part of that.
 func (s *ResendEmailSender) SendPayoutRequestSubmitted(ctx context.Context, p PayoutRequestSubmitted) error {
 	if err := s.send(ctx, p.To, p.Subject(), p.Text()); err != nil {
-		s.logger.Error("resend send payout request submitted failed", "organization", p.OrganizationName, "error", err)
+		s.logger.Error(ctx, "resend send payout request submitted failed", "organization", p.OrganizationName, "error", err)
 		return err
 	}
 	return nil
@@ -396,7 +396,7 @@ func (s *ResendEmailSender) SendPayoutRequestSubmitted(ctx context.Context, p Pa
 // Review is recorded whether or not anybody was told.
 func (s *ResendEmailSender) SendQuestionReviewSubmitted(ctx context.Context, q QuestionReviewSubmitted) error {
 	if err := s.send(ctx, q.To, q.Subject(), q.Text()); err != nil {
-		s.logger.Error("resend send question review submitted failed", "organization", q.OrganizationName, "error", err)
+		s.logger.Error(ctx, "resend send question review submitted failed", "organization", q.OrganizationName, "error", err)
 		return err
 	}
 	return nil
@@ -407,7 +407,7 @@ func (s *ResendEmailSender) SendQuestionReviewSubmitted(ctx context.Context, q Q
 // in the editor whether or not anybody was told.
 func (s *ResendEmailSender) SendQuestionReviewAnswered(ctx context.Context, q QuestionReviewAnswered) error {
 	if err := s.send(ctx, q.To, q.Subject(), q.Text()); err != nil {
-		s.logger.Error("resend send question review answered failed", "organization", q.OrganizationName, "error", err)
+		s.logger.Error(ctx, "resend send question review answered failed", "organization", q.OrganizationName, "error", err)
 		return err
 	}
 	return nil
@@ -418,7 +418,7 @@ func (s *ResendEmailSender) SendQuestionReviewAnswered(ctx context.Context, q Qu
 // who finds out from their bank instead.
 func (s *ResendEmailSender) SendPayoutRequestPaid(ctx context.Context, p PayoutRequestPaid) error {
 	if err := s.send(ctx, p.To, p.Subject(), p.Text()); err != nil {
-		s.logger.Error("resend send payout request paid failed", "organization", p.OrganizationName, "error", err)
+		s.logger.Error(ctx, "resend send payout request paid failed", "organization", p.OrganizationName, "error", err)
 		return err
 	}
 	return nil
@@ -433,7 +433,7 @@ func (s *ResendEmailSender) SendPayoutRequestPaid(ctx context.Context, p PayoutR
 // logged — it is a message to one Organization, not an operational fact.
 func (s *ResendEmailSender) SendPayoutRequestDeclined(ctx context.Context, p PayoutRequestDeclined) error {
 	if err := s.send(ctx, p.To, p.Subject(), p.Text()); err != nil {
-		s.logger.Error("resend send payout request declined failed", "organization", p.OrganizationName, "error", err)
+		s.logger.Error(ctx, "resend send payout request declined failed", "organization", p.OrganizationName, "error", err)
 		return err
 	}
 	return nil
@@ -445,7 +445,7 @@ func (s *ResendEmailSender) SendPayoutRequestDeclined(ctx context.Context, p Pay
 // the same date and the same expectation.
 func (s *ResendEmailSender) SendPayoutRequestTransferSent(ctx context.Context, p PayoutRequestTransferSent) error {
 	if err := s.send(ctx, p.To, p.Subject(), p.Text()); err != nil {
-		s.logger.Error("resend send payout request transfer sent failed", "organization", p.OrganizationName, "error", err)
+		s.logger.Error(ctx, "resend send payout request transfer sent failed", "organization", p.OrganizationName, "error", err)
 		return err
 	}
 	return nil
@@ -461,7 +461,7 @@ func (s *ResendEmailSender) SendPayoutRequestTransferSent(ctx context.Context, p
 // operational fact.
 func (s *ResendEmailSender) SendPayoutRequestTransferFailed(ctx context.Context, p PayoutRequestTransferFailed) error {
 	if err := s.send(ctx, p.To, p.Subject(), p.Text()); err != nil {
-		s.logger.Error("resend send payout request transfer failed failed", "organization", p.OrganizationName, "error", err)
+		s.logger.Error(ctx, "resend send payout request transfer failed failed", "organization", p.OrganizationName, "error", err)
 		return err
 	}
 	return nil
@@ -486,7 +486,7 @@ func (s *ResendEmailSender) SendPayoutRequestTransferFailed(ctx context.Context,
 // identity is the only one this method is ever reached on (#225).
 func (s *ResendEmailSender) SendFollowDigest(ctx context.Context, d FollowDigest) error {
 	if err := s.send(ctx, d.To, d.Subject(), d.Text()); err != nil {
-		s.logger.Error("resend send follow digest failed", "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening), "error", err)
+		s.logger.Error(ctx, "resend send follow digest failed", "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening), "error", err)
 		return err
 	}
 	return nil

@@ -229,7 +229,7 @@ func (s *Service) RecordOperatorWithdrawal(ctx context.Context, customerID strin
 func (s *Service) policyAcceptedAt(ctx context.Context, customerID string) time.Time {
 	state, err := s.consent.PrivacyState(ctx, customerID)
 	if err != nil {
-		s.logger.Error("operator consent view could not re-read the policy acceptance",
+		s.logger.Error(ctx, "operator consent view could not re-read the policy acceptance",
 			"customer_id", customerID, "error", err)
 		return time.Time{}
 	}

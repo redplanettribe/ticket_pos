@@ -17,9 +17,9 @@ import (
 // noopLogger satisfies Logger without asserting on output.
 type noopLogger struct{}
 
-func (noopLogger) Info(string, ...any)  {}
-func (noopLogger) Warn(string, ...any)  {}
-func (noopLogger) Error(string, ...any) {}
+func (noopLogger) Info(string, ...any)                   {}
+func (noopLogger) Warn(string, ...any)                   {}
+func (noopLogger) Error(context.Context, string, ...any) {}
 
 // newTestSender points a ResendEmailSender at a stub server standing in for
 // Resend, so the tests exercise the real request-building and response-handling
@@ -153,7 +153,7 @@ func TestResendFailureLogNamesNoRecipient(t *testing.T) {
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = w.Write([]byte(`{"message":"rate limited"}`))
 	})
-	sender.logger = NewSlogLogger(slog.New(slog.NewTextHandler(&buf, nil)))
+	sender.logger = NewSlogLogger(slog.New(slog.NewTextHandler(&buf, nil)), NoopReporter{})
 
 	const to = "holder@example.com"
 	ctx := context.Background()

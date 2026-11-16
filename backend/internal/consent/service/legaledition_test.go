@@ -33,16 +33,16 @@ func serviceWithWarmCaches(t *testing.T, policyRead repository.PolicyEdition, te
 		policyCache: newEditionCache[policyEdition](DefaultLegalTextCacheTTL),
 		termsCache:  newEditionCache[termsEdition](DefaultLegalTextCacheTTL),
 	}
-	s.policyCache.store(s.policyEditionFrom(policyRead), time.Now())
-	s.termsCache.store(s.termsEditionFrom(termsRead), time.Now())
+	s.policyCache.store(s.policyEditionFrom(t.Context(), policyRead), time.Now())
+	s.termsCache.store(s.termsEditionFrom(t.Context(), termsRead), time.Now())
 	return s
 }
 
 type discardLogger struct{}
 
-func (discardLogger) Info(string, ...any)  {}
-func (discardLogger) Warn(string, ...any)  {}
-func (discardLogger) Error(string, ...any) {}
+func (discardLogger) Info(string, ...any)                   {}
+func (discardLogger) Warn(string, ...any)                   {}
+func (discardLogger) Error(context.Context, string, ...any) {}
 
 func policyEditionRead(id, label, marker string) repository.PolicyEdition {
 	slugs := []string{
@@ -162,7 +162,7 @@ func TestARefillMovesTheEditionIDAndItsTextTogether(t *testing.T) {
 		policyEditionRead("policy-edition-1", "1", "edition one"),
 		termsEditionRead("terms-edition-1", "1", "edition one"))
 
-	s.policyCache.store(s.policyEditionFrom(policyEditionRead("policy-edition-2", "2", "edition two")), time.Now())
+	s.policyCache.store(s.policyEditionFrom(t.Context(), policyEditionRead("policy-edition-2", "2", "edition two")), time.Now())
 
 	view, err := s.CurrentPolicy(context.Background(), "en")
 	if err != nil {

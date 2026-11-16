@@ -37,7 +37,7 @@ func (s *Service) SendNextOwedAssignmentMail(ctx context.Context) (catalog.OwedA
 		return catalog.OwedAssignmentMailNoneDue, nil
 	}
 	if s.mailer == nil || !s.assignmentLinks.Configured() {
-		s.logAssignmentMailFailure("owed assignment mails held: no mailer or no assignment link secret is configured", nil)
+		s.logAssignmentMailFailure(ctx, "owed assignment mails held: no mailer or no assignment link secret is configured", nil)
 		return catalog.OwedAssignmentMailNoneDue, nil
 	}
 
@@ -75,15 +75,16 @@ func (s *Service) SendNextOwedAssignmentMail(ctx context.Context) (catalog.OwedA
 	if fate == catalog.OwedAssignmentMailSend && !owed.BuyerCustomerID.Valid {
 		// Unreachable: a Storefront checkout always has a Customer (ADR 0054),
 		// and the ledger row a send writes must name one. Dropped rather than
-		// sent unrecorded, which would be a mail outside every allowance.
-		s.logger.Warn("an owed assignment mail's Sale has no buyer Customer; dropped unsent", "ticket_id", owed.TicketID)
+		// sent unrecorded, which would be a mail outside every allowance. The
+		// sweep gives up on it for good, so Error, and reported (ADR 0079).
+		s.logger.Error(ctx, "an owed assignment mail's Sale has no buyer Customer; dropped unsent", "ticket_id", owed.TicketID)
 		fate = catalog.OwedAssignmentMailDropStale
 	}
 	if fate != catalog.OwedAssignmentMailSend {
 		if err := s.repo.DropOwedAssignmentMail(ctx, owed.TicketID); err != nil {
 			// The lease brings it back and the next run judges it again, the same
 			// way: nothing is lost but a statement.
-			s.logger.Error("an owed assignment mail owed no more could not be dropped; it is judged again after its lease",
+			s.logger.Error(ctx, "an owed assignment mail owed no more could not be dropped; it is judged again after its lease",
 				"ticket_id", owed.TicketID, "reason", fate.String(), "error", err)
 		} else {
 			s.logger.Info("owed assignment mail dropped unsent", "ticket_id", owed.TicketID, "reason", fate.String())
@@ -106,10 +107,10 @@ func (s *Service) SendNextOwedAssignmentMail(ctx context.Context) (catalog.OwedA
 		// standing, the lease would bring the same mail round again, and a
 		// duplicate to a stranger is worse than a Ticket whose lifetime
 		// allowance under-counts by one.
-		s.logger.Error("an owed assignment mail was sent but could not be recorded; this Ticket's allowance under-counts by one",
+		s.logger.Error(ctx, "an owed assignment mail was sent but could not be recorded; this Ticket's allowance under-counts by one",
 			"ticket_id", owed.TicketID, "error", err)
 		if dropErr := s.repo.DropOwedAssignmentMail(ctx, owed.TicketID); dropErr != nil {
-			s.logger.Error("a sent owed assignment mail is still marked owed; it may be sent again after its lease",
+			s.logger.Error(ctx, "a sent owed assignment mail is still marked owed; it may be sent again after its lease",
 				"ticket_id", owed.TicketID, "error", dropErr)
 		}
 		return catalog.OwedAssignmentMailSentUnrecorded, nil
@@ -122,13 +123,13 @@ func (s *Service) SendNextOwedAssignmentMail(ctx context.Context) (catalog.OwedA
 // lease to bring it back, which is the same outcome a little sooner.
 func (s *Service) backOffOwedAssignmentMail(ctx context.Context, ticketID string, attempts int, message string, cause error) {
 	if cause != nil {
-		s.logger.Error(message, "ticket_id", ticketID, "attempt_count", attempts, "error", cause)
+		s.logger.Error(ctx, message, "ticket_id", ticketID, "attempt_count", attempts, "error", cause)
 	} else {
 		s.logger.Warn(message, "ticket_id", ticketID, "attempt_count", attempts)
 	}
 	next := s.now().Add(catalog.OwedAssignmentMailRetryDelay(attempts))
 	if err := s.repo.RescheduleOwedAssignmentMail(ctx, ticketID, next); err != nil {
-		s.logger.Error("a failed owed assignment mail could not be backed off; it is due again after its lease",
+		s.logger.Error(ctx, "a failed owed assignment mail could not be backed off; it is due again after its lease",
 			"ticket_id", ticketID, "error", err)
 	}
 }

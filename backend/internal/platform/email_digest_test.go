@@ -41,7 +41,7 @@ type recordingLogger struct {
 	errors int
 }
 
-func (l *recordingLogger) Info(string, ...any)  { l.infos++ }
-func (l *recordingLogger) Warn(string, ...any)  { l.warns++ }
-func (l *recordingLogger) Error(string, ...any) { l.errors++ }
-func (l *recordingLogger) Debug(string, ...any) {}
+func (l *recordingLogger) Info(string, ...any)                   { l.infos++ }
+func (l *recordingLogger) Warn(string, ...any)                   { l.warns++ }
+func (l *recordingLogger) Error(context.Context, string, ...any) { l.errors++ }
+func (l *recordingLogger) Debug(string, ...any)                  {}

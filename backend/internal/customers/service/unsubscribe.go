@@ -272,7 +272,7 @@ func (s *Service) confirmWithdrawal(ctx context.Context, customer *repository.Cu
 		// A deployment with no sender still performed the withdrawal, and says so
 		// loudly rather than leaving a Customer silently unconfirmed — the same
 		// posture UnconfiguredDigestSender takes for the same reason.
-		s.logger.Error("consent withdrawal not confirmed: no email sender is configured",
+		s.logger.Error(ctx, "consent withdrawal not confirmed: no email sender is configured",
 			"customer_id", customer.ID,
 			"record_id", receipt.RecordID,
 		)
@@ -299,7 +299,7 @@ func (s *Service) confirmWithdrawal(ctx context.Context, customer *repository.Cu
 		MarketingConsent:  receipt.Withdrawn.MarketingConsent,
 		NetworkingConsent: receipt.Withdrawn.NetworkingConsent,
 	}); err != nil {
-		s.logger.Error("consent withdrawal confirmation could not be sent",
+		s.logger.Error(ctx, "consent withdrawal confirmation could not be sent",
 			"customer_id", customer.ID,
 			"record_id", receipt.RecordID,
 			"error", err,
@@ -311,7 +311,7 @@ func (s *Service) confirmWithdrawal(ctx context.Context, customer *repository.Cu
 		// The Customer HAS been told; only the annotation failed. Logged and left,
 		// because failing the withdrawal over it would undo an act that happened
 		// and a mail that has already gone out.
-		s.logger.Error("consent withdrawal confirmation could not be stamped on the evidence",
+		s.logger.Error(ctx, "consent withdrawal confirmation could not be stamped on the evidence",
 			"customer_id", customer.ID,
 			"record_id", receipt.RecordID,
 			"error", err,

@@ -264,7 +264,7 @@ func utcOrNil(t *time.Time) *time.Time {
 func (s *Service) mailSaleReAddressing(ctx context.Context, sale *repository.OperatorSaleRow, recorded *repository.SaleReAddressingRow) {
 	token, ok := s.reAddressingLinks.Sign(recorded.ID, recorded.RequestedAt)
 	if !ok {
-		s.logger.Error("re-addressing link unavailable: no link secret configured; the corrected address was not mailed",
+		s.logger.Error(ctx, "re-addressing link unavailable: no link secret configured; the corrected address was not mailed",
 			"ticket_sale_id", sale.ID, "re_addressing_id", recorded.ID)
 		return
 	}
@@ -280,7 +280,7 @@ func (s *Service) mailSaleReAddressing(ctx context.Context, sale *repository.Ope
 		// Neither the address nor the link is logged: the link is a credential
 		// that mints an identity, and the address belongs to somebody who may
 		// never have been here.
-		s.logger.Error("re-addressing mail delivery failed; the record stands and can be sent again",
+		s.logger.Error(ctx, "re-addressing mail delivery failed; the record stands and can be sent again",
 			"ticket_sale_id", sale.ID, "re_addressing_id", recorded.ID, "error", err)
 	}
 }

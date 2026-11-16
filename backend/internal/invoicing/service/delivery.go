@@ -64,7 +64,7 @@ func (s *Service) deliverDocument(ctx context.Context, row *repository.InvoiceRo
 		// so it stays authorized and undelivered for an operator to see, and
 		// off the queue, not on the ladder: retrying a deterministic render
 		// hourly forever would only hide the bug.
-		s.logger.Error("invoicing: an authorized document cannot be delivered", "invoice_id", inv.ID, "kind", inv.Kind, "error", err)
+		s.logger.Error(ctx, "invoicing: an authorized document cannot be delivered", "invoice_id", inv.ID, "kind", inv.Kind, "error", err)
 		return false, s.rescheduleDelivery(ctx, inv, nil, now)
 	}
 	if err != nil {

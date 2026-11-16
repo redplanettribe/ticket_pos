@@ -102,7 +102,7 @@ func (s *Service) statusAttempt(ctx context.Context, invoiceID string, call func
 	}
 	recorded, err := s.repo.RecordAttempt(context.WithoutCancel(ctx), a)
 	if err != nil {
-		s.logger.Error("invoicing: could not record attempt", "invoice_id", invoiceID, "operation", a.Operation, "error", err)
+		s.logger.Error(ctx, "invoicing: could not record attempt", "invoice_id", invoiceID, "operation", a.Operation, "error", err)
 	}
 	return answer, recorded
 }

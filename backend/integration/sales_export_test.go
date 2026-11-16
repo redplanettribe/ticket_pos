@@ -2,6 +2,7 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -1883,7 +1884,7 @@ func (l *captureLogger) Warn(msg string, args ...any) {
 	l.lines = append(l.lines, capturedLine{level: "warn", msg: msg, args: args})
 }
 
-func (l *captureLogger) Error(msg string, args ...any) {
+func (l *captureLogger) Error(_ context.Context, msg string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.lines = append(l.lines, capturedLine{level: "error", msg: msg, args: args})
@@ -1952,7 +1953,7 @@ func withSalesLogger(t *testing.T) *captureLogger {
 	capture := &captureLogger{}
 	sharedApp.SalesService.WithLogger(capture)
 	t.Cleanup(func() {
-		sharedApp.SalesService.WithLogger(platform.NewSlogLogger(sharedApp.Logger))
+		sharedApp.SalesService.WithLogger(platform.NewSlogLogger(sharedApp.Logger, sharedApp.Reporter))
 	})
 	return capture
 }

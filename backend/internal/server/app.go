@@ -170,7 +170,12 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		}
 	}
 
-	platformLogger := platform.NewSlogLogger(logger)
+	reporter := options.reporter
+	if reporter == nil {
+		reporter = platform.NoopReporter{}
+	}
+	// Every Error line through it is reported (ADR 0079).
+	platformLogger := platform.NewSlogLogger(logger, reporter)
 	emailSender := options.emailSender
 	if emailSender == nil {
 		emailSender, err = newEmailSender(ctx, cfg, platformLogger)
@@ -689,11 +694,6 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// read (#639), tied here for the same reason.
 	catalogService = catalogService.WithDossierSaleDocuments(invoicingService)
 
-	reporter := options.reporter
-	if reporter == nil {
-		reporter = platform.NoopReporter{}
-	}
-
 	return &App{
 		Config:            cfg,
 		Logger:            logger,
@@ -808,7 +808,7 @@ func newDigestEmailSender(ctx context.Context, cfg platform.Config, logger platf
 	if reason := cfg.DigestEmail.UnconfiguredReason(cfg.EmailFrom); reason != "" {
 		// Error level, at startup, and again on every refused send. This is a
 		// deployment that believes it has a discovery feature and does not.
-		logger.Error("digest email sender: not configured; follow digests will not be sent",
+		logger.Error(ctx, "digest email sender: not configured; follow digests will not be sent",
 			"provider", provider, "from", cfg.DigestEmail.From, "reason", reason)
 		return platform.NewUnconfiguredDigestSender(logger, reason), nil
 	}

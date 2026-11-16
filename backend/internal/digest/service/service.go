@@ -964,7 +964,9 @@ func (s *Service) storefrontTicketSalesURL() string {
 func (s *Service) recordFailure(ctx context.Context, pending repository.PendingDigest, cause error, out *DrainResult) {
 	if pending.AttemptCount >= digestMaxAttempts {
 		out.GaveUp++
-		s.logger.Warn("giving up on a Follow Digest after exhausting its attempts; this Customer gets no Digest for this week",
+		// Error, not Warn: the sweep gives up here and nothing retries it, so it
+		// is reported (ADR 0079). A failure that goes back on the queue stays Warn.
+		s.logger.Error(ctx, "giving up on a Follow Digest after exhausting its attempts; this Customer gets no Digest for this week",
 			"follow_digest_id", pending.ID,
 			"customer_id", pending.CustomerID,
 			"week_start", pending.WeekStart.Format(time.DateOnly),

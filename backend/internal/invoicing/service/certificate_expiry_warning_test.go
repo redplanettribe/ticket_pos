@@ -110,7 +110,7 @@ func TestCertificateExpiryLadderIsHighestFirst(t *testing.T) {
 // without a database.
 func TestCertificateExpiryWarningWithoutAnOperatorReaderTellsNobody(t *testing.T) {
 	email := &platform.CaptureEmailSender{}
-	svc := New(nil, nil, platform.NewSlogLogger(slog.New(slog.DiscardHandler))).WithEmailSender(email)
+	svc := New(nil, nil, platform.NewSlogLogger(slog.New(slog.DiscardHandler), platform.NoopReporter{})).WithEmailSender(email)
 	svc.warnOfCertificateExpiry(context.Background())
 	if n := len(email.CertificateExpiryWarningsSent()); n != 0 {
 		t.Fatalf("%d warnings sent with no operator reader; want none", n)

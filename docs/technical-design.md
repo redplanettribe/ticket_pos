@@ -165,7 +165,7 @@ backend/
 
 Construct dependencies in `cmd/server/main.go` and inject them into handlers and services.
 
-- **Logger**: a small `Logger` interface in `platform/`, backed by `slog` in production.
+- **Logger**: a small `Logger` interface in `platform/`, backed by `slog` in production, whose Error lines are reported (see Logging and request correlation).
   Services and repositories receive a logger instance; tests inject a no-op or capture logger.
 - **Database**: a connection pool passed into repositories.
 - **EmailSender**: pluggable interface for OTP delivery (see Authentication).
@@ -192,7 +192,17 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
 - The SDK collects no personal data by default: no request, body, cookie, header, query string or IP address, and the host name is not sent.
 - `platform.AsyncReporter` stands in front of the SDK, so nothing on a request waits on Sentry: error reports and check-ins queue for one goroutine and are dropped when the queue is full.
   A reporter failure, a panic, a full queue or a refused delivery, is logged once at WARN and every later one is swallowed.
-- A panic recovered by the request pipeline is reported once, with the stack of the frame that panicked and the request id.
+- What is reported: a panic recovered by the request pipeline, with the stack of the frame that panicked; a non-domain error `platform.WriteDomainError` answers with the generic 500, with the original error; a domain error it answers with a 5xx and no `Retry-After`, such as a failed commit; and every line logged at Error through `platform.Logger`.
+  Not a domain error answered with a 4xx, not a Warn, and so not a capacity refusal.
+  Promoting a line to Error, or demoting one, is an alerting decision.
+- `Logger.Error` takes the context it is logged under, and Info and Warn do not, because only an Error line is reported: inside a request the context carries the request id the event needs, and the request's other context as reports gain it.
+  The event is the message wrapping the first error among the arguments, and nothing else of them, since they can name a person.
+  A background goroutine passes a context detached from the request that started it, so its report still carries that request's id.
+- One failed request produces one event.
+  The pipeline remembers on the request context whether anything in the request has reported.
+  An Error line always reports; a panic, the error mapping's 5xx, and the `request` line of a 5xx report only when nothing in the request did, so an Error line that writes a failure's cause down, followed by the 500 it ends in, is one event.
+  The `request` line reports a 5xx nothing else reported, such as one a handler writes by hand, naming the route pattern rather than the path.
+- A sweep that gives up on something for good logs it at Error and is reported; failures it retries, and the counts it answers with, keep their levels.
 - On SIGTERM the API stops accepting, lets requests in flight finish for up to seven seconds, and flushes the reporter with a two second bound (`platform.ShutdownFlushTimeout`).
   A failure to start, from `LoadConfig` on, is reported and flushed with the same bound before the process exits.
 

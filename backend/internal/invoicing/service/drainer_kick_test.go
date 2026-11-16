@@ -3,13 +3,16 @@ package service
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/invoicing/repository"
 	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/platform/reportertest"
 )
 
 // kickLogEntry is one line the kick's logger was handed.
@@ -46,9 +49,9 @@ func (l *kickLogger) log(level, msg string, args []any) {
 	}
 }
 
-func (l *kickLogger) Info(msg string, args ...any)  { l.log("INFO", msg, args) }
-func (l *kickLogger) Warn(msg string, args ...any)  { l.log("WARN", msg, args) }
-func (l *kickLogger) Error(msg string, args ...any) { l.log("ERROR", msg, args) }
+func (l *kickLogger) Info(msg string, args ...any)                     { l.log("INFO", msg, args) }
+func (l *kickLogger) Warn(msg string, args ...any)                     { l.log("WARN", msg, args) }
+func (l *kickLogger) Error(_ context.Context, msg string, args ...any) { l.log("ERROR", msg, args) }
 
 func (l *kickLogger) await(t *testing.T) kickLogEntry {
 	t.Helper()
@@ -110,5 +113,62 @@ func TestAFailedSaleInvoiceDrainerKickLogsAtError(t *testing.T) {
 	}
 	if err, _ := entry.attr("error").(error); err == nil {
 		t.Fatalf("a failed kick logged %v, want the error", entry.args)
+	}
+}
+
+// awaitReport waits for the kick, on its own goroutine, to report.
+func awaitReport(t *testing.T, fake *reportertest.Reporter) platform.ErrorReport {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if reports := fake.Errors(); len(reports) > 0 {
+			// Long enough for a second report to arrive if there were one.
+			time.Sleep(50 * time.Millisecond)
+			if reports = fake.Errors(); len(reports) != 1 {
+				t.Fatalf("got %d reports, want exactly 1: %+v", len(reports), reports)
+			}
+			return reports[0]
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("the kick never reported")
+	return platform.ErrorReport{}
+}
+
+// brokenClock is the frame a panicking kick's report must start at.
+func brokenClock() time.Time {
+	panic("the clock broke")
+}
+
+// The kick's Error lines go through the real Logger and so reach the reporter
+// (#765, ADR 0079), under the id of the checkout request that kicked it: the
+// goroutine outlives the request, the id is still on the context it was handed.
+func TestTheSaleInvoiceDrainerKickReportsAPanicUnderTheKickingRequestsID(t *testing.T) {
+	fake := reportertest.New()
+	svc := New(closedRepository(t), nil, platform.NewSlogLogger(slog.New(slog.DiscardHandler), fake)).WithClock(brokenClock)
+
+	svc.KickSaleInvoiceDrainer(platform.WithRequestID(t.Context(), "checkout-request-1"), "sale-1")
+
+	report := awaitReport(t, fake)
+	if !strings.Contains(report.Err.Error(), "the post-commit kick panicked") {
+		t.Errorf("reported %q, want the kick's panic line", report.Err)
+	}
+	if report.RequestID != "checkout-request-1" {
+		t.Errorf("report request id = %q, want the kicking request's", report.RequestID)
+	}
+	if len(report.Stack) == 0 || !strings.HasSuffix(report.Stack[0].Function, ".brokenClock") {
+		t.Errorf("stack = %+v, want it to start at the frame that panicked, brokenClock", report.Stack)
+	}
+}
+
+func TestAFailedSaleInvoiceDrainerKickIsReported(t *testing.T) {
+	fake := reportertest.New()
+	svc := New(closedRepository(t), nil, platform.NewSlogLogger(slog.New(slog.DiscardHandler), fake))
+
+	svc.KickSaleInvoiceDrainer(t.Context(), "sale-1")
+
+	report := awaitReport(t, fake)
+	if !strings.Contains(report.Err.Error(), "the post-commit kick could not drain") || errors.Unwrap(report.Err) == nil {
+		t.Errorf("reported %q, want the kick's failure wrapping its error", report.Err)
 	}
 }

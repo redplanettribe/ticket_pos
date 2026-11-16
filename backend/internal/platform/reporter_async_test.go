@@ -88,7 +88,7 @@ func TestARequestIsNotDelayedByAReporterThatBlocks(t *testing.T) {
 	inner := blockingReporter{release: make(chan struct{})}
 	defer close(inner.release)
 	var logBuf lockedBuffer
-	reporter := newAsyncReporter(inner, NewSlogLogger(slog.New(slog.NewJSONHandler(&logBuf, nil))), 1)
+	reporter := newAsyncReporter(inner, NewSlogLogger(slog.New(slog.NewJSONHandler(&logBuf, nil)), NoopReporter{}), 1)
 	server, _ := panickingServer(t, reporter)
 
 	// The first report blocks the reporter, the second fills its queue, and
@@ -109,7 +109,7 @@ func TestARequestIsNotDelayedByAReporterThatBlocks(t *testing.T) {
 
 func TestAReporterThatFailsNeitherFailsTheRequestNorLogsPerEvent(t *testing.T) {
 	var logBuf lockedBuffer
-	reporter := NewAsyncReporter(failingReporter{}, NewSlogLogger(slog.New(slog.NewJSONHandler(&logBuf, nil))))
+	reporter := NewAsyncReporter(failingReporter{}, NewSlogLogger(slog.New(slog.NewJSONHandler(&logBuf, nil)), NoopReporter{}))
 	server, _ := panickingServer(t, reporter)
 
 	for range 3 {
@@ -136,7 +136,7 @@ func TestAsyncReporterFlushKeepsItsBoundWhenTheReporterIsStuck(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			inner := blockingReporter{release: make(chan struct{})}
 			defer close(inner.release)
-			reporter := NewAsyncReporter(inner, NewSlogLogger(slog.New(slog.DiscardHandler)))
+			reporter := NewAsyncReporter(inner, NewSlogLogger(slog.New(slog.DiscardHandler), NoopReporter{}))
 			if tc.report {
 				reporter.ReportError(context.Background(), ErrorReport{Err: http.ErrHandlerTimeout})
 			}

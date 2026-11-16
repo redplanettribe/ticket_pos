@@ -144,6 +144,6 @@ func sendAll(ctx context.Context, out io.Writer, all []message, pace time.Durati
 // error on the message's own line.
 type discardLogger struct{}
 
-func (discardLogger) Info(string, ...any)  {}
-func (discardLogger) Warn(string, ...any)  {}
-func (discardLogger) Error(string, ...any) {}
+func (discardLogger) Info(string, ...any)                   {}
+func (discardLogger) Warn(string, ...any)                   {}
+func (discardLogger) Error(context.Context, string, ...any) {}

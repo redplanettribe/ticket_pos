@@ -281,18 +281,23 @@ func (s *Service) KickSaleInvoiceDrainer(ctx context.Context, ticketSaleID strin
 	if !s.kick {
 		return
 	}
+	// Detached from the request, which is finishing, but still carrying its
+	// id: a failed or panicking kick is reported under the checkout that
+	// kicked it (ADR 0079).
+	kickCtx := context.WithoutCancel(ctx)
 	go func() {
 		// Nothing above this goroutine recovers it: a panic here would take
-		// the whole API process down with every request it is serving.
+		// the whole API process down with every request it is serving. The
+		// Error line is the report, its stack the frame that panicked.
 		defer func() {
 			if rec := recover(); rec != nil {
-				s.logger.Error("invoicing: the post-commit kick panicked; the scheduled drain will", "panic", rec, "stack", string(debug.Stack()))
+				s.logger.Error(kickCtx, "invoicing: the post-commit kick panicked; the scheduled drain will", "panic", rec, "stack", string(debug.Stack()))
 			}
 		}()
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), saleInvoiceDrainBudget)
+		ctx, cancel := context.WithTimeout(kickCtx, saleInvoiceDrainBudget)
 		defer cancel()
 		if _, err := s.drainSaleInvoices(ctx, ticketSaleID, saleInvoiceDrainBudget); err != nil {
-			s.logger.Error("invoicing: the post-commit kick could not drain; the scheduled drain will", "error", err)
+			s.logger.Error(ctx, "invoicing: the post-commit kick could not drain; the scheduled drain will", "error", err)
 		}
 	}()
 }

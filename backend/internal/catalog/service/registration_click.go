@@ -32,7 +32,7 @@ func (s *Service) RecordRegistrationClick(ctx context.Context, organizationSlug,
 	}
 	if err := s.repo.RecordRegistrationClick(ctx, organizationSlug, eventSlug); err != nil {
 		if s.logger != nil {
-			s.logger.Error("registration link click not recorded",
+			s.logger.Error(ctx, "registration link click not recorded",
 				"organization_slug", organizationSlug, "event_slug", eventSlug, "error", err)
 		}
 		return err

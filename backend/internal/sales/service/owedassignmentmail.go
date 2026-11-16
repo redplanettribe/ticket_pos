@@ -141,7 +141,7 @@ func (s *Service) SweepOwedAssignmentMails(ctx context.Context) (*OwedAssignment
 	}
 
 	if total, err := s.owedAssignmentMails.CountOwedAssignmentMailsDue(ctx); err != nil {
-		s.logger.Error("owed assignment mail backlog read failed", "error", err)
+		s.logger.Error(ctx, "owed assignment mail backlog read failed", "error", err)
 	} else {
 		result.Backlog = total
 	}

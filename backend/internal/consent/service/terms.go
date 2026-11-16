@@ -119,7 +119,7 @@ func (s *Service) currentTermsEdition(ctx context.Context) (termsEdition, error)
 	if err != nil {
 		return termsEdition{}, err
 	}
-	edition := s.termsEditionFrom(read)
+	edition := s.termsEditionFrom(ctx, read)
 	s.termsCache.store(edition, time.Now())
 	return edition, nil
 }
@@ -159,14 +159,14 @@ func (e termsEdition) asksAdulthoodDeclaration() bool {
 // termsEditionFrom turns one read of one edition into the cache entry, verifying
 // the fingerprint on the way — policyEditionFrom's shape, for its reasons.
 // Called once per cache fill.
-func (s *Service) termsEditionFrom(edition repository.TermsEdition) termsEdition {
+func (s *Service) termsEditionFrom(ctx context.Context, edition repository.TermsEdition) termsEdition {
 	version := edition.Version
 
 	// Never silent, never fatal: the reader gets the current contract, and the
 	// mismatch is logged because every acceptance recorded in this state points
 	// at text that was not on screen (policyEditionFrom).
 	if computed := legal.ContentHash(edition.Artifacts); computed != version.ContentHash {
-		s.logger.Error("terms version content hash does not match its stored artifacts",
+		s.logger.Error(ctx, "terms version content hash does not match its stored artifacts",
 			"version", version.Label,
 			"recorded_hash", version.ContentHash,
 			"stored_hash", computed,
@@ -191,7 +191,7 @@ func (s *Service) termsEditionFrom(edition repository.TermsEdition) termsEdition
 	}
 
 	if missing := len(legal.Locales(edition.Artifacts)) - len(views); missing > 0 {
-		s.logger.Error("terms version publishes a language with an incomplete artifact set",
+		s.logger.Error(ctx, "terms version publishes a language with an incomplete artifact set",
 			"version", version.Label,
 			"incomplete_languages", missing,
 		)

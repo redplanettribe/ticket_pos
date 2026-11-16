@@ -117,7 +117,7 @@ func (s *Service) checkAnnulments(ctx context.Context, budget time.Duration) Ann
 		if claim.Invoice.Ecuador == nil {
 			// An annulled factura is signed, or it could not have been
 			// annulled; one without its Ecuador row is a fault, left leased.
-			s.logger.Error("invoicing: annulled factura has no clave to ask about", "invoice_id", invoiceID)
+			s.logger.Error(ctx, "invoicing: annulled factura has no clave to ask about", "invoice_id", invoiceID)
 			out.Unfinished++
 			continue
 		}
