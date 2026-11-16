@@ -1,3 +1,5 @@
+import { getTraceData } from "@sentry/nextjs";
+
 import type { CheckoutAnswerBody, CheckoutQuestion } from "./checkout-answers";
 import type { CheckoutHolderBody } from "./named-tickets";
 // The ".ts" is written out because lib/api.test.ts runs this module directly
@@ -128,6 +130,30 @@ async function serviceAuthHeaders(): Promise<HeadersInit | undefined> {
 }
 
 /**
+ * applyTraceHeaders carries the active trace to the API (ADR 0079): the
+ * sentry-trace and baggage headers of the span this call runs in, beside the
+ * request id, so the API's span joins the trace and one trace runs from the
+ * browser through this app into the API. As in the Staff app.
+ *
+ * With the SDK not initialised (no DSN) getTraceData returns nothing and no
+ * header is added. A header the caller set is kept.
+ *
+ * Only callBackend and fetchBackendRaw set them, the calls that are never
+ * cached. The cached reads (fetchData, readLegalDocument) must not: Next keys
+ * its Data Cache on the request's headers, ignoring only the W3C traceparent
+ * and tracestate, so a per-request sentry-trace would make every cached read a
+ * miss. The SDK's own fetch instrumentation still propagates the trace on the
+ * reads that do reach the API, below the cache.
+ */
+function applyTraceHeaders(headers: Headers): void {
+  for (const [name, value] of Object.entries(getTraceData())) {
+    if (value && !headers.has(name)) {
+      headers.set(name, value);
+    }
+  }
+}
+
+/**
  * APIError carries a failed envelope from the Go API so a route handler can
  * relay the API's own `error.code` and `error.message` to the browser instead of
  * inventing a verdict of its own (docs/design/README.md). The code is the half
@@ -198,6 +224,7 @@ export async function callBackend<T>(
   if (!headers.has("X-Request-ID")) {
     headers.set("X-Request-ID", crypto.randomUUID());
   }
+  applyTraceHeaders(headers);
   const serviceHeaders = new Headers(await serviceAuthHeaders());
   serviceHeaders.forEach((value, key) => headers.set(key, value));
 
@@ -241,6 +268,7 @@ export async function fetchBackendRaw(
   if (!headers.has("X-Request-ID")) {
     headers.set("X-Request-ID", crypto.randomUUID());
   }
+  applyTraceHeaders(headers);
   const serviceHeaders = new Headers(await serviceAuthHeaders());
   serviceHeaders.forEach((value, key) => headers.set(key, value));
   return fetch(`${apiBaseUrl()}${path}`, { ...init, cache: "no-store", headers });
@@ -531,9 +559,7 @@ export type PublicOrganizationEvents = {
   past: PublicEventCard[];
 };
 
-// Shared page size for the global explorer so the initial SSR page and each
-// client "Load more" fetch request the same number of cards.
-export const EXPLORER_PAGE_SIZE = 12;
+export { EXPLORER_PAGE_SIZE } from "./explorer.ts";
 
 export type PublicTag = {
   // The Tag's stable machine identity, and what a Preset Tag's Locale copy is

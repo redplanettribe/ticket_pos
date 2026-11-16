@@ -5,7 +5,8 @@ import { useRef, useState } from "react";
 
 import { Button } from "@ticket-pos/ui";
 
-import { EXPLORER_PAGE_SIZE, type PublicEventCard, type PublicEventPage } from "@/lib/api";
+import type { PublicEventCard, PublicEventPage } from "@/lib/api";
+import { EXPLORER_PAGE_SIZE } from "@/lib/explorer";
 
 import { EmptyState } from "./event-grid";
 import { ExplorerTimeline } from "./explorer-timeline";
