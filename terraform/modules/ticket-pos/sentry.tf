@@ -291,7 +291,7 @@ locals {
   #   the next tick does whatever a skipped or failed one did not. One minute of
   #   grace, and an issue after five bad ticks in a row: five minutes of nothing
   #   is an outage, one is noise. Two good ticks resolve it.
-  # every_five_minutes: the Sale Invoice drainer, behind the post-checkout kick.
+  # every_five_minutes: the Sale Invoice Drainer, behind the post-checkout kick.
   #   Two minutes of grace, an issue after two bad ticks (ten minutes).
   # daily_or_weekly: a missed run is a day or a week of work not done, so the
   #   first one opens an issue. Fifteen minutes of grace for a late start.

@@ -643,8 +643,9 @@ The operator is emailed when a scheduled job fails or does not run, and when the
 Each Cloud Scheduler job has a `sentry_cron_monitor` in its own file, beside it, in the `ticket-pos-api` project; each Next app has a `sentry_uptime_monitor` in `cloud_run_frontends.tf`, beside its service, in its own project.
 What they share, and the two alert rules that watch them, are at the end of `sentry.tf`.
 
-A cron monitor exists only while its job is unpaused and `sentry_api_enabled` is on.
-Every job ships paused, so a first apply creates no cron monitor, and a paused job can never alert that it did not run.
+A cron monitor exists only while its job is unpaused and `sentry_api_enabled` is on, so a paused job can never alert that it did not run.
+In the module every job defaults to paused, but `envs/prod/terraform.tfvars` already unpauses five: the Sale Invoice Drainer, Owed Assignment Mail, the Holder Address Purge and the two reminders.
+So the apply that turns `sentry_api_enabled` on in production also creates those five cron monitors and the check-in alert, in one go; on the Developer plan, with its one cron monitor, upgrade first.
 Setting a job's `<job>_enabled` to true, with the API reporting, is the one change that both unpauses the job and creates its monitor.
 The monitor's name, schedule and time zone are references to the scheduler job's own `name`, `schedule` and `time_zone`, so moving a `<job>_schedule` moves both.
 Pausing a job in an incident with `gcloud scheduler jobs pause` leaves its monitor in place, and it will report missed runs until the job is resumed; set `<job>_enabled = false` and apply to stop both.
@@ -674,6 +675,7 @@ How much each monitor tolerates follows how often its job runs (`local.sentry_cr
 | Daily or weekly | Follow Digest enqueue, the two purges, the two reminders | 15 minutes | the first bad run | 1 good run |
 
 A bad run is a failed check-in (the route answered a 5xx or panicked), a missed one (none within the grace) or a timed-out one.
+The cadence is chosen per job in its file from its default schedule; moving a `<job>_schedule` to another cadence (every minute to hourly, say) means moving that job's `local.sentry_cron_tolerance` key with it.
 The maximum runtime is the job's own `<job>_attempt_deadline_seconds` rounded up to the minute, plus one, so a run is timed out only after Cloud Scheduler has given up on it: 3 minutes for every job at today's deadlines.
 
 The uptime monitors exist only while their app's switch is on and its hostname is set:
@@ -690,7 +692,7 @@ Two alert rules email the `ticket-pos` team, in production, when a monitor's iss
 Each exists only while there is a monitor for it to watch.
 
 **What a full apply creates**, with every switch on and every job unpaused, on top of the 19 above: 9 cron monitors, 2 uptime monitors and the 2 alert rules.
-The free Developer plan allows one cron monitor and one uptime monitor, so the full set needs a paid plan with pay-as-you-go for the other eight cron monitors and the second uptime monitor; upgrade before switching on more than one of each.
+The free Developer plan allows one cron monitor and one uptime monitor, so the full set needs a paid plan with pay-as-you-go for the other eight cron monitors and the second uptime monitor; upgrade before switching on the API (five cron monitors at once in production, above) or both Next apps.
 Nothing in the code depends on the plan: every job checks in whether or not its monitor exists.
 
 **Testing the switches.**

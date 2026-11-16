@@ -96,11 +96,9 @@ resource "google_cloud_scheduler_job" "owed_assignment_mail" {
 
 # --- Sentry cron monitor (ADR 0079, #778) ---------------------------------------
 #
-# The monitor for the job above, which the API checks in with as
-# "ticket-pos-owed-assignment-mail" (sentry.tf says what every cron monitor shares). It
-# exists only while the job is unpaused and the API reports, and takes its name,
-# schedule and time zone from the job itself, so unpausing the job is the one
-# change that creates it and the two cannot drift.
+# The job above checks in as "ticket-pos-owed-assignment-mail". Its monitor exists
+# only while the job is unpaused and the API reports, and takes its name,
+# schedule and time zone from the job itself; sentry.tf says the rest.
 resource "sentry_cron_monitor" "owed_assignment_mail" {
   count = local.sentry_cron_monitors_enabled && !google_cloud_scheduler_job.owed_assignment_mail.paused ? 1 : 0
 

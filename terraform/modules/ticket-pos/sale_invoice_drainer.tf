@@ -116,11 +116,9 @@ resource "google_cloud_scheduler_job" "sale_invoice_drainer" {
 
 # --- Sentry cron monitor (ADR 0079, #778) ---------------------------------------
 #
-# The monitor for the job above, which the API checks in with as
-# "ticket-pos-sale-invoice-drainer" (sentry.tf says what every cron monitor shares). It
-# exists only while the job is unpaused and the API reports, and takes its name,
-# schedule and time zone from the job itself, so unpausing the job is the one
-# change that creates it and the two cannot drift.
+# The job above checks in as "ticket-pos-sale-invoice-drainer". Its monitor exists
+# only while the job is unpaused and the API reports, and takes its name,
+# schedule and time zone from the job itself; sentry.tf says the rest.
 resource "sentry_cron_monitor" "sale_invoice_drainer" {
   count = local.sentry_cron_monitors_enabled && !google_cloud_scheduler_job.sale_invoice_drainer.paused ? 1 : 0
 
