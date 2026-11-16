@@ -74,8 +74,8 @@ stateDiagram-v2
         never held - never a legal document -
         annulled was held and disowned at the
         portal, from pending, needs_attention
-        or authorized, and is checked against
-        the SRI by the Annulment Check; only
+        or authorized; a factura's annulment is
+        checked by the Annulment Check, and only
         Reinstate leads out of it. Issue again
         never moves this
         row: it owes the Sale a NEW one,
