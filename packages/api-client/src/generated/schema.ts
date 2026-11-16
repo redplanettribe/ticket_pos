@@ -17649,8 +17649,8 @@ export interface components {
             /**
              * @description CheckStatusHint and ResendHint are what the page tells the operator
              *     about who holds the document (#455, tightened by #516). CheckStatusHint
-             *     is true when the authority really holds it — some Submit came back
-             *     received (RECIBIDA, or 43/70 on a resend) — and has decided nothing
+             *     is true when the authority really holds it - some Submit came back
+             *     received (RECIBIDA, or 43/70 on a resend) - and has decided nothing
              *     yet, so the page says "check status" rather than showing an error.
              *     ResendHint is its opposite: the authority's last answer was that it
              *     holds nothing under the clave (`unknown`, #514) and no Submit was ever
