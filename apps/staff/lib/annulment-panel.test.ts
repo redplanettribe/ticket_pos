@@ -16,6 +16,8 @@ import {
   annulmentSendsNotice,
   annulmentWindowProgress,
   annulmentWindowTone,
+  FOLLOW_UP_CARD_KEYS,
+  followUpChooser,
   visibleWhitespace,
 } from "./annulment-panel.ts";
 
@@ -299,5 +301,91 @@ test("the runbook has its words in both languages", () => {
     for (const key of keys) {
       assert.ok(catalog.operator[key], `${locale}: operator.${key}`);
     }
+  }
+});
+
+// The follow-up chooser on the annulled face (#747): one card per admitted
+// follow-up, in the API's order, the refused ones held with their code, and
+// the two plain statements - this Sale now has no factura; the SRI has not
+// confirmed the annulment - drawn from the API's facts alone.
+
+const admittedCard = (kind: "issue_again" | "reissue" | "reverse_sale" | "nothing_follows" | "type_again") => ({
+  kind,
+  admitted: true,
+  refusal: null,
+});
+const mismatchCard = (kind: "issue_again" | "reissue") => ({
+  kind,
+  admitted: false,
+  refusal: { code: "INVOICE_ANNULMENT_MISMATCH", message: "The SRI still reports it authorized." },
+});
+const verdict = (v: "checking" | "confirmed" | "mismatch" | "unconfirmed") => ({ verdict: v });
+
+test("a standing Sale's annulled factura offers issue again, reissue and reverse the sale, and says it has no factura", () => {
+  const chooser = followUpChooser({
+    follow_ups: [admittedCard("issue_again"), admittedCard("reissue"), admittedCard("reverse_sale")],
+    check: verdict("confirmed"),
+  });
+  assert.deepEqual(chooser, {
+    cards: ["issue_again", "reissue", "reverse_sale"],
+    held: [],
+    saleHasNoFactura: true,
+    unconfirmed: false,
+  });
+});
+
+test("at mismatch, issue again and reissue are held with the API's refusal and reversing stays", () => {
+  const chooser = followUpChooser({
+    follow_ups: [mismatchCard("issue_again"), mismatchCard("reissue"), admittedCard("reverse_sale")],
+    check: verdict("mismatch"),
+  });
+  assert.deepEqual(chooser?.cards, ["reverse_sale"]);
+  assert.deepEqual(
+    chooser?.held.map((h) => [h.kind, h.code]),
+    [
+      ["issue_again", "INVOICE_ANNULMENT_MISMATCH"],
+      ["reissue", "INVOICE_ANNULMENT_MISMATCH"],
+    ],
+  );
+  assert.equal(chooser?.saleHasNoFactura, true);
+});
+
+test("an unconfirmed check admits both, and their confirms say the SRI has not confirmed", () => {
+  const chooser = followUpChooser({
+    follow_ups: [admittedCard("issue_again"), admittedCard("reissue"), admittedCard("reverse_sale")],
+    check: verdict("unconfirmed"),
+  });
+  assert.equal(chooser?.unconfirmed, true);
+  assert.deepEqual(chooser?.cards, ["issue_again", "reissue", "reverse_sale"]);
+});
+
+test("a reversed Sale shows only nothing follows; a manual Tax Invoice only type it again by hand", () => {
+  const reversed = followUpChooser({ follow_ups: [admittedCard("nothing_follows")], check: verdict("mismatch") });
+  assert.deepEqual(reversed, { cards: ["nothing_follows"], held: [], saleHasNoFactura: false, unconfirmed: false });
+  const manual = followUpChooser({ follow_ups: [admittedCard("type_again")], check: verdict("checking") });
+  assert.deepEqual(manual, { cards: ["type_again"], held: [], saleHasNoFactura: false, unconfirmed: false });
+});
+
+test("no chooser where nothing is left to choose or the factura is not annulled", () => {
+  assert.equal(followUpChooser({ follow_ups: [], check: verdict("confirmed") }), null);
+  assert.equal(followUpChooser({ follow_ups: null, check: null }), null);
+});
+
+test("every follow-up card's copy exists in both catalogs, and the mismatch refusal has its own", () => {
+  const keys = [
+    ...Object.values(FOLLOW_UP_CARD_KEYS).flatMap((k) => [k.title, k.owes, k.buyer]),
+    "invoicingFollowUpTitle",
+    "invoicingFollowUpNoFactura",
+    "invoicingFollowUpLeaveIt",
+    "invoicingFollowUpHeld",
+    "invoicingFollowUpUnconfirmed",
+    "invoicingFollowUpReverseLink",
+  ];
+  for (const locale of ["en", "es"]) {
+    const catalog = loadCatalog(locale);
+    for (const key of keys) {
+      assert.ok(catalog.operator[key], `${locale}: operator.${key}`);
+    }
+    assert.ok(catalog.errors.envelope.INVOICE_ANNULMENT_MISMATCH, `${locale}: errors.envelope.INVOICE_ANNULMENT_MISMATCH`);
   }
 });

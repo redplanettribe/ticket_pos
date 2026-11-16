@@ -216,8 +216,8 @@ func (r *Repository) AnnulmentMismatchSince(ctx context.Context, invoiceIDs []st
 		return out, nil
 	}
 	rows, err := r.db.Pool.QueryContext(ctx, `
-		SELECT invoice_id, check_verdict_at FROM invoicing_annulments
-		WHERE invoice_id = ANY($1::uuid[]) AND reinstated_at IS NULL AND check_verdict = 'mismatch'
+		SELECT i.id, `+annulmentMismatchSinceSQL+` FROM invoicing_invoices i
+		WHERE i.id = ANY($1::uuid[]) AND `+annulmentAtMismatchSQL+`
 	`, invoiceIDs)
 	if err != nil {
 		return nil, fmt.Errorf("annulment mismatch since: %w", err)

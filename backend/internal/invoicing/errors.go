@@ -265,11 +265,23 @@ func ErrCreditNoteNotReissuable() apperror.DomainError {
 	return apperror.New("CREDIT_NOTE_NOT_REISSUABLE", "A Credit Note cannot be reissued: only a Sale Invoice can.", nil)
 }
 
-// ErrInvoiceNotAuthorized: only an authorized Sale Invoice is reissued. One
-// still owed, pending or parked has Resend and Mark annulled as its path;
-// one withdrawn or annulled no longer stands.
+// ErrInvoiceNotAuthorized: only an authorized Sale Invoice, or since #747 an
+// annulled one, is reissued. One still owed, pending or parked has Resend
+// and Mark annulled as its path; one withdrawn or abandoned no longer
+// stands.
 func ErrInvoiceNotAuthorized(status InvoiceStatus) apperror.DomainError {
-	return apperror.New("INVOICE_NOT_AUTHORIZED", "Only an authorized Sale Invoice can be reissued; this one is "+string(status)+".", map[string]string{"status": string(status)})
+	return apperror.New("INVOICE_NOT_AUTHORIZED", "Only an authorized or annulled Sale Invoice can be reissued; this one is "+string(status)+".", map[string]string{"status": string(status)})
+}
+
+// ErrInvoiceAnnulmentMismatch: the factura is annulled, and its standing
+// annulment's Annulment Check is at mismatch - the SRI still reports it
+// authorized, on two asks the later at or after +30 min (#747, spec #742,
+// ADR 0078). Issue again and Reissue are refused while the warning stands,
+// whatever state the factura was annulled from, because a replacement now
+// could put a second authorized factura at the SRI for one Sale. The
+// refusal points at Check status: only the SRI's own ANULADO releases it.
+func ErrInvoiceAnnulmentMismatch() apperror.DomainError {
+	return apperror.New("INVOICE_ANNULMENT_MISMATCH", "The SRI still reports this annulled factura as authorized, so it cannot be replaced yet. Press Check status; once the SRI reports it ANULADO it can be replaced.", nil)
 }
 
 // ErrInvoiceSaleReversed: the Sale no longer stands, so income that no

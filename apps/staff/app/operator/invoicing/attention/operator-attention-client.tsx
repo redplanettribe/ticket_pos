@@ -67,12 +67,17 @@ function AttentionRow({ item, locale }: { item: OperatorNeedsAttentionItem; loca
         <Badge variant={INVOICE_STATUS_VARIANTS[item.status]}>{t(INVOICE_STATUS_KEYS[item.status])}</Badge>
       </td>
       <td className="py-3 pr-4 whitespace-nowrap">
-        {formatDateTime(item.attention_since ?? item.abandoned_at ?? item.mismatch_since, PLATFORM_TIME_ZONE, locale) ??
-          "-"}
+        {formatDateTime(
+          item.attention_since ?? item.abandoned_at ?? item.mismatch_since ?? item.annulled_at,
+          PLATFORM_TIME_ZONE,
+          locale,
+        ) ?? "-"}
       </td>
       <td className="py-3 pr-4">
         {item.attention_reason === "annulment_mismatch" ? (
           <span className="font-medium text-destructive">{t("invoicingAttentionAnnulmentMismatch")}</span>
+        ) : item.attention_reason === "annulled" ? (
+          <span className="font-medium">{t("invoicingAttentionAnnulled")}</span>
         ) : item.messages.length === 0 ? (
           <span className="text-muted-foreground">{t("invoicingAttentionNoMessages")}</span>
         ) : (

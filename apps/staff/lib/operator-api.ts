@@ -1370,6 +1370,19 @@ export type OperatorAnnulmentPortal = {
   environment: EcuadorIssuerEnvironment;
 };
 
+/**
+ * One follow-up an annulled factura's chooser offers (#747): Issue again,
+ * Reissue and Reverse the Sale on a standing Sale's factura, "nothing
+ * follows" on a reversed Sale's, "type it again by hand" on a manual Tax
+ * Invoice. Admitted, or refused with the code its press would answer
+ * (INVOICE_ANNULMENT_MISMATCH while the SRI still reports it authorized).
+ */
+export type OperatorAnnulmentFollowUp = {
+  kind: "issue_again" | "reissue" | "reverse_sale" | "nothing_follows" | "type_again";
+  admitted: boolean;
+  refusal: { code: string; message: string } | null;
+};
+
 /** Whether Mark annulled is admitted on a factura as it stands, before anything is typed. */
 export type OperatorInvoiceAnnulability = {
   admitted: boolean;
@@ -1453,6 +1466,12 @@ export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
     past: OperatorInvoiceAnnulment[];
     /** The Annulment Check (#746), null unless the factura is annulled. */
     check: OperatorAnnulmentCheck | null;
+    /**
+     * The follow-up chooser (#747), null unless the factura is annulled, and
+     * empty where a factura already stands for its Sale. Each card is
+     * admitted, or refused with the code its press would answer.
+     */
+    follow_ups: OperatorAnnulmentFollowUp[] | null;
   } | null;
   annulability: OperatorInvoiceAnnulability | null;
   has_authorization_xml: boolean;
@@ -1645,12 +1664,16 @@ export async function backfillOperatorUninvoicedHouseSales(ticketSaleIds: string
  */
 export type OperatorNeedsAttentionItem = OperatorInvoiceListItem & {
   /**
-   * Which door of the union put it there (#746): parked, abandoned with no
-   * replacement, or annulled with its Annulment Check at mismatch - the SRI
-   * still reports it authorized - since `mismatch_since`.
+   * Which door of the union put it there (#746, #747): parked; abandoned or
+   * annulled with no factura standing for its standing Sale; or annulled
+   * with its Annulment Check at mismatch - the SRI still reports it
+   * authorized - since `mismatch_since`, which wins where an annulled Sale
+   * Invoice comes in by both.
    */
-  attention_reason: "needs_attention" | "abandoned" | "annulment_mismatch";
+  attention_reason: "needs_attention" | "abandoned" | "annulled" | "annulment_mismatch";
   mismatch_since: string | null;
+  /** When the factura was annulled, on the `annulled` reason alone: the queue's "since" for it. */
+  annulled_at: string | null;
   messages: OperatorInvoiceMessage[];
 };
 
@@ -1760,10 +1783,12 @@ export type ReissueInvoiceBody = {
  * Reissues an authorized Sale Invoice to a corrected Recipient (#483, ADR
  * 0061): owes a Credit Note against it and a corrected Sale Invoice in one
  * act, and returns the CORRECTED document — a new id — as it stands, owed.
- * Refused with INVOICE_MANUAL_NOT_REISSUABLE, CREDIT_NOTE_NOT_REISSUABLE,
- * INVOICE_NOT_AUTHORIZED, INVOICE_SALE_REVERSED, REISSUE_IN_FLIGHT,
- * INVOICE_SUPERSEDED or INVOICE_ALREADY_CREDITED, each by code, and with
- * VALIDATION_FAILED naming the fields.
+ * On an annulled Sale Invoice (#747) it owes the corrected factura alone, no
+ * Credit Note. Refused with INVOICE_MANUAL_NOT_REISSUABLE,
+ * CREDIT_NOTE_NOT_REISSUABLE, INVOICE_NOT_AUTHORIZED, INVOICE_SALE_REVERSED,
+ * REISSUE_IN_FLIGHT, INVOICE_SUPERSEDED, INVOICE_ALREADY_CREDITED,
+ * INVOICE_ALREADY_REPLACED or INVOICE_ANNULMENT_MISMATCH, each by code, and
+ * with VALIDATION_FAILED naming the fields.
  */
 export async function reissueOperatorInvoice(id: string, body: ReissueInvoiceBody): Promise<OperatorInvoiceDetail> {
   return fetchEventsJSON<OperatorInvoiceDetail>(`${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/reissue`, {
@@ -1787,7 +1812,9 @@ export async function reissueOperatorInvoice(id: string, body: ReissueInvoiceBod
  * secuencial; the abandoned number stays consumed and is never handed out
  * again. Refused with INVOICE_MANUAL_NOT_ISSUABLE_AGAIN,
  * CREDIT_NOTE_NOT_ISSUABLE_AGAIN, INVOICE_NOT_TERMINALLY_DEAD,
- * INVOICE_SALE_REVERSED or INVOICE_ALREADY_REPLACED, each by code.
+ * INVOICE_SALE_REVERSED, INVOICE_ALREADY_REPLACED or, on an annulled one the
+ * SRI still reports authorized (#747), INVOICE_ANNULMENT_MISMATCH, each by
+ * code.
  */
 export async function issueOperatorInvoiceAgain(id: string, note: string | null): Promise<OperatorInvoiceDetail> {
   return fetchEventsJSON<OperatorInvoiceDetail>(`${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/issue-again`, {

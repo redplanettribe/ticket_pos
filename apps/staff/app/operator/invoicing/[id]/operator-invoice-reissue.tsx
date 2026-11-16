@@ -56,7 +56,21 @@ const SELECT_CLASS =
 
 const NOTE_MAX_LENGTH = 500;
 
-export function OperatorInvoiceReissue({ invoice }: { invoice: OperatorInvoiceDetail }) {
+/**
+ * `inline` draws the press and its form without the card around them, for the
+ * annulment panel's follow-up chooser (#747). On an annulled factura the form
+ * says no Credit Note is owed, and `unconfirmed` adds that the SRI has not
+ * confirmed the annulment.
+ */
+export function OperatorInvoiceReissue({
+  invoice,
+  inline = false,
+  unconfirmed = false,
+}: {
+  invoice: OperatorInvoiceDetail;
+  inline?: boolean;
+  unconfirmed?: boolean;
+}) {
   const t = useTranslations("operator");
   const errorCopy = useMessages().errors;
   const router = useRouter();
@@ -108,24 +122,27 @@ export function OperatorInvoiceReissue({ invoice }: { invoice: OperatorInvoiceDe
     }
   }
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("invoicingReissueCardTitle")}</CardTitle>
-        <CardDescription>{t("invoicingReissueCardDescription")}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Button type="button" onClick={openForm}>
-          {t("invoicingReissue")}
-        </Button>
-      </CardContent>
-
+  const press = (
+    <Button type="button" onClick={openForm}>
+      {t("invoicingReissue")}
+    </Button>
+  );
+  const form = (
       <Dialog open={open} onOpenChange={(next) => (busy ? null : setOpen(next))}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t("invoicingReissueDialogTitle")}</DialogTitle>
-            <DialogDescription>{t("invoicingReissueDialogDescription")}</DialogDescription>
+            <DialogDescription>
+              {invoice.status === "annulled"
+                ? t("invoicingReissueAnnulledDialogDescription")
+                : t("invoicingReissueDialogDescription")}
+            </DialogDescription>
           </DialogHeader>
+          {unconfirmed ? (
+            <Alert>
+              <AlertDescription>{t("invoicingReissueUnconfirmed")}</AlertDescription>
+            </Alert>
+          ) : null}
           <form
             className="space-y-4"
             onSubmit={(event) => {
@@ -210,6 +227,24 @@ export function OperatorInvoiceReissue({ invoice }: { invoice: OperatorInvoiceDe
           </form>
         </DialogContent>
       </Dialog>
+  );
+
+  if (inline) {
+    return (
+      <div>
+        {press}
+        {form}
+      </div>
+    );
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("invoicingReissueCardTitle")}</CardTitle>
+        <CardDescription>{t("invoicingReissueCardDescription")}</CardDescription>
+      </CardHeader>
+      <CardContent>{press}</CardContent>
+      {form}
     </Card>
   );
 }

@@ -43,14 +43,25 @@ type ReissueSaleFacts struct {
 	// CreditedByAuthorized says an authorized Credit Note already stands
 	// against the factura.
 	CreditedByAuthorized bool
+	// SaleHasLiveFactura says a Sale Invoice already stands for the Ticket
+	// Sale (saleHasLiveFactura). Read on every reissue, decided on only for
+	// an annulled factura (#747): an authorized one is that standing
+	// factura itself.
+	SaleHasLiveFactura bool
+	// AnnulmentAtMismatch says the factura is annulled and its current
+	// annulment stands at mismatch (annulmentAtMismatchSQL, #747), read
+	// under the factura's lock as Issue again reads it.
+	AnnulmentAtMismatch bool
 }
 
 // ReissueSaleInvoice runs the reissue's transaction. decide is called with
 // the factura as locked and the Sale facts; it returns the Credit Note and
 // the corrected Sale Invoice to owe, or a domain error to refuse with, in
-// which case nothing is written. It returns "" and no error when no
-// document has the id.
-func (r *Repository) ReissueSaleInvoice(ctx context.Context, facturaID string, decide func(factura *InvoiceRow, facts ReissueSaleFacts) (note, corrected invoicing.Invoice, err error)) (correctedID string, err error) {
+// which case nothing is written. The Credit Note is nil when none is owed:
+// a reissue of an ANNULLED factura (#747) owes the corrected factura
+// alone, the annulment having discharged the original at the portal. It
+// returns "" and no error when no document has the id.
+func (r *Repository) ReissueSaleInvoice(ctx context.Context, facturaID string, decide func(factura *InvoiceRow, facts ReissueSaleFacts) (note *invoicing.Invoice, corrected invoicing.Invoice, err error)) (correctedID string, err error) {
 	tx, err := r.db.Pool.BeginTx(ctx, nil)
 	if err != nil {
 		return "", fmt.Errorf("begin reissue: %w", err)
@@ -83,8 +94,9 @@ func (r *Repository) ReissueSaleInvoice(ctx context.Context, facturaID string, d
 					       OR (x.kind = 'credit_note' AND x.credit_note_reason = $3))),
 				EXISTS (
 					SELECT 1 FROM invoicing_invoices c
-					WHERE c.credits_invoice_id = $2 AND c.status = 'authorized')
-		`, ticketSaleID.String, facturaID, invoicing.CreditNoteReasonReissue).Scan(&facts.ReissueInFlight, &facts.CreditedByAuthorized); err != nil {
+					WHERE c.credits_invoice_id = $2 AND c.status = 'authorized'),
+				`+saleHasLiveFactura("$1")+`
+		`, ticketSaleID.String, facturaID, invoicing.CreditNoteReasonReissue).Scan(&facts.ReissueInFlight, &facts.CreditedByAuthorized, &facts.SaleHasLiveFactura); err != nil {
 			return "", fmt.Errorf("reissue: read sale facts: %w", err)
 		}
 	}
@@ -100,13 +112,18 @@ func (r *Repository) ReissueSaleInvoice(ctx context.Context, facturaID string, d
 	if err := loadInvoiceChildrenFrom(ctx, tx, factura); err != nil {
 		return "", err
 	}
+	if facts.AnnulmentAtMismatch, err = annulmentAtMismatchUnderLock(ctx, tx, facturaID); err != nil {
+		return "", fmt.Errorf("reissue: %w", err)
+	}
 
 	note, corrected, err := decide(factura, facts)
 	if err != nil {
 		return "", err
 	}
-	if _, err := r.OweInvoice(ctx, tx, note); err != nil {
-		return "", err
+	if note != nil {
+		if _, err := r.OweInvoice(ctx, tx, *note); err != nil {
+			return "", err
+		}
 	}
 	correctedID, err = r.OweInvoice(ctx, tx, corrected)
 	if err != nil {

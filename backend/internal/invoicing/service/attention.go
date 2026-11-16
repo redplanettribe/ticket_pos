@@ -41,10 +41,10 @@ import (
 
 // THE QUEUE IS A UNION, NOT A STATUS EQUALITY (#581, parent #575, ADR
 // 0068). It lists documents parked `needs_attention` OR Sale Invoices that
-// are `abandoned` with no live successor on a Ticket Sale that still
-// stands OR, since #746, annulled facturas whose Annulment Check stands at
-// mismatch, and the count - the Operator Dashboard's daily badge - widens
-// identically. Stated here in full because the next reader will otherwise
+// are `abandoned` or, since #747, `annulled` on a Ticket Sale that still
+// stands and has no factura standing for it OR, since #746, annulled
+// facturas whose Annulment Check stands at mismatch, and the count - the
+// Operator Dashboard's daily badge - widens identically. Stated here in full because the next reader will otherwise
 // "simplify" it back to one status: Abandon (#578) and Issue again (#580)
 // are deliberately two presses, so a Sale can sit abandoned-and-unreplaced
 // between them with its buyer holding no valid tax document, and until the
@@ -71,15 +71,19 @@ type NeedsAttentionQueue struct {
 // row carries both and the surface reads whichever the document has.
 //
 // AttentionReason says which door of the union put the document there
-// (#746): `needs_attention` (parked), `abandoned` (abandoned with no live
-// successor on a standing Sale) or `annulment_mismatch` (annulled, and its
-// Annulment Check stands at mismatch: the SRI still reports it authorized).
-// MismatchSince is the instant the mismatch was reached, on that reason
-// alone.
+// (#746, #747): `needs_attention` (parked), `abandoned` or `annulled` (a
+// dead Sale Invoice of a standing Sale no factura stands for, so nothing
+// yet owes it one) or `annulment_mismatch` (annulled, and its Annulment
+// Check stands at mismatch: the SRI still reports it authorized), which
+// wins where an annulled Sale Invoice comes in by both doors. MismatchSince
+// is the instant the mismatch was reached, on that reason alone, and
+// AnnulledAt the instant the factura was annulled, on the `annulled` reason
+// alone: the queue's "since" for each.
 type NeedsAttentionItem struct {
 	InvoiceListItem
 	AttentionReason string                 `json:"attention_reason"`
 	MismatchSince   *time.Time             `json:"mismatch_since"`
+	AnnulledAt      *time.Time             `json:"annulled_at"`
 	Messages        []AuthorityMessageView `json:"messages"`
 }
 
@@ -87,17 +91,24 @@ type NeedsAttentionItem struct {
 const (
 	AttentionReasonParked            = "needs_attention"
 	AttentionReasonAbandoned         = "abandoned"
+	AttentionReasonAnnulled          = "annulled"
 	AttentionReasonAnnulmentMismatch = "annulment_mismatch"
 )
 
-// attentionReason is the door a queued document came in by, read off its
-// status: the union's three halves are disjoint on it.
-func attentionReason(status invoicing.InvoiceStatus) string {
+// attentionReason is the door a queued document came in by: read off its
+// status, and for an annulled one off whether its current annulment stands
+// at mismatch, since an annulled Sale Invoice may come in by the
+// unreplaced door, the mismatch's, or both, and the mismatch is named
+// first.
+func attentionReason(status invoicing.InvoiceStatus, atMismatch bool) string {
 	switch status {
 	case invoicing.InvoiceStatusAbandoned:
 		return AttentionReasonAbandoned
 	case invoicing.InvoiceStatusAnnulled:
-		return AttentionReasonAnnulmentMismatch
+		if atMismatch {
+			return AttentionReasonAnnulmentMismatch
+		}
+		return AttentionReasonAnnulled
 	default:
 		return AttentionReasonParked
 	}
@@ -131,9 +142,10 @@ func (s *Service) CountRecipientWarnings(ctx context.Context) (*RecipientWarning
 	return &RecipientWarningCount{RecipientWarningCount: n}, nil
 }
 
-// ListNeedsAttention returns one page of the needs-attention queue — every
-// kind parked needs_attention, and every abandoned-and-unreplaced Sale
-// Invoice whose Sale still stands — longest waiting first.
+// ListNeedsAttention returns one page of the needs-attention queue - every
+// kind parked needs_attention, every abandoned or annulled Sale Invoice of
+// a standing Sale no factura stands for, and every annulled factura at
+// mismatch - longest waiting first.
 func (s *Service) ListNeedsAttention(ctx context.Context, page, pageSize int) (*NeedsAttentionQueue, error) {
 	rows, total, err := s.repo.ListNeedsAttention(ctx, page, pageSize)
 	if err != nil {
@@ -151,13 +163,17 @@ func (s *Service) ListNeedsAttention(ctx context.Context, page, pageSize int) (*
 	}
 	items := make([]NeedsAttentionItem, 0, len(rows))
 	for i := range rows {
+		at, atMismatch := mismatchSince[rows[i].Invoice.ID]
 		item := NeedsAttentionItem{
 			InvoiceListItem: s.listItem(&rows[i]),
-			AttentionReason: attentionReason(rows[i].Invoice.Status),
+			AttentionReason: attentionReason(rows[i].Invoice.Status, atMismatch),
 			Messages:        messagesView(rows[i].Invoice.Messages),
 		}
-		if at, ok := mismatchSince[rows[i].Invoice.ID]; ok {
+		switch item.AttentionReason {
+		case AttentionReasonAnnulmentMismatch:
 			item.MismatchSince = &at
+		case AttentionReasonAnnulled:
+			item.AnnulledAt = rows[i].Invoice.AnnulledAt
 		}
 		items = append(items, item)
 	}

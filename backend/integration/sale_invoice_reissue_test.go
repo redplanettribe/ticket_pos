@@ -430,9 +430,10 @@ func TestTheCorrectedSaleInvoiceWaitsUntilTheCreditNoteIsAuthorized(t *testing.T
 
 // TestReissueIsRefusedWhereItCannotCorrect: every refusal, each by its own
 // code, and none of them writes a thing. A manual Tax Invoice and a Credit
-// Note are refused by kind; a factura that is owed, pending, needs_attention,
-// withdrawn or annulled by state; a reversed Sale's factura, a factura with
-// a reissue in flight on its Sale, and a superseded factura by the chain.
+// Note are refused by kind; a factura that is owed, pending, needs_attention
+// or withdrawn by state (an annulled one is admitted since #747); a reversed
+// Sale's factura, a factura with a reissue in flight on its Sale, and a
+// superseded factura by the chain.
 func TestReissueIsRefusedWhereItCannotCorrect(t *testing.T) {
 	countDocuments := func(t *testing.T, sessionID string) int {
 		t.Helper()
@@ -504,7 +505,11 @@ func TestReissueIsRefusedWhereItCannotCorrect(t *testing.T) {
 		}
 		refuse(t, "reissue of a parked factura", operatorSessionID, invoiceID, "INVOICE_NOT_AUTHORIZED")
 		annulOK(t, operatorSessionID, invoiceID)
-		refuse(t, "reissue of an annulled factura", operatorSessionID, invoiceID, "INVOICE_NOT_AUTHORIZED")
+		// Admitted once annulled (#747): the corrected factura alone, no
+		// Credit Note (sale_invoice_annulment_followups_test.go).
+		if corrected := reissueOK(t, operatorSessionID, invoiceID, companyRecipient()); corrected.Status != "owed" {
+			t.Fatalf("reissue of an annulled factura = %s; want an owed corrected factura", corrected.Status)
+		}
 	})
 	t.Run("withdrawn", func(t *testing.T) {
 		env := setupTest(t)

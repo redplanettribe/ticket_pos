@@ -161,6 +161,16 @@ func issuableAgainDocument(inv *invoicing.Invoice) error {
 // Sale's fact is what actually holds the line #575 story 41 draws, that the
 // buyer ends with exactly one valid factura.
 //
+// THE MISMATCH GATE COMES LAST (#747, spec #742, ADR 0078). An annulled
+// document whose current annulment stands at mismatch - the SRI still
+// reports it authorized - is refused INVOICE_ANNULMENT_MISMATCH, whatever
+// state it was annulled from, because a replacement now could put a second
+// authorized factura at the SRI for one Sale. It is asked after the Sale's
+// facts: a reversed Sale is owed nothing either way, and a replacement
+// owed while the check was still unconfirmed is the truer answer than the
+// warning that came after it. An unconfirmed check is admitted; the
+// confirm says the SRI has not confirmed the annulment.
+//
 // LIVE IS #579'S LIVE throughout. A replacement that is itself withdrawn,
 // annulled or abandoned stands for nothing, so a Sale whose every document
 // has died is issued again — the second hop, and the first behavioural
@@ -176,6 +186,8 @@ func issueAgainRefusal(inv *invoicing.Invoice, facts repository.IssueAgainSaleFa
 		return invoicing.ErrInvoiceSaleReversed()
 	case inv.SupersededByInvoiceID != "", facts.SaleHasLiveFactura:
 		return invoicing.ErrInvoiceAlreadyReplaced()
+	case facts.AnnulmentAtMismatch:
+		return invoicing.ErrInvoiceAnnulmentMismatch()
 	}
 	return nil
 }

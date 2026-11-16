@@ -64,7 +64,21 @@ import { type OperatorInvoiceDetail, issueOperatorInvoiceAgain } from "@/lib/ope
 // this act reuses: one chain, one note, one limit.
 const NOTE_MAX_LENGTH = 500;
 
-export function OperatorInvoiceIssueAgain({ invoice }: { invoice: OperatorInvoiceDetail }) {
+/**
+ * `inline` draws the press and its confirm without the card around them, for
+ * the annulment panel's follow-up chooser (#747), whose own card says what the
+ * press owes and what the buyer hears. `unconfirmed` adds to the confirm that
+ * the SRI has not confirmed the annulment of the factura this replaces.
+ */
+export function OperatorInvoiceIssueAgain({
+  invoice,
+  inline = false,
+  unconfirmed = false,
+}: {
+  invoice: OperatorInvoiceDetail;
+  inline?: boolean;
+  unconfirmed?: boolean;
+}) {
   const t = useTranslations("operator");
   const errorCopy = useMessages().errors;
   const router = useRouter();
@@ -97,36 +111,29 @@ export function OperatorInvoiceIssueAgain({ invoice }: { invoice: OperatorInvoic
     }
   }
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("invoicingIssueAgainCardTitle")}</CardTitle>
-        <CardDescription>{t("invoicingIssueAgainCardDescription")}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {error ? (
-          <Alert variant="destructive">
-            <AlertTitle>{t("invoicingActionFailedTitle")}</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
+  const failed = error ? (
+    <Alert variant="destructive">
+      <AlertTitle>{t("invoicingActionFailedTitle")}</AlertTitle>
+      <AlertDescription>{error}</AlertDescription>
+    </Alert>
+  ) : null;
+  const press = (
+    <Button type="button" disabled={busy} onClick={openForm}>
+      {busy ? t("invoicingIssuingAgain") : t("invoicingIssueAgain")}
+    </Button>
+  );
+  const confirm = (
+    <Dialog open={open} onOpenChange={(next) => (busy ? null : setOpen(next))}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("invoicingIssueAgainConfirmTitle")}</DialogTitle>
+          <DialogDescription>{t("invoicingIssueAgainConfirm")}</DialogDescription>
+        </DialogHeader>
+        {unconfirmed ? (
+          <Alert>
+            <AlertDescription>{t("invoicingIssueAgainUnconfirmed")}</AlertDescription>
           </Alert>
         ) : null}
-        <Button type="button" disabled={busy} onClick={openForm}>
-          {busy ? t("invoicingIssuingAgain") : t("invoicingIssueAgain")}
-        </Button>
-        {/*
-          What the press does that the button cannot say: a fresh number, the
-          dead one kept and never reused, and the buyer mailed the
-          replacement alone.
-        */}
-        <p className="text-xs text-muted-foreground">{t("invoicingIssueAgainHint")}</p>
-      </CardContent>
-
-      <Dialog open={open} onOpenChange={(next) => (busy ? null : setOpen(next))}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("invoicingIssueAgainConfirmTitle")}</DialogTitle>
-            <DialogDescription>{t("invoicingIssueAgainConfirm")}</DialogDescription>
-          </DialogHeader>
           {/*
             The note travels with the chain and is read beside every document
             the replacement concerns — the operator's own words about why a
@@ -155,6 +162,34 @@ export function OperatorInvoiceIssueAgain({ invoice }: { invoice: OperatorInvoic
           </DialogFooter>
         </DialogContent>
       </Dialog>
+  );
+
+  if (inline) {
+    return (
+      <div className="space-y-3">
+        {failed}
+        {press}
+        {confirm}
+      </div>
+    );
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("invoicingIssueAgainCardTitle")}</CardTitle>
+        <CardDescription>{t("invoicingIssueAgainCardDescription")}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {failed}
+        {press}
+        {/*
+          What the press does that the button cannot say: a fresh number, the
+          dead one kept and never reused, and the buyer mailed the
+          replacement alone.
+        */}
+        <p className="text-xs text-muted-foreground">{t("invoicingIssueAgainHint")}</p>
+      </CardContent>
+      {confirm}
     </Card>
   );
 }

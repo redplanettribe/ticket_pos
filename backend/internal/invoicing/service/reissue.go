@@ -20,6 +20,13 @@ import (
 // on file exactly as it was. What follows is the Drainer's (drainer.go):
 // the Credit Note first, the corrected factura once it is authorized.
 //
+// ON AN ANNULLED FACTURA (#747, spec #742, ADR 0078) the same act owes the
+// corrected factura ALONE: the annulment discharged the original at the
+// portal, so there is no Credit Note, and the corrected factura is owed
+// with nothing to wait behind - the Drainer signs it on its next round, as
+// it signs an Issue again replacement, because what it supersedes is
+// terminally dead.
+//
 // READ-THEN-GUARDED-WRITE, as Mark annulled is. The refusals are decided
 // on the row as read, and decided AGAIN inside the transaction on the same
 // facts under the Sale's lock (repository.ReissueSaleInvoice), so a reissue
@@ -54,13 +61,12 @@ func (s *Service) ReissueSaleInvoice(ctx context.Context, id string, in ReissueI
 	}
 
 	now := s.clock()
-	correctedID, err := s.repo.ReissueSaleInvoice(ctx, id, func(factura *repository.InvoiceRow, facts repository.ReissueSaleFacts) (invoicing.Invoice, invoicing.Invoice, error) {
+	correctedID, err := s.repo.ReissueSaleInvoice(ctx, id, func(factura *repository.InvoiceRow, facts repository.ReissueSaleFacts) (*invoicing.Invoice, invoicing.Invoice, error) {
 		if err := reissueRefusal(&factura.Invoice, facts); err != nil {
-			return invoicing.Invoice{}, invoicing.Invoice{}, err
+			return nil, invoicing.Invoice{}, err
 		}
-		note := creditNoteOf(&factura.Invoice, invoicing.CreditNoteReasonReissue, now)
 		corrected := correctedSaleInvoiceOf(&factura.Invoice, in, facts.SaleEmail, now)
-		return note, corrected, nil
+		return reissueCreditNoteOf(&factura.Invoice, now), corrected, nil
 	})
 	if err != nil {
 		return nil, err
@@ -77,9 +83,11 @@ func (s *Service) ReissueSaleInvoice(ctx context.Context, id string, in ReissueI
 
 // reissuableDocument is what can be refused from the document's own row:
 // its kind and its state. A manual Tax Invoice is issued again by hand; a
-// Credit Note is never credited; only an authorized factura is reissued —
-// one owed, pending or parked has Resend and Mark annulled as its path, and
-// one withdrawn or annulled no longer stands.
+// Credit Note is never credited; an authorized factura is reissued, and
+// since #747 (spec #742, ADR 0078) an ANNULLED one too, which is how a
+// Recipient the operator annulled a factura over is corrected without a
+// Credit Note. One owed, pending or parked has Resend and Mark annulled as
+// its path, and one withdrawn or abandoned no longer stands.
 func reissuableDocument(inv *invoicing.Invoice) error {
 	switch inv.Kind {
 	case invoicing.DocumentKindManual:
@@ -87,10 +95,24 @@ func reissuableDocument(inv *invoicing.Invoice) error {
 	case invoicing.DocumentKindCreditNote:
 		return invoicing.ErrCreditNoteNotReissuable()
 	}
-	if inv.Status != invoicing.InvoiceStatusAuthorized {
-		return invoicing.ErrInvoiceNotAuthorized(inv.Status)
+	switch inv.Status {
+	case invoicing.InvoiceStatusAuthorized, invoicing.InvoiceStatusAnnulled:
+		return nil
 	}
-	return nil
+	return invoicing.ErrInvoiceNotAuthorized(inv.Status)
+}
+
+// reissueCreditNoteOf is the Credit Note a reissue owes against the factura
+// it corrects: one for the full amount against an authorized factura, and
+// NONE against an annulled one (#747), which the annulment already
+// discharged at the portal - a nota de credito against a document the SRI
+// holds as ANULADO would cancel what is already void.
+func reissueCreditNoteOf(factura *invoicing.Invoice, now time.Time) *invoicing.Invoice {
+	if factura.Status == invoicing.InvoiceStatusAnnulled {
+		return nil
+	}
+	note := creditNoteOf(factura, invoicing.CreditNoteReasonReissue, now)
+	return &note
 }
 
 // reissueRefusal is the whole decision, on the factura as locked and the
@@ -107,9 +129,30 @@ func reissuableDocument(inv *invoicing.Invoice) error {
 // successor, is the Sale-without-a-current-factura gap (#480), never
 // credited twice — the gap #580's Issue again closes by owing a fresh
 // factura rather than a second Credit Note.
+//
+// AN ANNULLED FACTURA IS DECIDED AS ISSUE AGAIN DECIDES IT (#747), since it
+// owes what Issue again owes - one factura, no Credit Note - only to a
+// corrected Recipient: a reversed Sale is owed nothing; a Sale a factura
+// already stands for (a live successor of this one, or of any document of
+// the Sale) is already replaced; and a current annulment at mismatch is
+// refused INVOICE_ANNULMENT_MISMATCH, the SRI still reporting the factura
+// authorized. The in-flight and credited questions are an authorized
+// factura's: an annulled one has nothing in flight that would not stand
+// for the Sale, and no Credit Note can be authorized against it.
 func reissueRefusal(inv *invoicing.Invoice, facts repository.ReissueSaleFacts) error {
 	if err := reissuableDocument(inv); err != nil {
 		return err
+	}
+	if inv.Status == invoicing.InvoiceStatusAnnulled {
+		switch {
+		case facts.SaleStatus == "reversed":
+			return invoicing.ErrInvoiceSaleReversed()
+		case inv.SupersededByInvoiceID != "", facts.SaleHasLiveFactura:
+			return invoicing.ErrInvoiceAlreadyReplaced()
+		case facts.AnnulmentAtMismatch:
+			return invoicing.ErrInvoiceAnnulmentMismatch()
+		}
+		return nil
 	}
 	switch {
 	case facts.SaleStatus == "reversed":

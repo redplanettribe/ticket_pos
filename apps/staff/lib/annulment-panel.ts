@@ -16,6 +16,7 @@ import type {
   InvoiceKind,
   InvoiceStatus,
   OperatorAnnulmentCheck,
+  OperatorAnnulmentFollowUp,
   OperatorAnnulmentPortal,
   OperatorAnnulmentWindow,
   OperatorInvoiceAnnulability,
@@ -221,4 +222,88 @@ export function visibleWhitespace(value: string): { text: string; space: boolean
 /** Whether recording sends the buyer an Annulment Notice: on a Sale Invoice only, never a manual Tax Invoice. */
 export function annulmentSendsNotice(kind: InvoiceKind): boolean {
   return kind === "sale";
+}
+
+// The follow-up chooser on the annulled face (#747, stories 54 to 58, 63 and
+// 64). The API decides which follow-ups an annulled factura has, by the very
+// gates their presses answer with (`annulment.follow_ups`): Issue again,
+// Reissue and Reverse the Sale on a standing Sale's factura, "nothing follows"
+// on a reversed Sale's, "type it again by hand" on a manual Tax Invoice, and
+// Issue again and Reissue refused with INVOICE_ANNULMENT_MISMATCH while the
+// SRI still reports the factura authorized. This only sorts them into cards
+// and held refusals, and says the two things the operator must read plainly.
+
+export type FollowUpKind = OperatorAnnulmentFollowUp["kind"];
+
+/** Each card's copy: its title, what it owes, and what the buyer hears. */
+export const FOLLOW_UP_CARD_KEYS = {
+  issue_again: {
+    title: "invoicingFollowUpIssueAgainTitle",
+    owes: "invoicingFollowUpIssueAgainOwes",
+    buyer: "invoicingFollowUpIssueAgainBuyer",
+  },
+  reissue: {
+    title: "invoicingFollowUpReissueTitle",
+    owes: "invoicingFollowUpReissueOwes",
+    buyer: "invoicingFollowUpReissueBuyer",
+  },
+  reverse_sale: {
+    title: "invoicingFollowUpReverseTitle",
+    owes: "invoicingFollowUpReverseOwes",
+    buyer: "invoicingFollowUpReverseBuyer",
+  },
+  nothing_follows: {
+    title: "invoicingFollowUpNothingTitle",
+    owes: "invoicingFollowUpNothingOwes",
+    buyer: "invoicingFollowUpNothingBuyer",
+  },
+  type_again: {
+    title: "invoicingFollowUpTypeAgainTitle",
+    owes: "invoicingFollowUpTypeAgainOwes",
+    buyer: "invoicingFollowUpTypeAgainBuyer",
+  },
+} as const satisfies Record<FollowUpKind, { title: string; owes: string; buyer: string }>;
+
+export type FollowUpChooser = {
+  /** The admitted follow-ups, one card each, in the API's order. */
+  cards: FollowUpKind[];
+  /** The refused ones, each with the code and message its press would answer. */
+  held: { kind: FollowUpKind; code: string; message: string }[];
+  /**
+   * The Sale stands and no factura stands for it: "This Sale now has no
+   * factura", and leaving it keeps the Sale in the needs-attention queue.
+   */
+  saleHasNoFactura: boolean;
+  /** The check reads unconfirmed: Issue again's and Reissue's confirms say the SRI has not confirmed the annulment. */
+  unconfirmed: boolean;
+};
+
+/**
+ * The chooser of an annulled factura, or null where there is none: not
+ * annulled, or a factura already stands for its Sale (the chain card names
+ * it).
+ */
+export function followUpChooser(annulment: {
+  follow_ups: readonly OperatorAnnulmentFollowUp[] | null;
+  check: Pick<OperatorAnnulmentCheck, "verdict"> | null;
+}): FollowUpChooser | null {
+  const followUps = annulment.follow_ups;
+  if (followUps === null || followUps.length === 0) {
+    return null;
+  }
+  const cards: FollowUpKind[] = [];
+  const held: FollowUpChooser["held"] = [];
+  for (const f of followUps) {
+    if (f.admitted) {
+      cards.push(f.kind);
+    } else if (f.refusal !== null) {
+      held.push({ kind: f.kind, code: f.refusal.code, message: f.refusal.message });
+    }
+  }
+  return {
+    cards,
+    held,
+    saleHasNoFactura: followUps.some((f) => f.kind === "issue_again"),
+    unconfirmed: annulment.check?.verdict === "unconfirmed",
+  };
 }

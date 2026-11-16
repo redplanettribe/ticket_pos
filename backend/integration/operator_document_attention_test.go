@@ -356,12 +356,14 @@ func TestOperatorMarksARefusedDocumentAnnulled(t *testing.T) {
 		t.Fatal("the signed XML on file changed on annulment")
 	}
 
-	// Gone from the queue and from the Drainer's claim set.
-	if n := getNeedsAttentionCount(t, operatorSessionID); n != 0 {
-		t.Fatalf("count after annulment = %d; want 0", n)
+	// Out of the Drainer's claim set, and no longer parked: it stays in the
+	// queue by the other door alone (#747), an annulled Sale Invoice whose
+	// standing Sale now has no factura, until Issue again or Reissue owes one.
+	if n := getNeedsAttentionCount(t, operatorSessionID); n != 1 {
+		t.Fatalf("count after annulment = %d; want 1, the Sale has no factura", n)
 	}
-	if queue := getNeedsAttentionQueue(t, operatorSessionID); len(queue.Data) != 0 {
-		t.Fatalf("queue after annulment = %+v; want empty", queue.Data)
+	if item := needsAttentionItem(t, operatorSessionID, invoiceID); item == nil || item.Status != "annulled" || item.AttentionReason != "annulled" {
+		t.Fatalf("queue item after annulment = %+v; want the annulled factura, reason annulled", item)
 	}
 	atInvoicingClock(t, fixedClock.Add(48*time.Hour))
 	if result := drainSaleInvoices(t); result.Claimed != 0 || result.Standing["annulled"] != 1 {
@@ -620,8 +622,10 @@ func TestMarkAnnulledWinsAgainstADrainersLateAuthorization(t *testing.T) {
 	if n := len(deliveriesSent(t, env)); n != 0 {
 		t.Fatalf("%d delivery mails; want none for an annulled document", n)
 	}
-	if n := getNeedsAttentionCount(t, operatorSessionID); n != 0 {
-		t.Fatalf("needs_attention count = %d; want 0", n)
+	// Queued as annulled with its Sale owed a factura (#747), and no longer
+	// as a parked document.
+	if item := needsAttentionItem(t, operatorSessionID, invoiceID); item == nil || item.AttentionReason != "annulled" {
+		t.Fatalf("queue item = %+v; want the annulled factura, reason annulled", item)
 	}
 	atInvoicingClock(t, fixedClock.Add(2*time.Hour))
 	if again := drainSaleInvoices(t); again.Claimed != 0 {

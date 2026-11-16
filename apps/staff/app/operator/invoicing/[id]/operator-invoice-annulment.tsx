@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 import {
@@ -24,6 +25,8 @@ import { useLocale, useMessages, useTranslations } from "next-intl";
 import {
   ANNULMENT_CHECK_BADGE,
   ANNULMENT_PORTAL_STEPS,
+  FOLLOW_UP_CARD_KEYS,
+  type FollowUpKind,
   type AnnulmentPortalField,
   type AnnulmentPortalStep,
   SRI_EN_LINEA_URL,
@@ -36,6 +39,7 @@ import {
   annulmentSendsNotice,
   annulmentWindowProgress,
   annulmentWindowTone,
+  followUpChooser,
   visibleWhitespace,
 } from "@/lib/annulment-panel";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -51,6 +55,8 @@ import {
 } from "@/lib/operator-api";
 
 import { INVOICE_STATUS_KEYS } from "../invoice-status";
+import { OperatorInvoiceIssueAgain } from "./operator-invoice-issue-again";
+import { OperatorInvoiceReissue } from "./operator-invoice-reissue";
 
 /**
  * The annulment panel (#745, spec #742, ADR 0078): Mark annulled on a factura,
@@ -88,6 +94,18 @@ import { INVOICE_STATUS_KEYS } from "../invoice-status";
  * Check status row whenever the check is not confirmed. The verdict and every
  * time come from `annulment.check`; this page decides only which line to draw
  * (lib/annulment-panel.ts).
+ *
+ * THE FOLLOW-UP CHOOSER (#747) closes the annulled face: one card per admitted
+ * follow-up, each saying what it owes and what the buyer hears. A standing
+ * Sale's factura offers Issue again, Reissue and Reverse the Sale, with "This
+ * Sale now has no factura" said plainly and a note that leaving it keeps the
+ * Sale in the needs-attention queue; a reversed Sale's shows only "Nothing
+ * follows"; a manual Tax Invoice's only "Type it again by hand". The cards are
+ * `annulment.follow_ups`, decided by the API's own gates: at mismatch Issue
+ * again and Reissue are held with the refusal their press would answer, and on
+ * an unconfirmed check their confirms say the SRI has not confirmed the
+ * annulment. The presses are the existing Issue again and Reissue forms, drawn
+ * inline, and Reverse the Sale links to the Sale's Operator Reversal.
  *
  * THE PORTAL RUNBOOK (#752) sits beside the record form: the portal steps as
  * a numbered checklist, a link to SRI en linea and the menu path for
@@ -188,8 +206,69 @@ function AnnulledPanel({
           </p>
         ) : null}
         {current?.late_acknowledged ? <p>{t("invoicingAnnulPanelTrailLate")}</p> : null}
+        <FollowUpChooserSection invoice={invoice} />
       </CardContent>
     </Card>
+  );
+}
+
+function FollowUpChooserSection({ invoice }: { invoice: OperatorInvoiceDetail }) {
+  const t = useTranslations("operator");
+  const errorCopy = useMessages().errors;
+  const chooser = invoice.annulment ? followUpChooser(invoice.annulment) : null;
+  if (chooser === null) {
+    return null;
+  }
+  function press(kind: FollowUpKind) {
+    switch (kind) {
+      case "issue_again":
+        return <OperatorInvoiceIssueAgain invoice={invoice} inline unconfirmed={chooser?.unconfirmed} />;
+      case "reissue":
+        return <OperatorInvoiceReissue invoice={invoice} inline unconfirmed={chooser?.unconfirmed} />;
+      case "reverse_sale":
+        return invoice.sale_confirmation_ref ? (
+          <Button asChild variant="outline">
+            <Link href={`/operator/sales/${encodeURIComponent(invoice.sale_confirmation_ref)}`}>
+              {t("invoicingFollowUpReverseLink")}
+            </Link>
+          </Button>
+        ) : null;
+      case "nothing_follows":
+      case "type_again":
+        return null;
+    }
+  }
+  return (
+    <section className="space-y-3 border-t pt-4">
+      <h3 className="text-base font-semibold text-foreground">{t("invoicingFollowUpTitle")}</h3>
+      {chooser.saleHasNoFactura ? (
+        <div className="space-y-1">
+          <p className="font-medium text-foreground">{t("invoicingFollowUpNoFactura")}</p>
+          <p>{t("invoicingFollowUpLeaveIt")}</p>
+        </div>
+      ) : null}
+      {chooser.unconfirmed && chooser.cards.some((kind) => kind === "issue_again" || kind === "reissue") ? (
+        <p className="text-amber-700">{t("invoicingFollowUpUnconfirmed")}</p>
+      ) : null}
+      <div className="grid gap-3 md:grid-cols-3">
+        {chooser.cards.map((kind) => (
+          <div key={kind} className="flex flex-col gap-2 rounded-md border p-3">
+            <p className="font-medium text-foreground">{t(FOLLOW_UP_CARD_KEYS[kind].title)}</p>
+            <p>{t(FOLLOW_UP_CARD_KEYS[kind].owes)}</p>
+            <p>{t(FOLLOW_UP_CARD_KEYS[kind].buyer)}</p>
+            <div className="mt-auto pt-1">{press(kind)}</div>
+          </div>
+        ))}
+      </div>
+      {chooser.held.map((held) => (
+        <p key={held.kind} className="text-destructive">
+          {t("invoicingFollowUpHeld", {
+            title: t(FOLLOW_UP_CARD_KEYS[held.kind].title),
+            reason: apiErrorMessage(errorCopy, new ApiError(held.message, held.code)) ?? held.message,
+          })}
+        </p>
+      ))}
+    </section>
   );
 }
 

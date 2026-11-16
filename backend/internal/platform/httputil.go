@@ -289,6 +289,12 @@ func domainHTTPStatus(code string) int {
 	case "INVOICE_MANUAL_NOT_ISSUABLE_AGAIN", "CREDIT_NOTE_NOT_ISSUABLE_AGAIN",
 		"INVOICE_NOT_TERMINALLY_DEAD", "INVOICE_ALREADY_REPLACED":
 		return http.StatusConflict
+	// The follow-ups' mismatch gate (#747, ADR 0078): an annulled factura the
+	// SRI still reports authorized is replaced by neither Issue again nor
+	// Reissue until a Check status reads ANULADO. A fact about the document,
+	// not the body, so a conflict.
+	case "INVOICE_ANNULMENT_MISMATCH":
+		return http.StatusConflict
 	case "NOT_FOUND", "ORGANIZATION_NOT_FOUND", "MEMBER_NOT_FOUND", "EVENT_NOT_FOUND":
 		return http.StatusNotFound
 	// A House Organization designation refused for the Organization's

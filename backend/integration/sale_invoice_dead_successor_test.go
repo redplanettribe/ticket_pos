@@ -156,11 +156,18 @@ func TestATerminalDeadSuccessorStopsSupersedingItsFactura(t *testing.T) {
 			// document the authority never authorized — but the Sale's real
 			// remaining obstacle: an authorized Credit Note already stands
 			// against it, which is #480's gap and #580's Issue again to
-			// close. The dead successor itself is still no route in.
+			// close. An abandoned successor is still no route in; an
+			// annulled one is reissued since #747, owing a corrected factura
+			// and no Credit Note, as Issue again would owe one: the Sale has
+			// no factura standing for it.
 			resp, body := reissueInvoice(t, operatorSessionID, facturaID, companyRecipient())
 			expectRefusal(t, "reissue of a factura whose successor is "+death, resp, body, http.StatusConflict, "INVOICE_ALREADY_CREDITED")
-			resp, body = reissueInvoice(t, operatorSessionID, correctedID, companyRecipient())
-			expectRefusal(t, "reissue of the "+death+" successor", resp, body, http.StatusConflict, "INVOICE_NOT_AUTHORIZED")
+			if death == "abandoned" {
+				resp, body = reissueInvoice(t, operatorSessionID, correctedID, companyRecipient())
+				expectRefusal(t, "reissue of the "+death+" successor", resp, body, http.StatusConflict, "INVOICE_NOT_AUTHORIZED")
+			} else if again := reissueOK(t, operatorSessionID, correctedID, companyRecipient()); deref(again.SupersedesInvoiceID) != correctedID {
+				t.Fatalf("reissue of the annulled successor supersedes %v; want %s", again.SupersedesInvoiceID, correctedID)
+			}
 		})
 	}
 }

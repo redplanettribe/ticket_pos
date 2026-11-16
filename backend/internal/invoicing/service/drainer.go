@@ -497,12 +497,13 @@ func (s *Service) withdrawRedundantCreditNote(ctx context.Context, row *reposito
 // document the operator has just asked for.
 //
 // The two are told apart by what they supersede, which is the difference
-// itself rather than a marker invented for it: a reissue corrects an
-// AUTHORIZED factura, and an authorized document can never become
-// withdrawn, annulled or abandoned — Mark annulled and Abandon both refuse
-// there, and a reversal withdraws only what was never sent — so a
-// terminally dead predecessor means an Issue again replacement and nothing
-// else. It waits for nothing and is signed on this round.
+// itself rather than a marker invented for it: a reissue of an AUTHORIZED
+// factura owes a Credit Note against it, and Mark annulled refuses an
+// authorized factura while that Credit Note is live (#745), so a
+// terminally dead predecessor means a successor that follows no Credit
+// Note: an Issue again replacement, or since #747 a reissue of an ANNULLED
+// factura, which owes the corrected factura alone. It waits for nothing
+// and is signed on this round.
 func (s *Service) withdrawCorrectedFacturaOfADeadCreditNote(ctx context.Context, row *repository.InvoiceRow) (bool, error) {
 	replaced, err := s.repo.GetInvoice(ctx, row.Invoice.SupersedesInvoiceID)
 	if err != nil {

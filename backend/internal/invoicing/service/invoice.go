@@ -905,10 +905,16 @@ type InvoiceDetail struct {
 //
 // Check is where the Annulment Check of an annulled factura stands (#746),
 // null on one that is not annulled.
+//
+// FollowUps is the follow-up chooser of an annulled factura (#747): one
+// entry per card, admitted or refused by the same gates the presses
+// answer with (annulmentFollowUps). Null unless the factura is annulled,
+// and empty where a factura already stands for its Sale.
 type AnnulmentRecordView struct {
-	Current *AnnulmentView      `json:"current"`
-	Past    []AnnulmentView     `json:"past"`
-	Check   *AnnulmentCheckView `json:"check"`
+	Current   *AnnulmentView          `json:"current"`
+	Past      []AnnulmentView         `json:"past"`
+	Check     *AnnulmentCheckView     `json:"check"`
+	FollowUps []AnnulmentFollowUpView `json:"follow_ups"`
 }
 
 // AnnulmentView is one Mark annulled on a factura: the state it was annulled
@@ -1011,6 +1017,7 @@ func (s *Service) detailView(row *repository.InvoiceRow) *InvoiceDetail {
 	if invoicing.IsFactura(row.Invoice.Kind) {
 		d.Annulment = annulmentRecordView(row.Annulments)
 		d.Annulment.Check = annulmentCheckView(row)
+		d.Annulment.FollowUps = annulmentFollowUps(row, s.saleInvoicingEnabled)
 		d.Annulability = s.annulabilityView(row, s.clock())
 	}
 	return d

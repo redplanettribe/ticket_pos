@@ -121,12 +121,17 @@ test("reissue is offered again once the reissue's Credit Note died", () => {
 // card, so a dead document still offers nothing among the SRI's remedies.
 const DEAD_SALE_INVOICE = { kind: "sale", superseded_by_invoice_id: null, credited_by_invoice_id: null } as const;
 
-test("an abandoned or annulled Sale Invoice offers issue again and nothing else", () => {
-  for (const status of ["abandoned", "annulled"] as const) {
-    const levers = invoiceLevers(status, true, DEAD_SALE_INVOICE);
-    assert.deepEqual(levers, { ...NONE, issueAgain: true }, status);
-    assert.equal(hasInvoiceLevers(levers), false, status);
-  }
+test("an abandoned Sale Invoice offers issue again and nothing else", () => {
+  const levers = invoiceLevers("abandoned", true, DEAD_SALE_INVOICE);
+  assert.deepEqual(levers, { ...NONE, issueAgain: true });
+  assert.equal(hasInvoiceLevers(levers), false);
+});
+
+// An annulled factura's follow-ups are the annulment panel's chooser since
+// #747 (annulment-panel.ts followUpChooser), which the API's gates decide,
+// mismatch included; the page draws no Issue again card of its own beside it.
+test("an annulled Sale Invoice offers nothing of its own: its follow-ups are the chooser's", () => {
+  assert.deepEqual(invoiceLevers("annulled", true, DEAD_SALE_INVOICE), NONE);
 });
 
 test("issue again is offered only on a Sale Invoice", () => {
@@ -140,7 +145,7 @@ test("issue again is offered only on a Sale Invoice", () => {
 // followed died, and neither is owed a fresh factura.
 test("issue again is offered on no other state, withdrawn included", () => {
   for (const status of INVOICE_STATUSES) {
-    if (status === "abandoned" || status === "annulled") continue;
+    if (status === "abandoned") continue;
     assert.equal(invoiceLevers(status, status !== "owed", DEAD_SALE_INVOICE).issueAgain, false, status);
   }
 });

@@ -280,6 +280,7 @@ type needsAttentionCheckItem struct {
 	Status          string  `json:"status"`
 	AttentionReason string  `json:"attention_reason"`
 	MismatchSince   *string `json:"mismatch_since"`
+	AnnulledAt      *string `json:"annulled_at"`
 }
 
 func needsAttentionItem(t *testing.T, sessionID, id string) *needsAttentionCheckItem {

@@ -56,13 +56,14 @@ import type { InvoiceKind, InvoiceStatus, OperatorInvoiceAttempt } from "./opera
  * operator who has been resending for two days is owed the reason rather than
  * a silently shorter row of buttons.
  *
- * `issueAgain` is the one lever a TERMINALLY DEAD Sale Invoice has (#580,
+ * `issueAgain` is the one lever an ABANDONED Sale Invoice has (#580,
  * ADR 0068), and the counterpart to `reissue` at the other end of a
  * document's life. Abandon and Mark annulled both leave a Ticket Sale with
  * no factura and, until this, nothing that would ever owe it another; Issue
  * again owes a fresh one, with the original lines, amounts and Recipient,
  * linked to the document it replaces. It is offered on a Sale Invoice that
- * is `abandoned` or `annulled` and has no live replacement — a replacement
+ * is `abandoned` and has no live replacement; an `annulled` one is offered
+ * it by the annulment panel's follow-up chooser instead (#747) - a replacement
  * that itself died leaves the link null (#579), so the chain grows another
  * hop rather than stopping. `withdrawn` is the third death and is
  * deliberately not offered it: such a document was never sent because its
@@ -70,14 +71,14 @@ import type { InvoiceKind, InvoiceStatus, OperatorInvoiceAttempt } from "./opera
  * is owed a fresh factura. A manual Tax Invoice is typed again by hand and
  * a Credit Note is never re-owed, so neither is offered it either.
  *
- * The API asks for one thing more that this cannot see — the Ticket Sale
- * must still stand — and answers INVOICE_SALE_REVERSED otherwise; that is a
+ * The API asks for one thing more that this cannot see - the Ticket Sale
+ * must still stand - and answers INVOICE_SALE_REVERSED otherwise; that is a
  * refusal the card shows rather than a lever it withholds, since the page
  * has no reversal to read.
  *
  * `reissue` is the one lever an AUTHORIZED document has (#483): a Sale
  * Invoice Reissue, offered on a Sale Invoice that is the Sale's current one
- * — authorized, not superseded by a corrected factura, and not credited by
+ * - authorized, not superseded by a corrected factura, and not credited by
  * any live Credit Note, which is what a reversal, a reissue in flight and a
  * settled reissue all leave behind (a reissue that died leaves none, #484).
  * A manual Tax Invoice is issued again by hand and a Credit Note is never
@@ -141,24 +142,27 @@ export function invoiceLevers(
       return { check: true, resend, annul: false, reissue, abandon: refusedByNumber, issueAgain };
     default:
       // Where `abandoned` and `annulled` land, and so the only branch in
-      // which `issueAgain` is ever true.
+      // which `issueAgain` is ever true (on `abandoned` alone, #747).
       return { check: false, resend: false, annul: false, reissue, abandon: false, issueAgain };
   }
 }
 
 /**
- * Whether Issue again is offered: exactly where the API would allow it,
- * minus the one fact the page cannot see (the Ticket Sale still standing).
- * `superseded_by_invoice_id` names a LIVE replacement only (#579): one that
- * died — withdrawn, annulled or abandoned in its turn — leaves the link
- * null, and the dead document may be issued again for a second time.
+ * Whether Issue again is offered as its own card: exactly where the API would
+ * allow it, minus the one fact the page cannot see (the Ticket Sale still
+ * standing). `superseded_by_invoice_id` names a LIVE replacement only
+ * (#579): one that died - withdrawn, annulled or abandoned in its turn -
+ * leaves the link null, and the dead document may be issued again for a
+ * second time.
+ *
+ * ON AN ABANDONED DOCUMENT ONLY since #747 (spec #742, ADR 0078). An annulled
+ * factura's follow-ups - Issue again, Reissue, Reverse the Sale - are the
+ * annulment panel's chooser (annulment-panel.ts followUpChooser), which reads
+ * the API's own gates, the Annulment Check's mismatch and the Sale's reversal
+ * included, so a second Issue again card here would only repeat it.
  */
 function issueAgainOffered(status: InvoiceStatus, chain: InvoiceChainFacts): boolean {
-  return (
-    chain.kind === "sale" &&
-    (status === "abandoned" || status === "annulled") &&
-    chain.superseded_by_invoice_id === null
-  );
+  return chain.kind === "sale" && status === "abandoned" && chain.superseded_by_invoice_id === null;
 }
 
 /**

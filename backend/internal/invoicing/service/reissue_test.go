@@ -33,6 +33,12 @@ func authorizedFactura() invoicing.Invoice {
 	}
 }
 
+func annulledFactura() invoicing.Invoice {
+	i := authorizedFactura()
+	i.Status = invoicing.InvoiceStatusAnnulled
+	return i
+}
+
 func code(err error) string {
 	var domain apperror.DomainError
 	if errors.As(err, &domain) {
@@ -75,11 +81,22 @@ func TestReissueRefusalAnswersByKindThenStateThenSale(t *testing.T) {
 			i.Status = invoicing.InvoiceStatusWithdrawn
 			return i
 		}, stands, "INVOICE_NOT_AUTHORIZED"},
-		{"annulled", func() invoicing.Invoice {
+		{"abandoned", func() invoicing.Invoice {
 			i := authorizedFactura()
-			i.Status = invoicing.InvoiceStatusAnnulled
+			i.Status = invoicing.InvoiceStatusAbandoned
 			return i
 		}, stands, "INVOICE_NOT_AUTHORIZED"},
+
+		// An annulled factura (#747) is reissued as Issue again decides it:
+		// the Sale's facts, then the mismatch gate, and never the
+		// authorized factura's in-flight and credited questions.
+		{"annulled", annulledFactura, stands, ""},
+		{"annulled, unconfirmed or confirmed alike", annulledFactura, repository.ReissueSaleFacts{SaleStatus: "active", ReissueInFlight: true, CreditedByAuthorized: true}, ""},
+		{"annulled at mismatch", annulledFactura, repository.ReissueSaleFacts{SaleStatus: "active", AnnulmentAtMismatch: true}, "INVOICE_ANNULMENT_MISMATCH"},
+		{"annulled, reversed sale outranks the mismatch", annulledFactura, repository.ReissueSaleFacts{SaleStatus: "reversed", AnnulmentAtMismatch: true}, "INVOICE_SALE_REVERSED"},
+		{"annulled, a replacement outranks the mismatch", func() invoicing.Invoice { i := annulledFactura(); i.SupersededByInvoiceID = "replacement"; return i }, repository.ReissueSaleFacts{SaleStatus: "active", AnnulmentAtMismatch: true}, "INVOICE_ALREADY_REPLACED"},
+		{"annulled, the sale already has a factura", annulledFactura, repository.ReissueSaleFacts{SaleStatus: "active", SaleHasLiveFactura: true}, "INVOICE_ALREADY_REPLACED"},
+		{"authorized, a mismatch is not its question", authorizedFactura, repository.ReissueSaleFacts{SaleStatus: "active", AnnulmentAtMismatch: true}, ""},
 		{"reversed sale", authorizedFactura, repository.ReissueSaleFacts{SaleStatus: "reversed", ReissueInFlight: true, CreditedByAuthorized: true}, "INVOICE_SALE_REVERSED"},
 		{"reissue in flight outranks superseded", func() invoicing.Invoice { i := authorizedFactura(); i.SupersededByInvoiceID = "corrected"; return i }, repository.ReissueSaleFacts{SaleStatus: "active", ReissueInFlight: true}, "REISSUE_IN_FLIGHT"},
 		{"superseded", func() invoicing.Invoice { i := authorizedFactura(); i.SupersededByInvoiceID = "corrected"; return i }, repository.ReissueSaleFacts{SaleStatus: "active", CreditedByAuthorized: true}, "INVOICE_SUPERSEDED"},
@@ -131,8 +148,14 @@ func TestCorrectedSaleInvoiceCopiesTheFacturaAndNamesTheCorrectedRecipient(t *te
 
 	// The reissue's Credit Note names the factura's own Recipient, never
 	// the corrected one, and the reissue as its reason.
-	note := creditNoteOf(&factura, invoicing.CreditNoteReasonReissue, now)
-	if note.Kind != invoicing.DocumentKindCreditNote || note.CreditsInvoiceID != "factura" || note.CreditNoteReason != "reissue" || note.Recipient != factura.Recipient || note.TotalCents != 1115 {
+	note := reissueCreditNoteOf(&factura, now)
+	if note == nil || note.Kind != invoicing.DocumentKindCreditNote || note.CreditsInvoiceID != "factura" || note.CreditNoteReason != "reissue" || note.Recipient != factura.Recipient || note.TotalCents != 1115 {
 		t.Fatalf("credit note = %+v", note)
+	}
+
+	// An annulled factura owes none (#747): the annulment discharged it.
+	annulled := annulledFactura()
+	if note := reissueCreditNoteOf(&annulled, now); note != nil {
+		t.Fatalf("an annulled factura's reissue owes a credit note: %+v", note)
 	}
 }
