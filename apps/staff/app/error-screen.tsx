@@ -1,13 +1,12 @@
 "use client";
 
 import * as Sentry from "@sentry/nextjs";
+import { readReferenceCode, reportCaughtError, type CaughtError } from "@ticket-pos/sentry-rules";
 import { ErrorScreen, type ErrorScreenLabels, type ErrorScreenLayout } from "@ticket-pos/ui";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useEffect, useSyncExternalStore, useTransition } from "react";
 
-import { reportCaughtError, type CaughtError } from "@/lib/error-screen";
-import { readReferenceCode } from "@/lib/request-id";
 import { startBrowserSentry } from "@/lib/sentry-browser";
 
 /** What Next hands an error boundary: the error, and a way to render again. */
@@ -23,7 +22,7 @@ export function noSubscription() {
 
 /**
  * The reference code: the id of the request that rendered this page, from the
- * cookie the middleware writes (lib/request-id.ts). Read on every render, so a
+ * cookie the middleware writes (@ticket-pos/sentry-rules' reference-code.ts). Read on every render, so a
  * retry that fails again shows the id of the retry. Nothing on the server's
  * pass, where there is no document to read; the browser's pass fills it in.
  */
@@ -44,7 +43,7 @@ function captureInBrowser(error: unknown, requestId: string | null) {
 
 /**
  * An error screen with its words supplied: reports what it caught (once, and
- * only if the server has not already, lib/error-screen.ts), shows the reference
+ * only if the server has not already, reportCaughtError), shows the reference
  * code, and retries by asking the server for the failed segment again and
  * rendering it, which a bare `reset()` would not: it re-renders from the payload
  * that already carries the error.

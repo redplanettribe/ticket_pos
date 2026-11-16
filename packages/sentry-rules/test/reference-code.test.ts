@@ -5,7 +5,7 @@ import {
   REQUEST_ID_COOKIE,
   readReferenceCode,
   referenceCodeCookie,
-} from "./request-id.ts";
+} from "../src/index.ts";
 
 const ID = "3f6c1a52-8d1e-4b7a-9c39-2a1f0e5d4c3b";
 

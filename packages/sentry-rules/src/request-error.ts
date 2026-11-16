@@ -1,5 +1,5 @@
-import { digestOf } from "./error-screen.ts";
-import { REQUEST_ID_HEADER } from "./request-id.ts";
+import { digestOf } from "./caught-error.ts";
+import { REQUEST_ID_HEADER } from "./reference-code.ts";
 
 /**
  * Next's onRequestError arguments, restated rather than imported so this module
@@ -32,12 +32,12 @@ function headerValue(value: string | string[] | undefined): string | null {
 }
 
 /**
- * Builds the Staff app's onRequestError: an error Next caught in a server
+ * Builds a Next app's onRequestError: an error Next caught in a server
  * render, route handler, server action or middleware.
  *
  * It writes one structured line to stdout, which Cloud Logging indexes, with the
  * request id the error screen shows as the reference code (forwarded by the
- * middleware, lib/request-id.ts), Next's digest for the error, and the route
+ * middleware, reference-code.ts), Next's digest for the error, and the route
  * pattern. So a reference code a person quotes finds the failure in Cloud
  * Logging whether or not Sentry is on, and the digest finds Next's own line with
  * the stack beside it. Never the error's text or the raw path: either can name a

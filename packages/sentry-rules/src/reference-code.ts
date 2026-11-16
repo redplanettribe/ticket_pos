@@ -1,13 +1,13 @@
 /**
- * The request id, from the Staff app's edge to the person looking at an error
- * screen (#772).
+ * The request id, from a Next app's edge to the person looking at an error
+ * screen (#772 for the Staff app, #774 for the Storefront).
  *
- * The middleware mints one id per request it sees and:
+ * Each app's middleware mints one id per request it sees and:
  *
  *   - forwards it to the render on the request headers (REQUEST_ID_HEADER), so
- *     every API call that render makes carries the same X-Request-ID
- *     (lib/api.ts) and the API's request lines in Cloud Logging are found by it,
- *     and onRequestError logs and reports a failed render under it;
+ *     every API call that render makes carries the same X-Request-ID (the
+ *     app's lib/api.ts) and the API's request lines in Cloud Logging are found
+ *     by it, and onRequestError logs and reports a failed render under it;
  *   - hands it to the browser in a cookie script can read (REQUEST_ID_COOKIE),
  *     because an error screen is a client component with no other way to learn
  *     which request rendered it: Next gives a server error only a digest by the

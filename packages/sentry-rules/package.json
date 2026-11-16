@@ -2,6 +2,7 @@
   "name": "@ticket-pos/sentry-rules",
   "version": "0.0.0",
   "private": true,
+  "sideEffects": false,
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",

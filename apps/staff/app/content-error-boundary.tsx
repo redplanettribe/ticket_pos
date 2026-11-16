@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import { Component, type ReactNode } from "react";
 
-import { isNavigationSignal, type CaughtError } from "@/lib/error-screen";
+import { isNavigationSignal, type CaughtError } from "@ticket-pos/sentry-rules";
 
 import { RouteErrorScreen } from "./error-screen";
 

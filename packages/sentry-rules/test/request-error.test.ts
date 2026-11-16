@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { REQUEST_ID_HEADER } from "./request-id.ts";
-import { createOnRequestError, tagRequestId } from "./request-error.ts";
+import { REQUEST_ID_HEADER, createOnRequestError, tagRequestId } from "../src/index.ts";
 
 const ID = "3f6c1a52-8d1e-4b7a-9c39-2a1f0e5d4c3b";
 

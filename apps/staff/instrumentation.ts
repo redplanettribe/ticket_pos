@@ -1,7 +1,7 @@
 import * as Sentry from "@sentry/nextjs";
+import { createOnRequestError, tagRequestId } from "@ticket-pos/sentry-rules";
 import type { Instrumentation } from "next";
 
-import { createOnRequestError, tagRequestId } from "@/lib/request-error";
 import { readSentryConfig, sentryOptions, serverTracesSampler } from "@/lib/sentry";
 
 /**
@@ -13,7 +13,7 @@ import { readSentryConfig, sentryOptions, serverTracesSampler } from "@/lib/sent
  * component, in a route handler, a server action or middleware. It logs one
  * line with the request's id, the reference code the error screen shows, and
  * reports the error, which the event processor tags with that id
- * (lib/request-error.ts). Without an
+ * (@ticket-pos/sentry-rules' request-error.ts). Without an
  * initialised SDK the report has no client to send to and does nothing; the line
  * is still written. A not-found (`notFound()`) and the redirects Next throws are
  * control flow, not errors, and Next does not call it for them.

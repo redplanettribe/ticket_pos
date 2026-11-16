@@ -1,6 +1,6 @@
 import { getTraceData } from "@sentry/nextjs";
 
-import { REQUEST_ID_HEADER } from "./request-id.ts";
+import { REQUEST_ID_HEADER } from "@ticket-pos/sentry-rules";
 
 type APIEnvelope<T> = {
   data: T | null;
@@ -166,7 +166,7 @@ function applyTraceHeaders(headers: Headers): void {
 }
 
 /**
- * The id the middleware minted for the request being rendered (lib/request-id),
+ * The id the middleware minted for the request being rendered (@ticket-pos/sentry-rules' reference-code.ts),
  * or null outside one.
  *
  * Inside a server render, route handler or server action it is on the request

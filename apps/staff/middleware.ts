@@ -1,9 +1,9 @@
+import { REQUEST_ID_HEADER, referenceCodeCookie } from "@ticket-pos/sentry-rules";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { APIError, callBackend } from "@/lib/api";
 import { signedInLandingPath } from "@/lib/auth-fork";
-import { REQUEST_ID_HEADER, referenceCodeCookie } from "@/lib/request-id";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 import { decideTermsGate } from "@/lib/terms-gate";
 
@@ -44,7 +44,7 @@ async function fetchSession(sessionToken: string, requestId: string): Promise<Se
     const envelope = await callBackend<SessionData>("/api/v1/auth/session", {
       method: "GET",
       sessionToken,
-      // The request's own id (lib/request-id), so the API's line for this check
+      // The request's own id (@ticket-pos/sentry-rules' reference-code.ts), so the API's line for this check
       // is found by the reference code an error screen on this page shows.
       headers: { "X-Request-ID": requestId },
     });
@@ -115,7 +115,7 @@ async function handleSignInPage(request: NextRequest, pass: PassThrough) {
 type PassThrough = { requestId: string; next: () => NextResponse };
 
 /**
- * Every request the middleware sees gets one id (#772, lib/request-id.ts),
+ * Every request the middleware sees gets one id (#772, @ticket-pos/sentry-rules' reference-code.ts),
  * minted here and never taken from the browser: it is forwarded to the render
  * on the request headers, echoed in X-Request-ID, and, for a page or an RSC
  * navigation, handed to the browser in the cookie the error screens read their
