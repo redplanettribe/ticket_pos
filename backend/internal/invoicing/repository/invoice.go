@@ -327,19 +327,23 @@ func (r *Repository) ApplyOutcome(ctx context.Context, invoiceID string, u Outco
 	return true, nil
 }
 
-// RecordAttempt appends one request to the attempts ledger.
-func (r *Repository) RecordAttempt(ctx context.Context, a invoicing.Attempt) error {
+// RecordAttempt appends one request to the attempts ledger and returns the
+// row's id, which is how an operator's Check status or Resend names the
+// answer it got (#736).
+func (r *Repository) RecordAttempt(ctx context.Context, a invoicing.Attempt) (int64, error) {
 	messages, err := json.Marshal(messagesOrEmpty(a.Messages))
 	if err != nil {
-		return fmt.Errorf("marshal attempt messages: %w", err)
+		return 0, fmt.Errorf("marshal attempt messages: %w", err)
 	}
-	if _, err := r.db.Pool.ExecContext(ctx, `
+	var id int64
+	if err := r.db.Pool.QueryRowContext(ctx, `
 		INSERT INTO invoicing_attempts (invoice_id, operation, outcome, messages, error, started_at, duration_ms)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, a.InvoiceID, a.Operation, a.Outcome, messages, a.Error, a.StartedAt, a.Duration.Milliseconds()); err != nil {
-		return fmt.Errorf("record attempt: %w", err)
+		RETURNING id
+	`, a.InvoiceID, a.Operation, a.Outcome, messages, a.Error, a.StartedAt, a.Duration.Milliseconds()).Scan(&id); err != nil {
+		return 0, fmt.Errorf("record attempt: %w", err)
 	}
-	return nil
+	return id, nil
 }
 
 // attentionSinceExpr is the one rule for attention_since, stated once for

@@ -35,9 +35,43 @@ import (
 // not — the asymmetry is resendRefusal against actionableRefusal, and it is
 // what stops the operator spending days on a button that cannot work.
 
+// InvoiceActionDetail is what Check status and Resend answer: the invoice
+// as it then stands, and which attempts row tells what this press learned
+// (#736, parent #731).
+//
+// THE TOAST IS THE SRI'S ANSWER, NOT THE STATUS. An answer that decides
+// nothing (received, unknown) leaves the status where it was, and so does a
+// call that never reached the authority; a page reading the status after a
+// Check on a rejected document would say "returned" when the SRI said it
+// holds nothing, or said nothing at all. AttemptID names the last row the
+// press itself wrote, whose outcome is what the SRI answered. It is an id
+// and not "the newest row" because a Sale Invoice Drainer round can write a
+// row between the press and its answer. Null only when the ledger write
+// itself failed.
+type InvoiceActionDetail struct {
+	InvoiceDetail
+	// AttemptID is the id of the attempts row (in `attempts`) holding the
+	// last SRI call this press made; its `outcome` is what the SRI answered.
+	AttemptID *int64 `json:"attempt_id"`
+}
+
+// actionDetail reads the invoice back and names the attempt the press
+// ended on.
+func (s *Service) actionDetail(ctx context.Context, id string, attemptID int64) (*InvoiceActionDetail, error) {
+	detail, err := s.GetInvoice(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	out := &InvoiceActionDetail{InvoiceDetail: *detail}
+	if attemptID != 0 {
+		out.AttemptID = &attemptID
+	}
+	return out, nil
+}
+
 // CheckInvoice asks the authority what became of a non-authorized invoice
-// and returns it as it then stands.
-func (s *Service) CheckInvoice(ctx context.Context, id string) (*InvoiceDetail, error) {
+// and returns it as it then stands, with the attempt that holds the answer.
+func (s *Service) CheckInvoice(ctx context.Context, id string) (*InvoiceActionDetail, error) {
 	row, err := s.actionable(ctx, id)
 	if err != nil {
 		return nil, err
@@ -45,7 +79,7 @@ func (s *Service) CheckInvoice(ctx context.Context, id string) (*InvoiceDetail, 
 	callCtx, cancel := context.WithTimeout(ctx, s.pollBudget)
 	defer cancel()
 	authority := s.authority(row.Invoice.Environment)
-	outcome, err := s.attempt(callCtx, id, invoicing.AttemptQuery, func() (invoicing.Outcome, error) {
+	outcome, attemptID, err := s.attempt(callCtx, id, invoicing.AttemptQuery, func() (invoicing.Outcome, error) {
 		return authority.QueryOutcome(callCtx, row.Ecuador.AccessKey)
 	})
 	if err == nil && !undecided(outcome.State) {
@@ -53,7 +87,7 @@ func (s *Service) CheckInvoice(ctx context.Context, id string) (*InvoiceDetail, 
 	}
 	s.logger.Info("invoicing: tax invoice checked", "invoice_id", id, "outcome", outcome.State, "error", err)
 	s.dueForDelivery(ctx, row)
-	return s.GetInvoice(ctx, id)
+	return s.actionDetail(ctx, id, attemptID)
 }
 
 // dueForDelivery makes a Sale-side document the operator's action has just
@@ -76,8 +110,9 @@ func (s *Service) dueForDelivery(ctx context.Context, row *repository.InvoiceRow
 
 // ResendInvoice rebuilds, re-signs and resubmits a non-authorized invoice
 // under its existing clave and secuencial, then polls as an issue does, and
-// returns it as it then stands.
-func (s *Service) ResendInvoice(ctx context.Context, id string) (*InvoiceDetail, error) {
+// returns it as it then stands, with the last attempt the resend wrote: the
+// submit, or the last poll after it.
+func (s *Service) ResendInvoice(ctx context.Context, id string) (*InvoiceActionDetail, error) {
 	row, err := s.actionable(ctx, id)
 	if err != nil {
 		return nil, err
@@ -109,7 +144,7 @@ func (s *Service) ResendInvoice(ctx context.Context, id string) (*InvoiceDetail,
 	// only once the authority has taken them.
 	resend := *row
 	resend.Invoice.SignedXML = signed
-	s.submitAndPoll(ctx, &resend, func(ctx context.Context, outcome invoicing.Outcome) {
+	attemptID := s.submitAndPoll(ctx, &resend, func(ctx context.Context, outcome invoicing.Outcome) {
 		if outcome.AlreadyHeld {
 			return
 		}
@@ -118,7 +153,7 @@ func (s *Service) ResendInvoice(ctx context.Context, id string) (*InvoiceDetail,
 		}
 	})
 	s.dueForDelivery(ctx, row)
-	return s.GetInvoice(ctx, id)
+	return s.actionDetail(ctx, id, attemptID)
 }
 
 // actionable loads the invoice both actions work on and refuses what both

@@ -566,7 +566,7 @@ func (s *Service) pollOnce(ctx context.Context, row *repository.InvoiceRow) {
 	callCtx, cancel := context.WithTimeout(ctx, s.pollBudget)
 	defer cancel()
 	authority := s.authority(row.Invoice.Environment)
-	outcome, err := s.attempt(callCtx, row.Invoice.ID, invoicing.AttemptQuery, func() (invoicing.Outcome, error) {
+	outcome, _, err := s.attempt(callCtx, row.Invoice.ID, invoicing.AttemptQuery, func() (invoicing.Outcome, error) {
 		return authority.QueryOutcome(callCtx, row.Ecuador.AccessKey)
 	})
 	if err == nil {
