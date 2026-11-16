@@ -1948,7 +1948,9 @@
       "summaryFailed": "Couldn't count the documents in these dates. You can still download the archive.",
       "summaryCounts": "The archive will hold {facturas, plural, one {# factura} other {# facturas}} and {creditNotes, plural, one {# Credit Note} other {# Credit Notes}}.",
       "summaryUnsettled": "{count, plural, one {# document emitted in these dates isn't authorized yet and won't be included} other {# documents emitted in these dates aren't authorized yet and won't be included}}. Download the archive again once the SRI {count, plural, one {authorizes it} other {authorizes them}} to complete the period.",
-      "summaryEmpty": "No authorized production documents were emitted in these dates: the archive will hold only the readme."
+      "summaryEmpty": "No authorized production documents were emitted in these dates: the archive will hold only the readme.",
+      "summaryAnnulled": "{count, plural, one {# factura emitted in these dates is now annulled} other {# facturas emitted in these dates are now annulled}}: the readme lists {count, plural, one {it} other {them}} without XML, so the accountant can correct an earlier archive.",
+      "summaryUnrecorded": "{count, plural, one {# Unrecorded Annulment} other {# Unrecorded Annulments}} in these dates: the SRI reports {count, plural, one {this factura} other {these facturas}} annulled, but the platform hasn't recorded it. The readme lists {count, plural, one {it} other {them}} without XML."
     },
     "invoicingUninvoicedCountLink": "Uninvoiced House Sales: {count}",
     "invoicingUninvoicedBreadcrumb": "Uninvoiced House Sales",

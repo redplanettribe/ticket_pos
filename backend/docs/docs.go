@@ -9187,10 +9187,16 @@ const docTemplate = `{
             },
             "service.TaxDocumentArchiveSummary": {
                 "properties": {
+                    "annulled": {
+                        "type": "integer"
+                    },
                     "credit_notes": {
                         "type": "integer"
                     },
                     "facturas": {
+                        "type": "integer"
+                    },
+                    "unrecorded": {
                         "type": "integer"
                     },
                     "unsettled": {

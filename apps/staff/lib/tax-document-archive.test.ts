@@ -117,41 +117,75 @@ test("the summary address carries the range as from and to", () => {
 // unsettled. None of them stops the download.
 
 test("a period with documents and nothing unsettled shows the plain counts", () => {
-  assert.deepEqual(taxDocumentArchiveSummaryDisplay({ facturas: 6, credit_notes: 2, unsettled: 0 }), {
+  assert.deepEqual(taxDocumentArchiveSummaryDisplay({ facturas: 6, credit_notes: 2, unsettled: 0, annulled: 0, unrecorded: 0 }), {
     kind: "counts",
     facturas: 6,
     creditNotes: 2,
+    annulled: 0,
+    unrecorded: 0,
   });
 });
 
 test("unsettled documents add a warning beside the counts", () => {
-  assert.deepEqual(taxDocumentArchiveSummaryDisplay({ facturas: 6, credit_notes: 2, unsettled: 2 }), {
+  assert.deepEqual(taxDocumentArchiveSummaryDisplay({ facturas: 6, credit_notes: 2, unsettled: 2, annulled: 0, unrecorded: 0 }), {
     kind: "unsettled",
     facturas: 6,
     creditNotes: 2,
     unsettled: 2,
+    annulled: 0,
+    unrecorded: 0,
   });
 });
 
 test("Credit Notes alone are not an empty period", () => {
-  assert.deepEqual(taxDocumentArchiveSummaryDisplay({ facturas: 0, credit_notes: 1, unsettled: 0 }), {
+  assert.deepEqual(taxDocumentArchiveSummaryDisplay({ facturas: 0, credit_notes: 1, unsettled: 0, annulled: 0, unrecorded: 0 }), {
     kind: "counts",
     facturas: 0,
     creditNotes: 1,
+    annulled: 0,
+    unrecorded: 0,
   });
 });
 
 test("nothing to include is the empty period", () => {
-  assert.deepEqual(taxDocumentArchiveSummaryDisplay({ facturas: 0, credit_notes: 0, unsettled: 0 }), {
+  assert.deepEqual(taxDocumentArchiveSummaryDisplay({ facturas: 0, credit_notes: 0, unsettled: 0, annulled: 0, unrecorded: 0 }), {
     kind: "empty",
     unsettled: 0,
+    annulled: 0,
+    unrecorded: 0,
   });
 });
 
 test("an empty period whose documents are all unsettled still says how many", () => {
-  assert.deepEqual(taxDocumentArchiveSummaryDisplay({ facturas: 0, credit_notes: 0, unsettled: 3 }), {
+  assert.deepEqual(taxDocumentArchiveSummaryDisplay({ facturas: 0, credit_notes: 0, unsettled: 3, annulled: 0, unrecorded: 0 }), {
     kind: "empty",
     unsettled: 3,
+    annulled: 0,
+    unrecorded: 0,
+  });
+});
+
+// WHAT THE README CORRECTS (#751). The annulled and unrecorded counts ride
+// beside every outcome, an empty period's included: a period whose only
+// factura was annulled has no XML to give but still a correction to tell.
+
+test("annulled and unrecorded facturas are told beside the counts", () => {
+  assert.deepEqual(taxDocumentArchiveSummaryDisplay({ facturas: 4, credit_notes: 1, unsettled: 1, annulled: 2, unrecorded: 1 }), {
+    kind: "unsettled",
+    facturas: 4,
+    creditNotes: 1,
+    unsettled: 1,
+    annulled: 2,
+    unrecorded: 1,
+  });
+});
+
+test("a period whose only factura is annulled is empty and still tells the correction", () => {
+  assert.deepEqual(taxDocumentArchiveSummaryDisplay({ facturas: 0, credit_notes: 0, unsettled: 0, annulled: 1, unrecorded: 0 }), {
+    kind: "empty",
+    unsettled: 0,
+    annulled: 1,
+    unrecorded: 0,
   });
 });
 
@@ -171,6 +205,8 @@ test("the dialog has its words in both languages", () => {
     "summaryCounts",
     "summaryUnsettled",
     "summaryEmpty",
+    "summaryAnnulled",
+    "summaryUnrecorded",
   ];
   for (const locale of ["en", "es"]) {
     const catalog = JSON.parse(readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8")) as {

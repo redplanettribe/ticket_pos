@@ -28,17 +28,25 @@ import (
 
 // taxDocumentArchiveIncluded is what an archive holds: the Issuer's documents
 // of every kind (manual, sale, credit_note) that are `authorized` in
-// `production`, emitted in the range, both ends included.
+// `production`, emitted in the range, both ends included, and that the SRI
+// has not been found to report annulled.
 //
-// "Authorized and still standing" is exactly status = authorized: annulled
-// and abandoned are statuses of their own, and Superseded is a relation
-// between documents rather than a status, so a Superseded Sale Invoice
-// qualifies on its own, beside the Credit Note that undid it.
+// "Authorized and still standing" is status = authorized and no Unrecorded
+// Annulment flag: annulled and abandoned are statuses of their own, and
+// Superseded is a relation between documents rather than a status, so a
+// Superseded Sale Invoice qualifies on its own, beside the Credit Note that
+// undid it. A flagged factura is still authorized on the platform, but the
+// SRI reports it annulled, so it is listed in the readme instead
+// (taxDocumentArchiveUnrecorded) and never handed over as a bookable file;
+// an acknowledged flag stays a flag. Reinstated is no state of its own: a
+// reinstated factura is authorized again and is included as any.
 func taxDocumentArchiveIncluded(issuerID, from, to string) repository.ArchiveCriteria {
 	return repository.ArchiveCriteria{
 		IssuerID:    issuerID,
 		Environment: invoicing.EnvironmentProduction,
 		Statuses:    []invoicing.InvoiceStatus{invoicing.InvoiceStatusAuthorized},
+		Kinds:       taxDocumentArchiveEveryKind,
+		Unrecorded:  repository.ArchiveUnrecordedNone,
 		From:        from,
 		To:          to,
 	}
@@ -47,18 +55,67 @@ func taxDocumentArchiveIncluded(issuerID, from, to string) repository.ArchiveCri
 // taxDocumentArchiveUnsettled is what an archive leaves out and COUNTS: the
 // Issuer's production documents emitted in the range that the SRI has not
 // settled yet, `pending` or `needs_attention`. The finally refused and given
-// up on (not_authorized, rejected, withdrawn, annulled, abandoned) are neither
-// included nor counted, and an owed document has no Emission Date and belongs
-// to no range at all.
+// up on (not_authorized, rejected, withdrawn, abandoned) are neither included
+// nor counted, annulled facturas are listed (taxDocumentArchiveAnnulled), and
+// an owed document has no Emission Date and belongs to no range at all.
 func taxDocumentArchiveUnsettled(issuerID, from, to string) repository.ArchiveCriteria {
 	return repository.ArchiveCriteria{
 		IssuerID:    issuerID,
 		Environment: invoicing.EnvironmentProduction,
 		Statuses:    []invoicing.InvoiceStatus{invoicing.InvoiceStatusPending, invoicing.InvoiceStatusNeedsAttention},
+		Kinds:       taxDocumentArchiveEveryKind,
+		Unrecorded:  repository.ArchiveUnrecordedEither,
 		From:        from,
 		To:          to,
 	}
 }
+
+// taxDocumentArchiveAnnulled is the readme's first correction list (#751,
+// spec #742; ADR 0078): every production factura (manual or Sale Invoice)
+// emitted in the range that is NOW `annulled`, whether or not an earlier
+// archive ever held it, and however it came to be annulled (from authorized,
+// pending or needs_attention, guided or catch-up, recorded from an
+// Unrecorded Annulment). Defined by the range alone, so the archive of a
+// period is the same whoever takes it. A Credit Note is never listed: the
+// list corrects facturas the accountant may have booked. A reinstated
+// factura is authorized again and drops out of it.
+func taxDocumentArchiveAnnulled(issuerID, from, to string) repository.ArchiveCriteria {
+	return repository.ArchiveCriteria{
+		IssuerID:    issuerID,
+		Environment: invoicing.EnvironmentProduction,
+		Statuses:    []invoicing.InvoiceStatus{invoicing.InvoiceStatusAnnulled},
+		Kinds:       taxDocumentArchiveFacturaKinds,
+		Unrecorded:  repository.ArchiveUnrecordedEither,
+		From:        from,
+		To:          to,
+	}
+}
+
+// taxDocumentArchiveUnrecorded is the readme's second correction list: every
+// production factura emitted in the range carrying the Closing Sweep's
+// Unrecorded Annulment flag, acknowledged or not. Mark annulled clears the
+// flag in the same transaction that annuls (#750), so a recorded one has
+// moved to taxDocumentArchiveAnnulled and is never on both lists.
+func taxDocumentArchiveUnrecorded(issuerID, from, to string) repository.ArchiveCriteria {
+	return repository.ArchiveCriteria{
+		IssuerID:    issuerID,
+		Environment: invoicing.EnvironmentProduction,
+		Statuses:    []invoicing.InvoiceStatus{invoicing.InvoiceStatusAuthorized},
+		Kinds:       taxDocumentArchiveFacturaKinds,
+		Unrecorded:  repository.ArchiveUnrecordedOnly,
+		From:        from,
+		To:          to,
+	}
+}
+
+var (
+	taxDocumentArchiveEveryKind = []invoicing.DocumentKind{
+		invoicing.DocumentKindManual, invoicing.DocumentKindSale, invoicing.DocumentKindCreditNote,
+	}
+	taxDocumentArchiveFacturaKinds = []invoicing.DocumentKind{
+		invoicing.DocumentKindManual, invoicing.DocumentKindSale,
+	}
+)
 
 // ContentTypeZIP is what the archive is served as.
 const ContentTypeZIP = "application/zip"
@@ -100,19 +157,22 @@ func (s *Service) OpenTaxDocumentArchive(ctx context.Context, operatorEmail, fro
 
 // TaxDocumentArchiveSummary is what the archive of a range would hold, told
 // to the operator before downloading (#631): the facturas and Credit Notes
-// it would contain, and the production documents emitted in the range still
-// unsettled with the SRI, which it would leave out. An empty range is all
-// zeros, not an error.
+// it would contain, the production documents emitted in the range still
+// unsettled with the SRI, which it would leave out, and the facturas its
+// readme would list without their XML (#751): those now annulled, and the
+// Unrecorded Annulments. An empty range is all zeros, not an error.
 type TaxDocumentArchiveSummary struct {
 	Facturas    int `json:"facturas"`
 	CreditNotes int `json:"credit_notes"`
 	Unsettled   int `json:"unsettled"`
+	Annulled    int `json:"annulled"`
+	Unrecorded  int `json:"unrecorded"`
 }
 
 // SummarizeTaxDocumentArchive counts, for `from` to `to` ("YYYY-MM-DD", both
 // included, already validated by the caller), what OpenTaxDocumentArchive's
-// archive would hold, through the same two definitions the archive streams
-// and counts by. ISSUER_NOT_FOUND when no Ecuador Issuer has been recorded.
+// archive would hold, through the same four definitions the archive streams,
+// counts and lists by. ISSUER_NOT_FOUND when no Ecuador Issuer has been recorded.
 func (s *Service) SummarizeTaxDocumentArchive(ctx context.Context, from, to string) (*TaxDocumentArchiveSummary, error) {
 	issuer, err := s.repo.GetEcuadorIssuer(ctx)
 	if err != nil {
@@ -129,10 +189,20 @@ func (s *Service) SummarizeTaxDocumentArchive(ctx context.Context, from, to stri
 	if err != nil {
 		return nil, err
 	}
+	annulled, err := s.repo.CountArchiveDocuments(ctx, taxDocumentArchiveAnnulled(issuer.Issuer.ID, from, to))
+	if err != nil {
+		return nil, err
+	}
+	unrecorded, err := s.repo.CountArchiveDocuments(ctx, taxDocumentArchiveUnrecorded(issuer.Issuer.ID, from, to))
+	if err != nil {
+		return nil, err
+	}
 	return &TaxDocumentArchiveSummary{
 		Facturas:    included.Facturas(),
 		CreditNotes: included.CreditNotes,
 		Unsettled:   unsettled.Total(),
+		Annulled:    annulled.Facturas(),
+		Unrecorded:  unrecorded.Facturas(),
 	}, nil
 }
 
@@ -146,7 +216,8 @@ func (s *Service) SummarizeTaxDocumentArchive(ctx context.Context, from, to stri
 //
 // The readme's factura and Credit Note counts are the files actually written,
 // counted as they are written, never a count run beforehand. Its unsettled
-// count is read after the documents, so it is as fresh as the archive.
+// count and its two lists are read after the documents, so they are as fresh
+// as the archive.
 //
 // Once this has begun writing, an error cannot become a refusal: the caller
 // has already sent its status. The error is logged here and returned for the
@@ -210,6 +281,14 @@ func (a *TaxDocumentArchive) write(ctx context.Context, w io.Writer) error {
 	if err != nil {
 		return err
 	}
+	annulled, err := s.repo.ListArchiveFacturas(ctx, taxDocumentArchiveAnnulled(a.issuer.Issuer.ID, a.from, a.to))
+	if err != nil {
+		return err
+	}
+	unrecorded, err := s.repo.ListArchiveFacturas(ctx, taxDocumentArchiveUnrecorded(a.issuer.Issuer.ID, a.from, a.to))
+	if err != nil {
+		return err
+	}
 
 	locale := s.staffLocale(ctx, a.operator)
 	readme := taxDocumentArchiveReadme{
@@ -222,6 +301,8 @@ func (a *TaxDocumentArchive) write(ctx context.Context, w io.Writer) error {
 		Facturas:    written.Facturas(),
 		CreditNotes: written.CreditNotes,
 		Unsettled:   unsettled.Total(),
+		Annulled:    annulledLines(annulled),
+		Unrecorded:  unrecordedLines(unrecorded),
 	}
 	entry, err := archive.CreateHeader(&zip.FileHeader{
 		Name:     readme.filename(),
@@ -248,14 +329,56 @@ func (a *TaxDocumentArchive) write(ctx context.Context, w io.Writer) error {
 		"facturas", written.Facturas(),
 		"credit_notes", written.CreditNotes,
 		"unsettled", unsettled.Total(),
+		"annulled", len(annulled),
+		"unrecorded", len(unrecorded),
 	)
 	return nil
 }
 
+// annulledLines dates each annulled factura by the day the platform recorded
+// its annulment.
+func annulledLines(listed []repository.ArchiveListedFactura) []taxDocumentArchiveLine {
+	lines := make([]taxDocumentArchiveLine, 0, len(listed))
+	for _, f := range listed {
+		lines = append(lines, taxDocumentArchiveLine{Number: f.Number, AccessKey: f.AccessKey, On: ecuadorDay(f.AnnulledAt)})
+	}
+	return lines
+}
+
+// unrecordedLines dates each Unrecorded Annulment by the day the Closing
+// Sweep found it.
+func unrecordedLines(listed []repository.ArchiveListedFactura) []taxDocumentArchiveLine {
+	lines := make([]taxDocumentArchiveLine, 0, len(listed))
+	for _, f := range listed {
+		lines = append(lines, taxDocumentArchiveLine{Number: f.Number, AccessKey: f.AccessKey, On: ecuadorDay(f.UnrecordedFoundAt)})
+	}
+	return lines
+}
+
+// ecuadorDay is an instant's calendar day in Guayaquil, "YYYY-MM-DD", the
+// way the readme writes every day. Both moments are NOT NULL on the rows
+// their criteria name (annulled_at on an annulled factura by the CHECK of
+// migration 099, the found_at by the flag's own criteria).
+func ecuadorDay(at *time.Time) string {
+	if at == nil {
+		return ""
+	}
+	return at.In(sri.Guayaquil).Format("2006-01-02")
+}
+
+// taxDocumentArchiveLine is one factura a readme list names: its printed
+// number, its clave de acceso and the day the list dates it by.
+type taxDocumentArchiveLine struct {
+	Number    string
+	AccessKey string
+	On        string
+}
+
 // taxDocumentArchiveReadme is the note the accountant reads without opening
 // the platform: the period, when it was generated, whose documents they are,
-// how many of each kind the ZIP holds and how many emitted in the period were
-// not settled yet.
+// how many of each kind the ZIP holds, how many emitted in the period were
+// not settled yet, and the facturas of the period that no longer stand,
+// which the next archive lists to correct the last (#751).
 type taxDocumentArchiveReadme struct {
 	Locale      platform.Locale
 	RUC         string
@@ -266,6 +389,8 @@ type taxDocumentArchiveReadme struct {
 	Facturas    int
 	CreditNotes int
 	Unsettled   int
+	Annulled    []taxDocumentArchiveLine
+	Unrecorded  []taxDocumentArchiveLine
 }
 
 func (r taxDocumentArchiveReadme) filename() string {
@@ -292,15 +417,29 @@ func (r taxDocumentArchiveReadme) text() string {
 			fmt.Sprintf("Facturas: %d", r.Facturas),
 			fmt.Sprintf("Notas de crédito: %d", r.CreditNotes),
 			fmt.Sprintf("Comprobantes emitidos en el periodo aún sin resolver por el SRI: %d", r.Unsettled),
+			fmt.Sprintf("Facturas emitidas en el periodo que hoy están anuladas: %d", len(r.Annulled)),
+			fmt.Sprintf("Facturas emitidas en el periodo que el SRI reporta anuladas sin registro en la plataforma: %d", len(r.Unrecorded)),
 			"",
 			"Cada comprobante es el XML firmado tal como se envió al SRI, nombrado por su clave de acceso.",
 			"Solo se incluyen los comprobantes autorizados por el SRI en el ambiente de producción. No se incluyen",
-			"los retirados, anulados, abandonados, no autorizados, devueltos ni los del ambiente de pruebas.",
+			"los retirados, anulados, abandonados, no autorizados, devueltos ni los del ambiente de pruebas, ni las",
+			"facturas que el SRI reporta anuladas.",
 		}
 		if r.Unsettled > 0 {
 			lines = append(lines, "",
 				"Los comprobantes sin resolver no están en este archivo. Descargue el archivo de nuevo cuando el SRI",
 				"los haya autorizado para completar el periodo.")
+		}
+		if len(r.Annulled) > 0 {
+			lines = append(lines, "",
+				"Facturas anuladas (su XML no está en este archivo; corrija lo registrado a partir de un archivo anterior):")
+			lines = append(lines, readmeListLines(r.Annulled, "anulada el")...)
+		}
+		if len(r.Unrecorded) > 0 {
+			lines = append(lines, "",
+				"Anulaciones no registradas: el SRI reporta anuladas estas facturas, pero la plataforma aún no registra",
+				"su anulación (su XML no está en este archivo):")
+			lines = append(lines, readmeListLines(r.Unrecorded, "detectada el")...)
 		}
 	} else {
 		lines = []string{
@@ -313,16 +452,40 @@ func (r taxDocumentArchiveReadme) text() string {
 			fmt.Sprintf("Facturas: %d", r.Facturas),
 			fmt.Sprintf("Credit Notes: %d", r.CreditNotes),
 			fmt.Sprintf("Documents emitted in the period not yet settled by the SRI: %d", r.Unsettled),
+			fmt.Sprintf("Facturas emitted in the period that are now annulled: %d", len(r.Annulled)),
+			fmt.Sprintf("Facturas emitted in the period the SRI reports annulled, not recorded on the platform: %d", len(r.Unrecorded)),
 			"",
 			"Each document is the signed XML exactly as it was sent to the SRI, named by its clave de acceso.",
 			"Only documents the SRI authorized in its production environment are included. Withdrawn, annulled,",
-			"abandoned, not authorized, rejected and test-environment documents are not.",
+			"abandoned, not authorized, rejected and test-environment documents are not, nor are facturas the",
+			"SRI reports annulled.",
 		}
 		if r.Unsettled > 0 {
 			lines = append(lines, "",
 				"The unsettled documents are not in this archive. Download the archive again once the SRI has",
 				"authorized them to complete the period.")
 		}
+		if len(r.Annulled) > 0 {
+			lines = append(lines, "",
+				"Annulled facturas (their XML is not in this archive; correct anything booked from an earlier one):")
+			lines = append(lines, readmeListLines(r.Annulled, "annulled on")...)
+		}
+		if len(r.Unrecorded) > 0 {
+			lines = append(lines, "",
+				"Unrecorded Annulments: the SRI reports these facturas annulled, but the platform has not recorded",
+				"their annulment yet (their XML is not in this archive):")
+			lines = append(lines, readmeListLines(r.Unrecorded, "found on")...)
+		}
 	}
 	return strings.Join(lines, "\r\n") + "\r\n"
+}
+
+// readmeListLines writes one line per listed factura: its number, its clave de
+// acceso and its day, after the words that say what the day is.
+func readmeListLines(listed []taxDocumentArchiveLine, dated string) []string {
+	lines := make([]string, 0, len(listed))
+	for _, f := range listed {
+		lines = append(lines, "  "+f.Number+"  "+f.AccessKey+"  "+dated+" "+f.On)
+	}
+	return lines
 }

@@ -20661,8 +20661,10 @@ export interface components {
             name?: string;
         };
         "service.TaxDocumentArchiveSummary": {
+            annulled?: number;
             credit_notes?: number;
             facturas?: number;
+            unrecorded?: number;
             unsettled?: number;
         };
         /**
