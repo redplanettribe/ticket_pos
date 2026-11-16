@@ -44,8 +44,9 @@ import (
 // are `abandoned` or, since #747, `annulled` on a Ticket Sale that still
 // stands and has no factura standing for it OR, since #746, annulled
 // facturas whose Annulment Check stands at mismatch, and the count - the
-// Operator Dashboard's daily badge - widens identically. Stated here in full because the next reader will otherwise
-// "simplify" it back to one status: Abandon (#578) and Issue again (#580)
+// Operator Dashboard's daily badge - widens identically. Stated here in
+// full because the next reader will otherwise "simplify" it back to one
+// status: Abandon (#578) and Issue again (#580)
 // are deliberately two presses, so a Sale can sit abandoned-and-unreplaced
 // between them with its buyer holding no valid tax document, and until the
 // widening nothing on any surface said so. It self-clears — the moment

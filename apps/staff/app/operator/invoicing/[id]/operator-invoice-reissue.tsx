@@ -59,17 +59,17 @@ const NOTE_MAX_LENGTH = 500;
 /**
  * `inline` draws the press and its form without the card around them, for the
  * annulment panel's follow-up chooser (#747). On an annulled factura the form
- * says no Credit Note is owed, and `unconfirmed` adds that the SRI has not
+ * says no Credit Note is owed, and `notConfirmed` adds that the SRI has not
  * confirmed the annulment.
  */
 export function OperatorInvoiceReissue({
   invoice,
   inline = false,
-  unconfirmed = false,
+  notConfirmed = false,
 }: {
   invoice: OperatorInvoiceDetail;
   inline?: boolean;
-  unconfirmed?: boolean;
+  notConfirmed?: boolean;
 }) {
   const t = useTranslations("operator");
   const errorCopy = useMessages().errors;
@@ -138,7 +138,7 @@ export function OperatorInvoiceReissue({
                 : t("invoicingReissueDialogDescription")}
             </DialogDescription>
           </DialogHeader>
-          {unconfirmed ? (
+          {notConfirmed ? (
             <Alert>
               <AlertDescription>{t("invoicingReissueUnconfirmed")}</AlertDescription>
             </Alert>

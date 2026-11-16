@@ -144,15 +144,7 @@ func reissueRefusal(inv *invoicing.Invoice, facts repository.ReissueSaleFacts) e
 		return err
 	}
 	if inv.Status == invoicing.InvoiceStatusAnnulled {
-		switch {
-		case facts.SaleStatus == "reversed":
-			return invoicing.ErrInvoiceSaleReversed()
-		case inv.SupersededByInvoiceID != "", facts.SaleHasLiveFactura:
-			return invoicing.ErrInvoiceAlreadyReplaced()
-		case facts.AnnulmentAtMismatch:
-			return invoicing.ErrInvoiceAnnulmentMismatch()
-		}
-		return nil
+		return replacementRefusal(inv, facts.SaleStatus, facts.SaleHasLiveFactura, facts.AnnulmentAtMismatch)
 	}
 	switch {
 	case facts.SaleStatus == "reversed":

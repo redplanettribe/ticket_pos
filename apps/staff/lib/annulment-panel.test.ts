@@ -330,7 +330,7 @@ test("a standing Sale's annulled factura offers issue again, reissue and reverse
     cards: ["issue_again", "reissue", "reverse_sale"],
     held: [],
     saleHasNoFactura: true,
-    unconfirmed: false,
+    notConfirmed: false,
   });
 });
 
@@ -350,20 +350,22 @@ test("at mismatch, issue again and reissue are held with the API's refusal and r
   assert.equal(chooser?.saleHasNoFactura, true);
 });
 
-test("an unconfirmed check admits both, and their confirms say the SRI has not confirmed", () => {
-  const chooser = followUpChooser({
-    follow_ups: [admittedCard("issue_again"), admittedCard("reissue"), admittedCard("reverse_sale")],
-    check: verdict("unconfirmed"),
-  });
-  assert.equal(chooser?.unconfirmed, true);
-  assert.deepEqual(chooser?.cards, ["issue_again", "reissue", "reverse_sale"]);
+test("an unconfirmed or still checking check admits both, and their confirms say the SRI has not confirmed", () => {
+  for (const v of ["unconfirmed", "checking"] as const) {
+    const chooser = followUpChooser({
+      follow_ups: [admittedCard("issue_again"), admittedCard("reissue"), admittedCard("reverse_sale")],
+      check: verdict(v),
+    });
+    assert.equal(chooser?.notConfirmed, true, v);
+    assert.deepEqual(chooser?.cards, ["issue_again", "reissue", "reverse_sale"], v);
+  }
 });
 
 test("a reversed Sale shows only nothing follows; a manual Tax Invoice only type it again by hand", () => {
   const reversed = followUpChooser({ follow_ups: [admittedCard("nothing_follows")], check: verdict("mismatch") });
-  assert.deepEqual(reversed, { cards: ["nothing_follows"], held: [], saleHasNoFactura: false, unconfirmed: false });
-  const manual = followUpChooser({ follow_ups: [admittedCard("type_again")], check: verdict("checking") });
-  assert.deepEqual(manual, { cards: ["type_again"], held: [], saleHasNoFactura: false, unconfirmed: false });
+  assert.deepEqual(reversed, { cards: ["nothing_follows"], held: [], saleHasNoFactura: false, notConfirmed: false });
+  const manual = followUpChooser({ follow_ups: [admittedCard("type_again")], check: verdict("confirmed") });
+  assert.deepEqual(manual, { cards: ["type_again"], held: [], saleHasNoFactura: false, notConfirmed: false });
 });
 
 test("no chooser where nothing is left to choose or the factura is not annulled", () => {

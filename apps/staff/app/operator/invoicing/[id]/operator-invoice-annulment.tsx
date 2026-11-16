@@ -103,8 +103,8 @@ import { OperatorInvoiceReissue } from "./operator-invoice-reissue";
  * follows"; a manual Tax Invoice's only "Type it again by hand". The cards are
  * `annulment.follow_ups`, decided by the API's own gates: at mismatch Issue
  * again and Reissue are held with the refusal their press would answer, and on
- * an unconfirmed check their confirms say the SRI has not confirmed the
- * annulment. The presses are the existing Issue again and Reissue forms, drawn
+ * a check still checking or unconfirmed their confirms say the SRI has not
+ * confirmed the annulment. The presses are the existing Issue again and Reissue forms, drawn
  * inline, and Reverse the Sale links to the Sale's Operator Reversal.
  *
  * THE PORTAL RUNBOOK (#752) sits beside the record form: the portal steps as
@@ -219,12 +219,13 @@ function FollowUpChooserSection({ invoice }: { invoice: OperatorInvoiceDetail })
   if (chooser === null) {
     return null;
   }
+  const { notConfirmed } = chooser;
   function press(kind: FollowUpKind) {
     switch (kind) {
       case "issue_again":
-        return <OperatorInvoiceIssueAgain invoice={invoice} inline unconfirmed={chooser?.unconfirmed} />;
+        return <OperatorInvoiceIssueAgain invoice={invoice} inline notConfirmed={notConfirmed} />;
       case "reissue":
-        return <OperatorInvoiceReissue invoice={invoice} inline unconfirmed={chooser?.unconfirmed} />;
+        return <OperatorInvoiceReissue invoice={invoice} inline notConfirmed={notConfirmed} />;
       case "reverse_sale":
         return invoice.sale_confirmation_ref ? (
           <Button asChild variant="outline">
@@ -247,7 +248,7 @@ function FollowUpChooserSection({ invoice }: { invoice: OperatorInvoiceDetail })
           <p>{t("invoicingFollowUpLeaveIt")}</p>
         </div>
       ) : null}
-      {chooser.unconfirmed && chooser.cards.some((kind) => kind === "issue_again" || kind === "reissue") ? (
+      {notConfirmed && chooser.cards.some((kind) => kind === "issue_again" || kind === "reissue") ? (
         <p className="text-amber-700">{t("invoicingFollowUpUnconfirmed")}</p>
       ) : null}
       <div className="grid gap-3 md:grid-cols-3">

@@ -67,17 +67,17 @@ const NOTE_MAX_LENGTH = 500;
 /**
  * `inline` draws the press and its confirm without the card around them, for
  * the annulment panel's follow-up chooser (#747), whose own card says what the
- * press owes and what the buyer hears. `unconfirmed` adds to the confirm that
+ * press owes and what the buyer hears. `notConfirmed` adds to the confirm that
  * the SRI has not confirmed the annulment of the factura this replaces.
  */
 export function OperatorInvoiceIssueAgain({
   invoice,
   inline = false,
-  unconfirmed = false,
+  notConfirmed = false,
 }: {
   invoice: OperatorInvoiceDetail;
   inline?: boolean;
-  unconfirmed?: boolean;
+  notConfirmed?: boolean;
 }) {
   const t = useTranslations("operator");
   const errorCopy = useMessages().errors;
@@ -129,7 +129,7 @@ export function OperatorInvoiceIssueAgain({
           <DialogTitle>{t("invoicingIssueAgainConfirmTitle")}</DialogTitle>
           <DialogDescription>{t("invoicingIssueAgainConfirm")}</DialogDescription>
         </DialogHeader>
-        {unconfirmed ? (
+        {notConfirmed ? (
           <Alert>
             <AlertDescription>{t("invoicingIssueAgainUnconfirmed")}</AlertDescription>
           </Alert>

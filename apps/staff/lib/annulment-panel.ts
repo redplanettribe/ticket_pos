@@ -274,8 +274,12 @@ export type FollowUpChooser = {
    * factura", and leaving it keeps the Sale in the needs-attention queue.
    */
   saleHasNoFactura: boolean;
-  /** The check reads unconfirmed: Issue again's and Reissue's confirms say the SRI has not confirmed the annulment. */
-  unconfirmed: boolean;
+  /**
+   * The SRI has not confirmed the annulment: the check is still checking, or
+   * reads unconfirmed. Issue again's and Reissue's confirms say so. (At
+   * mismatch both are held, and once confirmed nothing is left to say.)
+   */
+  notConfirmed: boolean;
 };
 
 /**
@@ -303,7 +307,9 @@ export function followUpChooser(annulment: {
   return {
     cards,
     held,
+    // The API lists Issue again, admitted or held, exactly where the Sale
+    // stands and no factura stands for it (service.annulmentFollowUps).
     saleHasNoFactura: followUps.some((f) => f.kind === "issue_again"),
-    unconfirmed: annulment.check?.verdict === "unconfirmed",
+    notConfirmed: annulment.check?.verdict === "checking" || annulment.check?.verdict === "unconfirmed",
   };
 }

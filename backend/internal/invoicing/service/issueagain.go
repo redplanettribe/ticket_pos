@@ -181,12 +181,23 @@ func issueAgainRefusal(inv *invoicing.Invoice, facts repository.IssueAgainSaleFa
 	if err := issuableAgainDocument(inv); err != nil {
 		return err
 	}
+	return replacementRefusal(inv, facts.SaleStatus, facts.SaleHasLiveFactura, facts.AnnulmentAtMismatch)
+}
+
+// replacementRefusal is the Sale's half of every act that owes a dead
+// document's Sale one factura and nothing else: Issue again, and a Reissue
+// of an annulled factura (#747). A reversed Sale is owed nothing; a Sale a
+// factura already stands for (this document's live successor, or any
+// document's) is already replaced; and an annulled document whose current
+// annulment stands at mismatch is refused while the SRI still reports it
+// authorized. One function, so the two gates cannot drift apart.
+func replacementRefusal(inv *invoicing.Invoice, saleStatus string, saleHasLiveFactura, annulmentAtMismatch bool) error {
 	switch {
-	case facts.SaleStatus == "reversed":
+	case saleStatus == "reversed":
 		return invoicing.ErrInvoiceSaleReversed()
-	case inv.SupersededByInvoiceID != "", facts.SaleHasLiveFactura:
+	case inv.SupersededByInvoiceID != "", saleHasLiveFactura:
 		return invoicing.ErrInvoiceAlreadyReplaced()
-	case facts.AnnulmentAtMismatch:
+	case annulmentAtMismatch:
 		return invoicing.ErrInvoiceAnnulmentMismatch()
 	}
 	return nil
