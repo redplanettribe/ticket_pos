@@ -191,6 +191,7 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
 - Configuration is read once, in `cmd/server`, by `platform.LoadReporterConfig`: `SENTRY_DSN`, the environment (`production` when `APP_ENV` is, `development` otherwise) and `SENTRY_RELEASE`, the commit SHA the API image takes as a build argument.
   With no `SENTRY_DSN` the reporter is `platform.NoopReporter` and nothing of the SDK is constructed: the local stack, CI, the test suites and agent runs.
   The migrate job and the operator CLIs never build a reporter.
+- The Sentry side (the `ticket-pos` team, one project and key per deployable, the alert rules, the Storefront's inbound filters and key rate limit) is declared in the `ticket-pos` Terraform module, and a DSN reaches a Cloud Run service only when that deployable's switch is on; all three ship off (terraform/README.md, "Sentry").
 - The deploy builds all three images with the commit SHA as `SENTRY_RELEASE`.
   With the `SENTRY_AUTH_TOKEN` secret it also uploads the Next apps' source maps from inside their image builds, creates the release and marks each service's deploy, all failing soft; no source map is left in an image (terraform/README.md, "Sentry releases and source maps").
 - The SDK collects no personal data by default: no request, body, cookie, header, query string or IP address, and the host name is not sent.

@@ -43,6 +43,12 @@ aws sso login --profile multiticketing-ses
 export TF_VAR_aws_budget_alert_email=...   # from the sourced, gitignored .env
 ```
 
+It also manages the ticket-pos side of Sentry (see [Sentry](#sentry)), so a plan needs the Sentry token in the environment too:
+
+```bash
+export TF_VAR_sentry_auth_token=...        # from the sourced, gitignored .env
+```
+
 ### 1. Bootstrap — once per project, ever
 
 ```bash
@@ -85,7 +91,7 @@ module takes no `prod`-specific input, so nothing else moves.
 ## Conventions
 
 - **Versions are pinned.** Roots pin Terraform `~> 1.13` and the Google provider `~> 6.0` (and, in
-  `envs/prod`, the AWS provider `~> 6.0`); the module
+  `envs/prod`, the AWS provider `~> 6.0` and the Sentry provider `~> 0.16.0`); the module
   states looser constraints because the root is what decides. Run `terraform init` and commit the
   generated `.terraform.lock.hcl` in each root so provider hashes are locked too.
 - **Nothing environment-specific inside the module.** Variables in, outputs out. If a resource needs to
@@ -561,6 +567,85 @@ They sit beside Resend's and replace none of them.
 SES's DKIM selectors are random tokens, so they never meet `resend._domainkey`, and its return path is `bounce.<domain>`, never Resend's `send.<domain>`.
 DMARC needs nothing new: `_dmarc.multiticketing.com` already covers both subdomains, and SES mail aligns with it through DKIM and the MAIL FROM.
 Until the records are in and SES reads both identities as verified, SES refuses to send from them; nothing sends through SES before a provider variable says `ses` anyway.
+
+## Sentry
+
+The ticket-pos side of Sentry is declared in `modules/ticket-pos/sentry.tf` (ADR [0079](../docs/adr/0079-sentry-reports-errors-traces-and-job-check-ins-behind-one-seam-holding-no-personal-data-and-dormant-until-a-dsn-is-set.md), #777), with the community provider `jianyuan/sentry`.
+It lives in the existing `redplanettribe` organization, which is shared with another product.
+Nothing here reads, imports or changes the organization's settings or any project but the three below; the other product's `m3t-*` projects are never referenced.
+
+**The inputs.**
+
+| Input | Where it comes from | Default |
+| --- | --- | --- |
+| `sentry_auth_token` | `TF_VAR_sentry_auth_token`, from the sourced, gitignored `.env` | none: a plan without it stops and asks |
+| `sentry_api_enabled` | `terraform.tfvars`, when the operator writes it | `false` |
+| `sentry_staff_enabled` | `terraform.tfvars`, when the operator writes it | `false` |
+| `sentry_storefront_enabled` | `terraform.tfvars`, when the operator writes it | `false` |
+
+The token is the operator's and is never committed.
+It is not the `SENTRY_AUTH_TOKEN` GitHub Actions secret of [Sentry releases and source maps](#sentry-releases-and-source-maps-776): that one is an organization token whose fixed `org:ci` scope can only make releases.
+This one creates a team, projects, keys, filters and alert rules, so it needs Organization Read, Team Admin, Project Admin and Alerts Read & Write.
+Prefer an internal integration's token (Settings, Developer Settings, Custom Integrations, a new internal integration with those permissions), which outlives any one person; a personal token needs `org:read`, `team:admin`, `project:admin` and `alerts:write`.
+Every plan now needs it, because the Sentry resources are always declared.
+
+**The switches.**
+Each deployable reports only when its switch is on, and they are independent, so the API can go first.
+Off, the service has no `SENTRY_DSN`, which is what dormant means: the API builds no reporter and the Next apps initialise no SDK.
+On, the service gets its project's public DSN as a plain environment value (a DSN is not a secret), and the Staff app and the Storefront also get `SENTRY_ENVIRONMENT=production`; the API reports as `production` because its `APP_ENV` is.
+Turning one on is an apply that changes that service's environment and so rolls a new revision of it, and no other.
+Turn any of them on only after the policy edition that names Sentry is published (ADR 0079); each is a gate, absent from `terraform.tfvars` until somebody writes it.
+
+**What a first apply creates**, with every switch off (19 to add, nothing to change or destroy):
+
+| Resource | What it is |
+| --- | --- |
+| `module.ticket_pos.sentry_team.ticket_pos` | the `ticket-pos` team |
+| `module.ticket_pos.sentry_project.deployable["api"]` | `ticket-pos-api`, platform `go` |
+| `module.ticket_pos.sentry_project.deployable["staff"]` | `ticket-pos-staff`, platform `javascript-nextjs` |
+| `module.ticket_pos.sentry_project.deployable["storefront"]` | `ticket-pos-storefront`, platform `javascript-nextjs` |
+| `module.ticket_pos.sentry_key.deployable["api"]` | the API's key, `prod-ticket-pos-api` |
+| `module.ticket_pos.sentry_key.deployable["staff"]` | the Staff app's key, `prod-ticket-pos-staff` |
+| `module.ticket_pos.sentry_key.deployable["storefront"]` | the Storefront's key, `prod-ticket-pos-storefront`, rate limited |
+| `module.ticket_pos.sentry_project_inbound_data_filter.storefront_browser_extensions` | Storefront: browser extensions filtered |
+| `module.ticket_pos.sentry_project_inbound_data_filter.storefront_web_crawlers` | Storefront: web crawlers filtered |
+| `module.ticket_pos.sentry_project_inbound_data_filter.storefront_legacy_browsers` | Storefront: legacy browsers filtered |
+| `module.ticket_pos.sentry_alert.new_issue["api"]`, `["staff"]`, `["storefront"]` | a new issue in production |
+| `module.ticket_pos.sentry_alert.regression["api"]`, `["staff"]`, `["storefront"]` | a resolved issue happens again in production |
+| `module.ticket_pos.sentry_alert.error_spike["api"]`, `["staff"]`, `["storefront"]` | one issue more than 50 times in an hour in production |
+
+The plan also reads `data.sentry_project_error_monitor.deployable` for each project, the default error monitor Sentry creates with a project, which the alert rules attach to; it creates nothing.
+If the plan shows any change to a Cloud Run service while every switch is off, stop: it should show none.
+
+The projects are created without Sentry's default key and default alert rule, so the only key and rules are the ones above.
+The three alert rules on each project email the `ticket-pos` team, at most every 30 minutes per issue for a new issue or a regression and every 60 for a spike.
+The Storefront key accepts 500 events an hour (`sentry_storefront_rate_limit_count`, `sentry_storefront_rate_limit_window_seconds` in the module); Sentry enforces per-key rate limits only on a plan that has them, so apply after the plan upgrade.
+The legacy browser filter takes every current subfilter (Internet Explorer, and Edge, Chrome and Firefox up to 110, Safari up to 15, Opera up to 99, Opera Mini up to 34, Android up to 3).
+
+**What the provider cannot declare**, for the operator's checklist:
+
+- **Server-side data scrubbing.**
+  The provider has no scrubbing setting at the organization or the project level.
+  After the apply, run `SENTRY_AUTH_TOKEN="$TF_VAR_sentry_auth_token" scripts/sentry-scrubbing.sh`; it sets, on the three projects only, the Data Scrubber with Sentry's defaults, no stored IP addresses, extra sensitive field names, and advanced rules that replace email addresses and Ecuadorian identity numbers and mask card numbers in every string.
+  It reads each project back and stops on the first that did not keep a setting.
+  `--dry-run` prints the request without a token.
+  Run it again whenever the script changes.
+  The organization's own scrubbing settings are left as they are, because they would apply to the other product's projects too.
+- **Team membership.**
+  The alerts go to the members of `ticket-pos`.
+  Whoever should receive them joins the team in Sentry (Settings, Teams); a person's email is not something to commit here.
+- **Checking the spike rule once.**
+  It has no trigger and one filter, "more than 50 events in an hour", which is the provider's mapping of a classic frequency rule.
+  After the first apply, open it in Sentry and check it reads that way.
+
+**Testing the switches.**
+`modules/ticket-pos/tests/sentry.tftest.hcl` plans the module against mocked providers, so it needs no credential and reaches nothing: with every switch off no service has a Sentry variable, and each switch sets the DSN on its own service only.
+
+```bash
+cd terraform/modules/ticket-pos
+terraform init
+terraform test
+```
 
 ## What is not here yet
 

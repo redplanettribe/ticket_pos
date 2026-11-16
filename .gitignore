@@ -36,8 +36,11 @@ Thumbs.db
 coverage/
 .nyc_output/
 
-# Terraform (state may contain secrets; .terraform.lock.hcl IS committed)
+# Terraform (state may contain secrets; .terraform.lock.hcl IS committed in each root)
 **/.terraform/
+# A module is not a root: its lock file is only what `terraform test` there
+# needs (terraform/modules/ticket-pos/tests), and the roots pin the versions.
+terraform/modules/**/.terraform.lock.hcl
 *.tfstate
 *.tfstate.*
 *.tfplan

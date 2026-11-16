@@ -766,3 +766,57 @@ variable "holder_address_purge_attempt_deadline_seconds" {
     error_message = "holder_address_purge_attempt_deadline_seconds must be between 60 and 1800: at least 60 so one UPDATE has room to finish, and at most 1800 because Cloud Scheduler rejects more for an HTTP target."
   }
 }
+
+# --- Sentry (sentry.tf, ADR 0079, #777) ---------------------------------------
+#
+# One switch per deployable, all off. Off, the deployable's Cloud Run service
+# has no SENTRY_DSN and reports nothing, which is what dormant means; the Sentry
+# project, key and alert rules exist either way. Each switch turns on alone, so
+# the operator can start with the API. Turning one on is an apply that rolls a
+# new revision of that service only.
+
+variable "sentry_organization" {
+  description = "Slug of the existing Sentry organization the team and the three projects are created in. The organization itself is never managed here: it is shared with another product, and nothing in this module reads or changes its settings or any project but ticket-pos-api, ticket-pos-staff and ticket-pos-storefront."
+  type        = string
+  default     = "redplanettribe"
+}
+
+variable "sentry_api_enabled" {
+  description = "Whether the API reports to Sentry. True sets SENTRY_DSN on the API service to ticket-pos-api's DSN; false (the default) leaves it unset, and the API constructs no reporter. The API reports as \"production\" because APP_ENV is production. Turn on only after the policy edition that names Sentry is published (ADR 0079)."
+  type        = bool
+  default     = false
+}
+
+variable "sentry_staff_enabled" {
+  description = "Whether the Staff app reports to Sentry. True sets SENTRY_DSN (ticket-pos-staff's DSN) and SENTRY_ENVIRONMENT=production on the Staff service; false (the default) sets neither, and the app initialises no SDK in any runtime. Turn on only after the policy edition that names Sentry is published (ADR 0079)."
+  type        = bool
+  default     = false
+}
+
+variable "sentry_storefront_enabled" {
+  description = "Whether the Storefront reports to Sentry. True sets SENTRY_DSN (ticket-pos-storefront's DSN) and SENTRY_ENVIRONMENT=production on the Storefront service; false (the default) sets neither, and the Storefront writes no Sentry configuration into its pages and never loads the SDK. Turn on only after the policy edition that names Sentry is published (ADR 0079)."
+  type        = bool
+  default     = false
+}
+
+variable "sentry_storefront_rate_limit_count" {
+  description = "Events the Storefront's Sentry key accepts per sentry_storefront_rate_limit_window_seconds; Sentry drops the rest before they count against the quota. It bounds what a crawler, a bot or a release that throws in every browser can spend: 500 an hour is at most 12,000 a day. Raise it if the project's stats show ordinary traffic being dropped. Sentry enforces per-key rate limits only on a plan that has them."
+  type        = number
+  default     = 500
+
+  validation {
+    condition     = var.sentry_storefront_rate_limit_count >= 1 && floor(var.sentry_storefront_rate_limit_count) == var.sentry_storefront_rate_limit_count
+    error_message = "sentry_storefront_rate_limit_count must be a whole number of events, at least 1."
+  }
+}
+
+variable "sentry_storefront_rate_limit_window_seconds" {
+  description = "The window of the Storefront key's rate limit, in seconds. An hour by default."
+  type        = number
+  default     = 3600
+
+  validation {
+    condition     = var.sentry_storefront_rate_limit_window_seconds >= 60 && var.sentry_storefront_rate_limit_window_seconds <= 86400 && floor(var.sentry_storefront_rate_limit_window_seconds) == var.sentry_storefront_rate_limit_window_seconds
+    error_message = "sentry_storefront_rate_limit_window_seconds must be a whole number of seconds between 60 and 86400 (a day)."
+  }
+}

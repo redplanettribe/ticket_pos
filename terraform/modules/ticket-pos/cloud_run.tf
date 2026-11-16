@@ -553,6 +553,19 @@ resource "google_cloud_run_v2_service" "api" {
         }
       }
 
+      # The API's Sentry DSN (sentry.tf, ADR 0079), only when sentry_api_enabled.
+      # Absent, the API constructs no reporter and sends nothing. A DSN is not a
+      # secret, so it is a plain value. No SENTRY_ENVIRONMENT: the API reports as
+      # "production" because APP_ENV above is production. Last in the list, so
+      # switching it changes no other entry's position in the plan.
+      dynamic "env" {
+        for_each = var.sentry_api_enabled ? [local.sentry_dsn.api] : []
+        content {
+          name  = "SENTRY_DSN"
+          value = env.value
+        }
+      }
+
       # /health is the one endpoint that answers without auth or a session, and
       # it is what tells Cloud Run the instance is ready to take traffic. Without
       # a startup probe Cloud Run only waits for the port to open, which happens

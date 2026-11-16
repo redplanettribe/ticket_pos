@@ -156,6 +156,27 @@ resource "google_cloud_run_v2_service" "storefront" {
         name  = "NODE_ENV"
         value = "production"
       }
+
+      # The Storefront's Sentry DSN and environment (sentry.tf, ADR 0079), only when
+      # sentry_storefront_enabled. Absent, the app initialises no SDK anywhere. A DSN
+      # is not a secret: the root layout writes it into the page for the browser.
+      # Runtime values, never NEXT_PUBLIC, so the same image serves either way.
+      # Last in the list, so switching them changes no other entry's position.
+      dynamic "env" {
+        for_each = var.sentry_storefront_enabled ? [local.sentry_dsn.storefront] : []
+        content {
+          name  = "SENTRY_DSN"
+          value = env.value
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.sentry_storefront_enabled ? [local.sentry_environment] : []
+        content {
+          name  = "SENTRY_ENVIRONMENT"
+          value = env.value
+        }
+      }
     }
   }
 
@@ -237,6 +258,27 @@ resource "google_cloud_run_v2_service" "staff" {
       env {
         name  = "NODE_ENV"
         value = "production"
+      }
+
+      # The Staff app's Sentry DSN and environment (sentry.tf, ADR 0079), only when
+      # sentry_staff_enabled. Absent, the app initialises no SDK anywhere. A DSN
+      # is not a secret: the root layout writes it into the page for the browser.
+      # Runtime values, never NEXT_PUBLIC, so the same image serves either way.
+      # Last in the list, so switching them changes no other entry's position.
+      dynamic "env" {
+        for_each = var.sentry_staff_enabled ? [local.sentry_dsn.staff] : []
+        content {
+          name  = "SENTRY_DSN"
+          value = env.value
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.sentry_staff_enabled ? [local.sentry_environment] : []
+        content {
+          name  = "SENTRY_ENVIRONMENT"
+          value = env.value
+        }
       }
     }
   }
