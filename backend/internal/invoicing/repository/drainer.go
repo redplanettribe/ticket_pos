@@ -292,13 +292,28 @@ func (r *Repository) CountSaleInvoicesByStatus(ctx context.Context) (map[string]
 // buyer, and takes it off the queue: delivered_at is written and
 // next_attempt_at cleared in one statement, guarded on delivered_at still
 // being NULL so that a document is never recorded delivered twice.
+//
+// A DELIVERY THAT LOST A RACE WITH MARK ANNULLED (#748): the send began on
+// an authorized factura, and the annulment committed before this stamp, so
+// AnnulFactura read no delivered_at and owed no Annulment Notice. The
+// buyer has the factura all the same, so the stamp is still written and the
+// standing annulment's notice is owed in the same statement.
 func (r *Repository) MarkDelivered(ctx context.Context, invoiceID string, at time.Time) error {
 	res, err := r.db.Pool.ExecContext(ctx, `
-		UPDATE invoicing_invoices SET
-			delivered_at = $2,
-			next_attempt_at = NULL,
-			updated_at = NOW()
-		WHERE id = $1 AND delivered_at IS NULL
+		WITH delivered AS (
+			UPDATE invoicing_invoices SET
+				delivered_at = $2,
+				next_attempt_at = NULL,
+				updated_at = NOW()
+			WHERE id = $1 AND delivered_at IS NULL
+			RETURNING id, kind, status
+		), owed AS (
+			UPDATE invoicing_annulments a SET notice_state = 'owed'
+			FROM delivered d
+			WHERE a.invoice_id = d.id AND d.kind = 'sale' AND d.status = 'annulled'
+			  AND a.reinstated_at IS NULL AND a.notice_state = 'not_owed'
+		)
+		SELECT 1 FROM delivered
 	`, invoiceID, at)
 	if err != nil {
 		return fmt.Errorf("mark delivered: %w", err)

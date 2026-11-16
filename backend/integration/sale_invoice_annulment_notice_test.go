@@ -327,7 +327,47 @@ func TestNoAnnulmentNoticeForAManualTaxInvoiceOrAnUndeliveredFactura(t *testing.
 		if n := len(deliveriesSent(t, env)); n != 0 {
 			t.Fatalf("%d deliveries; want the annulled factura never mailed", n)
 		}
+		// The buyer could still have downloaded it from the Customer Area
+		// while it stood authorized, so it stays listed, as annulled.
+		ref := lastConfirmation(t, env).Reference
+		saleID := saleIDByRef(t, env, ref)
+		docs, _ := listCustomerDocuments(t, buyerSession(t, env, "guest@example.com"), saleID)
+		if len(docs) != 1 || docs[0].Status != "annulled" {
+			t.Fatalf("documents = %+v; want the authorized-then-annulled factura listed as annulled", docs)
+		}
 	})
+}
+
+// TestADeliveryThatRacesMarkAnnulledStillOwesTheNotice: the delivery mail is
+// in flight when the operator records the annulment, so the annulment reads
+// no delivery and owes nothing; the delivery's stamp then owes the notice,
+// and the buyer, who did get the factura, is told of its annulment.
+func TestADeliveryThatRacesMarkAnnulledStillOwesTheNotice(t *testing.T) {
+	env := setupTest(t)
+	sriStub.reset()
+	operatorSessionID, invoiceID := houseSaleOwed(t, env, 1000, 1)
+	issuerReady(t, operatorSessionID)
+	env.email.SlowTaxDocumentDeliveryBy(time.Second)
+	t.Cleanup(func() { env.email.SlowTaxDocumentDeliveryBy(0) })
+
+	done := make(chan saleInvoiceDrainResult, 1)
+	go func() { done <- drainSaleInvoices(t) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for getDrainedInvoice(t, operatorSessionID, invoiceID).Status != "authorized" {
+		if time.Now().After(deadline) {
+			t.Fatal("the factura was never authorized")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	annulOK(t, operatorSessionID, invoiceID)
+	if result := <-done; result.Delivered != 1 {
+		t.Fatalf("drain = %+v; want the in-flight delivery recorded", result)
+	}
+	env.email.SlowTaxDocumentDeliveryBy(0)
+
+	wantNoticeState(t, "after the late stamp", operatorSessionID, invoiceID, "held")
+	checkToConfirmed(t, operatorSessionID, invoiceID)
+	wantNotices(t, "after the race", env, 1)
 }
 
 // TestTheFollowUpFacturaSaysItReplacesAnAnnulledOne: the factura Issue again

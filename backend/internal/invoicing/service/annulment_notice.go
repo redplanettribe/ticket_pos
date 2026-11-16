@@ -36,7 +36,16 @@ import (
 // AT MOST ONCE, ON THE DELIVERY'S LADDER. A refused send stays owed and is
 // due again a minute, five, fifteen, then hourly after each refusal; the
 // sent stamp is written only after the sender took it, and is guarded on
-// the notice still being owed.
+// the notice still being owed. As with the delivery mail, an instance that
+// dies between the send and the stamp leaves the lease to expire and the
+// notice to go again: "once" is per stamped send, not proof against a crash.
+//
+// A FOLLOW-UP CAN BE MAILED FIRST. Issue again and Reissue are admitted
+// while the check is still checking, so the successor factura may reach the
+// buyer before the notice is released; the notice's "a new factura will
+// follow" then refers to one already in the inbox. Accepted: holding the
+// successor on the notice would hold the buyer's valid factura on the SRI's
+// slow answer, and the spec gates the follow-ups on mismatch alone.
 
 // annulmentNoticeBudget bounds the pass inside the tick's: no send is
 // started once it is spent, and the one in flight is bounded by the mail
@@ -160,15 +169,12 @@ const (
 // annulmentNoticeView reads one annulment's notice, held or due by its
 // check's verdict.
 func annulmentNoticeView(a *invoicing.Annulment) *AnnulmentNoticeView {
-	view := &AnnulmentNoticeView{State: string(a.Notice.State), SentAt: a.Notice.SentAt}
-	switch {
-	case a.Notice.State == "":
-		view.State = string(invoicing.AnnulmentNoticeNotOwed)
-	case a.Notice.State != invoicing.AnnulmentNoticeOwed:
-	case a.ReinstatedAt == nil && invoicing.AnnulmentNoticeReleased(a.Check):
-		view.State = annulmentNoticeDue
-	default:
-		view.State = annulmentNoticeHeld
+	state := string(a.Notice.State)
+	if a.Notice.State == invoicing.AnnulmentNoticeOwed {
+		state = annulmentNoticeHeld
+		if a.ReinstatedAt == nil && invoicing.AnnulmentNoticeReleased(a.Check) {
+			state = annulmentNoticeDue
+		}
 	}
-	return view
+	return &AnnulmentNoticeView{State: state, SentAt: a.Notice.SentAt}
 }
