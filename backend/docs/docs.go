@@ -3715,6 +3715,9 @@ const docTemplate = `{
                     "authorization_date": {
                         "type": "string"
                     },
+                    "authorization_day": {
+                        "type": "string"
+                    },
                     "environment": {
                         "type": "string"
                     },

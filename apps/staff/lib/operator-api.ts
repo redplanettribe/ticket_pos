@@ -1362,6 +1362,8 @@ export type OperatorAnnulmentPortal = {
   access_key: string;
   /** On an authorized document only. */
   authorization_date: string | null;
+  /** The same authorization's day as the portal's form takes it, DD/MM/YYYY in Guayaquil (#752). */
+  authorization_day: string | null;
   /** Exactly as the signed XML carries it, spaces included. */
   receptor_id: string;
   receptor_email: string;

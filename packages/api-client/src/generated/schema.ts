@@ -16068,6 +16068,7 @@ export interface components {
         "service.AnnulmentPortalView": {
             access_key?: string;
             authorization_date?: string;
+            authorization_day?: string;
             environment?: string;
             receptor_email?: string;
             receptor_id?: string;

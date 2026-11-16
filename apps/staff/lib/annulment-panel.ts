@@ -12,8 +12,11 @@
 
 import type {
   AnnulmentVerdict,
+  EcuadorIssuerEnvironment,
+  InvoiceKind,
   InvoiceStatus,
   OperatorAnnulmentCheck,
+  OperatorAnnulmentPortal,
   OperatorAnnulmentWindow,
   OperatorInvoiceAnnulability,
 } from "./operator-api";
@@ -158,3 +161,64 @@ export const ANNULMENT_CHECK_BADGE: Record<AnnulmentVerdict, "default" | "second
   mismatch: "destructive",
   unconfirmed: "outline",
 };
+
+/**
+ * The portal runbook on the record face (#752, stories 22 to 28). The SRI
+ * offers no web service for annulment, so the panel walks the operator
+ * through SRI en linea: sign in, open the annulment form by the menu path of
+ * the factura's environment, fill it in with every field copied from the API's
+ * `annulability.portal`, and press Aceptar. The ticks are the page's own and
+ * gate nothing: the record form beside them never reads them.
+ */
+export const SRI_EN_LINEA_URL = "https://srienlinea.sri.gob.ec/sri-en-linea/inicio/NAT";
+
+export const ANNULMENT_PORTAL_STEPS = ["sign_in", "open_form", "fill", "accept"] as const;
+
+export type AnnulmentPortalStep = (typeof ANNULMENT_PORTAL_STEPS)[number];
+
+/** The menu path's copy, Produccion or Pruebas by the factura's environment. */
+export function annulmentPortalPathKey(
+  environment: EcuadorIssuerEnvironment,
+): "invoicingAnnulPortalPathProduction" | "invoicingAnnulPortalPathTest" {
+  return environment === "test" ? "invoicingAnnulPortalPathTest" : "invoicingAnnulPortalPathProduction";
+}
+
+export type AnnulmentPortalField = {
+  field: "access_key" | "authorization_day" | "receptor_id" | "receptor_email";
+  /** Exactly what the copy button puts on the clipboard, as the API sent it. */
+  value: string;
+  /** Whether the value is drawn with its whitespace visible. */
+  spaces: boolean;
+};
+
+/**
+ * The fields the portal's form asks for, in its order, each copied exactly as
+ * the API sent it: the clave, the authorization's day on an authorized
+ * document, the receptor ID as the signed XML carries it with its spaces
+ * drawn, and the receptor email when the Recipient has one.
+ */
+export function annulmentPortalFields(portal: OperatorAnnulmentPortal): AnnulmentPortalField[] {
+  const fields: AnnulmentPortalField[] = [{ field: "access_key", value: portal.access_key, spaces: false }];
+  if (portal.authorization_day !== null) {
+    fields.push({ field: "authorization_day", value: portal.authorization_day, spaces: false });
+  }
+  fields.push({ field: "receptor_id", value: portal.receptor_id, spaces: true });
+  if (portal.receptor_email !== "") {
+    fields.push({ field: "receptor_email", value: portal.receptor_email, spaces: false });
+  }
+  return fields;
+}
+
+/**
+ * A value cut into runs, every whitespace character its own segment, so the
+ * page can draw each one visibly and the operator types what the SRI holds.
+ * The segments join back to the value exactly.
+ */
+export function visibleWhitespace(value: string): { text: string; space: boolean }[] {
+  return value.split(/(\s)/).filter((text) => text !== "").map((text) => ({ text, space: /^\s$/.test(text) }));
+}
+
+/** Whether recording sends the buyer an Annulment Notice: on a Sale Invoice only, never a manual Tax Invoice. */
+export function annulmentSendsNotice(kind: InvoiceKind): boolean {
+  return kind === "sale";
+}

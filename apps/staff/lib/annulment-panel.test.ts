@@ -5,12 +5,18 @@ import test from "node:test";
 import {
   ANNULMENT_CHECK_BADGE,
   ANNULMENT_PANEL_REFUSALS,
+  ANNULMENT_PORTAL_STEPS,
+  SRI_EN_LINEA_URL,
   annulmentCheckLine,
   annulmentCheckOffersCheckStatus,
   annulmentPanelMode,
+  annulmentPortalFields,
+  annulmentPortalPathKey,
   annulmentRecordReady,
+  annulmentSendsNotice,
   annulmentWindowProgress,
   annulmentWindowTone,
+  visibleWhitespace,
 } from "./annulment-panel.ts";
 
 // The annulment panel on a factura's detail page (#745, spec #742, ADR 0078):
@@ -199,4 +205,99 @@ test("the badge's tone follows the verdict", () => {
   assert.equal(ANNULMENT_CHECK_BADGE.mismatch, "destructive");
   assert.equal(ANNULMENT_CHECK_BADGE.checking, "secondary");
   assert.equal(ANNULMENT_CHECK_BADGE.unconfirmed, "outline");
+});
+
+// The portal runbook on the record face (#752): the numbered steps, the menu
+// path by the factura's environment, the fields to copy exactly, the receptor
+// ID with its spaces drawn, and the two lines about what recording causes.
+
+const PORTAL = {
+  access_key: "0707202601179001234500110010010000000421234567811",
+  authorization_date: "2026-07-07T19:02:11Z",
+  authorization_day: "07/07/2026",
+  receptor_id: "1712345678 001",
+  receptor_email: "buyer@example.com",
+  environment: "production" as const,
+};
+
+test("the checklist walks sign in, the form, the fields and Aceptar, starting at SRI en linea", () => {
+  assert.deepEqual(ANNULMENT_PORTAL_STEPS, ["sign_in", "open_form", "fill", "accept"]);
+  assert.match(SRI_EN_LINEA_URL, /^https:\/\/srienlinea\.sri\.gob\.ec\//);
+});
+
+test("the menu path follows the factura's environment", () => {
+  assert.equal(annulmentPortalPathKey("production"), "invoicingAnnulPortalPathProduction");
+  assert.equal(annulmentPortalPathKey("test"), "invoicingAnnulPortalPathTest");
+  for (const locale of ["en", "es"]) {
+    const catalog = loadCatalog(locale);
+    assert.match(catalog.operator.invoicingAnnulPortalPathProduction, /Producci[oó]n/, locale);
+    assert.match(catalog.operator.invoicingAnnulPortalPathTest, /Pruebas/, locale);
+  }
+});
+
+test("the fields copy the clave, the authorization day, the receptor ID and the email exactly", () => {
+  assert.deepEqual(annulmentPortalFields(PORTAL), [
+    { field: "access_key", value: PORTAL.access_key, spaces: false },
+    { field: "authorization_day", value: "07/07/2026", spaces: false },
+    { field: "receptor_id", value: "1712345678 001", spaces: true },
+    { field: "receptor_email", value: "buyer@example.com", spaces: false },
+  ]);
+});
+
+test("a document not yet authorized has no authorization date, and a Recipient with no email no email row", () => {
+  const fields = annulmentPortalFields({ ...PORTAL, authorization_date: null, authorization_day: null, receptor_email: "" });
+  assert.deepEqual(
+    fields.map((f) => f.field),
+    ["access_key", "receptor_id"],
+  );
+});
+
+test("the receptor ID keeps every space, each drawn on its own", () => {
+  const segments = visibleWhitespace(" 1712 345678  001 ");
+  assert.equal(segments.map((s) => s.text).join(""), " 1712 345678  001 ");
+  assert.deepEqual(
+    segments.map((s) => (s.space ? "_" : s.text)),
+    ["_", "1712", "_", "345678", "_", "_", "001", "_"],
+  );
+  assert.deepEqual(visibleWhitespace("1712345678001"), [{ text: "1712345678001", space: false }]);
+  assert.deepEqual(visibleWhitespace(""), []);
+  assert.deepEqual(
+    visibleWhitespace("a\tb").map((s) => s.space),
+    [false, true, false],
+  );
+});
+
+test("a Sale Invoice's panel says the buyer is sent an Annulment Notice, a manual Tax Invoice's does not", () => {
+  assert.equal(annulmentSendsNotice("sale"), true);
+  assert.equal(annulmentSendsNotice("manual"), false);
+  assert.equal(annulmentSendsNotice("credit_note"), false);
+});
+
+test("the runbook has its words in both languages", () => {
+  const keys = [
+    "invoicingAnnulPortalTitle",
+    "invoicingAnnulPortalHint",
+    "invoicingAnnulPortalStepSignIn",
+    "invoicingAnnulPortalOpen",
+    "invoicingAnnulPortalStepOpenForm",
+    "invoicingAnnulPortalStepFill",
+    "invoicingAnnulPortalStepAccept",
+    "invoicingAnnulPortalStepNumber",
+    "invoicingAnnulPortalFieldAccessKey",
+    "invoicingAnnulPortalFieldAuthorizationDay",
+    "invoicingAnnulPortalFieldReceptorId",
+    "invoicingAnnulPortalFieldReceptorEmail",
+    "invoicingAnnulPortalSpace",
+    "invoicingAnnulPortalCopy",
+    "invoicingAnnulPortalCopied",
+    "invoicingAnnulPortalCopyFailed",
+    "invoicingAnnulPanelNotice",
+    "invoicingAnnulPanelArchiveAgain",
+  ];
+  for (const locale of ["en", "es"]) {
+    const catalog = loadCatalog(locale);
+    for (const key of keys) {
+      assert.ok(catalog.operator[key], `${locale}: operator.${key}`);
+    }
+  }
 });

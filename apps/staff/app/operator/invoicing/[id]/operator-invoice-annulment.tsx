@@ -23,18 +23,27 @@ import { useLocale, useMessages, useTranslations } from "next-intl";
 
 import {
   ANNULMENT_CHECK_BADGE,
+  ANNULMENT_PORTAL_STEPS,
+  type AnnulmentPortalField,
+  type AnnulmentPortalStep,
+  SRI_EN_LINEA_URL,
   annulmentCheckLine,
   annulmentCheckOffersCheckStatus,
   annulmentPanelMode,
+  annulmentPortalFields,
+  annulmentPortalPathKey,
   annulmentRecordReady,
+  annulmentSendsNotice,
   annulmentWindowProgress,
   annulmentWindowTone,
+  visibleWhitespace,
 } from "@/lib/annulment-panel";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { type AppLocale, PLATFORM_TIME_ZONE, formatCalendarDay, formatDateTime } from "@/lib/format";
 import {
   type OperatorAnnulmentCheck,
+  type OperatorAnnulmentPortal,
   type OperatorAnnulmentWindow,
   type OperatorInvoiceDetail,
   annulOperatorInvoice,
@@ -80,8 +89,16 @@ import { INVOICE_STATUS_KEYS } from "../invoice-status";
  * time come from `annulment.check`; this page decides only which line to draw
  * (lib/annulment-panel.ts).
  *
- * The portal checklist and its copy buttons are a later ticket; the portal
- * fields are already in `annulability.portal` for it.
+ * THE PORTAL RUNBOOK (#752) sits beside the record form: the portal steps as
+ * a numbered checklist, a link to SRI en linea and the menu path for
+ * Produccion or Pruebas by the factura's environment, and every field the
+ * portal's form asks for with a copy button, the receptor ID drawn with its
+ * spaces visible. Every field is `annulability.portal`'s, copied exactly as
+ * the API sent it. The ticks are the checklist's own state: the record form
+ * never reads them, so recording an annulment made earlier is one step. Below
+ * the form, a Sale Invoice's panel says the buyer is sent an Annulment Notice,
+ * and every admitted factura's says to take the period's archive again if it
+ * already went to the accountant.
  */
 export function OperatorInvoiceAnnulment({
   invoice,
@@ -350,6 +367,7 @@ function RecordPanel({
   if (annulWindow === null || number === null) {
     return null;
   }
+  const portal = invoice.annulability?.portal ?? null;
   const tone = annulmentWindowTone(annulWindow);
   const deadline = formatCalendarDay(annulWindow.deadline, locale);
   const late = !annulWindow.open;
@@ -400,54 +418,204 @@ function RecordPanel({
         </p>
       </CardHeader>
       <CardContent>
-        <div className="space-y-3 rounded-lg bg-muted/40 p-4">
-          <p className="text-sm font-medium">{t("invoicingAnnulPanelRecordTitle")}</p>
-          <p className="text-xs text-muted-foreground">{t("invoicingAnnulPanelRecordHint")}</p>
-          {error ? (
-            <Alert variant="destructive">
-              <AlertTitle>{t("invoicingActionFailedTitle")}</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          ) : null}
-          <FormField id="annul_number" label={t("invoicingAnnulPanelNumberLabel", { number })}>
-            <Input
-              value={typedNumber}
-              placeholder={number}
-              autoComplete="off"
-              className="font-mono"
-              onChange={(event) => setTypedNumber(event.target.value)}
-            />
-          </FormField>
-          {late ? (
-            <FormField id="annul_late" label={t("invoicingAnnulPanelLateLabel", { phrase })}>
+        <div className={cn("grid gap-6", portal !== null && "md:grid-cols-2")}>
+          {portal !== null ? <PortalChecklist portal={portal} /> : null}
+          <div className="space-y-3 rounded-lg bg-muted/40 p-4">
+            <p className="text-sm font-medium">{t("invoicingAnnulPanelRecordTitle")}</p>
+            <p className="text-xs text-muted-foreground">{t("invoicingAnnulPanelRecordHint")}</p>
+            {error ? (
+              <Alert variant="destructive">
+                <AlertTitle>{t("invoicingActionFailedTitle")}</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            ) : null}
+            <FormField id="annul_number" label={t("invoicingAnnulPanelNumberLabel", { number })}>
               <Input
-                value={typedAcknowledgement}
+                value={typedNumber}
+                placeholder={number}
                 autoComplete="off"
-                onChange={(event) => setTypedAcknowledgement(event.target.value)}
+                className="font-mono"
+                onChange={(event) => setTypedNumber(event.target.value)}
               />
             </FormField>
-          ) : null}
-          <FormField id="annul_note" label={t("invoicingAnnulPanelNoteLabel")}>
-            <Textarea
-              value={note}
-              maxLength={NOTE_MAX_LENGTH}
-              rows={2}
-              placeholder={t("invoicingAnnulPanelNotePlaceholder")}
-              onChange={(event) => setNote(event.target.value)}
-            />
-          </FormField>
-          <p className="text-xs text-muted-foreground">{t("invoicingAnnulPanelReminder")}</p>
-          <Button
-            type="button"
-            variant="destructive"
-            className="w-full"
-            disabled={!ready || busy}
-            onClick={() => void record()}
-          >
-            {busy ? t("invoicingAnnulPanelSubmitting") : t("invoicingAnnulPanelSubmit")}
-          </Button>
+            {late ? (
+              <FormField id="annul_late" label={t("invoicingAnnulPanelLateLabel", { phrase })}>
+                <Input
+                  value={typedAcknowledgement}
+                  autoComplete="off"
+                  onChange={(event) => setTypedAcknowledgement(event.target.value)}
+                />
+              </FormField>
+            ) : null}
+            <FormField id="annul_note" label={t("invoicingAnnulPanelNoteLabel")}>
+              <Textarea
+                value={note}
+                maxLength={NOTE_MAX_LENGTH}
+                rows={2}
+                placeholder={t("invoicingAnnulPanelNotePlaceholder")}
+                onChange={(event) => setNote(event.target.value)}
+              />
+            </FormField>
+            <p className="text-xs text-muted-foreground">{t("invoicingAnnulPanelReminder")}</p>
+            {annulmentSendsNotice(invoice.kind) ? (
+              <p className="text-xs text-muted-foreground">{t("invoicingAnnulPanelNotice")}</p>
+            ) : null}
+            <p className="text-xs text-muted-foreground">{t("invoicingAnnulPanelArchiveAgain")}</p>
+            <Button
+              type="button"
+              variant="destructive"
+              className="w-full"
+              disabled={!ready || busy}
+              onClick={() => void record()}
+            >
+              {busy ? t("invoicingAnnulPanelSubmitting") : t("invoicingAnnulPanelSubmit")}
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+const STEP_TITLE_KEYS = {
+  sign_in: "invoicingAnnulPortalStepSignIn",
+  open_form: "invoicingAnnulPortalStepOpenForm",
+  fill: "invoicingAnnulPortalStepFill",
+  accept: "invoicingAnnulPortalStepAccept",
+} as const;
+
+const FIELD_LABEL_KEYS = {
+  access_key: "invoicingAnnulPortalFieldAccessKey",
+  authorization_day: "invoicingAnnulPortalFieldAuthorizationDay",
+  receptor_id: "invoicingAnnulPortalFieldReceptorId",
+  receptor_email: "invoicingAnnulPortalFieldReceptorEmail",
+} as const;
+
+/**
+ * The portal steps as a numbered checklist. Its ticks live here and nowhere
+ * else: nothing outside this component reads them, so the record form beside
+ * it submits the same whether every step is ticked or none is.
+ */
+function PortalChecklist({ portal }: { portal: OperatorAnnulmentPortal }) {
+  const t = useTranslations("operator");
+  const [done, setDone] = useState<Partial<Record<AnnulmentPortalStep, boolean>>>({});
+  const fields = annulmentPortalFields(portal);
+
+  function stepBody(step: AnnulmentPortalStep) {
+    switch (step) {
+      case "sign_in":
+        return (
+          <a
+            href={SRI_EN_LINEA_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs underline underline-offset-4"
+          >
+            {t("invoicingAnnulPortalOpen")}
+          </a>
+        );
+      case "open_form":
+        return <p className="text-xs text-muted-foreground">{t(annulmentPortalPathKey(portal.environment))}</p>;
+      case "fill":
+        return (
+          <div className="space-y-1.5">
+            {fields.map((field) => (
+              <PortalFieldRow key={field.field} field={field} />
+            ))}
+          </div>
+        );
+      default:
+        return null;
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <p className="text-sm font-medium">{t("invoicingAnnulPortalTitle")}</p>
+        <p className="text-xs text-muted-foreground">{t("invoicingAnnulPortalHint")}</p>
+      </div>
+      <ol className="space-y-4">
+        {ANNULMENT_PORTAL_STEPS.map((step, index) => {
+          const ticked = done[step] === true;
+          return (
+            <li key={step} className="flex gap-3">
+              <button
+                type="button"
+                aria-pressed={ticked}
+                aria-label={t("invoicingAnnulPortalStepNumber", { step: index + 1 })}
+                onClick={() => setDone((current) => ({ ...current, [step]: !ticked }))}
+                className={cn(
+                  "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-medium",
+                  ticked
+                    ? "border-emerald-600 bg-emerald-600 text-white"
+                    : "border-muted-foreground/40 text-muted-foreground",
+                )}
+              >
+                {ticked ? "✓" : index + 1}
+              </button>
+              <div className="min-w-0 flex-1 space-y-1">
+                <p className={cn("text-sm font-medium", ticked && "text-muted-foreground line-through")}>
+                  {t(STEP_TITLE_KEYS[step])}
+                </p>
+                {stepBody(step)}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+/** One field of the portal's form, drawn as the API sent it, with its copy button. */
+function PortalFieldRow({ field }: { field: AnnulmentPortalField }) {
+  const t = useTranslations("operator");
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(field.value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard access can be refused (insecure origin, denied permission).
+      toast.error(t("invoicingAnnulPortalCopyFailed"));
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-md border bg-background px-2 py-1">
+      <div className="min-w-0">
+        <p className="text-[11px] text-muted-foreground">{t(FIELD_LABEL_KEYS[field.field])}</p>
+        <p className="break-all font-mono text-xs">
+          {field.spaces
+            ? visibleWhitespace(field.value).map((segment, index) =>
+                segment.space ? (
+                  <span
+                    key={index}
+                    title={t("invoicingAnnulPortalSpace")}
+                    aria-label={t("invoicingAnnulPortalSpace")}
+                    className="mx-px rounded-sm bg-amber-100 px-0.5 text-amber-700"
+                  >
+                    ␣
+                  </span>
+                ) : (
+                  <span key={index}>{segment.text}</span>
+                ),
+              )
+            : field.value}
+        </p>
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="h-7 shrink-0 px-2 text-xs"
+        onClick={() => void copy()}
+      >
+        {copied ? t("invoicingAnnulPortalCopied") : t("invoicingAnnulPortalCopy")}
+      </Button>
+    </div>
   );
 }

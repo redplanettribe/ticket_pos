@@ -966,12 +966,15 @@ type AnnulmentWindowView struct {
 
 // AnnulmentPortalView is what the SRI portal's annulment form asks for:
 // the clave de acceso, the authorization date on an authorized document
-// (null otherwise), the receptor's ID EXACTLY as the signed XML carries it,
+// (null otherwise) with its day as the portal's form takes it, DD/MM/YYYY
+// in Guayaquil, so the page copies it without formatting a date (#752),
+// the receptor's ID EXACTLY as the signed XML carries it,
 // spaces included, the receptor's email, and the environment, which decides
 // whether the portal's Produccion or Pruebas branch is the one to use.
 type AnnulmentPortalView struct {
 	AccessKey         string     `json:"access_key"`
 	AuthorizationDate *time.Time `json:"authorization_date"`
+	AuthorizationDay  *string    `json:"authorization_day"`
 	ReceptorID        string     `json:"receptor_id"`
 	ReceptorEmail     string     `json:"receptor_email"`
 	Environment       string     `json:"environment"`
@@ -1074,7 +1077,9 @@ func (s *Service) annulabilityView(row *repository.InvoiceRow, now time.Time) *A
 	}
 	if inv.Status == invoicing.InvoiceStatusAuthorized && row.Ecuador.Authorization != nil {
 		date := row.Ecuador.Authorization.Date
+		day := date.In(sri.Guayaquil).Format("02/01/2006")
 		portal.AuthorizationDate = &date
+		portal.AuthorizationDay = &day
 	}
 	out.Portal = portal
 	return out

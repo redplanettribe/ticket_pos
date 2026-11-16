@@ -67,6 +67,7 @@ type annulmentDetailView struct {
 		Portal *struct {
 			AccessKey         string  `json:"access_key"`
 			AuthorizationDate *string `json:"authorization_date"`
+			AuthorizationDay  *string `json:"authorization_day"`
 			ReceptorID        string  `json:"receptor_id"`
 			ReceptorEmail     string  `json:"receptor_email"`
 			Environment       string  `json:"environment"`
@@ -160,6 +161,15 @@ func TestMarkAnnulledOnAnAuthorizedSaleInvoice(t *testing.T) {
 	if p == nil || p.AccessKey == "" || p.AuthorizationDate == nil || p.ReceptorID != before.Recipient.TaxID ||
 		p.ReceptorEmail != before.Recipient.Email || p.Environment != "test" {
 		t.Fatalf("portal = %+v; want the clave, the authorization date, the receptor as signed (%s, %s) and the test environment", p, before.Recipient.TaxID, before.Recipient.Email)
+	}
+	// The date to paste into the portal's form is the authorization's day in
+	// Guayaquil, DD/MM/YYYY, as the RIDE prints it (#752).
+	authorizedAt, err := time.Parse(time.RFC3339, *p.AuthorizationDate)
+	if err != nil {
+		t.Fatalf("authorization_date = %q: %v", *p.AuthorizationDate, err)
+	}
+	if want := authorizedAt.In(sri.Guayaquil).Format("02/01/2006"); p.AuthorizationDay == nil || *p.AuthorizationDay != want {
+		t.Fatalf("authorization_day = %v; want %s, the authorization's day in Guayaquil", p.AuthorizationDay, want)
 	}
 	if before.Annulment == nil || before.Annulment.Current != nil || len(before.Annulment.Past) != 0 {
 		t.Fatalf("annulment = %+v; want an empty record before the act", before.Annulment)
@@ -271,7 +281,8 @@ func TestMarkAnnulledOnAPendingAndAParkedFacturaTakesTheSameConfirm(t *testing.T
 func assertTypedNumberGatesThenAnnuls(t *testing.T, operatorSessionID, invoiceID, fromStatus string) {
 	t.Helper()
 	view := getAnnulmentDetail(t, operatorSessionID, invoiceID)
-	if !view.Annulability.Admitted || view.Annulability.Portal == nil || view.Annulability.Portal.AuthorizationDate != nil {
+	if !view.Annulability.Admitted || view.Annulability.Portal == nil || view.Annulability.Portal.AuthorizationDate != nil ||
+		view.Annulability.Portal.AuthorizationDay != nil {
 		t.Fatalf("annulability on %s = %+v; want admitted, with no authorization date to copy", fromStatus, view.Annulability)
 	}
 	for name, body := range map[string]any{
