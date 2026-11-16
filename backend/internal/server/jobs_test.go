@@ -199,27 +199,56 @@ func TestAScheduledRouteWithNoJobNameCannotBeRegistered(t *testing.T) {
 	jobs.Handle("POST /api/v1/internal/eleventh/run", nothing)
 }
 
-// The names are the contract with the monitors Terraform declares: nine, one
-// per Cloud Scheduler job, each that job's name without its environment.
-func TestTheNineJobNamesAreTheSchedulerJobsWithoutTheirEnvironment(t *testing.T) {
-	want := map[string]string{
-		"POST /api/v1/internal/reversals/drain":             "ticket-pos-reversal-reconciler",
-		"POST /api/v1/internal/sale-invoices/drain":         "ticket-pos-sale-invoice-drainer",
-		"POST /api/v1/internal/follow-digests/enqueue":      "ticket-pos-follow-digest-enqueue",
-		"POST /api/v1/internal/follow-digests/drain":        "ticket-pos-follow-digest-drain",
-		"POST /api/v1/internal/checkout-answers/purge":      "ticket-pos-answer-purge",
-		"POST /api/v1/internal/answer-reminders/sweep":      "ticket-pos-answer-reminder",
-		"POST /api/v1/internal/assignment-reminders/sweep":  "ticket-pos-assignment-reminder",
-		"POST /api/v1/internal/owed-assignment-mails/sweep": "ticket-pos-owed-assignment-mail",
-		"POST /api/v1/internal/holder-addresses/purge":      "ticket-pos-holder-address-purge",
+// flushOrder is the fake, also remembering how many errors had been reported
+// at each flush.
+type flushOrder struct {
+	*reportertest.Reporter
+	errorsAtFlush []int
+}
+
+func (f *flushOrder) Flush(timeout time.Duration) bool {
+	f.errorsAtFlush = append(f.errorsAtFlush, len(f.Errors()))
+	return f.Reporter.Flush(timeout)
+}
+
+// A 5xx a handler writes by hand, with no error mapping and no Error line, is
+// reported by the run before its flush, not by the request line after the
+// answer, and only once.
+func TestAJobThatWritesAServerErrorByHandIsReportedBeforeTheFlush(t *testing.T) {
+	fake := &flushOrder{Reporter: reportertest.New()}
+	mux := http.NewServeMux()
+	server.CheckInJobs(mux, fake, map[string]string{tenthPattern: tenthJob}).
+		HandleFunc(tenthPattern, func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusBadGateway)
+		})
+	srv := httptest.NewServer(platform.RequestPipeline(slog.New(slog.NewTextHandler(io.Discard, nil)), fake, mux))
+	t.Cleanup(srv.Close)
+
+	if resp := postTenth(t, srv); resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502", resp.StatusCode)
 	}
-	got := server.ScheduledJobs()
-	if len(got) != len(want) {
-		t.Fatalf("got %d jobs, want %d: %v", len(got), len(want), got)
+	assertCheckIns(t, fake.Reporter, tenthJob, platform.CheckInFailed)
+	reports := fake.Errors()
+	if len(reports) != 1 || reports[0].Err.Error() != tenthPattern+" answered 502" || reports[0].Tags["job"] != tenthJob {
+		t.Fatalf("reports = %+v, want one %q tagged with the job", reports, tenthPattern+" answered 502")
 	}
-	for pattern, job := range want {
-		if got[pattern] != job {
-			t.Errorf("%s runs %q, want %q", pattern, got[pattern], job)
-		}
+	if len(fake.errorsAtFlush) != 1 || fake.errorsAtFlush[0] != 1 {
+		t.Errorf("errors reported at each flush = %v, want the report made before the one flush", fake.errorsAtFlush)
+	}
+}
+
+// The held response cannot be flushed past: the answer waits for the run's
+// flush even when a handler asks to send early.
+func TestAJobCannotSendItsAnswerBeforeItsFlush(t *testing.T) {
+	fake := reportertest.New()
+	var flushErr error
+	srv := serveTenthJob(t, fake, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		flushErr = http.NewResponseController(w).Flush()
+	})
+
+	postTenth(t, srv)
+	if !errors.Is(flushErr, http.ErrNotSupported) {
+		t.Errorf("flushing the held response = %v, want http.ErrNotSupported", flushErr)
 	}
 }

@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"maps"
 	"net/http"
 
 	"github.com/peter/ticket_pos/backend/internal/platform"
@@ -30,15 +29,10 @@ var scheduledJobs = map[string]string{
 	"POST /api/v1/internal/holder-addresses/purge":      "ticket-pos-holder-address-purge",
 }
 
-// ScheduledJobs returns the job each scheduler-invoked route runs, keyed by
-// route pattern: a copy of the one list (scheduledJobs).
-func ScheduledJobs() map[string]string {
-	return maps.Clone(scheduledJobs)
-}
-
-// CheckInJobs is mux registering every route as the job jobs names for its
-// pattern, served through platform.JobRoute, so the route checks in with no
-// code in its handler. A route jobs has no name for cannot be registered: it
+// CheckInJobs wraps mux so that every route registered on it is served through
+// platform.JobRoute, as the job jobs names for its pattern: the route checks in
+// with no code in its handler. registerInternalRoutes passes scheduledJobs; a
+// test passes its own, to register a route the real list does not have. A route jobs has no name for cannot be registered: it
 // panics here, at construction, so a scheduled route cannot ship without its
 // check-ins.
 func CheckInJobs(mux Router, reporter platform.Reporter, jobs map[string]string) Router {

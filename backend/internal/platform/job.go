@@ -3,6 +3,7 @@ package platform
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 )
@@ -18,7 +19,9 @@ const reportTagJob = "job"
 //
 // A run fails when it answers a 5xx or panics. A 4xx is the platform refusing
 // as designed, as the Sale Invoice drain answers while its flag is closed, and
-// the run checks in ok.
+// the run checks in ok. A 5xx with a Retry-After, which the pipeline logs as a
+// capacity refusal and does not report, still checks in failed: the run did
+// not do its work, and the monitor is how that is seen.
 //
 // Cloud Run may freeze an instance between requests, so the run's check-ins
 // and reports are flushed, within ShutdownFlushTimeout, before the route
@@ -35,6 +38,10 @@ func JobRoute(reporter Reporter, job string, next http.Handler) http.Handler {
 		started := time.Now()
 		checkIn := reporter.CheckIn(ctx, job)
 		held := &heldResponse{ResponseWriter: w}
+		end := func(status CheckInStatus) {
+			checkIn.Finish(status, time.Since(started))
+			reporter.Flush(ShutdownFlushTimeout)
+		}
 
 		answered := false
 		defer func() {
@@ -54,8 +61,7 @@ func JobRoute(reporter Reporter, job string, next http.Handler) http.Handler {
 					RequestID: RequestID(ctx),
 				})
 			}
-			checkIn.Finish(CheckInFailed, time.Since(started))
-			reporter.Flush(ShutdownFlushTimeout)
+			end(CheckInFailed)
 			if recovered != nil {
 				panic(recovered)
 			}
@@ -68,8 +74,16 @@ func JobRoute(reporter Reporter, job string, next http.Handler) http.Handler {
 		if held.status >= http.StatusInternalServerError {
 			status = CheckInFailed
 		}
-		checkIn.Finish(status, time.Since(started))
-		reporter.Flush(ShutdownFlushTimeout)
+		// A 5xx nothing in the run reported, one a handler wrote by hand, is
+		// reported here as the request line would report it, so it is inside
+		// the flush; the request line then does not report it again.
+		if status == CheckInFailed && held.Header().Get(retryAfterHeader) == "" {
+			reportRequestFailure(ctx, reporter, ErrorReport{
+				Err:       fmt.Errorf("%s answered %d", routePattern(r), held.status),
+				RequestID: RequestID(ctx),
+			})
+		}
+		end(status)
 		held.send()
 	})
 }
@@ -109,10 +123,13 @@ func (h *heldResponse) Write(b []byte) (int, error) {
 	return h.body.Write(b)
 }
 
-// Unwrap lets the error mapping reach the request pipeline's recorder
-// underneath, so a 5xx the run answers is reported (reportServerError).
-func (h *heldResponse) Unwrap() http.ResponseWriter {
-	return h.ResponseWriter
+// reportServerError hands the error of a 5xx the run answers with to the
+// request pipeline's recorder underneath, so the error mapping still reports
+// it. The writer is deliberately not unwrappable: through Unwrap,
+// http.ResponseController could flush the real writer and answer before the
+// run is flushed.
+func (h *heldResponse) reportServerError(requestID string, err error, unexpected bool) {
+	reportServerError(h.ResponseWriter, requestID, err, unexpected)
 }
 
 // send writes what was held: a handler that wrote nothing answers 200.
