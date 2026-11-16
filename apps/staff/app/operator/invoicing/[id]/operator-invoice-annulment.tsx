@@ -161,12 +161,7 @@ function WindowTimeline({ annulWindow, locale }: { annulWindow: OperatorAnnulmen
     <div className="space-y-1">
       <div className="relative h-2 rounded-full bg-muted">
         <div
-          className={cn(
-            "absolute inset-y-0 left-0 rounded-full",
-            tone === "open" && "bg-emerald-500",
-            tone === "warning" && "bg-amber-500",
-            tone === "closed" && "bg-neutral-400",
-          )}
+          className={cn("absolute inset-y-0 left-0 rounded-full", TONE_BAR[tone])}
           style={{ width: `${pct}%` }}
         />
         <div className="absolute -top-1 h-4 w-0.5 bg-foreground" style={{ left: `calc(${pct}% - 1px)` }} />
@@ -180,6 +175,10 @@ function WindowTimeline({ annulWindow, locale }: { annulWindow: OperatorAnnulmen
   );
 }
 
+
+// The window's tone, as the timeline's bar and the card's edge both draw it.
+const TONE_BAR = { open: "bg-emerald-500", warning: "bg-amber-500", closed: "bg-neutral-400" } as const;
+const TONE_EDGE = { open: "border-l-emerald-500", warning: "border-l-amber-500", closed: "border-l-neutral-400" } as const;
 
 // The note is bounded exactly as the Abandon's and the reissue's are.
 const NOTE_MAX_LENGTH = 500;
@@ -237,14 +236,7 @@ function RecordPanel({
   }
 
   return (
-    <Card
-      className={cn(
-        "border-l-4",
-        tone === "open" && "border-l-emerald-500",
-        tone === "warning" && "border-l-amber-500",
-        tone === "closed" && "border-l-neutral-400",
-      )}
-    >
+    <Card className={cn("border-l-4", TONE_EDGE[tone])}>
       <CardHeader className="space-y-3 pb-3">
         <CardTitle>{t("invoicingAnnulPanelTitle")}</CardTitle>
         <WindowTimeline annulWindow={annulWindow} locale={locale} />

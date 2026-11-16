@@ -15,7 +15,7 @@ import (
 // and its count for the Operator Dashboard, and Mark annulled on the
 // document detail. The queue takes a page and nothing else; Mark annulled
 // takes, on a factura, the typed confirm (#745) and nothing on a Credit
-// Note — who annulled comes from the session, and the answer is the
+// Note - who annulled comes from the session, and the answer is the
 // document as it then stands.
 //
 // THE QUEUE IS A UNION OF TWO CONDITIONS (#581, ADR 0068), and both the
@@ -146,7 +146,7 @@ func (h *Handler) AnnulInvoice(w http.ResponseWriter, r *http.Request) {
 	}
 	// The note is bounded and trimmed exactly as the Abandon's is: one
 	// sentence for a colleague, blank is no note.
-	note, fields := abandonNote(body.Note)
+	note, fields := operatorNote(body.Note)
 	if len(fields) > 0 {
 		_ = platform.WriteValidationError(w, reqID, fields)
 		return

@@ -64,7 +64,7 @@ func (h *Handler) AbandonInvoice(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	note, fields := abandonNote(body.Note)
+	note, fields := operatorNote(body.Note)
 	if len(fields) > 0 {
 		_ = platform.WriteValidationError(w, reqID, fields)
 		return
@@ -84,12 +84,13 @@ func errorIsEmptyBody(err error) bool {
 	return err != nil && err.Error() == "EOF"
 }
 
-// abandonNote trims the operator's note and bounds it exactly as the
+// operatorNote trims an operator act's note - the Abandon's, Issue again's,
+// a factura's Mark annulled (#745) - and bounds it exactly as the
 // reissue's is (invoicing.MaxReissueNoteLength, migration 102's 500
 // characters): one sentence for a colleague — "not registered at the portal,
 // confirmed by phone" — so the reason survives with the record. Blank is no
 // note, never an empty one.
-func abandonNote(raw *string) (string, []platform.FieldError) {
+func operatorNote(raw *string) (string, []platform.FieldError) {
 	if raw == nil {
 		return "", nil
 	}

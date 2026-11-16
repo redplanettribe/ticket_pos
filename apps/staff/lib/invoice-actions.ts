@@ -18,7 +18,7 @@ import type { InvoiceKind, InvoiceStatus, OperatorInvoiceAttempt } from "./opera
  * `check` and `resend` go together: both are the operator's remedies for a
  * document the SRI has not authorized. `annul` is the operator's record of a
  * manual portal act, offered only where they could have made one — a
- * document the SRI holds (pending) or refused / lost (needs_attention) — and
+ * document the SRI holds (pending) or refused / lost (needs_attention) - and
  * ON A CREDIT NOTE ALONE since #745 (spec #742, ADR 0078). A factura's Mark
  * annulled moved to the annulment panel at the top of its page
  * (annulment-panel.ts), which admits it authorized too and takes the typed

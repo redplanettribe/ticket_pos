@@ -66,8 +66,8 @@ func (h *Handler) IssueInvoiceAgain(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// Bounded by the column the trail is stored in, which is the reissue's:
-	// one chain, one note, one limit (abandonNote states it in full).
-	note, fields := abandonNote(body.Note)
+	// one chain, one note, one limit (operatorNote states it in full).
+	note, fields := operatorNote(body.Note)
 	if len(fields) > 0 {
 		_ = platform.WriteValidationError(w, reqID, fields)
 		return

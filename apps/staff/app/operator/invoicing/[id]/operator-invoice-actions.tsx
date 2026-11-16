@@ -76,7 +76,7 @@ import {
  * asks and never sends.
  *
  * MARK ANNULLED (#477) is the third lever, offered only on a pending or
- * needs_attention CREDIT NOTE — where the operator may have annulled it by
+ * needs_attention CREDIT NOTE - where the operator may have annulled it by
  * hand at the SRI portal, which the SRI offers no web service for. It is a
  * record, not a request: nothing goes to the SRI, and it is irreversible,
  * so it is confirmed first. A factura's Mark annulled is the annulment

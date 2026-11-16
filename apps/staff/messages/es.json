@@ -1753,7 +1753,7 @@
     "invoicingAnnulPanelUntilToday": "Anulable hasta hoy, {deadline}.",
     "invoicingAnnulPanelClosed": "El plazo de anulación del SRI terminó el {deadline}. Si el portal aceptó la anulación de todos modos, en un día de prórroga, aún puede registrarla.",
     "invoicingAnnulPanelIssued": "Emitida el {date}",
-    "invoicingAnnulPanelDeadline": "Plazo hasta el {date}",
+    "invoicingAnnulPanelDeadline": "Anulable hasta el {date}",
     "invoicingAnnulPanelDaysLeft": "{days, plural, one {Queda # día} other {Quedan # días}}",
     "invoicingAnnulPanelLastDay": "Último día",
     "invoicingAnnulPanelWindowClosed": "Plazo terminado",

@@ -1292,7 +1292,6 @@ export type OperatorInvoiceEcuador = {
   authorization_date: string | null;
 };
 
-/** One Tax Invoice in full. `issuer` and `ecuador` are null until the document is signed (#473). */
 /**
  * One Mark annulled on a factura (#745, spec #742, ADR 0078), as the
  * annulments ledger keeps it: the state it was annulled from, who, when, the
@@ -1345,6 +1344,7 @@ export type OperatorInvoiceAnnulability = {
   portal: OperatorAnnulmentPortal | null;
 };
 
+/** One Tax Invoice in full. `issuer` and `ecuador` are null until the document is signed (#473). */
 export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
   issuer: OperatorInvoiceIssuerSnapshot | null;
   lines: OperatorInvoiceLine[];

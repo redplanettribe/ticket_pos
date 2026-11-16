@@ -199,8 +199,8 @@ func (s *Service) annulRaceRefusal(ctx context.Context, id string) error {
 // annulCreditNote is a Credit Note's Mark annulled, unchanged by #745.
 //
 // The refusals are decided on the row as read, and the write is guarded on
-// the same states, so a press that races a late AUTORIZADO — the Drainer
-// healing the document between the read and the write — finds no row to
+// the same states, so a press that races a late AUTORIZADO - the Drainer
+// healing the document between the read and the write - finds no row to
 // update and is told the document is not annullable rather than annulling
 // an authorized artifact.
 func (s *Service) annulCreditNote(ctx context.Context, row *repository.InvoiceRow, annulledBy string) (*InvoiceDetail, error) {
@@ -306,7 +306,7 @@ func annulmentWindowOf(inv *invoicing.Invoice) invoicing.AnnulmentWindow {
 
 // annullable says whether Mark annulled may be pressed on the document as
 // it stands: signed — there is a number at the authority to have been
-// annulled — and pending or needs_attention. The whole gate on a Credit
+// annulled - and pending or needs_attention. The whole gate on a Credit
 // Note; on a factura the floor annulFacturaRefusal stands on for every
 // state but authorized.
 //
