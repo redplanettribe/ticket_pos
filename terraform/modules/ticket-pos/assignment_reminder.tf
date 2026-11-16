@@ -105,3 +105,31 @@ resource "google_cloud_scheduler_job" "assignment_reminder" {
 
   depends_on = [google_cloud_run_v2_service_iam_member.assignment_reminder_invokes_api]
 }
+
+# --- Sentry cron monitor (ADR 0079, #778) ---------------------------------------
+#
+# The monitor for the job above, which the API checks in with as
+# "ticket-pos-assignment-reminder" (sentry.tf says what every cron monitor shares). It
+# exists only while the job is unpaused and the API reports, and takes its name,
+# schedule and time zone from the job itself, so unpausing the job is the one
+# change that creates it and the two cannot drift.
+resource "sentry_cron_monitor" "assignment_reminder" {
+  count = local.sentry_cron_monitors_enabled && !google_cloud_scheduler_job.assignment_reminder.paused ? 1 : 0
+
+  organization = var.sentry_organization
+  project      = sentry_project.deployable["api"].slug
+  name         = trimprefix(google_cloud_scheduler_job.assignment_reminder.name, "${var.environment}-")
+  description  = google_cloud_scheduler_job.assignment_reminder.description
+  owner        = local.sentry_monitor_owner
+
+  schedule = {
+    crontab = google_cloud_scheduler_job.assignment_reminder.schedule
+  }
+  timezone = google_cloud_scheduler_job.assignment_reminder.time_zone
+
+  # Once a day.
+  checkin_margin_minutes  = local.sentry_cron_tolerance.daily_or_weekly.checkin_margin_minutes
+  failure_issue_threshold = local.sentry_cron_tolerance.daily_or_weekly.failure_issue_threshold
+  recovery_threshold      = local.sentry_cron_tolerance.daily_or_weekly.recovery_threshold
+  max_runtime_minutes     = ceil(var.assignment_reminder_attempt_deadline_seconds / 60) + 1
+}

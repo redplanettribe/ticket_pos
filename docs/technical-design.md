@@ -238,7 +238,7 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
   Outside a sampled request, or with no DSN, the transport only hands the call on, and it never adds our trace headers to a call.
 - Every scheduled job checks in: each internal route is registered through `server.CheckInJobs`, which serves it through `platform.JobRoute` under the job name `scheduledJobs` (`server/jobs.go`) gives its pattern, and refuses to register a route it has no name for.
   The run checks in as started when the route is entered, and as ok, or failed on a 5xx or a panic, with the time it took; a 4xx is a refusal as designed and checks in ok.
-  The name is the monitor's slug, the Cloud Scheduler job's name without its environment (`ticket-pos-answer-purge`), and the `job` tag on everything the run reports; Terraform's monitors must carry the same nine slugs.
+  The name is the monitor's slug, the Cloud Scheduler job's name without its environment (`ticket-pos-answer-purge`), and the `job` tag on everything the run reports; Terraform's monitors must carry the same nine slugs, and do: each is declared beside its scheduler job and named from it, only while the job is unpaused, and a Terraform test reads `scheduledJobs` (`terraform/README.md`, "Cron and uptime monitors").
   The response is held while the run's check-ins and reports are flushed with `platform.ShutdownFlushTimeout`, because Cloud Run may freeze an instance between requests.
   Every job checks in whether or not a monitor expects it; Sentry drops a check-in nobody expects.
 - On SIGTERM the API stops accepting, lets requests in flight finish for up to seven seconds, and flushes the reporter with a two second bound (`platform.ShutdownFlushTimeout`).

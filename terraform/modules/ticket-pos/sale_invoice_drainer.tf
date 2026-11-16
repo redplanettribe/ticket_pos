@@ -113,3 +113,31 @@ resource "google_cloud_scheduler_job" "sale_invoice_drainer" {
 
   depends_on = [google_cloud_run_v2_service_iam_member.sale_invoice_drainer_invokes_api]
 }
+
+# --- Sentry cron monitor (ADR 0079, #778) ---------------------------------------
+#
+# The monitor for the job above, which the API checks in with as
+# "ticket-pos-sale-invoice-drainer" (sentry.tf says what every cron monitor shares). It
+# exists only while the job is unpaused and the API reports, and takes its name,
+# schedule and time zone from the job itself, so unpausing the job is the one
+# change that creates it and the two cannot drift.
+resource "sentry_cron_monitor" "sale_invoice_drainer" {
+  count = local.sentry_cron_monitors_enabled && !google_cloud_scheduler_job.sale_invoice_drainer.paused ? 1 : 0
+
+  organization = var.sentry_organization
+  project      = sentry_project.deployable["api"].slug
+  name         = trimprefix(google_cloud_scheduler_job.sale_invoice_drainer.name, "${var.environment}-")
+  description  = google_cloud_scheduler_job.sale_invoice_drainer.description
+  owner        = local.sentry_monitor_owner
+
+  schedule = {
+    crontab = google_cloud_scheduler_job.sale_invoice_drainer.schedule
+  }
+  timezone = google_cloud_scheduler_job.sale_invoice_drainer.time_zone
+
+  # Every five minutes, behind the post-checkout kick.
+  checkin_margin_minutes  = local.sentry_cron_tolerance.every_five_minutes.checkin_margin_minutes
+  failure_issue_threshold = local.sentry_cron_tolerance.every_five_minutes.failure_issue_threshold
+  recovery_threshold      = local.sentry_cron_tolerance.every_five_minutes.recovery_threshold
+  max_runtime_minutes     = ceil(var.sale_invoice_drainer_attempt_deadline_seconds / 60) + 1
+}

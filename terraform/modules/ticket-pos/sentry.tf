@@ -3,7 +3,8 @@
 # Everything in Sentry that is not a monitor: the team, one project per
 # deployable, a key per project, the issue alert rules, the Storefront's inbound
 # filters and the rate limit on its key. The cron and uptime monitors are
-# declared beside the jobs and services they watch, not here.
+# declared beside the jobs and services they watch, not here; what they share,
+# and the two alert rules that watch them, are at the end of this file.
 #
 # The organization already exists and is shared with another product. Nothing
 # here reads, imports or changes the organization or any project but these
@@ -246,6 +247,150 @@ resource "sentry_alert" "error_spike" {
         value    = local.sentry_spike_events_per_hour
       }
     },
+  ]
+
+  action_filters = [
+    {
+      logic_type = "all"
+      actions    = [local.sentry_email_team]
+    },
+  ]
+}
+
+# --- Cron and uptime monitors (#778) ---------------------------------------------
+#
+# A cron monitor sits beside each Cloud Scheduler job, in that job's file
+# (reversal_reconciler.tf and its eight neighbours), and an uptime monitor beside
+# the Storefront and Staff services (cloud_run_frontends.tf). Each exists only
+# while the deployable it watches reports: a cron monitor needs the API's switch
+# and an unpaused job, an uptime monitor its app's switch and hostname. A job
+# shipped paused has no monitor, so it cannot alert forever, and unpausing it is
+# the one change that creates its monitor.
+#
+# The provider's sentry_cron_monitor has no slug argument: Sentry makes the slug
+# from the name. Each monitor is therefore named exactly its slug, the job name
+# the API checks in with (backend/internal/server/jobs.go): its scheduler job's
+# name without the environment prefix, already lower case and hyphenated, so
+# Sentry's slug is the name itself. A check-in for a slug with no monitor is
+# dropped by Sentry, and the monitor then reports a missed run.
+#
+# Every monitor is in a deployable's own project and environment production,
+# owned by the ticket-pos team, so its issues are assigned to the team.
+
+locals {
+  sentry_monitor_owner = {
+    team_id = sentry_team.ticket_pos.internal_id
+  }
+
+  # How much a cron monitor tolerates, by how often its job runs. Each job's
+  # maximum runtime is not here: it is its own attempt deadline rounded up to the
+  # minute, plus one, so a run is timed out only after Cloud Scheduler has itself
+  # given up on it.
+  #
+  # every_minute: Cloud Scheduler delivers at least once, not exactly once, and
+  #   the next tick does whatever a skipped or failed one did not. One minute of
+  #   grace, and an issue after five bad ticks in a row: five minutes of nothing
+  #   is an outage, one is noise. Two good ticks resolve it.
+  # every_five_minutes: the Sale Invoice drainer, behind the post-checkout kick.
+  #   Two minutes of grace, an issue after two bad ticks (ten minutes).
+  # daily_or_weekly: a missed run is a day or a week of work not done, so the
+  #   first one opens an issue. Fifteen minutes of grace for a late start.
+  sentry_cron_tolerance = {
+    every_minute = {
+      checkin_margin_minutes  = 1
+      failure_issue_threshold = 5
+      recovery_threshold      = 2
+    }
+    every_five_minutes = {
+      checkin_margin_minutes  = 2
+      failure_issue_threshold = 2
+      recovery_threshold      = 1
+    }
+    daily_or_weekly = {
+      checkin_margin_minutes  = 15
+      failure_issue_threshold = 1
+      recovery_threshold      = 1
+    }
+  }
+
+  # Whether the API reports: no check-in leaves it otherwise, so no job may
+  # have a monitor.
+  sentry_cron_monitors_enabled = var.sentry_api_enabled
+
+  # An uptime probe passes on a 2xx answer only. A redirect to some other page
+  # or a 503 from the deep-health route is down.
+  sentry_uptime_assertion = jsonencode({
+    root = {
+      op = "and"
+      children = [
+        { op = "status_code_check", operator = { cmp = "greater_than" }, value = 199 },
+        { op = "status_code_check", operator = { cmp = "less_than" }, value = 300 },
+      ]
+    }
+  })
+
+  sentry_cron_monitor_ids = concat(
+    sentry_cron_monitor.reversal_reconciler[*].id,
+    sentry_cron_monitor.sale_invoice_drainer[*].id,
+    sentry_cron_monitor.follow_digest_enqueue[*].id,
+    sentry_cron_monitor.follow_digest_drain[*].id,
+    sentry_cron_monitor.answer_purge[*].id,
+    sentry_cron_monitor.answer_reminder[*].id,
+    sentry_cron_monitor.assignment_reminder[*].id,
+    sentry_cron_monitor.owed_assignment_mail[*].id,
+    sentry_cron_monitor.holder_address_purge[*].id,
+  )
+
+  sentry_uptime_monitor_ids = concat(
+    sentry_uptime_monitor.storefront[*].id,
+    sentry_uptime_monitor.staff[*].id,
+  )
+}
+
+# A job failed or did not run. A failed check-in (the run answered a 5xx or
+# panicked), a missed one (no check-in within the margin) and a timed-out one
+# (started, never finished within the maximum runtime) all count towards the
+# monitor's failure threshold, and reaching it opens the monitor's issue: this
+# rule emails the team when that issue opens, and again if it comes back after
+# recovering. Declared only while some monitor exists, since a rule must watch
+# at least one.
+resource "sentry_alert" "job_check_in" {
+  count = length(local.sentry_cron_monitor_ids) > 0 ? 1 : 0
+
+  organization      = var.sentry_organization
+  name              = "ticket-pos: scheduled job failed or missed in production"
+  environment       = local.sentry_environment
+  monitor_ids       = local.sentry_cron_monitor_ids
+  frequency_minutes = 30
+
+  trigger_conditions = [
+    { first_seen_event = {} },
+    { regression_event = {} },
+  ]
+
+  action_filters = [
+    {
+      logic_type = "all"
+      actions    = [local.sentry_email_team]
+    },
+  ]
+}
+
+# The Storefront or the Staff app stopped answering: the uptime monitor's
+# downtime threshold of failed probes in a row opens its issue, and this rule
+# emails the team when it opens or comes back.
+resource "sentry_alert" "uptime" {
+  count = length(local.sentry_uptime_monitor_ids) > 0 ? 1 : 0
+
+  organization      = var.sentry_organization
+  name              = "ticket-pos: Storefront or Staff app down in production"
+  environment       = local.sentry_environment
+  monitor_ids       = local.sentry_uptime_monitor_ids
+  frequency_minutes = 30
+
+  trigger_conditions = [
+    { first_seen_event = {} },
+    { regression_event = {} },
   ]
 
   action_filters = [

@@ -185,3 +185,59 @@ resource "google_cloud_scheduler_job" "follow_digest_drain" {
 
   depends_on = [google_cloud_run_v2_service_iam_member.follow_digest_drain_invokes_api]
 }
+
+# --- Sentry cron monitor (ADR 0079, #778) ---------------------------------------
+#
+# The monitor for the job above, which the API checks in with as
+# "ticket-pos-follow-digest-enqueue" (sentry.tf says what every cron monitor shares). It
+# exists only while the job is unpaused and the API reports, and takes its name,
+# schedule and time zone from the job itself, so unpausing the job is the one
+# change that creates it and the two cannot drift.
+resource "sentry_cron_monitor" "follow_digest_enqueue" {
+  count = local.sentry_cron_monitors_enabled && !google_cloud_scheduler_job.follow_digest_enqueue.paused ? 1 : 0
+
+  organization = var.sentry_organization
+  project      = sentry_project.deployable["api"].slug
+  name         = trimprefix(google_cloud_scheduler_job.follow_digest_enqueue.name, "${var.environment}-")
+  description  = google_cloud_scheduler_job.follow_digest_enqueue.description
+  owner        = local.sentry_monitor_owner
+
+  schedule = {
+    crontab = google_cloud_scheduler_job.follow_digest_enqueue.schedule
+  }
+  timezone = google_cloud_scheduler_job.follow_digest_enqueue.time_zone
+
+  # Once a week: a missed week is a Digest nobody got.
+  checkin_margin_minutes  = local.sentry_cron_tolerance.daily_or_weekly.checkin_margin_minutes
+  failure_issue_threshold = local.sentry_cron_tolerance.daily_or_weekly.failure_issue_threshold
+  recovery_threshold      = local.sentry_cron_tolerance.daily_or_weekly.recovery_threshold
+  max_runtime_minutes     = ceil(var.follow_digest_enqueue_attempt_deadline_seconds / 60) + 1
+}
+
+# --- Sentry cron monitor (ADR 0079, #778) ---------------------------------------
+#
+# The monitor for the job above, which the API checks in with as
+# "ticket-pos-follow-digest-drain" (sentry.tf says what every cron monitor shares). It
+# exists only while the job is unpaused and the API reports, and takes its name,
+# schedule and time zone from the job itself, so unpausing the job is the one
+# change that creates it and the two cannot drift.
+resource "sentry_cron_monitor" "follow_digest_drain" {
+  count = local.sentry_cron_monitors_enabled && !google_cloud_scheduler_job.follow_digest_drain.paused ? 1 : 0
+
+  organization = var.sentry_organization
+  project      = sentry_project.deployable["api"].slug
+  name         = trimprefix(google_cloud_scheduler_job.follow_digest_drain.name, "${var.environment}-")
+  description  = google_cloud_scheduler_job.follow_digest_drain.description
+  owner        = local.sentry_monitor_owner
+
+  schedule = {
+    crontab = google_cloud_scheduler_job.follow_digest_drain.schedule
+  }
+  timezone = google_cloud_scheduler_job.follow_digest_drain.time_zone
+
+  # Every minute.
+  checkin_margin_minutes  = local.sentry_cron_tolerance.every_minute.checkin_margin_minutes
+  failure_issue_threshold = local.sentry_cron_tolerance.every_minute.failure_issue_threshold
+  recovery_threshold      = local.sentry_cron_tolerance.every_minute.recovery_threshold
+  max_runtime_minutes     = ceil(var.follow_digest_drain_attempt_deadline_seconds / 60) + 1
+}

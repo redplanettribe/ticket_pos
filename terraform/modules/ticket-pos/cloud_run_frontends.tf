@@ -359,3 +359,62 @@ resource "google_cloud_run_domain_mapping" "staff" {
     route_name = google_cloud_run_v2_service.staff.name
   }
 }
+
+# --- Sentry uptime monitors (ADR 0079, #778) ------------------------------------
+#
+# One probe per app, on its production hostname (the domain mappings above), in
+# the app's own Sentry project; sentry.tf says what they share and has the rule
+# that emails the team. Each exists only while its app reports and has a
+# hostname: the run.app URL is not the address people use.
+#
+# A probe every minute, and down after three failed in a row (Sentry's
+# default), so an outage is known within about three minutes and one slow
+# answer is not one. Recovered on the first good answer.
+
+# The deep-health route (#775): 200 only when the Storefront reaches the API
+# and the API reaches its database, 503 otherwise, within its own 4 s bound
+# (DEEP_HEALTH_TIMEOUT_MS). The probe waits 10 s, longer than that bound plus a
+# cold start, so a slow database is reported by the route as a 503 rather than
+# by the probe as a timeout. Never traced and never an error event.
+resource "sentry_uptime_monitor" "storefront" {
+  count = var.sentry_storefront_enabled && var.storefront_domain != null ? 1 : 0
+
+  organization = var.sentry_organization
+  project      = sentry_project.deployable["storefront"].slug
+  name         = "ticket-pos-storefront deep health"
+  description  = "The Storefront cannot reach the API, or the API cannot reach its database."
+  owner        = local.sentry_monitor_owner
+  environment  = local.sentry_environment
+
+  url              = "https://${var.storefront_domain}/api/health"
+  method           = "GET"
+  interval_seconds = 60
+  timeout_ms       = 10000
+  assertion_json   = local.sentry_uptime_assertion
+
+  downtime_threshold = 3
+  recovery_threshold = 1
+}
+
+# The Staff app's sign-in page, the one page a signed-out person reaches and
+# the one a staff member needs first: if it does not answer, staff are locked
+# out. It needs no route of its own, and answers 200 without a session.
+resource "sentry_uptime_monitor" "staff" {
+  count = var.sentry_staff_enabled && var.staff_domain != null ? 1 : 0
+
+  organization = var.sentry_organization
+  project      = sentry_project.deployable["staff"].slug
+  name         = "ticket-pos-staff sign-in page"
+  description  = "The Staff app's sign-in page does not answer: staff cannot sign in."
+  owner        = local.sentry_monitor_owner
+  environment  = local.sentry_environment
+
+  url              = "https://${var.staff_domain}/login"
+  method           = "GET"
+  interval_seconds = 60
+  timeout_ms       = 10000
+  assertion_json   = local.sentry_uptime_assertion
+
+  downtime_threshold = 3
+  recovery_threshold = 1
+}

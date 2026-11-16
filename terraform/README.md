@@ -638,8 +638,64 @@ The legacy browser filter takes every current subfilter (Internet Explorer, and 
   Its trigger is the provider's "number of events seen by the workflow" above 50 in an hour, meant as every error in the project, whichever issue.
   After the first apply, open it in Sentry and check it reads that way rather than per issue.
 
+**Cron and uptime monitors (#778).**
+The operator is emailed when a scheduled job fails or does not run, and when the Storefront or the Staff app stops answering.
+Each Cloud Scheduler job has a `sentry_cron_monitor` in its own file, beside it, in the `ticket-pos-api` project; each Next app has a `sentry_uptime_monitor` in `cloud_run_frontends.tf`, beside its service, in its own project.
+What they share, and the two alert rules that watch them, are at the end of `sentry.tf`.
+
+A cron monitor exists only while its job is unpaused and `sentry_api_enabled` is on.
+Every job ships paused, so a first apply creates no cron monitor, and a paused job can never alert that it did not run.
+Setting a job's `<job>_enabled` to true, with the API reporting, is the one change that both unpauses the job and creates its monitor.
+The monitor's name, schedule and time zone are references to the scheduler job's own `name`, `schedule` and `time_zone`, so moving a `<job>_schedule` moves both.
+Pausing a job in an incident with `gcloud scheduler jobs pause` leaves its monitor in place, and it will report missed runs until the job is resumed; set `<job>_enabled = false` and apply to stop both.
+
+The provider's cron monitor has no slug argument: Sentry makes the slug from the name.
+Each monitor is named its slug, the scheduler job's name without the `${environment}-` prefix, which is the job name the API checks in with (`scheduledJobs` in `backend/internal/server/jobs.go`).
+After the first apply that creates a monitor, check in Sentry (Crons) that its slug reads exactly as below; Sentry adds a suffix only when the slug is already taken in the organization.
+
+| Job | Scheduler resource | Monitor slug |
+| --- | --- | --- |
+| Reversal Reconciler | `google_cloud_scheduler_job.reversal_reconciler` | `ticket-pos-reversal-reconciler` |
+| Sale Invoice Drainer | `google_cloud_scheduler_job.sale_invoice_drainer` | `ticket-pos-sale-invoice-drainer` |
+| Follow Digest enqueue | `google_cloud_scheduler_job.follow_digest_enqueue` | `ticket-pos-follow-digest-enqueue` |
+| Follow Digest drain | `google_cloud_scheduler_job.follow_digest_drain` | `ticket-pos-follow-digest-drain` |
+| Abandoned Answer Purge | `google_cloud_scheduler_job.answer_purge` | `ticket-pos-answer-purge` |
+| Answer Reminder | `google_cloud_scheduler_job.answer_reminder` | `ticket-pos-answer-reminder` |
+| Assignment Reminder | `google_cloud_scheduler_job.assignment_reminder` | `ticket-pos-assignment-reminder` |
+| Owed Assignment Mail | `google_cloud_scheduler_job.owed_assignment_mail` | `ticket-pos-owed-assignment-mail` |
+| Holder Address Purge | `google_cloud_scheduler_job.holder_address_purge` | `ticket-pos-holder-address-purge` |
+
+How much each monitor tolerates follows how often its job runs (`local.sentry_cron_tolerance`):
+
+| Cadence | Jobs | Grace | Issue after | Resolved after |
+| --- | --- | --- | --- | --- |
+| Every minute | Reversal Reconciler, Follow Digest drain, Owed Assignment Mail | 1 minute | 5 bad runs in a row | 2 good runs |
+| Every five minutes | Sale Invoice Drainer | 2 minutes | 2 bad runs in a row | 1 good run |
+| Daily or weekly | Follow Digest enqueue, the two purges, the two reminders | 15 minutes | the first bad run | 1 good run |
+
+A bad run is a failed check-in (the route answered a 5xx or panicked), a missed one (none within the grace) or a timed-out one.
+The maximum runtime is the job's own `<job>_attempt_deadline_seconds` rounded up to the minute, plus one, so a run is timed out only after Cloud Scheduler has given up on it: 3 minutes for every job at today's deadlines.
+
+The uptime monitors exist only while their app's switch is on and its hostname is set:
+
+| Monitor | Probes | Exists when |
+| --- | --- | --- |
+| `sentry_uptime_monitor.storefront` | `GET https://<storefront_domain>/api/health`, the deep-health route (#775) | `sentry_storefront_enabled` |
+| `sentry_uptime_monitor.staff` | `GET https://<staff_domain>/login`, the sign-in page | `sentry_staff_enabled` |
+
+In production these are `https://discover.multiticketing.com/api/health` and `https://pos.multiticketing.com/login`.
+Each probes every minute, passes on a 2xx answer only, waits 10 seconds (longer than the deep-health route's own 4 second bound), and is down after three failures in a row.
+
+Two alert rules email the `ticket-pos` team, in production, when a monitor's issue opens or comes back, at most every 30 minutes per issue: `sentry_alert.job_check_in` watches every cron monitor (a failed, missed or timed-out check-in), and `sentry_alert.uptime` both uptime monitors.
+Each exists only while there is a monitor for it to watch.
+
+**What a full apply creates**, with every switch on and every job unpaused, on top of the 19 above: 9 cron monitors, 2 uptime monitors and the 2 alert rules.
+The free Developer plan allows one cron monitor and one uptime monitor, so the full set needs a paid plan with pay-as-you-go for the other eight cron monitors and the second uptime monitor; upgrade before switching on more than one of each.
+Nothing in the code depends on the plan: every job checks in whether or not its monitor exists.
+
 **Testing the switches.**
 `modules/ticket-pos/tests/sentry.tftest.hcl` plans the module against mocked providers, so it needs no credential and reaches nothing: with every switch off no service has a Sentry variable, and each switch sets the DSN on its own service only.
+`modules/ticket-pos/tests/monitors.tftest.hcl` does the same for the monitors: no cron monitor while every job is paused, one per unpaused job named as `backend/internal/server/jobs.go` names it (the test reads that file), with its scheduler job's schedule and time zone, and each uptime monitor on its app's hostname only while that app reports.
 
 ```bash
 cd terraform/modules/ticket-pos
