@@ -18,6 +18,7 @@
  * same task, so each is reported exactly once.
  */
 import * as Sentry from "@sentry/nextjs";
+import { parseSentryConfig } from "@ticket-pos/sentry-rules";
 
 import { reportEarlyErrors } from "./early-errors.ts";
 import { nameNavigation } from "./navigation-route.ts";
@@ -27,7 +28,6 @@ import {
   SENTRY_TUNNEL_PATH,
   beforeSendTransaction,
   browserBeforeSend,
-  parseSentryConfig,
   sentryOptions,
 } from "./sentry.ts";
 import { forwardRouterTransitionsTo } from "./sentry-navigation.ts";

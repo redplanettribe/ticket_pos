@@ -559,8 +559,6 @@ export type PublicOrganizationEvents = {
   past: PublicEventCard[];
 };
 
-export { EXPLORER_PAGE_SIZE } from "./explorer.ts";
-
 export type PublicTag = {
   // The Tag's stable machine identity, and what a Preset Tag's Locale copy is
   // keyed on (ADR 0027). Lowercased, and never containing a "."; `name` is the

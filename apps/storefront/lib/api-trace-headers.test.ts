@@ -3,7 +3,7 @@ import test, { after } from "node:test";
 
 import * as Sentry from "@sentry/nextjs";
 
-import { callBackend, fetchBackendRaw } from "./api.ts";
+import { callBackend, fetchBackendRaw, listPublicEvents } from "./api.ts";
 
 /**
  * The BFF carries the trace to the API (ADR 0079): with the SDK initialised,
@@ -67,4 +67,19 @@ test("a trace header the caller set is kept", async () => {
   });
 
   assert.equal(sent[0].get("sentry-trace"), "given");
+});
+
+test("a cached read carries no trace header of ours, so Next's Data Cache keeps hitting", async () => {
+  // Next keys the Data Cache on the request's headers (ignoring only the W3C
+  // traceparent and tracestate); a per-request sentry-trace would make every
+  // cached read a miss. The SDK's fetch instrumentation propagates the trace
+  // below the cache instead.
+  sent.length = 0;
+  await Sentry.startSpan({ name: "GET /[locale]" }, async () => {
+    await listPublicEvents({}, { revalidate: 60 });
+  });
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].get("sentry-trace"), null);
+  assert.equal(sent[0].get("baggage"), null);
 });

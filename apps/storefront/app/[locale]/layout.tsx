@@ -1,3 +1,4 @@
+import { readSentryConfig, serializeSentryConfig } from "@ticket-pos/sentry-rules";
 import { Toaster } from "@ticket-pos/ui";
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
@@ -9,7 +10,7 @@ import { SentryLoader } from "@/components/sentry-loader";
 import { routing } from "@/i18n/routing";
 import { BRAND_NAME } from "@/lib/brand";
 import { EARLY_ERROR_HANDLER_SCRIPT } from "@/lib/early-errors";
-import { SENTRY_CONFIG_META, readSentryConfig, serializeSentryConfig } from "@/lib/sentry";
+import { SENTRY_CONFIG_META } from "@/lib/sentry";
 import { storefrontBaseUrl } from "@/lib/site";
 
 import "../globals.css";

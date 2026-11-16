@@ -19,6 +19,6 @@ export function forwardRouterTransitionsTo(handler: RouterTransitionStart): void
 }
 
 /** What instrumentation-client.ts exports as onRouterTransitionStart. */
-export function routerTransitionStart(href: string, navigationType: "push" | "replace" | "traverse"): void {
+export const routerTransitionStart: RouterTransitionStart = (href, navigationType) => {
   forward?.(href, navigationType);
-}
+};

@@ -5,15 +5,12 @@
  * started by components/sentry-loader.tsx).
  *
  * Dormant until a DSN is set: with no SENTRY_DSN, readSentryConfig (from
- * @ticket-pos/sentry-rules) is null and nothing calls `Sentry.init`, in any
+ * @ticket-pos/sentry-rules, which both apps read the configuration with) is null and nothing calls `Sentry.init`, in any
  * runtime; the root layout then writes neither the browser's configuration nor
  * the early-error handler into the page, and renders no loader, so no Sentry
  * chunk is ever requested.
  */
 import { createBeforeSend, scrubEvent, type SentryConfig } from "@ticket-pos/sentry-rules";
-
-// Reading the configuration is the same rule in both apps, in the shared package.
-export { parseSentryConfig, readSentryConfig, serializeSentryConfig, type SentryConfig } from "@ticket-pos/sentry-rules";
 
 /**
  * The same-origin route browser events are posted to (app/api/monitoring).
@@ -27,12 +24,15 @@ export const SENTRY_CONFIG_META = "ticket-pos-sentry";
 /** One trace in ten, the ADR's default. A trace the browser started keeps its decision. */
 export const SENTRY_TRACES_SAMPLE_RATE = 0.1;
 
+/** What a runtime hands the SDK as beforeSend. */
+export type BeforeSend = ReturnType<typeof createBeforeSend>;
+
 /**
  * The server's and middleware's before-send: the shared one, scrubbing every
  * event and dropping those a known bot caused. The frame filter is off: no
  * server frame lives under /_next/static/, so it would drop them all.
  */
-export const serverBeforeSend = createBeforeSend({ dropWithoutOwnFrame: false, dropBots: true });
+export const serverBeforeSend: BeforeSend = createBeforeSend({ dropWithoutOwnFrame: false, dropBots: true });
 
 /**
  * The browser's before-send: the shared one with both filters on (ADR 0079).
@@ -40,7 +40,7 @@ export const serverBeforeSend = createBeforeSend({ dropWithoutOwnFrame: false, d
  * third-party script, a cross-origin "Script error.") is not ours to fix, and a
  * crawler's half-built browser is not a buyer.
  */
-export const browserBeforeSend = createBeforeSend({ dropWithoutOwnFrame: true, dropBots: true });
+export const browserBeforeSend: BeforeSend = createBeforeSend({ dropWithoutOwnFrame: true, dropBots: true });
 
 /** Transactions are scrubbed, never filtered (see createBeforeSend). */
 export const beforeSendTransaction = scrubEvent;
@@ -64,7 +64,7 @@ export const beforeSendTransaction = scrubEvent;
  * which lib/navigation-route.ts turns into its page, where streaming names
  * every one "Navigation".
  */
-export function sentryOptions(config: SentryConfig, beforeSend: typeof serverBeforeSend) {
+export function sentryOptions(config: SentryConfig, beforeSend: BeforeSend) {
   return {
     dsn: config.dsn,
     environment: config.environment,

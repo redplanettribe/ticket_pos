@@ -1,6 +1,8 @@
 import * as Sentry from "@sentry/nextjs";
 
-import { readSentryConfig, sentryOptions, serverBeforeSend, serverTracesSampler } from "@/lib/sentry";
+import { readSentryConfig } from "@ticket-pos/sentry-rules";
+
+import { sentryOptions, serverBeforeSend, serverTracesSampler } from "@/lib/sentry";
 
 /**
  * Starts Sentry on the Node server and in middleware (the edge runtime), the

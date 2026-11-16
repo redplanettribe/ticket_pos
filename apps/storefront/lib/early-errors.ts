@@ -33,6 +33,8 @@ export const EARLY_ERROR_LIMIT = 10;
 /**
  * The inline handler, ES5 so it runs in any browser that loads the page.
  * window.__ticketPosEarlyErrors = { errors: [{ kind, value }], stop() }.
+ * Its names are short because they ship in every page: w the window, b the
+ * buffer, k keeps one entry, e listens for errors, r for rejections.
  */
 export const EARLY_ERROR_HANDLER_SCRIPT =
   "(function(w){try{" +
