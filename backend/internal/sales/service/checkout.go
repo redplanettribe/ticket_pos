@@ -492,6 +492,10 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 	if event == nil || event.Status != "published" {
 		return nil, sales.ErrEventNotFound()
 	}
+	// The checkout is addressed by slugs, which are never reported; the ids
+	// they resolve to place what this request reports (ADR 0079).
+	platform.SetReportTag(ctx, platform.ReportTagOrganization, event.OrganizationID)
+	platform.SetReportTag(ctx, platform.ReportTagEvent, event.ID)
 
 	now := s.now()
 	cutoff := sales.HoldCutoff(now)

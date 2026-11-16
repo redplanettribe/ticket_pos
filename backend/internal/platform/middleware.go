@@ -102,7 +102,7 @@ func wellFormedRequestID(id string) bool {
 func loggingMiddleware(logger *slog.Logger, reporter Reporter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		r = r.WithContext(withRequestReports(r.Context()))
+		r = withRequestReports(r)
 		rec := &statusRecorder{ResponseWriter: w, logger: logger, reporter: reporter, ctx: r.Context()}
 		defer func() {
 			aborted := recover()

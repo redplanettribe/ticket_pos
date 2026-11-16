@@ -240,7 +240,7 @@ func TaxIDNumberCode(taxIDType string) string {
 // isValidCedula applies the full cédula rule: ten digits, a real province
 // prefix, and the modulo-10 check digit.
 func isValidCedula(number string) bool {
-	if len(number) != 10 || !isASCIIDigits(number) {
+	if len(number) != cedulaLength || !isASCIIDigits(number) {
 		return false
 	}
 	if !hasValidProvincePrefix(number) {
@@ -260,7 +260,7 @@ func isValidCedula(number string) bool {
 // getting them subtly wrong would reject real taxpayers, so both are accepted on
 // structure alone. Third digits 7 and 8 name no RUC form and are rejected.
 func isValidRUC(number string) bool {
-	if len(number) != 13 || !isASCIIDigits(number) {
+	if len(number) != rucLength || !isASCIIDigits(number) {
 		return false
 	}
 	if !hasValidProvincePrefix(number) {
@@ -294,6 +294,23 @@ func isValidPassport(number string) bool {
 		}
 	}
 	return true
+}
+
+// The lengths of the two Ecuadorian identity numbers: a cédula, and a RUC,
+// which is a cédula or an entity number with an establishment suffix.
+const (
+	cedulaLength = 10
+	rucLength    = 13
+)
+
+// hasIdentityNumberShape reports whether number is shaped like a cédula or a
+// RUC: their length in ASCII digits and a real province prefix, the check digit
+// not consulted. It is what the reporting scrubber redacts (ScrubText), where a
+// mistyped cédula is as personal as a valid one: when in doubt, send less
+// (ADR 0079).
+func hasIdentityNumberShape(number string) bool {
+	return (len(number) == cedulaLength || len(number) == rucLength) &&
+		isASCIIDigits(number) && hasValidProvincePrefix(number)
 }
 
 // hasValidProvincePrefix checks the leading two digits against Ecuador's

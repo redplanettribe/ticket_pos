@@ -4,7 +4,6 @@ import (
 	"context"
 	"runtime"
 	"strings"
-	"sync/atomic"
 	"time"
 )
 
@@ -48,7 +47,12 @@ type ErrorReport struct {
 	// RequestID is the request's X-Request-ID, the join back to Cloud Logging;
 	// empty outside a request.
 	RequestID string
-	// Tags are id-only context, such as an Organization or Sale id.
+	// UserID is the opaque internal id of the person the request acted for:
+	// a staff Member id or a Customer id, never more of them (SetReportActor).
+	// Empty when nobody is known.
+	UserID string
+	// Tags are id-only context: the route pattern, the audience, and the
+	// Organization, Event and Sale ids a request concerns (reportPlacement).
 	Tags map[string]string
 }
 
@@ -173,42 +177,14 @@ func stackOrPanicStack(skip int) []runtime.Frame {
 	return stack
 }
 
-// requestReports is what one request has reported, so that one failed request
-// produces one event (ADR 0079). The request pipeline puts it on the request's
-// context; everything that reports inside the request finds it there.
-type requestReports struct {
-	reported atomic.Bool
-}
-
-type requestReportsKey struct{}
-
-func withRequestReports(ctx context.Context) context.Context {
-	return context.WithValue(ctx, requestReportsKey{}, &requestReports{})
-}
-
-// requestReportsOn is the request's record on ctx, nil outside a request or
-// detached from one.
-func requestReportsOn(ctx context.Context) *requestReports {
-	reports, _ := ctx.Value(requestReportsKey{}).(*requestReports)
-	return reports
-}
-
-// DetachFromRequest is ctx for work that outlives the request it was started
-// by, such as a fire-and-forget goroutine: not cancelled with the request, and
-// still carrying its id, so what the work reports names the request; but no
-// longer counted as the request's report, so it can never stand in for the
-// request's own 5xx (ADR 0079).
-func DetachFromRequest(ctx context.Context) context.Context {
-	return context.WithValue(context.WithoutCancel(ctx), requestReportsKey{}, (*requestReports)(nil))
-}
-
 // reportInRequest reports, and marks the request on ctx, if any, as having
 // reported. An Error line takes this path: each one is reported.
 func reportInRequest(ctx context.Context, reporter Reporter, report ErrorReport) {
-	if reports := requestReportsOn(ctx); reports != nil {
+	reports := requestReportsOn(ctx)
+	if reports != nil {
 		reports.reported.Store(true)
 	}
-	reporter.ReportError(ctx, report)
+	reporter.ReportError(ctx, reports.place(report))
 }
 
 // reportRequestFailure reports what ends a request in a 5xx (a panic, an
@@ -216,8 +192,9 @@ func reportInRequest(ctx context.Context, reporter Reporter, report ErrorReport)
 // unless the request has already reported: the Error line that wrote its cause
 // down, or the panic recovery before the request line.
 func reportRequestFailure(ctx context.Context, reporter Reporter, report ErrorReport) {
-	if reports := requestReportsOn(ctx); reports != nil && reports.reported.Swap(true) {
+	reports := requestReportsOn(ctx)
+	if reports != nil && reports.reported.Swap(true) {
 		return
 	}
-	reporter.ReportError(ctx, report)
+	reporter.ReportError(ctx, reports.place(report))
 }

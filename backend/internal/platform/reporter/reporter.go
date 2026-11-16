@@ -86,12 +86,107 @@ func newWithTransport(cfg platform.ReporterConfig, logger platform.Logger, trans
 	return reporter
 }
 
-// stripPersonalData drops what an event may carry about a person beyond an
-// opaque id. The request is never attached; this is the net under that.
+// stripPersonalData is the last thing an event or transaction passes before it
+// leaves the process (ADR 0079): the request is dropped, the user keeps only
+// its opaque id, and every string that could carry text, platform.ScrubText
+// runs on. The request and the user's other fields are never attached; this
+// is the net under that.
 func stripPersonalData(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
 	event.Request = nil
 	event.User = sentry.User{ID: event.User.ID}
+	event.Message = platform.ScrubText(event.Message)
+	event.Transaction = platform.ScrubURL(event.Transaction)
+	for i := range event.Fingerprint {
+		event.Fingerprint[i] = platform.ScrubText(event.Fingerprint[i])
+	}
+	for i := range event.Exception {
+		exception := &event.Exception[i]
+		exception.Type = platform.ScrubText(exception.Type)
+		exception.Value = platform.ScrubText(exception.Value)
+		if exception.Mechanism != nil {
+			exception.Mechanism.Data = scrubMap(exception.Mechanism.Data)
+		}
+		scrubStacktrace(exception.Stacktrace)
+	}
+	for i := range event.Threads {
+		scrubStacktrace(event.Threads[i].Stacktrace)
+	}
+	for _, breadcrumb := range event.Breadcrumbs {
+		breadcrumb.Message = platform.ScrubText(breadcrumb.Message)
+		breadcrumb.Data = scrubMap(breadcrumb.Data)
+	}
+	event.Tags = scrubTags(event.Tags)
+	for key, context := range event.Contexts {
+		event.Contexts[key] = scrubMap(context)
+	}
+	for _, span := range event.Spans {
+		span.Description = platform.ScrubText(span.Description)
+		span.Tags = scrubTags(span.Tags)
+		span.Data = scrubMap(span.Data)
+	}
 	return event
+}
+
+// scrubStacktrace drops each frame's local variables, where a value of any
+// kind could be, and scrubs its paths.
+func scrubStacktrace(stacktrace *sentry.Stacktrace) {
+	if stacktrace == nil {
+		return
+	}
+	for i := range stacktrace.Frames {
+		frame := &stacktrace.Frames[i]
+		frame.Vars = nil
+		frame.AbsPath = platform.ScrubURL(frame.AbsPath)
+		frame.Filename = platform.ScrubURL(frame.Filename)
+	}
+}
+
+func scrubTags(tags map[string]string) map[string]string {
+	for key, value := range tags {
+		tags[key] = platform.ScrubText(value)
+	}
+	return tags
+}
+
+// scrubMap scrubs the strings of a free-form map, at any depth. A key that
+// names a URL loses everything from its query string on.
+func scrubMap(data map[string]any) map[string]any {
+	for key, value := range data {
+		if text, ok := value.(string); ok && urlKeys[key] {
+			data[key] = platform.ScrubURL(text)
+			continue
+		}
+		data[key] = scrubValue(value)
+	}
+	return data
+}
+
+// urlKeys are the keys of span and breadcrumb data whose whole value is a URL,
+// as the Next apps' scrubber names them.
+var urlKeys = map[string]bool{"url": true, "from": true, "to": true, "http.url": true, "url.full": true}
+
+func scrubValue(value any) any {
+	switch v := value.(type) {
+	case string:
+		return platform.ScrubText(v)
+	case map[string]any:
+		return scrubMap(v)
+	case []any:
+		for i := range v {
+			v[i] = scrubValue(v[i])
+		}
+		return v
+	case []string:
+		for i := range v {
+			v[i] = platform.ScrubText(v[i])
+		}
+		return v
+	case nil, bool, int, int32, int64, uint, uint32, uint64, float32, float64:
+		return v
+	default:
+		// A value of a type this cannot see into is sent as scrubbed text.
+		return platform.ScrubText(fmt.Sprint(v))
+	}
 }
 
 // failureReportingTransport is the SDK's HTTP transport, reporting a failed
@@ -121,17 +216,32 @@ type sentryReporter struct {
 }
 
 func (r *sentryReporter) ReportError(ctx context.Context, report platform.ErrorReport) {
-	event := r.client.EventFromException(report.Err, sentry.LevelError)
-	// The exception's stack is where the error happened, not this goroutine.
-	if n := len(event.Exception); n > 0 {
-		event.Exception[n-1].Stacktrace = stacktrace(report.Stack)
+	// One exception, its text scrubbed and its type the error's class: words
+	// that carry nothing of the error's own text, such as "postgres 23505".
+	// The SDK's own exception chain would send every wrapped error's raw text
+	// a second time.
+	err := platform.ScrubError(report.Err)
+	value := ""
+	if err != nil {
+		value = err.Error()
 	}
+	event := sentry.NewEvent()
+	event.Level = sentry.LevelError
+	event.Exception = []sentry.Exception{{
+		Type:  platform.ErrorClass(report.Err),
+		Value: value,
+		// The stack is where the error happened, not this goroutine.
+		Stacktrace: stacktrace(report.Stack),
+	}}
 	scope := r.scope(ctx)
 	scope.SetTags(report.Tags)
 	if report.RequestID != "" {
 		scope.SetTag("request_id", report.RequestID)
 	}
-	r.client.CaptureEvent(event, &sentry.EventHint{Context: ctx, OriginalException: report.Err}, scope)
+	if report.UserID != "" {
+		scope.SetUser(sentry.User{ID: report.UserID})
+	}
+	r.client.CaptureEvent(event, &sentry.EventHint{Context: ctx, OriginalException: err}, scope)
 }
 
 // scope is a fresh scope, or a copy of the scope of the hub on ctx, so that a

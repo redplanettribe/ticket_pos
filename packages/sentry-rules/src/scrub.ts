@@ -2,9 +2,9 @@
  * What a Next app may send to Sentry about a person: nothing (ADR 0079).
  *
  * The scrubber runs inside the app, before an event leaves it, and is the first
- * net; Sentry's server-side scrubbing is the second. ADR 0079 sets the same
- * rules for the backend's scrubber (#766), which had not landed when these
- * were written; the two must redact the same shapes:
+ * net; Sentry's server-side scrubbing is the second. The backend's scrubber,
+ * backend/internal/platform/scrub.go, follows the same rules (ADR 0079); the
+ * two must redact the same shapes:
  *
  * - an email-shaped string becomes "[email]", including one URL-encoded into a
  *   path, which is where an email turns up in a route;

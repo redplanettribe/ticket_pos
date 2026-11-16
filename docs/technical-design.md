@@ -202,6 +202,18 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
   The pipeline remembers on the request context whether anything in the request has reported.
   An Error line always reports; a panic, the error mapping's 5xx, and the `request` line of a 5xx report only when nothing in the request did, so an Error line that writes a failure's cause down, followed by the 500 it ends in, is one event.
   The `request` line reports a 5xx nothing else reported, such as one a handler writes by hand, naming the route pattern rather than the path.
+- A report made inside a request is placed by that request, as opaque ids only (`platform/reporter_context.go`).
+  It carries the request id, and the route pattern as the `route` tag, never the raw path.
+  The user is the staff Active Member's id or the Customer's id, with the `audience` tag `staff` or `customer`; a staff person has no id of their own beyond a Member, and the session token is a credential, so a session with no Active Member reports the audience alone.
+  `organization_id`, `event_id` and `sale_id` are tagged three ways.
+  The pipeline reads them from the path: a wildcard whose segment in front is `organizations`, `events`, `sales` or `ticket-sales`, the key the path-id guard uses, and whose value is a UUID, so a slug or Confirmation reference in the same place is never sent.
+  The staff session middleware supplies the Active Member's Organization, and the Customer Session middleware a Confirmation Link session's Ticket Sale, through `platform.SetReportActor` and `platform.SetReportTag`.
+  A handler or service supplies an id it resolved that is not in its path the same way, as the checkout does for the Event and Organization its slugs name.
+  Both take a UUID or nothing, and a context detached from its request keeps the request's placement.
+- Every event and transaction is scrubbed in the process before it is sent, by `platform.ScrubText` and `platform.ScrubURL` (`platform/scrub.go`), which the tracing spans use too.
+  Email-shaped and identity-number-shaped strings are redacted, the identity-number shape being `taxid.go`'s cédula and RUC shape without the check digit, and query strings and fragments are dropped, the same shapes as the Next apps' `@ticket-pos/sentry-rules`.
+  A reported error is one exception: its text scrubbed through the recipient redaction's `redactedError` (`platform.ScrubError`), and its type its `platform.ErrorClass`, words that carry nothing of the error's text.
+  A stack frame's variables are dropped, and the event keeps only the user's id.
 - A sweep that gives up on something for good logs it at Error and is reported; failures it retries, and the counts it answers with, keep their levels.
 - On SIGTERM the API stops accepting, lets requests in flight finish for up to seven seconds, and flushes the reporter with a two second bound (`platform.ShutdownFlushTimeout`).
   A failure to start, from `LoadConfig` on, is reported and flushed with the same bound before the process exits.

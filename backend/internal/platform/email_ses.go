@@ -371,16 +371,6 @@ func (s *SESEmailSender) SendFollowDigest(ctx context.Context, d FollowDigest) e
 	return nil
 }
 
-// redactedError carries an error's text with the recipient taken out, while
-// errors.Is and errors.As still see the provider's error underneath.
-type redactedError struct {
-	text string
-	err  error
-}
-
-func (e *redactedError) Error() string { return e.text }
-func (e *redactedError) Unwrap() error { return e.err }
-
 // redactRecipient removes every case-insensitive occurrence of the recipient
 // address from err's text. Case-insensitive because SES does not quote the
 // address back in the case it was given.
@@ -389,5 +379,5 @@ func redactRecipient(err error, to string) error {
 		return err
 	}
 	pattern := regexp.MustCompile("(?i)" + regexp.QuoteMeta(to))
-	return &redactedError{text: pattern.ReplaceAllString(err.Error(), "[recipient]"), err: err}
+	return redactError(err, func(text string) string { return pattern.ReplaceAllString(text, "[recipient]") })
 }

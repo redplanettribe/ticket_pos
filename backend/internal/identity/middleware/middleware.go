@@ -67,11 +67,27 @@ func SessionAuth(svc *service.Service) func(http.Handler) http.Handler {
 			if view.ActiveMember != nil {
 				staffSession.ActiveMemberID = view.ActiveMember.MemberID
 			}
+			placeStaffReports(r.Context(), view)
 
 			ctx := context.WithValue(r.Context(), staffSessionKey, staffSession)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// placeStaffReports puts on the request's error reports who it acts for, as
+// ids only (ADR 0079): the staff audience, and the Active Member's id and
+// Organization. A staff person has no id of their own beyond their Member in
+// each Organization, and the session token is a credential, so with no Active
+// Member, a Platform Operator who is a Member of nothing, the reports carry
+// the audience alone.
+func placeStaffReports(ctx context.Context, view *service.SessionView) {
+	if view.ActiveMember == nil {
+		platform.SetReportActor(ctx, platform.AudienceStaff, "")
+		return
+	}
+	platform.SetReportActor(ctx, platform.AudienceStaff, view.ActiveMember.MemberID)
+	platform.SetReportTag(ctx, platform.ReportTagOrganization, view.ActiveMember.OrganizationID)
 }
 
 // ActiveMemberFromContextRole returns the active member role from context.
