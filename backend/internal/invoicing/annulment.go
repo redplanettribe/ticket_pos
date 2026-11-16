@@ -162,7 +162,7 @@ type AnnulmentNotice struct {
 }
 
 // Reinstatement is a Reinstate's stamp on the annulment it closed (#749,
-// ADR 0078 section 5): who, the optional note, and the Reinstatement Notice
+// ADR 0078 section 5): who, the optional note, and the reinstatement notice
 // the buyer was owed by it.
 type Reinstatement struct {
 	By   string

@@ -1820,7 +1820,7 @@
     "invoicingReinstateTitle": "Restablecer",
     "invoicingReinstateHint": "El plazo de anulación terminó y el SRI aún reporta esta factura como autorizada, así que la anulación nunca se registró allí. Restablecerla la devuelve a autorizada, como la tiene el SRI. La anulación se conserva como historial.",
     "invoicingReinstateOwes": "Si la venta se revirtió, o ahora hay otra factura vigente para ella, se adeuda una nota de crédito contra esta factura; si no, vuelve a ser la factura de la venta. Una factura manual simplemente vuelve a autorizada.",
-    "invoicingReinstateBuyer": "Un aviso al comprador aún retenido se descarta. Al comprador que ya fue avisado de la anulación se le envía esta factura de nuevo con su XML y RIDE, salvo que siga una nota de crédito, cuyo propio correo se lo dice.",
+    "invoicingReinstateBuyer": "Un aviso de anulación aún retenido se descarta y nunca se envía. Al comprador que ya fue avisado de la anulación se le envía esta factura de nuevo con su XML y RIDE, salvo que siga una nota de crédito, cuyo propio correo se lo dice.",
     "invoicingReinstateAfterWindow": "Si el SRI aún la reporta autorizada cuando termine el plazo de anulación, después del {deadline}, podrá restablecerla aquí.",
     "invoicingReinstateNumberLabel": "Escriba {number} para confirmar",
     "invoicingReinstateNoteLabel": "Nota (opcional)",

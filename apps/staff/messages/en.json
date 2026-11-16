@@ -1820,7 +1820,7 @@
     "invoicingReinstateTitle": "Reinstate",
     "invoicingReinstateHint": "The annulment window has closed and the SRI still reports this factura as authorized, so the annulment never took. Reinstating returns it to authorized, as the SRI holds it. The annulment stays on file as history.",
     "invoicingReinstateOwes": "If the Sale was reversed, or another factura now stands for it, a Credit Note is owed against this factura; otherwise it is the Sale's factura again. A manual Tax Invoice simply returns to authorized.",
-    "invoicingReinstateBuyer": "A buyer notice still held is dropped. A buyer already told of the annulment is sent this factura again with its XML and RIDE, unless a Credit Note follows, whose own mail tells them.",
+    "invoicingReinstateBuyer": "An Annulment Notice still held is dropped, never sent. A buyer already told of the annulment is sent this factura again with its XML and RIDE, unless a Credit Note follows, whose own mail tells them.",
     "invoicingReinstateAfterWindow": "If the SRI still reports it authorized once the annulment window closes after {deadline}, you can reinstate it here.",
     "invoicingReinstateNumberLabel": "Type {number} to confirm",
     "invoicingReinstateNoteLabel": "Note (optional)",

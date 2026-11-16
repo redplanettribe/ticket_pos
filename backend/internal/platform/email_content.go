@@ -1929,7 +1929,7 @@ var (
 	)
 	taxDocumentReinstatedOpeningCopy = translated(
 		"Hi %s,\n\nWe told you that the tax invoice (factura) %s for your purchase for %s was annulled at the SRI. The SRI never took that annulment: the factura stands and is valid. Please keep it; we attach it again.\nReference: %s",
-		"Hola %s:\n\nLe informamos que la factura %s de su compra de %s fue anulada en el SRI. El SRI no registró esa anulación: la factura sigue vigente y es válida. Consérvela; se la adjuntamos de nuevo.\nReferencia: %s",
+		"Hola %s:\n\nLe informamos anteriormente que la factura %s de su compra de %s había sido anulada en el SRI. El SRI no registró esa anulación: la factura sigue vigente y es válida. Consérvela; se la adjuntamos de nuevo.\nReferencia: %s",
 	)
 	// Both forms the SRI obliges the emisor to deliver (#496, ADR 0062),
 	// named in the order they are attached: the XML is the record, the RIDE

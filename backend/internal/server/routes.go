@@ -480,9 +480,11 @@ func registerOperatorRoutes(mux Router, app *App) {
 	// authority again, or send the same document under the same clave.
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/check", operator(http.HandlerFunc(inv.CheckInvoice)))
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/resend", operator(http.HandlerFunc(inv.ResendInvoice)))
-	// Mark annulled (#477): the operator's record of a manual portal act,
-	// allowed from pending or needs_attention, irreversible.
+	// Mark annulled (#477, #745): the operator's record of a manual portal
+	// act, on a factura from pending, needs_attention or authorized.
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/annul", operator(http.HandlerFunc(inv.AnnulInvoice)))
+	// Reinstate (#749, ADR 0078): an annulled factura back to authorized,
+	// once its window has closed with the SRI still reporting it authorized.
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/reinstate", operator(http.HandlerFunc(inv.ReinstateInvoice)))
 	// Abandon (#578, ADR 0068): the operator's record that the SRI never
 	// took the document and never will, because it refuses the number it

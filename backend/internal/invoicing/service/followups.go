@@ -66,7 +66,7 @@ func annulmentFollowUps(row *repository.InvoiceRow, saleInvoicingEnabled bool) [
 	switch {
 	case inv.Kind == invoicing.DocumentKindManual:
 		return []AnnulmentFollowUpView{{Kind: FollowUpTypeAgain, Admitted: true}}
-	case facts.SaleStatus == "reversed":
+	case facts.SaleStatus == saleStatusReversed:
 		return []AnnulmentFollowUpView{{Kind: FollowUpNothingFollows, Admitted: true}}
 	case inv.SupersededByInvoiceID != "", facts.SaleHasLiveFactura:
 		return []AnnulmentFollowUpView{}

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -97,12 +98,8 @@ func (s *Service) ReinstateInvoice(ctx context.Context, id, reinstatedBy string,
 // annulment's check at mismatch. An annulment recorded before the check
 // existed reads unconfirmed, as the detail shows it, and is refused.
 func reinstateRefusal(row *repository.InvoiceRow, now time.Time) error {
-	inv := &row.Invoice
-	if !invoicing.IsFactura(inv.Kind) || inv.Status != invoicing.InvoiceStatusAnnulled {
-		return invoicing.ErrInvoiceNotReinstatable(inv.Status)
-	}
-	if w := annulmentWindowOf(inv); w.Open(now) {
-		return invoicing.ErrInvoiceReinstateWindowOpen(w.Deadline.Format(time.DateOnly))
+	if err := reinstateDocumentRefusal(&row.Invoice, now); err != nil {
+		return err
 	}
 	verdict := invoicing.AnnulmentUnconfirmed
 	if current := currentAnnulment(row); current != nil && current.Check != nil {
@@ -114,17 +111,26 @@ func reinstateRefusal(row *repository.InvoiceRow, now time.Time) error {
 	return nil
 }
 
-// reinstateLockedRefusal is reinstateRefusal again on the factura as the
-// transaction locked it, with the mismatch read under the annulment's lock:
-// a check that settled ANULADO, or a second press, between the read and the
-// write is refused rather than written over.
-func reinstateLockedRefusal(locked *repository.InvoiceRow, facts repository.ReinstateFacts, now time.Time) error {
-	inv := &locked.Invoice
+// reinstateDocumentRefusal is the half of the gate the factura's own row
+// answers, shared by the read and the locked decision: an annulled factura,
+// and its Annulment Window closed.
+func reinstateDocumentRefusal(inv *invoicing.Invoice, now time.Time) error {
 	if !invoicing.IsFactura(inv.Kind) || inv.Status != invoicing.InvoiceStatusAnnulled {
 		return invoicing.ErrInvoiceNotReinstatable(inv.Status)
 	}
 	if w := annulmentWindowOf(inv); w.Open(now) {
 		return invoicing.ErrInvoiceReinstateWindowOpen(w.Deadline.Format(time.DateOnly))
+	}
+	return nil
+}
+
+// reinstateLockedRefusal is reinstateRefusal again on the factura as the
+// transaction locked it, with the mismatch read under the annulment's lock:
+// a check that settled ANULADO, or a second press, between the read and the
+// write is refused rather than written over.
+func reinstateLockedRefusal(locked *repository.InvoiceRow, facts repository.ReinstateFacts, now time.Time) error {
+	if err := reinstateDocumentRefusal(&locked.Invoice, now); err != nil {
+		return err
 	}
 	if !facts.AnnulmentAtMismatch {
 		return invoicing.ErrInvoiceReinstateNotMismatch(facts.AnnulmentVerdict)
@@ -255,10 +261,15 @@ func (s *Service) sendReinstatementNotice(ctx context.Context, claim *repository
 	inv := &row.Invoice
 	next := now.Add(annulmentNoticeDelay(claim.Attempts + 1))
 	delivery, err := s.taxDocumentDeliveryOf(ctx, row)
-	if err != nil || delivery == nil {
-		s.logger.Error("invoicing: a reinstatement notice cannot be put together; its Sale, its number or its RIDE cannot be read",
-			"invoice_id", inv.ID, "error", err)
+	if errors.Is(err, errNotDeliverable) {
+		// Stored data that cannot become the mail; on the ladder all the
+		// same, so a fix to the data is picked up without an operator.
+		s.logger.Error("invoicing: a reinstatement notice cannot be put together", "invoice_id", inv.ID, "error", err)
 		return false, s.repo.RescheduleReinstatementNotice(context.WithoutCancel(ctx), claim.AnnulmentID, next)
+	}
+	if err != nil {
+		// The database's: the lease expires and the notice is due again.
+		return false, err
 	}
 	delivery.Reinstated = true
 	delivery.Number = FormatNumber(row.Ecuador.Estab, row.Ecuador.PtoEmi, row.Ecuador.Secuencial)

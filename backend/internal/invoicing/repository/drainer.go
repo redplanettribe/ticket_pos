@@ -146,12 +146,41 @@ type SignedInvoice struct {
 // row a reversal withdrew between the claim and this write (#476) is found
 // by the same guard, and the number rolls back with it: a withdrawn
 // document is never signed, whoever got to it first.
+//
+// A SUCCESSOR RE-ASKS THE CREDIT NOTE WAIT UNDER ITS PREDECESSOR'S LOCK
+// (#749). The claim decided the wait (ClaimDueInvoice), but a Reinstate can
+// owe a Credit Note against the predecessor between that claim and this
+// write, turning an Issue again replacement into one that must wait. A
+// Reinstate holds the predecessor FOR UPDATE until it commits, so taking it
+// FOR SHARE here orders the two, and the wait read after the lock (a new
+// statement, a fresh snapshot) sees the Credit Note it owed: the number
+// rolls back and the document stays owed for a later claim.
 func (r *Repository) SignOwedInvoice(ctx context.Context, invoiceID string, in SignedInvoice, prepare func(secuencial int64) (*PreparedInvoice, error)) (*InvoiceRow, error) {
 	tx, err := r.db.Pool.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin sign owed invoice: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, `
+		SELECT 1 FROM invoicing_invoices p
+		WHERE p.id = (SELECT supersedes_invoice_id FROM invoicing_invoices WHERE id = $1)
+		FOR SHARE
+	`, invoiceID); err != nil {
+		return nil, fmt.Errorf("sign owed invoice: lock predecessor: %w", err)
+	}
+	var waits bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM invoicing_invoices i
+			JOIN invoicing_invoices n ON n.kind = 'credit_note' AND n.credits_invoice_id = i.supersedes_invoice_id
+			WHERE i.id = $1 AND i.signed_xml IS NULL AND n.status IN ('owed', 'pending', 'needs_attention'))
+	`, invoiceID).Scan(&waits); err != nil {
+		return nil, fmt.Errorf("sign owed invoice: read credit note wait: %w", err)
+	}
+	if waits {
+		return nil, fmt.Errorf("sign owed invoice: invoice %s now waits for a credit note against the factura it supersedes: %w", invoiceID, sql.ErrNoRows)
+	}
 
 	secuencial, err := allocateSecuencial(ctx, tx, in.IssuerID, in.Environment, in.CodDoc, in.Estab, in.PtoEmi)
 	if err != nil {

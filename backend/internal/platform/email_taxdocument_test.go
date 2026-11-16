@@ -255,7 +255,7 @@ func TestTaxDocumentDeliveryAsAReinstatementNotice(t *testing.T) {
 		}
 		if locale == LocaleES {
 			wantSubject, wantLines = "Su factura de Noche de Jazz sigue vigente", []string{
-				"001-001-000000042", "fue anulada en el SRI", "El SRI no registró esa anulación: la factura sigue vigente y es válida", "Referencia: ABC123", "Adjuntamos el XML",
+				"001-001-000000042", "Le informamos anteriormente", "había sido anulada en el SRI", "El SRI no registró esa anulación: la factura sigue vigente y es válida", "Referencia: ABC123", "Adjuntamos el XML",
 			}
 		}
 		if subject != wantSubject {
