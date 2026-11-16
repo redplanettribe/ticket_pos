@@ -39,18 +39,32 @@ locals {
 
   # One project per deployable (ADR 0079). The keys of this map name the
   # deployables everywhere below and in the switches.
+  #
+  # Only the Storefront's key is rate limited (null is no limit of our own): it
+  # is the public one, where a crawler, a bot or a release that throws in every
+  # browser could otherwise spend the month's quota in an afternoon. The API and
+  # the Staff app are covered by the organization's quota and spike protection.
   sentry_projects = {
     api = {
-      slug     = "ticket-pos-api"
-      platform = "go"
+      slug              = "ticket-pos-api"
+      platform          = "go"
+      enabled           = var.sentry_api_enabled
+      rate_limit_count  = null
+      rate_limit_window = null
     }
     staff = {
-      slug     = "ticket-pos-staff"
-      platform = "javascript-nextjs"
+      slug              = "ticket-pos-staff"
+      platform          = "javascript-nextjs"
+      enabled           = var.sentry_staff_enabled
+      rate_limit_count  = null
+      rate_limit_window = null
     }
     storefront = {
-      slug     = "ticket-pos-storefront"
-      platform = "javascript-nextjs"
+      slug              = "ticket-pos-storefront"
+      platform          = "javascript-nextjs"
+      enabled           = var.sentry_storefront_enabled
+      rate_limit_count  = var.sentry_storefront_rate_limit_count
+      rate_limit_window = var.sentry_storefront_rate_limit_window_seconds
     }
   }
 
@@ -63,15 +77,23 @@ locals {
   # legacy secret DSN; the public one is all that is used, and it is a plain
   # environment value on the service.
   sentry_dsn = {
-    api        = var.sentry_api_enabled ? nonsensitive(sentry_key.deployable["api"].dsn["public"]) : null
-    staff      = var.sentry_staff_enabled ? nonsensitive(sentry_key.deployable["staff"].dsn["public"]) : null
-    storefront = var.sentry_storefront_enabled ? nonsensitive(sentry_key.deployable["storefront"].dsn["public"]) : null
+    for name, project in local.sentry_projects :
+    name => project.enabled ? nonsensitive(sentry_key.deployable[name].dsn["public"]) : null
   }
 
-  # Error spike: more events of one issue than this within an hour. Sentry's
-  # issue alerts count per issue; a rate across a whole project is a metric
-  # alert, which the spec does not ask for.
+  # Error spike: more errors than this across the whole project within an
+  # hour, whichever issues they belong to, so a bad release that throws many
+  # different errors is caught as surely as one that throws one error often.
   sentry_spike_events_per_hour = 50
+
+  # Every rule's one action: an email to every member of the ticket-pos team
+  # (each member's own notification settings still apply).
+  sentry_email_team = {
+    email = {
+      target_type = "team"
+      target_id   = sentry_team.ticket_pos.internal_id
+    }
+  }
 }
 
 resource "sentry_team" "ticket_pos" {
@@ -104,12 +126,8 @@ resource "sentry_key" "deployable" {
   project      = sentry_project.deployable[each.key].slug
   name         = "${var.environment}-ticket-pos-${each.key}"
 
-  # The Storefront is the public one: a crawler, a bot or a release that throws
-  # in every browser could otherwise spend the month's quota in an afternoon.
-  # The API and the Staff app have no limit of their own; the organization's
-  # quota and spike protection cover them.
-  rate_limit_count  = each.key == "storefront" ? var.sentry_storefront_rate_limit_count : null
-  rate_limit_window = each.key == "storefront" ? var.sentry_storefront_rate_limit_window_seconds : null
+  rate_limit_count  = each.value.rate_limit_count
+  rate_limit_window = each.value.rate_limit_window
 }
 
 # --- Storefront inbound filters ---------------------------------------------------
@@ -149,8 +167,7 @@ resource "sentry_project_inbound_data_filter" "storefront_legacy_browsers" {
 #
 # Three rules on each project, all in production and all by email to the
 # ticket-pos team, so this product's alerts never reach the other product's
-# people and theirs never reach ours. Every member of the team gets the email
-# (each member's own notification settings still apply).
+# people and theirs never reach ours.
 #
 # Sentry creates a default error monitor with every project; an alert rule is
 # attached to it. sentry_issue_alert, the classic resource, is deprecated in
@@ -180,14 +197,7 @@ resource "sentry_alert" "new_issue" {
   action_filters = [
     {
       logic_type = "all"
-      actions = [
-        {
-          email = {
-            target_type = "team"
-            target_id   = sentry_team.ticket_pos.internal_id
-          }
-        },
-      ]
+      actions    = [local.sentry_email_team]
     },
   ]
 }
@@ -209,22 +219,17 @@ resource "sentry_alert" "regression" {
   action_filters = [
     {
       logic_type = "all"
-      actions = [
-        {
-          email = {
-            target_type = "team"
-            target_id   = sentry_team.ticket_pos.internal_id
-          }
-        },
-      ]
+      actions    = [local.sentry_email_team]
     },
   ]
 }
 
-# One issue happens more than sentry_spike_events_per_hour times within an hour,
-# which is how a bad release shows itself. A frequency is a filter on the
-# rule, not a trigger, in the provider's mapping of the classic "number of
-# events in an issue" condition; at most one email an hour per issue.
+# More than sentry_spike_events_per_hour errors in production within an hour,
+# across the project: how a bad release shows itself. A trigger condition, so
+# it counts every event the rule sees ("number of events seen by the workflow"
+# in the provider), not one issue's; the classic per-issue "number of events in
+# an issue" is an action filter instead, and would miss a release that throws
+# many different errors. At most one email an hour.
 resource "sentry_alert" "error_spike" {
   for_each = local.sentry_projects
 
@@ -234,25 +239,19 @@ resource "sentry_alert" "error_spike" {
   monitor_ids       = [data.sentry_project_error_monitor.deployable[each.key].id]
   frequency_minutes = 60
 
+  trigger_conditions = [
+    {
+      event_frequency_count = {
+        interval = "1h"
+        value    = local.sentry_spike_events_per_hour
+      }
+    },
+  ]
+
   action_filters = [
     {
       logic_type = "all"
-      conditions = [
-        {
-          event_frequency_count = {
-            interval = "1h"
-            value    = local.sentry_spike_events_per_hour
-          }
-        },
-      ]
-      actions = [
-        {
-          email = {
-            target_type = "team"
-            target_id   = sentry_team.ticket_pos.internal_id
-          }
-        },
-      ]
+      actions    = [local.sentry_email_team]
     },
   ]
 }

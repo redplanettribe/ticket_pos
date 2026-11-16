@@ -154,6 +154,13 @@ run "alerts_filters_and_rate_limit" {
     error_message = "Every rule must be scoped to production and email the team."
   }
 
+  # A spike counts every error the rule sees, not one issue's: a trigger,
+  # never a per-issue action filter.
+  assert {
+    condition     = alltrue([for a in values(sentry_alert.error_spike) : a.trigger_conditions[0].event_frequency_count.value == 50 && a.trigger_conditions[0].event_frequency_count.interval == "1h"])
+    error_message = "The error spike rule must trigger on more than 50 events in an hour across the project."
+  }
+
   assert {
     condition     = sentry_key.deployable["storefront"].rate_limit_count == 500 && sentry_key.deployable["storefront"].rate_limit_window == 3600
     error_message = "The Storefront key must carry the rate limit."

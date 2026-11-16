@@ -612,7 +612,7 @@ Turn any of them on only after the policy edition that names Sentry is published
 | `module.ticket_pos.sentry_project_inbound_data_filter.storefront_legacy_browsers` | Storefront: legacy browsers filtered |
 | `module.ticket_pos.sentry_alert.new_issue["api"]`, `["staff"]`, `["storefront"]` | a new issue in production |
 | `module.ticket_pos.sentry_alert.regression["api"]`, `["staff"]`, `["storefront"]` | a resolved issue happens again in production |
-| `module.ticket_pos.sentry_alert.error_spike["api"]`, `["staff"]`, `["storefront"]` | one issue more than 50 times in an hour in production |
+| `module.ticket_pos.sentry_alert.error_spike["api"]`, `["staff"]`, `["storefront"]` | more than 50 errors in an hour in production, across the project |
 
 The plan also reads `data.sentry_project_error_monitor.deployable` for each project, the default error monitor Sentry creates with a project, which the alert rules attach to; it creates nothing.
 If the plan shows any change to a Cloud Run service while every switch is off, stop: it should show none.
@@ -635,8 +635,8 @@ The legacy browser filter takes every current subfilter (Internet Explorer, and 
   The alerts go to the members of `ticket-pos`.
   Whoever should receive them joins the team in Sentry (Settings, Teams); a person's email is not something to commit here.
 - **Checking the spike rule once.**
-  It has no trigger and one filter, "more than 50 events in an hour", which is the provider's mapping of a classic frequency rule.
-  After the first apply, open it in Sentry and check it reads that way.
+  Its trigger is the provider's "number of events seen by the workflow" above 50 in an hour, meant as every error in the project, whichever issue.
+  After the first apply, open it in Sentry and check it reads that way rather than per issue.
 
 **Testing the switches.**
 `modules/ticket-pos/tests/sentry.tftest.hcl` plans the module against mocked providers, so it needs no credential and reaches nothing: with every switch off no service has a Sentry variable, and each switch sets the DSN on its own service only.
