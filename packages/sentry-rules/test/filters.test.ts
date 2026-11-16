@@ -24,6 +24,7 @@ test("hasFrameFromOwnBundles: a stack is ours when any frame comes from our bund
     ["only an extension", thrownFrom("chrome-extension://abc/content.js"), false],
     ["only a third-party script", thrownFrom("https://www.googletagmanager.com/gtm.js"), false],
     ["another Next site's chunks", thrownFrom("https://other.example.org/_next/static/chunks/main.js"), false],
+    ["an extension serving a lookalike path", thrownFrom("chrome-extension://abc/_next/static/x.js"), false],
     ["a lookalike path on another host's script", thrownFrom("https://cdn.example.net/next/static/x.js"), false],
     ["no frames at all", thrownFrom(), false],
     ["no exception at all", { message: "Script error." }, false],
@@ -58,6 +59,7 @@ test("isFromBot: known crawlers, previewers and headless browsers are bots; peop
     "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1",
     "Mozilla/5.0 (Linux; Android 10; CUBOT X30) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Mobile Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
+    "Mozilla/5.0 (Linux; Android 14; SM-A145M) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Mobile Safari/537.36 WhatsApp/2.24.1",
   ];
   const withAgent = (ua: string): SentryEvent => ({ request: { headers: { "User-Agent": ua } } });
   for (const ua of bots) assert.equal(isFromBot(withAgent(ua)), true, ua);
@@ -81,6 +83,11 @@ test("createBeforeSend: the Storefront's rules drop what is not ours, and scrub 
   assert.ok(sent, "an ordinary event passes through");
   assert.equal(sent.message, "failed for [email]");
   assert.deepEqual(sent.request, { url: "https://shop.example.com/es" }, "headers go after the bot check has read them");
+});
+
+test("createBeforeSend: a captured message carries no stack to judge, and is kept", () => {
+  const storefront = createBeforeSend({ dropWithoutOwnFrame: true, dropBots: true });
+  assert.ok(storefront({ message: "payment gateway answered late" }));
 });
 
 test("createBeforeSend: each filter is separately usable, and with none the event is only scrubbed", () => {

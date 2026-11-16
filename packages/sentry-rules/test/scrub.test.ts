@@ -23,6 +23,9 @@ test("scrubString: what is redacted and what survives", () => {
     ["a query string on an absolute URL", "GET https://api.example.com/sales?email=x&ruc=1 failed", "GET https://api.example.com/sales failed"],
     ["a query string on a path", "fetch /api/checkout?token=abc&e=1 failed", "fetch /api/checkout failed"],
     ["a fragment on a URL", "at https://shop.example.com/pay#access_token=zzz", "at https://shop.example.com/pay"],
+    ["a query string on a relative URL", "fetch api/orders?email=x&token=xyz failed", "fetch api/orders failed"],
+    ["a query string on a bare host", "see www.example.com/x?token=abc", "see www.example.com/x"],
+    ["an accented email", "for José.Pérez@correo.ec today", "for [email] today"],
     ["a question in prose", "is this a sale? yes", "is this a sale? yes"],
     ["a UUID", "sale 3f2504e0-4f89-11d3-9a0c-0305e82c3301 voided", "sale 3f2504e0-4f89-11d3-9a0c-0305e82c3301 voided"],
     ["an all-digit UUID segment", "id 12345678-1234-1234-1234-123456789012", "id 12345678-1234-1234-1234-123456789012"],
@@ -51,7 +54,8 @@ function pii(): SentryEvent {
     exception: {
       values: [
         {
-          type: "Error",
+          type: `InvalidEmail(${EMAIL})`,
+          mechanism: { type: "onerror", data: { note: EMAIL } },
           value: `GET https://api.example.com/v1/sales?email=${EMAIL} -> 500 for ${RUC}`,
           stacktrace: {
             frames: [
@@ -97,6 +101,8 @@ function pii(): SentryEvent {
     tags: { audience: "customer", note: EMAIL, count: 2 },
     extra: { form: { email: EMAIL, cedula: CEDULA } },
     contexts: { checkout: { buyer: EMAIL } },
+    fingerprint: ["checkout", EMAIL],
+    threads: { values: [{ id: 1, stacktrace: { frames: [{ abs_path: "/x.js?token=t", vars: { email: EMAIL } }] } }] },
     spans: [{ description: `SELECT * FROM customers WHERE email = '${EMAIL}'`, data: { "http.url": "/x?y=1" } }],
   };
 }
@@ -117,7 +123,10 @@ test("scrubEvent: each place a string travels is scrubbed, and what is not perso
   assert.equal(out.transaction, "/customers/[email]");
 
   const exception = out.exception?.values?.[0];
-  assert.equal(exception?.type, "Error");
+  assert.equal(exception?.type, "InvalidEmail([email])");
+  assert.deepEqual(exception?.mechanism, { type: "onerror", data: { note: "[email]" } });
+  assert.deepEqual(out.fingerprint, ["checkout", "[email]"]);
+  assert.deepEqual(out.threads, { values: [{ id: 1, stacktrace: { frames: [{ abs_path: "/x.js" }] } }] });
   assert.equal(exception?.value, "GET https://api.example.com/v1/sales -> 500 for [identity-number]");
   const frame = exception?.stacktrace?.frames?.[0];
   assert.equal(frame?.abs_path, "https://shop.example.com/_next/static/chunks/app/page.js");

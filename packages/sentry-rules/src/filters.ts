@@ -36,9 +36,13 @@ function isOwnFrame(frame: SentryStackFrame, ownBundlePaths: readonly string[], 
   const location = frame.abs_path ?? frame.filename;
   if (location === undefined) return false;
   if (!ownBundlePaths.some((path) => location.includes(path))) return false;
+  // A path with no scheme, or the app:// the SDK rewrites a path to, is the
+  // page's own. An http(s) URL must be on the page's origin when that is
+  // known. Any other scheme, such as chrome-extension://, is never ours.
+  if (location.startsWith("/") || location.startsWith("app:///")) return true;
   const frameOrigin = originOf(location);
-  // A path with no origin is the page's own; one with an origin must be it.
-  return frameOrigin === null || pageOrigin === null || frameOrigin === pageOrigin;
+  if (frameOrigin === null) return false;
+  return pageOrigin === null || frameOrigin === pageOrigin;
 }
 
 function originOf(url: string | undefined): string | null {
@@ -65,7 +69,9 @@ const BOT_USER_AGENT = new RegExp(
     "crawl",
     "slurp",
     "facebookexternalhit",
-    "whatsapp",
+    // The link previewer; WhatsApp's in-app browser carries a person's
+    // ordinary user agent with "WhatsApp/x" after it.
+    "^whatsapp\\/",
     "headlesschrome",
     "lighthouse",
     "phantomjs",
@@ -95,10 +101,16 @@ export interface BeforeSendRules {
  * A `beforeSend` for one app: drops what the chosen filters reject, and scrubs
  * the rest. The filters run first because the bot check reads the user agent,
  * which the scrubber removes.
+ *
+ * The frame filter judges only an event that reports an exception: a captured
+ * message carries no stack, and dropping it would silence what the app chose
+ * to say. For the same reason this is for `beforeSend` only; hand
+ * `beforeSendTransaction` plain `scrubEvent`.
  */
 export function createBeforeSend(rules: BeforeSendRules = {}): <E extends SentryEvent>(event: E) => E | null {
   return (event) => {
-    if (rules.dropWithoutOwnFrame && !hasFrameFromOwnBundles(event, rules.ownBundlePaths)) return null;
+    const reportsException = (event.exception?.values?.length ?? 0) > 0;
+    if (rules.dropWithoutOwnFrame && reportsException && !hasFrameFromOwnBundles(event, rules.ownBundlePaths)) return null;
     if (rules.dropBots && isFromBot(event)) return null;
     return scrubEvent(event);
   };

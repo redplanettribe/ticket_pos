@@ -2,14 +2,16 @@
  * What a Next app may send to Sentry about a person: nothing (ADR 0079).
  *
  * The scrubber runs inside the app, before an event leaves it, and is the first
- * net; Sentry's server-side scrubbing is the second. It follows the backend's
- * rules so an event says the same amount wherever it was raised:
+ * net; Sentry's server-side scrubbing is the second. ADR 0079 sets the same
+ * rules for the backend's scrubber (#766), which had not landed when these
+ * were written; the two must redact the same shapes:
  *
  * - an email-shaped string becomes "[email]", including one URL-encoded into a
  *   path, which is where an email turns up in a route;
  * - an identity-number-shaped string becomes "[identity-number]";
  * - a URL loses its query string and fragment, where tokens and form values
- *   travel;
+ *   travel; in free text, any word with a "?" inside it is cut there, since a
+ *   relative URL ("api/orders?token=...") has no other mark of being one;
  * - cookies, headers, request bodies, the client's IP address and every user
  *   field but the opaque id are not attached at all, and neither are a stack
  *   frame's local variables.
@@ -23,15 +25,19 @@
  * and an amount stand alone at other lengths and survive.
  */
 
-import type { SentryBreadcrumb, SentryEvent, SentryException, SentrySpan, SentryStackFrame } from "./event.ts";
+import type { SentryBreadcrumb, SentryEvent, SentryException, SentrySpan, SentryStackFrame, SentryStacktrace } from "./event.ts";
 
-const EMAIL = /[A-Za-z0-9._%+-]+(?:@|%40)[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/gi;
+// Letters in any script: a buyer's address can be "josé.pérez@correo.ec".
+const EMAIL = /[\p{L}\p{N}._%+-]+(?:@|%40)[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.\p{L}{2,}/giu;
 
 const IDENTITY_NUMBER = /(?<![0-9A-Za-z])(?:0[1-9]|1[0-9]|2[0-4]|30)(?:[0-9]{11}|[0-9]{8}|[0-9]{7}-[0-9])(?![0-9A-Za-z])/g;
 
-// A query string or fragment following an absolute URL, or a path that starts
-// a token. A "?" that ends a word in a sentence follows no URL and stays.
-const URL_TAIL = /((?:\b[a-z][a-z0-9+.-]*:\/\/|(?<![\w.~%/-])\/)[^\s"'<>?#]*)[?#][^\s"'<>]*/gi;
+// A fragment following an absolute URL, or a path that starts a token.
+const URL_FRAGMENT = /((?:\b[a-z][a-z0-9+.-]*:\/\/|(?<![\w.~%/-])\/)[^\s"'<>?#]*)#[^\s"'<>]*/gi;
+
+// A query string: a "?" inside a word, with more of the word after it. A "?"
+// that ends a word in a sentence is followed by a space, and stays.
+const QUERY_STRING = /([^\s"'<>?]+)\?[^\s"'<>]+/g;
 
 // Breadcrumb and span data keys whose whole value is a URL, so everything from
 // the first "?" or "#" goes, even on a relative URL that names no path.
@@ -42,7 +48,7 @@ const DROPPED_KEYS = new Set(["url.query", "url.fragment", "http.query", "http.f
 
 /** Redacts email and identity-number shapes and drops URL query strings in free text. */
 export function scrubString(text: string): string {
-  return text.replace(URL_TAIL, "$1").replace(EMAIL, "[email]").replace(IDENTITY_NUMBER, "[identity-number]");
+  return text.replace(QUERY_STRING, "$1").replace(URL_FRAGMENT, "$1").replace(EMAIL, "[email]").replace(IDENTITY_NUMBER, "[identity-number]");
 }
 
 /** A URL without its query string or fragment, then scrubbed like any text. */
@@ -70,6 +76,10 @@ export function scrubEvent<E extends SentryEvent>(event: E): E {
     out.exception = { ...event.exception };
     if (event.exception.values) out.exception.values = event.exception.values.map(scrubException);
   }
+  if (event.threads) {
+    out.threads = { ...event.threads, values: event.threads.values.map((thread) => ({ ...thread, stacktrace: scrubStacktrace(thread.stacktrace) })) };
+  }
+  if (event.fingerprint) out.fingerprint = event.fingerprint.map(scrubString);
   if (event.breadcrumbs) out.breadcrumbs = event.breadcrumbs.map(scrubBreadcrumb);
   if (event.request) {
     // Only where the request went and how: no body, query, cookies, headers
@@ -94,11 +104,16 @@ export function scrubEvent<E extends SentryEvent>(event: E): E {
 
 function scrubException(exception: SentryException): SentryException {
   const out: SentryException = { ...exception };
+  if (exception.type !== undefined) out.type = scrubString(exception.type);
   if (exception.value !== undefined) out.value = scrubString(exception.value);
-  if (exception.stacktrace?.frames) {
-    out.stacktrace = { ...exception.stacktrace, frames: exception.stacktrace.frames.map(scrubFrame) };
-  }
+  if (exception.mechanism?.data) out.mechanism = { ...exception.mechanism, data: scrubRecord(exception.mechanism.data) };
+  if (exception.stacktrace) out.stacktrace = scrubStacktrace(exception.stacktrace);
   return out;
+}
+
+function scrubStacktrace<S extends SentryStacktrace | undefined>(stacktrace: S): S {
+  if (!stacktrace?.frames) return stacktrace;
+  return { ...stacktrace, frames: stacktrace.frames.map(scrubFrame) };
 }
 
 function scrubFrame(frame: SentryStackFrame): SentryStackFrame {
