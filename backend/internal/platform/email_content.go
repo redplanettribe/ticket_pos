@@ -162,8 +162,8 @@ var (
 	questionReviewAnsweredRefusedCopy  = translated("refused", "rechazada")
 	questionReviewAnsweredReasonCopy   = translated(" — %s", " — %s")
 	questionReviewAnsweredClosingCopy  = translated(
-		"\nApproved questions are asked from now on. A refused question is not asked; edit it and submit the event's questions for review again.",
-		"\nLas preguntas aprobadas se hacen desde ahora. Una pregunta rechazada no se hace; edítela y envíe de nuevo las preguntas del evento a revisión.",
+		"\n\nApproved questions are asked from now on. A refused question is not asked; edit it and submit the event's questions for review again.",
+		"\n\nLas preguntas aprobadas se hacen desde ahora. Una pregunta rechazada no se hace; edítela y envíe de nuevo las preguntas del evento a revisión.",
 	)
 )
 
@@ -1015,10 +1015,11 @@ var (
 	// enforces: the ticket is unaffected (the Answer Link and the buyer's own
 	// routes keep working while a Ticket is merely `assigned`), the link dies at
 	// the Event's start (catalog.AnswerWindow, read live), and the address is
-	// deleted then (#322's purge). Anyone changing one of those has to come here.
+	// deleted at that point (#322's purge). Anyone changing one of those has to
+	// come here. Each fact is its own sentence (#704).
 	ticketAssignmentClosingCopy = translated(
-		"You do not have to do anything. If you ignore this message the ticket still works and the person who bought it can still use it, this link stops working when the event starts, and we delete your email address then.",
-		"No tiene que hacer nada. Si ignora este mensaje la entrada sigue siendo válida y quien la compró puede seguir usándola, este enlace deja de funcionar cuando empieza el evento, y entonces eliminamos su dirección de correo.",
+		"You do not have to do anything. If you ignore this message, the ticket still works and the person who bought it can still use it. This link stops working when the event starts. At that point we also delete your email address.",
+		"No tiene que hacer nada. Si ignora este mensaje, la entrada sigue siendo válida y quien la compró puede seguir usándola. Este enlace deja de funcionar cuando empieza el evento. En ese momento también eliminamos su dirección de correo.",
 	)
 )
 

@@ -46,8 +46,6 @@ func taxDocumentAttachments(now time.Time) ([]platform.EmailAttachment, error) {
 		IVAInclusive:   true,
 	}
 	const sequential = "000000042"
-	// 19 is the SRI's "tarjeta de crédito", what a Storefront card sale is.
-	const paymentMethod sri.PaymentMethod = "19"
 	issuedOn := now.In(sri.Guayaquil)
 
 	accessKey, err := sri.NewAccessKey(sri.AccessKeyInput{
@@ -69,7 +67,7 @@ func taxDocumentAttachments(now time.Time) ([]platform.EmailAttachment, error) {
 			LegalName: recipient.LegalName, Email: recipient.Email,
 		},
 		Lines:         []sri.Line{line},
-		PaymentMethod: paymentMethod,
+		PaymentMethod: sri.PaymentMethodDefault,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("tax document fixture: factura: %w", err)
@@ -102,7 +100,7 @@ func taxDocumentAttachments(now time.Time) ([]platform.EmailAttachment, error) {
 		DiscountCents: totals.DiscountCents,
 		IVACents:      totals.IVACents,
 		TotalCents:    totals.TotalCents,
-		PaymentMethod: string(paymentMethod),
+		PaymentMethod: string(sri.PaymentMethodDefault),
 		SignedXML:     built.XML,
 		Lines: []invoicing.InvoiceLine{{
 			Position:           1,

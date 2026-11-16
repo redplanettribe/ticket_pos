@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/peter/ticket_pos/backend/internal/invoicing/sri"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
@@ -220,6 +221,37 @@ func TestSendCheckTaxDocumentCarriesAttachmentsThatOpen(t *testing.T) {
 			t.Errorf("RIDE %s (%s, %d bytes) is not a whole PDF", pdfFile.FileName, pdfFile.ContentType, len(pdfFile.RawContent))
 		}
 	}
+}
+
+// The factura states formaPago sri.PaymentMethodDefault, as production
+// states on every Sale Invoice since PR #634 (2026-09-16), so the send check
+// shows what customers receive. The RIDE is rendered from the same constant.
+func TestSendCheckTaxDocumentStatesTheDefaultFormaPago(t *testing.T) {
+	fake, load := checkSetup(t)
+	if code := run(context.Background(), []string{"-to", checkRecipient, "-pace", "0"}, io.Discard, io.Discard, load); code != 0 {
+		t.Fatalf("exit code %d, want 0", code)
+	}
+	all, _ := messages(checkRecipient, fixedNow, nil, nil)
+	for i, req := range fake.sent() {
+		if all[i].name != "tax document delivery" {
+			continue
+		}
+		attachments := req.Content.Simple.Attachments
+		if len(attachments) == 0 {
+			t.Fatal("tax document delivery carries no factura XML")
+		}
+		var factura struct {
+			Pagos []string `xml:"infoFactura>pagos>pago>formaPago"`
+		}
+		if err := xml.Unmarshal(attachments[0].RawContent, &factura); err != nil {
+			t.Fatalf("factura XML: %v", err)
+		}
+		if want := []string{string(sri.PaymentMethodDefault)}; !reflect.DeepEqual(factura.Pagos, want) {
+			t.Errorf("formaPago = %v, want %v", factura.Pagos, want)
+		}
+		return
+	}
+	t.Fatal("no tax document delivery was sent")
 }
 
 // A failure on every send is reported per type and the run goes on to the

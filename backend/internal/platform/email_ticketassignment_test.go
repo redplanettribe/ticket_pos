@@ -45,9 +45,16 @@ func TestTicketAssignmentIsWrittenInEnglishWhenNothingNamedALanguage(t *testing.
 		"https://storefront.test/accept?token=abc.def",
 		// Ignoring is a real option with no consequence, which is the whole of
 		// how a Holder declines — there is no decline button anywhere (ADR 0046).
+		//
+		// Each of the closing's three facts is its own sentence (#704). Run
+		// together with commas they read as if ignoring the mail were what
+		// killed the Assignment Link, and a bare "then" left open when the
+		// address goes. Each pin starts with the space after the previous full
+		// stop, so the sentence boundary is pinned too.
 		"You do not have to do anything.",
-		"this link stops working when the event starts",
-		"we delete your email address then",
+		" If you ignore this message, the ticket still works and the person who bought it can still use it.",
+		" This link stops working when the event starts.",
+		" At that point we also delete your email address.",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text = %q, want it to contain %q", text, want)
@@ -76,6 +83,9 @@ func TestTicketAssignmentIsWrittenInSpanish(t *testing.T) {
 		"su dirección de correo se comparte con la organización",
 		"https://storefront.test/accept?token=abc.def",
 		"No tiene que hacer nada.",
+		" Si ignora este mensaje, la entrada sigue siendo válida y quien la compró puede seguir usándola.",
+		" Este enlace deja de funcionar cuando empieza el evento.",
+		" En ese momento también eliminamos su dirección de correo.",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text = %q, want it to contain %q", text, want)
