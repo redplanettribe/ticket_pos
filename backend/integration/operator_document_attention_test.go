@@ -84,9 +84,43 @@ func getNeedsAttentionCount(t *testing.T, sessionID string) int {
 	return view.NeedsAttentionCount
 }
 
+// annulInvoice presses Mark annulled with the confirm the staff page sends:
+// on a factura (#745) its number typed in full, and the late acknowledgement
+// once its Annulment Window has closed; on a Credit Note, or a document the
+// detail does not answer for, no body at all, as before #745.
 func annulInvoice(t *testing.T, sessionID, id string) (*http.Response, envelope) {
 	t.Helper()
-	return sriEnv.post(t, invoicesPath+"/"+id+"/annul", nil, authHeader(sessionID))
+	return sriEnv.post(t, invoicesPath+"/"+id+"/annul", annulConfirmFor(t, sessionID, id), authHeader(sessionID))
+}
+
+// annulConfirmFor is the confirm a factura's record form would send as it
+// now stands, or nil where Mark annulled takes no body.
+func annulConfirmFor(t *testing.T, sessionID, id string) any {
+	t.Helper()
+	resp, env := sriEnv.get(t, invoicesPath+"/"+id, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	var view struct {
+		Kind         string  `json:"kind"`
+		Number       *string `json:"number"`
+		Annulability *struct {
+			Window *struct {
+				Open bool `json:"open"`
+			} `json:"window"`
+		} `json:"annulability"`
+	}
+	if err := json.Unmarshal(env.Data, &view); err != nil {
+		t.Fatalf("decode invoice: %v", err)
+	}
+	if view.Kind == "credit_note" || view.Number == nil {
+		return nil
+	}
+	body := map[string]any{"number": *view.Number}
+	if view.Annulability != nil && view.Annulability.Window != nil && !view.Annulability.Window.Open {
+		body["late_acknowledged"] = true
+	}
+	return body
 }
 
 func annulOK(t *testing.T, sessionID, id string) annulledInvoiceView {
@@ -378,10 +412,10 @@ func TestOperatorMarksAPendingDocumentAnnulled(t *testing.T) {
 	}
 }
 
-// TestMarkAnnulledIsRefusedWhereNothingWasAnnulled: an authorized document is
-// a legal artifact the Credit Note handles; an owed one, and a document
-// parked unsigned, have no number at the SRI to have been annulled; a
-// document that does not exist is 404.
+// TestMarkAnnulledIsRefusedWhereNothingWasAnnulled: an owed document, and a
+// document parked unsigned, have no number at the SRI to have been annulled;
+// a document that does not exist is 404. An authorized factura is admitted
+// since #745 (invoicing_annul_authorized_test.go).
 func TestMarkAnnulledIsRefusedWhereNothingWasAnnulled(t *testing.T) {
 	env := setupTest(t)
 	operatorSessionID, invoiceID := houseSaleOwed(t, env, 1000, 1)
@@ -395,17 +429,6 @@ func TestMarkAnnulledIsRefusedWhereNothingWasAnnulled(t *testing.T) {
 	}
 	resp, body = annulInvoice(t, operatorSessionID, invoiceID)
 	expectRefusal(t, "annul an unsigned document", resp, body, http.StatusConflict, "INVOICE_NOT_ISSUED")
-
-	issuerReady(t, operatorSessionID)
-	atInvoicingClock(t, fixedClock.Add(time.Hour))
-	if result := drainSaleInvoices(t); result.Authorized != 1 {
-		t.Fatalf("drain once fixed = %+v; want authorized", result)
-	}
-	resp, body = annulInvoice(t, operatorSessionID, invoiceID)
-	expectRefusal(t, "annul an authorized document", resp, body, http.StatusConflict, "INVOICE_NOT_ANNULLABLE")
-	if detail := getDrainedInvoice(t, operatorSessionID, invoiceID); detail.Status != "authorized" {
-		t.Fatalf("after the refusal: %s; want still authorized", detail.Status)
-	}
 
 	resp, body = annulInvoice(t, operatorSessionID, "00000000-0000-0000-0000-000000000000")
 	expectRefusal(t, "annul an unknown document", resp, body, http.StatusNotFound, "INVOICE_NOT_FOUND")

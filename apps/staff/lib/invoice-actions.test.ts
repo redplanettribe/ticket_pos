@@ -37,9 +37,21 @@ function loadCatalog(locale: string): Catalog {
 
 const NONE = { check: false, resend: false, annul: false, reissue: false, abandon: false, issueAgain: false };
 
-test("a pending or parked document offers check, resend and mark annulled", () => {
-  assert.deepEqual(invoiceLevers("pending", true), { ...NONE, check: true, resend: true, annul: true });
-  assert.deepEqual(invoiceLevers("needs_attention", true), { ...NONE, check: true, resend: true, annul: true });
+const CREDIT_NOTE = { kind: "credit_note" as const, superseded_by_invoice_id: null, credited_by_invoice_id: null };
+const SALE_INVOICE = { kind: "sale" as const, superseded_by_invoice_id: null, credited_by_invoice_id: null };
+
+test("a pending or parked Credit Note offers check, resend and mark annulled", () => {
+  assert.deepEqual(invoiceLevers("pending", true, CREDIT_NOTE), { ...NONE, check: true, resend: true, annul: true });
+  assert.deepEqual(invoiceLevers("needs_attention", true, CREDIT_NOTE), { ...NONE, check: true, resend: true, annul: true });
+});
+
+// A factura's Mark annulled is the annulment panel's since #745 (ADR 0078):
+// the card offers its remedies and never the button.
+test("a pending or parked factura offers check and resend, and its mark annulled is the panel's", () => {
+  for (const chain of [SALE_INVOICE, undefined]) {
+    assert.deepEqual(invoiceLevers("pending", true, chain), { ...NONE, check: true, resend: true });
+    assert.deepEqual(invoiceLevers("needs_attention", true, chain), { ...NONE, check: true, resend: true });
+  }
 });
 
 // A manual Tax Invoice the SRI refused keeps the two remedies it always had
@@ -177,7 +189,7 @@ test("a document the SRI refuses by number keeps check and loses resend", () => 
 test("no document is ever offered both abandon and mark annulled", () => {
   for (const status of INVOICE_STATUSES) {
     for (const refusedByNumber of [true, false]) {
-      const levers = invoiceLevers(status, true, undefined, refusedByNumber);
+      const levers = invoiceLevers(status, true, CREDIT_NOTE, refusedByNumber);
       assert.ok(!(levers.abandon && levers.annul), `${status} refusedByNumber=${refusedByNumber}`);
     }
   }

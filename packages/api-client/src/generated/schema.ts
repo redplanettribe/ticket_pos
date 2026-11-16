@@ -3683,7 +3683,7 @@ export interface paths {
         put?: never;
         /**
          * Mark a document annulled
-         * @description Records that the Platform Operator annulled the document by hand at the SRI portal - the SRI offers no web service for annulment (ADR 0060) - and answers with the document as it then stands: status `annulled`, `annulled_by` the operator's email from the session and `annulled_at` the moment. Nothing is sent to or asked of the SRI. The row keeps its number, clave de acceso, signed XML and the SRI's last messages; `next_attempt_at` is cleared so the Sale Invoice Drainer never claims it again, and it leaves the needs-attention queue. Allowed only from `pending` or `needs_attention` - the states in which the operator may have acted at the portal - and irreversible: INVOICE_NOT_ANNULLABLE (409) on an authorized, withdrawn, abandoned or already annulled document, INVOICE_ABANDON_INSTEAD (409) on a document the SRI refuses for its NUMBER - error 45, `secuencial registrado` (ADR 0068) - since the SRI never took that number and there is nothing at its portal to have been annulled; that document is abandoned instead, INVOICE_NOT_ISSUED (409) on one still owed or parked unsigned (nothing exists at the SRI to have been annulled), INVOICE_NOT_FOUND (404) otherwise. Afterwards Resend answers INVOICE_ANNULLED, and Check status asks the SRI's ConsultaComprobante and changes nothing (#744). Platform Operator only.
+         * @description Records that the Platform Operator annulled the document by hand at the SRI portal - the SRI offers no web service for annulment (ADR 0060, ADR 0078) - and answers with the document as it then stands: status `annulled`, `annulled_by` the operator's email from the session and `annulled_at` the moment. Nothing is sent to or asked of the SRI. The row keeps its number, clave de acceso, signed XML, authorization and the SRI's last messages; `next_attempt_at` is cleared so the Sale Invoice Drainer never claims it again, and it leaves the needs-attention queue. Irreversible here. ON A FACTURA (kind `sale` or `manual`, #745) it is one act from `pending`, `needs_attention` or `authorized`, whether the portal step came before the recording or after it, with one set of gates in every state, and the test environment is admitted as production is. The body is the confirm: `number`, the document's printed number `estab-ptoEmi-secuencial` typed in full (required); `note`, optional, at most 500 characters (blank is no note); `late_acknowledged`, the operator's word that the portal took the annulment, REQUIRED once the Annulment Window has closed and REFUSED while it is open. The window closes at the end of day 7 of the month after the Emission Date, in America/Guayaquil, read strictly - the SRI's rollover to the next business day is never claimed; `annulability.window` on the detail carries it. Each Mark annulled on a factura is a row of the detail's `annulment` (`current`: `from_status`, `annulled_by`, `annulled_at`, `note`, `late_acknowledged`). Refused with INVOICE_NUMBER_MISMATCH (409) when the typed number is missing or not the document's, INVOICE_REISSUE_STANDS (409) while a live Reissue successor stands in its place, INVOICE_CREDIT_NOTE_STANDS (409) on an authorized factura while a live Credit Note - owed, pending, needs_attention or authorized - stands against it (a withdrawn, abandoned, annulled, rejected or not_authorized one does not refuse; on a pending or needs_attention factura a Credit Note can only be owed and waiting for it, and annulling the factura withdraws it, so it never refuses there), INVOICE_ANNULMENT_LATE (409, `details.deadline`) past the deadline without the acknowledgement, INVOICE_ANNULMENT_NOT_LATE (409, `details.deadline`) with it before. The factura's facts are judged before what was typed. ON A CREDIT NOTE it is unchanged: only from `pending` or `needs_attention`, the body is not read, no window and no annulments row; annulling a Reissue's Credit Note withdraws the unsigned corrected factura in the same transaction (#484). On either: INVOICE_NOT_ANNULLABLE (409) on a document in any other state, INVOICE_ABANDON_INSTEAD (409) on a document parked `needs_attention` that the SRI refuses for its NUMBER - error 45, `secuencial registrado` (ADR 0068) - since the SRI never took that number and there is nothing at its portal to have been annulled; that document is abandoned instead, INVOICE_NOT_ISSUED (409) on one still owed or parked unsigned, INVOICE_NOT_FOUND (404) otherwise. The write is guarded on the state the document was read in, so a press racing a late AUTORIZADO or a reversal is refused rather than double-written. Afterwards Resend answers INVOICE_ANNULLED, and Check status asks the SRI's ConsultaComprobante and changes nothing (#744). Platform Operator only.
          */
         post: {
             parameters: {
@@ -3695,7 +3695,12 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            requestBody?: never;
+            /** @description The confirm, on a factura */
+            requestBody?: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.annulInvoiceBody"];
+                };
+            };
             responses: {
                 /** @description OK */
                 200: {
@@ -3704,6 +3709,15 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["openapi.EnvelopeInvoiceDetail"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
                     };
                 };
                 /** @description Unauthorized */
@@ -14293,6 +14307,11 @@ export interface components {
             name?: string;
             value?: string;
         };
+        "handler.annulInvoiceBody": {
+            late_acknowledged?: boolean;
+            note?: string;
+            number?: string;
+        };
         "handler.answerBody": {
             /** @description Checked answers checkbox. */
             checked?: boolean;
@@ -16005,6 +16024,49 @@ export interface components {
             link_id?: string;
             views?: number;
         };
+        "service.AnnulabilityView": {
+            admitted?: boolean;
+            portal?: components["schemas"]["service.AnnulmentPortalView"];
+            refusal?: components["schemas"]["service.RefusalView"];
+            window?: components["schemas"]["service.AnnulmentWindowView"];
+        };
+        "service.AnnulmentPortalView": {
+            access_key?: string;
+            authorization_date?: string;
+            environment?: string;
+            receptor_email?: string;
+            receptor_id?: string;
+        };
+        /**
+         * @description Annulment and Annulability are a factura's Mark annulled (#745, spec
+         *     #742, ADR 0078): the record of every annulment it carries, and
+         *     whether the act is admitted on it as it stands, with the Annulment
+         *     Window and the fields the SRI portal's form asks for. Both null on a
+         *     Credit Note, whose Mark annulled keeps no record and has no window.
+         */
+        "service.AnnulmentRecordView": {
+            current?: components["schemas"]["service.AnnulmentView"];
+            past?: components["schemas"]["service.AnnulmentView"][];
+        };
+        "service.AnnulmentView": {
+            annulled_at?: string;
+            annulled_by?: string;
+            from_status?: string;
+            late_acknowledged?: boolean;
+            note?: string;
+            reinstated_at?: string;
+        };
+        "service.AnnulmentWindowView": {
+            closes_at?: string;
+            days_left?: number;
+            days_total?: number;
+            deadline?: string;
+            issued_on?: string;
+            open?: boolean;
+            today?: string;
+            warning?: boolean;
+            warning_from?: string;
+        };
         "service.AnswerOptionView": {
             /**
              * @description CurrentLabel is what the same Option reads NOW. It equals Label until
@@ -17638,6 +17700,7 @@ export interface components {
              */
             abandoned_by?: string;
             additional_fields?: components["schemas"]["service.AdditionalFieldView"][];
+            annulability?: components["schemas"]["service.AnnulabilityView"];
             annulled_at?: string;
             /**
              * @description AnnulledBy and AnnulledAt are the operator who marked the document
@@ -17645,6 +17708,7 @@ export interface components {
              *     Both null unless the document is annulled.
              */
             annulled_by?: string;
+            annulment?: components["schemas"]["service.AnnulmentRecordView"];
             /**
              * @description AttemptID is the id of the attempts row (in `attempts`) holding the
              *     last SRI call this press made; its `outcome` is what the SRI answered.
@@ -17810,6 +17874,7 @@ export interface components {
              */
             abandoned_by?: string;
             additional_fields?: components["schemas"]["service.AdditionalFieldView"][];
+            annulability?: components["schemas"]["service.AnnulabilityView"];
             annulled_at?: string;
             /**
              * @description AnnulledBy and AnnulledAt are the operator who marked the document
@@ -17817,6 +17882,7 @@ export interface components {
              *     Both null unless the document is annulled.
              */
             annulled_by?: string;
+            annulment?: components["schemas"]["service.AnnulmentRecordView"];
             attempts?: components["schemas"]["service.AttemptView"][];
             /**
              * @description AttentionSince is when the document was parked needs_attention — how
@@ -19652,6 +19718,10 @@ export interface components {
         };
         "service.RecipientWarningCount": {
             recipient_warning_count?: number;
+        };
+        "service.RefusalView": {
+            code?: string;
+            message?: string;
         };
         "service.RefusedBackfillSale": {
             code?: string;

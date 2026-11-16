@@ -3,7 +3,7 @@
  * tested under `node --test` (#477, ADR 0060; #483, ADR 0061).
  *
  * The API is the gate: Check status and Resend are refused on an authorized
- * or annulled document, Mark annulled outside `pending` and
+ * or annulled document, a Credit Note's Mark annulled outside `pending` and
  * `needs_attention`, Reissue anywhere but on a current, authorized Sale
  * Invoice, and every refusal is shown by code. This exists so the page never
  * renders a lever the API is certain to refuse — a greyed button invites the
@@ -18,7 +18,11 @@ import type { InvoiceKind, InvoiceStatus, OperatorInvoiceAttempt } from "./opera
  * `check` and `resend` go together: both are the operator's remedies for a
  * document the SRI has not authorized. `annul` is the operator's record of a
  * manual portal act, offered only where they could have made one — a
- * document the SRI holds (pending) or refused / lost (needs_attention).
+ * document the SRI holds (pending) or refused / lost (needs_attention) — and
+ * ON A CREDIT NOTE ALONE since #745 (spec #742, ADR 0078). A factura's Mark
+ * annulled moved to the annulment panel at the top of its page
+ * (annulment-panel.ts), which admits it authorized too and takes the typed
+ * number; the card keeps the Credit Note's plain confirm exactly as it was.
  * An authorized document is a legal artifact; an annulled or withdrawn one
  * is finished; an owed one has not been signed, so there is nothing at the
  * SRI to check, resend or annul.
@@ -119,17 +123,19 @@ export function invoiceLevers(
   }
   // The refusal by number takes `resend` away wherever it was offered (#577)
   // and hands `annul` to `abandon` (#578). Check still asks the SRI what it
-  // holds, and its answer is what an Abandon rests on.
+  // holds, and its answer is what an Abandon rests on. A factura's `annul` is
+  // the annulment panel's, never this card's (#745).
   const resend = !refusedByNumber;
+  const annul = !refusedByNumber && chain.kind === "credit_note";
   switch (status) {
     case "pending":
       // Still with the SRI: checked, not given up on. Mark annulled goes all
       // the same where the number is refused — the portal has nothing to
       // have been annulled — and this is the one state that offers neither
       // it nor Abandon.
-      return { check: true, resend, annul: !refusedByNumber, reissue, abandon: false, issueAgain };
+      return { check: true, resend, annul, reissue, abandon: false, issueAgain };
     case "needs_attention":
-      return { check: true, resend, annul: !refusedByNumber, reissue, abandon: refusedByNumber, issueAgain };
+      return { check: true, resend, annul, reissue, abandon: refusedByNumber, issueAgain };
     case "not_authorized":
     case "rejected":
       return { check: true, resend, annul: false, reissue, abandon: refusedByNumber, issueAgain };

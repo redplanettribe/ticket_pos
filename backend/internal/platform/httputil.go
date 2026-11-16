@@ -263,6 +263,14 @@ func domainHTTPStatus(code string) int {
 	case "INVOICE_ABANDONED", "INVOICE_NOT_ABANDONABLE", "INVOICE_NOT_REFUSED_BY_NUMBER",
 		"INVOICE_CHECK_NOT_FRESH", "INVOICE_ABANDON_INSTEAD":
 		return http.StatusConflict
+	// Mark annulled's refusals on a factura (#745, ADR 0078). All 409, on the
+	// Abandon's terms: the typed number and the late acknowledgement are the
+	// confirm, compared against the document as it stands, and the Credit
+	// Note, the Reissue and the window are facts about it that no retry with
+	// the same body changes.
+	case "INVOICE_NUMBER_MISMATCH", "INVOICE_CREDIT_NOTE_STANDS", "INVOICE_REISSUE_STANDS",
+		"INVOICE_ANNULMENT_LATE", "INVOICE_ANNULMENT_NOT_LATE":
+		return http.StatusConflict
 	// The Sale Invoice Reissue's refusals (#483, ADR 0061): the document
 	// exists and the request was well formed, and what stands in the way is
 	// a fact about the document or its Sale — its kind, its state, a reversed

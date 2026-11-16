@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -13,8 +14,9 @@ import (
 // The documents that need an operator (#477): the needs-attention queue
 // and its count for the Operator Dashboard, and Mark annulled on the
 // document detail. The queue takes a page and nothing else; Mark annulled
-// takes no body — who annulled comes from the session, and the answer is
-// the document as it then stands.
+// takes, on a factura, the typed confirm (#745) and nothing on a Credit
+// Note — who annulled comes from the session, and the answer is the
+// document as it then stands.
 //
 // THE QUEUE IS A UNION OF TWO CONDITIONS (#581, ADR 0068), and both the
 // list's and the count's descriptions say so in full, because an API
@@ -91,15 +93,29 @@ func (h *Handler) CountRecipientWarnings(w http.ResponseWriter, r *http.Request)
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, count)
 }
 
+// annulInvoiceBody is Mark annulled's confirm as submitted (#745, ADR 0078).
+// On a factura: the document's number typed in full, an optional note of
+// at most 500 characters, and past the Annulment Window the operator's
+// acknowledgement that the portal took the annulment. A Credit Note's
+// Mark annulled reads none of it, so no body at all stays a valid press.
+type annulInvoiceBody struct {
+	Number           *string `json:"number"`
+	Note             *string `json:"note"`
+	LateAcknowledged *bool   `json:"late_acknowledged"`
+}
+
 // AnnulInvoice marks a document annulled.
 //
 // @Summary      Mark a document annulled
-// @Description  Records that the Platform Operator annulled the document by hand at the SRI portal - the SRI offers no web service for annulment (ADR 0060) - and answers with the document as it then stands: status `annulled`, `annulled_by` the operator's email from the session and `annulled_at` the moment. Nothing is sent to or asked of the SRI. The row keeps its number, clave de acceso, signed XML and the SRI's last messages; `next_attempt_at` is cleared so the Sale Invoice Drainer never claims it again, and it leaves the needs-attention queue. Allowed only from `pending` or `needs_attention` - the states in which the operator may have acted at the portal - and irreversible: INVOICE_NOT_ANNULLABLE (409) on an authorized, withdrawn, abandoned or already annulled document, INVOICE_ABANDON_INSTEAD (409) on a document the SRI refuses for its NUMBER - error 45, `secuencial registrado` (ADR 0068) - since the SRI never took that number and there is nothing at its portal to have been annulled; that document is abandoned instead, INVOICE_NOT_ISSUED (409) on one still owed or parked unsigned (nothing exists at the SRI to have been annulled), INVOICE_NOT_FOUND (404) otherwise. Afterwards Resend answers INVOICE_ANNULLED, and Check status asks the SRI's ConsultaComprobante and changes nothing (#744). Platform Operator only.
+// @Description  Records that the Platform Operator annulled the document by hand at the SRI portal - the SRI offers no web service for annulment (ADR 0060, ADR 0078) - and answers with the document as it then stands: status `annulled`, `annulled_by` the operator's email from the session and `annulled_at` the moment. Nothing is sent to or asked of the SRI. The row keeps its number, clave de acceso, signed XML, authorization and the SRI's last messages; `next_attempt_at` is cleared so the Sale Invoice Drainer never claims it again, and it leaves the needs-attention queue. Irreversible here. ON A FACTURA (kind `sale` or `manual`, #745) it is one act from `pending`, `needs_attention` or `authorized`, whether the portal step came before the recording or after it, with one set of gates in every state, and the test environment is admitted as production is. The body is the confirm: `number`, the document's printed number `estab-ptoEmi-secuencial` typed in full (required); `note`, optional, at most 500 characters (blank is no note); `late_acknowledged`, the operator's word that the portal took the annulment, REQUIRED once the Annulment Window has closed and REFUSED while it is open. The window closes at the end of day 7 of the month after the Emission Date, in America/Guayaquil, read strictly - the SRI's rollover to the next business day is never claimed; `annulability.window` on the detail carries it. Each Mark annulled on a factura is a row of the detail's `annulment` (`current`: `from_status`, `annulled_by`, `annulled_at`, `note`, `late_acknowledged`). Refused with INVOICE_NUMBER_MISMATCH (409) when the typed number is missing or not the document's, INVOICE_REISSUE_STANDS (409) while a live Reissue successor stands in its place, INVOICE_CREDIT_NOTE_STANDS (409) on an authorized factura while a live Credit Note - owed, pending, needs_attention or authorized - stands against it (a withdrawn, abandoned, annulled, rejected or not_authorized one does not refuse; on a pending or needs_attention factura a Credit Note can only be owed and waiting for it, and annulling the factura withdraws it, so it never refuses there), INVOICE_ANNULMENT_LATE (409, `details.deadline`) past the deadline without the acknowledgement, INVOICE_ANNULMENT_NOT_LATE (409, `details.deadline`) with it before. The factura's facts are judged before what was typed. ON A CREDIT NOTE it is unchanged: only from `pending` or `needs_attention`, the body is not read, no window and no annulments row; annulling a Reissue's Credit Note withdraws the unsigned corrected factura in the same transaction (#484). On either: INVOICE_NOT_ANNULLABLE (409) on a document in any other state, INVOICE_ABANDON_INSTEAD (409) on a document parked `needs_attention` that the SRI refuses for its NUMBER - error 45, `secuencial registrado` (ADR 0068) - since the SRI never took that number and there is nothing at its portal to have been annulled; that document is abandoned instead, INVOICE_NOT_ISSUED (409) on one still owed or parked unsigned, INVOICE_NOT_FOUND (404) otherwise. The write is guarded on the state the document was read in, so a press racing a late AUTORIZADO or a reversal is refused rather than double-written. Afterwards Resend answers INVOICE_ANNULLED, and Check status asks the SRI's ConsultaComprobante and changes nothing (#744). Platform Operator only.
 // @Tags         operator
+// @Accept       json
 // @Produce      json
 // @Security     BearerAuth
-// @Param        id  path  string  true  "Document id"
+// @Param        id    path  string            true   "Document id"
+// @Param        body  body  annulInvoiceBody  false  "The confirm, on a factura"
 // @Success      200  {object}  openapi.EnvelopeInvoiceDetail
+// @Failure      400  {object}  platform.Envelope
 // @Failure      401  {object}  platform.Envelope
 // @Failure      403  {object}  platform.Envelope
 // @Failure      404  {object}  platform.Envelope
@@ -119,7 +135,30 @@ func (h *Handler) AnnulInvoice(w http.ResponseWriter, r *http.Request) {
 		_ = platform.WriteUnauthorized(w, reqID, "Missing session token")
 		return
 	}
-	invoice, err := h.svc.AnnulInvoice(r.Context(), id, session.Email)
+	// An empty body is a valid press: a Credit Note's Mark annulled takes
+	// none, and on a factura the missing number is the service's refusal.
+	var body annulInvoiceBody
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errorIsEmptyBody(err) {
+			_ = platform.WriteInvalidJSON(w, reqID)
+			return
+		}
+	}
+	// The note is bounded and trimmed exactly as the Abandon's is: one
+	// sentence for a colleague, blank is no note.
+	note, fields := abandonNote(body.Note)
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+	req := invoicing.AnnulmentRequest{Note: note}
+	if body.Number != nil {
+		req.Number = *body.Number
+	}
+	if body.LateAcknowledged != nil {
+		req.LateAcknowledged = *body.LateAcknowledged
+	}
+	invoice, err := h.svc.AnnulInvoice(r.Context(), id, session.Email, req)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return

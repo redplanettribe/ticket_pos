@@ -1293,6 +1293,58 @@ export type OperatorInvoiceEcuador = {
 };
 
 /** One Tax Invoice in full. `issuer` and `ecuador` are null until the document is signed (#473). */
+/**
+ * One Mark annulled on a factura (#745, spec #742, ADR 0078), as the
+ * annulments ledger keeps it: the state it was annulled from, who, when, the
+ * optional note and whether the operator acknowledged a late annulment.
+ * `reinstated_at` is null while it stands.
+ */
+export type OperatorInvoiceAnnulment = {
+  from_status: "pending" | "needs_attention" | "authorized";
+  annulled_by: string;
+  annulled_at: string;
+  note: string | null;
+  late_acknowledged: boolean;
+  reinstated_at: string | null;
+};
+
+/**
+ * The Annulment Window at the moment of the read: day 7 of the month after
+ * the Emission Date, to the end of that day in Guayaquil, never the SRI's
+ * holiday rollover; the warning stretch from day 1 of that month. Every date
+ * is the API's, YYYY-MM-DD, so the page never computes one.
+ */
+export type OperatorAnnulmentWindow = {
+  issued_on: string;
+  deadline: string;
+  warning_from: string;
+  today: string;
+  closes_at: string;
+  open: boolean;
+  warning: boolean;
+  days_left: number;
+  days_total: number;
+};
+
+/** What the SRI portal's annulment form asks for, ready to copy. */
+export type OperatorAnnulmentPortal = {
+  access_key: string;
+  /** On an authorized document only. */
+  authorization_date: string | null;
+  /** Exactly as the signed XML carries it, spaces included. */
+  receptor_id: string;
+  receptor_email: string;
+  environment: EcuadorIssuerEnvironment;
+};
+
+/** Whether Mark annulled is admitted on a factura as it stands, before anything is typed. */
+export type OperatorInvoiceAnnulability = {
+  admitted: boolean;
+  refusal: { code: string; message: string } | null;
+  window: OperatorAnnulmentWindow | null;
+  portal: OperatorAnnulmentPortal | null;
+};
+
 export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
   issuer: OperatorInvoiceIssuerSnapshot | null;
   lines: OperatorInvoiceLine[];
@@ -1356,6 +1408,14 @@ export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
    * answers exactly as one refused after it.
    */
   refused_by_number: boolean;
+  /**
+   * A factura's Mark annulled (#745): its annulments ledger, the one
+   * standing and those since reinstated, and whether the act is admitted on
+   * it now, with the window and the portal's fields. Both null on a Credit
+   * Note, whose Mark annulled keeps no record and has no window.
+   */
+  annulment: { current: OperatorInvoiceAnnulment | null; past: OperatorInvoiceAnnulment[] } | null;
+  annulability: OperatorInvoiceAnnulability | null;
   has_authorization_xml: boolean;
   /**
    * The two hints about who holds the document (#455, tightened by #516),
@@ -1586,15 +1646,28 @@ export async function fetchOperatorNeedsAttentionCount(): Promise<OperatorNeedsA
 }
 
 /**
+ * The confirm Mark annulled takes on a factura (#745): the number typed in
+ * full, an optional note, and past the Annulment Window the operator's
+ * acknowledgement that the portal took it. A Credit Note takes none.
+ */
+export type AnnulInvoiceConfirm = {
+  number: string;
+  note: string | null;
+  late_acknowledged: boolean;
+};
+
+/**
  * Records that the operator annulled the document by hand at the SRI portal
  * (#477) and returns it as it then stands: `annulled`, with who and when.
- * Nothing is sent to the SRI. Refused with INVOICE_NOT_ANNULLABLE outside
- * `pending` and `needs_attention`, and with INVOICE_NOT_ISSUED on a document
- * never signed. Irreversible.
+ * Nothing is sent to the SRI. On a factura (#745) it is admitted from
+ * `pending`, `needs_attention` and `authorized` with the confirm; on a
+ * Credit Note from `pending` and `needs_attention`, with no body.
+ * Irreversible.
  */
-export async function annulOperatorInvoice(id: string): Promise<OperatorInvoiceDetail> {
+export async function annulOperatorInvoice(id: string, confirm?: AnnulInvoiceConfirm): Promise<OperatorInvoiceDetail> {
   return fetchEventsJSON<OperatorInvoiceDetail>(`${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/annul`, {
     method: "POST",
+    ...(confirm ? { body: JSON.stringify(confirm) } : {}),
   });
 }
 

@@ -73,6 +73,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.annulInvoiceBody": {
+                "properties": {
+                    "late_acknowledged": {
+                        "type": "boolean"
+                    },
+                    "note": {
+                        "type": "string"
+                    },
+                    "number": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.answerBody": {
                 "properties": {
                     "checked": {
@@ -3577,6 +3591,114 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.AnnulabilityView": {
+                "properties": {
+                    "admitted": {
+                        "type": "boolean"
+                    },
+                    "portal": {
+                        "$ref": "#/components/schemas/service.AnnulmentPortalView"
+                    },
+                    "refusal": {
+                        "$ref": "#/components/schemas/service.RefusalView"
+                    },
+                    "window": {
+                        "$ref": "#/components/schemas/service.AnnulmentWindowView"
+                    }
+                },
+                "type": "object"
+            },
+            "service.AnnulmentPortalView": {
+                "properties": {
+                    "access_key": {
+                        "type": "string"
+                    },
+                    "authorization_date": {
+                        "type": "string"
+                    },
+                    "environment": {
+                        "type": "string"
+                    },
+                    "receptor_email": {
+                        "type": "string"
+                    },
+                    "receptor_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.AnnulmentRecordView": {
+                "description": "Annulment and Annulability are a factura's Mark annulled (#745, spec\n#742, ADR 0078): the record of every annulment it carries, and\nwhether the act is admitted on it as it stands, with the Annulment\nWindow and the fields the SRI portal's form asks for. Both null on a\nCredit Note, whose Mark annulled keeps no record and has no window.",
+                "properties": {
+                    "current": {
+                        "$ref": "#/components/schemas/service.AnnulmentView"
+                    },
+                    "past": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.AnnulmentView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "service.AnnulmentView": {
+                "properties": {
+                    "annulled_at": {
+                        "type": "string"
+                    },
+                    "annulled_by": {
+                        "type": "string"
+                    },
+                    "from_status": {
+                        "type": "string"
+                    },
+                    "late_acknowledged": {
+                        "type": "boolean"
+                    },
+                    "note": {
+                        "type": "string"
+                    },
+                    "reinstated_at": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.AnnulmentWindowView": {
+                "properties": {
+                    "closes_at": {
+                        "type": "string"
+                    },
+                    "days_left": {
+                        "type": "integer"
+                    },
+                    "days_total": {
+                        "type": "integer"
+                    },
+                    "deadline": {
+                        "type": "string"
+                    },
+                    "issued_on": {
+                        "type": "string"
+                    },
+                    "open": {
+                        "type": "boolean"
+                    },
+                    "today": {
+                        "type": "string"
+                    },
+                    "warning": {
+                        "type": "boolean"
+                    },
+                    "warning_from": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.AnswerOptionView": {
                 "properties": {
                     "current_label": {
@@ -5512,12 +5634,18 @@ const docTemplate = `{
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "annulability": {
+                        "$ref": "#/components/schemas/service.AnnulabilityView"
+                    },
                     "annulled_at": {
                         "type": "string"
                     },
                     "annulled_by": {
                         "description": "AnnulledBy and AnnulledAt are the operator who marked the document\nannulled after annulling it by hand at the SRI portal, and when (#477).\nBoth null unless the document is annulled.",
                         "type": "string"
+                    },
+                    "annulment": {
+                        "$ref": "#/components/schemas/service.AnnulmentRecordView"
                     },
                     "attempt_id": {
                         "description": "AttemptID is the id of the attempts row (in ` + "`" + `attempts` + "`" + `) holding the\nlast SRI call this press made; its ` + "`" + `outcome` + "`" + ` is what the SRI answered.",
@@ -5702,12 +5830,18 @@ const docTemplate = `{
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "annulability": {
+                        "$ref": "#/components/schemas/service.AnnulabilityView"
+                    },
                     "annulled_at": {
                         "type": "string"
                     },
                     "annulled_by": {
                         "description": "AnnulledBy and AnnulledAt are the operator who marked the document\nannulled after annulling it by hand at the SRI portal, and when (#477).\nBoth null unless the document is annulled.",
                         "type": "string"
+                    },
+                    "annulment": {
+                        "$ref": "#/components/schemas/service.AnnulmentRecordView"
                     },
                     "attempts": {
                         "items": {
@@ -8029,6 +8163,17 @@ const docTemplate = `{
                 "properties": {
                     "recipient_warning_count": {
                         "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.RefusalView": {
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -13056,7 +13201,7 @@ const docTemplate = `{
         },
         "/api/v1/operator/invoicing/invoices/{id}/annul": {
             "post": {
-                "description": "Records that the Platform Operator annulled the document by hand at the SRI portal - the SRI offers no web service for annulment (ADR 0060) - and answers with the document as it then stands: status ` + "`" + `annulled` + "`" + `, ` + "`" + `annulled_by` + "`" + ` the operator's email from the session and ` + "`" + `annulled_at` + "`" + ` the moment. Nothing is sent to or asked of the SRI. The row keeps its number, clave de acceso, signed XML and the SRI's last messages; ` + "`" + `next_attempt_at` + "`" + ` is cleared so the Sale Invoice Drainer never claims it again, and it leaves the needs-attention queue. Allowed only from ` + "`" + `pending` + "`" + ` or ` + "`" + `needs_attention` + "`" + ` - the states in which the operator may have acted at the portal - and irreversible: INVOICE_NOT_ANNULLABLE (409) on an authorized, withdrawn, abandoned or already annulled document, INVOICE_ABANDON_INSTEAD (409) on a document the SRI refuses for its NUMBER - error 45, ` + "`" + `secuencial registrado` + "`" + ` (ADR 0068) - since the SRI never took that number and there is nothing at its portal to have been annulled; that document is abandoned instead, INVOICE_NOT_ISSUED (409) on one still owed or parked unsigned (nothing exists at the SRI to have been annulled), INVOICE_NOT_FOUND (404) otherwise. Afterwards Resend answers INVOICE_ANNULLED, and Check status asks the SRI's ConsultaComprobante and changes nothing (#744). Platform Operator only.",
+                "description": "Records that the Platform Operator annulled the document by hand at the SRI portal - the SRI offers no web service for annulment (ADR 0060, ADR 0078) - and answers with the document as it then stands: status ` + "`" + `annulled` + "`" + `, ` + "`" + `annulled_by` + "`" + ` the operator's email from the session and ` + "`" + `annulled_at` + "`" + ` the moment. Nothing is sent to or asked of the SRI. The row keeps its number, clave de acceso, signed XML, authorization and the SRI's last messages; ` + "`" + `next_attempt_at` + "`" + ` is cleared so the Sale Invoice Drainer never claims it again, and it leaves the needs-attention queue. Irreversible here. ON A FACTURA (kind ` + "`" + `sale` + "`" + ` or ` + "`" + `manual` + "`" + `, #745) it is one act from ` + "`" + `pending` + "`" + `, ` + "`" + `needs_attention` + "`" + ` or ` + "`" + `authorized` + "`" + `, whether the portal step came before the recording or after it, with one set of gates in every state, and the test environment is admitted as production is. The body is the confirm: ` + "`" + `number` + "`" + `, the document's printed number ` + "`" + `estab-ptoEmi-secuencial` + "`" + ` typed in full (required); ` + "`" + `note` + "`" + `, optional, at most 500 characters (blank is no note); ` + "`" + `late_acknowledged` + "`" + `, the operator's word that the portal took the annulment, REQUIRED once the Annulment Window has closed and REFUSED while it is open. The window closes at the end of day 7 of the month after the Emission Date, in America/Guayaquil, read strictly - the SRI's rollover to the next business day is never claimed; ` + "`" + `annulability.window` + "`" + ` on the detail carries it. Each Mark annulled on a factura is a row of the detail's ` + "`" + `annulment` + "`" + ` (` + "`" + `current` + "`" + `: ` + "`" + `from_status` + "`" + `, ` + "`" + `annulled_by` + "`" + `, ` + "`" + `annulled_at` + "`" + `, ` + "`" + `note` + "`" + `, ` + "`" + `late_acknowledged` + "`" + `). Refused with INVOICE_NUMBER_MISMATCH (409) when the typed number is missing or not the document's, INVOICE_REISSUE_STANDS (409) while a live Reissue successor stands in its place, INVOICE_CREDIT_NOTE_STANDS (409) on an authorized factura while a live Credit Note - owed, pending, needs_attention or authorized - stands against it (a withdrawn, abandoned, annulled, rejected or not_authorized one does not refuse; on a pending or needs_attention factura a Credit Note can only be owed and waiting for it, and annulling the factura withdraws it, so it never refuses there), INVOICE_ANNULMENT_LATE (409, ` + "`" + `details.deadline` + "`" + `) past the deadline without the acknowledgement, INVOICE_ANNULMENT_NOT_LATE (409, ` + "`" + `details.deadline` + "`" + `) with it before. The factura's facts are judged before what was typed. ON A CREDIT NOTE it is unchanged: only from ` + "`" + `pending` + "`" + ` or ` + "`" + `needs_attention` + "`" + `, the body is not read, no window and no annulments row; annulling a Reissue's Credit Note withdraws the unsigned corrected factura in the same transaction (#484). On either: INVOICE_NOT_ANNULLABLE (409) on a document in any other state, INVOICE_ABANDON_INSTEAD (409) on a document parked ` + "`" + `needs_attention` + "`" + ` that the SRI refuses for its NUMBER - error 45, ` + "`" + `secuencial registrado` + "`" + ` (ADR 0068) - since the SRI never took that number and there is nothing at its portal to have been annulled; that document is abandoned instead, INVOICE_NOT_ISSUED (409) on one still owed or parked unsigned, INVOICE_NOT_FOUND (404) otherwise. The write is guarded on the state the document was read in, so a press racing a late AUTORIZADO or a reversal is refused rather than double-written. Afterwards Resend answers INVOICE_ANNULLED, and Check status asks the SRI's ConsultaComprobante and changes nothing (#744). Platform Operator only.",
                 "parameters": [
                     {
                         "description": "Document id",
@@ -13068,6 +13213,25 @@ const docTemplate = `{
                         }
                     }
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.annulInvoiceBody",
+                                        "summary": "body",
+                                        "description": "The confirm, on a factura"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The confirm, on a factura"
+                },
                 "responses": {
                     "200": {
                         "content": {
@@ -13078,6 +13242,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
                     },
                     "401": {
                         "content": {

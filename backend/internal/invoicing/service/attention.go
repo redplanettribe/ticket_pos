@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/invoicing"
 	"github.com/peter/ticket_pos/backend/internal/invoicing/repository"
+	"github.com/peter/ticket_pos/backend/internal/invoicing/sri"
 )
 
 // The documents that need an operator (#477, parent #471, ADR 0060): the
@@ -15,16 +17,19 @@ import (
 // lookup.
 //
 // MARK ANNULLED RECORDS; IT NEVER ASKS THE AUTHORITY. The SRI offers no web
-// service for annulment (ADR 0060): the operator annuls the document at the
-// portal by hand and then tells the platform so, and what the platform
-// writes is that record — who, when — on a row that keeps its number, its
-// clave, its signed XML and the authority's last messages, because the
-// annulment is a fact about a document that existed. It is allowed from
-// needs_attention and from pending, the two states in which the operator
-// may have acted at the portal before the platform heard; an authorized
-// document is credited, never annulled here, and an owed or unsigned one
-// was never at the authority. It is irreversible, and it takes the
-// document out of the Drainer's claim set and the queue in the same write.
+// service for annulment (ADR 0060, ADR 0078): the operator annuls the
+// document at the portal by hand and then tells the platform so, and what
+// the platform writes is that record - who, when, and on a factura why and
+// whether late - on a row that keeps its number, its clave, its signed XML
+// and the authority's last messages, because the annulment is a fact about
+// a document that existed. On a factura it is allowed from pending,
+// needs_attention and, since #745, authorized: one act whether the portal
+// step came before the recording or after it, confirmed by the number typed
+// in full, and each one a row on the annulments ledger. On a Credit Note it
+// stays as #477 and #484 built it, from pending and needs_attention alone.
+// An owed or unsigned document was never at the authority. It is
+// irreversible here, and it takes the document out of the Drainer's claim
+// set and the queue in the same write.
 //
 // MARK ANNULLED ON A REISSUE'S CREDIT NOTE UNDOES THE REISSUE (#484, ADR
 // 0061). The corrected factura was waiting, unsigned, for that Credit Note
@@ -127,12 +132,15 @@ func (s *Service) CountNeedsAttention(ctx context.Context) (*NeedsAttentionCount
 // AnnulInvoice records that the operator annulled the document by hand at
 // the authority's portal, and returns it as it then stands.
 //
-// The refusals are decided on the row as read, and the write is guarded on
-// the same states, so a press that races a late AUTORIZADO — the Drainer
-// healing the document between the read and the write — finds no row to
-// update and is told the document is not annullable rather than annulling
-// an authorized artifact.
-func (s *Service) AnnulInvoice(ctx context.Context, id, annulledBy string) (*InvoiceDetail, error) {
+// A FACTURA AND A CREDIT NOTE ARE TWO ACTS UNDER ONE ENDPOINT (#745, spec
+// #742, ADR 0078). On a factura - a Sale Invoice or a manual Tax Invoice -
+// Mark annulled admits `authorized` beside `pending` and `needs_attention`,
+// with one set of gates in every state (annulFacturaRefusal) and the typed
+// confirm in req, and it writes a row on the annulments ledger. On a Credit
+// Note it stays exactly as ADR 0061 and #484 built it (annulCreditNote):
+// pending or needs_attention, a plain confirm, req unread, no window and no
+// record beyond the row's own pair.
+func (s *Service) AnnulInvoice(ctx context.Context, id, annulledBy string, req invoicing.AnnulmentRequest) (*InvoiceDetail, error) {
 	row, err := s.repo.GetInvoice(ctx, id)
 	if err != nil {
 		return nil, err
@@ -140,6 +148,63 @@ func (s *Service) AnnulInvoice(ctx context.Context, id, annulledBy string) (*Inv
 	if row == nil {
 		return nil, invoicing.ErrInvoiceNotFound()
 	}
+	if !invoicing.IsFactura(row.Invoice.Kind) {
+		return s.annulCreditNote(ctx, row, annulledBy)
+	}
+	now := s.clock()
+	if err := annulFacturaRefusal(row); err != nil {
+		return nil, err
+	}
+	if err := annulConfirmRefusal(row, req, now); err != nil {
+		return nil, err
+	}
+	done, err := s.repo.AnnulFactura(ctx, id, repository.FacturaAnnulment{
+		FromStatus:       row.Invoice.Status,
+		AnnulledBy:       annulledBy,
+		AnnulledAt:       now,
+		Note:             req.Note,
+		LateAcknowledged: req.LateAcknowledged,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !done {
+		// The row moved between the read and the guarded write: a late
+		// AUTORIZADO, a reversal owing a Credit Note, a second press. Say
+		// what it now earns, read afresh, rather than a generic refusal.
+		return nil, s.annulRaceRefusal(ctx, id)
+	}
+	s.logger.Info("invoicing: factura marked annulled",
+		"invoice_id", id, "kind", row.Invoice.Kind, "from_status", row.Invoice.Status,
+		"annulled_by", annulledBy, "late_acknowledged", req.LateAcknowledged)
+	return s.GetInvoice(ctx, id)
+}
+
+// annulRaceRefusal is the refusal a factura whose guarded write found
+// nothing to update earns as it now stands, or INVOICE_NOT_ANNULLABLE when
+// the fresh read names nothing more specific.
+func (s *Service) annulRaceRefusal(ctx context.Context, id string) error {
+	row, err := s.repo.GetInvoice(ctx, id)
+	if err != nil {
+		return err
+	}
+	if row != nil {
+		if refusal := annulFacturaRefusal(row); refusal != nil {
+			return refusal
+		}
+	}
+	return invoicing.ErrInvoiceNotAnnullable()
+}
+
+// annulCreditNote is a Credit Note's Mark annulled, unchanged by #745.
+//
+// The refusals are decided on the row as read, and the write is guarded on
+// the same states, so a press that races a late AUTORIZADO — the Drainer
+// healing the document between the read and the write — finds no row to
+// update and is told the document is not annullable rather than annulling
+// an authorized artifact.
+func (s *Service) annulCreditNote(ctx context.Context, row *repository.InvoiceRow, annulledBy string) (*InvoiceDetail, error) {
+	id := row.Invoice.ID
 	if err := annullable(&row.Invoice); err != nil {
 		return nil, err
 	}
@@ -163,9 +228,87 @@ func (s *Service) AnnulInvoice(ctx context.Context, id, annulledBy string) (*Inv
 	return s.GetInvoice(ctx, id)
 }
 
+// annulFacturaRefusal says whether Mark annulled may be pressed on a factura
+// as it stands, whatever the operator types (#745, ADR 0078): the facts the
+// staff page reads to offer the record form or shrink the panel to one
+// sentence. In the order a reader should think about it:
+//
+//  1. The state. Authorized is admitted outright; pending and
+//     needs_attention by annullable's rules, which keep #477's signed floor
+//     and #578's INVOICE_ABANDON_INSTEAD for a number the SRI never took;
+//     every other state is refused there.
+//  2. A live Reissue successor: the factura is in the middle of a
+//     correction. A factura that is pending, parked or authorized can only
+//     have been superseded by a Reissue, never by Issue again, which
+//     follows a dead one. Asked before the Credit Note, because a reissued
+//     factura always has the reissue's Credit Note too, and the reissue is
+//     the truer reason.
+//  3. A live Credit Note against an AUTHORIZED factura (owed, pending,
+//     needs_attention, authorized): the factura is already being undone at
+//     the authority. A dead one - withdrawn, abandoned, annulled, rejected,
+//     not authorized - does not refuse, which is what lets a reversed Sale
+//     whose Credit Note was refused and annulled be cured by annulling its
+//     factura. On a pending or parked factura a Credit Note can only be
+//     owed and WAITING for it - the Drainer signs a Credit Note only once
+//     its factura is authorized - and annulling the factura is exactly
+//     what withdraws it (#476), so it never refuses there: refusing would
+//     leave a refused factura and its reversal's Credit Note with no way
+//     out.
+//
+// CONSUMIDOR FINAL HAS NO GATE HERE, deliberately: the platform cannot issue
+// one (identification codes 07 and 08 are absent), and ADR 0078 records the
+// invariant that whoever adds them adds the gate. Tax-refund and
+// already-declared facturas are unknowable to the platform; the confirm
+// names them and the operator answers for it.
+func annulFacturaRefusal(row *repository.InvoiceRow) error {
+	inv := &row.Invoice
+	if inv.Status != invoicing.InvoiceStatusAuthorized {
+		if err := annullable(inv); err != nil {
+			return err
+		}
+	}
+	if inv.SupersededByInvoiceID != "" {
+		return invoicing.ErrInvoiceReissueStands()
+	}
+	if inv.Status == invoicing.InvoiceStatusAuthorized && row.StandingCreditNoteID != "" {
+		return invoicing.ErrInvoiceCreditNoteStands()
+	}
+	return nil
+}
+
+// annulConfirmRefusal checks what the operator typed against the factura as
+// it stands, once its facts admit the act: the number in full, and the late
+// acknowledgement exactly when the Annulment Window has closed - required
+// past it, refused before it, because it is a claim about a portal act
+// after the deadline and is never recorded where it is not true. No fresh
+// check of the SRI is required (ADR 0078).
+func annulConfirmRefusal(row *repository.InvoiceRow, req invoicing.AnnulmentRequest, now time.Time) error {
+	if row.Ecuador == nil || strings.TrimSpace(req.Number) != FormatNumber(row.Ecuador.Estab, row.Ecuador.PtoEmi, row.Ecuador.Secuencial) {
+		return invoicing.ErrInvoiceNumberMismatch()
+	}
+	window := annulmentWindowOf(&row.Invoice)
+	deadline := window.Deadline.Format(time.DateOnly)
+	open := window.Open(now)
+	if !open && !req.LateAcknowledged {
+		return invoicing.ErrInvoiceAnnulmentLate(deadline)
+	}
+	if open && req.LateAcknowledged {
+		return invoicing.ErrInvoiceAnnulmentNotLate(deadline)
+	}
+	return nil
+}
+
+// annulmentWindowOf is a signed factura's Annulment Window, read in
+// Guayaquil.
+func annulmentWindowOf(inv *invoicing.Invoice) invoicing.AnnulmentWindow {
+	return invoicing.AnnulmentWindowFor(inv.IssuedOn, sri.Guayaquil)
+}
+
 // annullable says whether Mark annulled may be pressed on the document as
 // it stands: signed — there is a number at the authority to have been
-// annulled — and pending or needs_attention.
+// annulled — and pending or needs_attention. The whole gate on a Credit
+// Note; on a factura the floor annulFacturaRefusal stands on for every
+// state but authorized.
 //
 // EXCEPT WHERE ABANDON IS THE TRUE ACT (#578, ADR 0068). Mark annulled
 // records an annulment the operator performed BY HAND AT THE AUTHORITY'S

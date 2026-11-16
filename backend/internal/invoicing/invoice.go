@@ -36,9 +36,10 @@ const (
 	// InvoiceStatusWithdrawn: never sent and never will be — its Sale was
 	// reversed first, or the factura it would have credited died.
 	InvoiceStatusWithdrawn InvoiceStatus = "withdrawn"
-	// InvoiceStatusAnnulled: a signed document — pending or needs_attention,
-	// never authorized, which is credited instead — the operator annulled by
-	// hand at the authority's portal and then recorded as such (#477).
+	// InvoiceStatusAnnulled: a signed document the authority held that the
+	// operator annulled by hand at its portal and then recorded as such
+	// (#477): a factura from pending, needs_attention or authorized (#745,
+	// ADR 0078), a Credit Note from pending or needs_attention.
 	InvoiceStatusAnnulled InvoiceStatus = "annulled"
 	// InvoiceStatusAbandoned: a signed document that WAS sent, that the
 	// authority never took and never will, because it refuses the NUMBER it
@@ -84,9 +85,11 @@ var InvoiceStatuses = []InvoiceStatus{
 // Note it must wait for.
 //
 // AN AUTHORIZED DOCUMENT IS NEVER ANY OF THEM, which is what makes that
-// question a safe discriminator: Mark annulled is allowed only from pending
-// and needs_attention, Abandon only from the three states a refusal leaves,
-// and a reversal withdraws only what was never sent.
+// question a safe discriminator: the question is asked of the status as it
+// stands, and an authorized factura Mark annulled reaches (#745) is
+// `annulled` from then on, not authorized. Abandon is allowed only from the
+// three states a refusal leaves, and a reversal withdraws only what was
+// never sent.
 func TerminallyDead(status InvoiceStatus) bool {
 	switch status {
 	case InvoiceStatusWithdrawn, InvoiceStatusAnnulled, InvoiceStatusAbandoned:

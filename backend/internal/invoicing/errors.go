@@ -93,12 +93,59 @@ func ErrInvoiceNotIssued() apperror.DomainError {
 	return apperror.New("INVOICE_NOT_ISSUED", "The document has not been issued yet: it is owed, and the Sale Invoice Drainer issues it.", nil)
 }
 
-// ErrInvoiceNotAnnullable: Mark annulled is allowed only on a document that
-// is needs_attention or pending (#477) — one the operator could have annulled
-// by hand at the authority's portal. An authorized one is credited, never
-// annulled here; an annulled or withdrawn one has nothing left to mark.
+// ErrInvoiceNotAnnullable: Mark annulled is allowed only on a document the
+// operator could have annulled by hand at the authority's portal (#477): a
+// factura that is pending, needs attention or authorized (#745, ADR 0078),
+// or a Credit Note that is pending or needs attention. An authorized Credit
+// Note is out of scope; an annulled, withdrawn or abandoned document has
+// nothing left to mark.
 func ErrInvoiceNotAnnullable() apperror.DomainError {
-	return apperror.New("INVOICE_NOT_ANNULLABLE", "Only a document that is pending or needs attention can be marked annulled.", nil)
+	return apperror.New("INVOICE_NOT_ANNULLABLE", "Only a factura that is pending, needs attention or authorized, or a Credit Note that is pending or needs attention, can be marked annulled.", nil)
+}
+
+// Mark annulled's refusals on a factura (#745, spec #742, ADR 0078), one
+// code each, so the operator's surface names what stood in the way rather
+// than "cannot annul". The first two are about what the operator typed; the
+// last three are facts about the document, its chain or its window.
+
+// ErrInvoiceNumberMismatch: the number typed to confirm is not the
+// document's own estab-ptoEmi-secuencial, or none was typed. The confirm is
+// the number in full, so a stray click never annuls the wrong factura.
+func ErrInvoiceNumberMismatch() apperror.DomainError {
+	return apperror.New("INVOICE_NUMBER_MISMATCH", "Type the document's number in full, as printed (001-001-000000123), to confirm.", nil)
+}
+
+// ErrInvoiceCreditNoteStands: a LIVE Credit Note - owed, pending, needs
+// attention or authorized - stands against the factura, so it is already
+// being undone another way. A dead one (withdrawn, abandoned, annulled,
+// rejected, not authorized) does not refuse: a reversed Sale whose Credit
+// Note was refused and annulled is cured by annulling its factura.
+func ErrInvoiceCreditNoteStands() apperror.DomainError {
+	return apperror.New("INVOICE_CREDIT_NOTE_STANDS", "A Credit Note stands against this factura, so it is already being undone and cannot also be annulled.", nil)
+}
+
+// ErrInvoiceReissueStands: a live Sale Invoice Reissue successor stands in
+// the factura's place - a corrected factura not yet dead - so the factura is
+// in the middle of a correction and is not annulled under it.
+func ErrInvoiceReissueStands() apperror.DomainError {
+	return apperror.New("INVOICE_REISSUE_STANDS", "This factura was reissued and its corrected factura stands, so it cannot be annulled.", nil)
+}
+
+// ErrInvoiceAnnulmentLate: the Annulment Window has closed (day 7 of the
+// month after the Emission Date, end of day in Guayaquil, read strictly)
+// and the press did not acknowledge that the portal took the annulment all
+// the same. The SRI rolls the deadline to the next business day over rest
+// days and holidays, which the platform never claims, so a real late
+// annulment is recordable - but only on the operator's explicit word.
+func ErrInvoiceAnnulmentLate(deadline string) apperror.DomainError {
+	return apperror.New("INVOICE_ANNULMENT_LATE", "The SRI's annulment window for this factura closed after "+deadline+". If the portal took the annulment anyway, acknowledge that to record it.", map[string]string{"deadline": deadline})
+}
+
+// ErrInvoiceAnnulmentNotLate: the press acknowledged a late annulment while
+// the window is still open. The acknowledgement is a claim about a portal
+// act past the deadline, and is never recorded where it is not true.
+func ErrInvoiceAnnulmentNotLate(deadline string) apperror.DomainError {
+	return apperror.New("INVOICE_ANNULMENT_NOT_LATE", "The SRI's annulment window is open until "+deadline+", so there is no late annulment to acknowledge.", map[string]string{"deadline": deadline})
 }
 
 // ErrInvoiceAnnulled: Resend and Abandon are refused on an annulled document

@@ -28,6 +28,12 @@ type InvoiceRow struct {
 	Invoice  invoicing.Invoice
 	Ecuador  *invoicing.EcuadorInvoiceDetails
 	Attempts []invoicing.Attempt
+	// Annulments and StandingCreditNoteID are read by GetInvoice on a
+	// factura alone (#745): its Mark annulled ledger, oldest first, and the
+	// live Credit Note standing against it ("" when none). Empty on every
+	// other read.
+	Annulments           []invoicing.Annulment
+	StandingCreditNoteID string
 }
 
 // NewInvoice is everything the service knows before a number is allocated:
@@ -430,6 +436,116 @@ func (r *Repository) AnnulInvoice(ctx context.Context, invoiceID, annulledBy str
 	return true, withdrawnSuccessorID, nil
 }
 
+// FacturaAnnulment is what Mark annulled on a factura records beside the
+// status (#745, ADR 0078): the state the row was READ in, which the write is
+// guarded on, and the operator's optional note and late acknowledgement.
+type FacturaAnnulment struct {
+	FromStatus       invoicing.InvoiceStatus
+	AnnulledBy       string
+	AnnulledAt       time.Time
+	Note             string
+	LateAcknowledged bool
+}
+
+// standingCreditNoteSQL is "a LIVE Credit Note stands against this factura"
+// as Mark annulled reads it (#745, ADR 0078): owed, pending, needs_attention
+// or authorized. It is deliberately NARROWER than creditedByLiveID, which
+// counts every status but the three deaths: a Credit Note the authority
+// rejected or did not authorize credits nothing at the authority either, so
+// it never stands in the way of the annulment that cures its factura.
+const standingCreditNoteSQL = `(SELECT c.id FROM invoicing_invoices c WHERE c.credits_invoice_id = i.id AND c.status IN ('owed', 'pending', 'needs_attention', 'authorized') ORDER BY c.created_at DESC, c.id DESC LIMIT 1)`
+
+// AnnulFactura records Mark annulled on a factura (#745, spec #742, ADR
+// 0078): the row's current state - status, who, when - and one new row on
+// the append-only annulments ledger, in one transaction. The number, the
+// clave, the signed XML, the authorization and the authority's last
+// messages stay exactly as they were; next_attempt_at and attention_since
+// are cleared, as a Credit Note's Mark annulled clears them.
+//
+// GUARDED ON WHAT THE GATE READ. The write lands only on a row still in the
+// state the service read it in, still signed, still a factura, with no live
+// successor in its place and, when authorized, no live Credit Note against
+// it, so a press
+// racing a late AUTORIZADO, a Sale Reversal owing a Credit Note, or a
+// second press, finds no row to update and the service reads the row back
+// to say which. The partial unique index on the ledger is the last word on
+// a second open annulment.
+func (r *Repository) AnnulFactura(ctx context.Context, invoiceID string, a FacturaAnnulment) (bool, error) {
+	tx, err := r.db.Pool.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin annul factura: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx, `
+		UPDATE invoicing_invoices i SET
+			status = $2,
+			annulled_by = $3,
+			annulled_at = $4,
+			next_attempt_at = NULL,
+			attention_since = NULL,
+			updated_at = NOW()
+		WHERE i.id = $1 AND i.status = $5 AND i.signed_xml IS NOT NULL
+		  AND i.kind IN ('sale', 'manual')
+		  AND (i.status <> 'authorized' OR `+standingCreditNoteSQL+` IS NULL)
+		  AND `+liveSuccessorID+` IS NULL
+	`, invoiceID, invoicing.InvoiceStatusAnnulled, a.AnnulledBy, a.AnnulledAt, a.FromStatus)
+	if err != nil {
+		return false, fmt.Errorf("annul factura: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("annul factura: %w", err)
+	}
+	if n != 1 {
+		return false, nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO invoicing_annulments (invoice_id, from_status, annulled_by, annulled_at, note, late_acknowledged)
+		VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6)
+	`, invoiceID, a.FromStatus, a.AnnulledBy, a.AnnulledAt, a.Note, a.LateAcknowledged); err != nil {
+		return false, fmt.Errorf("record annulment: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit annul factura: %w", err)
+	}
+	return true, nil
+}
+
+// loadAnnulmentFacts reads what Mark annulled on a factura is decided on
+// beyond the row itself (#745): its annulments, oldest first, and the live
+// Credit Note standing against it, if any. Read for a factura only; a Credit
+// Note has neither.
+func (r *Repository) loadAnnulmentFacts(ctx context.Context, row *InvoiceRow) error {
+	if !invoicing.IsFactura(row.Invoice.Kind) {
+		return nil
+	}
+	var standing sql.NullString
+	if err := r.db.Pool.QueryRowContext(ctx, `SELECT `+standingCreditNoteSQL+` FROM invoicing_invoices i WHERE i.id = $1`, row.Invoice.ID).Scan(&standing); err != nil {
+		return fmt.Errorf("standing credit note: %w", err)
+	}
+	row.StandingCreditNoteID = standing.String
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT id, invoice_id, from_status, annulled_by, annulled_at, COALESCE(note, ''), late_acknowledged, reinstated_at
+		FROM invoicing_annulments WHERE invoice_id = $1 ORDER BY annulled_at, created_at, id
+	`, row.Invoice.ID)
+	if err != nil {
+		return fmt.Errorf("annulments: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var a invoicing.Annulment
+		if err := rows.Scan(&a.ID, &a.InvoiceID, &a.FromStatus, &a.AnnulledBy, &a.AnnulledAt, &a.Note, &a.LateAcknowledged, &a.ReinstatedAt); err != nil {
+			return fmt.Errorf("scan annulment: %w", err)
+		}
+		row.Annulments = append(row.Annulments, a)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("annulments: %w", err)
+	}
+	return nil
+}
+
 // AbandonInvoice records that the Tax Authority never took the document and
 // never will (#578, parent #575, ADR 0068): the status, who, when and the
 // operator's optional note, AND NOTHING ELSE. The number, the clave de
@@ -609,6 +725,9 @@ func (r *Repository) GetInvoice(ctx context.Context, id string) (*InvoiceRow, er
 		return nil, fmt.Errorf("get invoice: %w", err)
 	}
 	if err := r.loadInvoiceChildren(ctx, row); err != nil {
+		return nil, err
+	}
+	if err := r.loadAnnulmentFacts(ctx, row); err != nil {
 		return nil, err
 	}
 	return row, nil
