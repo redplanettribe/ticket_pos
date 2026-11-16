@@ -29,9 +29,9 @@ import (
 // is classified into exactly three readings, and everything that is not
 // estadoAutorizacion present and reading ANULADO or AUTORIZADO is no reading:
 // any refusal, any other state, a redirect, a non-SOAP body, a reset, a
-// timeout. ANULADO itself has never been observed; it is matched case- and
-// whitespace-insensitively, and if it reads differently, ClassifyConsulta is
-// the one place to change.
+// timeout. ANULADO was first observed on 2026-11-16, for factura 238 annulled
+// at the SRI portal, and reads exactly so; it is still matched case- and
+// whitespace-insensitively.
 
 const (
 	// ConsultaPath is the ConsultaComprobante service path, on cel and celcer
@@ -98,12 +98,11 @@ type consultaEnvelope struct {
 			String string `xml:"faultstring"`
 		} `xml:"Fault"`
 		Response *struct {
-			// A document/literal JAX-WS answer wraps the result in
-			// <return>; the fields are also accepted directly under the
-			// response element, since the probe recorded the type and not
-			// the wrapper.
-			Return *consultaFields `xml:"return"`
-			consultaFields
+			// The fields sit in an element named after their WSDL type, not
+			// in the <return> a JAX-WS answer usually has. Reading them
+			// anywhere else is what made every answer read as empty until
+			// 2026-11-16, so no other wrapper is accepted.
+			Estado *consultaFields `xml:"EstadoAutorizacionComprobante"`
 		} `xml:"consultarEstadoAutorizacionComprobanteResponse"`
 	} `xml:"Body"`
 }
@@ -126,10 +125,10 @@ func ClassifyConsulta(statusCode int, body []byte) ConsultaReading {
 	if env.Body.Response == nil {
 		return none(fmt.Sprintf("%v: no consultarEstadoAutorizacionComprobanteResponse", ErrResponse))
 	}
-	fields := env.Body.Response.consultaFields
-	if env.Body.Response.Return != nil {
-		fields = *env.Body.Response.Return
+	if env.Body.Response.Estado == nil {
+		return none(fmt.Sprintf("%v: no EstadoAutorizacionComprobante in the response", ErrResponse))
 	}
+	fields := *env.Body.Response.Estado
 	out := ConsultaReading{Reading: invoicing.StatusNone, Messages: trimMessages(fields.Mensajes)}
 	if fields.EstadoAutorizacion == nil {
 		if normalised(fields.EstadoConsulta) == ConsultaRefused {
