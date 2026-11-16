@@ -162,14 +162,14 @@ export const ANNULMENT_CHECK_BADGE: Record<AnnulmentVerdict, "default" | "second
   unconfirmed: "outline",
 };
 
-/**
- * The portal runbook on the record face (#752, stories 22 to 28). The SRI
- * offers no web service for annulment, so the panel walks the operator
- * through SRI en linea: sign in, open the annulment form by the menu path of
- * the factura's environment, fill it in with every field copied from the API's
- * `annulability.portal`, and press Aceptar. The ticks are the page's own and
- * gate nothing: the record form beside them never reads them.
- */
+// The portal runbook on the record face (#752, stories 22 to 28). The SRI
+// offers no web service for annulment, so the panel walks the operator
+// through SRI en linea: sign in, open the annulment form by the menu path of
+// the factura's environment, fill it in with every field copied from the API's
+// `annulability.portal`, and press Aceptar. The ticks are the page's own and
+// gate nothing: the record form beside them never reads them.
+
+/** Where the checklist's first step signs in. */
 export const SRI_EN_LINEA_URL = "https://srienlinea.sri.gob.ec/sri-en-linea/inicio/NAT";
 
 export const ANNULMENT_PORTAL_STEPS = ["sign_in", "open_form", "fill", "accept"] as const;
@@ -188,7 +188,7 @@ export type AnnulmentPortalField = {
   /** Exactly what the copy button puts on the clipboard, as the API sent it. */
   value: string;
   /** Whether the value is drawn with its whitespace visible. */
-  spaces: boolean;
+  showWhitespace: boolean;
 };
 
 /**
@@ -198,13 +198,13 @@ export type AnnulmentPortalField = {
  * drawn, and the receptor email when the Recipient has one.
  */
 export function annulmentPortalFields(portal: OperatorAnnulmentPortal): AnnulmentPortalField[] {
-  const fields: AnnulmentPortalField[] = [{ field: "access_key", value: portal.access_key, spaces: false }];
+  const fields: AnnulmentPortalField[] = [{ field: "access_key", value: portal.access_key, showWhitespace: false }];
   if (portal.authorization_day !== null) {
-    fields.push({ field: "authorization_day", value: portal.authorization_day, spaces: false });
+    fields.push({ field: "authorization_day", value: portal.authorization_day, showWhitespace: false });
   }
-  fields.push({ field: "receptor_id", value: portal.receptor_id, spaces: true });
+  fields.push({ field: "receptor_id", value: portal.receptor_id, showWhitespace: true });
   if (portal.receptor_email !== "") {
-    fields.push({ field: "receptor_email", value: portal.receptor_email, spaces: false });
+    fields.push({ field: "receptor_email", value: portal.receptor_email, showWhitespace: false });
   }
   return fields;
 }

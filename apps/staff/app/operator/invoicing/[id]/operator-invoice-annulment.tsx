@@ -524,7 +524,7 @@ function PortalChecklist({ portal }: { portal: OperatorAnnulmentPortal }) {
             ))}
           </div>
         );
-      default:
+      case "accept":
         return null;
     }
   }
@@ -589,7 +589,7 @@ function PortalFieldRow({ field }: { field: AnnulmentPortalField }) {
       <div className="min-w-0">
         <p className="text-[11px] text-muted-foreground">{t(FIELD_LABEL_KEYS[field.field])}</p>
         <p className="break-all font-mono text-xs">
-          {field.spaces
+          {field.showWhitespace
             ? visibleWhitespace(field.value).map((segment, index) =>
                 segment.space ? (
                   <span

@@ -237,10 +237,10 @@ test("the menu path follows the factura's environment", () => {
 
 test("the fields copy the clave, the authorization day, the receptor ID and the email exactly", () => {
   assert.deepEqual(annulmentPortalFields(PORTAL), [
-    { field: "access_key", value: PORTAL.access_key, spaces: false },
-    { field: "authorization_day", value: "07/07/2026", spaces: false },
-    { field: "receptor_id", value: "1712345678 001", spaces: true },
-    { field: "receptor_email", value: "buyer@example.com", spaces: false },
+    { field: "access_key", value: PORTAL.access_key, showWhitespace: false },
+    { field: "authorization_day", value: "07/07/2026", showWhitespace: false },
+    { field: "receptor_id", value: "1712345678 001", showWhitespace: true },
+    { field: "receptor_email", value: "buyer@example.com", showWhitespace: false },
   ]);
 });
 
