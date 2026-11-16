@@ -1,21 +1,23 @@
 "use client";
 
 import * as Sentry from "@sentry/nextjs";
-import { ErrorScreen, type ErrorScreenLabels } from "@ticket-pos/ui";
+import { ErrorScreen, type ErrorScreenLabels, type ErrorScreenLayout } from "@ticket-pos/ui";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useEffect, useSyncExternalStore, useTransition } from "react";
 
-import { reportCaughtError } from "@/lib/error-screen";
+import { reportCaughtError, type CaughtError } from "@/lib/error-screen";
 import { readReferenceCode } from "@/lib/request-id";
+import { startBrowserSentry } from "@/lib/sentry-browser";
 
 /** What Next hands an error boundary: the error, and a way to render again. */
 export type ErrorBoundaryProps = {
-  error: Error & { digest?: string };
+  error: CaughtError;
   reset: () => void;
 };
 
-function noSubscription() {
+/** For useSyncExternalStore over a value that announces no change of its own. */
+export function noSubscription() {
   return () => {};
 }
 
@@ -34,6 +36,9 @@ export function useReferenceCode(): string | null {
 }
 
 function captureInBrowser(error: unknown, requestId: string | null) {
+  // Not started yet when the page came as Next's bare error document, which has
+  // no Sentry meta (lib/sentry-browser.ts); dormant with no DSN either way.
+  startBrowserSentry();
   Sentry.captureException(error, requestId ? { tags: { request_id: requestId } } : undefined);
 }
 
@@ -54,7 +59,7 @@ export function ErrorScreenBody({
   layout,
 }: ErrorBoundaryProps & {
   labels: Omit<ErrorScreenLabels, "description"> & { description: string; descriptionWithoutReference: string };
-  layout: "page" | "inline";
+  layout: ErrorScreenLayout;
 }) {
   const router = useRouter();
   const [retrying, startRetry] = useTransition();
@@ -90,7 +95,7 @@ export function ErrorScreenBody({
  * The route-level screen: rendered below the root layout, so next-intl's
  * provider is there and the words follow the Staff Locale.
  */
-export function RouteErrorScreen({ layout, ...props }: ErrorBoundaryProps & { layout: "page" | "inline" }) {
+export function RouteErrorScreen({ layout, ...props }: ErrorBoundaryProps & { layout: ErrorScreenLayout }) {
   const t = useTranslations("errorScreen");
   return (
     <ErrorScreenBody

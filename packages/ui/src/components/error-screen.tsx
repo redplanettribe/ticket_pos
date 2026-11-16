@@ -19,6 +19,13 @@ export type ErrorScreenLabels = {
   referenceCode: string;
 };
 
+/**
+ * How an error screen sits on the page: "page" stands alone, centred on the
+ * screen with the logo, for when nothing of the app's chrome is left around it;
+ * "inline" sits in a page's content area, inside chrome that is still drawn.
+ */
+export type ErrorScreenLayout = "page" | "inline";
+
 type ErrorScreenProps = {
   labels: ErrorScreenLabels;
   /**
@@ -28,13 +35,7 @@ type ErrorScreenProps = {
   referenceCode: string | null;
   onRetry: () => void;
   retrying?: boolean;
-  /**
-   * "page" stands alone, centred on the screen with the logo, for when nothing
-   * of the app's chrome is left around it; "inline" sits in a page's content
-   * area, inside chrome that is still drawn.
-   */
-  layout?: "page" | "inline";
-  className?: string;
+  layout: ErrorScreenLayout;
 };
 
 /**
@@ -47,11 +48,10 @@ export function ErrorScreen({
   referenceCode,
   onRetry,
   retrying = false,
-  layout = "inline",
-  className,
+  layout,
 }: ErrorScreenProps) {
   const card = (
-    <Card role="alert" className={cn("w-full max-w-md", layout === "inline" && "mx-auto", className)}>
+    <Card role="alert" className={cn("w-full max-w-md", layout === "inline" && "mx-auto")}>
       <CardHeader>
         <div className="mb-2 flex size-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
           <TriangleAlert className="size-5" aria-hidden="true" />
@@ -68,7 +68,7 @@ export function ErrorScreen({
         </CardContent>
       ) : null}
       <CardFooter>
-        <Button type="button" onClick={onRetry} disabled={retrying} className="w-full sm:w-auto">
+        <Button type="button" onClick={onRetry} disabled={retrying} aria-busy={retrying} className="w-full sm:w-auto">
           <RotateCcw aria-hidden="true" className={cn(retrying && "animate-spin")} />
           {retrying ? labels.retrying : labels.retry}
         </Button>

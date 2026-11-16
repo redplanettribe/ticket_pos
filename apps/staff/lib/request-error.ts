@@ -1,3 +1,4 @@
+import { digestOf } from "./error-screen.ts";
 import { REQUEST_ID_HEADER } from "./request-id.ts";
 
 /**
@@ -15,7 +16,7 @@ type RequestErrorContext = {
   routerKind: "Pages Router" | "App Router";
   routePath: string;
   routeType: "render" | "route" | "action" | "middleware" | "proxy";
-  renderSource?: string;
+  renderSource?: "react-server-components" | "react-server-components-payload" | "server-rendering";
   revalidateReason?: string;
 };
 
@@ -30,14 +31,6 @@ function headerValue(value: string | string[] | undefined): string | null {
   return first ? first : null;
 }
 
-function digestOf(error: unknown): string | null {
-  if (typeof error === "object" && error !== null && "digest" in error) {
-    const digest = (error as { digest: unknown }).digest;
-    return typeof digest === "string" && digest ? digest : null;
-  }
-  return null;
-}
-
 /**
  * Builds the Staff app's onRequestError: an error Next caught in a server
  * render, route handler, server action or middleware.
@@ -45,13 +38,17 @@ function digestOf(error: unknown): string | null {
  * It writes one structured line to stdout, which Cloud Logging indexes, with the
  * request id the error screen shows as the reference code (forwarded by the
  * middleware, lib/request-id.ts), Next's digest for the error, and the route
- * pattern. So a reference code a staff user quotes finds the failure in Cloud
+ * pattern. So a reference code a person quotes finds the failure in Cloud
  * Logging whether or not Sentry is on, and the digest finds Next's own line with
  * the stack beside it. Never the error's text or the raw path: either can name a
  * person, and Next already prints the error.
  *
- * Then it reports the error; tagRequestId puts the id on the event. Next does
- * not call this for a not-found or a redirect.
+ * Then it reports the error; tagRequestId puts the id on the event. Except an
+ * error from server-rendering a client component ("server-rendering"): the
+ * browser renders that component again, and if it fails there too the error
+ * screen reports it, so reporting it here as well would make one crash two
+ * events. One that fails only on the server is in the log line. Next does not
+ * call this for a not-found or a redirect.
  */
 export function createOnRequestError(deps: {
   report: ReportRequestError;
@@ -67,8 +64,10 @@ export function createOnRequestError(deps: {
         digest: digestOf(error),
         route: context.routePath,
         route_type: context.routeType,
+        render_source: context.renderSource ?? null,
       }),
     );
+    if (context.renderSource === "server-rendering") return;
     await deps.report(error, request, context);
   };
 }

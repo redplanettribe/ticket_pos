@@ -47,10 +47,12 @@ type RequestIdCookie = {
  * random id that only finds log lines. A session cookie, with no Max-Age.
  */
 export function referenceCodeCookie(
-  request: { pathname: string; prefetch: boolean },
+  request: { pathname: string; headers: Headers },
   requestId: string,
 ): RequestIdCookie | null {
-  if (request.prefetch || request.pathname === "/api" || request.pathname.startsWith("/api/")) {
+  // Next's router marks its prefetches; a browser's own link prefetch says so in Purpose.
+  const prefetch = request.headers.has("next-router-prefetch") || request.headers.get("purpose") === "prefetch";
+  if (prefetch || request.pathname === "/api" || request.pathname.startsWith("/api/")) {
     return null;
   }
   return {

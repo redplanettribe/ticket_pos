@@ -11,7 +11,7 @@ const ID = "3f6c1a52-8d1e-4b7a-9c39-2a1f0e5d4c3b";
 
 test("a page or an RSC navigation hands its request id to the browser", () => {
   for (const pathname of ["/", "/events/abc", "/login"]) {
-    const cookie = referenceCodeCookie({ pathname, prefetch: false }, ID);
+    const cookie = referenceCodeCookie({ pathname, headers: new Headers({ rsc: "1" }) }, ID);
     assert.ok(cookie, pathname);
     assert.equal(cookie.name, REQUEST_ID_COOKIE);
     assert.equal(cookie.value, ID);
@@ -25,9 +25,13 @@ test("a page or an RSC navigation hands its request id to the browser", () => {
 });
 
 test("a BFF call or a prefetch does not overwrite the page's reference code", () => {
-  assert.equal(referenceCodeCookie({ pathname: "/api/auth/session", prefetch: false }, ID), null);
-  assert.equal(referenceCodeCookie({ pathname: "/api/monitoring", prefetch: false }, ID), null);
-  assert.equal(referenceCodeCookie({ pathname: "/events/abc", prefetch: true }, ID), null);
+  const none = new Headers();
+  assert.equal(referenceCodeCookie({ pathname: "/api/auth/session", headers: none }, ID), null);
+  assert.equal(referenceCodeCookie({ pathname: "/api/monitoring", headers: none }, ID), null);
+  const routerPrefetch = new Headers({ rsc: "1", "next-router-prefetch": "1" });
+  assert.equal(referenceCodeCookie({ pathname: "/events/abc", headers: routerPrefetch }, ID), null);
+  const browserPrefetch = new Headers({ purpose: "prefetch" });
+  assert.equal(referenceCodeCookie({ pathname: "/events/abc", headers: browserPrefetch }, ID), null);
 });
 
 test("the reference code is read back from document.cookie", () => {

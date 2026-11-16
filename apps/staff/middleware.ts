@@ -134,10 +134,7 @@ export async function middleware(request: NextRequest) {
 
   response.headers.set("X-Request-ID", requestId);
   const cookie = referenceCodeCookie(
-    {
-      pathname: request.nextUrl.pathname,
-      prefetch: request.headers.has("next-router-prefetch") || request.headers.get("purpose") === "prefetch",
-    },
+    { pathname: request.nextUrl.pathname, headers: request.headers },
     requestId,
   );
   if (cookie) {

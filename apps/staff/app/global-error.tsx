@@ -8,7 +8,7 @@ import { rootErrorScreenLocale } from "@/lib/error-screen";
 import en from "@/messages/en.json";
 import es from "@/messages/es.json";
 
-import { ErrorScreenBody, type ErrorBoundaryProps } from "./error-screen";
+import { ErrorScreenBody, noSubscription, type ErrorBoundaryProps } from "./error-screen";
 
 import "./globals.css";
 
@@ -26,10 +26,6 @@ const COPY: Record<AppLocale, typeof en.errorScreen> = {
   en: en.errorScreen,
   es: es.errorScreen,
 };
-
-function noSubscription() {
-  return () => {};
-}
 
 /**
  * The root-level error screen (#772): the root layout itself crashed, so this

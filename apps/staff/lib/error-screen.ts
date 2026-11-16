@@ -9,22 +9,32 @@ import type { AppLocale } from "@ticket-pos/locale";
 import { cookieValue } from "./request-id.ts";
 import { STAFF_LOCALE_COOKIE, resolveStaffLocale } from "./staff-locale.ts";
 
+/** An error as Next hands it to a boundary: a server error carries a digest. */
+export type CaughtError = Error & { digest?: string };
+
+/** The digest Next gave a thrown value, or null when it has none. */
+export function digestOf(error: unknown): string | null {
+  if (typeof error === "object" && error !== null && "digest" in error) {
+    const digest = (error as { digest: unknown }).digest;
+    return typeof digest === "string" && digest ? digest : null;
+  }
+  return null;
+}
+
 /**
  * Whether a thrown value is Next's control flow rather than a failure:
- * `notFound()` and `redirect()` throw errors whose digest names them, and a
- * boundary of our own must let them through to Next's. A not-found is not an
- * error and is never reported.
+ * `notFound()`, `redirect()` and a bail-out to client rendering throw errors
+ * whose digest names them, and a boundary of our own must let them through to
+ * Next's. A not-found is not an error and is never reported.
  */
 export function isNavigationSignal(error: unknown): boolean {
-  if (typeof error !== "object" || error === null || !("digest" in error)) {
-    return false;
-  }
-  const digest = (error as { digest: unknown }).digest;
+  const digest = digestOf(error);
   return (
-    typeof digest === "string" &&
+    digest !== null &&
     (digest.startsWith("NEXT_REDIRECT") ||
       digest.startsWith("NEXT_HTTP_ERROR_FALLBACK;") ||
-      digest === "NEXT_NOT_FOUND")
+      digest === "NEXT_NOT_FOUND" ||
+      digest === "BAILOUT_TO_CLIENT_SIDE_RENDERING")
   );
 }
 
@@ -53,9 +63,8 @@ export function reportCaughtError(
   requestId: string | null,
   capture: CaptureCaughtError,
 ): boolean {
-  if (isNavigationSignal(error)) return false;
+  if (isNavigationSignal(error) || digestOf(error) !== null) return false;
   if (typeof error === "object" && error !== null) {
-    if ("digest" in error && (error as { digest: unknown }).digest) return false;
     if (reported.has(error)) return false;
     reported.add(error);
   }

@@ -101,11 +101,13 @@ How the request id reaches the screen:
 2. `lib/api.ts` reads it from the request headers inside a render, route handler or server action, so every API call of that request carries it and the API logs each under it.
 3. For a page or an RSC navigation, but not a BFF call under `/api/` or a prefetch, the middleware also sets the cookie `ticket_pos_request_id`, readable by script.
    An error screen is a client component and Next gives it only a digest for a server error, so the cookie is how it learns which request rendered the page.
-4. A crash in a server render: `onRequestError` (`lib/request-error.ts`) writes one JSON line to stdout, which Cloud Logging indexes, with `request_id`, Next's `digest` and the route pattern; an event processor tags the server's Sentry event `request_id`; the screen reads the same id from the cookie the failed response set.
+4. A crash in a server render: `onRequestError` (`lib/request-error.ts`) writes one JSON line to stdout, which Cloud Logging indexes, with `request_id`, Next's `digest`, the route pattern and the render source; an event processor tags the server's Sentry event `request_id`; the screen reads the same id from the cookie the failed response set.
 5. A crash only in the browser has no request of its own: the code is the id of the request that rendered the page the person is on (the document, or the last RSC navigation).
    The API's lines for that render are found by it, and the screen reports the error from the browser tagged `request_id` with it.
 
 Reported exactly once: an error with a digest came from the server and was reported there, so the browser does not report it again; any other error is reported by the screen once (`lib/error-screen.ts`).
+A client component that fails while being server-rendered is only logged by the server (`render_source` `server-rendering`): the browser renders it again, and the screen reports it if it fails there too.
+When the server could not render a page's shell, Next sends a bare error document with no Sentry meta, so the screen starts the browser SDK from the meta the browser's own render put in the DOM before it reports (`lib/sentry-browser.ts`).
 With no DSN the screens render the same and nothing is sent.
 
 To walk the screens, add temporary throwing pages (not committed) for a page body, a server component inside `StaffPageShell`, a client component inside it, and the root layout, then run the build against the fake API and fake endpoint above.

@@ -48,6 +48,7 @@ test("a failed render is reported once and logged under the request's id", async
     digest: "4242",
     route: "/events/[id]",
     route_type: "render",
+    render_source: "react-server-components",
   });
   assert.doesNotMatch(lines[0], /example\.com/);
 });
@@ -61,6 +62,18 @@ test("a request the middleware never saw is reported and logged with no id", asy
   assert.equal(reports.length, 1);
   assert.equal(JSON.parse(lines[0]).request_id, null);
   assert.equal(JSON.parse(lines[0]).digest, null);
+});
+
+test("a client component that failed to server-render is logged and left to the browser to report", async () => {
+  const { reports, lines, onRequestError } = harness();
+  await onRequestError(
+    new Error("x"),
+    { path: "/", method: "GET", headers: { [REQUEST_ID_HEADER]: ID } },
+    { ...context, renderSource: "server-rendering" },
+  );
+  assert.deepEqual(reports, []);
+  assert.equal(JSON.parse(lines[0]).request_id, ID);
+  assert.equal(JSON.parse(lines[0]).render_source, "server-rendering");
 });
 
 test("a header given twice is logged as its first value", async () => {

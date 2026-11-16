@@ -51,6 +51,7 @@ test("a not-found or a redirect is not an error and is not reported", () => {
     "NEXT_HTTP_ERROR_FALLBACK;404",
     "NEXT_NOT_FOUND",
     "NEXT_REDIRECT;replace;/login;307;",
+    "BAILOUT_TO_CLIENT_SIDE_RENDERING",
   ]) {
     const signal = Object.assign(new Error(digest), { digest });
     assert.equal(isNavigationSignal(signal), true, digest);

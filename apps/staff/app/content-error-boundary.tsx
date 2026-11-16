@@ -3,12 +3,12 @@
 import { usePathname } from "next/navigation";
 import { Component, type ReactNode } from "react";
 
-import { isNavigationSignal } from "@/lib/error-screen";
+import { isNavigationSignal, type CaughtError } from "@/lib/error-screen";
 
 import { RouteErrorScreen } from "./error-screen";
 
 type BoundaryProps = { pathname: string; children: ReactNode };
-type BoundaryState = { error: (Error & { digest?: string }) | null; pathname: string };
+type BoundaryState = { error: CaughtError | null; pathname: string };
 
 /**
  * The boundary a Next `error.tsx` would be, placed where Next cannot put one: in
@@ -26,7 +26,7 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
     if (isNavigationSignal(error)) {
       throw error;
     }
-    return { error: error as Error };
+    return { error: error as CaughtError };
   }
 
   static getDerivedStateFromProps(props: BoundaryProps, state: BoundaryState): Partial<BoundaryState> | null {
