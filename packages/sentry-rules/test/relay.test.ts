@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { relayEnvelope, type Send } from "./sentry-tunnel.ts";
+import { relayEnvelope, type Send } from "../src/index.ts";
 
 /**
  * The tunnel route's relay (ADR 0079), with a capturing stand-in for fetch:

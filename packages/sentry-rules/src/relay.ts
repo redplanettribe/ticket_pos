@@ -1,17 +1,18 @@
 /**
- * The same-origin tunnel (ADR 0079): the browser SDK posts its envelopes here
- * instead of to Sentry's host, and this relays them.
+ * The same-origin tunnel (ADR 0079): a Next app's browser SDK posts its
+ * envelopes to a route of the app's own instead of to Sentry's host, and the
+ * route relays them through this, the same relay in both apps.
  *
- * Whether to relay is the shared decision in @ticket-pos/sentry-rules: only an
- * envelope addressed to this app's own Sentry project, and only to the endpoint
- * built from this app's DSN, so the route is no open relay.
+ * Whether to relay is decideTunnel's: only an envelope addressed to the app's
+ * own Sentry project, and only to the endpoint built from the app's DSN, so the
+ * route is no open relay.
  *
  * The upstream request is built from nothing of the incoming one but its body:
  * no header is copied, so neither the browser's X-Forwarded-For, nor its cookies,
  * nor anything else naming the person reaches Sentry. Sentry sees this server's
  * address, never the client's.
  */
-import { decideTunnel } from "@ticket-pos/sentry-rules";
+import { decideTunnel } from "./tunnel.ts";
 
 /** How long a relay may wait on Sentry before the browser is answered 504. */
 const TUNNEL_UPSTREAM_TIMEOUT_MS = 10_000;
@@ -26,7 +27,7 @@ export type Send = (url: string, init: RequestInit) => Promise<Response>;
 
 /**
  * Answers one envelope: 204 without forwarding when no DSN is set (dormant;
- * the caller passes lib/sentry's readSentryConfig, so a blank one is none),
+ * the caller passes readSentryConfig(env)?.dsn, so a blank one is none),
  * 403 when it is addressed to anyone else, otherwise Sentry's own status, or
  * 502/504 when Sentry cannot be reached.
  */

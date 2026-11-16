@@ -60,7 +60,7 @@ What it reads, all at runtime:
 
 The configuration lives in `lib/sentry.ts`, the server and middleware start in `instrumentation.ts`, the browser in `instrumentation-client.ts`.
 The browser gets the DSN from a `<meta>` the root layout writes, because the DSN is a value of the running service, not of the build.
-Browser envelopes go to `/api/monitoring`, which forwards only those addressed to this app's own project (`lib/sentry-tunnel.ts`, over `decideTunnel` from `@ticket-pos/sentry-rules`) and copies none of the browser's headers, so the client's address never reaches Sentry.
+Browser envelopes go to `/api/monitoring`, which forwards only those addressed to this app's own project (`relayEnvelope` over `decideTunnel`, both from `@ticket-pos/sentry-rules`) and copies none of the browser's headers, so the client's address never reaches Sentry.
 Every event passes through the shared before-send from `@ticket-pos/sentry-rules`.
 BFF calls to the API carry `sentry-trace` and `baggage` beside `X-Request-ID` (`lib/api.ts`).
 The build plugin is configured to contact nothing: no source maps, no release, no telemetry (`next.config.ts`).

@@ -3,20 +3,15 @@
  * runtimes share: the browser (instrumentation-client.ts), the Node server and
  * middleware (instrumentation.ts).
  *
- * Dormant until a DSN is set. With no SENTRY_DSN the configuration is null and
- * nothing calls `Sentry.init`, in any runtime; that is the default locally, in
- * CI and in an unattended agent run, and in production until the operator sets
- * the DSN on the Cloud Run service (Terraform).
- *
- * The DSN is a runtime value on the service, not a build argument, so the
- * browser cannot have it inlined at build time. The root layout writes the
- * configuration into the page (SENTRY_CONFIG_META) and the client
- * instrumentation reads it back from there.
- *
- * The release is the commit SHA, a build argument of the image that becomes
- * SENTRY_RELEASE in its environment; absent, events carry no release.
+ * Dormant until a DSN is set: with no SENTRY_DSN, readSentryConfig (from
+ * @ticket-pos/sentry-rules) is null and nothing calls `Sentry.init`, in any
+ * runtime. The root layout writes the configuration into the page
+ * (SENTRY_CONFIG_META) and the browser reads it back from there.
  */
-import { createBeforeSend, scrubEvent } from "@ticket-pos/sentry-rules";
+import { createBeforeSend, scrubEvent, type SentryConfig } from "@ticket-pos/sentry-rules";
+
+// Reading the configuration is the same rule in both apps, in the shared package.
+export { parseSentryConfig, readSentryConfig, serializeSentryConfig, type SentryConfig } from "@ticket-pos/sentry-rules";
 
 /**
  * The same-origin route browser events are posted to (app/api/monitoring).
@@ -30,52 +25,6 @@ export const SENTRY_CONFIG_META = "ticket-pos-sentry";
 
 /** One trace in ten, the ADR's default. A trace the browser started keeps its decision. */
 export const SENTRY_TRACES_SAMPLE_RATE = 0.1;
-
-export interface SentryConfig {
-  dsn: string;
-  environment: string;
-  release?: string;
-}
-
-/**
- * Reads the configuration from the environment: SENTRY_DSN, SENTRY_ENVIRONMENT
- * (Terraform sets "production"; a developer who opts in locally reports as
- * "development"), SENTRY_RELEASE. Null without a DSN.
- */
-export function readSentryConfig(env: Record<string, string | undefined>): SentryConfig | null {
-  return normalizeSentryConfig(env.SENTRY_DSN, env.SENTRY_ENVIRONMENT, env.SENTRY_RELEASE);
-}
-
-/** The one rule for what counts as set: blank is absent, in every source. */
-function normalizeSentryConfig(dsn: unknown, environment: unknown, release: unknown): SentryConfig | null {
-  const trimmed = (value: unknown) => (typeof value === "string" ? value.trim() : "");
-  if (!trimmed(dsn)) return null;
-  const config: SentryConfig = { dsn: trimmed(dsn), environment: trimmed(environment) || "development" };
-  if (trimmed(release)) config.release = trimmed(release);
-  return config;
-}
-
-/** What the root layout writes into SENTRY_CONFIG_META. */
-export function serializeSentryConfig(config: SentryConfig): string {
-  return JSON.stringify(config);
-}
-
-/**
- * Reads the configuration back in the browser. Anything missing or unreadable
- * is null, so a page without the meta never initialises the SDK.
- */
-export function parseSentryConfig(content: string | null | undefined): SentryConfig | null {
-  if (!content) return null;
-  let value: unknown;
-  try {
-    value = JSON.parse(content);
-  } catch {
-    return null;
-  }
-  if (value === null || typeof value !== "object") return null;
-  const { dsn, environment, release } = value as Record<string, unknown>;
-  return normalizeSentryConfig(dsn, environment, release);
-}
 
 /**
  * The before-send every event passes through: the shared one from
