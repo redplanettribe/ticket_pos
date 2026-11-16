@@ -1,5 +1,7 @@
 import { getTraceData } from "@sentry/nextjs";
 
+import { REQUEST_ID_HEADER } from "./request-id.ts";
+
 type APIEnvelope<T> = {
   data: T | null;
   error: {
@@ -164,6 +166,36 @@ function applyTraceHeaders(headers: Headers): void {
 }
 
 /**
+ * The id the middleware minted for the request being rendered (lib/request-id),
+ * or null outside one.
+ *
+ * Inside a server render, route handler or server action it is on the request
+ * headers, so every API call one page makes carries the id its error screen
+ * shows, and the API's request lines in Cloud Logging are found by that
+ * reference code. The middleware runs before there is a render to ask and
+ * passes the id itself; there, as in a test or in a cached function that may
+ * not read headers, this answers null and the call gets an id of its own.
+ * Next's own control flow (a static render bailing out to dynamic) is rethrown,
+ * never swallowed.
+ */
+async function renderRequestId(): Promise<string | null> {
+  // Loaded here rather than at the top: this module also runs in middleware and
+  // under the plain Node test runner, which has no request to read. The ".js"
+  // is for that runner (next has no exports map); the bundler resolves it the
+  // same.
+  const [{ headers }, { unstable_rethrow }] = await Promise.all([
+    import("next/headers.js"),
+    import("next/navigation.js"),
+  ]);
+  try {
+    return (await headers()).get(REQUEST_ID_HEADER);
+  } catch (error) {
+    unstable_rethrow(error);
+    return null;
+  }
+}
+
+/**
  * backendHeaders builds the headers every call to the API carries: the end
  * user's session, the request id, the trace and this service's credential.
  */
@@ -173,7 +205,7 @@ async function backendHeaders(init: RequestInit & { sessionToken?: string }): Pr
     headers.set("Authorization", `Bearer ${init.sessionToken}`);
   }
   if (!headers.has("X-Request-ID")) {
-    headers.set("X-Request-ID", crypto.randomUUID());
+    headers.set("X-Request-ID", (await renderRequestId()) ?? crypto.randomUUID());
   }
   applyTraceHeaders(headers);
   await applyServiceAuth(headers);

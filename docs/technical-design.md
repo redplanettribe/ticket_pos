@@ -180,6 +180,7 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
   The one exception is a capacity refusal, a 5xx carrying a `Retry-After`, which is logged at WARN because the platform refuses as designed.
   A `Retry-After` is only ever set by `platform.WriteDomainError` from the domain error's own declaration (`domainRetryAfter`, today only the 503 `HOLDER_EXPORT_BUSY`), so a mapped deployment fault or failed commit such as `PAYMENT_SALE_COMMIT_FAILED` stays an ERROR.
 - Staff and Storefront Next apps forward `X-Request-ID` on server-side calls to the Go API.
+  The Staff app's middleware mints one id per request it serves, so every API call one page render makes carries the same id, and that id is the reference code its error screens show (`apps/staff/lib/request-id.ts`).
 - Error reporting, distributed tracing, scheduled-job check-ins and uptime checks go to Sentry, behind one seam in `platform`, carrying no personal data and dormant until a DSN is set.
   See [ADR 0079](./adr/0079-sentry-reports-errors-traces-and-job-check-ins-behind-one-seam-holding-no-personal-data-and-dormant-until-a-dsn-is-set.md).
   Metrics remain deferred.
