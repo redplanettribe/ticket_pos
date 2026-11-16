@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { formatDateTime, PLATFORM_TIME_ZONE } from "./format.ts";
-import { hasInvoiceLevers, invoiceLevers, resendHintAskedAt } from "./invoice-actions.ts";
+import { hasInvoiceLevers, invoiceLevers, pressToast, resendHintAskedAt } from "./invoice-actions.ts";
 import type { InvoiceStatus } from "./operator-api.ts";
 
 // Every status, spelled here rather than imported from operator-api: that
@@ -369,5 +369,74 @@ test("the resend hint says when the SRI answered, in both languages", () => {
     ]) {
       assert.doesNotMatch(shown, claim, `${locale}: ${shown}`);
     }
+  }
+});
+
+// The Check status and Resend toast says what the SRI answered this press
+// (#736, parent #731), never the document's status. The press names its own
+// attempt; this is the ledger a code-45 rejection leaves, then the press,
+// then a Drainer round's row written before the response came back.
+const REJECTED_THEN_PRESSED = (outcome: "received" | "authorized" | "not_authorized" | "rejected" | "unknown" | "error") =>
+  ({
+    status: "rejected",
+    attempt_id: 2,
+    attempts: [
+      { id: 1, outcome: "rejected" },
+      { id: 2, outcome },
+      { id: 3, outcome: "authorized" },
+    ],
+  }) as const;
+
+test("the press toast follows the attempt the press recorded, not the newest row", () => {
+  assert.deepEqual(pressToast(REJECTED_THEN_PRESSED("unknown")), { key: "invoicingCheckedUnknown", tone: "info" });
+  assert.deepEqual(pressToast(REJECTED_THEN_PRESSED("error")), { key: "invoicingCheckedError", tone: "warning" });
+});
+
+test("each answer has its own toast, whatever the status says", () => {
+  const expected = {
+    authorized: { key: "invoicingCheckedAuthorized", tone: "success" },
+    not_authorized: { key: "invoicingCheckedNotAuthorized", tone: "info" },
+    rejected: { key: "invoicingCheckedRejected", tone: "info" },
+    received: { key: "invoicingCheckedReceived", tone: "info" },
+    unknown: { key: "invoicingCheckedUnknown", tone: "info" },
+    error: { key: "invoicingCheckedError", tone: "warning" },
+  } as const;
+  for (const [outcome, toast] of Object.entries(expected)) {
+    for (const status of ["rejected", "pending", "not_authorized", "authorized"] as const) {
+      const pressed = { ...REJECTED_THEN_PRESSED(outcome as keyof typeof expected), status };
+      assert.deepEqual(pressToast(pressed), toast, `${status} answered ${outcome}`);
+    }
+  }
+});
+
+test("a press whose attempt was not recorded does not guess an answer", () => {
+  const unrecorded = { attempt_id: null, attempts: [{ id: 1, outcome: "rejected" }] } as const;
+  assert.deepEqual(pressToast(unrecorded), { key: "invoicingCheckedUnrecorded", tone: "info" });
+  assert.deepEqual(pressToast({ ...unrecorded, attempt_id: 9 }), { key: "invoicingCheckedUnrecorded", tone: "info" });
+});
+
+test("the press toasts exist in both languages and claim only what the SRI answered", () => {
+  const outcomes = ["authorized", "not_authorized", "rejected", "received", "unknown", "error"] as const;
+  for (const locale of ["en", "es"] as const) {
+    const { operator } = loadCatalog(locale);
+    for (const outcome of outcomes) {
+      const { key } = pressToast({ attempt_id: 1, attempts: [{ id: 1, outcome }] });
+      assert.ok(operator[key], `${locale}: ${key} is missing`);
+    }
+    assert.ok(operator[pressToast({ attempt_id: null, attempts: [] }).key], `${locale}: the unrecorded toast is missing`);
+    // An `unknown` answer is not proof of anything (#722): it is reported,
+    // never turned into "never received" or "has no record".
+    const unknown = operator.invoicingCheckedUnknown;
+    for (const claim of [/never received/i, /has no record/i, /nunca fue recibido/i, /no tiene registro/i, /nunca lo recibi/i]) {
+      assert.doesNotMatch(unknown, claim, `${locale}: ${unknown}`);
+    }
+    // Nothing that did not come from a decision or a received answer may
+    // say the SRI holds the document or has yet to decide on it.
+    for (const key of ["invoicingCheckedUnknown", "invoicingCheckedError", "invoicingCheckedUnrecorded"]) {
+      for (const claim of [/not decided/i, /no ha decidido/i, /returned/i, /devolvi/i, /processing/i, /procesando/i]) {
+        assert.doesNotMatch(operator[key], claim, `${locale}: ${key}: ${operator[key]}`);
+      }
+    }
+    assert.equal(operator.invoicingCheckedPending, undefined, `${locale}: the "has not decided yet" toast is retired`);
   }
 });

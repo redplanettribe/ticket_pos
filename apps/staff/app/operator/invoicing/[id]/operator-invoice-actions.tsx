@@ -28,9 +28,8 @@ import { useLocale, useMessages, useTranslations } from "next-intl";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { PLATFORM_TIME_ZONE, formatDateTime } from "@/lib/format";
-import { hasInvoiceLevers, invoiceLevers, resendHintAskedAt } from "@/lib/invoice-actions";
+import { hasInvoiceLevers, invoiceLevers, pressToast, resendHintAskedAt } from "@/lib/invoice-actions";
 import {
-  type InvoiceStatus,
   type OperatorInvoiceDetail,
   abandonOperatorInvoice,
   annulOperatorInvoice,
@@ -49,7 +48,9 @@ import {
  *
  * THE OUTCOME IS THE INVOICE. Both calls answer with the invoice as it then
  * stands and hand it to the page, which re-renders status, messages,
- * authorization and the ledger from it; the toast only says what changed.
+ * authorization and the ledger from it. The toast says what the SRI answered
+ * the press - the attempt the API names - never the status (#736, see
+ * `pressToast`).
  * WHO HOLDS THE DOCUMENT is what the two hints say, and they are never both
  * true (#516). When the SRI holds it and is still deciding — after a plain
  * RECIBIDA, or after a resend the SRI met with "clave already registered"
@@ -108,13 +109,6 @@ import {
 // schema column: a sentence for a colleague, not a file.
 const NOTE_MAX_LENGTH = 500;
 
-const OUTCOME_KEYS = {
-  authorized: "invoicingCheckedAuthorized",
-  not_authorized: "invoicingCheckedNotAuthorized",
-  rejected: "invoicingCheckedRejected",
-  pending: "invoicingCheckedPending",
-} as const satisfies Partial<Record<InvoiceStatus, string>>;
-
 export function OperatorInvoiceActions({
   invoice,
   onUpdated,
@@ -144,11 +138,8 @@ export function OperatorInvoiceActions({
       const updated =
         action === "check" ? await checkOperatorInvoice(invoice.id) : await resendOperatorInvoice(invoice.id);
       onUpdated(updated);
-      if (updated.status === "authorized") {
-        toast.success(t(OUTCOME_KEYS.authorized));
-      } else {
-        toast.info(t(OUTCOME_KEYS[updated.status as keyof typeof OUTCOME_KEYS] ?? "invoicingCheckedPending"));
-      }
+      const { key, tone } = pressToast(updated);
+      toast[tone](t(key));
     } catch (actionError) {
       setError(
         (actionError instanceof ApiError ? apiErrorMessage(errorCopy, actionError) : null) ??

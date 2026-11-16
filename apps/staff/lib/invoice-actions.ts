@@ -10,7 +10,7 @@
  * question of why — and so the one rule lives in one place.
  */
 
-import type { InvoiceKind, InvoiceStatus } from "./operator-api";
+import type { InvoiceKind, InvoiceStatus, OperatorInvoiceAttempt } from "./operator-api";
 
 /**
  * Which levers the detail shows for a document in this state.
@@ -199,4 +199,53 @@ export function resendHintAskedAt(invoice: {
     return null;
   }
   return invoice.attempts[invoice.attempts.length - 1].started_at;
+}
+
+/** The toast a Check status or Resend press ends on: its catalog key and how loudly it is shown. */
+export type PressToast = {
+  key:
+    | "invoicingCheckedAuthorized"
+    | "invoicingCheckedNotAuthorized"
+    | "invoicingCheckedRejected"
+    | "invoicingCheckedReceived"
+    | "invoicingCheckedUnknown"
+    | "invoicingCheckedError"
+    | "invoicingCheckedUnrecorded";
+  tone: "success" | "info" | "warning";
+};
+
+const PRESS_TOASTS = {
+  authorized: { key: "invoicingCheckedAuthorized", tone: "success" },
+  not_authorized: { key: "invoicingCheckedNotAuthorized", tone: "info" },
+  rejected: { key: "invoicingCheckedRejected", tone: "info" },
+  received: { key: "invoicingCheckedReceived", tone: "info" },
+  unknown: { key: "invoicingCheckedUnknown", tone: "info" },
+  error: { key: "invoicingCheckedError", tone: "warning" },
+} as const satisfies Record<OperatorInvoiceAttempt["outcome"], PressToast>;
+
+const UNRECORDED: PressToast = { key: "invoicingCheckedUnrecorded", tone: "info" };
+
+/**
+ * What the toast after Check status or Resend says (#736, parent #731): what
+ * the SRI answered the last call of this press, and nothing more - the rule
+ * the resend hint follows (#728).
+ *
+ * NEVER THE STATUS. An answer that decides nothing (`received`, `unknown`)
+ * leaves the status where it was, and so does a call that never reached the
+ * SRI, so a toast read off the status restates the old one: on a document
+ * refused with code 45, a Check the SRI answered `unknown` used to toast
+ * "returned" - on the very press the Abandon flow asks for.
+ *
+ * THE PRESS NAMES ITS ATTEMPT. The API answers with `attempt_id`, the last
+ * attempts row the press itself wrote, and the toast is that row's outcome.
+ * The newest row is not read: a Sale Invoice Drainer round can write one
+ * between the press and its answer. When no row is named or the named one is
+ * missing - the ledger write failed - the toast does not guess an answer.
+ */
+export function pressToast(pressed: {
+  attempt_id: number | null;
+  attempts: readonly { id: number; outcome: OperatorInvoiceAttempt["outcome"] }[];
+}): PressToast {
+  const attempt = pressed.attempts.find((a) => a.id === pressed.attempt_id);
+  return attempt ? (PRESS_TOASTS[attempt.outcome] ?? UNRECORDED) : UNRECORDED;
 }
