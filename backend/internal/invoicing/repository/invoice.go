@@ -570,7 +570,9 @@ func (r *Repository) loadAnnulmentFacts(ctx context.Context, row *InvoiceRow) er
 	}
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT id, invoice_id, from_status, annulled_by, annulled_at, COALESCE(note, ''), late_acknowledged, reinstated_at,
-		       check_verdict, check_verdict_at, next_ask_at, notice_state, notice_sent_at, notice_attempts
+		       check_verdict, check_verdict_at, next_ask_at, notice_state, notice_sent_at, notice_attempts,
+		       reinstated_by, COALESCE(reinstate_note, ''), reinstatement_notice_state, reinstatement_notice_sent_at,
+		       reinstatement_notice_attempts
 		FROM invoicing_annulments WHERE invoice_id = $1 ORDER BY annulled_at, created_at, id
 	`, row.Invoice.ID)
 	if err != nil {
@@ -582,9 +584,17 @@ func (r *Repository) loadAnnulmentFacts(ctx context.Context, row *InvoiceRow) er
 		var a invoicing.Annulment
 		var verdict sql.NullString
 		var since, next sql.NullTime
+		var reinstatedBy, reinstatementNotice sql.NullString
+		var rein invoicing.Reinstatement
 		if err := rows.Scan(&a.ID, &a.InvoiceID, &a.FromStatus, &a.AnnulledBy, &a.AnnulledAt, &a.Note, &a.LateAcknowledged, &a.ReinstatedAt,
-			&verdict, &since, &next, &a.Notice.State, &a.Notice.SentAt, &a.Notice.Attempts); err != nil {
+			&verdict, &since, &next, &a.Notice.State, &a.Notice.SentAt, &a.Notice.Attempts,
+			&reinstatedBy, &rein.Note, &reinstatementNotice, &rein.Notice.SentAt, &rein.Notice.Attempts); err != nil {
 			return fmt.Errorf("scan annulment: %w", err)
+		}
+		if a.ReinstatedAt != nil {
+			rein.By = reinstatedBy.String
+			rein.Notice.State = invoicing.ReinstatementNoticeState(reinstatementNotice.String)
+			a.Reinstatement = &rein
 		}
 		if verdict.Valid {
 			a.Check = &invoicing.AnnulmentCheck{Verdict: invoicing.AnnulmentVerdict(verdict.String)}

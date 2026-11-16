@@ -410,12 +410,14 @@ func TestASecondOpenAnnulmentIsImpossibleAtTheDatabase(t *testing.T) {
 	number := numberOf(t, getAnnulmentDetail(t, operatorSessionID, invoiceID))
 	annulPressOK(t, operatorSessionID, invoiceID, map[string]any{"number": number})
 
-	insert := `INSERT INTO invoicing_annulments (invoice_id, from_status, annulled_by, annulled_at, reinstated_at)
-		VALUES ($1, 'authorized', 'someone@example.com', $2, $3)`
-	if _, err := env.db.Exec(insert, invoiceID, fixedClock, nil); err == nil {
+	// A reinstated row carries the whole stamp migration 134 requires: who,
+	// when, and its reinstatement notice's state.
+	insert := `INSERT INTO invoicing_annulments (invoice_id, from_status, annulled_by, annulled_at, reinstated_at, reinstated_by, reinstatement_notice_state)
+		VALUES ($1, 'authorized', 'someone@example.com', $2, $3, $4, $5)`
+	if _, err := env.db.Exec(insert, invoiceID, fixedClock, nil, nil, nil); err == nil {
 		t.Fatal("a second open annulment was stored; want the partial unique index to refuse it")
 	}
-	if _, err := env.db.Exec(insert, invoiceID, fixedClock, fixedClock.Add(time.Hour)); err != nil {
+	if _, err := env.db.Exec(insert, invoiceID, fixedClock, fixedClock.Add(time.Hour), "someone@example.com", "not_owed"); err != nil {
 		t.Fatalf("a reinstated annulment beside the open one: %v; want it stored", err)
 	}
 }

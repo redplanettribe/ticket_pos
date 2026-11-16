@@ -62,8 +62,10 @@ const (
 // belt; the client's own timeout ends every call first. The tick's worst
 // case is therefore annulmentCheckBudget + annulmentAskBound, then the
 // Annulment Notice pass's annulmentNoticeBudget plus one send at the mail
-// client's 10 s timeout (#748), before the drain, which then gets nothing
-// of saleInvoiceDrainBudget, inside the scheduler's deadline.
+// client's 10 s timeout (#748), and the reinstatement notice pass's
+// reinstatementNoticeBudget plus one send the same (#749), before the
+// drain, which then gets nothing of saleInvoiceDrainBudget, inside the
+// scheduler's deadline.
 const annulmentAskBound = StatusAskCalls*sri.DefaultTimeout + (StatusAskCalls-1)*DefaultStatusAskSpacing + 5*time.Second
 
 // annulmentCheckLease is how long a claimed check is hidden from other

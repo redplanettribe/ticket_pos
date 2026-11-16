@@ -121,8 +121,12 @@ type Annulment struct {
 	// LateAcknowledged is the operator's word, given past the Annulment
 	// Window's close, that the portal took the annulment all the same.
 	LateAcknowledged bool
-	// ReinstatedAt is nil while the annulment stands. Nothing writes it yet.
+	// ReinstatedAt is nil while the annulment stands; a Reinstate (#749)
+	// closes it, and the annulment stays on file as history.
 	ReinstatedAt *time.Time
+	// Reinstatement is who closed the annulment, when, why and what the
+	// buyer was owed for it (#749); nil while the annulment stands.
+	Reinstatement *Reinstatement
 	// Check is the annulment's Annulment Check (#746), nil for one recorded
 	// before the check existed: that reads unconfirmed and is never asked.
 	Check *AnnulmentCheck
@@ -155,6 +159,48 @@ type AnnulmentNotice struct {
 	State    AnnulmentNoticeState
 	SentAt   *time.Time
 	Attempts int
+}
+
+// Reinstatement is a Reinstate's stamp on the annulment it closed (#749,
+// ADR 0078 section 5): who, the optional note, and the Reinstatement Notice
+// the buyer was owed by it.
+type Reinstatement struct {
+	By   string
+	Note string
+	// Notice is the reinstatement notice: owed when the Annulment Notice
+	// had been sent and no Credit Note follows, so the buyer gets the RIDE
+	// and XML again; not owed otherwise.
+	Notice ReinstatementNotice
+}
+
+// ReinstatementNoticeState is what the annulments row records of the
+// reinstatement notice (#749).
+type ReinstatementNoticeState string
+
+const (
+	// ReinstatementNoticeOwed: the buyer was told the factura was annulled,
+	// and no Credit Note's mail will tell them otherwise.
+	ReinstatementNoticeOwed ReinstatementNoticeState = "owed"
+	// ReinstatementNoticeSent: the sender took it. Never sent again.
+	ReinstatementNoticeSent ReinstatementNoticeState = "sent"
+	// ReinstatementNoticeNotOwed: every other reinstatement.
+	ReinstatementNoticeNotOwed ReinstatementNoticeState = "not_owed"
+)
+
+// ReinstatementNotice is one reinstatement's notice: its state, when it was
+// sent, and how many sends were tried.
+type ReinstatementNotice struct {
+	State    ReinstatementNoticeState
+	SentAt   *time.Time
+	Attempts int
+}
+
+// ReinstateRequest is Reinstate's confirm as the operator submitted it
+// (#749): the document's number typed in full, and an optional note, ""
+// when none was left.
+type ReinstateRequest struct {
+	Number string
+	Note   string
 }
 
 // AnnulmentNoticeReleased reports whether a check's verdict releases an owed

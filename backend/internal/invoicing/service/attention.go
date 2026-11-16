@@ -28,8 +28,9 @@ import (
 // in full, and each one a row on the annulments ledger. On a Credit Note it
 // stays as #477 and #484 built it, from pending and needs_attention alone.
 // An owed or unsigned document was never at the authority. It is
-// irreversible here, and it takes the document out of the Drainer's claim
-// set and the queue in the same write.
+// irreversible here but for Reinstate (#749, reinstate.go), and it takes
+// the document out of the Drainer's claim set and the queue in the same
+// write.
 //
 // MARK ANNULLED ON A REISSUE'S CREDIT NOTE UNDOES THE REISSUE (#484, ADR
 // 0061). The corrected factura was waiting, unsigned, for that Credit Note
@@ -80,12 +81,17 @@ type NeedsAttentionQueue struct {
 // is the instant the mismatch was reached, on that reason alone, and
 // AnnulledAt the instant the factura was annulled, on the `annulled` reason
 // alone: the queue's "since" for each.
+//
+// ReinstateAdmitted says Reinstate is admitted on the entry as it stands
+// (#749): at mismatch, once the factura's Annulment Window has closed, so
+// the queue offers it beside the warning. False on every other reason.
 type NeedsAttentionItem struct {
 	InvoiceListItem
-	AttentionReason string                 `json:"attention_reason"`
-	MismatchSince   *time.Time             `json:"mismatch_since"`
-	AnnulledAt      *time.Time             `json:"annulled_at"`
-	Messages        []AuthorityMessageView `json:"messages"`
+	AttentionReason   string                 `json:"attention_reason"`
+	MismatchSince     *time.Time             `json:"mismatch_since"`
+	AnnulledAt        *time.Time             `json:"annulled_at"`
+	ReinstateAdmitted bool                   `json:"reinstate_admitted"`
+	Messages          []AuthorityMessageView `json:"messages"`
 }
 
 // The needs-attention queue's reasons, one per door of the union.
@@ -162,6 +168,7 @@ func (s *Service) ListNeedsAttention(ctx context.Context, page, pageSize int) (*
 	if err != nil {
 		return nil, err
 	}
+	now := s.clock()
 	items := make([]NeedsAttentionItem, 0, len(rows))
 	for i := range rows {
 		at, atMismatch := mismatchSince[rows[i].Invoice.ID]
@@ -173,6 +180,7 @@ func (s *Service) ListNeedsAttention(ctx context.Context, page, pageSize int) (*
 		switch item.AttentionReason {
 		case AttentionReasonAnnulmentMismatch:
 			item.MismatchSince = &at
+			item.ReinstateAdmitted = !annulmentWindowOf(&rows[i].Invoice).Open(now)
 		case AttentionReasonAnnulled:
 			item.AnnulledAt = rows[i].Invoice.AnnulledAt
 		}

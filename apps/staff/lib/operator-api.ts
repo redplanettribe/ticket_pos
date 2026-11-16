@@ -1307,6 +1307,27 @@ export type OperatorInvoiceAnnulment = {
   reinstated_at: string | null;
   /** The buyer's Annulment Notice on this annulment (#748). */
   notice: OperatorAnnulmentNotice;
+  /** Who reinstated it (#749), null while it stands. */
+  reinstated_by: string | null;
+  /** The note left with the Reinstate, null when none was left. */
+  reinstate_note: string | null;
+  /**
+   * The reinstatement notice (#749): `owed` when the buyer was sent the
+   * Annulment Notice and no Credit Note follows, so the factura is mailed
+   * again with its RIDE and XML; `sent` with its instant; `not_owed`. Null
+   * while the annulment stands.
+   */
+  reinstatement_notice: { state: "owed" | "sent" | "not_owed"; sent_at: string | null } | null;
+  /**
+   * The annulment's own check as it ended or stands: the verdict, since
+   * when, and every ask. Kept on a reinstated annulment as the evidence it
+   * was reinstated on; null for one recorded before the check existed.
+   */
+  check_trail: {
+    verdict: AnnulmentVerdict;
+    since: string | null;
+    asks: { asked_at: string; reading: StatusReading; manual: boolean }[];
+  } | null;
 };
 
 /**
@@ -1487,6 +1508,12 @@ export type OperatorInvoiceDetail = OperatorInvoiceListItem & {
      * admitted, or refused with the code its press would answer.
      */
     follow_ups: OperatorAnnulmentFollowUp[] | null;
+    /**
+     * Whether Reinstate is admitted (#749), null unless the factura is
+     * annulled: only once the window has closed with the check at mismatch.
+     * Refused with the code its press would answer.
+     */
+    reinstate: { admitted: boolean; refusal: { code: string; message: string } | null } | null;
   } | null;
   annulability: OperatorInvoiceAnnulability | null;
   has_authorization_xml: boolean;
@@ -1689,6 +1716,11 @@ export type OperatorNeedsAttentionItem = OperatorInvoiceListItem & {
   mismatch_since: string | null;
   /** When the factura was annulled, on the `annulled` reason alone: the queue's "since" for it. */
   annulled_at: string | null;
+  /**
+   * Reinstate is admitted on the entry (#749): at mismatch once the factura's
+   * Annulment Window has closed. False on every other reason.
+   */
+  reinstate_admitted: boolean;
   messages: OperatorInvoiceMessage[];
 };
 
@@ -1753,6 +1785,29 @@ export async function annulOperatorInvoice(id: string, confirm?: AnnulInvoiceCon
   return fetchEventsJSON<OperatorInvoiceDetail>(`${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/annul`, {
     method: "POST",
     ...(confirm ? { body: JSON.stringify(confirm) } : {}),
+  });
+}
+
+/** The confirm Reinstate takes (#749): the number typed in full and an optional note. */
+export type ReinstateInvoiceConfirm = {
+  number: string;
+  note: string | null;
+};
+
+/**
+ * Returns an annulled factura to authorized because the SRI never took the
+ * annulment and its window has closed (#749, ADR 0078), and returns it as it
+ * then stands. Admitted only while the Annulment Check stands at mismatch
+ * after the window; it may owe a Credit Note (a reversed Sale, or a
+ * successor standing for the Sale). Refused with INVOICE_REINSTATE_WINDOW_OPEN,
+ * INVOICE_REINSTATE_NOT_MISMATCH, INVOICE_REINSTATE_UNAUTHORIZED (a factura
+ * annulled before it stored its authorization, which the SRI did not
+ * return), INVOICE_NOT_REINSTATABLE and INVOICE_NUMBER_MISMATCH.
+ */
+export async function reinstateOperatorInvoice(id: string, confirm: ReinstateInvoiceConfirm): Promise<OperatorInvoiceDetail> {
+  return fetchEventsJSON<OperatorInvoiceDetail>(`${OPERATOR_INVOICES_PATH}/${encodeURIComponent(id)}/reinstate`, {
+    method: "POST",
+    body: JSON.stringify(confirm),
   });
 }
 

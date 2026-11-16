@@ -910,17 +910,29 @@ type InvoiceDetail struct {
 // entry per card, admitted or refused by the same gates the presses
 // answer with (annulmentFollowUps). Null unless the factura is annulled,
 // and empty where a factura already stands for its Sale.
+//
+// Reinstate says whether Reinstate is admitted on an annulled factura as it
+// stands, or the refusal the press would earn (#749): null unless the
+// factura is annulled.
 type AnnulmentRecordView struct {
 	Current   *AnnulmentView          `json:"current"`
 	Past      []AnnulmentView         `json:"past"`
 	Check     *AnnulmentCheckView     `json:"check"`
 	FollowUps []AnnulmentFollowUpView `json:"follow_ups"`
+	Reinstate *ReinstateView          `json:"reinstate"`
 }
 
 // AnnulmentView is one Mark annulled on a factura: the state it was annulled
 // from, who, when, the optional note (null when none was left) and whether
 // the operator acknowledged a late annulment. ReinstatedAt is null while it
 // stands. Notice is where the buyer's Annulment Notice stands (#748).
+//
+// A Reinstate (#749) closes it and keeps it as history: who reinstated,
+// the optional note and the reinstatement notice owed to the buyer, null
+// while it stands. CheckTrail is the annulment's own Annulment Check as it
+// ended or stands - verdict, since when, every ask - so a past annulment
+// keeps the evidence it was reinstated on; null for one recorded before the
+// check existed.
 type AnnulmentView struct {
 	FromStatus       string     `json:"from_status"`
 	AnnulledBy       string     `json:"annulled_by"`
@@ -929,7 +941,20 @@ type AnnulmentView struct {
 	LateAcknowledged bool       `json:"late_acknowledged"`
 	ReinstatedAt     *time.Time `json:"reinstated_at"`
 	// Notice is the buyer's Annulment Notice on this annulment (#748).
-	Notice *AnnulmentNoticeView `json:"notice"`
+	Notice              *AnnulmentNoticeView     `json:"notice"`
+	ReinstatedBy        *string                  `json:"reinstated_by"`
+	ReinstateNote       *string                  `json:"reinstate_note"`
+	ReinstatementNotice *ReinstatementNoticeView `json:"reinstatement_notice"`
+	CheckTrail          *AnnulmentCheckTrailView `json:"check_trail"`
+}
+
+// AnnulmentCheckTrailView is one annulment's check as its record keeps it:
+// the verdict, the instant it was reached (null while checking) and every
+// ask, oldest first.
+type AnnulmentCheckTrailView struct {
+	Verdict string             `json:"verdict"`
+	Since   *time.Time         `json:"since"`
+	Asks    []AnnulmentAskView `json:"asks"`
 }
 
 // AnnulabilityView says whether Mark annulled is admitted on a factura as
@@ -950,6 +975,15 @@ type AnnulabilityView struct {
 type RefusalView struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+// refusalView is a domain refusal as the detail shows it, nil for none.
+func refusalView(err error) *RefusalView {
+	var de apperror.DomainError
+	if errors.As(err, &de) {
+		return &RefusalView{Code: de.Code(), Message: de.Message()}
+	}
+	return nil
 }
 
 // AnnulmentWindowView is the Annulment Window at the moment of the read
@@ -1020,6 +1054,7 @@ func (s *Service) detailView(row *repository.InvoiceRow) *InvoiceDetail {
 		d.Annulment = annulmentRecordView(row.Annulments)
 		d.Annulment.Check = annulmentCheckView(row)
 		d.Annulment.FollowUps = annulmentFollowUps(row, s.saleInvoicingEnabled)
+		d.Annulment.Reinstate = reinstateView(row, s.clock())
 		d.Annulability = s.annulabilityView(row, s.clock())
 	}
 	return d
@@ -1036,12 +1071,29 @@ func annulmentRecordView(annulments []invoicing.Annulment) *AnnulmentRecordView 
 			LateAcknowledged: a.LateAcknowledged,
 			ReinstatedAt:     a.ReinstatedAt,
 			Notice:           annulmentNoticeView(&a),
+			CheckTrail:       annulmentCheckTrailView(a.Check),
+		}
+		if r := a.Reinstatement; r != nil {
+			v.ReinstatedBy = optional(r.By)
+			v.ReinstateNote = optional(r.Note)
+			v.ReinstatementNotice = reinstatementNoticeView(r)
 		}
 		if a.ReinstatedAt == nil {
 			out.Current = &v
 		} else {
 			out.Past = append(out.Past, v)
 		}
+	}
+	return out
+}
+
+func annulmentCheckTrailView(c *invoicing.AnnulmentCheck) *AnnulmentCheckTrailView {
+	if c == nil {
+		return nil
+	}
+	out := &AnnulmentCheckTrailView{Verdict: string(c.Verdict), Since: c.Since, Asks: []AnnulmentAskView{}}
+	for _, a := range c.Asks {
+		out.Asks = append(out.Asks, AnnulmentAskView{AskedAt: a.At, Reading: string(a.Reading), Manual: a.Manual})
 	}
 	return out
 }

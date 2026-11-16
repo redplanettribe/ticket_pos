@@ -20,6 +20,10 @@ import {
   annulmentWindowTone,
   FOLLOW_UP_CARD_KEYS,
   followUpChooser,
+  pastAnnulmentLines,
+  REINSTATEMENT_NOTICE_LINE_KEYS,
+  reinstateOffer,
+  reinstateReady,
   visibleWhitespace,
 } from "./annulment-panel.ts";
 
@@ -412,6 +416,130 @@ test("the trail's buyer-notice line follows the notice's state", () => {
     const catalog = loadCatalog(locale);
     for (const key of Object.values(ANNULMENT_NOTICE_LINE_KEYS)) {
       assert.ok(catalog.operator[key], `${locale}: operator.${key}`);
+    }
+  }
+});
+
+// Reinstate (#749): when the annulled face offers it, when its confirm may be
+// pressed, and how a past annulment reads in the trail.
+
+test("Reinstate is offered exactly where the API admits it", () => {
+  assert.equal(reinstateOffer({ reinstate: { admitted: true, refusal: null }, check: { verdict: "mismatch" } }), "offer");
+  assert.equal(reinstateOffer({ reinstate: null, check: null }), null);
+});
+
+test("at mismatch inside the window, one line says when Reinstate opens", () => {
+  const windowOpen = { admitted: false, refusal: { code: "INVOICE_REINSTATE_WINDOW_OPEN" } };
+  assert.equal(reinstateOffer({ reinstate: windowOpen, check: { verdict: "mismatch" } }), "after_window");
+  // Inside the window on any other verdict the check's own line speaks.
+  assert.equal(reinstateOffer({ reinstate: windowOpen, check: { verdict: "checking" } }), null);
+  const notMismatch = { admitted: false, refusal: { code: "INVOICE_REINSTATE_NOT_MISMATCH" } };
+  for (const verdict of ["checking", "confirmed", "unconfirmed"] as const) {
+    assert.equal(reinstateOffer({ reinstate: notMismatch, check: { verdict } }), null, verdict);
+  }
+});
+
+test("the Reinstate confirm needs the number typed in full", () => {
+  assert.equal(reinstateReady({ number: "001-001-000000042", typedNumber: " 001-001-000000042 " }), true);
+  assert.equal(reinstateReady({ number: "001-001-000000042", typedNumber: "001-001-42" }), false);
+  assert.equal(reinstateReady({ number: "001-001-000000042", typedNumber: "" }), false);
+});
+
+test("a past annulment reads who, when, both notes, where its check stood and both notices", () => {
+  const [line] = pastAnnulmentLines([
+    {
+      from_status: "authorized",
+      annulled_by: "ana@example.com",
+      annulled_at: "2026-07-07T17:00:00Z",
+      note: "wrong buyer",
+      late_acknowledged: false,
+      reinstated_at: "2026-08-09T17:00:00Z",
+      notice: { state: "sent", sent_at: "2026-07-07T18:00:00Z" },
+      reinstated_by: "luis@example.com",
+      reinstate_note: "the portal never took it",
+      reinstatement_notice: { state: "sent", sent_at: "2026-08-09T17:05:00Z" },
+      check_trail: {
+        verdict: "mismatch",
+        since: "2026-07-07T17:30:00Z",
+        asks: [
+          { asked_at: "2026-07-07T17:01:00Z", reading: "authorized", manual: false },
+          { asked_at: "2026-07-07T17:30:00Z", reading: "authorized", manual: false },
+        ],
+      },
+    },
+  ]);
+  assert.deepEqual(line, {
+    annulledBy: "ana@example.com",
+    annulledAt: "2026-07-07T17:00:00Z",
+    note: "wrong buyer",
+    reinstatedBy: "luis@example.com",
+    reinstatedAt: "2026-08-09T17:00:00Z",
+    reinstateNote: "the portal never took it",
+    verdict: "mismatch",
+    asks: 2,
+    notice: { key: "invoicingAnnulPanelNoticeSent", sentAt: "2026-07-07T18:00:00Z" },
+    reinstatementNotice: { key: "invoicingReinstateNoticeSent", sentAt: "2026-08-09T17:05:00Z" },
+  });
+});
+
+test("a past annulment from before the check has no verdict, and an unsent notice no instant", () => {
+  const [line] = pastAnnulmentLines([
+    {
+      from_status: "pending",
+      annulled_by: "ana@example.com",
+      annulled_at: "2026-07-07T17:00:00Z",
+      note: null,
+      late_acknowledged: false,
+      reinstated_at: "2026-08-09T17:00:00Z",
+      notice: { state: "dropped", sent_at: null },
+      reinstated_by: "luis@example.com",
+      reinstate_note: null,
+      reinstatement_notice: { state: "owed", sent_at: null },
+      check_trail: null,
+    },
+  ]);
+  assert.equal(line.verdict, null);
+  assert.equal(line.asks, 0);
+  assert.deepEqual(line.notice, { key: "invoicingAnnulPanelNoticeDropped", sentAt: null });
+  assert.deepEqual(line.reinstatementNotice, { key: "invoicingReinstateNoticeOwed", sentAt: null });
+});
+
+test("every Reinstate key and refusal exists in both catalogs", () => {
+  const keys = [
+    ...Object.values(REINSTATEMENT_NOTICE_LINE_KEYS),
+    "invoicingReinstateTitle",
+    "invoicingReinstateHint",
+    "invoicingReinstateOwes",
+    "invoicingReinstateBuyer",
+    "invoicingReinstateAfterWindow",
+    "invoicingReinstateNumberLabel",
+    "invoicingReinstateNoteLabel",
+    "invoicingReinstateNotePlaceholder",
+    "invoicingReinstateSubmit",
+    "invoicingReinstateSubmitting",
+    "invoicingReinstateDone",
+    "invoicingReinstateFailed",
+    "invoicingReinstateOpen",
+    "invoicingReinstateCancel",
+    "invoicingAnnulPanelPastTitle",
+    "invoicingAnnulPanelPastTrail",
+    "invoicingAnnulPanelPastCheck",
+    "invoicingAnnulPanelPastNote",
+    "invoicingAnnulPanelPastReinstateNote",
+  ];
+  const codes = [
+    "INVOICE_NOT_REINSTATABLE",
+    "INVOICE_REINSTATE_WINDOW_OPEN",
+    "INVOICE_REINSTATE_NOT_MISMATCH",
+    "INVOICE_REINSTATE_UNAUTHORIZED",
+  ];
+  for (const locale of ["en", "es"]) {
+    const catalog = loadCatalog(locale);
+    for (const key of keys) {
+      assert.ok(catalog.operator[key], `${locale}: operator.${key}`);
+    }
+    for (const code of codes) {
+      assert.ok(catalog.errors.envelope[code], `${locale}: errors.envelope.${code}`);
     }
   }
 });

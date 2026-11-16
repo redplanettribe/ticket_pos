@@ -1919,6 +1919,18 @@ var (
 		"This tax invoice (factura) replaces the earlier one for this purchase, which was annulled at the SRI.",
 		"Esta factura sustituye a la anterior de esta compra, que fue anulada en el SRI.",
 	)
+	// The reinstatement notice (#749, spec #742, ADR 0078): the reader was
+	// sent this factura and then the Annulment Notice telling them to discard
+	// it. The SRI never took the annulment, so the factura stands, and the
+	// mail hands it over again with words that undo the notice's.
+	taxDocumentReinstatedSubjectCopy = translated(
+		"Your tax invoice (factura) for %s stands",
+		"Su factura de %s sigue vigente",
+	)
+	taxDocumentReinstatedOpeningCopy = translated(
+		"Hi %s,\n\nWe told you that the tax invoice (factura) %s for your purchase for %s was annulled at the SRI. The SRI never took that annulment: the factura stands and is valid. Please keep it; we attach it again.\nReference: %s",
+		"Hola %s:\n\nLe informamos que la factura %s de su compra de %s fue anulada en el SRI. El SRI no registró esa anulación: la factura sigue vigente y es válida. Consérvela; se la adjuntamos de nuevo.\nReferencia: %s",
+	)
 	// Both forms the SRI obliges the emisor to deliver (#496, ADR 0062),
 	// named in the order they are attached: the XML is the record, the RIDE
 	// its reading.
@@ -1938,6 +1950,9 @@ var (
 // Subject is the delivery's subject line, naming the document and the Event
 // in the Sale's language.
 func (d TaxDocumentDelivery) Subject() string {
+	if d.Reinstated {
+		return fmt.Sprintf(taxDocumentReinstatedSubjectCopy.in(d.Locale), d.EventName)
+	}
 	if d.Kind == TaxDocumentKindCreditNote {
 		return fmt.Sprintf(taxDocumentCreditNoteSubjectCopy.in(d.Locale), d.EventName)
 	}
@@ -1955,7 +1970,9 @@ func (d TaxDocumentDelivery) Text() string {
 		}
 	}
 	text := fmt.Sprintf(opening.in(d.Locale), d.CustomerName, d.EventName, d.Reference)
-	if d.Kind != TaxDocumentKindCreditNote {
+	if d.Reinstated {
+		text = fmt.Sprintf(taxDocumentReinstatedOpeningCopy.in(d.Locale), d.CustomerName, d.Number, d.EventName, d.Reference)
+	} else if d.Kind != TaxDocumentKindCreditNote {
 		switch d.Replaces {
 		case TaxDocumentReplacesCredited:
 			text += "\n\n" + taxDocumentSaleInvoiceSupersedesCopy.in(d.Locale)

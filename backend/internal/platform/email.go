@@ -1053,6 +1053,13 @@ type TaxDocumentDelivery struct {
 	// again replacement of an abandoned one (ADR 0068) and on every Credit
 	// Note.
 	Replaces TaxDocumentReplaces
+	// Reinstated words the mail as a reinstatement notice (#749, spec #742,
+	// ADR 0078): the buyer was told this factura was annulled at the SRI,
+	// the SRI never took the annulment, and it stands, attached again. Only
+	// a Sale Invoice is ever sent so; Number is its printed number, which
+	// the words name, and Replaces is not read.
+	Reinstated bool
+	Number     string
 	// CustomerName is the Recipient's legal name as printed on the document.
 	CustomerName string
 	// EventName and Reference name the purchase the document is about, so

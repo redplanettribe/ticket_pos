@@ -236,3 +236,40 @@ func TestTaxDocumentDeliveryReplacesLineForAnAnnulledFactura(t *testing.T) {
 		}
 	}
 }
+
+// TestTaxDocumentDeliveryAsAReinstatementNotice: the reinstatement notice
+// (#749) is the factura's delivery worded as one - it names the factura by
+// its number, says the SRI never took the annulment the buyer was told of
+// and that the factura stands, and still says what is attached. Never the
+// replaces line, never "discard".
+func TestTaxDocumentDeliveryAsAReinstatementNotice(t *testing.T) {
+	for _, locale := range []Locale{LocaleEN, LocaleES} {
+		d := spanishDelivery()
+		d.Locale = locale
+		d.Reinstated = true
+		d.Number = "001-001-000000042"
+		d.Replaces = TaxDocumentReplacesAnnulled
+		subject, text := d.Subject(), d.Text()
+		wantSubject, wantLines := "Your tax invoice (factura) for Noche de Jazz stands", []string{
+			"001-001-000000042", "was annulled at the SRI", "The SRI never took that annulment: the factura stands and is valid", "Reference: ABC123", "Attached are the XML",
+		}
+		if locale == LocaleES {
+			wantSubject, wantLines = "Su factura de Noche de Jazz sigue vigente", []string{
+				"001-001-000000042", "fue anulada en el SRI", "El SRI no registró esa anulación: la factura sigue vigente y es válida", "Referencia: ABC123", "Adjuntamos el XML",
+			}
+		}
+		if subject != wantSubject {
+			t.Fatalf("%s subject = %q; want %q", locale, subject, wantSubject)
+		}
+		for _, line := range wantLines {
+			if !strings.Contains(text, line) {
+				t.Fatalf("%s text lacks %q:\n%s", locale, line, text)
+			}
+		}
+		for _, never := range []string{"replaces the earlier", "sustituye a la anterior", "discard", "descártela"} {
+			if strings.Contains(text, never) {
+				t.Fatalf("%s text says %q:\n%s", locale, never, text)
+			}
+		}
+	}
+}

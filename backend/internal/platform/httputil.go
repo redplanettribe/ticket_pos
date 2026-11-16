@@ -271,6 +271,12 @@ func domainHTTPStatus(code string) int {
 	case "INVOICE_NUMBER_MISMATCH", "INVOICE_CREDIT_NOTE_STANDS", "INVOICE_REISSUE_STANDS",
 		"INVOICE_ANNULMENT_LATE", "INVOICE_ANNULMENT_NOT_LATE":
 		return http.StatusConflict
+	// Reinstate's refusals (#749, ADR 0078): the factura is not annulled,
+	// its window is still open, its check is not at mismatch, or the SRI
+	// did not return the authorization the platform never stored.
+	case "INVOICE_NOT_REINSTATABLE", "INVOICE_REINSTATE_WINDOW_OPEN", "INVOICE_REINSTATE_NOT_MISMATCH",
+		"INVOICE_REINSTATE_UNAUTHORIZED":
+		return http.StatusConflict
 	// The Sale Invoice Reissue's refusals (#483, ADR 0061): the document
 	// exists and the request was well formed, and what stands in the way is
 	// a fact about the document or its Sale — its kind, its state, a reversed

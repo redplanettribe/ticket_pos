@@ -284,6 +284,43 @@ func ErrInvoiceAnnulmentMismatch() apperror.DomainError {
 	return apperror.New("INVOICE_ANNULMENT_MISMATCH", "The SRI still reports this annulled factura as authorized, so it cannot be replaced yet. Press Check status; once the SRI reports it ANULADO it can be replaced.", nil)
 }
 
+// Reinstate's refusals (#749, spec #742, ADR 0078 section 5), all 409: each
+// is a fact about the factura or its annulment that no retry with the same
+// body changes, except the last, which the SRI's own answer changes. A
+// mistyped number is INVOICE_NUMBER_MISMATCH, Mark annulled's confirm.
+
+// ErrInvoiceNotReinstatable: only an annulled factura (a Sale Invoice or a
+// manual Tax Invoice) is reinstated. A Credit Note's Mark annulled keeps no
+// annulment to close, and a factura in any other state has none standing.
+func ErrInvoiceNotReinstatable(status InvoiceStatus) apperror.DomainError {
+	return apperror.New("INVOICE_NOT_REINSTATABLE", "Only an annulled factura can be reinstated; this document is "+string(status)+".", map[string]string{"status": string(status)})
+}
+
+// ErrInvoiceReinstateWindowOpen: the factura's Annulment Window is still
+// open. Reinstate is never an undo inside the window, because Issue again
+// and Reissue may already have acted on the annulment; while it is open the
+// portal can still take the annulment the check is waiting for.
+func ErrInvoiceReinstateWindowOpen(deadline string) apperror.DomainError {
+	return apperror.New("INVOICE_REINSTATE_WINDOW_OPEN", "This factura can still be annulled at the SRI portal until "+deadline+". Reinstate it only once that window has closed with the SRI still reporting it authorized.", map[string]string{"deadline": deadline})
+}
+
+// ErrInvoiceReinstateNotMismatch: the factura's Annulment Check does not
+// stand at mismatch. Only the SRI reporting it authorized on two asks
+// justifies following the SRI back to authorized; confirmed means the SRI
+// took the annulment, and checking or unconfirmed mean it has not said.
+func ErrInvoiceReinstateNotMismatch(verdict AnnulmentVerdict) apperror.DomainError {
+	return apperror.New("INVOICE_REINSTATE_NOT_MISMATCH", "Only a factura the SRI still reports as authorized can be reinstated, and this annulment's check is "+string(verdict)+".", map[string]string{"verdict": string(verdict)})
+}
+
+// ErrInvoiceReinstateUnauthorized: the factura was annulled before the
+// platform stored its authorization (from pending or needs_attention), and
+// the SRI's autorizacionComprobante did not answer AUTORIZADO with the
+// authorized XML when Reinstate asked for it. A factura is never returned to
+// authorized without the SRI's own authorization on file.
+func ErrInvoiceReinstateUnauthorized() apperror.DomainError {
+	return apperror.New("INVOICE_REINSTATE_UNAUTHORIZED", "The SRI did not return this factura's authorization, which the platform never stored. Try again later; it is reinstated once the SRI answers AUTORIZADO with the authorized XML.", nil)
+}
+
 // ErrInvoiceSaleReversed: the Sale no longer stands, so income that no
 // longer stands is never re-declared.
 func ErrInvoiceSaleReversed() apperror.DomainError {

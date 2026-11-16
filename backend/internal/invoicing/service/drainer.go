@@ -201,6 +201,9 @@ type SaleInvoiceDrainResult struct {
 	// AnnulmentNotice is what the tick's Annulment Notice pass did (#748):
 	// notices sent to buyers, and sends refused and due again.
 	AnnulmentNotice AnnulmentNoticeResult `json:"annulment_notice"`
+	// ReinstatementNotice is what the tick's reinstatement notice pass did
+	// (#749): sends and refusals, run right after the Annulment Notice's.
+	ReinstatementNotice ReinstatementNoticeResult `json:"reinstatement_notice"`
 }
 
 // DrainSaleInvoices works the Sale Invoices that are due, one at a time,
@@ -222,6 +225,7 @@ func (s *Service) DrainSaleInvoices(ctx context.Context) (*SaleInvoiceDrainResul
 	s.warnOfCertificateExpiry(ctx)
 	checks := s.checkAnnulments(ctx, annulmentCheckBudget)
 	notices := s.sendAnnulmentNotices(ctx, annulmentNoticeBudget)
+	reinstatementNotices := s.sendReinstatementNotices(ctx, reinstatementNoticeBudget)
 	if !s.saleInvoicingEnabled {
 		return nil, invoicing.ErrSaleInvoicingUnavailable()
 	}
@@ -233,6 +237,7 @@ func (s *Service) DrainSaleInvoices(ctx context.Context) (*SaleInvoiceDrainResul
 	}
 	out.AnnulmentCheck = checks
 	out.AnnulmentNotice = notices
+	out.ReinstatementNotice = reinstatementNotices
 	return out, nil
 }
 
@@ -509,6 +514,13 @@ func (s *Service) withdrawRedundantCreditNote(ctx context.Context, row *reposito
 // Note: an Issue again replacement, or since #747 a reissue of an ANNULLED
 // factura, which owes the corrected factura alone. It waits for nothing
 // and is signed on this round.
+//
+// A REINSTATE MOVES THE PREDECESSOR BACK TO AUTHORIZED (#749, ADR 0078),
+// and owes a Credit Note against it in the same transaction. Read here, the
+// predecessor is then no longer terminally dead, so an Issue again
+// replacement still unsigned takes a Reissue's shape: the claim holds it
+// while that Credit Note is owed or undecided, and once it is authorized
+// this finds it and the replacement is signed.
 func (s *Service) withdrawCorrectedFacturaOfADeadCreditNote(ctx context.Context, row *repository.InvoiceRow) (bool, error) {
 	replaced, err := s.repo.GetInvoice(ctx, row.Invoice.SupersedesInvoiceID)
 	if err != nil {

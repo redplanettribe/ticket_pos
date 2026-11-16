@@ -483,6 +483,7 @@ func registerOperatorRoutes(mux Router, app *App) {
 	// Mark annulled (#477): the operator's record of a manual portal act,
 	// allowed from pending or needs_attention, irreversible.
 	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/annul", operator(http.HandlerFunc(inv.AnnulInvoice)))
+	mux.Handle("POST /api/v1/operator/invoicing/invoices/{id}/reinstate", operator(http.HandlerFunc(inv.ReinstateInvoice)))
 	// Abandon (#578, ADR 0068): the operator's record that the SRI never
 	// took the document and never will, because it refuses the number it
 	// carries. Any kind, from the three states a refusal leaves, and only

@@ -21,6 +21,7 @@ import type {
   OperatorAnnulmentPortal,
   OperatorAnnulmentWindow,
   OperatorInvoiceAnnulability,
+  OperatorInvoiceAnnulment,
 } from "./operator-api";
 
 /**
@@ -338,4 +339,94 @@ export function followUpChooser(annulment: {
     saleHasNoFactura: followUps.some((f) => f.kind === "issue_again"),
     notConfirmed: annulment.check?.verdict === "checking" || annulment.check?.verdict === "unconfirmed",
   };
+}
+
+// Reinstate (#749, ADR 0078 section 5, stories 79 to 92). When the Annulment
+// Window has closed with the SRI still reporting the factura authorized (the
+// check at mismatch), the operator reinstates it: the record follows the SRI.
+// The API decides whether it is admitted (`annulment.reinstate`); this decides
+// what the annulled face draws, when the confirm may be pressed, and how a
+// past annulment reads in the trail.
+
+/**
+ * Reinstate on the annulled face: the confirm when the API admits it; at
+ * mismatch while the window is still open, one line saying it opens once the
+ * window closes (the portal can still take the annulment until then); and
+ * nothing on any other verdict, where the check's own line says what to do.
+ */
+export function reinstateOffer(annulment: {
+  reinstate: { admitted: boolean; refusal: { code: string } | null } | null;
+  check: Pick<OperatorAnnulmentCheck, "verdict"> | null;
+}): "offer" | "after_window" | null {
+  const reinstate = annulment.reinstate;
+  if (reinstate === null) {
+    return null;
+  }
+  if (reinstate.admitted) {
+    return "offer";
+  }
+  if (reinstate.refusal?.code === "INVOICE_REINSTATE_WINDOW_OPEN" && annulment.check?.verdict === "mismatch") {
+    return "after_window";
+  }
+  return null;
+}
+
+/**
+ * Whether the Reinstate confirm may be pressed: the number typed in full. The
+ * API checks it again and refuses a mismatch; this only keeps a certain
+ * refusal from being sent.
+ */
+export function reinstateReady(input: { number: string; typedNumber: string }): boolean {
+  return input.typedNumber.trim() === input.number;
+}
+
+/** The trail's reinstatement-notice line per state (story 90). */
+export const REINSTATEMENT_NOTICE_LINE_KEYS = {
+  owed: "invoicingReinstateNoticeOwed",
+  sent: "invoicingReinstateNoticeSent",
+  not_owed: "invoicingReinstateNoticeNotOwed",
+} as const satisfies Record<NonNullable<OperatorInvoiceAnnulment["reinstatement_notice"]>["state"], string>;
+
+/**
+ * One past annulment as the trail draws it (story 88): who annulled and when,
+ * who reinstated and when, both notes, the verdict the check ended on and how
+ * many asks it made, the buyer's Annulment Notice, and the reinstatement
+ * notice. Instants are the API's, for the page to format.
+ */
+export type PastAnnulmentLine = {
+  annulledBy: string;
+  annulledAt: string;
+  note: string | null;
+  reinstatedBy: string | null;
+  reinstatedAt: string | null;
+  reinstateNote: string | null;
+  verdict: AnnulmentVerdict | null;
+  asks: number;
+  notice: ReturnType<typeof annulmentNoticeLine>;
+  reinstatementNotice: {
+    key: (typeof REINSTATEMENT_NOTICE_LINE_KEYS)[keyof typeof REINSTATEMENT_NOTICE_LINE_KEYS];
+    sentAt: string | null;
+  } | null;
+};
+
+/** The trail's past annulments, oldest first, as the API lists them. */
+export function pastAnnulmentLines(past: readonly OperatorInvoiceAnnulment[]): PastAnnulmentLine[] {
+  return past.map((a) => ({
+    annulledBy: a.annulled_by,
+    annulledAt: a.annulled_at,
+    note: a.note,
+    reinstatedBy: a.reinstated_by,
+    reinstatedAt: a.reinstated_at,
+    reinstateNote: a.reinstate_note,
+    verdict: a.check_trail?.verdict ?? null,
+    asks: a.check_trail?.asks.length ?? 0,
+    notice: annulmentNoticeLine(a.notice),
+    reinstatementNotice:
+      a.reinstatement_notice === null
+        ? null
+        : {
+            key: REINSTATEMENT_NOTICE_LINE_KEYS[a.reinstatement_notice.state],
+            sentAt: a.reinstatement_notice.state === "sent" ? a.reinstatement_notice.sent_at : null,
+          },
+  }));
 }

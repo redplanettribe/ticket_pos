@@ -281,6 +281,8 @@ type needsAttentionCheckItem struct {
 	AttentionReason string  `json:"attention_reason"`
 	MismatchSince   *string `json:"mismatch_since"`
 	AnnulledAt      *string `json:"annulled_at"`
+	// ReinstateAdmitted is Reinstate offered from the entry (#749).
+	ReinstateAdmitted bool `json:"reinstate_admitted"`
 }
 
 func needsAttentionItem(t *testing.T, sessionID, id string) *needsAttentionCheckItem {

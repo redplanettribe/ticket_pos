@@ -41,6 +41,8 @@ import {
   annulmentWindowProgress,
   annulmentWindowTone,
   followUpChooser,
+  pastAnnulmentLines,
+  reinstateOffer,
   visibleWhitespace,
 } from "@/lib/annulment-panel";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -58,6 +60,7 @@ import {
 
 import { INVOICE_STATUS_KEYS } from "../invoice-status";
 import { OperatorInvoiceIssueAgain } from "./operator-invoice-issue-again";
+import { OperatorInvoiceReinstate } from "./operator-invoice-reinstate";
 import { OperatorInvoiceReissue } from "./operator-invoice-reissue";
 
 /**
@@ -119,6 +122,14 @@ import { OperatorInvoiceReissue } from "./operator-invoice-reissue";
  * the form, a Sale Invoice's panel says the buyer is sent an Annulment Notice,
  * and every admitted factura's says to take the period's archive again if it
  * already went to the accountant.
+ *
+ * REINSTATE (#749) sits on the annulled face once the window has closed with
+ * the check at mismatch, as `annulment.reinstate` admits it: the confirm by
+ * the typed number with an optional note, saying what it may owe and what the
+ * buyer hears. At mismatch inside the window one line says it opens once the
+ * window closes. A reinstated factura's past annulments - who annulled and
+ * reinstated, when, the notes, where the check stood, both buyer notices -
+ * are drawn as a trail on whichever face the panel then shows.
  */
 export function OperatorInvoiceAnnulment({
   invoice,
@@ -156,7 +167,10 @@ function RefusedPanel({ invoice }: { invoice: OperatorInvoiceDetail }) {
       <CardHeader className="pb-3">
         <CardTitle>{t("invoicingAnnulPanelRefusedTitle")}</CardTitle>
       </CardHeader>
-      <CardContent className="text-sm text-muted-foreground">{sentence}</CardContent>
+      <CardContent className="space-y-3 text-sm text-muted-foreground">
+        <p>{sentence}</p>
+        <PastAnnulments invoice={invoice} />
+      </CardContent>
     </Card>
   );
 }
@@ -209,7 +223,9 @@ function AnnulledPanel({
         ) : null}
         {current?.late_acknowledged ? <p>{t("invoicingAnnulPanelTrailLate")}</p> : null}
         {current?.notice ? <NoticeLine notice={current.notice} locale={locale} /> : null}
+        <ReinstateSection invoice={invoice} onUpdated={onUpdated} />
         <FollowUpChooserSection invoice={invoice} />
+        <PastAnnulments invoice={invoice} />
       </CardContent>
     </Card>
   );
@@ -225,6 +241,93 @@ function NoticeLine({ notice, locale }: { notice: OperatorAnnulmentNotice; local
         when: line.sentAt ? (formatDateTime(line.sentAt, PLATFORM_TIME_ZONE, locale) ?? line.sentAt) : "",
       })}
     </p>
+  );
+}
+
+/**
+ * Reinstate on the annulled face (#749): the confirm where the API admits it,
+ * or at mismatch inside the window the line saying when it opens.
+ */
+function ReinstateSection({
+  invoice,
+  onUpdated,
+}: {
+  invoice: OperatorInvoiceDetail;
+  onUpdated: (invoice: OperatorInvoiceDetail) => void;
+}) {
+  const t = useTranslations("operator");
+  const locale = toAppLocale(useLocale());
+  const offer = invoice.annulment ? reinstateOffer(invoice.annulment) : null;
+  if (offer === null || invoice.number === null) {
+    return null;
+  }
+  if (offer === "after_window") {
+    const deadline = invoice.annulability?.window?.deadline;
+    return deadline ? (
+      <p>{t("invoicingReinstateAfterWindow", { deadline: formatCalendarDay(deadline, locale) })}</p>
+    ) : null;
+  }
+  return (
+    <section className="border-t pt-4">
+      <OperatorInvoiceReinstate invoiceId={invoice.id} number={invoice.number} onReinstated={onUpdated} />
+    </section>
+  );
+}
+
+/**
+ * The trail of past annulments (#749, story 88): each annulment a Reinstate
+ * closed, kept as history with its check's last word and both buyer notices.
+ */
+function PastAnnulments({ invoice, className }: { invoice: OperatorInvoiceDetail; className?: string }) {
+  const t = useTranslations("operator");
+  const locale = toAppLocale(useLocale());
+  const lines = pastAnnulmentLines(invoice.annulment?.past ?? []);
+  if (lines.length === 0) {
+    return null;
+  }
+  const when = (iso: string | null) => (iso ? (formatDateTime(iso, PLATFORM_TIME_ZONE, locale) ?? iso) : "");
+  return (
+    <section className={cn("space-y-2 border-t pt-4 text-sm text-muted-foreground", className)}>
+      <h3 className="text-base font-semibold text-foreground">{t("invoicingAnnulPanelPastTitle")}</h3>
+      <ul className="space-y-3">
+        {lines.map((line) => (
+          <li key={line.annulledAt} className="space-y-1">
+            <p className="text-foreground">
+              {t("invoicingAnnulPanelPastTrail", {
+                by: line.annulledBy,
+                when: when(line.annulledAt),
+                reinstatedBy: line.reinstatedBy ?? "",
+                reinstatedWhen: when(line.reinstatedAt),
+              })}
+            </p>
+            {line.verdict ? (
+              <p>
+                {t("invoicingAnnulPanelPastCheck", {
+                  verdict: t(ANNULMENT_CHECK_BADGE_KEYS[line.verdict]),
+                  count: line.asks,
+                })}
+              </p>
+            ) : null}
+            {line.note ? (
+              <p>
+                <span className="font-medium text-foreground">{t("invoicingAnnulPanelPastNote")}</span>{" "}
+                <span className="whitespace-pre-wrap">{line.note}</span>
+              </p>
+            ) : null}
+            {line.reinstateNote ? (
+              <p>
+                <span className="font-medium text-foreground">{t("invoicingAnnulPanelPastReinstateNote")}</span>{" "}
+                <span className="whitespace-pre-wrap">{line.reinstateNote}</span>
+              </p>
+            ) : null}
+            <p>{t(line.notice.key, { when: when(line.notice.sentAt) })}</p>
+            {line.reinstatementNotice ? (
+              <p>{t(line.reinstatementNotice.key, { when: when(line.reinstatementNotice.sentAt) })}</p>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -568,6 +671,7 @@ function RecordPanel({
             </Button>
           </div>
         </div>
+        <PastAnnulments invoice={invoice} className="mt-6" />
       </CardContent>
     </Card>
   );
