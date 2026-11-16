@@ -82,6 +82,27 @@ export function formatNumber(
   return new Intl.NumberFormat(staffIntlLocale(locale), options).format(value);
 }
 
+const DECIMAL_STRING = /^-?\d+(?:\.(\d+))?$/;
+
+/**
+ * A decimal quantity the API sends as a string ("1", "2.5", "1.00"), written with
+ * the reader's marks: "1.00" in English, "1,00" in Spanish.
+ *
+ * The string goes to Intl as it is, never through a float, so every digit the API
+ * sent survives, and the fraction keeps exactly as many digits as it came with: a
+ * Tax Invoice line recorded as "1.00" reads as two decimals, not as "1". Anything
+ * that is not a plain decimal is shown untouched rather than as "NaN".
+ */
+export function formatQuantity(value: string, locale: AppLocale): string {
+  const match = DECIMAL_STRING.exec(value);
+  if (!match) return value;
+  const fractionDigits = match[1]?.length ?? 0;
+  return new Intl.NumberFormat(staffIntlLocale(locale), {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(value as Intl.StringNumericLiteral);
+}
+
 /**
  * An amount of money held in minor units, in the currency it is denominated in.
  *
