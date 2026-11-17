@@ -57,8 +57,8 @@ import { isUnlocalized } from "@/lib/unlocalized-paths";
  * never taken from the browser (what a browser sends is overwritten; the route
  * handlers it does not see keep only a UUID-shaped one, lib/api.ts), forwarded to the render on the request headers
  * so every API call the page makes carries it (lib/api.ts) and onRequestError
- * logs a failed render under it, echoed in X-Request-ID, and, for a page or an
- * RSC navigation, handed to the browser in the cookie the error screens read
+ * logs a failed render under it, echoed in X-Request-ID, and, for a page load or
+ * a server action, handed to the browser in the cookie the error screens read
  * their reference code from (@ticket-pos/sentry-rules' reference-code.ts). That
  * cookie is the same kind of rider as the ref cookie: nothing renders from it,
  * so a prefixed page still says the same thing to everyone.

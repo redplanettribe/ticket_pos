@@ -103,10 +103,12 @@ How the request id reaches the screen:
 1. The middleware mints a UUID for every request it serves, never taking one from the browser.
    It forwards it on the request headers as `x-request-id`, echoes it in `X-Request-ID`, and passes it to its own session check.
 2. `lib/api.ts` reads it from the request headers inside a render, route handler or server action, so every API call of that request carries it and the API logs each under it.
-3. For a page or an RSC navigation, but not a BFF call under `/api/` or a prefetch, the middleware also sets the cookie `ticket_pos_request_id`, readable by script.
+3. For a page load or a server action, but not a BFF call under `/api/` or a router fetch, the middleware also sets the cookie `ticket_pos_request_id`, readable by script.
    An error screen is a client component and Next gives it only a digest for a server error, so the cookie is how it learns which request rendered the page.
-4. A crash in a server render: `onRequestError` (`createOnRequestError` in `@ticket-pos/sentry-rules`) writes one JSON line to stdout, which Cloud Logging indexes, with `request_id`, Next's `digest`, the route pattern and the render source; an event processor tags the server's Sentry event `request_id`; the screen reads the same id from the cookie the failed response set.
-5. A crash only in the browser has no request of its own: the code is the id of the request that rendered the page the person is on (the document, or the last RSC navigation).
+   A client navigation cannot set it: Next deletes its flight headers before middleware runs, so a navigation and a link prefetch look the same there, and letting prefetches write it showed a code found nowhere (#791).
+4. A crash in a server render: `onRequestError` (`createOnRequestError` in `@ticket-pos/sentry-rules`) writes one JSON line to stdout, which Cloud Logging indexes, with `request_id`, the `reference_code` the browser sent in its cookie, Next's `digest`, the route pattern and the render source; an event processor tags the server's Sentry event with both.
+   A failed page load shows its own `request_id`; a failed client navigation shows the page's code, which its line carries as `reference_code`.
+5. A crash only in the browser has no request of its own: the code is the id of the page load the person is on.
    The API's lines for that render are found by it, and the screen reports the error from the browser tagged `request_id` with it.
 
 Reported exactly once: an error with a digest came from the server and was reported there, so the browser does not report it again; any other error is reported by the screen once (`reportCaughtError` in `@ticket-pos/sentry-rules`).
@@ -115,4 +117,5 @@ When the server could not render a page's shell, Next sends a bare error documen
 With no DSN the screens render the same and nothing is sent.
 
 To walk the screens, add temporary throwing pages (not committed) for a page body, a server component inside `StaffPageShell`, a client component inside it, and the root layout, then run the build against the fake API and fake endpoint above.
-Each crash shows its screen with a code equal to the document's `X-Request-ID`, the stand-in receives one event tagged with that `request_id`, the API stand-in saw that id, and the server log has the `request failed` line with it.
+Each crash shows its screen with a code equal to the document's `X-Request-ID`, the stand-in receives one event tagged with that `request_id`, the API stand-in saw that id, and the server log has the `request failed` line with it (as `reference_code` for a crash reached by a client navigation).
+Then let the page's links prefetch and crash it again: the code is still the document's.
