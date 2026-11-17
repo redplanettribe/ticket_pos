@@ -70,6 +70,7 @@ instead of scattering it.
 | `payouts` | Getting paid: both balances, the Payout Profile, the ask, the request history, and the **Payout Request status** vocabulary — one key per state, read by every screen that draws one |
 | `operator` | The Operator Dashboard: the platform-revenue overview, the organizations roll and one Organization's detail with its **House Organization** toggle, the Payout Request queue and one request, the sale lookup and one sale, the Consent Withdrawal surface, and **Tax invoicing** — the Issuer page, the Tax Invoices list, the new Tax Invoice form, one Tax Invoice's detail with its Check status and Resend actions and its downloads, and the printable RIDE. The **Tax Invoice status** vocabulary is mapped once, in `app/operator/invoicing/invoice-status.ts`, and every badge reads it from there |
 | `errors`  | Failures, keyed on the API's error code — belongs to no single surface            |
+| `errorScreen` | The screen shown in place of a page that crashed (#772): what happened, the retry, and the reference code to quote. Read by the route-level screens through the provider, and by the root-level screen (`app/global-error.tsx`) straight from the catalog, because it renders where the provider may be gone |
 
 `ticketTypes` covers the **Ticket Question** editor for the same reason `sales`
 covers Sale Import below: authoring questions is a dialog hanging off a Ticket

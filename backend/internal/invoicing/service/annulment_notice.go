@@ -113,7 +113,7 @@ func (s *Service) sendAnnulmentNotice(ctx context.Context, claim *repository.Ann
 	next := now.Add(annulmentNoticeDelay(claim.Attempts + 1))
 	facts, err := s.repo.GetSaleDeliveryFacts(ctx, inv.TicketSaleID)
 	if err != nil || facts == nil || row.Ecuador == nil {
-		s.logger.Error("invoicing: an annulment notice cannot be worded; its Sale or its number cannot be read",
+		s.logger.Error(ctx, "invoicing: an annulment notice cannot be worded; its Sale or its number cannot be read",
 			"invoice_id", inv.ID, "error", err)
 		return false, s.repo.RescheduleAnnulmentNotice(context.WithoutCancel(ctx), claim.AnnulmentID, next)
 	}

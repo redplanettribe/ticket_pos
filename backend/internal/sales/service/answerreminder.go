@@ -256,7 +256,7 @@ func (s *Service) SweepAnswerReminders(ctx context.Context) (*AnswerReminderSwee
 	// correctly must not be reported as failed because a COUNT did not come back.
 	// Same arrangement the purge's backlog read has.
 	if total, err := s.answerReminders.CountAnswerRemindersDue(ctx); err != nil {
-		s.logger.Error("answer reminder backlog read failed", "error", err)
+		s.logger.Error(ctx, "answer reminder backlog read failed", "error", err)
 	} else {
 		result.DueTotal = total
 	}
@@ -295,7 +295,7 @@ func (s *Service) sendAnswerReminder(ctx context.Context, due catalog.DueAnswerR
 		// the row, and the row is what they can find it by.
 		result.Unrecorded++
 		result.Sent++
-		s.logger.Error("an Answer Reminder was sent but could not be recorded; this recipient may receive one more than the cap allows",
+		s.logger.Error(ctx, "an Answer Reminder was sent but could not be recorded; this recipient may receive one more than the cap allows",
 			"ticket_sale_id", due.TicketSaleID, "tickets", len(due.TicketIDs), "error", err)
 		return
 	}
@@ -367,7 +367,7 @@ func (s *Service) sendHolderAnswerReminder(
 		// Nothing is recorded, so the Holder is due again on the next tick and has
 		// lost none of their allowance to a provider outage.
 		result.Failed++
-		s.logger.Error("holder answer reminder send failed",
+		s.logger.Error(ctx, "holder answer reminder send failed",
 			"ticket_sale_id", due.TicketSaleID, "error", err)
 		return false
 	}

@@ -288,6 +288,6 @@ func (pacingCustomers) ConsentConfirmationLinkURL(context.Context, string) (stri
 
 type silentLogger struct{}
 
-func (silentLogger) Info(string, ...any)  {}
-func (silentLogger) Warn(string, ...any)  {}
-func (silentLogger) Error(string, ...any) {}
+func (silentLogger) Info(string, ...any)                   {}
+func (silentLogger) Warn(string, ...any)                   {}
+func (silentLogger) Error(context.Context, string, ...any) {}

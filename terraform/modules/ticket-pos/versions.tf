@@ -20,5 +20,13 @@ terraform {
       source  = "hashicorp/random"
       version = ">= 3.5, < 4.0"
     }
+
+    # Sentry, the community provider (sentry.tf, ADR 0079). 0.16 is the first
+    # version this module was checked against; a 0.x minor may break, so the
+    # root pins it.
+    sentry = {
+      source  = "jianyuan/sentry"
+      version = ">= 0.16.0, < 1.0.0"
+    }
   }
 }

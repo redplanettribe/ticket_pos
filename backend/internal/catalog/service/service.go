@@ -743,7 +743,7 @@ func (s *Service) deleteReplacedObject(ctx context.Context, before, after sql.Nu
 		return
 	}
 	if err := s.storage.Delete(ctx, before.String); err != nil && s.logger != nil {
-		s.logger.Error("media cleanup: the replaced object could not be deleted and is now an orphan",
+		s.logger.Error(ctx, "media cleanup: the replaced object could not be deleted and is now an orphan",
 			"kind", kind, "event_id", eventID, "object_key", before.String, "error", err)
 	}
 }

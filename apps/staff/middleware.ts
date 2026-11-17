@@ -1,3 +1,4 @@
+import { REQUEST_ID_HEADER, referenceCodeCookie } from "@ticket-pos/sentry-rules";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
@@ -38,11 +39,14 @@ function isPathMatch(pathname: string, paths: string[]): boolean {
 // public URL: on Cloud Run that self-call fails at the TLS layer
 // (ERR_SSL_WRONG_VERSION_NUMBER) and 500s every authenticated request. callBackend
 // carries the OIDC service token (ADR 0008) and is runtime-agnostic.
-async function fetchSession(sessionToken: string): Promise<SessionData | null> {
+async function fetchSession(sessionToken: string, requestId: string): Promise<SessionData | null> {
   try {
     const envelope = await callBackend<SessionData>("/api/v1/auth/session", {
       method: "GET",
       sessionToken,
+      // The request's own id (@ticket-pos/sentry-rules' reference-code.ts), so the API's line for this check
+      // is found by the reference code an error screen on this page shows.
+      headers: { "X-Request-ID": requestId },
     });
     return envelope.data;
   } catch (error) {
@@ -72,27 +76,27 @@ async function fetchSession(sessionToken: string): Promise<SessionData | null> {
  * ordinary signed-out arrival — still the overwhelming majority, and the whole
  * point of the invitation — costs exactly what it did before: no API call.
  */
-async function handleSignInPage(request: NextRequest) {
+async function handleSignInPage(request: NextRequest, pass: PassThrough) {
   const sessionToken = request.cookies.get(SESSION_COOKIE_NAME)?.value;
   if (!sessionToken) {
-    return NextResponse.next();
+    return pass.next();
   }
 
   let session: SessionData | null;
   try {
-    session = await fetchSession(sessionToken);
+    session = await fetchSession(sessionToken, pass.requestId);
   } catch {
     // Everywhere else a transport failure surfaces rather than masquerading as
     // "signed out", because there it would silently downgrade authority. Here
     // it must not: 500 on /login breaks the one page a person uses to recover
     // from anything, and the fallback grants nothing — it shows the form.
-    return NextResponse.next();
+    return pass.next();
   }
 
   if (!session) {
     // A stale or rejected cookie: the form is already the right page, but the
     // dead cookie should not survive to be re-sent on every later request.
-    const response = NextResponse.next();
+    const response = pass.next();
     response.cookies.delete(SESSION_COOKIE_NAME);
     return response;
   }
@@ -105,14 +109,48 @@ async function handleSignInPage(request: NextRequest) {
   return NextResponse.redirect(landingUrl);
 }
 
+/**
+ * Lets a request through to the app carrying the id minted for it.
+ */
+type PassThrough = { requestId: string; next: () => NextResponse };
+
+/**
+ * Every request the middleware sees gets one id (#772, @ticket-pos/sentry-rules' reference-code.ts),
+ * minted here and never taken from the browser: it is forwarded to the render
+ * on the request headers, echoed in X-Request-ID, and, for a page or an RSC
+ * navigation, handed to the browser in the cookie the error screens read their
+ * reference code from.
+ */
 export async function middleware(request: NextRequest) {
+  const requestId = crypto.randomUUID();
+  const forwarded = new Headers(request.headers);
+  forwarded.set(REQUEST_ID_HEADER, requestId);
+  const pass: PassThrough = {
+    requestId,
+    next: () => NextResponse.next({ request: { headers: forwarded } }),
+  };
+
+  const response = await route(request, pass);
+
+  response.headers.set("X-Request-ID", requestId);
+  const cookie = referenceCodeCookie(
+    { pathname: request.nextUrl.pathname, headers: request.headers },
+    requestId,
+  );
+  if (cookie) {
+    response.cookies.set(cookie.name, cookie.value, cookie.options);
+  }
+  return response;
+}
+
+async function route(request: NextRequest, pass: PassThrough): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
 
   if (pathname.startsWith("/api/")) {
-    return NextResponse.next();
+    return pass.next();
   }
   if (isPathMatch(pathname, publicPaths)) {
-    return handleSignInPage(request);
+    return handleSignInPage(request, pass);
   }
 
   if (isPathMatch(pathname, legacyOnboardingPaths)) {
@@ -130,7 +168,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const session = await fetchSession(sessionToken);
+  const session = await fetchSession(sessionToken, pass.requestId);
   if (!session) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
@@ -173,7 +211,7 @@ export async function middleware(request: NextRequest) {
   // the surface is invisible rather than merely forbidden.
   if (isPathMatch(pathname, operatorPaths)) {
     if (session.is_platform_operator) {
-      return NextResponse.next();
+      return pass.next();
     }
     const homeUrl = request.nextUrl.clone();
     homeUrl.pathname = "/";
@@ -190,11 +228,11 @@ export async function middleware(request: NextRequest) {
       dashboardUrl.search = "";
       return NextResponse.redirect(dashboardUrl);
     }
-    return NextResponse.next();
+    return pass.next();
   }
 
   if (isPathMatch(pathname, createOrganizationPaths) || isPathMatch(pathname, orgPickerPaths)) {
-    return NextResponse.next();
+    return pass.next();
   }
 
   const redirectUrl = request.nextUrl.clone();

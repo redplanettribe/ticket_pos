@@ -1,3 +1,7 @@
+import { getTraceData } from "@sentry/nextjs";
+
+import { REQUEST_ID_HEADER } from "@ticket-pos/sentry-rules";
+
 type APIEnvelope<T> = {
   data: T | null;
   error: {
@@ -143,6 +147,72 @@ async function applyServiceAuth(headers: Headers): Promise<void> {
 }
 
 /**
+ * applyTraceHeaders carries the active trace to the API (ADR 0079): the
+ * sentry-trace and baggage headers of the span this call runs in, beside the
+ * request id, so the API's span joins the trace the browser started and one
+ * trace runs from the browser through this app into the API.
+ *
+ * With the SDK not initialised (no DSN) getTraceData returns nothing and no
+ * header is added. A header the caller set is kept. Set here rather than left
+ * to the SDK's fetch instrumentation so that it holds in every runtime this
+ * module runs in, middleware included, and is tested where it is written.
+ */
+function applyTraceHeaders(headers: Headers): void {
+  for (const [name, value] of Object.entries(getTraceData())) {
+    if (value && !headers.has(name)) {
+      headers.set(name, value);
+    }
+  }
+}
+
+/**
+ * The id the middleware minted for the request being rendered (@ticket-pos/sentry-rules' reference-code.ts),
+ * or null outside one.
+ *
+ * Inside a server render, route handler or server action it is on the request
+ * headers, so every API call one page makes carries the id its error screen
+ * shows, and the API's request lines in Cloud Logging are found by that
+ * reference code. The middleware runs before there is a render to ask and
+ * passes the id itself; there, as in a test or in a cached function that may
+ * not read headers, this answers null and the call gets an id of its own.
+ * Next's own control flow (a static render bailing out to dynamic) is rethrown,
+ * never swallowed.
+ */
+async function renderRequestId(): Promise<string | null> {
+  // Loaded here rather than at the top: this module also runs in middleware and
+  // under the plain Node test runner, which has no request to read. The ".js"
+  // is for that runner (next has no exports map); the bundler resolves it the
+  // same.
+  const [{ headers }, { unstable_rethrow }] = await Promise.all([
+    import("next/headers.js"),
+    import("next/navigation.js"),
+  ]);
+  try {
+    return (await headers()).get(REQUEST_ID_HEADER);
+  } catch (error) {
+    unstable_rethrow(error);
+    return null;
+  }
+}
+
+/**
+ * backendHeaders builds the headers every call to the API carries: the end
+ * user's session, the request id, the trace and this service's credential.
+ */
+async function backendHeaders(init: RequestInit & { sessionToken?: string }): Promise<Headers> {
+  const headers = new Headers(init.headers);
+  if (init.sessionToken) {
+    headers.set("Authorization", `Bearer ${init.sessionToken}`);
+  }
+  if (!headers.has("X-Request-ID")) {
+    headers.set("X-Request-ID", (await renderRequestId()) ?? crypto.randomUUID());
+  }
+  applyTraceHeaders(headers);
+  await applyServiceAuth(headers);
+  return headers;
+}
+
+/**
  * fetchBackendRaw proxies a request to the Go API and returns the raw Response
  * without decoding it. Use it for endpoints that stream binary bodies (the
  * .xlsx template) or accept multipart uploads (preview/commit), where the JSON
@@ -152,14 +222,7 @@ export async function fetchBackendRaw(
   path: string,
   init: RequestInit & { sessionToken?: string } = {},
 ): Promise<Response> {
-  const headers = new Headers(init.headers);
-  if (init.sessionToken) {
-    headers.set("Authorization", `Bearer ${init.sessionToken}`);
-  }
-  if (!headers.has("X-Request-ID")) {
-    headers.set("X-Request-ID", crypto.randomUUID());
-  }
-  await applyServiceAuth(headers);
+  const headers = await backendHeaders(init);
   return fetch(`${apiBaseUrl()}${path}`, { ...init, headers });
 }
 
@@ -167,17 +230,10 @@ export async function callBackend<T>(
   path: string,
   init: RequestInit & { sessionToken?: string } = {},
 ): Promise<APIEnvelope<T>> {
-  const headers = new Headers(init.headers);
+  const headers = await backendHeaders(init);
   if (!headers.has("Content-Type") && init.body) {
     headers.set("Content-Type", "application/json");
   }
-  if (init.sessionToken) {
-    headers.set("Authorization", `Bearer ${init.sessionToken}`);
-  }
-  if (!headers.has("X-Request-ID")) {
-    headers.set("X-Request-ID", crypto.randomUUID());
-  }
-  await applyServiceAuth(headers);
 
   const response = await fetch(`${apiBaseUrl()}${path}`, {
     ...init,

@@ -66,7 +66,7 @@ func (s *Service) PrivacyState(ctx context.Context, customerID string) (consent.
 
 	version, err := s.repo.PolicyVersionByID(ctx, state.PolicyVersionID.String)
 	if errors.Is(err, repository.ErrPolicyVersionNotFound) {
-		s.logger.Error("a Customer's accepted policy version is not in policy_versions",
+		s.logger.Error(ctx, "a Customer's accepted policy version is not in policy_versions",
 			"customer_id", customerID,
 			"policy_version_id", state.PolicyVersionID.String,
 		)

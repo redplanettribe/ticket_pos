@@ -267,6 +267,6 @@ func (s *Service) tellHolderTheyStoppedHolding(ctx context.Context, holder repos
 		Locale:    s.assignmentMailLocale(ctx, holder.HolderEmail, holder.SaleLocale.String),
 	}
 	if err := s.noLongerHoldingMailer.SendNoLongerHolding(ctx, notice); err != nil {
-		s.logAssignmentMailFailure("no longer holding notice delivery failed", err)
+		s.logAssignmentMailFailure(ctx, "no longer holding notice delivery failed", err)
 	}
 }

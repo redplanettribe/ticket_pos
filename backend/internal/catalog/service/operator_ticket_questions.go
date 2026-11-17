@@ -149,13 +149,13 @@ func (s *Service) notifyTicketQuestionRevoked(ctx context.Context, question *rep
 	}
 	recipients, err := s.revocationRecipients.OrgAdminEmails(ctx, question.OrganizationID)
 	if err != nil {
-		s.logger.Error("ticket question revoked notice: read org admins", "question_id", question.ID, "error", err)
+		s.logger.Error(ctx, "ticket question revoked notice: read org admins", "question_id", question.ID, "error", err)
 		return
 	}
 	for _, to := range recipients {
 		locale := platform.DefaultLocale
 		if stored, err := s.revocationRecipients.StaffLocale(ctx, to); err != nil {
-			s.logger.Error("ticket question revoked notice: read staff locale", "error", err)
+			s.logger.Error(ctx, "ticket question revoked notice: read staff locale", "error", err)
 		} else {
 			locale = platform.ResolveStaffLocale(stored)
 		}
@@ -167,7 +167,7 @@ func (s *Service) notifyTicketQuestionRevoked(ctx context.Context, question *rep
 			QuestionLabel:    question.Label,
 			Reason:           reason,
 		}); err != nil {
-			s.logger.Error("ticket question revoked notice: send", "question_id", question.ID, "error", err)
+			s.logger.Error(ctx, "ticket question revoked notice: send", "question_id", question.ID, "error", err)
 		}
 	}
 }

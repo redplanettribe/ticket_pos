@@ -378,3 +378,34 @@ variable "ticket_assignment_enabled" {
   type        = bool
   default     = false
 }
+
+# --- Sentry (ADR 0079, #777) ----------------------------------------------------
+
+variable "sentry_auth_token" {
+  description = "The token the Sentry provider acts with, to create the ticket-pos team, its three projects, their keys, alert rules and inbound filters in the redplanettribe organization. Operator-supplied: set via TF_VAR_sentry_auth_token from the sourced, gitignored .env, never a committed tfvars. It has no default, so a plan without it stops and asks. It is NOT the SENTRY_AUTH_TOKEN GitHub Actions secret (#776), whose org:ci scope can only make releases; see terraform/README.md, \"Sentry\", for the scopes this one needs."
+  type        = string
+  sensitive   = true
+}
+
+# One switch per deployable, threaded through on ticket_assignment_enabled's
+# terms: each is a gate somebody must deliberately open, after the policy
+# edition that names Sentry is published (ADR 0079), so none has an entry in
+# terraform.tfvars and each is false until somebody writes one.
+
+variable "sentry_api_enabled" {
+  description = "Whether the API reports to Sentry: true sets SENTRY_DSN on the API service. STARTS FALSE and is absent from terraform.tfvars on purpose. See the module variable of the same name."
+  type        = bool
+  default     = false
+}
+
+variable "sentry_staff_enabled" {
+  description = "Whether the Staff app reports to Sentry: true sets SENTRY_DSN and SENTRY_ENVIRONMENT on the Staff service. STARTS FALSE and is absent from terraform.tfvars on purpose. See the module variable of the same name."
+  type        = bool
+  default     = false
+}
+
+variable "sentry_storefront_enabled" {
+  description = "Whether the Storefront reports to Sentry: true sets SENTRY_DSN and SENTRY_ENVIRONMENT on the Storefront service. STARTS FALSE and is absent from terraform.tfvars on purpose. See the module variable of the same name."
+  type        = bool
+  default     = false
+}

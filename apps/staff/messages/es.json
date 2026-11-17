@@ -2453,5 +2453,13 @@
       "INVALID_PHONE": "debe tener de 4 a 15 dígitos en formato internacional, por ejemplo +12025550123",
       "INVALID_SRI_CODE": "debe tener exactamente 3 dígitos"
     }
+  },
+  "errorScreen": {
+    "title": "Algo salió mal",
+    "description": "No se pudo mostrar esta página. Vuelva a intentarlo y, si sigue ocurriendo, envíe a soporte el código de referencia que aparece abajo.",
+    "descriptionWithoutReference": "No se pudo mostrar esta página. Vuelva a intentarlo y, si sigue ocurriendo, cuente a soporte qué estaba haciendo.",
+    "retry": "Volver a intentar",
+    "retrying": "Reintentando…",
+    "referenceCode": "Código de referencia"
   }
 }

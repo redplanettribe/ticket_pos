@@ -19,6 +19,13 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.6"
     }
+
+    # Sentry, the community provider (ADR 0079, #777). Pinned to the minor it
+    # was checked against: a 0.x minor may change resource arguments.
+    sentry = {
+      source  = "jianyuan/sentry"
+      version = "~> 0.16.0"
+    }
   }
 
   # Backend configuration cannot use variables or expressions, so the bucket
@@ -42,4 +49,13 @@ provider "google" {
 provider "aws" {
   profile = var.aws_profile
   region  = var.aws_region
+}
+
+# Sentry, for the ticket-pos team and its projects in the existing
+# redplanettribe organization (US region, sentry.io's default API URL). The token
+# is the operator's (variables.tf, sentry_auth_token); nothing about it is
+# committed. The organization is shared with another product, and the module
+# touches only its own team and three projects.
+provider "sentry" {
+  token = var.sentry_auth_token
 }

@@ -70,7 +70,7 @@ func (s *Service) notifyPayoutRequestSubmitted(ctx context.Context, request *rep
 	}
 	recipients, err := s.operators.PlatformOperatorEmails(ctx)
 	if err != nil {
-		s.logger.Error("payout request submitted notice: read operator allowlist", "request_id", request.ID, "error", err)
+		s.logger.Error(ctx, "payout request submitted notice: read operator allowlist", "request_id", request.ID, "error", err)
 		return
 	}
 	if len(recipients) == 0 {
@@ -139,7 +139,7 @@ func (s *Service) notifyPayoutRequestPaid(ctx context.Context, request *reposito
 // reason exists to prevent (ADR 0026).
 func (s *Service) notifyPayoutRequestDeclined(ctx context.Context, request *repository.PayoutRequestRow) {
 	if request.ResolutionReason == nil || *request.ResolutionReason == "" {
-		s.logger.Error("payout request declined notice: no reason on the declined request", "request_id", request.ID)
+		s.logger.Error(ctx, "payout request declined notice: no reason on the declined request", "request_id", request.ID)
 		return
 	}
 	org, ok := s.payoutNoticeOrganization(ctx, request, "declined")
@@ -173,7 +173,7 @@ func (s *Service) notifyPayoutRequestDeclined(ctx context.Context, request *repo
 // silence.
 func (s *Service) notifyPayoutRequestTransferSent(ctx context.Context, request *repository.PayoutRequestRow) {
 	if request.TransferSubmittedAt == nil {
-		s.logger.Error("payout request transfer sent notice: no submission instant on the processing request", "request_id", request.ID)
+		s.logger.Error(ctx, "payout request transfer sent notice: no submission instant on the processing request", "request_id", request.ID)
 		return
 	}
 	org, ok := s.payoutNoticeOrganization(ctx, request, "transfer sent")
@@ -208,7 +208,7 @@ func (s *Service) notifyPayoutRequestTransferSent(ctx context.Context, request *
 // exists to prevent.
 func (s *Service) notifyPayoutRequestTransferFailed(ctx context.Context, request *repository.PayoutRequestRow) {
 	if request.ResolutionReason == nil || *request.ResolutionReason == "" {
-		s.logger.Error("payout request transfer failed notice: no reason on the failed request", "request_id", request.ID)
+		s.logger.Error(ctx, "payout request transfer failed notice: no reason on the failed request", "request_id", request.ID)
 		return
 	}
 	org, ok := s.payoutNoticeOrganization(ctx, request, "transfer failed")
@@ -243,7 +243,7 @@ func (s *Service) staffLocale(ctx context.Context, email string) platform.Locale
 	}
 	stored, err := s.staffLocales.StaffLocale(ctx, email)
 	if err != nil {
-		s.logger.Error("payout request notice: read staff locale", "error", err)
+		s.logger.Error(ctx, "payout request notice: read staff locale", "error", err)
 		return platform.DefaultLocale
 	}
 	return platform.ResolveStaffLocale(stored)
@@ -261,11 +261,11 @@ func (s *Service) staffLocale(ctx context.Context, email string) platform.Locale
 func (s *Service) payoutNoticeOrganization(ctx context.Context, request *repository.PayoutRequestRow, notice string) (repository.PayoutNoticeOrganization, bool) {
 	org, err := s.repo.GetPayoutNoticeOrganization(ctx, request.OrganizationID)
 	if err != nil {
-		s.logger.Error("payout request notice: read organization", "notice", notice, "request_id", request.ID, "error", err)
+		s.logger.Error(ctx, "payout request notice: read organization", "notice", notice, "request_id", request.ID, "error", err)
 		return repository.PayoutNoticeOrganization{}, false
 	}
 	if org == nil {
-		s.logger.Error("payout request notice: no such organization", "notice", notice, "request_id", request.ID)
+		s.logger.Error(ctx, "payout request notice: no such organization", "notice", notice, "request_id", request.ID)
 		return repository.PayoutNoticeOrganization{}, false
 	}
 	return *org, true

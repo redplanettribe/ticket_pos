@@ -693,6 +693,14 @@
       "TAG_NOT_FOUND": "Esta etiqueta ya no está disponible."
     }
   },
+  "errorScreen": {
+    "title": "Algo salió mal de nuestra parte",
+    "description": "No pudimos mostrar esta página, y no fue por algo que usted hiciera. Vuelva a intentarlo. Si sigue ocurriendo, envíe al organizador del evento el código de referencia que aparece abajo.",
+    "descriptionWithoutReference": "No pudimos mostrar esta página, y no fue por algo que usted hiciera. Vuelva a intentarlo. Si sigue ocurriendo, cuéntele al organizador del evento qué estaba haciendo.",
+    "retry": "Volver a intentar",
+    "retrying": "Reintentando…",
+    "referenceCode": "Código de referencia"
+  },
   "tags": {
     "music": "Música",
     "nightlife": "Vida nocturna",

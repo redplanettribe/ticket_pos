@@ -103,7 +103,7 @@ func (s *Service) sweepClosedMonth(ctx context.Context, budget time.Duration) Cl
 		}
 		invoiceID := row.Invoice.ID
 		if row.Ecuador == nil {
-			s.logger.Error("invoicing: authorized factura has no clave to sweep", "invoice_id", invoiceID)
+			s.logger.Error(ctx, "invoicing: authorized factura has no clave to sweep", "invoice_id", invoiceID)
 			out.Unfinished++
 			continue
 		}

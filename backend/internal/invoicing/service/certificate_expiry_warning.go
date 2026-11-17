@@ -106,7 +106,7 @@ func (s *Service) warnOfCertificateExpiry(ctx context.Context) {
 	}
 	row, err := s.repo.GetEcuadorIssuer(ctx)
 	if err != nil {
-		s.logger.Error("invoicing: certificate expiry ladder skipped; the Issuer could not be read", "error", err)
+		s.logger.Error(ctx, "invoicing: certificate expiry ladder skipped; the Issuer could not be read", "error", err)
 		return
 	}
 	var certificate *invoicing.CertificateMetadata
@@ -123,7 +123,7 @@ func (s *Service) warnOfCertificateExpiry(ctx context.Context) {
 
 	fired, err := s.repo.FiredCertificateExpiryThresholds(ctx, certificate.FingerprintSHA256)
 	if err != nil {
-		s.logger.Error("invoicing: certificate expiry ladder skipped; the ledger could not be read", "error", err)
+		s.logger.Error(ctx, "invoicing: certificate expiry ladder skipped; the ledger could not be read", "error", err)
 		return
 	}
 	threshold, due := certificateExpiryThresholdDue(expiry, fired)
@@ -134,7 +134,7 @@ func (s *Service) warnOfCertificateExpiry(ctx context.Context) {
 
 	recipients, err := s.operators.PlatformOperatorEmails(ctx)
 	if err != nil {
-		s.logger.Error("invoicing: certificate expiry ladder skipped; the operator allowlist could not be read", "threshold_days", threshold, "error", err)
+		s.logger.Error(ctx, "invoicing: certificate expiry ladder skipped; the operator allowlist could not be read", "threshold_days", threshold, "error", err)
 		return
 	}
 	if len(recipients) == 0 {
@@ -158,19 +158,19 @@ func (s *Service) warnOfCertificateExpiry(ctx context.Context) {
 		if err != nil {
 			// The address is not logged: the allowlist is identity's, and
 			// the log counts recipients as the drain counts documents.
-			s.logger.Error("invoicing: certificate expiry warning could not be sent to one operator; the others are still written to", "threshold_days", threshold, "error", err)
+			s.logger.Error(ctx, "invoicing: certificate expiry warning could not be sent to one operator; the others are still written to", "threshold_days", threshold, "error", err)
 			continue
 		}
 		accepted++
 	}
 	if accepted == 0 {
-		s.logger.Error("invoicing: certificate expiry warning reached nobody; the rung stays unfired and the next tick retries", "threshold_days", threshold, "recipients", len(recipients))
+		s.logger.Error(ctx, "invoicing: certificate expiry warning reached nobody; the rung stays unfired and the next tick retries", "threshold_days", threshold, "recipients", len(recipients))
 		return
 	}
 	if err := s.repo.RecordCertificateExpiryNotice(ctx, certificate.FingerprintSHA256, certificateExpiryRungsReached(expiry), s.clock(), accepted); err != nil {
 		// The mail went; the next tick will send it again. Worth a line, and
 		// the direction worth failing in (migration 103).
-		s.logger.Error("invoicing: certificate expiry warning sent but its ledger row could not be written; the next tick will repeat it", "threshold_days", threshold, "error", err)
+		s.logger.Error(ctx, "invoicing: certificate expiry warning sent but its ledger row could not be written; the next tick will repeat it", "threshold_days", threshold, "error", err)
 		return
 	}
 	s.logger.Info("invoicing: certificate expiry ladder", "state", expiry.State, "days_before", *expiry.DaysBefore, "fired", threshold, "recipients", len(recipients), "accepted", accepted)
@@ -188,7 +188,7 @@ func (s *Service) staffLocale(ctx context.Context, email string) platform.Locale
 	}
 	stored, err := s.staffLocales.StaffLocale(ctx, email)
 	if err != nil {
-		s.logger.Error("invoicing: read staff locale", "error", err)
+		s.logger.Error(ctx, "invoicing: read staff locale", "error", err)
 		return platform.DefaultLocale
 	}
 	return platform.ResolveStaffLocale(stored)

@@ -217,7 +217,7 @@ func TestTheOwedMailSweepIsPausableWithoutADeploy(t *testing.T) {
 	if !regexp.MustCompile(`(?m)^\s*paused\s*=\s*!var\.owed_assignment_mail_enabled\s*$`).MatchString(source) {
 		t.Fatal("the sweep's `paused` is not wired to !var.owed_assignment_mail_enabled")
 	}
-	if regexp.MustCompile(`(?m)^\s*count\s*=`).MatchString(source) {
+	if regexp.MustCompile(`(?m)^\s*count\s*=`).MatchString(googleResources(t, source)) {
 		t.Fatal("the sweep's resources are conditional on `count`: disabling must pause the job, never delete it")
 	}
 }

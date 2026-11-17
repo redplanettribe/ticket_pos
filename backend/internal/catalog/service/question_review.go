@@ -258,7 +258,7 @@ func (s *Service) notifyQuestionReviewSubmitted(ctx context.Context, actor Actor
 	}
 	recipients, err := s.operators.PlatformOperatorEmails(ctx)
 	if err != nil {
-		s.logger.Error("question review submitted notice: read operator allowlist", "review_id", review.ID, "error", err)
+		s.logger.Error(ctx, "question review submitted notice: read operator allowlist", "review_id", review.ID, "error", err)
 		return
 	}
 	if len(recipients) == 0 {
@@ -266,7 +266,7 @@ func (s *Service) notifyQuestionReviewSubmitted(ctx context.Context, actor Actor
 	}
 	orgName, err := s.repo.GetOrganizationName(ctx, actor.OrganizationID)
 	if err != nil {
-		s.logger.Error("question review submitted notice: read organization", "review_id", review.ID, "error", err)
+		s.logger.Error(ctx, "question review submitted notice: read organization", "review_id", review.ID, "error", err)
 		return
 	}
 	questionCount := 0
@@ -300,7 +300,7 @@ func (s *Service) staffLocale(ctx context.Context, email string) platform.Locale
 	}
 	stored, err := s.staffLocales.StaffLocale(ctx, email)
 	if err != nil {
-		s.logger.Error("question review notice: read staff locale", "error", err)
+		s.logger.Error(ctx, "question review notice: read staff locale", "error", err)
 		return platform.DefaultLocale
 	}
 	return platform.ResolveStaffLocale(stored)

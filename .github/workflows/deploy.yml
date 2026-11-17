@@ -33,6 +33,20 @@
 # Rolling a *migration* back is not a command — that is what the expand-and-
 # contract discipline in terraform/README.md buys: every migration must stay
 # backward-compatible with the revision currently serving.
+#
+# ── Sentry (ADR 0079, #776) ─────────────────────────────────────────────────
+# A release in Sentry is a commit. All three images are built with
+# SENTRY_RELEASE=<sha>, the release they report. When the SENTRY_AUTH_TOKEN
+# secret exists (an organization auth token, which has the release scope; the
+# operator creates it, terraform/README.md), the two Next builds also upload
+# their source maps to their own Sentry project, the workflow creates the
+# release once the migration has applied, and marks a deploy after each
+# service's deploy (scripts/sentry-release.sh). Every one of those fails soft:
+# an unreachable Sentry or a wrong token is a warning, never a failed deploy.
+# With the secret absent, the Sentry steps are skipped, the builds produce and
+# upload nothing, and the workflow does what it did before, apart from the
+# release build argument. Whether or not anything was uploaded, an image that
+# holds a source map fails its own build (the Next Dockerfiles).
 
 name: Deploy
 
@@ -58,6 +72,10 @@ env:
   API_SERVICE: prod-ticket-pos-api
   STAFF_SERVICE: prod-ticket-pos-staff
   STOREFRONT_SERVICE: prod-ticket-pos-storefront
+  # "true" when the SENTRY_AUTH_TOKEN secret is set. Steps cannot test a secret
+  # in their `if:`, so they test this; the token itself is handed only to the
+  # steps that use it.
+  SENTRY_ENABLED: ${{ secrets.SENTRY_AUTH_TOKEN != '' }}
 
 jobs:
   deploy:
@@ -98,6 +116,7 @@ jobs:
       - name: Build and push the API image
         run: |
           docker build --platform linux/amd64 \
+            --build-arg SENTRY_RELEASE="${GITHUB_SHA}" \
             -t "${IMAGE_REPO}/api:${GITHUB_SHA}" \
             -f backend/Dockerfile backend
           docker push "${IMAGE_REPO}/api:${GITHUB_SHA}"
@@ -114,19 +133,32 @@ jobs:
       # directly (client fetches hit relative /api/... route handlers), so there
       # is nothing public to inline. Passing it would be a build arg baked into
       # the image that never gets read; omitting it is correct, not a shortcut.
+      #
+      # The Sentry token reaches the build as a BuildKit secret, never a build
+      # argument, so it is in no layer and no image. Empty when the secret is
+      # absent, which the build treats as no token: no source maps, no upload.
+      # A failed upload is a warning in the build log and the build goes on.
       - name: Build and push the Storefront image
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: |
           docker build --platform linux/amd64 \
+            --build-arg SENTRY_RELEASE="${GITHUB_SHA}" \
+            --secret id=sentry_auth_token,env=SENTRY_AUTH_TOKEN \
             -t "${IMAGE_REPO}/storefront:${GITHUB_SHA}" \
             -f apps/storefront/Dockerfile .
           docker push "${IMAGE_REPO}/storefront:${GITHUB_SHA}"
 
       # Staff has no NEXT_PUBLIC_* build args at all: its browser bundle calls its
       # own route handlers, which proxy to the API server-side with the runtime
-      # API_URL (docs/gcp-deployment.md).
+      # API_URL (docs/gcp-deployment.md). Sentry as the Storefront's, above.
       - name: Build and push the Staff image
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: |
           docker build --platform linux/amd64 \
+            --build-arg SENTRY_RELEASE="${GITHUB_SHA}" \
+            --secret id=sentry_auth_token,env=SENTRY_AUTH_TOKEN \
             -t "${IMAGE_REPO}/staff:${GITHUB_SHA}" \
             -f apps/staff/Dockerfile .
           docker push "${IMAGE_REPO}/staff:${GITHUB_SHA}"
@@ -146,6 +178,16 @@ jobs:
             --region "${REGION}" \
             --wait
 
+      # The release, in all three projects, once the migration has applied and
+      # the new revisions are about to roll. Soft, as the deploy marks below.
+      - name: Create the Sentry release
+        if: env.SENTRY_ENABLED == 'true'
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: scripts/sentry-release.sh create "${GITHUB_SHA}"
+
       # Only now, with the schema applied, roll the new revisions. Only --image is
       # passed: SA, secrets, VPC egress and scaling all come from Terraform and
       # must not be overridden here (terraform/README.md). Because image is in
@@ -156,14 +198,41 @@ jobs:
             --region "${REGION}" \
             --image "${IMAGE_REPO}/api:${GITHUB_SHA}"
 
+      # Fails soft twice over: the script warns and exits 0 whatever Sentry
+      # answers, and continue-on-error and the timeout keep anything else from
+      # failing or holding the job.
+      - name: Mark the API deploy in Sentry
+        if: env.SENTRY_ENABLED == 'true'
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: scripts/sentry-release.sh deploy "${GITHUB_SHA}" "${API_SERVICE}"
+
       - name: Deploy the Storefront
         run: |
           gcloud run deploy "${STOREFRONT_SERVICE}" \
             --region "${REGION}" \
             --image "${IMAGE_REPO}/storefront:${GITHUB_SHA}"
 
+      - name: Mark the Storefront deploy in Sentry
+        if: env.SENTRY_ENABLED == 'true'
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: scripts/sentry-release.sh deploy "${GITHUB_SHA}" "${STOREFRONT_SERVICE}"
+
       - name: Deploy the Staff console
         run: |
           gcloud run deploy "${STAFF_SERVICE}" \
             --region "${REGION}" \
             --image "${IMAGE_REPO}/staff:${GITHUB_SHA}"
+
+      - name: Mark the Staff console deploy in Sentry
+        if: env.SENTRY_ENABLED == 'true'
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: scripts/sentry-release.sh deploy "${GITHUB_SHA}" "${STAFF_SERVICE}"

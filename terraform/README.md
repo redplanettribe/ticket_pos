@@ -43,6 +43,12 @@ aws sso login --profile multiticketing-ses
 export TF_VAR_aws_budget_alert_email=...   # from the sourced, gitignored .env
 ```
 
+It also manages the ticket-pos side of Sentry (see [Sentry](#sentry)), so a plan needs the Sentry token in the environment too:
+
+```bash
+export TF_VAR_sentry_auth_token=...        # from the sourced, gitignored .env
+```
+
 ### 1. Bootstrap — once per project, ever
 
 ```bash
@@ -85,7 +91,7 @@ module takes no `prod`-specific input, so nothing else moves.
 ## Conventions
 
 - **Versions are pinned.** Roots pin Terraform `~> 1.13` and the Google provider `~> 6.0` (and, in
-  `envs/prod`, the AWS provider `~> 6.0`); the module
+  `envs/prod`, the AWS provider `~> 6.0` and the Sentry provider `~> 0.16.0`); the module
   states looser constraints because the root is what decides. Run `terraform init` and commit the
   generated `.terraform.lock.hcl` in each root so provider hashes are locked too.
 - **Nothing environment-specific inside the module.** Variables in, outputs out. If a resource needs to
@@ -243,6 +249,34 @@ The two values the workflow needs are Terraform outputs, neither secret:
 terraform -chdir=envs/prod output workload_identity_provider
 terraform -chdir=envs/prod output deploy_service_account_email
 ```
+
+### Sentry releases and source maps (#776)
+
+A release in Sentry is a commit (ADR 0079).
+The workflow builds all three images with `--build-arg SENTRY_RELEASE=<sha>`, the release each deployable reports.
+
+With one GitHub Actions secret it also tells Sentry about the release:
+
+- **Name:** `SENTRY_AUTH_TOKEN`, a repository secret of `redplanettribe/ticket_pos`.
+- **What it is:** an organization auth token of the `redplanettribe` Sentry organization (Settings, Developer Settings, Organization Tokens).
+  Its fixed scope, `org:ci`, is the release scope: it can create releases and deploys and upload source maps, and read nothing else.
+  A personal token would need `project:releases` (and `org:read`); prefer the organization token, which outlives any one person.
+- **Who creates it:** the operator, by hand. It is never committed, and no agent creates it.
+
+With the secret set:
+
+- The Storefront and Staff builds receive it as a BuildKit secret (never a build argument, so it is in no layer or image), produce source maps, upload them to `ticket-pos-storefront` and `ticket-pos-staff`, and delete them.
+- After the migration, `scripts/sentry-release.sh create` creates the release in all three projects and finalizes it.
+- After each service's deploy, `scripts/sentry-release.sh deploy` marks a deploy of it to `production`, named after the service.
+
+Every one of these fails soft.
+An unreachable Sentry or a wrong token is a warning in the job's log and annotations, and the build and the deploy go on; that release's browser stack traces stay minified.
+A Sentry that accepts the connection and never answers costs time, not the deploy: the upload's CLI gives up on its own (about 90 seconds per attempt, three attempts per Next build, seen locally), and each release step is bounded by a timeout.
+
+Without the secret the Sentry steps are skipped, the Next builds produce no browser source maps and contact nothing, and the deploy is what it was before, apart from the release build argument.
+Either way, a Next image that holds any `.map` file fails its own build: no source map is ever served.
+
+`make deploy` does the same when `SENTRY_AUTH_TOKEN` is exported in the operator's shell.
 
 ### Rolling back
 
@@ -533,6 +567,274 @@ They sit beside Resend's and replace none of them.
 SES's DKIM selectors are random tokens, so they never meet `resend._domainkey`, and its return path is `bounce.<domain>`, never Resend's `send.<domain>`.
 DMARC needs nothing new: `_dmarc.multiticketing.com` already covers both subdomains, and SES mail aligns with it through DKIM and the MAIL FROM.
 Until the records are in and SES reads both identities as verified, SES refuses to send from them; nothing sends through SES before a provider variable says `ses` anyway.
+
+## Sentry
+
+The ticket-pos side of Sentry is declared in `modules/ticket-pos/sentry.tf` (ADR [0079](../docs/adr/0079-sentry-reports-errors-traces-and-job-check-ins-behind-one-seam-holding-no-personal-data-and-dormant-until-a-dsn-is-set.md), #777), with the community provider `jianyuan/sentry`.
+It lives in the existing `redplanettribe` organization, which is shared with another product.
+Nothing here reads, imports or changes the organization's settings or any project but the three below; the other product's `m3t-*` projects are never referenced.
+
+**The inputs.**
+
+| Input | Where it comes from | Default |
+| --- | --- | --- |
+| `sentry_auth_token` | `TF_VAR_sentry_auth_token`, from the sourced, gitignored `.env` | none: a plan without it stops and asks |
+| `sentry_api_enabled` | `terraform.tfvars`, when the operator writes it | `false` |
+| `sentry_staff_enabled` | `terraform.tfvars`, when the operator writes it | `false` |
+| `sentry_storefront_enabled` | `terraform.tfvars`, when the operator writes it | `false` |
+
+The token is the operator's and is never committed.
+It is not the `SENTRY_AUTH_TOKEN` GitHub Actions secret of [Sentry releases and source maps](#sentry-releases-and-source-maps-776): that one is an organization token whose fixed `org:ci` scope can only make releases.
+This one creates a team, projects, keys, filters and alert rules, so it needs Organization Read, Team Admin, Project Admin and Alerts Read & Write.
+Prefer an internal integration's token (Settings, Developer Settings, Custom Integrations, a new internal integration with those permissions), which outlives any one person; a personal token needs `org:read`, `team:admin`, `project:admin` and `alerts:write`.
+Every plan now needs it, because the Sentry resources are always declared.
+
+**The switches.**
+Each deployable reports only when its switch is on, and they are independent, so the API can go first.
+Off, the service has no `SENTRY_DSN`, which is what dormant means: the API builds no reporter and the Next apps initialise no SDK.
+On, the service gets its project's public DSN as a plain environment value (a DSN is not a secret), and the Staff app and the Storefront also get `SENTRY_ENVIRONMENT=production`; the API reports as `production` because its `APP_ENV` is.
+Turning one on is an apply that changes that service's environment and so rolls a new revision of it, and no other.
+Turn any of them on only after the policy edition that names Sentry is published (ADR 0079); each is a gate, absent from `terraform.tfvars` until somebody writes it.
+
+**What a first apply creates**, with every switch off (19 to add, nothing to change or destroy):
+
+| Resource | What it is |
+| --- | --- |
+| `module.ticket_pos.sentry_team.ticket_pos` | the `ticket-pos` team |
+| `module.ticket_pos.sentry_project.deployable["api"]` | `ticket-pos-api`, platform `go` |
+| `module.ticket_pos.sentry_project.deployable["staff"]` | `ticket-pos-staff`, platform `javascript-nextjs` |
+| `module.ticket_pos.sentry_project.deployable["storefront"]` | `ticket-pos-storefront`, platform `javascript-nextjs` |
+| `module.ticket_pos.sentry_key.deployable["api"]` | the API's key, `prod-ticket-pos-api` |
+| `module.ticket_pos.sentry_key.deployable["staff"]` | the Staff app's key, `prod-ticket-pos-staff` |
+| `module.ticket_pos.sentry_key.deployable["storefront"]` | the Storefront's key, `prod-ticket-pos-storefront`, rate limited |
+| `module.ticket_pos.sentry_project_inbound_data_filter.storefront_browser_extensions` | Storefront: browser extensions filtered |
+| `module.ticket_pos.sentry_project_inbound_data_filter.storefront_web_crawlers` | Storefront: web crawlers filtered |
+| `module.ticket_pos.sentry_project_inbound_data_filter.storefront_legacy_browsers` | Storefront: legacy browsers filtered |
+| `module.ticket_pos.sentry_alert.new_issue["api"]`, `["staff"]`, `["storefront"]` | a new issue in production |
+| `module.ticket_pos.sentry_alert.regression["api"]`, `["staff"]`, `["storefront"]` | a resolved issue happens again in production |
+| `module.ticket_pos.sentry_alert.error_spike["api"]`, `["staff"]`, `["storefront"]` | more than 50 errors in an hour in production, across the project |
+
+The plan also reads `data.sentry_project_error_monitor.deployable` for each project, the default error monitor Sentry creates with a project, which the alert rules attach to; it creates nothing.
+If the plan shows any change to a Cloud Run service while every switch is off, stop: it should show none.
+
+The projects are created without Sentry's default key and default alert rule, so the only key and rules are the ones above.
+The three alert rules on each project email the `ticket-pos` team, at most every 30 minutes per issue for a new issue or a regression and every 60 for a spike.
+The Storefront key accepts 500 events an hour (`sentry_storefront_rate_limit_count`, `sentry_storefront_rate_limit_window_seconds` in the module); Sentry enforces per-key rate limits only on a plan that has them, so apply after the plan upgrade.
+The legacy browser filter takes every current subfilter (Internet Explorer, and Edge, Chrome and Firefox up to 110, Safari up to 15, Opera up to 99, Opera Mini up to 34, Android up to 3).
+
+**What the provider cannot declare**, for the operator's checklist:
+
+- **Server-side data scrubbing.**
+  The provider has no scrubbing setting at the organization or the project level.
+  After the apply, run `SENTRY_AUTH_TOKEN="$TF_VAR_sentry_auth_token" scripts/sentry-scrubbing.sh`; it sets, on the three projects only, the Data Scrubber with Sentry's defaults, no stored IP addresses, extra sensitive field names, and advanced rules that replace email addresses and Ecuadorian identity numbers and mask card numbers in every string.
+  It reads each project back and stops on the first that did not keep a setting.
+  `--dry-run` prints the request without a token.
+  Run it again whenever the script changes.
+  The organization's own scrubbing settings are left as they are, because they would apply to the other product's projects too.
+- **Team membership.**
+  The alerts go to the members of `ticket-pos`.
+  Whoever should receive them joins the team in Sentry (Settings, Teams); a person's email is not something to commit here.
+- **Checking the spike rule once.**
+  Its trigger is the provider's "number of events seen by the workflow" above 50 in an hour, meant as every error in the project, whichever issue.
+  After the first apply, open it in Sentry and check it reads that way rather than per issue.
+
+**Cron and uptime monitors (#778).**
+The operator is emailed when a scheduled job fails or does not run, and when the Storefront or the Staff app stops answering.
+Each Cloud Scheduler job has a `sentry_cron_monitor` in its own file, beside it, in the `ticket-pos-api` project; each Next app has a `sentry_uptime_monitor` in `cloud_run_frontends.tf`, beside its service, in its own project.
+What they share, and the two alert rules that watch them, are at the end of `sentry.tf`.
+
+A cron monitor exists only while its job is unpaused and `sentry_api_enabled` is on, so a paused job can never alert that it did not run.
+In the module every job defaults to paused, but `envs/prod/terraform.tfvars` already unpauses five: the Sale Invoice Drainer, Owed Assignment Mail, the Holder Address Purge and the two reminders.
+So the apply that turns `sentry_api_enabled` on in production also creates those five cron monitors and the check-in alert, in one go; on the Developer plan, with its one cron monitor, upgrade first.
+Setting a job's `<job>_enabled` to true, with the API reporting, is the one change that both unpauses the job and creates its monitor.
+The monitor's name, schedule and time zone are references to the scheduler job's own `name`, `schedule` and `time_zone`, so moving a `<job>_schedule` moves both.
+Pausing a job in an incident with `gcloud scheduler jobs pause` leaves its monitor in place, and it will report missed runs until the job is resumed; set `<job>_enabled = false` and apply to stop both.
+
+The provider's cron monitor has no slug argument: Sentry makes the slug from the name.
+Each monitor is named its slug, the scheduler job's name without the `${environment}-` prefix, which is the job name the API checks in with (`scheduledJobs` in `backend/internal/server/jobs.go`).
+After the first apply that creates a monitor, check in Sentry (Crons) that its slug reads exactly as below; Sentry adds a suffix only when the slug is already taken in the organization.
+
+| Job | Scheduler resource | Monitor slug |
+| --- | --- | --- |
+| Reversal Reconciler | `google_cloud_scheduler_job.reversal_reconciler` | `ticket-pos-reversal-reconciler` |
+| Sale Invoice Drainer | `google_cloud_scheduler_job.sale_invoice_drainer` | `ticket-pos-sale-invoice-drainer` |
+| Follow Digest enqueue | `google_cloud_scheduler_job.follow_digest_enqueue` | `ticket-pos-follow-digest-enqueue` |
+| Follow Digest drain | `google_cloud_scheduler_job.follow_digest_drain` | `ticket-pos-follow-digest-drain` |
+| Abandoned Answer Purge | `google_cloud_scheduler_job.answer_purge` | `ticket-pos-answer-purge` |
+| Answer Reminder | `google_cloud_scheduler_job.answer_reminder` | `ticket-pos-answer-reminder` |
+| Assignment Reminder | `google_cloud_scheduler_job.assignment_reminder` | `ticket-pos-assignment-reminder` |
+| Owed Assignment Mail | `google_cloud_scheduler_job.owed_assignment_mail` | `ticket-pos-owed-assignment-mail` |
+| Holder Address Purge | `google_cloud_scheduler_job.holder_address_purge` | `ticket-pos-holder-address-purge` |
+
+How much each monitor tolerates follows how often its job runs (`local.sentry_cron_tolerance`):
+
+| Cadence | Jobs | Grace | Issue after | Resolved after |
+| --- | --- | --- | --- | --- |
+| Every minute | Reversal Reconciler, Follow Digest drain, Owed Assignment Mail | 1 minute | 5 bad runs in a row | 2 good runs |
+| Every five minutes | Sale Invoice Drainer | 2 minutes | 2 bad runs in a row | 1 good run |
+| Daily or weekly | Follow Digest enqueue, the two purges, the two reminders | 15 minutes | the first bad run | 1 good run |
+
+A bad run is a failed check-in (the route answered a 5xx or panicked), a missed one (none within the grace) or a timed-out one.
+The cadence is chosen per job in its file from its default schedule; moving a `<job>_schedule` to another cadence (every minute to hourly, say) means moving that job's `local.sentry_cron_tolerance` key with it.
+The maximum runtime is the job's own `<job>_attempt_deadline_seconds` rounded up to the minute, plus one, so a run is timed out only after Cloud Scheduler has given up on it: 3 minutes for every job at today's deadlines.
+
+The uptime monitors exist only while their app's switch is on and its hostname is set:
+
+| Monitor | Probes | Exists when |
+| --- | --- | --- |
+| `sentry_uptime_monitor.storefront` | `GET https://<storefront_domain>/api/health`, the deep-health route (#775) | `sentry_storefront_enabled` |
+| `sentry_uptime_monitor.staff` | `GET https://<staff_domain>/login`, the sign-in page | `sentry_staff_enabled` |
+
+In production these are `https://discover.multiticketing.com/api/health` and `https://pos.multiticketing.com/login`.
+Each probes every minute, passes on a 2xx answer only, waits 10 seconds (longer than the deep-health route's own 4 second bound), and is down after three failures in a row.
+
+Two alert rules email the `ticket-pos` team, in production, when a monitor's issue opens or comes back, at most every 30 minutes per issue: `sentry_alert.job_check_in` watches every cron monitor (a failed, missed or timed-out check-in), and `sentry_alert.uptime` both uptime monitors.
+Each exists only while there is a monitor for it to watch.
+
+**What a full apply creates**, with every switch on and every job unpaused, on top of the 19 above: 9 cron monitors, 2 uptime monitors and the 2 alert rules.
+The free Developer plan allows one cron monitor and one uptime monitor, so the full set needs a paid plan with pay-as-you-go for the other eight cron monitors and the second uptime monitor; upgrade before switching on the API (five cron monitors at once in production, above) or both Next apps.
+Nothing in the code depends on the plan: every job checks in whether or not its monitor exists.
+
+**Testing the switches.**
+`modules/ticket-pos/tests/sentry.tftest.hcl` plans the module against mocked providers, so it needs no credential and reaches nothing: with every switch off no service has a Sentry variable, and each switch sets the DSN on its own service only.
+`modules/ticket-pos/tests/monitors.tftest.hcl` does the same for the monitors: no cron monitor while every job is paused, one per unpaused job named as `backend/internal/server/jobs.go` names it (the test reads that file), with its scheduler job's schedule and time zone, and each uptime monitor on its app's hostname only while that app reports.
+
+```bash
+cd terraform/modules/ticket-pos
+terraform init
+terraform test
+```
+
+## Enabling Sentry: the operator's checklist
+
+Everything for Sentry is merged and dormant (ADR [0079](../docs/adr/0079-sentry-reports-errors-traces-and-job-check-ins-behind-one-seam-holding-no-personal-data-and-dormant-until-a-dsn-is-set.md)).
+These are the steps only the operator can take, in this order.
+Each says what it makes true, how to check it, and how to take it back.
+Nothing in the code waits on any of them: until step 5, production behaves as it did before Sentry, apart from the three fixes that stand on their own (the cause of a 500 logged, the stack of a panic, the recover on the drainer kick).
+
+**The rule that orders them.**
+No DSN is set on any service until the Policy Version that names Sentry is published (step 4).
+It is the rule [ADR 0045](../docs/adr/0045-ticket-questions-ship-dark-until-the-privacy-policy-describes-them.md) set for Ticket Questions: the mechanism merges, and nothing about a person leaves the platform until the published policy says it may.
+Steps 1 to 3 send Sentry nothing about a person: they create empty projects, and the release token only sends commit SHAs and source maps.
+The deployables are independent, and the API may be switched on alone first.
+
+### 1. Upgrade the Sentry plan
+
+- **Do:** in Sentry, Settings, Subscription, move `redplanettribe` from the free Developer plan to a paid plan with pay-as-you-go for monitors.
+  Check the monitor prices first (spec #761 noted $0.78 per extra cron monitor and $1.00 per extra uptime monitor a month).
+- **Makes true:** room for the nine cron monitors and two uptime monitors of a full apply (the Developer plan has one of each), and the Storefront key's rate limit is enforced, which Sentry does only on a plan that has per-key rate limits.
+  The organization's 5,000 errors a month are shared with the other product either way.
+- **Check:** Settings, Subscription names the paid plan.
+  After step 3, the Storefront's key (Project Settings, Client Keys) shows its rate limit of 500 events an hour.
+- **Undo:** downgrade the plan after switching the API and both Next apps off (step 5's undo), so no monitor is left over the free plan's one of each.
+
+### 2. Create the two tokens
+
+Two tokens, never the same one: one acts for Terraform and can create things, the other acts for the deploy and can only make releases.
+
+| | Terraform provider token | Release token |
+| --- | --- | --- |
+| Kind | an internal integration's token (Settings, Developer Settings, Custom Integrations, a new internal integration), which outlives any one person | an organization auth token (Settings, Developer Settings, Organization Tokens) |
+| Scopes | Organization Read, Team Admin, Project Admin, Alerts Read & Write (a personal token instead: `org:read`, `team:admin`, `project:admin`, `alerts:write`) | `org:ci`, fixed, the release scope (a personal token instead: `project:releases` and `org:read`) |
+| Where it lives | `TF_VAR_sentry_auth_token` in the operator's gitignored root `.env`, sourced before every plan | the GitHub Actions repository secret `SENTRY_AUTH_TOKEN` of `redplanettribe/ticket_pos` |
+| What uses it | the `sentry` provider in `envs/prod` (variable `sentry_auth_token`), and `scripts/sentry-scrubbing.sh` | `.github/workflows/deploy.yml` (the Next builds' source map upload and `scripts/sentry-release.sh`), and `make deploy` when exported |
+
+- **Do:** create both in Sentry, then put the Terraform token in `.env`.
+  Store the release token once step 3 has created the projects, with `gh secret set SENTRY_AUTH_TOKEN -R redplanettribe/ticket_pos`, which asks for the value rather than taking it on the command line.
+  Stored before then, every deploy warns that the projects do not exist and carries on.
+- **Makes true:** a plan can reach Sentry, and every deploy after the secret is stored uploads the Next apps' source maps, creates the release for the deployed SHA in all three projects and marks each service's deploy, all failing soft ([Sentry releases and source maps](#sentry-releases-and-source-maps-776)).
+- **Check:** the Terraform token reaches the organization:
+
+  ```bash
+  set -a; source .env; set +a
+  curl -sf -H "Authorization: Bearer $TF_VAR_sentry_auth_token" \
+    https://sentry.io/api/0/organizations/redplanettribe/ | jq -r .slug   # redplanettribe
+  ```
+
+  The release token: `gh secret list -R redplanettribe/ticket_pos` lists `SENTRY_AUTH_TOKEN`; the next deploy runs "Create the Sentry release" and the three "Mark ... deploy in Sentry" steps with no warning, and Sentry, Releases, shows the deployed SHA in all three projects.
+- **Undo:** revoke either token in Sentry.
+  `gh secret delete SENTRY_AUTH_TOKEN -R redplanettribe/ticket_pos` puts the deploy back to what it was before, apart from the release build argument; without the Terraform token a plan stops and asks for it.
+
+### 3. Apply, and what Terraform could not declare
+
+- **Do:** with `.env` sourced and every `sentry_*_enabled` still absent from `terraform.tfvars`, `terraform plan` then `terraform apply` in `envs/prod` ([Running it](#running-it)).
+  Then the steps Terraform could not declare, below.
+- **Makes true:** the `ticket-pos` team, the three projects and their keys, the Storefront's rate limit and inbound filters, and nine alert rules, 19 resources in all (the [Sentry](#sentry) section's table, "What a first apply creates").
+  No Cloud Run service changes and no DSN is set anywhere, so nothing reports yet.
+- **Check:** the plan adds 19 and changes or destroys nothing; stop if it touches a Cloud Run service.
+  A second plan reports no changes.
+  In Sentry, Settings, Teams lists `ticket-pos`, and Projects lists `ticket-pos-api`, `ticket-pos-staff` and `ticket-pos-storefront`, each with one key and three alert rules.
+- **Undo:** nothing to undo while every switch is off: the projects hold nothing and receive nothing.
+  Removing them is a targeted `terraform destroy` of the `module.ticket_pos.sentry_*` resources, which deletes their events with them.
+
+What Terraform could not declare, each found by the ticket that tried (#777, #778), and what covers it:
+
+| Not declarable | Covered by | Check |
+| --- | --- | --- |
+| Server-side data scrubbing: the provider has no scrubbing setting at either level | `SENTRY_AUTH_TOKEN="$TF_VAR_sentry_auth_token" scripts/sentry-scrubbing.sh`, after this apply and again whenever the script changes; project settings only, never the shared organization's | the script reads every setting back and stops on the first project that did not keep one; Project Settings, Security & Privacy shows them |
+| Who receives the alert emails | the operator adds each recipient to the `ticket-pos` team (Settings, Teams); no email address is committed | the team's member list |
+| Whether the error spike rule counts the whole project | open `error_spike` on each project once and read it | it reads as every error in the project above 50 in an hour, not per issue |
+| A cron monitor's slug: the provider sends a name and Sentry makes the slug | each monitor is named its slug | after step 6 creates a monitor, Crons shows the slug exactly as in the [Sentry](#sentry) section's slug table; a suffix means the slug was taken in the organization |
+| The plan, the tokens, the Actions secret, the Policy Version | steps 1, 2 and 4 of this list | as each step says |
+
+### 4. Publish the Policy Version that names Sentry
+
+- **Do:** publish, in the Staff app's Legal Center (`/operator/legal`, as a Platform Operator), a Policy Version whose Privacy Policy names Sentry as a processor of error reports.
+  Its wording, and whether it is a Gating Edition owing every Customer a fresh Policy Acceptance or a Correction, are counsel's decisions and outside this spec; batch it with any other pending policy edits, as ADR 0045 asks.
+- **Makes true:** the published policy describes what step 5 starts sending.
+- **Check:** the edition is current: its effective date has arrived, the Legal Center lists it as current, and the Storefront's privacy policy page shows it.
+- **Undo:** an edition dated for a later day can be cancelled before it takes effect; once current it is kept forever, as every Policy Version is.
+  Taking Sentry back out is step 5's undo, and a later edition.
+
+### 5. Switch each deployable on
+
+- **Do:** write the switch in `envs/prod/terraform.tfvars`, one deployable at a time, the API first if you want one alone, and apply:
+
+  ```hcl
+  sentry_api_enabled        = true
+  sentry_staff_enabled      = true
+  sentry_storefront_enabled = true
+  ```
+
+- **Makes true:** that service gets its project's `SENTRY_DSN` (and the Next apps `SENTRY_ENVIRONMENT=production`) and rolls a new revision; no other service changes.
+  For the API it also makes the cron monitors of the jobs already unpaused: five in production today (the Sale Invoice Drainer, Owed Assignment Mail, the Holder Address Purge and the two reminders) and the check-in alert, so the plan adds 6.
+  For the Staff app it makes the uptime monitor on `https://pos.multiticketing.com/login`, for the Storefront the one on `https://discover.multiticketing.com/api/health`, and whichever comes first the uptime alert.
+- **Check:** the plan changes that one service and adds only what is above, apart from one in-place update: switching on the second Next app adds its monitor to the uptime alert that already exists.
+  The service carries the DSN:
+
+  ```bash
+  gcloud run services describe prod-ticket-pos-api --region us-east1 \
+    --format=json | jq '.spec.template.spec.containers[0].env[] | select(.name | startswith("SENTRY_"))'
+  ```
+
+  (`prod-ticket-pos-staff` and `prod-ticket-pos-storefront` the same.)
+  The API: within five minutes Crons shows check-ins from `ticket-pos-owed-assignment-mail` (every minute) and `ticket-pos-sale-invoice-drainer` (every five).
+  A Next app: its pages carry `<meta name="ticket-pos-sentry">`, and Uptime shows its monitor passing.
+  That an event arrives readable, a trace joins browser to API and an alert email reaches the team is the end-to-end walk of #780, done after the first switch is on.
+- **Undo:** set the switch to `false` (or delete the line) and apply: the DSN leaves the service, which rolls a revision that reports nothing, and its monitors go with it.
+  An alert rule goes only with the last monitor it watches; switching off one Next app while the other reports updates the uptime alert in place.
+
+### 6. Unpause and monitor each job
+
+- **Do:** for each job still paused (today the Reversal Reconciler, the Follow Digest enqueue and drain, and the Abandoned Answer Purge), set its `<job>_enabled = true` in `terraform.tfvars` when the job itself is ready to run, and apply.
+  Each job has its own preconditions, in its own section of this README; a monitor is never a reason to unpause one.
+- **Makes true:** with the API switched on, the one change unpauses the Cloud Scheduler job and creates its cron monitor, with the scheduler's own schedule and time zone, so the job is never running unmonitored.
+- **Check:** the plan changes the job's `paused`, adds one `sentry_cron_monitor` and updates `sentry_alert.job_check_in` in place to watch it too.
+  After the job's next run, Crons shows the monitor, its slug as in the [Sentry](#sentry) section's slug table, and an ok check-in.
+- **Undo:** set `<job>_enabled = false` and apply, which pauses the job and removes its monitor together.
+  Not `gcloud scheduler jobs pause`: that leaves the monitor reporting missed runs until the job resumes.
+
+### A developer's local stack
+
+Locally, in CI and in agent runs no DSN is set, and nothing reports: the API builds no reporter, and the Next apps initialise no SDK and their tunnels forward nothing.
+That default matters because a local database can hold a copy of production data, real people's included, which must never leave the machine.
+
+To try the integration end to end, opt in with the DSN of a project you own, or of a local stand-in that accepts envelopes, never one of the three production keys:
+
+- The API: `SENTRY_DSN=...` in the root `.env`, which `docker-compose.yml` passes to the backend; it reports as `development`.
+- A Next app: `SENTRY_DSN=... pnpm start` on a production build, as each app's README, "Walking it locally against a fake endpoint", describes; it reports as `development` unless `SENTRY_ENVIRONMENT` says otherwise.
+
+Do it against a database seeded with fixtures, not against a copy of production, and unset the DSN when done.
 
 ## What is not here yet
 

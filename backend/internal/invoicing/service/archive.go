@@ -236,7 +236,7 @@ func (a *TaxDocumentArchive) WriteTo(ctx context.Context, w io.Writer) error {
 				"operator_email", a.operator, "from", a.from, "to", a.to, "error", err)
 			return err
 		}
-		a.svc.logger.Error("invoicing: tax document archive failed mid-stream",
+		a.svc.logger.Error(ctx, "invoicing: tax document archive failed mid-stream",
 			"operator_email", a.operator, "from", a.from, "to", a.to, "error", err)
 		return err
 	}

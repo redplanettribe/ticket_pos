@@ -129,7 +129,7 @@ func (s *Service) CreateAffiliateLink(ctx context.Context, actor ActorContext, e
 		return &view, nil
 	}
 
-	s.logger.Error("affiliate link code generation exhausted", "event_id", eventID)
+	s.logger.Error(ctx, "affiliate link code generation exhausted", "event_id", eventID)
 	return nil, affiliates.ErrAffiliateLinkCodeExhausted()
 }
 
@@ -300,7 +300,7 @@ func (s *Service) RecordPageView(ctx context.Context, organizationSlug, eventSlu
 	}
 	hour := s.now().UTC().Truncate(time.Hour)
 	if err := s.repo.RecordPageView(ctx, organizationSlug, eventSlug, code, hour); err != nil {
-		s.logger.Error("event page view not recorded", "error", err)
+		s.logger.Error(ctx, "event page view not recorded", "error", err)
 		return err
 	}
 	return nil

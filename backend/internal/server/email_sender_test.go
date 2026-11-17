@@ -33,9 +33,9 @@ const (
 // that a refusal was announced rather than swallowed.
 type quietLogger struct{ errors int }
 
-func (*quietLogger) Info(string, ...any)    {}
-func (*quietLogger) Warn(string, ...any)    {}
-func (l *quietLogger) Error(string, ...any) { l.errors++ }
+func (*quietLogger) Info(string, ...any)                     {}
+func (*quietLogger) Warn(string, ...any)                     {}
+func (l *quietLogger) Error(context.Context, string, ...any) { l.errors++ }
 
 // sendingConfig is a Config carrying a real transactional identity, which is
 // what makes the split apply at all.

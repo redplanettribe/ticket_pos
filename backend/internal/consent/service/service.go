@@ -150,7 +150,7 @@ func (s *Service) currentPolicyEdition(ctx context.Context) (policyEdition, erro
 	if err != nil {
 		return policyEdition{}, err
 	}
-	edition := s.policyEditionFrom(read)
+	edition := s.policyEditionFrom(ctx, read)
 	s.policyCache.store(edition, time.Now())
 	return edition, nil
 }
@@ -176,7 +176,7 @@ type policyEdition struct {
 // policyEditionFrom turns one read of one edition into the cache entry: the answer
 // for every language it publishes, and the id of the row they all came from.
 // It verifies the fingerprint on the way. Called once per cache fill.
-func (s *Service) policyEditionFrom(edition repository.PolicyEdition) policyEdition {
+func (s *Service) policyEditionFrom(ctx context.Context, edition repository.PolicyEdition) policyEdition {
 	version := edition.Version
 
 	// The row's fingerprint and the text about to be served disagreeing means
@@ -188,7 +188,7 @@ func (s *Service) policyEditionFrom(edition repository.PolicyEdition) policyEdit
 	// every acceptance recorded in this state is evidence pointing at text that
 	// was not on screen.
 	if computed := legal.ContentHash(edition.Artifacts); computed != version.ContentHash {
-		s.logger.Error("policy version content hash does not match its stored artifacts",
+		s.logger.Error(ctx, "policy version content hash does not match its stored artifacts",
 			"version", version.Label,
 			"recorded_hash", version.ContentHash,
 			"stored_hash", computed,
@@ -213,7 +213,7 @@ func (s *Service) policyEditionFrom(edition repository.PolicyEdition) policyEdit
 	// fingerprint but cannot be served, so it is refused like an unpublished one
 	// — loudly, because it is a publication bug rather than a reader's mistake.
 	if missing := len(legal.Locales(edition.Artifacts)) - len(views); missing > 0 {
-		s.logger.Error("policy version publishes a language with an incomplete artifact set",
+		s.logger.Error(ctx, "policy version publishes a language with an incomplete artifact set",
 			"version", version.Label,
 			"incomplete_languages", missing,
 		)

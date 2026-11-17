@@ -17,6 +17,12 @@ FROM alpine:3.20
 
 RUN apk add --no-cache ca-certificates
 
+# The commit SHA this image was built from, which the error reporter sends as
+# the release (ADR 0079). The deploy workflow passes it; a build without it
+# still works, and its reports carry no release.
+ARG SENTRY_RELEASE=""
+ENV SENTRY_RELEASE=${SENTRY_RELEASE}
+
 COPY --from=builder /server /server
 COPY --from=builder /migrate /migrate
 

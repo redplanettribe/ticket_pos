@@ -100,7 +100,7 @@ func NewPayPhoneProvider(apiToken, storeID, baseURL string, logger Logger) *PayP
 		apiToken: apiToken,
 		storeID:  storeID,
 		baseURL:  strings.TrimRight(baseURL, "/"),
-		client:   &http.Client{Timeout: payPhoneTimeout},
+		client:   NewOutboundClient(payPhoneTimeout),
 		logger:   logger,
 	}
 }
@@ -263,11 +263,11 @@ func (p *PayPhoneProvider) Initiate(ctx context.Context, in PaymentInitiateInput
 		err = p.post(ctx, payPhonePreparePath, req.stripPrefills(), &out)
 	}
 	if err != nil {
-		p.logger.Error("payphone prepare failed", "client_transaction_id", in.ClientTransactionID, "error", err)
+		p.logger.Error(ctx, "payphone prepare failed", "client_transaction_id", in.ClientTransactionID, "error", err)
 		return nil, fmt.Errorf("payphone prepare: %w", err)
 	}
 	if strings.TrimSpace(out.PayWithCard) == "" {
-		p.logger.Error("payphone prepare returned no payment url", "client_transaction_id", in.ClientTransactionID)
+		p.logger.Error(ctx, "payphone prepare returned no payment url", "client_transaction_id", in.ClientTransactionID)
 		return nil, fmt.Errorf("payphone prepare: response carries no payWithCard url")
 	}
 
@@ -306,7 +306,7 @@ func (p *PayPhoneProvider) Confirm(ctx context.Context, in PaymentConfirmInput) 
 	rawID := strings.TrimSpace(in.Params["id"])
 	id, err := strconv.ParseInt(rawID, 10, 64)
 	if err != nil {
-		p.logger.Error("payphone confirm: missing or malformed id param", "client_transaction_id", in.ClientTransactionID, "id", rawID)
+		p.logger.Error(ctx, "payphone confirm: missing or malformed id param", "client_transaction_id", in.ClientTransactionID, "id", rawID)
 		return nil, fmt.Errorf("payphone confirm: missing or malformed id param %q", rawID)
 	}
 
@@ -315,7 +315,7 @@ func (p *PayPhoneProvider) Confirm(ctx context.Context, in PaymentConfirmInput) 
 		ID:         id,
 		ClientTxID: in.ClientTransactionID,
 	}, &out); err != nil {
-		p.logger.Error("payphone confirm failed", "client_transaction_id", in.ClientTransactionID, "error", err)
+		p.logger.Error(ctx, "payphone confirm failed", "client_transaction_id", in.ClientTransactionID, "error", err)
 		return nil, fmt.Errorf("payphone confirm: %w", err)
 	}
 
@@ -342,7 +342,7 @@ func (p *PayPhoneProvider) Confirm(ctx context.Context, in PaymentConfirmInput) 
 	default:
 		// Not a verdict PayPhone documents. Declining here could strand a paid
 		// Customer, so this is unknown-outcome: error, Payment stays pending.
-		p.logger.Error("payphone confirm returned an unrecognized status",
+		p.logger.Error(ctx, "payphone confirm returned an unrecognized status",
 			"client_transaction_id", in.ClientTransactionID,
 			"status_code", out.StatusCode,
 			"transaction_status", out.TransactionStatus,
@@ -412,7 +412,7 @@ func (p *PayPhoneProvider) Reverse(ctx context.Context, clientTransactionID stri
 			)
 			return nil
 		}
-		p.logger.Error("payphone reverse failed",
+		p.logger.Error(ctx, "payphone reverse failed",
 			"client_transaction_id", clientTransactionID,
 			"error", err,
 		)
@@ -428,7 +428,7 @@ func (p *PayPhoneProvider) Reverse(ctx context.Context, clientTransactionID stri
 		// is not the literal `true` — a `false`, a refusal-shaped object, a body
 		// that is not JSON — is an answer this integration does not recognize, and
 		// an unrecognized answer is not a licence to declare that nothing happened.
-		p.logger.Error("payphone answered the reversal with something other than its documented true",
+		p.logger.Error(ctx, "payphone answered the reversal with something other than its documented true",
 			"client_transaction_id", clientTransactionID,
 			"response", payPhoneBodySnippet(body),
 		)

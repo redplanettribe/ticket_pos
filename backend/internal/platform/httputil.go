@@ -76,16 +76,54 @@ func WriteHandlerError(w http.ResponseWriter, requestID string, status int, code
 }
 
 // WriteDomainError maps a domain error to HTTP and writes the envelope.
+//
+// Any other error is answered with the generic INTERNAL_ERROR 500, and its
+// cause is logged at ERROR under the request id and reported by the request
+// pipeline the writer belongs to. A domain error is the platform refusing as
+// designed and is not logged here; the request line records it at the level
+// its status calls. One answered with a 5xx and no Retry-After, a failed
+// commit or a deployment fault, is reported with the original error; a 4xx or
+// a capacity refusal is not (ADR 0079).
 func WriteDomainError(w http.ResponseWriter, requestID string, err error) error {
 	var domainErr apperror.DomainError
 	if errors.As(err, &domainErr) {
 		status := domainHTTPStatus(domainErr.Code())
-		if after := domainRetryAfter(domainErr.Code()); after != "" {
+		after := domainRetryAfter(domainErr.Code())
+		if after != "" {
 			w.Header().Set(retryAfterHeader, after)
+		}
+		if status >= http.StatusInternalServerError && after == "" {
+			reportServerError(w, requestID, err, false)
 		}
 		return WriteHandlerError(w, requestID, status, domainErr.Code(), domainErr.Message(), domainErr.Details())
 	}
+	reportServerError(w, requestID, err, true)
 	return WriteHandlerError(w, requestID, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred", nil)
+}
+
+// serverErrorReporter is the request pipeline's response writer, which reports
+// the error a 5xx answers with (statusRecorder).
+type serverErrorReporter interface {
+	reportServerError(requestID string, err error, unexpected bool)
+}
+
+// reportServerError hands the error of a 5xx to the request pipeline the
+// writer belongs to, looking through any writer wrapped around it the way
+// http.ResponseController does. The mapping is handed only a writer, and this
+// keeps its 250-odd call sites as they are. A writer outside the pipeline, a
+// test's recorder, reports nothing.
+func reportServerError(w http.ResponseWriter, requestID string, err error, unexpected bool) {
+	for {
+		if reporter, ok := w.(serverErrorReporter); ok {
+			reporter.reportServerError(requestID, err, unexpected)
+			return
+		}
+		unwrapper, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return
+		}
+		w = unwrapper.Unwrap()
+	}
 }
 
 // retryAfterHeader is set only from domainRetryAfter, and the request log reads
@@ -107,6 +145,13 @@ func domainRetryAfter(code string) string {
 	// exports finish in seconds, so a few seconds is when a retry is worth it.
 	case "HOLDER_EXPORT_BUSY":
 		return "5"
+	// The deep health route's database did not answer (#775). Not a capacity
+	// refusal, but the same kind of answer: the route refusing as designed,
+	// which the uptime probe reads, and which must log at WARN and never be
+	// reported, or a database outage would be one issue per probe. The probe
+	// asks again on its own schedule; the value is for any other caller.
+	case "DATABASE_UNREACHABLE":
+		return "30"
 	}
 	return ""
 }
@@ -622,6 +667,10 @@ func domainHTTPStatus(code string) int {
 	// 503 with a retry for SALE_REVERSAL_IN_PROGRESS's reason: it says nothing
 	// about the request, and trying again in a moment is exactly right.
 	case "HOLDER_EXPORT_BUSY":
+		return http.StatusServiceUnavailable
+	// The deep health route's database did not answer (#775): the API is up
+	// and cannot serve, which is what 503 says.
+	case "DATABASE_UNREACHABLE":
 		return http.StatusServiceUnavailable
 	// The three refusals about an Operator Reversal's money memo: a refund larger
 	// than the Ticket Sale ever collected (#125), money stated about a sale that

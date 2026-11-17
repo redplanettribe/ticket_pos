@@ -2,9 +2,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"log/slog"
+	"net"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	// Embed the IANA timezone database into the binary so time.LoadLocation
@@ -13,6 +18,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/platform/reporter"
 	"github.com/peter/ticket_pos/backend/internal/server"
 
 	_ "github.com/peter/ticket_pos/backend/docs"
@@ -37,28 +43,46 @@ import (
 // @name            Authorization
 // @description     Staff session token as Bearer <session_id>. The Staff BFF also accepts an httpOnly cookie.
 func main() {
+	// The reporter comes first, from configuration of its own, so that every
+	// failure after it, LoadConfig's included, is reported and flushed before
+	// the process exits (ADR 0079). With no SENTRY_DSN it is the no-op.
+	reporterLogger := platform.NewSlogLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)), platform.NoopReporter{})
+	errorReporter := reporter.New(platform.LoadReporterConfig(), reporterLogger)
+
+	// Cloud Run sends SIGTERM and allows ten seconds before SIGKILL.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer stop()
+
+	if err := run(ctx, errorReporter); err != nil {
+		platform.ReportStartupFailure(errorReporter, err)
+		log.Fatal(err)
+	}
+}
+
+// run starts the API and serves until ctx ends, then shuts down gracefully,
+// flushing the reporter. An error is a failure to start or to keep serving.
+func run(ctx context.Context, errorReporter platform.Reporter) error {
 	cfg, err := platform.LoadConfig()
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		return fmt.Errorf("config: %w", err)
 	}
 
-	ctx := context.Background()
-	app, err := server.NewApp(ctx, cfg)
+	app, err := server.NewApp(ctx, cfg, server.WithReporter(errorReporter))
 	if err != nil {
-		log.Fatalf("app: %v", err)
+		return fmt.Errorf("app: %w", err)
 	}
 	defer app.Close()
 	slog.SetDefault(app.Logger)
 
-	handler := server.NewHandler(app)
+	listener, err := net.Listen("tcp", cfg.HTTPAddr)
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
 
 	app.Logger.Info("listening", "addr", cfg.HTTPAddr, "swagger", "http://localhost"+cfg.HTTPAddr+"/swagger/index.html")
 	httpServer := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           handler,
+		Handler:           server.NewHandler(app),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	if err := httpServer.ListenAndServe(); err != nil {
-		log.Fatal(err)
-	}
+	return platform.Serve(ctx, httpServer, listener, errorReporter, platform.NewSlogLogger(app.Logger, errorReporter))
 }

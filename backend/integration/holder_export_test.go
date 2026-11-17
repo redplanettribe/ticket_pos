@@ -211,7 +211,7 @@ func withCatalogLogger(t *testing.T) *captureLogger {
 	capture := &captureLogger{}
 	sharedApp.CatalogService.WithLogger(capture)
 	t.Cleanup(func() {
-		sharedApp.CatalogService.WithLogger(platform.NewSlogLogger(sharedApp.Logger))
+		sharedApp.CatalogService.WithLogger(platform.NewSlogLogger(sharedApp.Logger, sharedApp.Reporter))
 	})
 	return capture
 }

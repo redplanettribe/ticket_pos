@@ -1,9 +1,12 @@
 package platform
 
 import (
+	"context"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -15,17 +18,35 @@ import (
 //
 //  1. the request id, outermost, so everything inside can report it: the
 //     request log line, a recovered panic's log line and its 500 envelope;
-//  2. the request log, which sees the request only after the id is on its
-//     context, and which writes its line even when the handler aborts;
-//  3. panic recovery, innermost, so the 500 it writes is the status the request
-//     log records.
+//  2. the request span (tracingMiddleware), so every report the request makes
+//     links to its trace;
+//  3. the request log, which sees the request only after the id is on its
+//     context, and which writes its line even when the handler aborts. It
+//     holds what the request has reported, so that one failed request is one
+//     event, and reports a 5xx nothing inside it reported;
+//  4. panic recovery, innermost, so the 500 it writes is the status the request
+//     log records. It reports the panic to reporter, with its stack.
 //
-// The three are unexported so that nothing can assemble them in another order.
+// The four are unexported so that nothing can assemble them in another order.
 // That is how the request log came to read `"request_id":""` for every request:
 // the log wrapped the id middleware, so the id was attached to a request the log
 // line never saw.
-func RequestPipeline(logger *slog.Logger, next http.Handler) http.Handler {
-	return requestIDMiddleware(loggingMiddleware(logger, recoverMiddleware(logger, next)))
+//
+// RequestPipeline traces every request at OrdinaryTraceRate, honouring a
+// propagated decision; TracedRequestPipeline takes the routes that are always
+// and never traced.
+func RequestPipeline(logger *slog.Logger, reporter Reporter, next http.Handler) http.Handler {
+	return TracedRequestPipeline(logger, reporter, TraceSampling{}, next)
+}
+
+// TracedRequestPipeline is RequestPipeline with sampling deciding which
+// requests are traced. The request span is named by the pattern next routes
+// the request by, which next, a *http.ServeMux, tells before it routes; any
+// other handler's requests are "unrouted".
+func TracedRequestPipeline(logger *slog.Logger, reporter Reporter, sampling TraceSampling, next http.Handler) http.Handler {
+	routes, _ := next.(routeMatcher)
+	return requestIDMiddleware(tracingMiddleware(reporter, sampling, routes,
+		loggingMiddleware(logger, reporter, recoverMiddleware(logger, reporter, next))))
 }
 
 // RequestIDHeader carries a request's id, inbound from a BFF and outbound on
@@ -88,10 +109,17 @@ func wellFormedRequestID(id string) bool {
 // a domain error that declares one (domainRetryAfter), so a mapped 5xx that
 // declares none - a deployment fault, a failed commit - is still an ERROR.
 // Everything else, a 4xx included, is logged at INFO.
-func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
+//
+// A request logged at ERROR is a failed request, and is reported to reporter
+// unless something inside it already reported (ADR 0079): the panic recovery,
+// the error mapping, or an Error line through the Logger. One failed request
+// is one event. The report names the route pattern, never the raw path, which
+// can carry ids.
+func loggingMiddleware(logger *slog.Logger, reporter Reporter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		rec := &statusRecorder{ResponseWriter: w}
+		r = withRequestReports(r)
+		rec := &statusRecorder{ResponseWriter: w, logger: logger, reporter: reporter, ctx: r.Context()}
 		defer func() {
 			aborted := recover()
 			level := slog.LevelInfo
@@ -125,6 +153,13 @@ func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 				attrs = append(attrs, "aborted", true)
 			}
 			logger.Log(r.Context(), level, "request", attrs...)
+			setRequestSpanStatus(r.Context(), status)
+			if level == slog.LevelError {
+				reportRequestFailure(r.Context(), reporter, ErrorReport{
+					Err:       fmt.Errorf("%s answered %d", routePattern(r), status),
+					RequestID: RequestID(r.Context()),
+				})
+			}
 			if aborted != nil {
 				panic(aborted)
 			}
@@ -133,10 +168,39 @@ func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	})
 }
 
+// unroutedPattern names a request no route matched, in a report and as a
+// request span.
+const unroutedPattern = "unrouted"
+
+// routePattern is the pattern the request was routed by, or unroutedPattern.
+func routePattern(r *http.Request) string {
+	if r.Pattern == "" {
+		return unroutedPattern
+	}
+	return r.Pattern
+}
+
 // statusRecorder remembers the status a handler sent; 0 means none yet.
+//
+// It is also how the error mapping, which is handed only the writer, reaches
+// the pipeline's logger and reporter: see reportServerError.
 type statusRecorder struct {
 	http.ResponseWriter
-	status int
+	status   int
+	logger   *slog.Logger
+	reporter Reporter
+	// ctx is the request's, carrying what it has reported.
+	ctx context.Context
+}
+
+// reportServerError reports the error a 5xx answers with, once per request
+// (ADR 0079). An unexpected error, which the generic response hides, also has
+// its cause written down (#763); a domain error's code is in the response.
+func (r *statusRecorder) reportServerError(requestID string, err error, unexpected bool) {
+	if unexpected {
+		r.logger.Error("unexpected error", "request_id", requestID, "error", err)
+	}
+	reportRequestFailure(r.ctx, r.reporter, ErrorReport{Err: err, RequestID: requestID})
 }
 
 func (r *statusRecorder) WriteHeader(status int) {
@@ -224,8 +288,10 @@ func BearerToken(r *http.Request) string {
 	return strings.TrimSpace(strings.TrimPrefix(auth, prefix))
 }
 
-// recoverMiddleware converts panics into 500 responses.
-func recoverMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
+// recoverMiddleware converts panics into 500 responses, logging each with its
+// stack and reporting it to reporter as one error report starting at the frame
+// that panicked (ADR 0079).
+func recoverMiddleware(logger *slog.Logger, reporter Reporter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
@@ -237,10 +303,31 @@ func recoverMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 				if rec == http.ErrAbortHandler {
 					panic(rec)
 				}
-				logger.Error("panic recovered", "request_id", RequestID(r.Context()), "panic", rec)
-				_ = WriteHandlerError(w, RequestID(r.Context()), http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred", nil)
+				requestID := RequestID(r.Context())
+				logger.Error("panic recovered", "request_id", requestID, "panic", rec, "stack", string(debug.Stack()))
+				reportRequestFailure(r.Context(), reporter, ErrorReport{
+					Err:       recoveredPanic{value: rec},
+					Stack:     panicStack(),
+					RequestID: requestID,
+				})
+				_ = WriteHandlerError(w, requestID, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred", nil)
 			}
 		}()
 		next.ServeHTTP(w, r)
 	})
+}
+
+// recoveredPanic is a recovered panic value as an error.
+type recoveredPanic struct {
+	value any
+}
+
+func (p recoveredPanic) Error() string {
+	return fmt.Sprintf("panic: %v", p.value)
+}
+
+// Unwrap exposes a panic value that was itself an error.
+func (p recoveredPanic) Unwrap() error {
+	err, _ := p.value.(error)
+	return err
 }

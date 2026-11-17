@@ -492,6 +492,10 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 	if event == nil || event.Status != "published" {
 		return nil, sales.ErrEventNotFound()
 	}
+	// The checkout is addressed by slugs, which are never reported; the ids
+	// they resolve to place what this request reports (ADR 0079).
+	platform.SetReportTag(ctx, platform.ReportTagOrganization, event.OrganizationID)
+	platform.SetReportTag(ctx, platform.ReportTagEvent, event.ID)
 
 	now := s.now()
 	cutoff := sales.HoldCutoff(now)
@@ -1072,7 +1076,7 @@ func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.Chec
 		// reloading and no sale to report. Logged loudly for the same reason
 		// PAYMENT_APPROVED_WITHOUT_SALE is — an impossible state reached anyway is
 		// worth more than the generic 500 the caller gets.
-		s.logger.Error("FREE_CHECKOUT_NOT_SETTLED: a free Payment created in this request reported itself already settled; no Ticket Sale was recorded",
+		s.logger.Error(ctx, "FREE_CHECKOUT_NOT_SETTLED: a free Payment created in this request reported itself already settled; no Ticket Sale was recorded",
 			"client_transaction_id", clientTransactionID,
 		)
 		return nil, fmt.Errorf("sales: free checkout %s was settled by nobody", clientTransactionID)
@@ -1258,6 +1262,12 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 	if payment == nil {
 		return nil, sales.ErrPaymentNotFound()
 	}
+	// The confirmation is addressed by a client transaction id, which is not
+	// reported; the ids the Payment names place what this request reports
+	// (ADR 0079). The Ticket Sale exists once the Payment was approved.
+	platform.SetReportTag(ctx, platform.ReportTagOrganization, payment.OrganizationID)
+	platform.SetReportTag(ctx, platform.ReportTagEvent, payment.EventID)
+	platform.SetReportTag(ctx, platform.ReportTagSale, payment.TicketSaleID)
 	// 'expired' is NOT settled: lazy expiry only released the Payment's
 	// Capacity Hold, it passed no verdict on the money. When the Customer
 	// returns from the provider after the window, the honest outcome is the
@@ -1310,7 +1320,7 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 		// approved-without-sale as the durable marker, and the log line below is
 		// the loud path the parent spec demands.
 		if _, markErr := s.repo.MarkPaymentApprovedWithoutSale(ctx, clientTransactionID, confirmation.ProviderTransactionID, confirmation.Instrument, s.now()); markErr != nil {
-			s.logger.Error("PAYMENT_APPROVED_WITHOUT_SALE: marking the incident failed too; reconcile from provider records",
+			s.logger.Error(ctx, "PAYMENT_APPROVED_WITHOUT_SALE: marking the incident failed too; reconcile from provider records",
 				"client_transaction_id", clientTransactionID,
 				"provider_transaction_id", confirmation.ProviderTransactionID,
 				"commit_error", err,
@@ -1318,7 +1328,7 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 			)
 			return nil, sales.ErrPaymentSaleCommitFailed()
 		}
-		s.logger.Error("PAYMENT_APPROVED_WITHOUT_SALE: provider approved the charge but the Ticket Sale commit failed; resolve by hand",
+		s.logger.Error(ctx, "PAYMENT_APPROVED_WITHOUT_SALE: provider approved the charge but the Ticket Sale commit failed; resolve by hand",
 			"client_transaction_id", clientTransactionID,
 			"provider_transaction_id", confirmation.ProviderTransactionID,
 			"error", err,

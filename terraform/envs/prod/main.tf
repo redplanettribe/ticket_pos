@@ -184,4 +184,15 @@ module "ticket_pos" {
   # assignment without shutting questions. It has no entry in terraform.tfvars,
   # so it is false until somebody writes one.
   ticket_assignment_enabled = var.ticket_assignment_enabled
+
+  # Sentry reporting, one switch per deployable (ADR 0079, #777). All three are
+  # off, which is how the integration ships: the Sentry projects, keys and alert
+  # rules exist, and no service has a DSN. Each is a gate to open after the
+  # policy edition that names Sentry is published, and opening one sets the DSN
+  # on that service only, so the API can go first. Like the two above they have
+  # no entry in terraform.tfvars until somebody writes one. The Sentry provider
+  # itself is configured in versions.tf.
+  sentry_api_enabled        = var.sentry_api_enabled
+  sentry_staff_enabled      = var.sentry_staff_enabled
+  sentry_storefront_enabled = var.sentry_storefront_enabled
 }

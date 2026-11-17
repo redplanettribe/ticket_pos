@@ -1,3 +1,4 @@
+import { readSentryConfig, serializeSentryConfig } from "@ticket-pos/sentry-rules";
 import { Toaster } from "@ticket-pos/ui";
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
@@ -5,8 +6,11 @@ import { notFound } from "next/navigation";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 
+import { SentryLoader } from "@/components/sentry-loader";
 import { routing } from "@/i18n/routing";
 import { BRAND_NAME } from "@/lib/brand";
+import { EARLY_ERROR_HANDLER_SCRIPT } from "@/lib/early-errors";
+import { SENTRY_CONFIG_META } from "@/lib/sentry-lazy";
 import { storefrontBaseUrl } from "@/lib/site";
 
 import "../globals.css";
@@ -82,11 +86,27 @@ export default async function LocaleLayout({ children, params }: LocaleLayoutPro
   // declare its own locale can therefore be rendered before this line runs.
   setRequestLocale(locale);
 
+  // Sentry's browser configuration, read at request time: the DSN is a runtime
+  // value on the service, and every page here renders per request. With none,
+  // nothing below is written and the browser never hears of Sentry (ADR 0079).
+  const sentry = readSentryConfig(process.env);
+
   return (
     // The URL's own token, not the Intl tag it formats under: the document
     // states the language it is written in, while "es-EC" is a claim about
     // number marks and month names that belongs to lib/format.ts.
     <html lang={locale}>
+      <head>
+        {sentry && (
+          <>
+            {/* First in the document, so it is listening before any of the
+                app's scripts run: it keeps the errors thrown before the SDK
+                loads (lib/early-errors.ts). */}
+            <script dangerouslySetInnerHTML={{ __html: EARLY_ERROR_HANDLER_SCRIPT }} />
+            <meta name={SENTRY_CONFIG_META} content={serializeSentryConfig(sentry)} />
+          </>
+        )}
+      </head>
       <body className={`${inter.variable} surface-storefront font-sans`}>
         {/* Hands the locale and the messages down to client components, which
             is how a link rendered on the client knows which language to prefix
@@ -106,6 +126,7 @@ export default async function LocaleLayout({ children, params }: LocaleLayoutPro
           {children}
           <Toaster />
         </NextIntlClientProvider>
+        {sentry && <SentryLoader />}
       </body>
     </html>
   );

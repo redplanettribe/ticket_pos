@@ -144,7 +144,7 @@ func (s *Service) PurgeUnacceptedHolderAddresses(ctx context.Context) (*HolderAd
 		// Logged and dropped. The write above is the job and it succeeded; the
 		// backlog is context for whoever is reading the response.
 		if s.logger != nil {
-			s.logger.Error("holder address purge backlog read failed", "error", err)
+			s.logger.Error(ctx, "holder address purge backlog read failed", "error", err)
 		}
 	} else {
 		result.AddressesHeld = int(held)

@@ -330,6 +330,6 @@ func (s *Service) notifyQuestionReviewAnswered(ctx context.Context, row *reposit
 		AnsweredBy:       row.AnsweredBy.String,
 		Items:            items,
 	}); err != nil {
-		s.logger.Error("question review answered notice: send", "review_id", row.ID, "error", err)
+		s.logger.Error(ctx, "question review answered notice: send", "review_id", row.ID, "error", err)
 	}
 }

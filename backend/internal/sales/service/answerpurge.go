@@ -106,12 +106,12 @@ func (s *Service) PurgeAbandonedAnswers(ctx context.Context) (*AnswerPurgeResult
 	// Logged and dropped, both of them. The deletion above is the job and it
 	// succeeded; the backlog is context for whoever is reading the response.
 	if held, err := s.repo.CountHeldCheckoutAnswers(ctx); err != nil {
-		s.logger.Error("answer purge backlog read failed", "error", err)
+		s.logger.Error(ctx, "answer purge backlog read failed", "error", err)
 	} else {
 		result.AnswersHeld = int(held)
 	}
 	if held, err := s.repo.CountHeldCheckoutHolders(ctx); err != nil {
-		s.logger.Error("answer purge holder backlog read failed", "error", err)
+		s.logger.Error(ctx, "answer purge holder backlog read failed", "error", err)
 	} else {
 		result.HoldersHeld = int(held)
 	}

@@ -73,7 +73,7 @@ func newWebIdentityCredentials(settings SESConfig, stsOptions sts.Options) *aws.
 		metadataURL: strings.TrimRight(metadataEndpoint, "/") +
 			"/computeMetadata/v1/instance/service-accounts/default/identity?audience=" +
 			url.QueryEscape(settings.WebIdentityAudience),
-		metadata: &http.Client{Timeout: metadataTimeout},
+		metadata: NewOutboundClient(metadataTimeout),
 		sts:      sts.New(stsOptions),
 	}
 	return aws.NewCredentialsCache(provider, func(o *aws.CredentialsCacheOptions) {

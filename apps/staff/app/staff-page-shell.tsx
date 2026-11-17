@@ -9,6 +9,7 @@ import { callBackend } from "@/lib/api";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 import { loadSession, type SessionData } from "@/lib/staff-session";
 
+import { ContentErrorBoundary } from "./content-error-boundary";
 import { LogoutButton } from "./logout-button";
 import { ShellWithOrganizationSwitcher } from "./organization-switcher-dialog";
 import { ShellLanguageSwitcher } from "./shell-language-switcher";
@@ -162,7 +163,8 @@ export async function StaffPageShell({ activePath, children }: StaffPageShellPro
         </div>
       }
     >
-      {children}
+      {/* A crash in the page's content is shown here, inside the panels (#772). */}
+      <ContentErrorBoundary>{children}</ContentErrorBoundary>
     </ShellWithOrganizationSwitcher>
   );
 }

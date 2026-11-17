@@ -135,7 +135,7 @@ func (s *Service) ReverseOwnSale(ctx context.Context, customerID, ticketSaleID s
 	}
 	defer func() {
 		if err := release(); err != nil {
-			s.logger.Error("could not release the Sale Reversal lock; further reversals of this Ticket Sale may be refused until the connection is recycled",
+			s.logger.Error(ctx, "could not release the Sale Reversal lock; further reversals of this Ticket Sale may be refused until the connection is recycled",
 				"ticket_sale_id", sale.ID,
 				"error", err,
 			)
@@ -233,7 +233,7 @@ func (s *Service) ReverseOwnSale(ctx context.Context, customerID, ticketSaleID s
 	// undo failing rather than as a constraint violation, which is what the honest
 	// 502 said before ADR 0024 and what it should keep saying.
 	if sale.ClientTransactionID == "" {
-		s.logger.Error("a paid Online Sale carries no Payment to reverse; no Reversal Request can be made for it",
+		s.logger.Error(ctx, "a paid Online Sale carries no Payment to reverse; no Reversal Request can be made for it",
 			"ticket_sale_id", sale.ID,
 			"confirmation_ref", sale.ConfirmationRef,
 			"payment_method", sale.PaymentMethod.String,
@@ -405,7 +405,7 @@ func (s *Service) resolveReversalRequest(ctx context.Context, request repository
 	}
 	defer func() {
 		if err := release(); err != nil {
-			s.logger.Error("could not release the Sale Reversal lock after resolving a Reversal Request; further reversals of this Ticket Sale may be refused until the connection is recycled",
+			s.logger.Error(ctx, "could not release the Sale Reversal lock after resolving a Reversal Request; further reversals of this Ticket Sale may be refused until the connection is recycled",
 				"ticket_sale_id", request.TicketSaleID,
 				"error", err,
 			)
@@ -458,7 +458,7 @@ func (s *Service) resolveReversalRequest(ctx context.Context, request repository
 	// record here — the platform has no idea what became of its own in-flight
 	// ask, and the row must say so rather than quietly disappear.
 	if sale.Status != platform.ActiveSaleStatus {
-		s.logger.Error("UNRESOLVED_REVERSAL: a Ticket Sale was reversed by somebody else while a Reversal Request was in flight; the platform will not ask the Payment Provider again, because the reversal it asked for may or may not have happened and asking could refund the buyer twice — a Platform Operator must settle it against the provider's own dashboard",
+		s.logger.Error(ctx, "UNRESOLVED_REVERSAL: a Ticket Sale was reversed by somebody else while a Reversal Request was in flight; the platform will not ask the Payment Provider again, because the reversal it asked for may or may not have happened and asking could refund the buyer twice — a Platform Operator must settle it against the provider's own dashboard",
 			"ticket_sale_id", sale.ID,
 			"confirmation_ref", sale.ConfirmationRef,
 			"client_transaction_id", current.ClientTransactionID,
@@ -660,7 +660,7 @@ func (s *Service) recordTheSaleIsVoided(ctx context.Context, requestID string) {
 // settled by recording an Operator Reversal (ADR 0019).
 func (s *Service) retryAgreedReversalLater(ctx context.Context, sale *repository.CustomerTicketSale, request repository.ReversalRequest, cause error, now time.Time) (reversalOutcome, error) {
 	if sales.ReversalGivenUp(request.RequestedAt, now) {
-		s.logger.Error("UNRESOLVED_REVERSAL: the Payment Provider reversed this payment and the platform has failed to void the Ticket Sale for as long as it is willing to keep trying; the buyer holds both their refund and their tickets, and a Platform Operator must settle it by recording an Operator Reversal on this sale",
+		s.logger.Error(ctx, "UNRESOLVED_REVERSAL: the Payment Provider reversed this payment and the platform has failed to void the Ticket Sale for as long as it is willing to keep trying; the buyer holds both their refund and their tickets, and a Platform Operator must settle it by recording an Operator Reversal on this sale",
 			"ticket_sale_id", sale.ID,
 			"confirmation_ref", sale.ConfirmationRef,
 			"client_transaction_id", request.ClientTransactionID,
@@ -798,7 +798,7 @@ func (s *Service) pursueReversalRequest(ctx context.Context, sale *repository.Cu
 		// A definite refusal. The provider's code goes to the log and not to the
 		// buyer: PayPhone publishes no "too late" code, so any explanation offered
 		// here would be a guess about somebody's money.
-		s.logger.Error("sale reversal refused by the payment provider; the Ticket Sale is untouched",
+		s.logger.Error(ctx, "sale reversal refused by the payment provider; the Ticket Sale is untouched",
 			"ticket_sale_id", sale.ID,
 			"confirmation_ref", sale.ConfirmationRef,
 			"client_transaction_id", request.ClientTransactionID,
@@ -884,7 +884,7 @@ func (s *Service) ageUnaskableReversalRequest(ctx context.Context, request repos
 	// on the line: an in-flight request is one nobody knows the answer to and only
 	// the provider's dashboard can settle, while a succeeded one is money that
 	// demonstrably went back and a sale that needs voiding (ADR 0019).
-	s.logger.Error("UNRESOLVED_REVERSAL: the platform never managed to work a Reversal Request to an end, and has now been trying for as long as it is willing to; a Platform Operator must settle it",
+	s.logger.Error(ctx, "UNRESOLVED_REVERSAL: the platform never managed to work a Reversal Request to an end, and has now been trying for as long as it is willing to; a Platform Operator must settle it",
 		"ticket_sale_id", request.TicketSaleID,
 		"reversal_request_id", request.ID,
 		"requested_at", request.RequestedAt,
@@ -915,7 +915,7 @@ func (s *Service) ageUnaskableReversalRequest(ctx context.Context, request repos
 // ListUnresolvedReversals — so an incident does not have to be reconstructed
 // from logs.
 func (s *Service) giveUpOnReversalRequest(ctx context.Context, sale *repository.CustomerTicketSale, request *repository.ReversalRequest, lastError string, now time.Time) error {
-	s.logger.Error("UNRESOLVED_REVERSAL: the platform gave up asking the Payment Provider what became of a Reversal Request; the money may or may not have gone back and only the provider's own dashboard can say — a Platform Operator must settle it, and the Customer has been told nothing because there is nothing true to tell them",
+	s.logger.Error(ctx, "UNRESOLVED_REVERSAL: the platform gave up asking the Payment Provider what became of a Reversal Request; the money may or may not have gone back and only the provider's own dashboard can say — a Platform Operator must settle it, and the Customer has been told nothing because there is nothing true to tell them",
 		"ticket_sale_id", sale.ID,
 		"confirmation_ref", sale.ConfirmationRef,
 		"client_transaction_id", request.ClientTransactionID,
@@ -985,7 +985,7 @@ func (s *Service) commitSaleReversal(ctx context.Context, sale *repository.Custo
 		// the client transaction id to find the reversal on the provider's
 		// dashboard.
 		if request != nil {
-			s.logger.Error("SALE_REVERSAL_NOT_COMMITTED: the Payment Provider reversed the payment but the Ticket Sale could not be marked reversed; the buyer keeps both the money and the tickets, and the Reversal Request stands succeeded over an active sale",
+			s.logger.Error(ctx, "SALE_REVERSAL_NOT_COMMITTED: the Payment Provider reversed the payment but the Ticket Sale could not be marked reversed; the buyer keeps both the money and the tickets, and the Reversal Request stands succeeded over an active sale",
 				"ticket_sale_id", sale.ID,
 				"confirmation_ref", sale.ConfirmationRef,
 				"client_transaction_id", request.ClientTransactionID,

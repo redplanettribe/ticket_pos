@@ -51,8 +51,15 @@ import (
 
 // App holds wired application dependencies.
 type App struct {
-	Config            platform.Config
-	Logger            *slog.Logger
+	Config platform.Config
+	Logger *slog.Logger
+	// Reporter is where unexpected failures are reported (ADR 0079):
+	// platform.NoopReporter unless cmd/server passes one with WithReporter, so
+	// the test suites never construct a real one.
+	Reporter platform.Reporter
+	// traceRandom is the draw for an ordinary request's trace (WithTraceRandom);
+	// nil in production.
+	traceRandom       func() float64
 	DB                *platform.DB
 	EmailSender       platform.EmailSender
 	OTPService        *otp.Service
@@ -105,6 +112,23 @@ type appOptions struct {
 	// 60-second cache of the current legal editions. Set to zero by the
 	// integration harness, which publishes editions mid-run.
 	legalTextCacheTTL *time.Duration
+	reporter          platform.Reporter
+	traceRandom       func() float64
+}
+
+// WithTraceRandom replaces the draw that decides whether an ordinary request
+// is traced (platform.TraceSampling.Random), so a test decides it.
+func WithTraceRandom(random func() float64) Option {
+	return func(o *appOptions) {
+		o.traceRandom = random
+	}
+}
+
+// WithReporter sets the error reporter the request pipeline reports to.
+func WithReporter(reporter platform.Reporter) Option {
+	return func(o *appOptions) {
+		o.reporter = reporter
+	}
 }
 
 // WithEmailSender overrides the configured email sender.
@@ -146,7 +170,13 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
 
-	db, err := platform.OpenDB(ctx, cfg.DatabaseURL)
+	reporter := options.reporter
+	if reporter == nil {
+		reporter = platform.NoopReporter{}
+	}
+
+	// Every query on the pool is a span under its request (ADR 0079).
+	db, err := platform.OpenDB(ctx, cfg.DatabaseURL, reporter)
 	if err != nil {
 		return nil, fmt.Errorf("database: %w", err)
 	}
@@ -158,7 +188,8 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		}
 	}
 
-	platformLogger := platform.NewSlogLogger(logger)
+	// Every Error line through it is reported (ADR 0079).
+	platformLogger := platform.NewSlogLogger(logger, reporter)
 	emailSender := options.emailSender
 	if emailSender == nil {
 		emailSender, err = newEmailSender(ctx, cfg, platformLogger)
@@ -680,6 +711,8 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	return &App{
 		Config:            cfg,
 		Logger:            logger,
+		Reporter:          reporter,
+		traceRandom:       options.traceRandom,
 		DB:                db,
 		EmailSender:       emailSender,
 		OTPService:        otpService,
@@ -790,7 +823,7 @@ func newDigestEmailSender(ctx context.Context, cfg platform.Config, logger platf
 	if reason := cfg.DigestEmail.UnconfiguredReason(cfg.EmailFrom); reason != "" {
 		// Error level, at startup, and again on every refused send. This is a
 		// deployment that believes it has a discovery feature and does not.
-		logger.Error("digest email sender: not configured; follow digests will not be sent",
+		logger.Error(ctx, "digest email sender: not configured; follow digests will not be sent",
 			"provider", provider, "from", cfg.DigestEmail.From, "reason", reason)
 		return platform.NewUnconfiguredDigestSender(logger, reason), nil
 	}

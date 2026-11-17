@@ -165,7 +165,7 @@ backend/
 
 Construct dependencies in `cmd/server/main.go` and inject them into handlers and services.
 
-- **Logger**: a small `Logger` interface in `platform/`, backed by `slog` in production.
+- **Logger**: a small `Logger` interface in `platform/`, backed by `slog` in production, whose Error lines are reported (see Logging and request correlation).
   Services and repositories receive a logger instance; tests inject a no-op or capture logger.
 - **Database**: a connection pool passed into repositories.
 - **EmailSender**: pluggable interface for OTP delivery (see Authentication).
@@ -180,9 +180,84 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
   The one exception is a capacity refusal, a 5xx carrying a `Retry-After`, which is logged at WARN because the platform refuses as designed.
   A `Retry-After` is only ever set by `platform.WriteDomainError` from the domain error's own declaration (`domainRetryAfter`, today only the 503 `HOLDER_EXPORT_BUSY`), so a mapped deployment fault or failed commit such as `PAYMENT_SALE_COMMIT_FAILED` stays an ERROR.
 - Staff and Storefront Next apps forward `X-Request-ID` on server-side calls to the Go API.
+  Each app's middleware mints one id per page request it serves, so every API call one page render makes carries the same id, and that id is the reference code its error screens show (`packages/sentry-rules/src/reference-code.ts`).
+  The Storefront's middleware does not run on its BFF routes under `/api/`, so a BFF call there still gets an id of its own per API call.
 - Error reporting, distributed tracing, scheduled-job check-ins and uptime checks go to Sentry, behind one seam in `platform`, carrying no personal data and dormant until a DSN is set.
   See [ADR 0079](./adr/0079-sentry-reports-errors-traces-and-job-check-ins-behind-one-seam-holding-no-personal-data-and-dormant-until-a-dsn-is-set.md).
   Metrics remain deferred.
+- The seam is `platform.Reporter`: report an error with its stack, request id and id-only tags, start and finish a span, check a job in, and flush with a bound.
+  `internal/platform/reporter` builds it, and is the only package that imports `sentry-go`; a test fails if any other does.
+  `internal/platform/reportertest` is the capturing fake tests assert on.
+- Configuration is read once, in `cmd/server`, by `platform.LoadReporterConfig`: `SENTRY_DSN`, the environment (`production` when `APP_ENV` is, `development` otherwise) and `SENTRY_RELEASE`, the commit SHA the API image takes as a build argument.
+  With no `SENTRY_DSN` the reporter is `platform.NoopReporter` and nothing of the SDK is constructed: the local stack, CI, the test suites and agent runs.
+  The migrate job and the operator CLIs never build a reporter.
+- The Sentry side (the `ticket-pos` team, one project and key per deployable, the alert rules, the Storefront's inbound filters and key rate limit) is declared in the `ticket-pos` Terraform module, and a DSN reaches a Cloud Run service only when that deployable's switch is on; all three ship off (terraform/README.md, "Sentry").
+- The deploy builds all three images with the commit SHA as `SENTRY_RELEASE`.
+  With the `SENTRY_AUTH_TOKEN` secret it also uploads the Next apps' source maps from inside their image builds, creates the release and marks each service's deploy, all failing soft; no source map is left in an image (terraform/README.md, "Sentry releases and source maps").
+- The SDK collects no personal data by default: no request, body, cookie, header, query string or IP address, and the host name is not sent.
+- `platform.AsyncReporter` stands in front of the SDK, so nothing on a request waits on Sentry: error reports and check-ins queue for one goroutine and are dropped when the queue is full.
+  A reporter failure, a panic, a full queue or a refused delivery, is logged once at WARN and every later one is swallowed.
+- What is reported: a panic recovered by the request pipeline, with the stack of the frame that panicked; a non-domain error `platform.WriteDomainError` answers with the generic 500, with the original error; a domain error it answers with a 5xx and no `Retry-After`, such as a failed commit; and every line logged at Error through `platform.Logger`.
+  Not a domain error answered with a 4xx, not a Warn, and so not a capacity refusal.
+  Promoting a line to Error, or demoting one, is an alerting decision.
+- `Logger.Error(ctx, msg, args...)` takes the context it is logged under, and Info and Warn do not, because only an Error line is reported: inside a request the context carries the request id the event needs, and the Organization, Event and Sale it concerns.
+  This is how an Error-log event gets its request id (#765).
+  The context is a required parameter so that the compiler finds every call site and no Error line can ship without the request it belongs to; a line outside any request passes its job's or goroutine's context and reports with no request id.
+  An `ErrorContext` beside a context-less `Error` was rejected because call sites would drift back to the one without, and reading a `request_id` argument because that key already names other things, such as a Payout Request.
+  The event is the message wrapping the first error among the arguments, or the value logged under `panic` when there is none, and nothing else of them, since they can name a person.
+  A background goroutine logs under `platform.DetachFromRequest(ctx)`, which outlives the request but keeps its id and placement, so the drainer kick's report names the checkout that kicked it.
+  It drops the request's "already reported" mark, so the goroutine's failure and the request's own 5xx are two events, as they are two failures.
+  `platform.NewSlogLogger` is given its reporter explicitly; the logger the `AsyncReporter` writes its own warnings through is given `NoopReporter`, so a failing reporter never reports to itself.
+- One failed request produces one event.
+  The pipeline remembers on the request context whether anything in the request has reported.
+  An Error line always reports; a panic, the error mapping's 5xx, and the `request` line of a 5xx report only when nothing in the request did, so an Error line that writes a failure's cause down, followed by the 500 it ends in, is one event.
+  The `request` line reports a 5xx nothing else reported, such as one a handler writes by hand, naming the route pattern rather than the path.
+  An Error line earlier in a request stands for the request's later 5xx even when the two are unrelated, by decision: the line before a 500 is nearly always its cause being written down, and the 500 is still in the log.
+  Two Error lines in one request are two events.
+  The pipeline's own "unexpected error" and "panic recovered" lines are written to the `slog` logger underneath, not through `platform.Logger`, so they never report a second time.
+- A report made inside a request is placed by that request, as opaque ids only (`platform/reporter_context.go`).
+  It carries the request id, and the route pattern as the `route` tag, never the raw path.
+  The user is the staff Active Member's id or the Customer's id, with the `audience` tag `staff` or `customer`; a staff person has no id of their own beyond a Member, and the session token is a credential, so a session with no Active Member reports the audience alone.
+  `organization_id`, `event_id` and `sale_id` (a Ticket Sale) are tagged three ways.
+  The pipeline reads them from the path: a wildcard whose segment in front is `organizations`, `events`, `sales` or `ticket-sales`, the key the path-id guard uses, and whose value is a UUID, so a slug or Confirmation reference in the same place is never sent.
+  The staff session middleware supplies the Active Member's Organization, and the Customer Session middleware a Confirmation Link session's Ticket Sale, through `platform.SetReportActor` and `platform.SetReportTag`.
+  A handler or service supplies an id it resolved that is not in its path the same way, as the checkout does for the Event and Organization its slugs name.
+  Both take a UUID or nothing, and a context detached from its request keeps the request's placement.
+- Every event and transaction is scrubbed in the process before it is sent, by `platform.ScrubText` and `platform.ScrubURL` (`platform/scrub.go`), which the tracing spans use too.
+  Email-shaped and identity-number-shaped strings are redacted, the identity-number shape being `taxid.go`'s cédula and RUC shape without the check digit, and query strings and fragments are dropped, the same shapes as the Next apps' `@ticket-pos/sentry-rules`.
+  A reported error is one exception: its text scrubbed through the recipient redaction's `redactedError` (`platform.ScrubError`), and its type its `platform.ErrorClass`, words that carry nothing of the error's text.
+  A stack frame's variables are dropped, and the event keeps only the user's id.
+- A sweep that gives up on something for good logs it at Error and is reported; failures it retries, and the counts it answers with, keep their levels.
+- Every request is one span, named by the route pattern the mux is about to route it by (`unrouted` when none matches), started second in the pipeline, inside the request id and outside the request log, so every report the request makes links to its trace.
+  A request carrying `sentry-trace` and `baggage` continues the Next app's trace; one without starts its own.
+- Sampling is decided once per trace, at its head, by `platform.TraceSampling`: a health check never, a checkout, payment or SRI invoicing route always, any other request as the Next app's propagated decision says, or one in ten when there is none.
+  The routes always and never traced are named once, in `alwaysTraced` and `neverTraced` (`server/traced_routes.go`), and the server refuses to start when one of them is not registered.
+  The SDK keeps the decision it is handed and samples nothing on its own.
+- Two health routes, and only one asks the database.
+  `GET /health`, the one Cloud Run's probes ask, answers while the process serves and asks nothing else, so a database outage never makes Cloud Run restart the API.
+  `GET /api/v1/public/health` pings the pool within `platform.DeepHealthTimeout` (two seconds) and answers 503 `DATABASE_UNREACHABLE`, with a Retry-After, when the database does not answer; that refusal logs at WARN and is never reported.
+  The Storefront's `GET /api/health` asks it, and is the uptime probe's target: 200 only when the Storefront reaches the API and the API reaches the database.
+  Neither deep route is traced or cached.
+- Every query on the pool is a `db.sql` span under its request, through one pgx tracer set in `platform.OpenDB`: the statement text with its `$n` placeholders, never the arguments.
+  A query outside a sampled request starts no span, and with no DSN, or in the migrate job, the pool has no tracer at all.
+- Every call to a third party is an `http.client` span under its request, through one wrapped transport (`platform.OutboundTransport`, `platform/outbound.go`): the method, scheme, host and path, the status received, never the query string, headers or body.
+  Every outbound client is built by `platform.NewOutboundClient` (PayPhone, the SRI, Resend, the Google token exchange, the Customer Avatar fetch, the metadata server's ID token) or, for the AWS SDK, `platform.NewOutboundAWSClient`, given through the SDK's HTTP client option (SES, STS, the S3-compatible storage); a test refuses a bare `http.Client` anywhere else.
+  The span ends when the response headers arrive.
+  Outside a sampled request, or with no DSN, the transport only hands the call on, and it never adds our trace headers to a call.
+- Every scheduled job checks in: each internal route is registered through `server.CheckInJobs`, which serves it through `platform.JobRoute` under the job name `scheduledJobs` (`server/jobs.go`) gives its pattern, and refuses to register a route it has no name for.
+  The run checks in as started when the route is entered, and as ok, or failed on a 5xx or a panic, with the time it took; a 4xx is a refusal as designed and checks in ok.
+  The name is the monitor's slug, the Cloud Scheduler job's name without its environment (`ticket-pos-answer-purge`), and the `job` tag on everything the run reports; Terraform's monitors must carry the same nine slugs, and do: each is declared beside its scheduler job and named from it, only while the job is unpaused, and a Terraform test reads `scheduledJobs` (`terraform/README.md`, "Cron and uptime monitors").
+  The response is held while the run's check-ins and reports are flushed with `platform.ShutdownFlushTimeout`, because Cloud Run may freeze an instance between requests.
+  Every job checks in whether or not a monitor expects it; Sentry drops a check-in nobody expects.
+- On SIGTERM the API stops accepting, lets requests in flight finish for up to seven seconds, and flushes the reporter with a two second bound (`platform.ShutdownFlushTimeout`).
+  A failure to start, from `LoadConfig` on, is reported and flushed with the same bound before the process exits.
+- The Staff app and the Storefront report through the official Next.js SDK, each to its own project, and initialise nothing without `SENTRY_DSN`; what they share is `@ticket-pos/sentry-rules`, pure functions under the Node test runner.
+  Every event passes its before-send: the same redaction shapes as the API, no query strings, and, in the Storefront, no event from a known bot, nor a browser error with no frame from our own bundles.
+  Both apps initialise every runtime with the same privacy options, defined once in the package (`sentryOptions`): traces sent whole as transactions, so every span passes the scrubber in `beforeSendTransaction` (streamed spans, the SDK 11 default, skip it), and the SDK's data collection cut to the User-Agent header, with no cookie, body, query string, user or frame variable (`sendDefaultPii: false` alone does not turn these off in SDK 11).
+  The browser sends to the app's own `/api/monitoring`, which forwards only envelopes for that app's own project and none of the browser's headers.
+  What Next catches on the server (a server component, route handler, server action or middleware) is one `request failed` log line with the request id, Next's digest and the route pattern, and is reported, except a client component that failed while server-rendering: the browser renders it again, and its error screen reports it if it fails there too (`createOnRequestError`).
+  An error screen reports the error it caught once, unless it carries Next's digest, which says the server already reported it (`reportCaughtError`); a not-found or a redirect is control flow, never shown as an error and never reported.
+  The Storefront's browser SDK loads after hydration, and an inline handler holds what is thrown before it does.
 
 ## PostgreSQL and data access
 

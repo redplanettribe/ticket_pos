@@ -101,6 +101,10 @@ Established by the Storefront (`apps/storefront/Dockerfile`) and reused by Staff
 - **`NEXT_PUBLIC_*` are build arguments.** `next build` inlines them into the client bundle; supplying
   them at runtime leaves them empty. Cloud Build must pass them with `--build-arg`, not the Cloud Run
   service. Server-only configuration (`API_URL`) stays a runtime environment variable.
+- **No source map ships (#776).** `next build` reads the Sentry token from a BuildKit secret mount
+  (`id=sentry_auth_token`), never a build argument, and uploads the maps only when it has one. The same
+  `RUN` deletes every `.map` under `.next`, and the runner stage fails the image build if `/app` holds
+  one, whether or not the upload ran. `SENTRY_RELEASE` is a build argument of the runner stage only.
 
 Staff (`apps/staff/Dockerfile`) follows it with two differences worth knowing:
 

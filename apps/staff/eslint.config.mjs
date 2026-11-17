@@ -55,6 +55,10 @@ const NON_COPY_ATTRIBUTES = [
   // list (#613). A key from a closed union declared beside the routes, so a
   // wrong value is a type error; the words on the strip come from the catalog.
   "tab",
+  // How an error screen sits on the page (#772): `layout="page"` alone on the
+  // screen, `layout="inline"` inside chrome. A closed union on @ticket-pos/ui's
+  // ErrorScreen; its words come from the catalog.
+  "layout",
 
   // Addresses and identity. `activePath` is which nav entry the shell should
   // light up; `name`/`htmlFor` wire a label to an input.

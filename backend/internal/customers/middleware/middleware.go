@@ -36,6 +36,21 @@ func SessionFromContext(ctx context.Context) (*CustomerSession, bool) {
 	return session, ok
 }
 
+// withCustomerSession is ctx carrying the authenticated Customer, and the
+// request's error reports placed by them as ids only (ADR 0079): the customer
+// audience, the Customer id, and the one Ticket Sale a Confirmation Link
+// session is for.
+func withCustomerSession(ctx context.Context, actor *service.AuthenticatedCustomer) context.Context {
+	platform.SetReportActor(ctx, platform.AudienceCustomer, actor.CustomerID)
+	platform.SetReportTag(ctx, platform.ReportTagSale, actor.TicketSaleID)
+	return context.WithValue(ctx, customerSessionKey, &CustomerSession{
+		SessionID:    actor.SessionID,
+		CustomerID:   actor.CustomerID,
+		Email:        actor.Email,
+		TicketSaleID: actor.TicketSaleID,
+	})
+}
+
 // RequireCustomerSession validates the bearer Customer Session token, extends its
 // sliding window, and attaches the authenticated Customer to the request context.
 //
@@ -57,12 +72,7 @@ func RequireCustomerSession(svc *service.Service) func(http.Handler) http.Handle
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), customerSessionKey, &CustomerSession{
-				SessionID:    actor.SessionID,
-				CustomerID:   actor.CustomerID,
-				Email:        actor.Email,
-				TicketSaleID: actor.TicketSaleID,
-			})
+			ctx := withCustomerSession(r.Context(), actor)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -94,12 +104,7 @@ func OptionalCustomerSession(svc *service.Service) func(http.Handler) http.Handl
 				next.ServeHTTP(w, r)
 				return
 			}
-			ctx := context.WithValue(r.Context(), customerSessionKey, &CustomerSession{
-				SessionID:    actor.SessionID,
-				CustomerID:   actor.CustomerID,
-				Email:        actor.Email,
-				TicketSaleID: actor.TicketSaleID,
-			})
+			ctx := withCustomerSession(r.Context(), actor)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

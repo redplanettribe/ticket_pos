@@ -11,7 +11,9 @@
     "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@sentry/nextjs": "^11.13.0",
     "@ticket-pos/locale": "workspace:*",
+    "@ticket-pos/sentry-rules": "workspace:*",
     "@ticket-pos/ui": "workspace:*",
     "lucide-react": "^0.511.0",
     "next": "^15.0.0",

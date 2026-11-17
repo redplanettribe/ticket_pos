@@ -19,7 +19,7 @@ import (
 // possibly-charged Customer's Payment out of the failed state.
 
 func discardLogger() Logger {
-	return NewSlogLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return NewSlogLogger(slog.New(slog.NewTextHandler(io.Discard, nil)), NoopReporter{})
 }
 
 func TestPayPhoneInitiateRefusesNonUSD(t *testing.T) {

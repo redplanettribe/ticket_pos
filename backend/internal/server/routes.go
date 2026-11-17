@@ -17,13 +17,16 @@ type Router interface {
 }
 
 // NewHandler is the API's whole HTTP handler: every route, wrapped in the
-// request pipeline (request id, request log, panic recovery). The server and
-// the integration suites serve this same value, so the suites exercise the
-// middleware production runs.
+// request pipeline (request id, request span, request log, panic recovery),
+// which reports and traces to the App's Reporter, sampling as alwaysTraced
+// and neverTraced say. The server and the integration suites serve this same
+// value, so the suites exercise the middleware production runs.
 func NewHandler(app *App) http.Handler {
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, app)
-	return platform.RequestPipeline(app.Logger, mux)
+	registered := &recordingRouter{next: mux, patterns: map[string]bool{}}
+	RegisterRoutes(registered, app)
+	requireTracedRoutesRegistered(registered.patterns)
+	return platform.TracedRequestPipeline(app.Logger, app.Reporter, traceSampling(app.traceRandom), mux)
 }
 
 // RegisterRoutes wires all HTTP routes onto mux.
@@ -33,7 +36,12 @@ func NewHandler(app *App) http.Handler {
 // construction, rather than 500ing on its first malformed id.
 func RegisterRoutes(mux Router, app *App) {
 	mux = RequireDeclaredPathIDs(mux)
+	// The shallow check Cloud Run probes, which asks nothing of the database,
+	// and the deep one the Storefront's uptime target asks (#775). The deep one
+	// is in the public namespace because it reaches the API the way every BFF
+	// call does: with the BFF's service credential and no session.
 	mux.HandleFunc("GET /health", platformhandler.Health)
+	mux.HandleFunc("GET /api/v1/public/health", platformhandler.DeepHealth(app.DB.Pool))
 	mux.Handle("GET /swagger/", SwaggerHandler())
 
 	registerAuthRoutes(mux, app)
@@ -71,7 +79,14 @@ func RegisterRoutes(mux Router, app *App) {
 // time, with no arguments worth trusting. Nothing here takes a body or a path
 // parameter, so a caller cannot aim it: WHAT is worked on is a property of the
 // queue in the database, never of the request.
+//
+// Every route here is a scheduled job, registered through CheckInJobs: it
+// checks in as started and as ok or failed under the job name scheduledJobs
+// gives its pattern, and flushes before it answers (ADR 0079). A route added
+// here needs its name in that list and nothing in its handler.
 func registerInternalRoutes(mux Router, app *App) {
+	mux = CheckInJobs(mux, app.Reporter, scheduledJobs)
+
 	// The Reversal Reconciler's tick (ADR 0024). Cloud Scheduler calls it (#159)
 	// and a Platform Operator can curl it, which is the order this shipped in:
 	// the runbook before the automation.

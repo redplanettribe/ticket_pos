@@ -155,9 +155,9 @@ func (l *lineLogger) record(level, msg string, args []any) {
 	l.lines = append(l.lines, recordedLog{level: level, msg: msg, args: args})
 }
 
-func (l *lineLogger) Info(msg string, args ...any)  { l.record("info", msg, args) }
-func (l *lineLogger) Warn(msg string, args ...any)  { l.record("warn", msg, args) }
-func (l *lineLogger) Error(msg string, args ...any) { l.record("error", msg, args) }
+func (l *lineLogger) Info(msg string, args ...any)                     { l.record("info", msg, args) }
+func (l *lineLogger) Warn(msg string, args ...any)                     { l.record("warn", msg, args) }
+func (l *lineLogger) Error(_ context.Context, msg string, args ...any) { l.record("error", msg, args) }
 
 func (l *lineLogger) errors() []recordedLog {
 	l.mu.Lock()

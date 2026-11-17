@@ -423,25 +423,25 @@ func (s *Service) OpenEcuadorSigningKey(ctx context.Context) (*sri.Certificate, 
 	}
 	p12, err := s.custody.Open(sealed.P12)
 	if err != nil {
-		return nil, s.unreadable(row.Issuer.ID, err)
+		return nil, s.unreadable(ctx, row.Issuer.ID, err)
 	}
 	password, err := s.custody.Open(sealed.Password)
 	if err != nil {
-		return nil, s.unreadable(row.Issuer.ID, err)
+		return nil, s.unreadable(ctx, row.Issuer.ID, err)
 	}
 	cert, err := sri.OpenCertificate(p12, string(password))
 	if err != nil {
 		// It opened at upload, so this is the row or the key, not the file.
-		return nil, s.unreadable(row.Issuer.ID, err)
+		return nil, s.unreadable(ctx, row.Issuer.ID, err)
 	}
 	return cert, nil
 }
 
-func (s *Service) unreadable(issuerID string, cause error) error {
+func (s *Service) unreadable(ctx context.Context, issuerID string, cause error) error {
 	if errors.Is(cause, invoicing.ErrCustodyNotConfigured) {
 		return invoicing.ErrCertificateKeyNotConfigured()
 	}
-	s.logger.Error("invoicing: stored certificate will not open under the current key", "issuer_id", issuerID, "error", cause)
+	s.logger.Error(ctx, "invoicing: stored certificate will not open under the current key", "issuer_id", issuerID, "error", cause)
 	return invoicing.ErrCertificateUnreadable()
 }
 

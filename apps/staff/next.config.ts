@@ -1,5 +1,7 @@
 import path from "node:path";
 
+import { withSentryConfig } from "@sentry/nextjs/config";
+import { sentryBuildOptions } from "@ticket-pos/sentry-rules";
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
 
@@ -30,4 +32,14 @@ const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
 };
 
-export default withNextIntl(nextConfig);
+// Sentry's build plugin (ADR 0079), with the options both apps share
+// (sentryBuildOptions in @ticket-pos/sentry-rules). With no SENTRY_AUTH_TOKEN,
+// as in CI and every local build, the build never talks to Sentry: no source
+// maps are produced or uploaded, no release is created or injected (the release
+// is SENTRY_RELEASE, read at runtime by lib/sentry.ts), and the plugin's own
+// telemetry is off, so an unreachable Sentry neither fails nor slows it. With
+// the token the deploy's image build hands it (#776), the browser and server
+// source maps are uploaded to ticket-pos-staff and deleted, failing soft.
+// Either way the SDK wraps server components, route handlers and middleware,
+// which is what reports their errors.
+export default withSentryConfig(withNextIntl(nextConfig), sentryBuildOptions("ticket-pos-staff", process.env));

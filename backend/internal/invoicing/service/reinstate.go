@@ -264,7 +264,7 @@ func (s *Service) sendReinstatementNotice(ctx context.Context, claim *repository
 	if errors.Is(err, errNotDeliverable) {
 		// Stored data that cannot become the mail; on the ladder all the
 		// same, so a fix to the data is picked up without an operator.
-		s.logger.Error("invoicing: a reinstatement notice cannot be put together", "invoice_id", inv.ID, "error", err)
+		s.logger.Error(ctx, "invoicing: a reinstatement notice cannot be put together", "invoice_id", inv.ID, "error", err)
 		return false, s.repo.RescheduleReinstatementNotice(context.WithoutCancel(ctx), claim.AnnulmentID, next)
 	}
 	if err != nil {

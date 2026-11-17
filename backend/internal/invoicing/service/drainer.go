@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/invoicing"
@@ -273,16 +274,30 @@ func (s *Service) WithSaleInvoicingEnabled(enabled bool) *Service {
 //
 // It is fire-and-forget on purpose: nothing about the checkout waits on it
 // and nothing about the checkout can fail because of it. Whatever it does
-// not finish, the scheduled drain finds due exactly as it left it.
+// not finish, the scheduled drain finds due exactly as it left it. A kick
+// that fails or panics is logged at Error all the same (#763, ADR 0079): a
+// silent kick is how a Sale Invoice came to sit pending.
 func (s *Service) KickSaleInvoiceDrainer(ctx context.Context, ticketSaleID string) {
 	if !s.kick {
 		return
 	}
+	// Detached from the request, which is finishing, but still carrying its
+	// id: a failed or panicking kick is reported under the checkout that
+	// kicked it, and never counts as that checkout's own report (ADR 0079).
+	kickCtx := platform.DetachFromRequest(ctx)
 	go func() {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), saleInvoiceDrainBudget)
+		// Nothing above this goroutine recovers it: a panic here would take
+		// the whole API process down with every request it is serving. The
+		// Error line is the report, its stack the frame that panicked.
+		defer func() {
+			if rec := recover(); rec != nil {
+				s.logger.Error(kickCtx, "invoicing: the post-commit kick panicked; the scheduled drain will", "panic", rec, "stack", string(debug.Stack()))
+			}
+		}()
+		ctx, cancel := context.WithTimeout(kickCtx, saleInvoiceDrainBudget)
 		defer cancel()
 		if _, err := s.drainSaleInvoices(ctx, ticketSaleID, saleInvoiceDrainBudget); err != nil {
-			s.logger.Warn("invoicing: the post-commit kick could not drain; the scheduled drain will", "error", err)
+			s.logger.Error(ctx, "invoicing: the post-commit kick could not drain; the scheduled drain will", "error", err)
 		}
 	}()
 }

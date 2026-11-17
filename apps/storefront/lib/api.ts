@@ -1,3 +1,6 @@
+import { getTraceData } from "@sentry/nextjs";
+import { REQUEST_ID_HEADER, mintedRequestId } from "@ticket-pos/sentry-rules";
+
 import type { CheckoutAnswerBody, CheckoutQuestion } from "./checkout-answers";
 import type { CheckoutHolderBody } from "./named-tickets";
 // The ".ts" is written out because lib/api.test.ts runs this module directly
@@ -128,6 +131,61 @@ async function serviceAuthHeaders(): Promise<HeadersInit | undefined> {
 }
 
 /**
+ * applyTraceHeaders carries the active trace to the API (ADR 0079): the
+ * sentry-trace and baggage headers of the span this call runs in, beside the
+ * request id, so the API's span joins the trace and one trace runs from the
+ * browser through this app into the API. As in the Staff app.
+ *
+ * With the SDK not initialised (no DSN) getTraceData returns nothing and no
+ * header is added. A header the caller set is kept.
+ *
+ * Only callBackend and fetchBackendRaw set them, the calls that are never
+ * cached. The cached reads (fetchData, readLegalDocument) must not: Next keys
+ * its Data Cache on the request's headers, ignoring only the W3C traceparent
+ * and tracestate, so a per-request sentry-trace would make every cached read a
+ * miss. The SDK's own fetch instrumentation still propagates the trace on the
+ * reads that do reach the API, below the cache.
+ */
+function applyTraceHeaders(headers: Headers): void {
+  for (const [name, value] of Object.entries(getTraceData())) {
+    if (value && !headers.has(name)) {
+      headers.set(name, value);
+    }
+  }
+}
+
+/**
+ * The id the middleware minted for the page request being rendered (#774), or
+ * null outside one.
+ *
+ * Inside a server render or server action it is on the request headers, so
+ * every API call one page makes carries the id its error screen shows as the
+ * reference code, and the API's request lines in Cloud Logging are found by it.
+ * A test or a cached function has no request to read: there this answers null
+ * and the call gets an id of its own, as before. The middleware does not run on
+ * the route handlers (under /api/, /checkout/return, /tickets/confirm), so
+ * there the header is whatever the browser sent: only an id of the shape the
+ * middleware mints is taken (mintedRequestId), so a browser can at most pick a
+ * UUID, never put text in the API's log lines. Next's own control flow (a
+ * static render bailing out to dynamic) is rethrown, never swallowed.
+ */
+async function renderRequestId(): Promise<string | null> {
+  // Loaded here rather than at the top: this module also runs under the plain
+  // Node test runner, which has no request to read. The ".js" is for that
+  // runner (next has no exports map); the bundler resolves it the same.
+  const [{ headers }, { unstable_rethrow }] = await Promise.all([
+    import("next/headers.js"),
+    import("next/navigation.js"),
+  ]);
+  try {
+    return mintedRequestId((await headers()).get(REQUEST_ID_HEADER));
+  } catch (error) {
+    unstable_rethrow(error);
+    return null;
+  }
+}
+
+/**
  * APIError carries a failed envelope from the Go API so a route handler can
  * relay the API's own `error.code` and `error.message` to the browser instead of
  * inventing a verdict of its own (docs/design/README.md). The code is the half
@@ -196,8 +254,9 @@ export async function callBackend<T>(
     headers.set("Authorization", `Bearer ${init.sessionToken}`);
   }
   if (!headers.has("X-Request-ID")) {
-    headers.set("X-Request-ID", crypto.randomUUID());
+    headers.set("X-Request-ID", (await renderRequestId()) ?? crypto.randomUUID());
   }
+  applyTraceHeaders(headers);
   const serviceHeaders = new Headers(await serviceAuthHeaders());
   serviceHeaders.forEach((value, key) => headers.set(key, value));
 
@@ -239,8 +298,9 @@ export async function fetchBackendRaw(
     headers.set("Authorization", `Bearer ${init.sessionToken}`);
   }
   if (!headers.has("X-Request-ID")) {
-    headers.set("X-Request-ID", crypto.randomUUID());
+    headers.set("X-Request-ID", (await renderRequestId()) ?? crypto.randomUUID());
   }
+  applyTraceHeaders(headers);
   const serviceHeaders = new Headers(await serviceAuthHeaders());
   serviceHeaders.forEach((value, key) => headers.set(key, value));
   return fetch(`${apiBaseUrl()}${path}`, { ...init, cache: "no-store", headers });
@@ -530,10 +590,6 @@ export type PublicOrganizationEvents = {
   upcoming: PublicEventCard[];
   past: PublicEventCard[];
 };
-
-// Shared page size for the global explorer so the initial SSR page and each
-// client "Load more" fetch request the same number of cards.
-export const EXPLORER_PAGE_SIZE = 12;
 
 export type PublicTag = {
   // The Tag's stable machine identity, and what a Preset Tag's Locale copy is

@@ -167,7 +167,7 @@ func (s *Service) Issue(ctx context.Context, purpose Purpose, email, clientIP st
 		// Loud on purpose: this is the alerting signal. Reaching it means the
 		// platform stopped sending passcodes to everyone, so we want to hear it
 		// from our own monitoring rather than from a suspended email provider.
-		s.logger.Error("otp global ceiling reached: passcode sending halted platform-wide",
+		s.logger.Error(ctx, "otp global ceiling reached: passcode sending halted platform-wide",
 			"alert", "otp_global_ceiling",
 			"purpose", string(purpose),
 			"sent_in_window", globalCount,
@@ -210,7 +210,7 @@ func (s *Service) Issue(ctx context.Context, purpose Purpose, email, clientIP st
 		// The address stays out of the log for the sender's reason (#377): the
 		// challenge row already records who asked, and the sign-in fails loudly
 		// on its own.
-		s.logger.Error("send otp failed", "purpose", string(purpose), "error", err)
+		s.logger.Error(ctx, "send otp failed", "purpose", string(purpose), "error", err)
 		return fmt.Errorf("send otp: %w", err)
 	}
 

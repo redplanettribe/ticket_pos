@@ -122,7 +122,7 @@ func New(repo *repository.Repository, otpService *otp.Service, logger platform.L
 		links:      links,
 		google:     google,
 		consent:    consentGate,
-		avatarHTTP: &http.Client{Timeout: avatarFetchTimeout},
+		avatarHTTP: platform.NewOutboundClient(avatarFetchTimeout),
 	}
 }
 

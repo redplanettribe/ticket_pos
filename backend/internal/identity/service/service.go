@@ -201,7 +201,7 @@ func (s *Service) RequestOTP(ctx context.Context, email, clientIP string) (*OTPR
 func (s *Service) staffMailLocale(ctx context.Context, email string) platform.Locale {
 	stored, err := s.StaffLocale(ctx, email)
 	if err != nil {
-		s.logger.Error("read staff locale for mail", "error", err)
+		s.logger.Error(ctx, "read staff locale for mail", "error", err)
 		return platform.DefaultLocale
 	}
 	return platform.ResolveStaffLocale(stored)
@@ -279,7 +279,7 @@ func (s *Service) signInProvenEmail(ctx context.Context, email, detectedLocale s
 	if parsed, ok := platform.ParseLocale(detectedLocale); ok {
 		pageLocale = parsed
 		if err := s.repo.RememberStaffLocale(ctx, email, string(parsed), now); err != nil {
-			s.logger.Error("remember staff locale", "error", err)
+			s.logger.Error(ctx, "remember staff locale", "error", err)
 		}
 	}
 
