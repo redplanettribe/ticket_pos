@@ -65,10 +65,10 @@ const serverAction = asMiddlewareSeesIt({
   cookie: pageCookie,
 });
 
-/** The browser's own prefetch or prerender (speculation rules, link rel=prefetch): a document fetch marked as one. */
+/** The browser's own prefetch (speculation rules, link rel=prefetch): a document fetch marked as one. */
 const browserPrefetch = asMiddlewareSeesIt({
   accept: HTML_ACCEPT,
-  "sec-purpose": "prefetch;prerender",
+  "sec-purpose": "prefetch",
   "sec-fetch-dest": "document",
   "sec-fetch-mode": "navigate",
   "sec-fetch-site": "same-origin",
@@ -150,9 +150,21 @@ test("a server action hands its request id to the browser", () => {
 });
 
 test("a browser prefetch does not overwrite the page's reference code", () => {
-  for (const headers of [browserPrefetch, legacyBrowserPrefetch]) {
+  const privatePrefetch = new Headers(browserPrefetch);
+  privatePrefetch.set("sec-purpose", "prefetch;anonymous-client-ip");
+  for (const headers of [browserPrefetch, privatePrefetch, legacyBrowserPrefetch]) {
     assert.equal(referenceCodeCookie({ pathname: "/events/abc", headers }, ID), null);
+    // Its render, if it fails, is logged under the page's code.
+    assert.equal(forwardedRequestHeaders({ pathname: "/events/abc", headers }, ID).get(REFERENCE_CODE_HEADER), PAGE_ID);
   }
+});
+
+test("a browser prerender is a page load: it renders the page the person is about to see", () => {
+  const prerender = new Headers(browserPrefetch);
+  prerender.set("sec-purpose", "prefetch;prerender");
+  const request = { pathname: "/events/abc", headers: prerender };
+  assert.equal(referenceCodeCookie(request, ID)?.value, ID);
+  assert.equal(forwardedRequestHeaders(request, ID).get(REFERENCE_CODE_HEADER), ID);
 });
 
 test("a BFF call does not overwrite the page's reference code", () => {

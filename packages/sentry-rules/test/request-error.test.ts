@@ -119,8 +119,9 @@ test("a failed client navigation is logged and tagged with the code its error sc
 });
 
 test("a reference code not of our shape is neither logged nor tagged", async () => {
+  // Where the middleware does not run (the Storefront's route handlers), the header is the browser's own.
   const { lines, onRequestError } = harness();
-  const headers = { [REQUEST_ID_HEADER]: ID, [REFERENCE_CODE_HEADER]: "[Filtered]" };
+  const headers = { [REQUEST_ID_HEADER]: ID, [REFERENCE_CODE_HEADER]: `${ID}\nseverity=ERROR` };
   await onRequestError(new Error("x"), { path: "/", method: "GET", headers }, context);
   assert.equal(JSON.parse(lines[0]).reference_code, null);
   const event: Parameters<typeof tagRequestId>[0] = { sdkProcessingMetadata: { normalizedRequest: { headers } } };

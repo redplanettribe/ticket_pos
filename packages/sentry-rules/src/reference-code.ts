@@ -57,15 +57,17 @@ const DOCUMENT_DESTINATIONS = new Set(["document", "iframe", "frame"]);
  * Decided only from headers Next leaves for the middleware. A page load is a
  * document fetch (Sec-Fetch-Dest), or, from a browser that sends no fetch
  * metadata, a request that accepts HTML; a router fetch is neither. A server
- * action carries Next-Action. A browser prefetch or prerender says so in
- * Sec-Purpose, or Purpose in older browsers, on what is otherwise a document
- * fetch.
+ * action carries Next-Action. A browser prefetch says so in Sec-Purpose, or
+ * Purpose in older browsers, on what is otherwise a document fetch. A browser
+ * prerender (Sec-Purpose "prefetch;prerender", from Chrome's address bar or
+ * speculation rules) is a page load: it renders the page the person is most
+ * likely about to see, and is shown without being fetched again.
  */
 function rendersWhatIsShown(request: MiddlewareRequest): boolean {
   const { pathname, headers } = request;
   if (pathname === "/api" || pathname.startsWith("/api/")) return false;
   const purpose = headers.get("sec-purpose") ?? headers.get("purpose") ?? "";
-  if (purpose.includes("prefetch")) return false;
+  if (purpose.includes("prefetch") && !purpose.includes("prerender")) return false;
   if (headers.has("next-action")) return true;
   const destination = headers.get("sec-fetch-dest");
   if (destination !== null) return DOCUMENT_DESTINATIONS.has(destination);
@@ -76,8 +78,8 @@ function rendersWhatIsShown(request: MiddlewareRequest): boolean {
  * The cookie handing a request's id to the browser, or null for a request that
  * must not overwrite it.
  *
- * Only a page load or a server action writes it: a BFF call under /api/, a
- * browser prefetch and a router fetch (a link prefetch, or a client navigation,
+ * Only a page load (a browser prerender included) or a server action writes it:
+ * a BFF call under /api/, a browser prefetch and a router fetch (a link prefetch, or a client navigation,
  * which the middleware cannot tell apart) are not, and any of them can land
  * after the page the person is looking at.
  *
@@ -112,7 +114,7 @@ export function referenceCodeCookie(request: MiddlewareRequest, requestId: strin
 export function forwardedRequestHeaders(request: MiddlewareRequest, requestId: string): Headers {
   const headers = new Headers(request.headers);
   headers.set(REQUEST_ID_HEADER, requestId);
-  const code = referenceCodeCookie(request, requestId)
+  const code = rendersWhatIsShown(request)
     ? requestId
     : mintedRequestId(cookieValue(request.headers.get("cookie") ?? "", REQUEST_ID_COOKIE));
   if (code) {
