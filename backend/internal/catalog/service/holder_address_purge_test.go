@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -38,6 +39,22 @@ func readTerraform(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(source)
+}
+
+// googleResources returns every `resource "google_..." { ... }` block in a
+// Terraform source, joined. The job, its service account and its grant are
+// Google resources and must exist whether or not the job is paused; the
+// Sentry cron monitor beside them is the one resource that is meant to exist
+// only while the job runs (ADR 0079), so a `count` is looked for here and not
+// in the whole file. It fails the test if there is no Google resource at all,
+// so a moved job cannot pass by finding nothing.
+func googleResources(t *testing.T, source string) string {
+	t.Helper()
+	blocks := regexp.MustCompile(`(?s)resource "google_[^"]*" "[^"]*" \{.*?\n\}`).FindAllString(source, -1)
+	if len(blocks) == 0 {
+		t.Fatal("no google_* resource in the job's Terraform file")
+	}
+	return strings.Join(blocks, "\n")
 }
 
 // terraformVariableBody pulls one `variable "name" { ... }` block out of a
@@ -114,7 +131,7 @@ func TestTheHolderAddressPurgeIsPausableWithoutADeploy(t *testing.T) {
 	// The job, its identity and its grant must all EXIST while paused, so that
 	// "turn it back on" is one variable rather than an apply that recreates three
 	// resources under pressure. A `count` on any of them would undo that.
-	if regexp.MustCompile(`(?m)^\s*count\s*=`).MatchString(source) {
+	if regexp.MustCompile(`(?m)^\s*count\s*=`).MatchString(googleResources(t, source)) {
 		t.Fatal("the holder address purge job's resources are conditional on `count`: disabling must PAUSE the job, never delete it and its service account, or re-enabling is a three-resource apply during an incident")
 	}
 }

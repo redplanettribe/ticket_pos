@@ -75,7 +75,7 @@ func TestTheAnswerReminderIsPausableWithoutADeploy(t *testing.T) {
 	// The job, its identity and its grant must all EXIST while paused, so that
 	// "turn it back on" is one variable rather than an apply that recreates three
 	// resources under pressure. A `count` on any of them would undo that.
-	if regexp.MustCompile(`(?m)^\s*count\s*=`).MatchString(source) {
+	if regexp.MustCompile(`(?m)^\s*count\s*=`).MatchString(googleResources(t, source)) {
 		t.Fatal("the sweep's resources are conditional on `count`: disabling must PAUSE the job, never delete it and its service account, or re-enabling is a three-resource apply during an incident")
 	}
 }
