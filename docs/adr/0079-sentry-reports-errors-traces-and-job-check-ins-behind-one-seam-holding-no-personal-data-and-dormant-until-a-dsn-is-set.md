@@ -114,3 +114,9 @@ The CLI is used only for what happens per build.
   The SDK's tracing also listened to popstate, so each back or forward started two navigations, and the next navigation Next reported only renamed the second of them: it started no trace, and its requests carried the trace and the sampling decision of the navigation before it.
   Each navigation now starts a trace of its own with its own one in ten decision.
   Requests a page makes after its navigation has ended and before the next one (prefetches, API calls) still join the trace of the navigation that brought it, as the SDK does: they are that page's work, and the trace ends at the next navigation, so it never spans a session.
+- **2026-11-17: the Storefront has five inbound data filters, not three (#798, #805).**
+  The note of 2026-11-16 counts three, the ones the module declares: browser extensions, web crawlers and legacy browsers.
+  Sentry also turns on `react-hydration-errors` and `chunk-load-error` by default for a `javascript-nextjs` project, and both are on for `ticket-pos-storefront`; a React hydration error was found dropped at intake by the first.
+  Both stay on.
+  The browser SDK loads after hydration, so a real first-load hydration error mostly never reaches Sentry anyway and what does arrive is mostly extension noise, and a chunk load error after a deploy is expected noise.
+  The Terraform provider cannot declare either, so they are left at Sentry's defaults, written down in `sentry.tf` and on the operator's checklist in `terraform/README.md`.
