@@ -120,3 +120,4 @@ With no DSN the screens render the same and nothing is sent.
 
 To walk the screens, add temporary throwing pages (not committed) for a page body, a server component inside `StaffPageShell`, a client component inside it, and the root layout, then run the build against the fake API and fake endpoint above.
 Each crash on a page load shows its screen with a code equal to the document's `X-Request-ID`, the stand-in receives one event tagged with that `request_id`, the API stand-in saw that id, and the server log has the `request failed` line with it.
+Then let the page's links prefetch and crash it again: the code is still the document's.

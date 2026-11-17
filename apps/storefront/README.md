@@ -100,4 +100,5 @@ SENTRY_DSN=http://publickey@localhost:9999/1 API_URL=http://localhost:<api stand
 - Use an ordinary browser user agent: a headless one is a bot, and its events are dropped.
 - Without `SENTRY_DSN` the page has no meta, no inline handler and no loader, and nothing is sent.
 - For the error screens, temporary pages that throw on the server, in the browser while hydrating and after, in the root layout on either side, and a client navigation into a crash: each shows its screen in the address's language, the code equals the document's `X-Request-ID`, the cookie, the `request failed` line's `reference_code` and the event's `reference_code` tag, a page load's `request_id` is that same id and the id the API stand-in saw, and each is one event.
+  Let the page's links prefetch before crashing it: the code is still the document's.
   Without `SENTRY_DSN`, the same screens and codes, and nothing sent.
