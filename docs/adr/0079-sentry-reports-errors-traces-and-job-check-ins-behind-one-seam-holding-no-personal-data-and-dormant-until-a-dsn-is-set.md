@@ -101,3 +101,11 @@ The CLI is used only for what happens per build.
   On the free plan one monitor exists and the other jobs are covered only when they fail, not when they never run.
 - The image build now talks to Sentry, and a Sentry token lives in GitHub Actions and in Terraform's inputs.
 - Each Next app gains error screens it did not have, showing the request id as a reference a person can quote.
+
+## Notes
+
+- **2026-11-16: the Storefront has no per-key rate limit (#783).**
+  The organization is on Sentry's Team plan, which lacks per-key rate limits, and Sentry refused to create a Storefront key that set one.
+  The limit is dropped rather than the plan raised, so the Decision's "must not share an inbox or a rate limit with the API" now holds for the inbox only: every project draws on the one organization quota.
+  The Storefront's noise is bounded only by its own before-send filtering, its three inbound data filters, the organization's error quota and Sentry's spike protection.
+  The separate project still gives the Storefront its own inbox and its own alert rules.

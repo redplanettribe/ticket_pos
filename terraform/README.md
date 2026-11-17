@@ -606,7 +606,7 @@ Turn any of them on only after the policy edition that names Sentry is published
 | `module.ticket_pos.sentry_project.deployable["storefront"]` | `ticket-pos-storefront`, platform `javascript-nextjs` |
 | `module.ticket_pos.sentry_key.deployable["api"]` | the API's key, `prod-ticket-pos-api` |
 | `module.ticket_pos.sentry_key.deployable["staff"]` | the Staff app's key, `prod-ticket-pos-staff` |
-| `module.ticket_pos.sentry_key.deployable["storefront"]` | the Storefront's key, `prod-ticket-pos-storefront`, rate limited |
+| `module.ticket_pos.sentry_key.deployable["storefront"]` | the Storefront's key, `prod-ticket-pos-storefront` |
 | `module.ticket_pos.sentry_project_inbound_data_filter.storefront_browser_extensions` | Storefront: browser extensions filtered |
 | `module.ticket_pos.sentry_project_inbound_data_filter.storefront_web_crawlers` | Storefront: web crawlers filtered |
 | `module.ticket_pos.sentry_project_inbound_data_filter.storefront_legacy_browsers` | Storefront: legacy browsers filtered |
@@ -620,7 +620,8 @@ If the plan shows any change to a Cloud Run service while every switch is off, s
 
 The projects are created without Sentry's default key and default alert rule, so the only key and rules are the ones above.
 The three alert rules on each project email the `ticket-pos` team, at most every 30 minutes per issue for a new issue or a regression and every 60 for a spike.
-The Storefront key accepts 500 events an hour (`sentry_storefront_rate_limit_count`, `sentry_storefront_rate_limit_window_seconds` in the module); Sentry enforces per-key rate limits only on a plan that has them, so apply after the plan upgrade.
+No key is rate limited: per-key rate limits need a higher Sentry plan than Team, and the module does not use them (#783).
+What bounds the Storefront's noise is its own before-send filtering, the three inbound filters above, the organization's error quota and Sentry's spike protection.
 The legacy browser filter takes every current subfilter (Internet Explorer, and Edge, Chrome and Firefox up to 110, Safari up to 15, Opera up to 99, Opera Mini up to 34, Android up to 3).
 
 **What the provider cannot declare**, for the operator's checklist:
@@ -725,10 +726,9 @@ The deployables are independent, and the API may be switched on alone first.
 
 - **Do:** in Sentry, Settings, Subscription, move `redplanettribe` from the free Developer plan to a paid plan with pay-as-you-go for monitors.
   Check the monitor prices first (spec #761 noted $0.78 per extra cron monitor and $1.00 per extra uptime monitor a month).
-- **Makes true:** room for the nine cron monitors and two uptime monitors of a full apply (the Developer plan has one of each), and the Storefront key's rate limit is enforced, which Sentry does only on a plan that has per-key rate limits.
+- **Makes true:** room for the nine cron monitors and two uptime monitors of a full apply (the Developer plan has one of each).
   The organization's 5,000 errors a month are shared with the other product either way.
 - **Check:** Settings, Subscription names the paid plan.
-  After step 3, the Storefront's key (Project Settings, Client Keys) shows its rate limit of 500 events an hour.
 - **Undo:** downgrade the plan after switching the API and both Next apps off (step 5's undo), so no monitor is left over the free plan's one of each.
 
 ### 2. Create the two tokens
@@ -762,7 +762,7 @@ Two tokens, never the same one: one acts for Terraform and can create things, th
 
 - **Do:** with `.env` sourced and every `sentry_*_enabled` still absent from `terraform.tfvars`, `terraform plan` then `terraform apply` in `envs/prod` ([Running it](#running-it)).
   Then the steps Terraform could not declare, below.
-- **Makes true:** the `ticket-pos` team, the three projects and their keys, the Storefront's rate limit and inbound filters, nine alert rules and the three error spike metric monitors, 22 resources in all (the [Sentry](#sentry) section's table, "What a first apply creates").
+- **Makes true:** the `ticket-pos` team, the three projects and their keys, the Storefront's inbound filters, nine alert rules and the three error spike metric monitors, 22 resources in all (the [Sentry](#sentry) section's table, "What a first apply creates").
   No Cloud Run service changes and no DSN is set anywhere, so nothing reports yet.
 - **Check:** the plan adds 22 and changes or destroys nothing; stop if it touches a Cloud Run service.
   A second plan reports no changes.

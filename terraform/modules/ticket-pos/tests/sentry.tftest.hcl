@@ -168,7 +168,7 @@ run "storefront_switch_sets_the_dsn_on_the_storefront_only" {
 }
 
 # The rest of what the ticket declares, read from the plan.
-run "alerts_filters_and_rate_limit" {
+run "alerts_filters_and_no_rate_limit" {
   command = plan
 
   assert {
@@ -209,9 +209,13 @@ run "alerts_filters_and_rate_limit" {
     error_message = "The error spike rule must not use the per-issue event_frequency_count."
   }
 
+  # The Team plan has no per-key rate limits, and Sentry refuses a key that
+  # sets one there (#783). Nobody adds one back while the plan lacks them.
+  # The attributes are computed, so the mock provider fills an unset one with
+  # 0, which is also what Sentry reports for a key with no limit.
   assert {
-    condition     = sentry_key.deployable["storefront"].rate_limit_count == 500 && sentry_key.deployable["storefront"].rate_limit_window == 3600
-    error_message = "The Storefront key must carry the rate limit."
+    condition     = alltrue([for k in values(sentry_key.deployable) : k.rate_limit_count == 0 && k.rate_limit_window == 0])
+    error_message = "No Sentry key may set a rate limit: the organization's plan has no per-key rate limits (#783)."
   }
 
   assert {

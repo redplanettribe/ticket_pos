@@ -798,25 +798,3 @@ variable "sentry_storefront_enabled" {
   type        = bool
   default     = false
 }
-
-variable "sentry_storefront_rate_limit_count" {
-  description = "Events the Storefront's Sentry key accepts per sentry_storefront_rate_limit_window_seconds; Sentry drops the rest before they count against the quota. It bounds what a crawler, a bot or a release that throws in every browser can spend: 500 an hour is at most 12,000 a day. Raise it if the project's stats show ordinary traffic being dropped. Sentry enforces per-key rate limits only on a plan that has them."
-  type        = number
-  default     = 500
-
-  validation {
-    condition     = var.sentry_storefront_rate_limit_count >= 1 && floor(var.sentry_storefront_rate_limit_count) == var.sentry_storefront_rate_limit_count
-    error_message = "sentry_storefront_rate_limit_count must be a whole number of events, at least 1."
-  }
-}
-
-variable "sentry_storefront_rate_limit_window_seconds" {
-  description = "The window of the Storefront key's rate limit, in seconds. An hour by default."
-  type        = number
-  default     = 3600
-
-  validation {
-    condition     = var.sentry_storefront_rate_limit_window_seconds >= 60 && var.sentry_storefront_rate_limit_window_seconds <= 86400 && floor(var.sentry_storefront_rate_limit_window_seconds) == var.sentry_storefront_rate_limit_window_seconds
-    error_message = "sentry_storefront_rate_limit_window_seconds must be a whole number of seconds between 60 and 86400 (a day)."
-  }
-}
