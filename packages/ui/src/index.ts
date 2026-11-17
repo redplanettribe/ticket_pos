@@ -40,6 +40,7 @@ export {
   type MultiSeriesLineDatum,
 } from "./components/charts/multi-series-line-chart";
 export { ErrorScreen, type ErrorScreenLabels, type ErrorScreenLayout } from "./components/error-screen";
+export { NotFoundScreen, type NotFoundScreenLabels } from "./components/not-found-screen";
 export { EventShell, type EventShellLabels } from "./components/event-shell";
 export { InProgressPanel } from "./components/in-progress-panel";
 export { FormField } from "./components/form-field";
