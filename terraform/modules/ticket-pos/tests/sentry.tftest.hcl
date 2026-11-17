@@ -26,6 +26,13 @@ mock_provider "aws" {
 }
 
 mock_provider "sentry" {
+  mock_resource "sentry_team" {
+    override_during = plan
+    defaults = {
+      internal_id = "1001"
+    }
+  }
+
   # A known DSN at plan time, so the value reaching a service can be compared.
   mock_resource "sentry_key" {
     override_during = plan
@@ -36,6 +43,26 @@ mock_provider "sentry" {
       }
     }
   }
+}
+
+# Distinct, known metric monitor ids at plan time, so each spike rule can be
+# matched to its own project's monitor.
+override_resource {
+  target          = sentry_metric_monitor.error_spike["api"]
+  override_during = plan
+  values          = { id = "metric-api" }
+}
+
+override_resource {
+  target          = sentry_metric_monitor.error_spike["staff"]
+  override_during = plan
+  values          = { id = "metric-staff" }
+}
+
+override_resource {
+  target          = sentry_metric_monitor.error_spike["storefront"]
+  override_during = plan
+  values          = { id = "metric-storefront" }
 }
 
 variables {
@@ -154,11 +181,32 @@ run "alerts_filters_and_rate_limit" {
     error_message = "Every rule must be scoped to production and email the team."
   }
 
-  # A spike counts every error the rule sees, not one issue's: a trigger,
-  # never a per-issue action filter.
+  # A spike counts every error in the project, whichever issue it belongs to:
+  # a metric monitor's count over an hour, never Sentry's per-issue
+  # event_frequency_count.
   assert {
-    condition     = alltrue([for a in values(sentry_alert.error_spike) : a.trigger_conditions[0].event_frequency_count.value == 50 && a.trigger_conditions[0].event_frequency_count.interval == "1h"])
-    error_message = "The error spike rule must trigger on more than 50 events in an hour across the project."
+    condition = alltrue([for k, m in sentry_metric_monitor.error_spike :
+      m.project == sentry_project.deployable[k].slug
+      && m.environment == "production"
+      && m.dataset == "events"
+      && m.event_types == toset(["error"])
+      && m.aggregate == "count()"
+      && m.time_window_seconds == 3600
+      && m.issue_detection.type == "static"
+      && length([for c in m.condition_group.conditions : c if c.type == "gt" && c.comparison == 50 && c.condition_result > 0]) == 1
+      && m.owner.team_id == "1001"
+    ]) && length(sentry_metric_monitor.error_spike) == 3
+    error_message = "Each project must have a static metric monitor counting its production errors over 3600 seconds, above 50, owned by the team."
+  }
+
+  assert {
+    condition     = alltrue([for k, a in sentry_alert.error_spike : a.monitor_ids == toset(["metric-${k}"]) && a.frequency_minutes == 60])
+    error_message = "Each error spike rule must watch its own project's metric monitor only, at most once an hour."
+  }
+
+  assert {
+    condition     = alltrue([for a in values(sentry_alert.error_spike) : alltrue([for c in a.trigger_conditions : c.event_frequency_count == null])])
+    error_message = "The error spike rule must not use the per-issue event_frequency_count."
   }
 
   assert {
