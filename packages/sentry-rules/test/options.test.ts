@@ -23,6 +23,11 @@ test("both apps' runtimes send whole traces through the scrubber and collect not
       httpBodies: [],
       urlQueryParams: false,
       stackFrameVariables: false,
+      graphQL: { document: false, variables: false },
+      genAI: { inputs: false, outputs: false },
+      mcp: { inputs: false, outputs: false },
+      databaseQueryData: false,
+      queues: false,
     },
   });
 });

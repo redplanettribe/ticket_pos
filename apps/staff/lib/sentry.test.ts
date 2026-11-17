@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createBeforeSend, sentryOptions as sharedSentryOptions } from "@ticket-pos/sentry-rules";
+import { createBeforeSend, scrubEvent, sentryOptions as sharedSentryOptions } from "@ticket-pos/sentry-rules";
 
 import {
   SENTRY_TRACES_SAMPLE_RATE,
   SENTRY_TUNNEL_PATH,
   beforeSend,
-  beforeSendTransaction,
   sentryOptions,
   serverTracesSampler,
 } from "./sentry.ts";
@@ -20,11 +19,13 @@ test("every runtime collects no personal data by default and uses the shared bef
   assert.equal(options.beforeSend, beforeSend);
   assert.equal(options.dsn, DSN);
   assert.equal(options.environment, "production");
-  assert.equal(options.beforeSendTransaction, beforeSendTransaction);
+  // Transactions are scrubbed, never filtered.
+  assert.equal(options.beforeSendTransaction, scrubEvent);
   // Streamed spans would skip beforeSendTransaction, and with it the scrubber.
   assert.equal(options.traceLifecycle, "static");
   // No cookies, bodies, query strings, user or frame variables; of the request
-  // headers only the User-Agent, so no X-Forwarded-For, Referer or Cookie.
+  // headers only the User-Agent's value, so no X-Forwarded-For, Referer or
+  // Cookie; nor anything an integration added later would collect.
   assert.deepEqual(options.dataCollection, {
     userInfo: false,
     cookies: false,
@@ -32,6 +33,11 @@ test("every runtime collects no personal data by default and uses the shared bef
     httpBodies: [],
     urlQueryParams: false,
     stackFrameVariables: false,
+    graphQL: { document: false, variables: false },
+    genAI: { inputs: false, outputs: false },
+    mcp: { inputs: false, outputs: false },
+    databaseQueryData: false,
+    queues: false,
   });
   for (const key of ["replaysSessionSampleRate", "replaysOnErrorSampleRate", "profilesSampleRate", "profileSessionSampleRate", "integrations"]) {
     assert.equal(key in options, false, key);

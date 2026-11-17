@@ -8,7 +8,7 @@
  * runtime. The root layout writes the configuration into the page
  * (SENTRY_CONFIG_META) and the browser reads it back from there.
  */
-import { createBeforeSend, scrubEvent, sentryOptions as sharedSentryOptions, type SentryConfig } from "@ticket-pos/sentry-rules";
+import { createBeforeSend, sentryOptions as sharedSentryOptions, type SentryConfig } from "@ticket-pos/sentry-rules";
 
 // Reading the configuration is the same rule in both apps, in the shared package.
 export { parseSentryConfig, readSentryConfig, serializeSentryConfig, type SentryConfig } from "@ticket-pos/sentry-rules";
@@ -34,9 +34,6 @@ export const SENTRY_TRACES_SAMPLE_RATE = 0.1;
  * Storefront's crawlers.
  */
 export const beforeSend = createBeforeSend({ dropWithoutOwnFrame: false, dropBots: false });
-
-/** Transactions are scrubbed, never filtered (see createBeforeSend). */
-export const beforeSendTransaction = scrubEvent;
 
 /**
  * The options every runtime initialises with: the privacy options both apps

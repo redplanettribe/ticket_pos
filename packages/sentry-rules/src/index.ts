@@ -8,4 +8,4 @@ export { REQUEST_ID_COOKIE, REQUEST_ID_HEADER, cookieValue, mintedRequestId, rea
 export { digestOf, isNavigationSignal, reportCaughtError, type CaptureCaughtError, type CaughtError } from "./caught-error.ts";
 export { createOnRequestError, tagRequestId } from "./request-error.ts";
 export { SENTRY_ORG, sentryBuildOptions, type SentryBuildOptions } from "./build.ts";
-export { SENTRY_ALLOWED_REQUEST_HEADERS, sentryOptions } from "./options.ts";
+export { sentryOptions } from "./options.ts";

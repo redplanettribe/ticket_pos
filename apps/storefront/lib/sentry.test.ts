@@ -42,6 +42,11 @@ test("every runtime collects no personal data by default, and enables neither re
     httpBodies: [],
     urlQueryParams: false,
     stackFrameVariables: false,
+    graphQL: { document: false, variables: false },
+    genAI: { inputs: false, outputs: false },
+    mcp: { inputs: false, outputs: false },
+    databaseQueryData: false,
+    queues: false,
   });
   for (const key of ["replaysSessionSampleRate", "replaysOnErrorSampleRate", "profilesSampleRate", "profileSessionSampleRate", "integrations"]) {
     assert.equal(key in options, false, key);
