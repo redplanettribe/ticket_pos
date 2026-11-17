@@ -86,6 +86,7 @@ locals {
   # hour, whichever issues they belong to, so a bad release that throws many
   # different errors is caught as surely as one that throws one error often.
   sentry_spike_events_per_hour = 50
+  sentry_spike_window_seconds  = 3600
 
   # Every rule's one action: an email to every member of the ticket-pos team
   # (each member's own notification settings still apply).
@@ -251,7 +252,7 @@ resource "sentry_metric_monitor" "error_spike" {
   event_types         = ["error"]
   query_type          = "error"
   environment         = local.sentry_environment
-  time_window_seconds = 3600
+  time_window_seconds = local.sentry_spike_window_seconds
 
   issue_detection = {
     type = "static"
@@ -317,7 +318,8 @@ resource "sentry_alert" "error_spike" {
 # dropped by Sentry, and the monitor then reports a missed run.
 #
 # Every monitor is in a deployable's own project and environment production,
-# owned by the ticket-pos team, so its issues are assigned to the team.
+# owned by the ticket-pos team, so its issues are assigned to the team. The
+# error spike metric monitors above share the same owner.
 
 locals {
   sentry_monitor_owner = {

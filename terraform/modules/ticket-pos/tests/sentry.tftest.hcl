@@ -26,6 +26,7 @@ mock_provider "aws" {
 }
 
 mock_provider "sentry" {
+  # A known team id at plan time, so a monitor's owner can be compared.
   mock_resource "sentry_team" {
     override_during = plan
     defaults = {
