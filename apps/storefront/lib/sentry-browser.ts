@@ -9,7 +9,7 @@
  * - errors, through the shared before-send with both filters on;
  * - navigations after the first, traced one in ten, through Next's
  *   onRouterTransitionStart (lib/sentry-navigation.ts) and named by page
- *   (lib/navigation-route.ts).
+ *   (lib/navigation-route.ts), each a trace of its own (startNavigation).
  * What it gives up, by loading late: the page-load trace and the Web Vitals,
  * both measured from the first paint the SDK was not there for. Neither is
  * started, and nothing measures them later. No session replay, no profiling.
@@ -34,7 +34,7 @@ import {
   sentryOptions,
 } from "./sentry.ts";
 import { readPageSentryConfig } from "./sentry-lazy.ts";
-import { forwardRouterTransitionsTo } from "./sentry-navigation.ts";
+import { forwardRouterTransitionsTo, type NavigationType } from "./sentry-navigation.ts";
 
 /**
  * Starts the SDK from the configuration the root layout wrote into the page
@@ -57,6 +57,9 @@ export function startBrowserSentry(writtenConfig: string | null = readPageSentry
     integrations: [
       Sentry.browserTracingIntegration({
         instrumentPageLoad: false,
+        // The SDK's own Next navigation tracing is off: startNavigation, below,
+        // starts every navigation instead (#792).
+        instrumentNavigation: false,
         enableInp: false,
         enableLongTask: false,
         enableLongAnimationFrame: false,
@@ -64,9 +67,48 @@ export function startBrowserSentry(writtenConfig: string | null = readPageSentry
       }),
     ],
   });
-  forwardRouterTransitionsTo(Sentry.captureRouterTransitionStart);
+  forwardRouterTransitionsTo(startNavigation);
   reportEarlyErrors(window, Sentry.captureException);
   return true;
+}
+
+/**
+ * Starts the trace of one client navigation, from Next's
+ * onRouterTransitionStart: a new trace with its own one in ten decision, which
+ * the requests the navigation makes carry to the server, for every navigation
+ * Next makes, a <Link> click and router.push ("push"), router.replace
+ * ("replace") and back or forward ("traverse", from Next's own popstate
+ * listener). The SDK ends the navigation before this one, if still running.
+ *
+ * Not the SDK's captureRouterTransitionStart (#792): its Next navigation
+ * tracing also listens to popstate itself, so that back and forward each
+ * started two navigations, and remembered the second as one its router patch
+ * started. The next navigation Next reported was taken for that one's own
+ * report and only renamed it, ended or not: it started no trace of its own,
+ * and its requests carried the trace and the sampling decision of the
+ * navigation back. lib/navigation-tracing.test.ts drives the real SDK through
+ * both ways.
+ *
+ * Named by its path, as the SDK named it; beforeSendTransaction names it by
+ * page (lib/navigation-route.ts).
+ */
+function startNavigation(href: string, navigationType: NavigationType): void {
+  const client = Sentry.getClient();
+  if (!client) return;
+  const url = new URL(href, window.location.href);
+  Sentry.startBrowserTracingNavigationSpan(
+    client,
+    {
+      name: url.pathname,
+      attributes: {
+        [Sentry.SEMANTIC_ATTRIBUTE_SENTRY_OP]: "navigation",
+        [Sentry.SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN]: "auto.navigation.storefront.router_transition",
+        "sentry.segment.name.source": "url",
+        "navigation.type": `router.${navigationType}`,
+      },
+    },
+    { url: url.href },
+  );
 }
 
 /**
