@@ -476,13 +476,55 @@ func (s *Service) applyOutcome(ctx context.Context, row *repository.InvoiceRow, 
 	// The row as it now stands, so a later answer in the same round is
 	// guarded on what this one wrote.
 	inv.Status = u.Status
-	// A definite refusal ends the ladder: nothing asks the authority about
-	// this document again until an operator acts. That is the drain giving up
-	// on it, so Error, and reported (ADR 0079).
-	if u.Status == invoicing.InvoiceStatusNeedsAttention {
+	s.reportPark(ctx, inv, u, o)
+}
+
+// reportPark reports, once, the moment the Sale Invoice drain parks a
+// document needs_attention (#804, ADR 0079: a sweep which gives up on
+// something logs it at Error). The two parks are worded apart, so they group
+// apart in Sentry.
+//
+// A definite refusal ends the ladder: nothing asks the authority about this
+// document again until an operator acts. It is reported when the status
+// changed, or when the document was parked but still polled (it crossed 24 h
+// undecided) and the refusal now takes it off the ladder. An operator's Check
+// status hearing the same refusal again gives up nothing new. The SRI's
+// message identifiers say why; their free text stays out of the event
+// (#766).
+//
+// An undecided answer parks a document 24 h after signing, and the polling
+// goes on. That is reported on the pending -> needs_attention change only:
+// every hourly poll after it hears the same non-verdict, and says nothing.
+//
+// inv is the row before the write; u is what was written.
+func (s *Service) reportPark(ctx context.Context, inv *invoicing.Invoice, u repository.OutcomeUpdate, o invoicing.Outcome) {
+	if u.Status != invoicing.InvoiceStatusNeedsAttention {
+		return
+	}
+	switch o.State {
+	case invoicing.OutcomeNotAuthorized, invoicing.OutcomeRejected:
+		if u.From == invoicing.InvoiceStatusNeedsAttention && inv.NextAttemptAt == nil {
+			return
+		}
 		s.logger.Error(ctx, "invoicing: the tax authority refused a document; it is parked needs_attention and only an operator moves it on",
+			"invoice_id", inv.ID, "kind", inv.Kind, "answer", o.State, "codes", authorityCodes(o.Messages))
+	default:
+		if u.From == invoicing.InvoiceStatusNeedsAttention {
+			return
+		}
+		s.logger.Error(ctx, "invoicing: no definite answer from the tax authority in 24 h; parked needs_attention, still polling",
 			"invoice_id", inv.ID, "kind", inv.Kind, "answer", o.State)
 	}
+}
+
+// authorityCodes is the identifiers of the authority's messages, in order:
+// the codes only, never the free text beside them.
+func authorityCodes(msgs []invoicing.AuthorityMessage) []string {
+	codes := make([]string, 0, len(msgs))
+	for _, m := range msgs {
+		codes = append(codes, m.Identifier)
+	}
+	return codes
 }
 
 // dryRun builds — never signs, never stores — a factura from the pieces with
