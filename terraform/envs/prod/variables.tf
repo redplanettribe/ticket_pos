@@ -242,7 +242,7 @@ variable "sale_invoice_drainer_attempt_deadline_seconds" {
 # apply silently undoes.
 
 variable "follow_digest_enqueue_enabled" {
-  description = "Whether the weekly Follow Digest enqueue fires in production. STARTS FALSE, and there is a prerequisite beyond confidence in the code: the Digest sends from its own domain (ADR 0030) which must exist at the mail provider with its DNS records published before this is turned on. A deployment without it composes every Digest, refuses every send, and retries until each one is abandoned."
+  description = "Whether the weekly Follow Digest enqueue fires in production. On by default here (the module's default is false), and there is a prerequisite beyond confidence in the code: the Digest sends from its own domain (ADR 0030) which must exist at the mail provider with its DNS records published before this is turned on. A deployment without it composes every Digest, refuses every send, and retries until each one is abandoned."
   type        = bool
   default     = true
 }
@@ -260,7 +260,7 @@ variable "follow_digest_enqueue_attempt_deadline_seconds" {
 }
 
 variable "follow_digest_drain_enabled" {
-  description = "Whether the per-minute Follow Digest drain fires in production. Starts false, and is the switch to reach for during a mail-provider incident: paused, the week's Digests wait in the queue instead of spending their attempts against a provider that is refusing them."
+  description = "Whether the per-minute Follow Digest drain fires in production. On by default here (the module's default is false), and is the switch to reach for during a mail-provider incident: paused, the week's Digests wait in the queue instead of spending their attempts against a provider that is refusing them."
   type        = bool
   default     = true
 }
