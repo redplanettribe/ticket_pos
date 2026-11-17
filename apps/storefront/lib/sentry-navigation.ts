@@ -10,11 +10,14 @@
  * navigation is not traced, and nothing else happens.
  */
 
-type RouterTransitionStart = (href: string, navigationType: "push" | "replace" | "traverse") => void;
+/** How Next started a navigation, as it tells onRouterTransitionStart. */
+export type NavigationType = "push" | "replace" | "traverse";
+
+type RouterTransitionStart = (href: string, navigationType: NavigationType) => void;
 
 let forward: RouterTransitionStart | null = null;
 
-/** Called by the lazily loaded SDK with its own handler. */
+/** Called by the lazily loaded SDK chunk with the handler that starts each navigation's trace. */
 export function forwardRouterTransitionsTo(handler: RouterTransitionStart): void {
   forward = handler;
 }

@@ -14,8 +14,8 @@
  * "traverse"; router.push calls it with "push" and pushes a history entry; and
  * `window.next.router` exists, as the SDK looks for it.
  *
- * Input, as argv[2]: the JSON list of steps, each `{ "push": "/es/x" }` or
- * `{ "back": true }`, with the `random` the step's Math.random returns, which
+ * Input, as argv[2]: the JSON list of steps, each `{ "push": "/es/x" }`,
+ * `{ "replace": "/es/x" }` or `{ "back": true }`, with the `random` the step's Math.random returns, which
  * decides the step's sampling at the Storefront's one in ten.
  * Output: `{ navigations, headers }`, every navigation span the SDK started
  * (its trace, whether sampled, its navigation type) and, after each step, the
@@ -23,7 +23,7 @@
  */
 import { register } from "node:module";
 
-type Step = ({ push: string } | { back: true }) & { random: number };
+type Step = ({ push: string } | { replace: string } | { back: true }) & { random: number };
 
 // The SDK's browser build imports "next/router" as a bundler resolves it, with
 // no extension, which Node's own resolution refuses; this gives it the ".js".
@@ -108,7 +108,10 @@ const router = {
     routerTransitionStart(href, "push");
     history.pushState(null, "", href);
   },
-  replace() {},
+  replace(href: string) {
+    routerTransitionStart(href, "replace");
+    history.replaceState(null, "", href);
+  },
   back: () => history.back(),
   forward() {},
 };
@@ -119,14 +122,14 @@ const Sentry = await import("@sentry/nextjs");
 const { startBrowserSentry } = await import("./sentry-browser.ts");
 startBrowserSentry(JSON.stringify({ dsn: "https://public@o0.ingest.sentry.io/1", environment: "test" }));
 
-const navigations: Array<{ traceId: string; sampled: boolean; type: unknown }> = [];
+const navigations: Array<{ traceId: string; sampled: boolean; type: string }> = [];
 Sentry.getClient()?.on("spanStart", (span) => {
   const { attributes = {} } = Sentry.spanToJSON(span) as unknown as { attributes?: Record<string, unknown> };
   if (attributes["sentry.op"] !== "navigation") return;
   navigations.push({
     traceId: span.spanContext().traceId,
     sampled: (span.spanContext().traceFlags & 1) === 1,
-    type: attributes["navigation.type"],
+    type: String(attributes["navigation.type"]),
   });
 });
 
@@ -134,6 +137,7 @@ const headers: string[] = [];
 for (const step of steps) {
   random = step.random;
   if ("push" in step) router.push(step.push);
+  else if ("replace" in step) router.replace(step.replace);
   else router.back();
   headers.push(Sentry.getTraceData()["sentry-trace"] ?? "");
 }

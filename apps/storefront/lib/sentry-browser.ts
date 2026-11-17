@@ -34,7 +34,7 @@ import {
   sentryOptions,
 } from "./sentry.ts";
 import { readPageSentryConfig } from "./sentry-lazy.ts";
-import { forwardRouterTransitionsTo } from "./sentry-navigation.ts";
+import { forwardRouterTransitionsTo, type NavigationType } from "./sentry-navigation.ts";
 
 /**
  * Starts the SDK from the configuration the root layout wrote into the page
@@ -92,7 +92,7 @@ export function startBrowserSentry(writtenConfig: string | null = readPageSentry
  * Named by its path, as the SDK named it; beforeSendTransaction names it by
  * page (lib/navigation-route.ts).
  */
-function startNavigation(href: string, navigationType: "push" | "replace" | "traverse"): void {
+function startNavigation(href: string, navigationType: NavigationType): void {
   const client = Sentry.getClient();
   if (!client) return;
   const url = new URL(href, window.location.href);
