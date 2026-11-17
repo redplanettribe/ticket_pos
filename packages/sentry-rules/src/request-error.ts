@@ -1,5 +1,5 @@
 import { digestOf } from "./caught-error.ts";
-import { REQUEST_ID_HEADER } from "./reference-code.ts";
+import { REFERENCE_CODE_HEADER, REQUEST_ID_HEADER, mintedRequestId } from "./reference-code.ts";
 
 /**
  * Next's onRequestError arguments, restated rather than imported so this module
@@ -36,14 +36,16 @@ function headerValue(value: string | string[] | undefined): string | null {
  * render, route handler, server action or middleware.
  *
  * It writes one structured line to stdout, which Cloud Logging indexes, with the
- * request id the error screen shows as the reference code (forwarded by the
- * middleware, reference-code.ts), Next's digest for the error, and the route
- * pattern. So a reference code a person quotes finds the failure in Cloud
- * Logging whether or not Sentry is on, and the digest finds Next's own line with
- * the stack beside it. Never the error's text or the raw path: either can name a
- * person, and Next already prints the error.
+ * request's own id, which its API calls carry, the reference code its error
+ * screen shows (both forwarded by the middleware, reference-code.ts), Next's
+ * digest for the error, and the route pattern. For a page load or a server
+ * action the two are the same; a client navigation keeps the page's code, so
+ * there they differ. So a reference code a person quotes finds the failure in
+ * Cloud Logging whether or not Sentry is on, and the digest finds Next's own
+ * line with the stack beside it. Never the error's text or the raw path: either
+ * can name a person, and Next already prints the error.
  *
- * Then it reports the error; tagRequestId puts the id on the event. Except an
+ * Then it reports the error; tagRequestId puts both on the event. Except an
  * error from server-rendering a client component ("server-rendering"): the
  * browser renders that component again, and if it fails there too the error
  * screen reports it, so reporting it here as well would make one crash two
@@ -61,6 +63,7 @@ export function createOnRequestError(deps: {
         severity: "ERROR",
         message: "request failed",
         request_id: requestId,
+        reference_code: mintedRequestId(headerValue(request.headers[REFERENCE_CODE_HEADER])),
         digest: digestOf(error),
         route: context.routePath,
         route_type: context.routeType,
@@ -82,8 +85,10 @@ type ServerEvent = {
 };
 
 /**
- * Tags a server event with the id of the request it happened in, read from the
- * request headers the SDK holds for it (the middleware forwarded the id there).
+ * Tags a server event with the id of the request it happened in and the
+ * reference code its error screen shows, read from the request headers the SDK
+ * holds for it (the middleware forwarded both there). A code not of the shape
+ * the middleware mints is left off.
  *
  * An event processor rather than a tag set where the error is reported, because
  * a crash in a page or layout is captured first by the SDK's own server
@@ -92,9 +97,14 @@ type ServerEvent = {
  * wins. A tag already set is kept.
  */
 export function tagRequestId<T extends ServerEvent>(event: T): T {
-  const requestId = event.sdkProcessingMetadata?.normalizedRequest?.headers?.[REQUEST_ID_HEADER];
+  const headers = event.sdkProcessingMetadata?.normalizedRequest?.headers;
+  const requestId = headers?.[REQUEST_ID_HEADER];
   if (requestId && event.tags?.request_id === undefined) {
     event.tags = { ...event.tags, request_id: requestId };
+  }
+  const referenceCode = mintedRequestId(headers?.[REFERENCE_CODE_HEADER]);
+  if (referenceCode && event.tags?.reference_code === undefined) {
+    event.tags = { ...event.tags, reference_code: referenceCode };
   }
   return event;
 }

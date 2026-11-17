@@ -4,7 +4,7 @@ export { NEXT_BROWSER_BUNDLE_PATHS, createBeforeSend, hasFrameFromOwnBundles, is
 export { decideTunnel, type TunnelDecision } from "./tunnel.ts";
 export { parseSentryConfig, readSentryConfig, serializeSentryConfig, type SentryConfig } from "./config.ts";
 export { relayEnvelope, type Send } from "./relay.ts";
-export { REQUEST_ID_COOKIE, REQUEST_ID_HEADER, cookieValue, mintedRequestId, readReferenceCode, referenceCodeCookie } from "./reference-code.ts";
+export { REFERENCE_CODE_HEADER, REQUEST_ID_COOKIE, REQUEST_ID_HEADER, cookieValue, forwardedRequestHeaders, mintedRequestId, readReferenceCode, referenceCodeCookie } from "./reference-code.ts";
 export { digestOf, isNavigationSignal, reportCaughtError, type CaptureCaughtError, type CaughtError } from "./caught-error.ts";
 export { createOnRequestError, tagRequestId } from "./request-error.ts";
 export { SENTRY_ORG, sentryBuildOptions, type SentryBuildOptions } from "./build.ts";

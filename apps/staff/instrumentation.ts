@@ -11,8 +11,9 @@ import { readSentryConfig, sentryOptions, serverTracesSampler } from "@/lib/sent
  *
  * `onRequestError` is Next's hook for an error thrown while rendering a server
  * component, in a route handler, a server action or middleware. It logs one
- * line with the request's id, the reference code the error screen shows, and
- * reports the error, which the event processor tags with that id
+ * line with the request's id and the reference code the error screen shows,
+ * the same for a page load and the page's for a client navigation, and
+ * reports the error, which the event processor tags with both
  * (@ticket-pos/sentry-rules' request-error.ts). Without an
  * initialised SDK the report has no client to send to and does nothing; the line
  * is still written. A not-found (`notFound()`) and the redirects Next throws are
@@ -27,8 +28,8 @@ export function register() {
     // This process's host name would otherwise name the Cloud Run instance.
     serverName: "ticket-pos-staff",
   });
-  // Every server event carries the id of its request, the reference code an
-  // error screen shows (#772).
+  // Every server event carries the id of its request and the reference code
+  // an error screen shows (#772).
   Sentry.addEventProcessor((event) => tagRequestId(event));
 }
 

@@ -1,4 +1,4 @@
-import { REQUEST_ID_HEADER, referenceCodeCookie } from "@ticket-pos/sentry-rules";
+import { forwardedRequestHeaders, referenceCodeCookie } from "@ticket-pos/sentry-rules";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
@@ -57,9 +57,11 @@ import { isUnlocalized } from "@/lib/unlocalized-paths";
  * never taken from the browser (what a browser sends is overwritten; the route
  * handlers it does not see keep only a UUID-shaped one, lib/api.ts), forwarded to the render on the request headers
  * so every API call the page makes carries it (lib/api.ts) and onRequestError
- * logs a failed render under it, echoed in X-Request-ID, and, for a page or an
- * RSC navigation, handed to the browser in the cookie the error screens read
- * their reference code from (@ticket-pos/sentry-rules' reference-code.ts). That
+ * logs a failed render under it, echoed in X-Request-ID, and, for a page load
+ * or a server action, handed to the browser in the cookie the error screens
+ * read their reference code from (@ticket-pos/sentry-rules' reference-code.ts).
+ * A link prefetch or client navigation keeps the page's code, and is told it
+ * beside its own id so a failure in it is logged under the code shown. That
  * cookie is the same kind of rider as the ref cookie: nothing renders from it,
  * so a prefixed page still says the same thing to everyone.
  */
@@ -76,8 +78,7 @@ export function middleware(request: NextRequest) {
 
 function route(request: NextRequest, requestId: string): NextResponse {
   const { pathname } = request.nextUrl;
-  const forwarded = new Headers(request.headers);
-  forwarded.set(REQUEST_ID_HEADER, requestId);
+  const forwarded = forwardedRequestHeaders({ pathname, headers: request.headers }, requestId);
   const next = () => NextResponse.next({ request: { headers: forwarded } });
 
   if (isUnlocalized(pathname)) {

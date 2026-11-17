@@ -1,4 +1,4 @@
-import { REQUEST_ID_HEADER, referenceCodeCookie } from "@ticket-pos/sentry-rules";
+import { forwardedRequestHeaders, referenceCodeCookie } from "@ticket-pos/sentry-rules";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
@@ -117,14 +117,15 @@ type PassThrough = { requestId: string; next: () => NextResponse };
 /**
  * Every request the middleware sees gets one id (#772, @ticket-pos/sentry-rules' reference-code.ts),
  * minted here and never taken from the browser: it is forwarded to the render
- * on the request headers, echoed in X-Request-ID, and, for a page or an RSC
- * navigation, handed to the browser in the cookie the error screens read their
- * reference code from.
+ * on the request headers, echoed in X-Request-ID, and, for a page load or a
+ * server action, handed to the browser in the cookie the error screens read
+ * their reference code from. A link prefetch or client navigation keeps the
+ * page's code, and is told it beside its own id so a failure in it is logged
+ * under the code shown.
  */
 export async function middleware(request: NextRequest) {
   const requestId = crypto.randomUUID();
-  const forwarded = new Headers(request.headers);
-  forwarded.set(REQUEST_ID_HEADER, requestId);
+  const forwarded = forwardedRequestHeaders({ pathname: request.nextUrl.pathname, headers: request.headers }, requestId);
   const pass: PassThrough = {
     requestId,
     next: () => NextResponse.next({ request: { headers: forwarded } }),
