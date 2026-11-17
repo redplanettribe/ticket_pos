@@ -596,7 +596,7 @@ On, the service gets its project's public DSN as a plain environment value (a DS
 Turning one on is an apply that changes that service's environment and so rolls a new revision of it, and no other.
 Turn any of them on only after the policy edition that names Sentry is published (ADR 0079); each is a gate, absent from `terraform.tfvars` until somebody writes it.
 
-**What a first apply creates**, with every switch off (19 to add, nothing to change or destroy):
+**What a first apply creates**, with every switch off (22 to add, nothing to change or destroy):
 
 | Resource | What it is |
 | --- | --- |
@@ -612,9 +612,10 @@ Turn any of them on only after the policy edition that names Sentry is published
 | `module.ticket_pos.sentry_project_inbound_data_filter.storefront_legacy_browsers` | Storefront: legacy browsers filtered |
 | `module.ticket_pos.sentry_alert.new_issue["api"]`, `["staff"]`, `["storefront"]` | a new issue in production |
 | `module.ticket_pos.sentry_alert.regression["api"]`, `["staff"]`, `["storefront"]` | a resolved issue happens again in production |
-| `module.ticket_pos.sentry_alert.error_spike["api"]`, `["staff"]`, `["storefront"]` | more than 50 errors in an hour in production, across the project |
+| `module.ticket_pos.sentry_metric_monitor.error_spike["api"]`, `["staff"]`, `["storefront"]` | a metric monitor counting the project's errors in production over one hour, with an issue above 50 |
+| `module.ticket_pos.sentry_alert.error_spike["api"]`, `["staff"]`, `["storefront"]` | that monitor's issue opens or comes back: more than 50 errors in an hour in production, across the project, whichever issues they belong to |
 
-The plan also reads `data.sentry_project_error_monitor.deployable` for each project, the default error monitor Sentry creates with a project, which the alert rules attach to; it creates nothing.
+The plan also reads `data.sentry_project_error_monitor.deployable` for each project, the default error monitor Sentry creates with a project, which the new issue and regression rules attach to; it creates nothing.
 If the plan shows any change to a Cloud Run service while every switch is off, stop: it should show none.
 
 The projects are created without Sentry's default key and default alert rule, so the only key and rules are the ones above.
@@ -636,8 +637,10 @@ The legacy browser filter takes every current subfilter (Internet Explorer, and 
   The alerts go to the members of `ticket-pos`.
   Whoever should receive them joins the team in Sentry (Settings, Teams); a person's email is not something to commit here.
 - **Checking the spike rule once.**
-  Its trigger is the provider's "number of events seen by the workflow" above 50 in an hour, meant as every error in the project, whichever issue.
-  After the first apply, open it in Sentry and check it reads that way rather than per issue.
+  The spike is counted by a metric monitor, `<project>: errors in production per hour`, not by a condition on the alert rule: Sentry evaluates an alert's own event frequency condition per issue, which is why the rule once read "Number of events in an issue is more than 50 in one hour" (#784).
+  After the apply, open each project's monitor in Sentry (Monitors) and check it reads as a count of the project's errors, `count()` of error events in `production` over a 1 hour window, with a static threshold above 50, and that `<project>: error spike in production` is the alert connected to it.
+  Neither should mention events in an issue.
+  On a production already applied before #784, the next apply adds the three metric monitors and changes or replaces the three `error_spike` rules, and a second plan then reports no changes.
 
 **Cron and uptime monitors (#778).**
 The operator is emailed when a scheduled job fails or does not run, and when the Storefront or the Staff app stops answering.
@@ -692,12 +695,12 @@ Each probes every minute, passes on a 2xx answer only, waits 10 seconds (longer 
 Two alert rules email the `ticket-pos` team, in production, when a monitor's issue opens or comes back, at most every 30 minutes per issue: `sentry_alert.job_check_in` watches every cron monitor (a failed, missed or timed-out check-in), and `sentry_alert.uptime` both uptime monitors.
 Each exists only while there is a monitor for it to watch.
 
-**What a full apply creates**, with every switch on and every job unpaused, on top of the 19 above: 9 cron monitors, 2 uptime monitors and the 2 alert rules.
+**What a full apply creates**, with every switch on and every job unpaused, on top of the 22 above: 9 cron monitors, 2 uptime monitors and the 2 alert rules.
 The free Developer plan allows one cron monitor and one uptime monitor, so the full set needs a paid plan with pay-as-you-go for the other eight cron monitors and the second uptime monitor; upgrade before switching on the API (five cron monitors at once in production, above) or both Next apps.
 Nothing in the code depends on the plan: every job checks in whether or not its monitor exists.
 
 **Testing the switches.**
-`modules/ticket-pos/tests/sentry.tftest.hcl` plans the module against mocked providers, so it needs no credential and reaches nothing: with every switch off no service has a Sentry variable, and each switch sets the DSN on its own service only.
+`modules/ticket-pos/tests/sentry.tftest.hcl` plans the module against mocked providers, so it needs no credential and reaches nothing: with every switch off no service has a Sentry variable, and each switch sets the DSN on its own service only; it also checks that each project's error spike metric monitor counts its production errors over an hour above 50, and that each `error_spike` rule watches its own project's monitor.
 `modules/ticket-pos/tests/monitors.tftest.hcl` does the same for the monitors: no cron monitor while every job is paused, one per unpaused job named as `backend/internal/server/jobs.go` names it (the test reads that file), with its scheduler job's schedule and time zone, and each uptime monitor on its app's hostname only while that app reports.
 
 ```bash
@@ -759,11 +762,11 @@ Two tokens, never the same one: one acts for Terraform and can create things, th
 
 - **Do:** with `.env` sourced and every `sentry_*_enabled` still absent from `terraform.tfvars`, `terraform plan` then `terraform apply` in `envs/prod` ([Running it](#running-it)).
   Then the steps Terraform could not declare, below.
-- **Makes true:** the `ticket-pos` team, the three projects and their keys, the Storefront's inbound filters, and nine alert rules, 19 resources in all (the [Sentry](#sentry) section's table, "What a first apply creates").
+- **Makes true:** the `ticket-pos` team, the three projects and their keys, the Storefront's inbound filters, nine alert rules and the three error spike metric monitors, 22 resources in all (the [Sentry](#sentry) section's table, "What a first apply creates").
   No Cloud Run service changes and no DSN is set anywhere, so nothing reports yet.
-- **Check:** the plan adds 19 and changes or destroys nothing; stop if it touches a Cloud Run service.
+- **Check:** the plan adds 22 and changes or destroys nothing; stop if it touches a Cloud Run service.
   A second plan reports no changes.
-  In Sentry, Settings, Teams lists `ticket-pos`, and Projects lists `ticket-pos-api`, `ticket-pos-staff` and `ticket-pos-storefront`, each with one key and three alert rules.
+  In Sentry, Settings, Teams lists `ticket-pos`, and Projects lists `ticket-pos-api`, `ticket-pos-staff` and `ticket-pos-storefront`, each with one key, three alert rules and one metric monitor.
 - **Undo:** nothing to undo while every switch is off: the projects hold nothing and receive nothing.
   Removing them is a targeted `terraform destroy` of the `module.ticket_pos.sentry_*` resources, which deletes their events with them.
 
@@ -773,7 +776,7 @@ What Terraform could not declare, each found by the ticket that tried (#777, #77
 | --- | --- | --- |
 | Server-side data scrubbing: the provider has no scrubbing setting at either level | `SENTRY_AUTH_TOKEN="$TF_VAR_sentry_auth_token" scripts/sentry-scrubbing.sh`, after this apply and again whenever the script changes; project settings only, never the shared organization's | the script reads every setting back and stops on the first project that did not keep one; Project Settings, Security & Privacy shows them |
 | Who receives the alert emails | the operator adds each recipient to the `ticket-pos` team (Settings, Teams); no email address is committed | the team's member list |
-| Whether the error spike rule counts the whole project | open `error_spike` on each project once and read it | it reads as every error in the project above 50 in an hour, not per issue |
+| Whether the error spike rule counts the whole project | open each project's `errors in production per hour` metric monitor, and its `error spike in production` alert, once and read them | the monitor reads as a count of the project's error events in `production` over 1 hour with a static threshold above 50, and the alert is connected to it; neither mentions "events in an issue" |
 | A cron monitor's slug: the provider sends a name and Sentry makes the slug | each monitor is named its slug | after step 6 creates a monitor, Crons shows the slug exactly as in the [Sentry](#sentry) section's slug table; a suffix means the slug was taken in the organization |
 | The plan, the tokens, the Actions secret, the Policy Version | steps 1, 2 and 4 of this list | as each step says |
 
