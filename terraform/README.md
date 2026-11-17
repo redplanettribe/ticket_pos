@@ -612,7 +612,7 @@ Turn any of them on only after the policy edition that names Sentry is published
 | `module.ticket_pos.sentry_project_inbound_data_filter.storefront_legacy_browsers` | Storefront: legacy browsers filtered |
 | `module.ticket_pos.sentry_alert.new_issue["api"]`, `["staff"]`, `["storefront"]` | a new issue in production |
 | `module.ticket_pos.sentry_alert.regression["api"]`, `["staff"]`, `["storefront"]` | a resolved issue happens again in production |
-| `module.ticket_pos.sentry_metric_monitor.error_spike["api"]`, `["staff"]`, `["storefront"]` | a metric monitor counting the project's errors in production over one hour, with an issue above 50 |
+| `module.ticket_pos.sentry_metric_monitor.error_spike["api"]`, `["staff"]`, `["storefront"]` | a metric monitor counting every error in the project in production over one hour, which opens its issue when the count is above 50 |
 | `module.ticket_pos.sentry_alert.error_spike["api"]`, `["staff"]`, `["storefront"]` | that monitor's issue opens or comes back: more than 50 errors in an hour in production, across the project, whichever issues they belong to |
 
 The plan also reads `data.sentry_project_error_monitor.deployable` for each project, the default error monitor Sentry creates with a project, which the new issue and regression rules attach to; it creates nothing.
@@ -639,7 +639,7 @@ The legacy browser filter takes every current subfilter (Internet Explorer, and 
   The spike is counted by a metric monitor, `<project>: errors in production per hour`, not by a condition on the alert rule: Sentry evaluates an alert's own event frequency condition per issue, which is why the rule once read "Number of events in an issue is more than 50 in one hour" (#784).
   After the apply, open each project's monitor in Sentry (Monitors) and check it reads as a count of the project's errors, `count()` of error events in `production` over a 1 hour window, with a static threshold above 50, and that `<project>: error spike in production` is the alert connected to it.
   Neither should mention events in an issue.
-  On a production already applied before #784, the next apply adds the three metric monitors and changes or replaces the three `error_spike` rules, and a second plan then reports no changes.
+  On a production already applied before #784, the next plan should add the three metric monitors and change or replace the three `error_spike` rules; after the apply, check that a second plan reports no changes.
 
 **Cron and uptime monitors (#778).**
 The operator is emailed when a scheduled job fails or does not run, and when the Storefront or the Staff app stops answering.

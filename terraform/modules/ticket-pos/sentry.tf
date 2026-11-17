@@ -174,8 +174,8 @@ resource "sentry_project_inbound_data_filter" "storefront_legacy_browsers" {
 # error_spike on the project's spike monitor after them.
 #
 # Sentry creates a default error monitor with every project; the new issue and
-# regression rules are attached to it. sentry_issue_alert, the classic resource, is deprecated in
-# favour of this one.
+# regression rules are attached to it. sentry_issue_alert, the classic
+# resource, is deprecated in favour of sentry_alert.
 
 data "sentry_project_error_monitor" "deployable" {
   for_each = local.sentry_projects
