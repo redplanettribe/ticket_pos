@@ -648,8 +648,8 @@ Each Cloud Scheduler job has a `sentry_cron_monitor` in its own file, beside it,
 What they share, and the two alert rules that watch them, are at the end of `sentry.tf`.
 
 A cron monitor exists only while its job is unpaused and `sentry_api_enabled` is on, so a paused job can never alert that it did not run.
-In the module every job defaults to paused, but `envs/prod/terraform.tfvars` already unpauses five: the Sale Invoice Drainer, Owed Assignment Mail, the Holder Address Purge and the two reminders.
-So the apply that turns `sentry_api_enabled` on in production also creates those five cron monitors and the check-in alert, in one go; on the Developer plan, with its one cron monitor, upgrade first.
+In the module every job defaults to paused, but production unpauses seven: the Sale Invoice Drainer, Owed Assignment Mail, the Holder Address Purge and the two reminders in `envs/prod/terraform.tfvars`, and the Follow Digest enqueue and drain through `envs/prod/variables.tf`'s own defaults.
+So the apply that turned `sentry_api_enabled` on in production (2026-11-16) also created those seven cron monitors and the check-in alert, in one go; on the Developer plan, with its one cron monitor, upgrade first.
 Setting a job's `<job>_enabled` to true, with the API reporting, is the one change that both unpauses the job and creates its monitor.
 The monitor's name, schedule and time zone are references to the scheduler job's own `name`, `schedule` and `time_zone`, so moving a `<job>_schedule` moves both.
 Pausing a job in an incident with `gcloud scheduler jobs pause` leaves its monitor in place, and it will report missed runs until the job is resumed; set `<job>_enabled = false` and apply to stop both.
@@ -696,7 +696,7 @@ Two alert rules email the `ticket-pos` team, in production, when a monitor's iss
 Each exists only while there is a monitor for it to watch.
 
 **What a full apply creates**, with every switch on and every job unpaused, on top of the 22 above: 9 cron monitors, 2 uptime monitors and the 2 alert rules.
-The free Developer plan allows one cron monitor and one uptime monitor, so the full set needs a paid plan with pay-as-you-go for the other eight cron monitors and the second uptime monitor; upgrade before switching on the API (five cron monitors at once in production, above) or both Next apps.
+The free Developer plan allows one cron monitor and one uptime monitor, so the full set needs a paid plan with pay-as-you-go for the other eight cron monitors and the second uptime monitor; upgrade before switching on the API (seven cron monitors at once in production, above) or both Next apps.
 Nothing in the code depends on the plan: every job checks in whether or not its monitor exists.
 
 **Testing the switches.**

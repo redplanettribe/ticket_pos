@@ -10,3 +10,6 @@ assignment_reminder_enabled  = true
 owed_assignment_mail_enabled = true
 sale_invoicing_enabled       = true
 sale_invoice_drainer_enabled = true
+sentry_api_enabled           = true
+sentry_staff_enabled         = true
+sentry_storefront_enabled    = true
