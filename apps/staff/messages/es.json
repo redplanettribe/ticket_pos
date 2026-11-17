@@ -2461,5 +2461,10 @@
     "retry": "Volver a intentar",
     "retrying": "Reintentando…",
     "referenceCode": "Código de referencia"
+  },
+  "notFound": {
+    "title": "Página no encontrada",
+    "description": "No hay nada en esta dirección. Puede que se haya escrito mal o que el enlace esté desactualizado.",
+    "back": "Volver a eventos"
   }
 }

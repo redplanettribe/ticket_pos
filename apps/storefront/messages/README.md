@@ -22,6 +22,7 @@ not one page file. Surfaces, in the order a Customer meets them:
 | `answerLink`   | The retired Answer Link's landing page at `/{locale}/answer` (ADR 0049) |
 | `errors`       | Failures that belong to no single surface, keyed by the API's code |
 | `errorScreen`  | The screen shown in place of a page that crashed, with a retry and a reference code (#774); the root-level one reads it straight from the catalog, with no provider |
+| `notFound`     | The screen shown for an address under a locale that leads nowhere, and for an Event or Organization that does not exist (#799), with the way back to the locale's global explorer. An address no route matches reads it in `app/global-not-found.tsx`, outside the provider |
 | `tags`         | Preset Tag names, which belong to no single surface either         |
 
 The two privacy namespaces are crossed over and it is worth reading twice:

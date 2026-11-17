@@ -23,6 +23,12 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(__dirname, "../.."),
   transpilePackages: ["@ticket-pos/ui"],
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
+  experimental: {
+    // app/global-not-found.tsx (#799): the root layout is the `[locale]` one and
+    // there is no app/layout.tsx, which is the case Next built this for. Without
+    // it an address no route matches gets Next's bare, English, lang-less 404.
+    globalNotFound: true,
+  },
 };
 
 // Sentry's build plugin (ADR 0079), with the options both apps share

@@ -715,5 +715,10 @@
     "family": "Familia",
     "film": "Cine",
     "technology": "Tecnología"
+  },
+  "notFound": {
+    "title": "No encontramos esta página",
+    "description": "Puede que la dirección esté mal escrita o que el evento ya no esté disponible. Hay más por descubrir en la página de inicio.",
+    "back": "Descubrir eventos"
   }
 }
