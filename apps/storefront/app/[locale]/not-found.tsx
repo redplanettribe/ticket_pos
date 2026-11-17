@@ -6,9 +6,9 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 
 /**
- * The not-found screen (#799): an Event, Organization or page that calls
- * `notFound()`, and, through the catch-all beside it ([...rest]/page.tsx), an
- * address under a locale that no route matches. It renders inside the root
+ * The not-found screen (#799) for an Event, Organization or page that calls
+ * `notFound()`; an address no route matches is app/global-not-found.tsx's,
+ * which looks the same. It renders inside the root
  * layout, whose next-intl provider took its locale off the address, so it speaks
  * the address's language and never the cookie's or the browser's (the
  * middleware's invariant), and Next still answers 404.
@@ -16,7 +16,7 @@ import { Link } from "@/i18n/navigation";
  * A client component for the same reason the error screen is one: the
  * provider's locale is the layout's, settled before this renders, where a
  * server component here would read the request's locale with no params of its
- * own to read it from. The way back is the discover home of that same locale,
+ * own to read it from. The way back is the global explorer of that same locale,
  * which the locale-aware Link prefixes.
  */
 export default function NotFound() {

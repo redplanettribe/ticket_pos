@@ -2,33 +2,42 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-/**
- * The not-found screen's words (#799), as each catalog holds them. Which catalog
- * a screen reads is next-intl's, from the locale the root layout settled; what
- * is held here is that each locale has its own words for the screen, and only
- * the words a not-found screen needs: no retry and no reference code, because
- * nothing failed.
- */
+import { LOCALES, type AppLocale } from "./locale.ts";
+import { REQUESTED_PATH_HEADER, notFoundLocale } from "./not-found.ts";
 
-type NotFoundCopy = Record<string, string>;
+type NotFoundCopy = { title: string; description: string; back: string };
 
-function notFoundCopy(locale: "en" | "es"): NotFoundCopy {
+/** The not-found screen's words, as a locale's catalog holds them. */
+function notFoundCopy(locale: AppLocale): NotFoundCopy {
   const catalog = JSON.parse(readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8")) as {
     notFound: NotFoundCopy;
   };
   return catalog.notFound;
 }
 
-test("each locale has the not-found screen's title, description and way back, and nothing to retry or quote", () => {
-  for (const locale of ["en", "es"] as const) {
-    assert.deepEqual(Object.keys(notFoundCopy(locale)).sort(), ["back", "description", "title"], locale);
-  }
+function requestFor(path: string | null) {
+  return new Headers(path === null ? {} : { [REQUESTED_PATH_HEADER]: path });
+}
+
+test("an address no route matches gets the screen in the language the address names", () => {
+  assert.equal(notFoundLocale(requestFor("/es/a/b/c/d")), "es");
+  assert.equal(notFoundLocale(requestFor("/en/a/b/c/d")), "en");
+  assert.equal(notFoundLocale(requestFor("/es")), "es");
 });
 
-test("the Spanish screen speaks Spanish and the English screen English", () => {
-  const en = notFoundCopy("en");
-  const es = notFoundCopy("es");
-  for (const key of ["title", "description", "back"]) {
+test("an address naming no locale, or one the middleware never saw, falls back to the default", () => {
+  assert.equal(notFoundLocale(requestFor("/fr/x")), "en");
+  assert.equal(notFoundLocale(requestFor("/espanol/x")), "en");
+  assert.equal(notFoundLocale(requestFor(null)), "en");
+});
+
+test("each locale has the screen's own words, and nothing to retry or quote", () => {
+  // Nothing failed, so there is no retry and no reference code to word.
+  for (const locale of LOCALES) {
+    assert.deepEqual(Object.keys(notFoundCopy(locale)).sort(), ["back", "description", "title"], locale);
+  }
+  const [en, es] = [notFoundCopy("en"), notFoundCopy("es")];
+  for (const key of ["title", "description", "back"] as const) {
     assert.notEqual(es[key], en[key], `notFound.${key} is the same in both catalogs`);
   }
   assert.match(es.title, /página/i);

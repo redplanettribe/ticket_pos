@@ -25,7 +25,7 @@ type NotFoundScreenProps = {
 };
 
 /**
- * What a person sees in place of an address that leads nowhere (#793): that
+ * What a person sees in place of an address that leads nowhere (#799): that
  * there is nothing here, and a way back. It stands alone on the screen with
  * the logo, the way the error screen's "page" layout does, and shares its look.
  * Unlike the error screen it has no retry and no reference code: nothing

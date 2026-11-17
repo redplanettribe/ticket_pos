@@ -9,6 +9,7 @@ import {
 } from "@/lib/affiliate-ref";
 import { eventPageSlugs } from "@/lib/event-path";
 import { LOCALE_COOKIE, localePrefixOf, localizedPath, resolveLocale } from "@/lib/locale";
+import { REQUESTED_PATH_HEADER } from "@/lib/not-found";
 import { isUnlocalized } from "@/lib/unlocalized-paths";
 
 /**
@@ -78,6 +79,11 @@ function route(request: NextRequest, requestId: string): NextResponse {
   const { pathname } = request.nextUrl;
   const forwarded = new Headers(request.headers);
   forwarded.set(REQUEST_ID_HEADER, requestId);
+  // The path asked for, for the not-found screen of an address no route matches
+  // (app/global-not-found.tsx), which renders with no params to read its
+  // language from (lib/not-found.ts). It is the URL again, not something about
+  // who is asking, so a prefixed page still says the same thing to everyone.
+  forwarded.set(REQUESTED_PATH_HEADER, pathname);
   const next = () => NextResponse.next({ request: { headers: forwarded } });
 
   if (isUnlocalized(pathname)) {
