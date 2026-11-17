@@ -6,13 +6,11 @@
  *
  * The SDK names a navigation from a route manifest its build plugin injects
  * into the initial bundle; the Storefront turns that injection off to keep the
- * first load as it was (next.config.ts), so the SDK names it by its path and the
- * browser's beforeSendTransaction renames it here (nameNavigation), in the lazy
- * chunk. Navigations then group by page rather than one per Organization and
- * Event, and no slug travels in a trace name. At send time rather than when
- * the span starts: the SDK renames a navigation span after it has started
- * (Next's router hook and its router patch both name it), so a name given at
- * the start does not last.
+ * first load as it was (next.config.ts), so a navigation starts named by its
+ * path (lib/sentry-browser.ts) and the browser's beforeSendTransaction renames
+ * it here (nameNavigation), in the lazy chunk. Navigations then group by page
+ * rather than one per Organization and Event, and no slug travels in a trace
+ * name.
  *
  * Every page lives under app/[locale]: the pages named in LOCALE_PAGES, the
  * Organization page at [orgSlug], and the Event page under it.

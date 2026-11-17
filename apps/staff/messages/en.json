@@ -2461,5 +2461,10 @@
     "retry": "Try again",
     "retrying": "Trying again…",
     "referenceCode": "Reference code"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "description": "There is nothing at this address. It may have been mistyped, or the link may be out of date.",
+    "back": "Back to events"
   }
 }

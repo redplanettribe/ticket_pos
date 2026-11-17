@@ -109,3 +109,8 @@ The CLI is used only for what happens per build.
   The limit is dropped rather than the plan raised, so the Decision's "must not share an inbox or a rate limit with the API" now holds for the inbox only: every project draws on the one organization quota.
   The Storefront's noise is bounded only by its own before-send filtering, its three inbound data filters, the organization's error quota and Sentry's spike protection.
   The separate project still gives the Storefront its own inbox and its own alert rules.
+- **2026-11-17: the Storefront starts each client navigation's trace itself (#792).**
+  The SDK's Next navigation tracing is off in the Storefront's browser (`instrumentNavigation: false`), and the handler the Storefront hands Next's `onRouterTransitionStart` starts every navigation with `startBrowserTracingNavigationSpan`: a `<Link>` click, `router.push` and `router.replace`, and back or forward, which Next reports from its own popstate listener.
+  The SDK's tracing also listened to popstate, so each back or forward started two navigations, and the next navigation Next reported only renamed the second of them: it started no trace, and its requests carried the trace and the sampling decision of the navigation before it.
+  Each navigation now starts a trace of its own with its own one in ten decision.
+  Requests a page makes after its navigation has ended and before the next one (prefetches, API calls) still join the trace of the navigation that brought it, as the SDK does: they are that page's work, and the trace ends at the next navigation, so it never spans a session.
