@@ -487,8 +487,10 @@ func (s *Service) applyOutcome(ctx context.Context, row *repository.InvoiceRow, 
 // A definite refusal ends the ladder: nothing asks the authority about this
 // document again until an operator acts. It is reported when the status
 // changed, or when the document was parked but still polled (it crossed 24 h
-// undecided) and the refusal now takes it off the ladder. An operator's Check
-// status hearing the same refusal again gives up nothing new. The SRI's
+// undecided) and the refusal now takes it off the ladder. A row the drainer
+// claimed always carries a next attempt (the claim's lease); a refused row
+// carries none, so nothing claims it again. An operator's Check status
+// hearing the same refusal again gives up nothing new. The SRI's
 // message identifiers say why; their free text stays out of the event
 // (#766).
 //

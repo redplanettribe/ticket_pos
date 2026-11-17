@@ -3,6 +3,7 @@ package integration
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -42,16 +43,6 @@ func errorLines(l *captureLogger) []capturedLine {
 	return out
 }
 
-// logArg is the value logged under key, printed, and whether it was.
-func logArg(line capturedLine, key string) (string, bool) {
-	for i := 0; i+1 < len(line.args); i += 2 {
-		if k, ok := line.args[i].(string); ok && k == key {
-			return fmt.Sprint(line.args[i+1]), true
-		}
-	}
-	return "", false
-}
-
 func requireOneReport(t *testing.T, l *captureLogger, msg string) capturedLine {
 	t.Helper()
 	errs := errorLines(l)
@@ -72,15 +63,16 @@ func TestSaleInvoiceDrainReportsARefusalOnceWithTheSRICodes(t *testing.T) {
 	cases := []struct {
 		name   string
 		answer string
+		codes  []string
 		stub   func()
 	}{
-		{"not authorized", "not_authorized", func() {
+		{"not authorized", "not_authorized", []string{"65", "56"}, func() {
 			sriStub.setAuthorization(func(accessKey string) (int, string) {
 				return http.StatusOK, notAuthorizedSOAP(accessKey,
 					sriMessage("65", "FECHA EMISION EXTEMPORANEA", "", "ERROR")+sriMessage("56", "ESTABLECIMIENTO CERRADO", "", "ERROR"))
 			})
 		}},
-		{"rejected", "rejected", func() {
+		{"rejected", "rejected", []string{"35"}, func() {
 			sriStub.setReception(func(accessKey string) (int, string) {
 				return http.StatusOK, returnedSOAP(accessKey, sriMessage("35", "DOCUMENTO INVALIDO", "El XML no cumple el esquema", "ERROR"))
 			})
@@ -98,19 +90,17 @@ func TestSaleInvoiceDrainReportsARefusalOnceWithTheSRICodes(t *testing.T) {
 				t.Fatalf("drain = %+v; want the document parked needs_attention", result)
 			}
 			report := requireOneReport(t, capture, refusalReport)
-			if id, _ := logArg(report, "invoice_id"); id != invoiceID {
+			if id := report.arg(t, "invoice_id"); fmt.Sprint(id) != invoiceID {
 				t.Fatalf("invoice_id = %v; want %s", id, invoiceID)
 			}
-			if kind, _ := logArg(report, "kind"); kind != "sale" {
+			if kind := report.arg(t, "kind"); fmt.Sprint(kind) != "sale" {
 				t.Fatalf("kind = %v; want sale", kind)
 			}
-			if answer, ok := logArg(report, "answer"); !ok || answer != tc.answer {
+			if answer := report.arg(t, "answer"); fmt.Sprint(answer) != tc.answer {
 				t.Fatalf("answer = %v; want %s", answer, tc.answer)
 			}
-			codes, _ := logArg(report, "codes")
-			want := map[string]string{"not_authorized": "[65 56]", "rejected": "[35]"}[tc.answer]
-			if codes != want {
-				t.Fatalf("codes = %q; want %s, identifiers only", codes, want)
+			if codes, ok := report.arg(t, "codes").([]string); !ok || !slices.Equal(codes, tc.codes) {
+				t.Fatalf("codes = %#v; want %v, identifiers only", report.arg(t, "codes"), tc.codes)
 			}
 			if rendered := capture.rendered(); containsAny(rendered, "FECHA EMISION", "DOCUMENTO INVALIDO", "no cumple") {
 				t.Fatalf("the SRI's free text reached the log:\n%s", rendered)
@@ -154,7 +144,7 @@ func TestSaleInvoiceDrainReportsAnUndecidedParkOnceAndTruthfully(t *testing.T) {
 				t.Fatalf("drain at 24 h = %+v; want the document parked needs_attention", late)
 			}
 			report := requireOneReport(t, capture, undecidedReport)
-			if id, _ := logArg(report, "invoice_id"); id != invoiceID {
+			if id := report.arg(t, "invoice_id"); fmt.Sprint(id) != invoiceID {
 				t.Fatalf("invoice_id = %v; want %s", id, invoiceID)
 			}
 
