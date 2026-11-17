@@ -62,6 +62,7 @@ The configuration lives in `lib/sentry.ts`, the server and middleware start in `
 The browser gets the DSN from a `<meta>` the root layout writes, because the DSN is a value of the running service, not of the build.
 Browser envelopes go to `/api/monitoring`, which forwards only those addressed to this app's own project (`relayEnvelope` over `decideTunnel`, both from `@ticket-pos/sentry-rules`) and copies none of the browser's headers, so the client's address never reaches Sentry.
 Every event passes through the shared before-send from `@ticket-pos/sentry-rules`.
+Every runtime starts with the privacy options the Storefront shares from the same package (`sentryOptions`): traces sent whole, so every span passes the scrubber, and of the request only the User-Agent header, never cookies, bodies, query strings or the client's address.
 BFF calls to the API carry `sentry-trace` and `baggage` beside `X-Request-ID` (`lib/api.ts`).
 Source maps come from the build only when it is given `SENTRY_AUTH_TOKEN`, which only the deploy does (`sentryBuildOptions` in `@ticket-pos/sentry-rules`, #776).
 Then `next build` uploads them to `ticket-pos-staff`, failing soft, and the Dockerfile deletes every map left in the output and refuses an image that still holds one.

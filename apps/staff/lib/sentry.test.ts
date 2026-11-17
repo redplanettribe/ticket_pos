@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createBeforeSend } from "@ticket-pos/sentry-rules";
+import { createBeforeSend, sentryOptions as sharedSentryOptions } from "@ticket-pos/sentry-rules";
 
 import {
   SENTRY_TRACES_SAMPLE_RATE,
   SENTRY_TUNNEL_PATH,
   beforeSend,
+  beforeSendTransaction,
   sentryOptions,
   serverTracesSampler,
 } from "./sentry.ts";
@@ -19,8 +20,27 @@ test("every runtime collects no personal data by default and uses the shared bef
   assert.equal(options.beforeSend, beforeSend);
   assert.equal(options.dsn, DSN);
   assert.equal(options.environment, "production");
-  assert.equal("replaysSessionSampleRate" in options, false);
-  assert.equal("profilesSampleRate" in options, false);
+  assert.equal(options.beforeSendTransaction, beforeSendTransaction);
+  // Streamed spans would skip beforeSendTransaction, and with it the scrubber.
+  assert.equal(options.traceLifecycle, "static");
+  // No cookies, bodies, query strings, user or frame variables; of the request
+  // headers only the User-Agent, so no X-Forwarded-For, Referer or Cookie.
+  assert.deepEqual(options.dataCollection, {
+    userInfo: false,
+    cookies: false,
+    httpHeaders: { request: { allow: ["user-agent"] }, response: false },
+    httpBodies: [],
+    urlQueryParams: false,
+    stackFrameVariables: false,
+  });
+  for (const key of ["replaysSessionSampleRate", "replaysOnErrorSampleRate", "profilesSampleRate", "profileSessionSampleRate", "integrations"]) {
+    assert.equal(key in options, false, key);
+  }
+});
+
+test("the Staff app's privacy options are the Storefront's: both come from @ticket-pos/sentry-rules", () => {
+  const config = { dsn: DSN, environment: "production", release: "abc123" };
+  assert.deepEqual(sentryOptions(config), sharedSentryOptions(config, beforeSend));
 });
 
 test("the before-send is the shared one's: an email is redacted, and a server event without a bundle frame is kept", () => {

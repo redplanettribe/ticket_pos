@@ -10,7 +10,7 @@
  * the early-error handler into the page, and renders no loader, so no Sentry
  * chunk is ever requested.
  */
-import { createBeforeSend, scrubEvent, type SentryConfig } from "@ticket-pos/sentry-rules";
+import { createBeforeSend, scrubEvent, sentryOptions as sharedSentryOptions, type SentryConfig } from "@ticket-pos/sentry-rules";
 
 import { DEEP_HEALTH_PATH } from "./deep-health.ts";
 
@@ -45,42 +45,17 @@ export const browserBeforeSend: BeforeSend = createBeforeSend({ dropWithoutOwnFr
 export const beforeSendTransaction = scrubEvent;
 
 /**
- * The options every runtime initialises with, given its before-send. No
- * personal data is collected by default, and neither session replay nor
- * profiling is enabled: neither integration is listed, and the SDK adds neither
- * by default.
+ * The options every runtime initialises with, given its before-send: the
+ * privacy options both apps share, from @ticket-pos/sentry-rules, which says
+ * why each is set. Of the request headers only the User-Agent is collected,
+ * which the bot filter reads.
  *
- * What the SDK collects on its own is cut to what a filter needs: no cookies,
- * bodies, query strings, user details or frame variables, and of the request
- * headers only the User-Agent, which the bot filter reads. The SDK's defaults
- * would otherwise put every request header, the client's X-Forwarded-For and
- * Referer included, on each server span.
- *
- * Traces are sent whole, as transactions ("static"), not streamed span by span,
- * the SDK 11 default. Streamed spans skip beforeSendTransaction, so with the
- * default the shared scrubber would never see a span's URL or name; the SDK
- * warns as much at start. Static also keeps a navigation named by its path,
- * which lib/navigation-route.ts turns into its page, where streaming names
- * every one "Navigation".
+ * Static traces also keep a navigation named by its path, which
+ * lib/navigation-route.ts turns into its page, where streaming names every one
+ * "Navigation".
  */
 export function sentryOptions(config: SentryConfig, beforeSend: BeforeSend) {
-  return {
-    dsn: config.dsn,
-    environment: config.environment,
-    release: config.release,
-    sendDefaultPii: false,
-    beforeSend,
-    beforeSendTransaction,
-    traceLifecycle: "static" as const,
-    dataCollection: {
-      userInfo: false,
-      cookies: false,
-      httpHeaders: { request: { allow: ["user-agent"] }, response: false },
-      httpBodies: [],
-      urlQueryParams: false,
-      stackFrameVariables: false,
-    },
-  };
+  return sharedSentryOptions(config, beforeSend);
 }
 
 /**

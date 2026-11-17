@@ -8,7 +8,7 @@
  * runtime. The root layout writes the configuration into the page
  * (SENTRY_CONFIG_META) and the browser reads it back from there.
  */
-import { createBeforeSend, scrubEvent, type SentryConfig } from "@ticket-pos/sentry-rules";
+import { createBeforeSend, scrubEvent, sentryOptions as sharedSentryOptions, type SentryConfig } from "@ticket-pos/sentry-rules";
 
 // Reading the configuration is the same rule in both apps, in the shared package.
 export { parseSentryConfig, readSentryConfig, serializeSentryConfig, type SentryConfig } from "@ticket-pos/sentry-rules";
@@ -39,19 +39,13 @@ export const beforeSend = createBeforeSend({ dropWithoutOwnFrame: false, dropBot
 export const beforeSendTransaction = scrubEvent;
 
 /**
- * The options every runtime initialises with. No personal data is collected by
- * default, and neither session replay nor profiling is enabled: neither
- * integration is listed, and the SDK adds neither by default.
+ * The options every runtime initialises with: the privacy options both apps
+ * share, from @ticket-pos/sentry-rules (static traces, so every span passes the
+ * scrubber, and data collection cut to the User-Agent), with this app's
+ * before-send.
  */
 export function sentryOptions(config: SentryConfig) {
-  return {
-    dsn: config.dsn,
-    environment: config.environment,
-    release: config.release,
-    sendDefaultPii: false,
-    beforeSend,
-    beforeSendTransaction,
-  };
+  return sharedSentryOptions(config, beforeSend);
 }
 
 /**
