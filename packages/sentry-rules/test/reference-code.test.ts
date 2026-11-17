@@ -10,9 +10,17 @@ import {
 
 const ID = "3f6c1a52-8d1e-4b7a-9c39-2a1f0e5d4c3b";
 
-test("a page or an RSC navigation hands its request id to the browser", () => {
-  for (const pathname of ["/", "/events/abc", "/login"]) {
-    const cookie = referenceCodeCookie({ pathname, headers: new Headers({ rsc: "1" }) }, ID);
+// What a middleware is handed. Next deletes its own flight headers (rsc,
+// next-router-state-tree, next-router-prefetch, next-router-segment-prefetch)
+// from the request before middleware runs, so a router prefetch and a client
+// navigation reach it as the same bare fetch: these are the headers that are
+// left, as a browser sends them (#791).
+const documentLoad = { "sec-fetch-dest": "document", "sec-fetch-mode": "navigate", accept: "text/html,*/*;q=0.8" };
+const routerFetch = { "sec-fetch-dest": "empty", "sec-fetch-mode": "cors", accept: "*/*" };
+
+test("a page load hands its request id to the browser", () => {
+  for (const pathname of ["/", "/events/abc", "/login", "/es/the-builders"]) {
+    const cookie = referenceCodeCookie({ pathname, headers: new Headers(documentLoad) }, ID);
     assert.ok(cookie, pathname);
     assert.equal(cookie.name, REQUEST_ID_COOKIE);
     assert.equal(cookie.value, ID);
@@ -25,14 +33,32 @@ test("a page or an RSC navigation hands its request id to the browser", () => {
   }
 });
 
-test("a BFF call or a prefetch does not overwrite the page's reference code", () => {
-  const none = new Headers();
-  assert.equal(referenceCodeCookie({ pathname: "/api/auth/session", headers: none }, ID), null);
-  assert.equal(referenceCodeCookie({ pathname: "/api/monitoring", headers: none }, ID), null);
-  const routerPrefetch = new Headers({ rsc: "1", "next-router-prefetch": "1" });
-  assert.equal(referenceCodeCookie({ pathname: "/events/abc", headers: routerPrefetch }, ID), null);
-  const browserPrefetch = new Headers({ purpose: "prefetch" });
+test("a page loaded in a frame, or by a client that sends no fetch metadata, is a page load", () => {
+  assert.ok(referenceCodeCookie({ pathname: "/es", headers: new Headers({ "sec-fetch-dest": "iframe" }) }, ID));
+  assert.ok(referenceCodeCookie({ pathname: "/es", headers: new Headers({ accept: "text/html" }) }, ID));
+});
+
+test("a server action hands its request id to the browser", () => {
+  const action = new Headers({ ...routerFetch, "next-action": "7f3a" });
+  assert.equal(referenceCodeCookie({ pathname: "/events/abc", headers: action }, ID)?.value, ID);
+});
+
+test("a router fetch does not overwrite the page's reference code, prefetch or not", () => {
+  // The bug in #791: two link prefetches after the page each set the cookie,
+  // so the page's error screen showed a prefetch's id, found nowhere in the logs.
+  for (const headers of [routerFetch, { "sec-fetch-dest": "empty" }, { accept: "*/*" }, {}]) {
+    assert.equal(referenceCodeCookie({ pathname: "/es/following", headers: new Headers(headers) }, ID), null);
+  }
+});
+
+test("a BFF call or a browser prefetch does not overwrite the page's reference code", () => {
+  const page = new Headers(documentLoad);
+  assert.equal(referenceCodeCookie({ pathname: "/api/auth/session", headers: page }, ID), null);
+  assert.equal(referenceCodeCookie({ pathname: "/api/monitoring", headers: new Headers(routerFetch) }, ID), null);
+  const browserPrefetch = new Headers({ ...documentLoad, "sec-purpose": "prefetch" });
   assert.equal(referenceCodeCookie({ pathname: "/events/abc", headers: browserPrefetch }, ID), null);
+  const legacyPrefetch = new Headers({ ...documentLoad, purpose: "prefetch" });
+  assert.equal(referenceCodeCookie({ pathname: "/events/abc", headers: legacyPrefetch }, ID), null);
 });
 
 test("the reference code is read back from document.cookie", () => {

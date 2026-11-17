@@ -73,10 +73,12 @@ The reference code is the request id, as in the Staff app, through the pieces bo
 1. The middleware mints a UUID for every request it sees, never taking one from the browser, forwards it to the render as `x-request-id`, and echoes it in `X-Request-ID`.
    It does not run on the BFF routes under `/api/`, so those keep an id per API call.
 2. `lib/api.ts` reads it inside a render or server action, so every API call of that page carries it and the API logs each under it.
-3. For a page or an RSC navigation, not a prefetch, the middleware sets the cookie `ticket_pos_request_id`, readable by script, which the screens show.
+3. For a page load or a server action, never a router fetch, the middleware sets the cookie `ticket_pos_request_id`, readable by script, which the screens show.
    Like the Affiliate ref cookie, it rides beside the page and nothing renders from it.
-4. A server crash: `onRequestError` writes one JSON line to stdout, which Cloud Logging indexes, with `request_id`, Next's `digest`, the route pattern and the render source, never the error's text or the path, with or without a DSN; the server's event is tagged `request_id`.
-5. A crash only in the browser: the code is the id of the request that rendered the page, and the screen reports the error tagged with it.
+   A client navigation cannot set it: Next deletes its flight headers before middleware runs, so a navigation and a link prefetch look the same there, and letting prefetches write it showed a code found nowhere (#791).
+4. A server crash: `onRequestError` writes one JSON line to stdout, which Cloud Logging indexes, with `request_id`, the `reference_code` the browser sent in its cookie, Next's `digest`, the route pattern and the render source, never the error's text or the path, with or without a DSN; the server's event is tagged with both.
+   A failed page load shows its own `request_id`; a failed client navigation shows the page's code, which its line carries as `reference_code`.
+5. A crash only in the browser: the code is the id of the page load the person is on, and the screen reports the error tagged with it.
 
 Reported exactly once: an error with a digest came from the server and was reported there; any other is reported by the screen, once.
 The screen may come before the SDK has loaded, so it loads the SDK's chunk itself to report (`lib/sentry-lazy.ts`, the same request the loader makes), with the configuration it read on its first render, before a root-level screen replaces the document that held it.
@@ -96,5 +98,6 @@ SENTRY_DSN=http://publickey@localhost:9999/1 API_URL=http://localhost:<api stand
 - In the browser, the chunks of `lib/sentry-browser.ts` are requested after the load event, and events are posted to `/api/monitoring` only.
 - Use an ordinary browser user agent: a headless one is a bot, and its events are dropped.
 - Without `SENTRY_DSN` the page has no meta, no inline handler and no loader, and nothing is sent.
-- For the error screens, temporary pages that throw on the server, in the browser while hydrating and after, in the root layout on either side, and an RSC navigation into a crash: each shows its screen in the address's language, the code equals the document's `X-Request-ID`, the cookie, the `request failed` line, the event's `request_id` tag and the id the API stand-in saw, and each is one event.
+- For the error screens, temporary pages that throw on the server, in the browser while hydrating and after, in the root layout on either side, and an RSC navigation into a crash: each shows its screen in the address's language, the code equals the document's `X-Request-ID`, the cookie, the `request failed` line (its `reference_code`, for the RSC navigation), the event's `request_id` tag and the id the API stand-in saw, and each is one event.
+  Let the page's links prefetch before crashing it: the code is still the document's.
   Without `SENTRY_DSN`, the same screens and codes, and nothing sent.

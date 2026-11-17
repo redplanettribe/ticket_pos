@@ -14,9 +14,13 @@
  *     time it reaches the browser, and a crash that happens only in the browser
  *     has no request of its own.
  *
- * So the reference code on an error screen is the id of the last page or RSC
- * navigation request: the one that failed, for a crash in a server render, and
- * the one that rendered the page the person is on, for a crash in the browser.
+ * So the reference code on an error screen is the id of the last page load or
+ * server action: the one that failed, for a crash in a server render of a page
+ * or an action, and the one that rendered the page the person is on, for a
+ * crash in the browser. A client navigation cannot set it (referenceCodeCookie
+ * says why); when its render fails, the screen shows the page's id, and the
+ * failure is logged and reported under that id too (request-error.ts), beside
+ * its own.
  *
  * This module is read by the browser too, so it imports nothing of the server.
  */
@@ -37,11 +41,18 @@ type RequestIdCookie = {
  * The cookie handing a request's id to the browser, or null for a request that
  * must not overwrite it.
  *
- * A BFF call under /api/ and a router prefetch are not what the person is
- * looking at, and either can land after the page that is: let them write the
- * cookie and a crash on the page would show the id of a request that did not
- * render it. A server action and an RSC navigation do write it, as a failure in
- * either is shown by an error screen.
+ * Only a page load and a server action write it. A page load is what the
+ * person is looking at; a server action's failure is shown by an error screen.
+ *
+ * A router fetch never does, because the middleware cannot tell a client
+ * navigation from a link prefetch: Next deletes its flight headers (rsc,
+ * next-router-prefetch and the rest) from the request before middleware runs,
+ * so both arrive as the same bare fetch. Letting them write it made a page's
+ * error screen show the id of whichever prefetch landed last, found nowhere in
+ * the logs (#791). A navigation whose render fails still sends this cookie, so
+ * onRequestError logs and tags the failure with it (request-error.ts).
+ *
+ * Nor does a BFF call under /api/, or a browser's own prefetch of a page.
  *
  * Not HttpOnly, because script reads it; not a credential, because it is a
  * random id that only finds log lines. A session cookie, with no Max-Age.
@@ -50,11 +61,8 @@ export function referenceCodeCookie(
   request: { pathname: string; headers: Headers },
   requestId: string,
 ): RequestIdCookie | null {
-  // Next's router marks its prefetches; a browser's own link prefetch says so in Purpose.
-  const prefetch = request.headers.has("next-router-prefetch") || request.headers.get("purpose") === "prefetch";
-  if (prefetch || request.pathname === "/api" || request.pathname.startsWith("/api/")) {
-    return null;
-  }
+  if (request.pathname === "/api" || request.pathname.startsWith("/api/")) return null;
+  if (!isPageLoad(request.headers) && !request.headers.has("next-action")) return null;
   return {
     name: REQUEST_ID_COOKIE,
     value: requestId,
@@ -66,6 +74,21 @@ export function referenceCodeCookie(
     },
   };
 }
+
+/**
+ * Whether a request loads a page into a window or a frame, by its fetch
+ * metadata; a client that sends none is judged by whether it asks for HTML,
+ * which a router fetch does not. A browser's speculative prefetch of a page
+ * (Sec-Purpose, or the older Purpose) is not one.
+ */
+function isPageLoad(headers: Headers): boolean {
+  if (/prefetch/i.test(headers.get("sec-purpose") ?? headers.get("purpose") ?? "")) return false;
+  const destination = headers.get("sec-fetch-dest");
+  if (destination !== null) return PAGE_DESTINATIONS.has(destination);
+  return (headers.get("accept") ?? "").includes("text/html");
+}
+
+const PAGE_DESTINATIONS = new Set(["document", "iframe", "frame"]);
 
 /** The shape the middleware mints (a UUID) and the API adopts. */
 const REFERENCE_CODE = /^[0-9a-f-]{1,64}$/i;
