@@ -56,13 +56,13 @@ export function ErrorScreen({
         <div className="mb-2 flex size-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
           <TriangleAlert className="size-5" aria-hidden="true" />
         </div>
-        <CardTitle className="text-xl">{labels.title}</CardTitle>
+        <CardTitle className="text-xl text-balance">{labels.title}</CardTitle>
         <CardDescription>{labels.description}</CardDescription>
       </CardHeader>
       {referenceCode ? (
         <CardContent>
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{labels.referenceCode}</p>
-          <code className="mt-1 block select-all break-all rounded-md bg-muted px-3 py-2 font-mono text-sm">
+          <code className="mt-1 block select-all break-all rounded-md bg-muted px-3 py-2 font-mono text-xs sm:text-sm">
             {referenceCode}
           </code>
         </CardContent>
