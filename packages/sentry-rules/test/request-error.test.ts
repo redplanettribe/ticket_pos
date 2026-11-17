@@ -122,12 +122,12 @@ test("a server event is tagged with the id of the request it happened in", () =>
 });
 
 test("a server event is tagged with the reference code its screen shows", () => {
-  const event = tagRequestId({
+  const sent: Parameters<typeof tagRequestId>[0] = {
     sdkProcessingMetadata: {
       normalizedRequest: { headers: { [REQUEST_ID_HEADER]: ID, cookie: `${REQUEST_ID_COOKIE}=${PAGE}` } },
     },
-  });
-  assert.deepEqual(event.tags, { request_id: ID, reference_code: PAGE });
+  };
+  assert.deepEqual(tagRequestId(sent).tags, { request_id: ID, reference_code: PAGE });
 });
 
 test("an event outside a request, or already tagged, is left as it is", () => {
