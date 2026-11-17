@@ -55,7 +55,8 @@ locals {
   # Storefront's own before-send filtering (ADR 0079), its five inbound data
   # filters (the three declared below, and react-hydration-errors and
   # chunk-load-error, left at Sentry's default of on), the organization's error
-  # quota and Sentry's spike protection. The API and the Staff app are covered by the last two.
+  # quota and Sentry's spike protection. The API and the Staff app are covered
+  # by the last two.
   sentry_projects = {
     api = {
       slug     = "ticket-pos-api"
@@ -161,8 +162,9 @@ resource "sentry_key" "deployable" {
 # and filtered-transaction: a PUT to either id answers 404. Sentry keeps the
 # two as the project options filters:react-hydration-errors and
 # filters:chunk-load-error, set only by the project details endpoint, and
-# sentry_project in jianyuan/sentry 0.16.x has no argument for them (checked
-# against 0.16.1's schema and the provider's main branch, 2026-11-17). Both
+# sentry_project has no argument for them (checked against the source of
+# jianyuan/sentry 0.16.0, the version prod pins, 0.16.1's schema and the
+# provider's main branch, 2026-11-17). Both
 # stay at Sentry's default of on, outside this file; turning either off is a
 # decision for here and the operator's checklist (terraform/README.md,
 # "Sentry"), not a click in Sentry's settings.

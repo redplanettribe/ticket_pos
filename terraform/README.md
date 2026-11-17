@@ -637,7 +637,7 @@ The legacy browser filter takes every current subfilter (Internet Explorer, and 
 - **The Storefront's hydration and chunk load filters.**
   `react-hydration-errors` and `chunk-load-error` are on by Sentry's default and stay on (`sentry.tf` says why).
   The provider cannot declare them: Sentry's inbound filter endpoint answers 404 for both, and they are project options only the project details endpoint sets, which `sentry_project` does not expose (#805).
-  So a plan never shows them; check once in Sentry (`ticket-pos-storefront`, Settings, Inbound Filters) that both are still on, and turn neither off without changing `sentry.tf` first.
+  So a plan never shows them; check once in Sentry (`ticket-pos-storefront`, Settings, Inbound Filters) that both are still on, and turn neither off without first recording the decision in `sentry.tf`, where the reason for keeping both on is written.
 - **Team membership.**
   The alerts go to the members of `ticket-pos`.
   Whoever should receive them joins the team in Sentry (Settings, Teams); a person's email is not something to commit here.

@@ -225,10 +225,12 @@ run "alerts_filters_and_no_rate_limit" {
   }
 
   # The Storefront's other two inbound filters, react-hydration-errors and
-  # chunk-load-error, stay at Sentry's default of on (#805). Sentry's filter
-  # endpoint, the only one sentry_project_inbound_data_filter reaches, answers
-  # 404 for both, so a resource for either would fail the apply: the three
-  # filters above are the only ones the module may declare.
+  # chunk-load-error, stay at Sentry's default of on (#805), and no plan can
+  # see them: Sentry's filter endpoint, the only one
+  # sentry_project_inbound_data_filter reaches, answers 404 for both, so a
+  # resource for either would fail the apply. This pins the three declared
+  # filters to the ids Sentry's filter endpoint knows; it cannot see a fourth
+  # resource someone adds, so the reason is in sentry.tf as well.
   assert {
     condition = toset([
       sentry_project_inbound_data_filter.storefront_browser_extensions.filter_id,
