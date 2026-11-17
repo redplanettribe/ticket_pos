@@ -1,10 +1,10 @@
 # --- Sentry (ADR 0079, spec #761, #777) ------------------------------------------
 #
 # Everything in Sentry that is not a monitor: the team, one project per
-# deployable, a key per project, the issue alert rules, the Storefront's inbound
-# filters. The cron and uptime monitors are
-# declared beside the jobs and services they watch, not here; what they share,
-# and the two alert rules that watch them, are at the end of this file.
+# deployable, a key per project, the issue alert rules and the Storefront's
+# inbound filters. The cron and uptime monitors are declared beside the jobs and
+# services they watch, not here; what they share, and the two alert rules that
+# watch them, are at the end of this file.
 #
 # The organization already exists and is shared with another product. Nothing
 # here reads, imports or changes the organization or any project but these
