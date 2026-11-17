@@ -2,7 +2,7 @@
 #
 # Everything in Sentry that is not a monitor: the team, one project per
 # deployable, a key per project, the issue alert rules, the Storefront's inbound
-# filters and the rate limit on its key. The cron and uptime monitors are
+# filters. The cron and uptime monitors are
 # declared beside the jobs and services they watch, not here; what they share,
 # and the two alert rules that watch them, are at the end of this file.
 #
@@ -22,8 +22,9 @@
 #
 #   - Team, project, key, inbound data filter: sentry_team, sentry_project,
 #     sentry_key, sentry_project_inbound_data_filter.
-#   - The per-key rate limit: rate_limit_count and rate_limit_window on
-#     sentry_key. Sentry applies it only on a plan with per-key rate limits.
+#   - A per-key rate limit: rate_limit_count and rate_limit_window on
+#     sentry_key. Not used: the organization's Team plan lacks the feature, and
+#     Sentry refuses to create a key that sets one there (#783).
 #   - Issue alert rules: sentry_alert, on each project's default error monitor.
 #     sentry_issue_alert still exists but is deprecated in favour of it.
 #   - Data scrubbing: nothing, at the organization or the project level.
@@ -41,31 +42,27 @@ locals {
   # One project per deployable (ADR 0079). The keys of this map name the
   # deployables everywhere below and in the switches.
   #
-  # Only the Storefront's key is rate limited (null is no limit of our own): it
-  # is the public one, where a crawler, a bot or a release that throws in every
-  # browser could otherwise spend the month's quota in an afternoon. The API and
-  # the Staff app are covered by the organization's quota and spike protection.
+  # No key is rate limited: the Team plan has no per-key rate limits (#783).
+  # The Storefront is the public one, where a crawler, a bot or a release that
+  # throws in every browser makes noise. What bounds that noise is the
+  # Storefront's own before-send filtering (ADR 0079), its three inbound data
+  # filters below, the organization's error quota and Sentry's spike
+  # protection. The API and the Staff app are covered by the last two.
   sentry_projects = {
     api = {
-      slug              = "ticket-pos-api"
-      platform          = "go"
-      enabled           = var.sentry_api_enabled
-      rate_limit_count  = null
-      rate_limit_window = null
+      slug     = "ticket-pos-api"
+      platform = "go"
+      enabled  = var.sentry_api_enabled
     }
     staff = {
-      slug              = "ticket-pos-staff"
-      platform          = "javascript-nextjs"
-      enabled           = var.sentry_staff_enabled
-      rate_limit_count  = null
-      rate_limit_window = null
+      slug     = "ticket-pos-staff"
+      platform = "javascript-nextjs"
+      enabled  = var.sentry_staff_enabled
     }
     storefront = {
-      slug              = "ticket-pos-storefront"
-      platform          = "javascript-nextjs"
-      enabled           = var.sentry_storefront_enabled
-      rate_limit_count  = var.sentry_storefront_rate_limit_count
-      rate_limit_window = var.sentry_storefront_rate_limit_window_seconds
+      slug     = "ticket-pos-storefront"
+      platform = "javascript-nextjs"
+      enabled  = var.sentry_storefront_enabled
     }
   }
 
@@ -126,9 +123,6 @@ resource "sentry_key" "deployable" {
   organization = var.sentry_organization
   project      = sentry_project.deployable[each.key].slug
   name         = "${var.environment}-ticket-pos-${each.key}"
-
-  rate_limit_count  = each.value.rate_limit_count
-  rate_limit_window = each.value.rate_limit_window
 }
 
 # --- Storefront inbound filters ---------------------------------------------------
