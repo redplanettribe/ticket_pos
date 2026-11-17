@@ -1,10 +1,11 @@
 # --- Sentry (ADR 0079, spec #761, #777) ------------------------------------------
 #
-# Everything in Sentry that is not a monitor: the team, one project per
-# deployable, a key per project, the issue alert rules and the Storefront's
-# inbound filters. The cron and uptime monitors are declared beside the jobs and
-# services they watch, not here; what they share, and the two alert rules that
-# watch them, are at the end of this file.
+# Everything in Sentry that is not a cron or uptime monitor: the team, one
+# project per deployable, a key per project, the alert rules, the Storefront's
+# inbound filters and each project's error spike metric monitor. The cron and
+# uptime monitors are declared beside the jobs and services they watch, not
+# here; what they share, and the two alert rules that watch them, are at the
+# end of this file.
 #
 # The organization already exists and is shared with another product. Nothing
 # here reads, imports or changes the organization or any project but these
@@ -27,6 +28,8 @@
 #     Sentry refuses to create a key that sets one there (#783).
 #   - Issue alert rules: sentry_alert, on each project's default error monitor.
 #     sentry_issue_alert still exists but is deprecated in favour of it.
+#   - A count of a project's errors over a window: sentry_metric_monitor, with
+#     a sentry_alert on it. sentry_metric_alert is deprecated in favour of it.
 #   - Data scrubbing: nothing, at the organization or the project level.
 #     sentry_project carries no scrubbing setting and sentry_organization only
 #     its name and slug. Project-level scrubbing is therefore one scripted API
@@ -83,6 +86,7 @@ locals {
   # hour, whichever issues they belong to, so a bad release that throws many
   # different errors is caught as surely as one that throws one error often.
   sentry_spike_events_per_hour = 50
+  sentry_spike_window_seconds  = 3600
 
   # Every rule's one action: an email to every member of the ticket-pos team
   # (each member's own notification settings still apply).
@@ -162,11 +166,12 @@ resource "sentry_project_inbound_data_filter" "storefront_legacy_browsers" {
 #
 # Three rules on each project, all in production and all by email to the
 # ticket-pos team, so this product's alerts never reach the other product's
-# people and theirs never reach ours.
+# people and theirs never reach ours: new issue and regression below, and
+# error_spike on the project's spike monitor after them.
 #
-# Sentry creates a default error monitor with every project; an alert rule is
-# attached to it. sentry_issue_alert, the classic resource, is deprecated in
-# favour of this one.
+# Sentry creates a default error monitor with every project; the new issue and
+# regression rules are attached to it. sentry_issue_alert, the classic
+# resource, is deprecated in favour of sentry_alert.
 
 data "sentry_project_error_monitor" "deployable" {
   for_each = local.sentry_projects
@@ -219,28 +224,72 @@ resource "sentry_alert" "regression" {
   ]
 }
 
+# --- Error spike (#784) -------------------------------------------------------------
+#
 # More than sentry_spike_events_per_hour errors in production within an hour,
-# across the project: how a bad release shows itself. A trigger condition, so
-# it counts every event the rule sees ("number of events seen by the workflow"
-# in the provider), not one issue's; the classic per-issue "number of events in
-# an issue" is an action filter instead, and would miss a release that throws
-# many different errors. At most one email an hour.
+# across the project, whichever issues they belong to: how a bad release shows
+# itself. The count is a metric monitor on each project, a count() of its error
+# events over a one-hour window; crossing the threshold opens the monitor's
+# issue, and the error_spike rule emails the team when it opens or comes back.
+#
+# It was once a rule on the default error monitor with an
+# event_frequency_count trigger. Sentry evaluates that condition per issue
+# ("number of events in an issue is more than 50 in one hour"), so fifty
+# different errors in an hour, each its own issue, never alerted.
+# sentry_metric_alert, the classic resource, is deprecated in favour of
+# sentry_metric_monitor.
+
+resource "sentry_metric_monitor" "error_spike" {
+  for_each = local.sentry_projects
+
+  organization = var.sentry_organization
+  project      = sentry_project.deployable[each.key].slug
+  name         = "${each.value.slug}: errors in production per hour"
+  owner        = local.sentry_monitor_owner
+
+  aggregate           = "count()"
+  dataset             = "events"
+  event_types         = ["error"]
+  query_type          = "error"
+  environment         = local.sentry_environment
+  time_window_seconds = local.sentry_spike_window_seconds
+
+  issue_detection = {
+    type = "static"
+  }
+
+  condition_group = {
+    conditions = [
+      # Above the threshold: a high priority issue.
+      {
+        type             = "gt"
+        comparison       = local.sentry_spike_events_per_hour
+        condition_result = 75
+      },
+      # Back at or below it: the issue resolves.
+      {
+        type             = "lte"
+        comparison       = local.sentry_spike_events_per_hour
+        condition_result = 0
+      },
+    ]
+  }
+}
+
+# The spike monitor's issue opens, or comes back after resolving. At most one
+# email an hour.
 resource "sentry_alert" "error_spike" {
   for_each = local.sentry_projects
 
   organization      = var.sentry_organization
   name              = "${each.value.slug}: error spike in production"
   environment       = local.sentry_environment
-  monitor_ids       = [data.sentry_project_error_monitor.deployable[each.key].id]
+  monitor_ids       = [sentry_metric_monitor.error_spike[each.key].id]
   frequency_minutes = 60
 
   trigger_conditions = [
-    {
-      event_frequency_count = {
-        interval = "1h"
-        value    = local.sentry_spike_events_per_hour
-      }
-    },
+    { first_seen_event = {} },
+    { regression_event = {} },
   ]
 
   action_filters = [
@@ -269,7 +318,8 @@ resource "sentry_alert" "error_spike" {
 # dropped by Sentry, and the monitor then reports a missed run.
 #
 # Every monitor is in a deployable's own project and environment production,
-# owned by the ticket-pos team, so its issues are assigned to the team.
+# owned by the ticket-pos team, so its issues are assigned to the team. The
+# error spike metric monitors above share the same owner.
 
 locals {
   sentry_monitor_owner = {
