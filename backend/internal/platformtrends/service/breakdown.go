@@ -133,7 +133,11 @@ type PlatformTrendBreakdown struct {
 	// add up to it. For an activity figure the total keyed "all" is the
 	// daily counts of the bucket added up: the count the first read states
 	// for a day, and for a week the Organization-days or Customer-days its
-	// mean is taken over.
+	// mean is taken over. The one total that can fall short of the first
+	// read is Active Organizations' where SaleHalfOnly is true: it is the
+	// sum of the Organizations listed, and the frozen figure of a day whose
+	// markers were deleted since also counted those a Member alone made
+	// active.
 	Totals []PlatformTrendBreakdownTotal `json:"totals"`
 	// Organizations is the Organizations that contributed, ranked, largest
 	// first within each key. It is stated for Tickets Sold and the money
@@ -222,7 +226,8 @@ type PlatformTrendBreakdownEvent struct {
 // read by the definition the first read counts it by, over the instants of
 // the bucket's days, so its contributors add up to what Trends states for
 // the bucket. The two activity figures are read apart
-// (activitybreakdown.go).
+// (activitybreakdown.go), and Active Organizations adds up to less than the
+// frozen figure for a bucket whose markers are gone, which it says.
 func (s *Service) Breakdown(ctx context.Context, figure BreakdownFigure, bucket Bucket) (*PlatformTrendBreakdown, error) {
 	breakdown := &PlatformTrendBreakdown{
 		Timezone:      platform.EcuadorTimeZone,

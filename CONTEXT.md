@@ -120,6 +120,8 @@ A sale counts whoever caused it, so an Organization whose Customers bought onlin
 A Sale Reversal does not undo it: the sale happened, and activity is not money, so the day stays counted while the Tickets Sold and money of that same day drop.
 A Member works by making any request that acts in the Organization, which leaves a marker holding the Organization and the day and nothing else: not which Member, not when, not how often.
 A Platform Operator reading the Operator Dashboard marks no Organization, whichever one their Staff Session last selected.
+Platform Trends counts Active Organizations from frozen totals, and lists them, each with what made it active (a sale, a Member, or both), from the recorded sales and the markers themselves: the one reading of a marker outside the Daily Close.
+A day whose markers are deleted, or that was frozen before a Member's work was counted, is listed by its sales alone and says so, while its frozen count stays as it was.
 A figure about a day, like Active Customer, and unrelated to Active Event and Active Member.
 _Avoid_: Active organizer, active account, active tenant, live organization
 

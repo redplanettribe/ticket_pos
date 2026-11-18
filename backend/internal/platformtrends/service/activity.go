@@ -238,9 +238,11 @@ type activeOrganizationsByDay struct {
 }
 
 // organizationsActiveByDay is the Organizations active on each platform day
-// from firstDay through lastDay. It is the one place that says what makes an
-// Organization active: a Ticket Sale was recorded for it that day, or a
-// Member worked in it that day, and one that did both is there once.
+// from firstDay through lastDay, as the daily close counts them: a Ticket
+// Sale was recorded for it that day, or a Member worked in it that day, and
+// one that did both is there once. The breakdown of Active Organizations
+// reads the same two halves and keeps them apart, to say which made each
+// Organization active (breakDownActiveOrganizations).
 func (s *Service) organizationsActiveByDay(ctx context.Context, firstDay, lastDay time.Time) (activeOrganizationsByDay, error) {
 	active := activeOrganizationsByDay{organizations: map[string]map[string]struct{}{}, hasMarker: map[string]bool{}}
 	add := func(day, organizationID string) {
