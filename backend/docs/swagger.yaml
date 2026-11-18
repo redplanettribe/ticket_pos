@@ -4016,8 +4016,8 @@ components:
         days_frozen:
           description: |-
             DaysFrozen is how many platform days this run froze. Zero is the
-            answer of a second run the same night, and of a platform that has
-            never recorded a Ticket Sale.
+            answer of a second run the same night, and of a platform no
+            Organization has ever been active on.
           type: integer
         first_day_frozen:
           description: |-
@@ -4031,6 +4031,12 @@ components:
             none.
           example: "2026-07-06"
           type: string
+        organization_markers_deleted:
+          description: |-
+            OrganizationMarkersDeleted is how many Organization markers older
+            than thirteen months this run deleted. The frozen totals of the days
+            they marked are untouched.
+          type: integer
       type: object
     service.DigestSubscriptionView:
       properties:
@@ -7147,7 +7153,9 @@ components:
         exact_since:
           description: |-
             ExactSince is the platform day the figure began to be recorded in
-            full. Null while no such day exists.
+            full: for Active Organizations the first day the daily close froze
+            with a Member's work counted in it. Days frozen before it hold the
+            sale half alone. Null while no such day exists.
           example: "2026-07-07"
           type: string
         mean:
@@ -7165,8 +7173,8 @@ components:
         sale_half_only:
           description: |-
             SaleHalfOnly is true while Active Organizations is counted from
-            recorded Ticket Sales alone on every day: a Member working in an
-            Organization that recorded no sale is not yet seen.
+            recorded Ticket Sales alone on every frozen day, which is while
+            ExactSince is null: no day has been frozen with a Member's work in it.
           type: boolean
       type: object
     service.PlatformTrendBucket:
@@ -12006,20 +12014,25 @@ paths:
   /api/v1/internal/platform-trends/close:
     post:
       description: 'Freezes the activity of every closed platform day (America/Guayaquil)
-        that has no totals yet, oldest first, from the day the first Ticket Sale was
-        recorded through yesterday: the Organizations active that day, and the different
+        that has no totals yet, oldest first, from the first day an Organization was
+        active through yesterday: the Organizations active that day, and the different
         Organizations active across the 7 and the 30 days ending that day. An Organization
         is active on a day a Ticket Sale was recorded for it, by the instant the sale
         reached the platform and not the instant it says it was sold, on any Sales
-        Channel, reversed or not. A day nobody was active on is frozen as zeros. A
-        frozen day is never rewritten, so the run is idempotent, and a missed night
-        is frozen by the next run. Platform Trends reads Active Organizations from
-        these totals alone. Internal service-to-service only: Cloud Run IAM authenticates
-        the caller by Google-signed OIDC ID token before the request reaches the API
-        (ADR 0008), and no Customer Session or staff token reaches it. The days cannot
-        be named by the caller; they are taken from the clock. The response states
-        how many days the run froze, the first and last of them, and the day it closed
-        through; it names no Organization.'
+        Channel, reversed or not, and on a day a Member worked in it through a Staff
+        Session; one that did both is counted once. A day nobody was active on is
+        frozen as zeros. A frozen day is never rewritten, so the run is idempotent,
+        and a missed night is frozen by the next run. The first day frozen with a
+        Member''s work in it is written down as the day exact recording of Active
+        Organizations began; days frozen before it hold the sale half alone. The run
+        then deletes the Organization markers older than thirteen months, which changes
+        no frozen total. Platform Trends reads Active Organizations from these totals
+        alone. Internal service-to-service only: Cloud Run IAM authenticates the caller
+        by Google-signed OIDC ID token before the request reaches the API (ADR 0008),
+        and no Customer Session or staff token reaches it. The days cannot be named
+        by the caller; they are taken from the clock. The response states how many
+        days the run froze, the first and last of them, the day it closed through
+        and how many markers it deleted; it names no Organization.'
       responses:
         "200":
           content:
@@ -16136,19 +16149,23 @@ paths:
         by then is not counted at all. Active Organizations is an activity figure
         and is shaped apart: an Organization is active on the day a Ticket Sale was
         recorded for it, by the day the sale reached the platform and not the day
-        it says it was sold, on any Sales Channel, reversed or not. It is read only
-        from the totals the daily close froze, which never change afterwards, so it
-        has no bucket for today, and a bucket the close has frozen no day of is null:
-        absent, never zero. Because a count of different Organizations cannot be added
-        across days, the figure states no total: mean is the mean daily count over
-        the frozen days of the span, a weekly bucket''s value is the mean of its frozen
-        days, whose first and last it states, and change is mean against comparison_mean.
-        distinct_7d and distinct_30d are the different Organizations active across
-        the 7 and the 30 days ending on the span''s last day, each counted once, null
-        while that day is not frozen. Its data_since is the first frozen day, the
-        day the first Ticket Sale was recorded. sale_half_only is true and exact_since
-        null while a Member working in an Organization is not yet recorded as activity.
-        Platform Operator only.'
+        it says it was sold, on any Sales Channel, reversed or not, and on a day a
+        Member worked in it through a Staff Session, sale or no sale; one that did
+        both is counted once, and a Platform Operator on the Operator Dashboard marks
+        no Organization. It is read only from the totals the daily close froze, which
+        never change afterwards, so it has no bucket for today, and a bucket the close
+        has frozen no day of is null: absent, never zero. Because a count of different
+        Organizations cannot be added across days, the figure states no total: mean
+        is the mean daily count over the frozen days of the span, a weekly bucket''s
+        value is the mean of its frozen days, whose first and last it states, and
+        change is mean against comparison_mean. distinct_7d and distinct_30d are the
+        different Organizations active across the 7 and the 30 days ending on the
+        span''s last day, each counted once, null while that day is not frozen. Its
+        data_since is the first frozen day. Its exact_since is the first day the daily
+        close froze with a Member''s work counted in it: a day frozen before it holds
+        the Organizations a Ticket Sale was recorded for and nothing else, and stays
+        so. sale_half_only is true and exact_since null while no day has been frozen
+        with a Member''s work in it. Platform Operator only.'
       parameters:
       - description: Span
         in: query

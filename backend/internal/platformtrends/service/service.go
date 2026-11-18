@@ -1,7 +1,8 @@
 // Package service implements Platform Trends: the Operator Dashboard's reading
 // of whether the platform as a whole is growing (#808, ADR 0080).
 //
-// It owns one table, the activity totals the daily close freezes (activity.go).
+// It owns the activity totals the daily close freezes (activity.go) and the
+// Organization markers a Member working leaves (markers.go).
 // Every other figure is read through the module that owns the
 // data it counts, each exposing a platform-wide operation, and composed here
 // into the one payload the page draws. The page derives nothing: bucketing,
@@ -81,6 +82,8 @@ const countSeriesKey = "all"
 // Service reads Platform Trends.
 type Service struct {
 	totals        ActivityTotalsStore
+	markers       *organizationMarkers
+	logger        platform.Logger
 	sales         TicketSales
 	customers     Customers
 	organizations Organizations
@@ -90,9 +93,14 @@ type Service struct {
 }
 
 // New returns a Platform Trends service keeping its frozen activity totals in
-// totals and reading every other figure through the given modules.
-func New(totals ActivityTotalsStore, sales TicketSales, customers Customers, organizations Organizations, pageViews PageViews, events Events) *Service {
-	return &Service{totals: totals, sales: sales, customers: customers, organizations: organizations, pageViews: pageViews, events: events, now: time.Now}
+// totals and its Organization markers in markers, and reading every other
+// figure through the given modules.
+func New(totals ActivityTotalsStore, markers OrganizationMarkerStore, logger platform.Logger, sales TicketSales, customers Customers, organizations Organizations, pageViews PageViews, events Events) *Service {
+	return &Service{
+		totals: totals, markers: newOrganizationMarkers(markers), logger: logger,
+		sales: sales, customers: customers, organizations: organizations, pageViews: pageViews, events: events,
+		now: time.Now,
+	}
 }
 
 // WithClock overrides the clock today is read from (tests).

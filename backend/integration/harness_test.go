@@ -19,6 +19,7 @@ import (
 
 	"github.com/peter/ticket_pos/backend/internal/identity/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
+	platformtrendsrepo "github.com/peter/ticket_pos/backend/internal/platformtrends/repository"
 	"github.com/peter/ticket_pos/backend/internal/server"
 	"github.com/peter/ticket_pos/backend/migrations"
 )
@@ -254,6 +255,11 @@ func setupTest(t *testing.T) *testEnv {
 	// Platform Trends reads today off its own clock: what is partial, and
 	// where every span ends, is decided there.
 	sharedApp.PlatformTrendsService.WithClock(func() time.Time { return fixedClock })
+	// Which Organizations a process has already marked active today is held
+	// in memory, so that a Member's later requests cost no write. The tables
+	// were just emptied, so that memory is emptied with them, and a store a
+	// test put in front of the real one is taken away.
+	sharedApp.PlatformTrendsService.WithOrganizationMarkerStore(organizationMarkerStore())
 	// No provider spacing between sends. The drain paces itself to the email
 	// provider's rate limit in production, which is real time and not the fixed
 	// clock, so a suite that drives whole weeks through it would spend that
@@ -277,10 +283,16 @@ func setupTest(t *testing.T) *testEnv {
 	return sharedEnv
 }
 
+// organizationMarkerStore is the store Organization markers are kept in
+// outside a test that watches or fails their writes.
+func organizationMarkerStore() *platformtrendsrepo.Repository {
+	return platformtrendsrepo.New(sharedApp.DB)
+}
+
 func resetDatabase(ctx context.Context, db *sql.DB) error {
 	// Update this list when new application tables are added via migrations.
 	if _, err := db.ExecContext(ctx, `
-		TRUNCATE TABLE platform_activity_totals, consent_access_log, legal_drafts, certificate_expiry_notices, invoicing_attempts, invoicing_additional_fields, invoicing_invoice_lines, invoicing_invoices_ec, invoicing_invoices, invoicing_sequences_ec, invoicing_issuers_ec, invoicing_issuers, event_page_views, assignment_reminders, follow_digests, follow_digest_sent_events, affiliate_links, platform_operators, payout_requests, payouts, organization_payout_profiles, payment_lines, payments, customer_organization_follows, customer_tag_follows, staff_terms_acceptances, pending_staff_terms, consent_records, pending_consents, customer_sessions, sale_reversals, tickets, ticket_sale_lines, ticket_sales, customers, sale_import_batches, event_tags, event_assignments, ticket_question_options, ticket_questions, ticket_type_promotions, ticket_types, events, otp_challenges, staff_locales, sessions, members, organizations RESTART IDENTITY CASCADE
+		TRUNCATE TABLE organization_activity_markers, organization_activity_recording, platform_activity_totals, consent_access_log, legal_drafts, certificate_expiry_notices, invoicing_attempts, invoicing_additional_fields, invoicing_invoice_lines, invoicing_invoices_ec, invoicing_invoices, invoicing_sequences_ec, invoicing_issuers_ec, invoicing_issuers, event_page_views, assignment_reminders, follow_digests, follow_digest_sent_events, affiliate_links, platform_operators, payout_requests, payouts, organization_payout_profiles, payment_lines, payments, customer_organization_follows, customer_tag_follows, staff_terms_acceptances, pending_staff_terms, consent_records, pending_consents, customer_sessions, sale_reversals, tickets, ticket_sale_lines, ticket_sales, customers, sale_import_batches, event_tags, event_assignments, ticket_question_options, ticket_questions, ticket_type_promotions, ticket_types, events, otp_challenges, staff_locales, sessions, members, organizations RESTART IDENTITY CASCADE
 	`); err != nil {
 		return fmt.Errorf("truncate tables: %w", err)
 	}

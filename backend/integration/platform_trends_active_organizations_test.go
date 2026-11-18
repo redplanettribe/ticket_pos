@@ -33,6 +33,8 @@ type dailyCloseResult struct {
 	FirstDayFrozen *string `json:"first_day_frozen"`
 	LastDayFrozen  *string `json:"last_day_frozen"`
 	ClosedThrough  string  `json:"closed_through"`
+
+	OrganizationMarkersDeleted int `json:"organization_markers_deleted"`
 }
 
 type platformTrendsActivityFigure struct {
@@ -414,7 +416,12 @@ func TestTheDistinctCountsReachExactlySevenAndThirtyDaysBack(t *testing.T) {
 		"day-8-org":  platformNoon(2026, 6, 29),
 		"day-7-org":  platformNoon(2026, 6, 30),
 	} {
-		newSellingOrganization(t, env, slug).recordImport(t, env, day, "2026-06-01T15:00:00Z")
+		// The Members setting these up and importing are working, which is
+		// activity too (#816). They do it on 2026-06-01, before either run
+		// of days begins, so the counts below are the recorded sales alone.
+		workingAt(t, env, platformNoon(2026, 6, 1), func() {
+			newSellingOrganization(t, env, slug).recordImport(t, env, day, "2026-06-01T15:00:00Z")
+		})
 	}
 
 	closeDaysAt(t, env, env.fixedClock)

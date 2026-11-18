@@ -569,6 +569,13 @@ func (s *Service) HasEventAccess(ctx context.Context, memberID, organizationID s
 }
 
 // LoadActiveMemberContext resolves the acting member for staff routes.
+//
+// It is also where a Member working marks their Organization active for the
+// day (#816, ADR 0080): a request that gets its Active Member here was
+// authenticated by a Staff Session and is acting in that Organization. The
+// Operator Dashboard's routes never come through here, so a Platform
+// Operator whose session still carries the last Organization they selected
+// marks nothing by reading the platform.
 func (s *Service) LoadActiveMemberContext(ctx context.Context, sessionID string) (ActiveMemberContext, error) {
 	session, err := s.loadActiveSession(ctx, sessionID, true)
 	if err != nil {
@@ -586,6 +593,9 @@ func (s *Service) LoadActiveMemberContext(ctx context.Context, sessionID string)
 		return ActiveMemberContext{}, identity.ErrMemberNotFound()
 	}
 
+	if s.activity != nil {
+		s.activity.MarkOrganizationActive(ctx, membership.OrganizationID, s.now())
+	}
 	return ActiveMemberContext{
 		MemberID:       membership.MemberID,
 		OrganizationID: membership.OrganizationID,

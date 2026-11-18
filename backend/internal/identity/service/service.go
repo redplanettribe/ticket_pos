@@ -129,6 +129,25 @@ type Service struct {
 	// Terms edition is current (#538, ADR 0066). See TermsVersionSource on why
 	// it is an interface and why it is this narrow.
 	termsVersions TermsVersionSource
+	// activity is told when a Member works in an Organization (#816). Nil
+	// until WithOrganizationActivity sets it.
+	activity OrganizationActivity
+}
+
+// OrganizationActivity is the one thing identity tells Platform Trends: that
+// a Member worked in an Organization at an instant. It returns nothing,
+// because nothing about recording it may fail or slow the request that
+// carried it; whoever implements it keeps its own failures to itself.
+type OrganizationActivity interface {
+	MarkOrganizationActive(ctx context.Context, organizationID string, at time.Time)
+}
+
+// WithOrganizationActivity sets who is told when a Member works in an
+// Organization. Platform Trends is built after identity, which it reads, so
+// this is set once both exist.
+func (s *Service) WithOrganizationActivity(activity OrganizationActivity) *Service {
+	s.activity = activity
+	return s
 }
 
 // New returns an identity service.

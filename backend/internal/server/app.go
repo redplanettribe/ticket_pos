@@ -716,16 +716,21 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// read (#639), tied here for the same reason.
 	catalogService = catalogService.WithDossierSaleDocuments(invoicingService)
 
-	// Platform Trends owns one table, the activity totals its daily close
-	// freezes. Everything else it reads: Tickets Sold, money and the sale
+	// Platform Trends owns the activity totals its daily close freezes and
+	// the Organization markers it counts them from. Everything else it reads: Tickets Sold, money and the sale
 	// half of Active Organizations through sales, new Verified Customers
 	// through customers, new Organizations through identity, Page Views
 	// through affiliates, which keeps their hourly buckets, and Events
 	// Published through catalog, all on the platform clock.
-	platformTrendsService := platformtrendssvc.New(platformtrendsrepo.New(db), salesService, customersService, identityService, affiliatesService, catalogService)
+	platformTrendsRepository := platformtrendsrepo.New(db)
+	platformTrendsService := platformtrendssvc.New(platformTrendsRepository, platformTrendsRepository, platformLogger, salesService, customersService, identityService, affiliatesService, catalogService)
 	if options.clock != nil {
 		platformTrendsService = platformTrendsService.WithClock(options.clock)
 	}
+	// A Member working marks their Organization active for the day (#816):
+	// identity says so where it loads a request's Active Member, on its own
+	// clock, and Platform Trends keeps the marker.
+	identityService.WithOrganizationActivity(platformTrendsService)
 	platformTrendsHandler := platformtrendshandler.New(platformTrendsService)
 
 	return &App{

@@ -42,8 +42,8 @@ const (
 // and a count and names no Organization.
 type DailyCloseResult struct {
 	// DaysFrozen is how many platform days this run froze. Zero is the
-	// answer of a second run the same night, and of a platform that has
-	// never recorded a Ticket Sale.
+	// answer of a second run the same night, and of a platform no
+	// Organization has ever been active on.
 	DaysFrozen int `json:"days_frozen"`
 	// FirstDayFrozen is the oldest day this run froze. Null when it froze
 	// none.
@@ -54,11 +54,16 @@ type DailyCloseResult struct {
 	// ClosedThrough is the last closed platform day on the clock the run
 	// read: yesterday. Every day up to it is frozen once the run answers.
 	ClosedThrough string `json:"closed_through" example:"2026-07-06"`
+	// OrganizationMarkersDeleted is how many Organization markers older
+	// than thirteen months this run deleted. The frozen totals of the days
+	// they marked are untouched.
+	OrganizationMarkersDeleted int `json:"organization_markers_deleted"`
 }
 
 // CloseDays runs the daily close: it freezes every closed platform day that
-// has no totals yet, oldest first, from the day the first Ticket Sale was
-// recorded through yesterday.
+// has no totals yet, oldest first, from the first day an Organization was
+// active through yesterday, and then deletes the Organization markers older
+// than thirteen months.
 //
 // Which days are closed comes from this service's clock and never from the
 // caller. A day already frozen is left exactly as it is, so the run is safe
@@ -70,24 +75,46 @@ type DailyCloseResult struct {
 // on from there, so the frozen days never have a hole in them. The scheduled
 // route turns that error into a failed check-in.
 //
-// The Organizations active on a day are, for now, the sale half alone: those
-// a Ticket Sale was recorded for that day.
+// The first day frozen with a marker in it is written down as the day exact
+// recording of Active Organizations began, before that day is frozen, so
+// that no run can freeze it and leave the day unsaid. Days frozen before it
+// hold the sale half alone and stay that way.
+//
+// Markers are deleted last, and only by a run that froze everything it
+// meant to: a marker is never deleted while a day it counts towards is
+// still unfrozen, unless the close has been failing for thirteen months.
 func (s *Service) CloseDays(ctx context.Context) (*DailyCloseResult, error) {
 	now := s.now()
-	yesterday := civilDate(now).AddDate(0, 0, -1)
+	today := civilDate(now)
+	yesterday := today.AddDate(0, 0, -1)
 	result := &DailyCloseResult{ClosedThrough: yesterday.Format(dayFormat)}
 
-	first, err := firstDay(ctx, s.sales.PlatformFirstSaleRecordedDay)
+	if err := s.freezeDays(ctx, now, yesterday, result); err != nil {
+		return nil, err
+	}
+
+	deleted, err := s.markers.store.DeleteOrganizationMarkersBefore(ctx, today.AddDate(0, -markerRetentionMonths, 0).Format(dayFormat))
 	if err != nil {
 		return nil, err
 	}
+	result.OrganizationMarkersDeleted = deleted
+	return result, nil
+}
+
+// freezeDays freezes every closed day through yesterday that has no totals
+// yet, and states what it froze on result.
+func (s *Service) freezeDays(ctx context.Context, now, yesterday time.Time, result *DailyCloseResult) error {
+	first, err := s.firstActiveDay(ctx)
+	if err != nil {
+		return err
+	}
 	if first == nil || first.After(yesterday) {
-		return result, nil
+		return nil
 	}
 
 	frozen, err := s.totals.ActivityTotalsBetween(ctx, first.Format(dayFormat), yesterday.Format(dayFormat))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	isFrozen := make(map[string]bool, len(frozen))
 	for _, totals := range frozen {
@@ -100,7 +127,7 @@ func (s *Service) CloseDays(ctx context.Context) (*DailyCloseResult, error) {
 		}
 	}
 	if len(unfrozen) == 0 {
-		return result, nil
+		return nil
 	}
 
 	// The oldest unfrozen day's 30-day count reaches 29 days before it.
@@ -108,21 +135,31 @@ func (s *Service) CloseDays(ctx context.Context) (*DailyCloseResult, error) {
 	if readFrom.Before(*first) {
 		readFrom = *first
 	}
-	activeOn, err := s.organizationsActiveByDay(ctx, readFrom, yesterday)
+	active, err := s.organizationsActiveByDay(ctx, readFrom, yesterday)
 	if err != nil {
-		return nil, err
+		return err
+	}
+	_, markersBegan, err := s.markers.store.OrganizationMarkersBeganOn(ctx)
+	if err != nil {
+		return err
 	}
 
 	for _, day := range unfrozen {
 		stated := day.Format(dayFormat)
+		if !markersBegan && active.marked[stated] {
+			if err := s.markers.store.RecordOrganizationMarkersBegan(ctx, stated); err != nil {
+				return err
+			}
+			markersBegan = true
+		}
 		wrote, err := s.totals.FreezeActivityTotals(ctx, repository.ActivityTotals{
 			Day:                       stated,
-			ActiveOrganizations:       len(activeOn[stated]),
-			ActiveOrganizations7Days:  distinctOver(activeOn, day, distinctShortDays),
-			ActiveOrganizations30Days: distinctOver(activeOn, day, distinctLongDays),
+			ActiveOrganizations:       len(active.on[stated]),
+			ActiveOrganizations7Days:  distinctOver(active.on, day, distinctShortDays),
+			ActiveOrganizations30Days: distinctOver(active.on, day, distinctLongDays),
 		}, now)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if !wrote {
 			// Another run froze it first.
@@ -134,27 +171,71 @@ func (s *Service) CloseDays(ctx context.Context) (*DailyCloseResult, error) {
 		}
 		result.LastDayFrozen = &stated
 	}
-	return result, nil
+	return nil
 }
 
-// organizationsActiveByDay is the Organizations active on each platform day
-// from firstDay through lastDay, keyed by day and then by Organization. It
-// is the one place that says what makes an Organization active, and today
-// that is the sale half alone.
-func (s *Service) organizationsActiveByDay(ctx context.Context, firstDay, lastDay time.Time) (map[string]map[string]struct{}, error) {
-	recorded, err := s.sales.PlatformOrganizationsWithSalesRecordedByDay(ctx,
-		platform.StartOfEcuadorDate(firstDay), platform.StartOfEcuadorDate(lastDay.AddDate(0, 0, 1)), platform.EcuadorTimeZone)
+// firstActiveDay is the first platform day any Organization was active on:
+// the earlier of the day the first Ticket Sale was recorded and the day of
+// the oldest marker still kept. Nil when there is neither. Every day from it
+// on is one the close freezes; once the oldest markers are deleted it may
+// name a later day, by which time the days before it are long frozen.
+func (s *Service) firstActiveDay(ctx context.Context) (*time.Time, error) {
+	first, err := firstDay(ctx, s.sales.PlatformFirstSaleRecordedDay)
 	if err != nil {
 		return nil, err
 	}
-	activeOn := map[string]map[string]struct{}{}
-	for _, sale := range recorded {
-		if activeOn[sale.Day] == nil {
-			activeOn[sale.Day] = map[string]struct{}{}
-		}
-		activeOn[sale.Day][sale.OrganizationID] = struct{}{}
+	marked, err := firstDay(ctx, func(ctx context.Context, _ string) (string, bool, error) {
+		return s.markers.store.FirstOrganizationMarkerDay(ctx)
+	})
+	if err != nil {
+		return nil, err
 	}
-	return activeOn, nil
+	if first == nil || (marked != nil && marked.Before(*first)) {
+		return marked, nil
+	}
+	return first, nil
+}
+
+// activeOrganizationsByDay is the Organizations active on each of a run of
+// platform days.
+type activeOrganizationsByDay struct {
+	// on is keyed by day and then by Organization.
+	on map[string]map[string]struct{}
+	// marked holds the days on which a Member worked in any Organization.
+	marked map[string]bool
+}
+
+// organizationsActiveByDay is the Organizations active on each platform day
+// from firstDay through lastDay. It is the one place that says what makes an
+// Organization active: a Ticket Sale was recorded for it that day, or a
+// Member worked in it that day, and one that did both is there once.
+func (s *Service) organizationsActiveByDay(ctx context.Context, firstDay, lastDay time.Time) (activeOrganizationsByDay, error) {
+	active := activeOrganizationsByDay{on: map[string]map[string]struct{}{}, marked: map[string]bool{}}
+	add := func(day, organizationID string) {
+		if active.on[day] == nil {
+			active.on[day] = map[string]struct{}{}
+		}
+		active.on[day][organizationID] = struct{}{}
+	}
+
+	recorded, err := s.sales.PlatformOrganizationsWithSalesRecordedByDay(ctx,
+		platform.StartOfEcuadorDate(firstDay), platform.StartOfEcuadorDate(lastDay.AddDate(0, 0, 1)), platform.EcuadorTimeZone)
+	if err != nil {
+		return active, err
+	}
+	for _, sale := range recorded {
+		add(sale.Day, sale.OrganizationID)
+	}
+
+	markers, err := s.markers.store.OrganizationMarkersBetween(ctx, firstDay.Format(dayFormat), lastDay.Format(dayFormat))
+	if err != nil {
+		return active, err
+	}
+	for _, marker := range markers {
+		add(marker.Day, marker.OrganizationID)
+		active.marked[marker.Day] = true
+	}
+	return active, nil
 }
 
 // distinctOver counts the different subjects active across the days ending
@@ -179,14 +260,16 @@ type PlatformTrendActivityFigure struct {
 	// zero that means "not measured".
 	Recorded bool `json:"recorded"`
 	// ExactSince is the platform day the figure began to be recorded in
-	// full. Null while no such day exists.
+	// full: for Active Organizations the first day the daily close froze
+	// with a Member's work counted in it. Days frozen before it hold the
+	// sale half alone. Null while no such day exists.
 	ExactSince *string `json:"exact_since" example:"2026-07-07"`
 	// DataSince is the first platform day the daily close froze. Null when
 	// it has frozen none.
 	DataSince *string `json:"data_since" example:"2026-01-15"`
 	// SaleHalfOnly is true while Active Organizations is counted from
-	// recorded Ticket Sales alone on every day: a Member working in an
-	// Organization that recorded no sale is not yet seen.
+	// recorded Ticket Sales alone on every frozen day, which is while
+	// ExactSince is null: no day has been frozen with a Member's work in it.
 	SaleHalfOnly bool `json:"sale_half_only"`
 	// Mean is the mean daily count over the frozen days of the span. Null
 	// when the span has no frozen day.
@@ -259,9 +342,16 @@ func (s *Service) activeOrganizations(ctx context.Context, span Span) (PlatformT
 	}
 
 	figure := activityFigureOf(span, dataSince, frozen)
-	// No Organization marker is recorded yet, so no day has the Member half
-	// and there is no day from which the figure is whole.
-	figure.SaleHalfOnly = true
+	// The figure is whole from the first day the close froze with markers.
+	// Until it has frozen one, every day holds the sale half alone.
+	began, ok, err := s.markers.store.OrganizationMarkersBeganOn(ctx)
+	if err != nil {
+		return PlatformTrendActivityFigure{}, err
+	}
+	if ok {
+		figure.ExactSince = &began
+	}
+	figure.SaleHalfOnly = !ok
 	return figure, nil
 }
 
