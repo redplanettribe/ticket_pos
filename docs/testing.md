@@ -115,7 +115,7 @@ Avoid deprecated synonyms such as "user" for Member or "order" for Ticket Sale.
 | Target | Purpose |
 |--------|---------|
 | `make test` | Fast local feedback: non-integration Go tests (excluding `backend/integration/`) plus JavaScript tests via `pnpm turbo test` |
-| `make test-integration` | Full HTTP integration suite: `go test ./integration/...` (requires Docker) |
+| `make test-integration` | Full HTTP integration suite: `go test ./integration/...` with the timeout the Makefile states (requires Docker) |
 | `make test-parity` | Playwright smoke tests against the production-parity stack (requires `make prod`) |
 | `make ci` | Pre-push parity with CI: full Go suite including integration, `go vet`, and `pnpm turbo lint typecheck build` |
 
