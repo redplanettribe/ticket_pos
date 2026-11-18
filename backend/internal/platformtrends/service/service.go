@@ -174,8 +174,9 @@ type PlatformTrendComparison struct {
 	LastDay  string         `json:"last_day" example:"2026-06-06"`
 }
 
-// PlatformTrendFigures is every figure Platform Trends states. It is built for the eight
-// the page draws (#808) and carries those whose reads have shipped.
+// PlatformTrendFigures is every figure Platform Trends states: the eight the
+// page draws (#808), money being two of them here, money sold and Platform
+// Fee earned.
 type PlatformTrendFigures struct {
 	// TicketsSold is the quantity over active Ticket Sales, by the instant
 	// sold, one series per Sales Channel.
@@ -212,11 +213,14 @@ type PlatformTrendFigures struct {
 	// Event is counted on its creation day, as a stand-in, and one cancelled
 	// before then is not counted at all.
 	EventsPublished PlatformTrendFigure `json:"events_published"`
-	// ActiveOrganizations is the Organizations active per day: those a
+	// ActiveOrganizations is the Active Organizations per day: those a
 	// Ticket Sale was recorded for that day, by the day the sale reached
 	// the platform and not the day it says it was sold, on any Sales
-	// Channel, reversed or not. It is read from the totals the daily close
-	// froze, never live.
+	// Channel, reversed or not, or a Member worked in through a Staff
+	// Session that day, each counted once. A day before exact_since, the
+	// day exact recording of Active Organizations began, holds the sale
+	// half only: the Organizations a Ticket Sale was recorded for. It is
+	// read from the totals the Daily Close froze, never live.
 	ActiveOrganizations PlatformTrendActivityFigure `json:"active_organizations"`
 	// ActiveCustomers is the Customers active per day: those who acted as
 	// themselves that day, through a Customer Session or by accepting a

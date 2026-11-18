@@ -6,10 +6,12 @@
 # an in-process ticker is the one ADR 0024 records: min_instances = 0 and
 # cpu_idle = true mean there is frequently no process alive to tick.
 #
-# This job deletes nothing and sends nothing. It writes one row per closed
-# day and never rewrites one. A missed run leaves no hole: the endpoint
-# freezes every closed day that has no row yet, oldest first, so the next run
-# makes a missed night good. What a missed run does cost is a day: until it
+# This job sends nothing. It writes one row per closed day and never rewrites
+# one. The same run deletes the activity markers older than thirteen months,
+# an Organization's and a Customer's alike (#816, #817); the frozen totals
+# outlive them and no row of totals is ever deleted. A missed run leaves no
+# hole: the endpoint freezes every closed day that has no row yet, oldest
+# first, so the next run makes a missed night good. What a missed run does cost is a day: until it
 # is made good, Platform Trends states the unfrozen day as absent and its
 # 7-day and 30-day figures as unknown, which is why the monitor below opens
 # an issue on the first bad run.
