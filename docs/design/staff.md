@@ -125,6 +125,11 @@ Usable on phone in a pinch; tablet landscape is the primary target.
 - **Tile**: label, figure, change, small trend line, then lesser readings under a rule; a money tile stacks one reading per currency.
   The four states of a change are an arrow up with "+", an arrow down with "-", a dash, and the sentence "nothing to compare against" with no icon.
   Colour repeats the icon and never carries the state alone.
+- **Platform Trends** (#821) opens the Operator Dashboard's Overview, above the queues and totals: its controls, the tiles three to a row, then one chart per figure two to a row.
+  The span and the comparison live in the page's address, and choosing either draws the new reading in place, with the one before dimmed until it arrives.
+  A figure read as a trajectory is a line; Tickets Sold is bars stacked by Sales Channel.
+  Money is one chart per currency, never two currencies on one axis.
+  Each chart is drawn at its card's width, and scrolls sideways only in a card narrower than the plot's floor.
 
 ## Copy tone
 

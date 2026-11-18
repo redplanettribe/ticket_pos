@@ -312,8 +312,17 @@ const NICE_STEPS = [1, 2, 2.5, 5, 10];
  * floor of 1 so the axis draws a scale instead of collapsing to a line.
  */
 export function trendsYMax(data: readonly TrendsDatum[]): number {
-  const tallest = data.reduce((max, datum) => Math.max(max, datum.total), 0);
-  if (tallest <= 0) {
+  return axisTopFor(data.reduce((max, datum) => Math.max(max, datum.total), 0));
+}
+
+/**
+ * axisTopFor is the top of a Y axis whose tallest drawn value is `tallest`:
+ * that value rounded up to a readable tick, and 1 when nothing is above zero.
+ * The rounding of `trendsYMax`, apart from what it measures, so a chart of
+ * another shape of data (Platform Trends) tops its axis the same way.
+ */
+export function axisTopFor(tallest: number): number {
+  if (!(tallest > 0)) {
     return 1;
   }
   const decade = 10 ** Math.floor(Math.log10(tallest));

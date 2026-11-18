@@ -31,9 +31,11 @@ import {
   fetchOperatorRecipientWarningCount,
   fetchOperatorSummary,
 } from "@/lib/operator-api";
+import type { PlatformTrendsView } from "@/lib/platform-trends";
 
 import { CertificateExpiryBanner } from "./invoicing/certificate-expiry-warning";
 import { ClosingSweepBanner } from "./invoicing/closing-sweep-banner";
+import { PlatformTrendsSection } from "./platform-trends-section";
 
 /**
  * The one place platform revenue stops being "active sales only": fees kept on
@@ -135,7 +137,7 @@ function CountCard({
  * below these totals; both are destinations on the operator panel now, and the
  * counts here lead to them rather than reproducing them.
  */
-export function OperatorDashboardClient() {
+export function OperatorDashboardClient({ trendsView }: { trendsView: PlatformTrendsView }) {
   const t = useTranslations("operator");
   const errorCopy = useMessages().errors;
   const locale = toAppLocale(useLocale());
@@ -208,8 +210,24 @@ export function OperatorDashboardClient() {
     void load();
   }, [load]);
 
+  // Platform Trends (#821) opens the Overview, above everything that was
+  // already here. It reads on its own, as the banners below do, so its
+  // failure leaves the queues and totals standing, and it starts reading at
+  // once instead of waiting for them.
+  const header = <PageHeader title={t("title")} description={t("description")} />;
+  const platformTrends = <PlatformTrendsSection view={trendsView} />;
+
   if (loading) {
-    return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
+    // The header and the section stand first under the same parent here as
+    // in the loaded page below, which is what keeps the section mounted, and
+    // its request alive, when the Overview's own batch lands.
+    return (
+      <div className="space-y-6">
+        {header}
+        {platformTrends}
+        <p className="text-sm text-muted-foreground">{t("loading")}</p>
+      </div>
+    );
   }
 
   if (forbidden) {
@@ -232,7 +250,8 @@ export function OperatorDashboardClient() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title={t("title")} description={t("description")} />
+      {header}
+      {platformTrends}
 
       {/*
         The Certificate Expiry Warning (#504, ADR 0063): above the queues,
