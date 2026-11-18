@@ -275,7 +275,11 @@ export function platformTrendsViewAfterComparisonChange(
 /**
  * A change as the tile states it: the backend's signed ratio as a signed
  * percentage, "+12.5%" and "-10%", with the reader's marks. Zero carries no
- * sign. An absent change never reaches here: it is null on the tile, which
+ * sign, and neither does a change too small to print. The tile hands this the
+ * ratio it already rounded to one decimal of a percent, the precision kept
+ * here, and reads its direction from that same number
+ * (`roundedTrendChange` in the UI package), so the two agree. An absent
+ * change never reaches here: it is null on the tile, which
  * says there is nothing to compare against.
  */
 export function formatTrendChange(ratio: number, locale: AppLocale): string {
@@ -508,15 +512,21 @@ export function salesOnlyThroughout(
 }
 
 /**
- * Whether the comparison span of Active Organizations reaches days that
- * count sales alone: it begins before the day a Member's work was first
- * counted. The change then sets fuller days against them, which the section
- * says beside the chart.
+ * Whether the change of Active Organizations is stated against days that
+ * count sales alone: the comparison span begins before the day a Member's
+ * work was first counted. The change then sets fuller days against them,
+ * which the section says beside the chart.
+ *
+ * With no change stated there is nothing for that note to qualify, and the
+ * answer is no: the tile already says there is nothing to compare against.
  */
 export function comparisonReachesSalesOnly(
   figure: PlatformTrendActivityFigure,
   comparison: PlatformTrendDays,
 ): boolean {
+  if (figure.change === null) {
+    return false;
+  }
   return figure.exact_since === null || comparison.first_day < figure.exact_since;
 }
 

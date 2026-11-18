@@ -179,6 +179,9 @@ test("a change is a signed percentage in the reader's marks", () => {
   assert.equal(formatTrendChange(-0.1, "en"), "-10%");
   assert.equal(formatTrendChange(0, "en"), "0%");
   assert.equal(formatTrendChange(2, "en"), "+200%");
+  // A change too small to print carries no sign: the tile calls it no change.
+  assert.equal(formatTrendChange(0.0004, "en"), "0%");
+  assert.equal(formatTrendChange(-0.0004, "en"), "0%");
   // Spanish puts a comma in the fraction; the space before the sign is the
   // locale's own and may be a no-break one.
   assert.match(formatTrendChange(0.125, "es"), /^\+12,5\s?%$/);
@@ -361,12 +364,28 @@ test("a chart wholly before the day exact recording began has no marker to say s
   assert.equal(allBeforeMarker("2026-07-03", []), false);
 });
 
-test("a comparison span that begins before a Member's work was counted reaches sales-only days", () => {
+test("a change stated against a comparison span that begins before a Member's work was counted reaches sales-only days", () => {
   const comparison = { first_day: "2026-06-01", last_day: "2026-06-30" };
   assert.equal(comparisonReachesSalesOnly(activity({ exact_since: "2026-06-15" }), comparison), true);
   assert.equal(comparisonReachesSalesOnly(activity({ exact_since: null, sale_half_only: true }), comparison), true);
   assert.equal(comparisonReachesSalesOnly(activity({ exact_since: "2026-06-01" }), comparison), false);
   assert.equal(comparisonReachesSalesOnly(activity({ exact_since: "2026-01-01" }), comparison), false);
+});
+
+test("with no change stated there is nothing for the sales-only comparison note to qualify", () => {
+  const comparison = { first_day: "2026-06-01", last_day: "2026-06-30" };
+  // The tile says there is nothing to compare against; the note speaks of
+  // "the change" and is not shown.
+  assert.equal(
+    comparisonReachesSalesOnly(activity({ exact_since: "2026-06-15", change: null }), comparison),
+    false,
+  );
+  assert.equal(
+    comparisonReachesSalesOnly(activity({ exact_since: null, sale_half_only: true, change: null }), comparison),
+    false,
+  );
+  // A change that prints as 0% is still a change stated.
+  assert.equal(comparisonReachesSalesOnly(activity({ exact_since: "2026-06-15", change: 0 }), comparison), true);
 });
 
 test("the axis makes room for the comparison and for the stack", () => {

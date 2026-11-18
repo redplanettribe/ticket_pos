@@ -124,6 +124,7 @@ Usable on phone in a pinch; tablet landscape is the primary target.
 - **Not recorded** is not zero: a figure with no recorded value draws no axis and no grid, only the room the chart would take and the words for why.
 - **Tile**: label, figure, change, small trend line, then lesser readings under a rule; a money tile stacks one reading per currency.
   The four states of a change are an arrow up with "+", an arrow down with "-", a dash, and the sentence "nothing to compare against" with no icon.
+  The direction is that of the percentage printed, to one decimal: a change that prints as 0% is the dash, never an arrow.
   Colour repeats the icon and never carries the state alone.
 - **Platform Trends** (#821) opens the Operator Dashboard's Overview, above the queues and totals: its controls, the tiles three to a row, then one chart per figure two to a row.
   The span and the comparison live in the page's address, and choosing either draws the new reading in place, with the one before dimmed until it arrives.

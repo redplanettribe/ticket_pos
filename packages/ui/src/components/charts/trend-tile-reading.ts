@@ -15,18 +15,54 @@
 export type TrendDirection = "growth" | "decline" | "unchanged" | "nothing";
 
 /**
+ * How finely a tile states a change: one decimal of a percent, which is a
+ * thousandth of the ratio.
+ */
+const CHANGE_STEPS_PER_UNIT = 1000;
+
+/**
+ * A change as the tile states it: the signed ratio (0.25 is a quarter more)
+ * rounded to one decimal of a percent, or null when there is no change to
+ * state (an absent one, or one that is not a finite number).
+ *
+ * This is the one place the rounding lives. The tile reads the direction from
+ * this number (`trendDirection`) and hands this number to the caller to
+ * spell, so the arrow and the percentage beside it cannot disagree: a ratio
+ * of 0.0004 is 0 here, drawn as no change and printed as 0%.
+ *
+ * A half rounds away from zero on both sides, so a growth and a decline of
+ * the same size are stated the same size. The result is never a negative
+ * zero.
+ */
+export function roundedTrendChange(change: number | null | undefined): number | null {
+  if (change === null || change === undefined || !Number.isFinite(change)) {
+    return null;
+  }
+  const steps = Math.round(Math.abs(change) * CHANGE_STEPS_PER_UNIT);
+  if (steps === 0) {
+    return 0;
+  }
+  return (Math.sign(change) * steps) / CHANGE_STEPS_PER_UNIT;
+}
+
+/**
  * The state of a change stated as a signed ratio (0.25 is a quarter more).
  * An absent change is `nothing`, and so is one that is not a finite number: a
  * division by an empty comparison is never drawn as growth without end.
+ *
+ * The direction is that of the change as the tile prints it
+ * (`roundedTrendChange`), not of the raw ratio: a change too small to print
+ * is `unchanged`.
  */
 export function trendDirection(change: number | null | undefined): TrendDirection {
-  if (change === null || change === undefined || !Number.isFinite(change)) {
+  const stated = roundedTrendChange(change);
+  if (stated === null) {
     return "nothing";
   }
-  if (change > 0) {
+  if (stated > 0) {
     return "growth";
   }
-  return change < 0 ? "decline" : "unchanged";
+  return stated < 0 ? "decline" : "unchanged";
 }
 
 export type SparklinePoint = { x: number; y: number };

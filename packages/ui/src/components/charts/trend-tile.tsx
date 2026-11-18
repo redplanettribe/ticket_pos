@@ -3,7 +3,7 @@ import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 
 import { chartSeriesColor } from "../../lib/chart-palette";
 import { cn } from "../../lib/utils";
-import { sparklineShape, trendDirection, type TrendDirection } from "./trend-tile-reading";
+import { roundedTrendChange, sparklineShape, trendDirection, type TrendDirection } from "./trend-tile-reading";
 
 /**
  * One figure of a tile: what it came to over the span, how that compares, and
@@ -45,13 +45,19 @@ export type TrendTileSecondary = {
  * them, and this package holds no copy.
  */
 export type TrendTileChangeCopy = {
-  /** Spells a signed ratio as a signed percentage, e.g. 0.125 as "+12.5%". */
+  /**
+   * Spells a signed ratio as a signed percentage, e.g. 0.125 as "+12.5%".
+   * The tile hands it the ratio already rounded to the one decimal of a
+   * percent it states (`roundedTrendChange`), the number its direction was
+   * read from. Print it at that precision and no coarser.
+   */
   format: (ratio: number) => string;
   /** What a positive change is called where the arrow cannot be seen. */
   growth: string;
   /** What a negative change is called where the arrow cannot be seen. */
   decline: string;
-  /** What a change of zero is called where the dash cannot be seen. */
+  /** What a change that prints as zero is called where the dash cannot be
+   * seen. */
   unchanged: string;
   /** What is said when there is no change to state. */
   nothingToCompare: string;
@@ -75,7 +81,8 @@ export type TrendTileProps = {
  * small line for the shape of the span.
  *
  * It draws what it is told and derives one thing, the direction of a change
- * from its sign (`trendDirection`). The four states of a change are told
+ * from the sign of the percentage it prints (`trendDirection`): a change that
+ * rounds to 0% is no change. The four states of a change are told
  * apart by an icon and by words, the percentage carries its own sign, and the
  * figure is in the text colour throughout, so no state is carried by colour
  * alone: growth is an arrow up and a "+", decline an arrow down and a "-", no
@@ -146,8 +153,10 @@ const DIRECTION_TONE: Record<Exclude<TrendDirection, "nothing">, string> = {
 };
 
 function TrendTileChange({ change, copy }: { change: number | null; copy: TrendTileChangeCopy }) {
-  const direction = trendDirection(change);
-  if (direction === "nothing" || change === null) {
+  // One rounding for both: the direction is the sign of the number printed.
+  const stated = roundedTrendChange(change);
+  const direction = trendDirection(stated);
+  if (direction === "nothing" || stated === null) {
     return <p className="text-xs text-muted-foreground">{copy.nothingToCompare}</p>;
   }
   const Icon = DIRECTION_ICON[direction];
@@ -155,7 +164,7 @@ function TrendTileChange({ change, copy }: { change: number | null; copy: TrendT
     <p className="flex items-center gap-1 text-xs font-medium tabular-nums">
       <Icon aria-hidden className={cn("size-3.5 shrink-0", DIRECTION_TONE[direction])} />
       <span className="sr-only">{copy[direction]}</span>
-      <span>{copy.format(change)}</span>
+      <span>{copy.format(stated)}</span>
     </p>
   );
 }

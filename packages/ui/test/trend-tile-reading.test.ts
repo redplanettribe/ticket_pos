@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { sparklineShape, trendDirection } from "../src/components/charts/trend-tile-reading.ts";
+import { roundedTrendChange, sparklineShape, trendDirection } from "../src/components/charts/trend-tile-reading.ts";
 
 // --- the four states of a change ----------------------------------------------
 
@@ -25,6 +25,41 @@ test("a change that is not a number is nothing to compare against", () => {
   // does it is not drawn as growth without end.
   assert.equal(trendDirection(Number.POSITIVE_INFINITY), "nothing");
   assert.equal(trendDirection(Number.NaN), "nothing");
+});
+
+test("a change that prints as 0% is no change, not growth or decline", () => {
+  // The tile prints one decimal of a percent. A ratio too small to print is
+  // not drawn with an arrow beside "0%".
+  assert.equal(trendDirection(0.0004), "unchanged");
+  assert.equal(trendDirection(-0.0004), "unchanged");
+  assert.equal(roundedTrendChange(0.0004), 0);
+  // Never a negative zero, which a formatter could sign.
+  assert.ok(Object.is(roundedTrendChange(-0.0004), 0));
+});
+
+test("the smallest change that prints keeps its direction", () => {
+  assert.equal(trendDirection(0.0005), "growth");
+  assert.equal(trendDirection(-0.0005), "decline");
+  assert.equal(trendDirection(0.001), "growth");
+  assert.equal(trendDirection(-0.001), "decline");
+  // Halves round away from zero on both sides, so growth and decline of the
+  // same size print the same size.
+  assert.equal(roundedTrendChange(0.0005), 0.001);
+  assert.equal(roundedTrendChange(-0.0005), -0.001);
+});
+
+test("a change is rounded to the one decimal of a percent the tile prints", () => {
+  assert.equal(roundedTrendChange(0.12549), 0.125);
+  assert.equal(roundedTrendChange(-0.1), -0.1);
+  assert.equal(roundedTrendChange(2), 2);
+  assert.equal(roundedTrendChange(0), 0);
+});
+
+test("an absent change has no rounded change either", () => {
+  assert.equal(roundedTrendChange(null), null);
+  assert.equal(roundedTrendChange(undefined), null);
+  assert.equal(roundedTrendChange(Number.NaN), null);
+  assert.equal(roundedTrendChange(Number.NEGATIVE_INFINITY), null);
 });
 
 // --- the small trend line -----------------------------------------------------
