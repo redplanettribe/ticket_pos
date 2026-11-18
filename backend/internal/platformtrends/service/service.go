@@ -251,12 +251,15 @@ type PlatformTrendFigure struct {
 	// series are not in one unit (money, per currency) and cannot be summed.
 	Total *int `json:"total"`
 	// ComparisonTotal is the figure's total over the comparison span from
-	// DataSince on. Null when Total is, or when the comparison span has no
-	// data.
+	// DataSince on, which is fewer days than Total covers when the comparison
+	// span begins before DataSince. Null when Total is, or when the
+	// comparison span has no data.
 	ComparisonTotal *int `json:"comparison_total"`
 	// Change is Total against ComparisonTotal as a signed ratio, 0.5 for half
 	// as much again and -0.5 for half as much. Null, never zero or infinite,
-	// when ComparisonTotal is null or zero.
+	// when ComparisonTotal is null or zero, and when the comparison span
+	// begins before DataSince: ComparisonTotal then covers fewer days than
+	// Total, and a ratio of the two would state growth that never happened.
 	Change *float64 `json:"change" example:"0.25"`
 	// Series is the figure's series in a stable order, each always present.
 	Series []PlatformTrendSeries `json:"series"`
@@ -284,7 +287,8 @@ type PlatformTrendSeries struct {
 	// figure's data_since on. Null when the comparison span has no data.
 	ComparisonTotal *int `json:"comparison_total"`
 	// Change is Total against ComparisonTotal as a signed ratio. Null, never
-	// zero or infinite, when ComparisonTotal is null or zero.
+	// zero or infinite, when ComparisonTotal is null or zero, and when the
+	// comparison span begins before the figure's data_since.
 	Change *float64 `json:"change" example:"-0.1"`
 	// ComparisonBuckets has one entry per entry of Buckets, at the same
 	// index: the comparison span's bucket of the same length. An entry is
@@ -544,7 +548,7 @@ func readWindows(span Span, dataSince *time.Time) []readWindow {
 // key and then by day: each series over the span and beside its comparison,
 // in the order keys gives, each always present. It is how every figure is
 // built, so each gets the comparison, the change and the absent history the
-// same way. A summable figure, one whose series share a unit, also states its
+// same way: no change is stated unless comparisonCovered. A summable figure, one whose series share a unit, also states its
 // totals across every series. The figure is stated as recorded and always
 // exact; a figure that is not sets Recorded and ExactSince itself.
 func figureOf(span Span, dataSince *time.Time, keys []string, perSeries map[string]map[string]int, summable bool) PlatformTrendFigure {
@@ -568,7 +572,9 @@ func figureOf(span Span, dataSince *time.Time, keys []string, perSeries map[stri
 		figure.Total = &total
 		if hasComparison {
 			figure.ComparisonTotal = &comparisonTotal
-			figure.Change = change(total, comparisonTotal)
+			if span.comparisonCovered(dataSince) {
+				figure.Change = change(total, comparisonTotal)
+			}
 		}
 	}
 	return figure
@@ -609,9 +615,20 @@ func seriesOf(key string, span Span, dataSince *time.Time, perDay map[string]int
 	}
 	if hasComparison {
 		series.ComparisonTotal = &comparisonTotal
-		series.Change = change(series.Total, comparisonTotal)
+		if span.comparisonCovered(dataSince) {
+			series.Change = change(series.Total, comparisonTotal)
+		}
 	}
 	return series
+}
+
+// comparisonCovered is whether a figure has data for every day of the
+// comparison span: its data began on or before the span's first day. A
+// change is stated only then. A comparison the data covers in part is still
+// drawn where it has data, but its total is of fewer days than the span's,
+// and the ratio of the two would read as growth that never happened.
+func (s Span) comparisonCovered(dataSince *time.Time) bool {
+	return dataSince != nil && !s.compared().FirstDay.Before(*dataSince)
 }
 
 // stated is a whole bucket as the response states it, carrying value.

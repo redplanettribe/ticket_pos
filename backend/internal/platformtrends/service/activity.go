@@ -429,7 +429,10 @@ type PlatformTrendActivityFigure struct {
 	// comparison span. Null when it has none.
 	ComparisonMean *float64 `json:"comparison_mean" example:"2.8"`
 	// Change is Mean against ComparisonMean as a signed ratio. Null, never
-	// zero or infinite, when either is null or ComparisonMean is zero.
+	// zero or infinite, when either is null or ComparisonMean is zero, and
+	// when the comparison span begins before DataSince: ComparisonMean is
+	// then the mean of the part of the comparison span that has a figure,
+	// which is not the span the change would claim to be against.
 	Change *float64 `json:"change" example:"0.25"`
 	// Distinct7Days is how many different subjects were active across the 7
 	// days ending on the span's last day, each counted once. Null while that
@@ -551,7 +554,8 @@ func (s *Service) activeCustomers(ctx context.Context, span Span, frozen []repos
 
 // activityFigureOf states an activity figure from its frozen days, keyed by
 // day: the span's buckets and mean, the comparison's beside them, the change
-// between the two means and the distinct counts as of the span's last day.
+// between the two means, stated only when comparisonCovered as for every
+// other figure, and the distinct counts as of the span's last day.
 // The figure is stated as recorded; one that is not sets Recorded itself.
 func activityFigureOf(span Span, dataSince *time.Time, frozen map[string]activityDay) PlatformTrendActivityFigure {
 	figure := PlatformTrendActivityFigure{Recorded: true}
@@ -561,7 +565,7 @@ func activityFigureOf(span Span, dataSince *time.Time, frozen map[string]activit
 	}
 	figure.Buckets, figure.Mean = activityBuckets(span, frozen)
 	figure.ComparisonBuckets, figure.ComparisonMean = activityBuckets(span.compared(), frozen)
-	if figure.Mean != nil && figure.ComparisonMean != nil && *figure.ComparisonMean != 0 {
+	if span.comparisonCovered(dataSince) && figure.Mean != nil && figure.ComparisonMean != nil && *figure.ComparisonMean != 0 {
 		ratio := (*figure.Mean - *figure.ComparisonMean) / *figure.ComparisonMean
 		figure.Change = &ratio
 	}

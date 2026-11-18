@@ -144,8 +144,9 @@ func TestPlatformTrendsCountsAnEventOnTheDayItWasPublished(t *testing.T) {
 		if figure.ComparisonTotal == nil || *figure.ComparisonTotal != 1 || series.ComparisonTotal == nil || *series.ComparisonTotal != 1 {
 			t.Fatalf("%s: comparison_total = %v (series %v), want 1", when, figure.ComparisonTotal, series.ComparisonTotal)
 		}
-		if figure.Change == nil || *figure.Change != 2 || series.Change == nil || *series.Change != 2 {
-			t.Fatalf("%s: change = %v (series %v), want 2", when, figure.Change, series.Change)
+		// 2026-06-23..2026-06-29 begins before the first publication.
+		if figure.Change != nil || series.Change != nil {
+			t.Fatalf("%s: change = %v (series %v); want none against a comparison span the data covers in part", when, shown(figure.Change), shown(series.Change))
 		}
 		assertDataSince(t, "events_published", figure, "2026-06-27")
 		if bucket := comparisonOn(t, series, "2026-06-26"); bucket != nil {
@@ -154,6 +155,16 @@ func TestPlatformTrendsCountsAnEventOnTheDayItWasPublished(t *testing.T) {
 		if bucket := comparisonOn(t, series, "2026-06-27"); bucket == nil || bucket.Value != 1 {
 			t.Fatalf("%s: comparison bucket on 2026-06-27 = %+v, want 1", when, bucket)
 		}
+
+		// 2026-07-02..2026-07-06 against 2026-06-27..2026-07-01, which
+		// begins on the day of the first publication.
+		covered := readPlatformTrends(t, env, operatorSessionID, "?span=custom&from=2026-07-02&to=2026-07-06")
+		coveredFigure := covered.Figures.EventsPublished
+		if coveredFigure.Total == nil || *coveredFigure.Total != 3 || coveredFigure.ComparisonTotal == nil || *coveredFigure.ComparisonTotal != 1 {
+			t.Fatalf("%s: covered totals = %v against %v, want 3 against 1", when, shown(coveredFigure.Total), shown(coveredFigure.ComparisonTotal))
+		}
+		wantChange(t, when+": covered", coveredFigure.Change, 2)
+		wantChange(t, when+": covered series", eventsPublishedSeries(t, covered).Change, 2)
 	}
 	assert("published")
 

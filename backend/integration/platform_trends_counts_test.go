@@ -43,15 +43,33 @@ func todayValue(t *testing.T, series platformTrendsSeries) int {
 func assertCompared(t *testing.T, name string, figure platformTrendsFigure, total, comparison int, change float64) {
 	t.Helper()
 	series := countSeries(t, name, figure)
+	assertComparedTotals(t, name, figure, total, comparison)
+	if figure.Change == nil || *figure.Change != change || series.Change == nil || *series.Change != change {
+		t.Fatalf("%s change = %v (series %v), want %v", name, figure.Change, series.Change, change)
+	}
+}
+
+// assertPartlyCompared checks a count figure whose comparison span begins
+// before its data does: the total, the comparison total over the days that
+// have data, and no change, on the figure and on its one series alike.
+func assertPartlyCompared(t *testing.T, name string, figure platformTrendsFigure, total, comparison int) {
+	t.Helper()
+	series := countSeries(t, name, figure)
+	assertComparedTotals(t, name, figure, total, comparison)
+	if figure.Change != nil || series.Change != nil {
+		t.Fatalf("%s change = %v (series %v); want none against a comparison span the data covers in part", name, shown(figure.Change), shown(series.Change))
+	}
+}
+
+func assertComparedTotals(t *testing.T, name string, figure platformTrendsFigure, total, comparison int) {
+	t.Helper()
+	series := countSeries(t, name, figure)
 	if figure.Total == nil || *figure.Total != total || series.Total != total {
 		t.Fatalf("%s total = %v (series %d), want %d", name, figure.Total, series.Total, total)
 	}
 	if figure.ComparisonTotal == nil || *figure.ComparisonTotal != comparison ||
 		series.ComparisonTotal == nil || *series.ComparisonTotal != comparison {
 		t.Fatalf("%s comparison_total = %v (series %v), want %d", name, figure.ComparisonTotal, series.ComparisonTotal, comparison)
-	}
-	if figure.Change == nil || *figure.Change != change || series.Change == nil || *series.Change != change {
-		t.Fatalf("%s change = %v (series %v), want %v", name, figure.Change, series.Change, change)
 	}
 }
 
@@ -171,7 +189,8 @@ func TestPlatformTrendsCountsACustomerOnTheDayTheyVerified(t *testing.T) {
 
 // TestPlatformTrendsComparesNewVerifiedCustomers: verifications either side
 // of platform midnight land on their own days, and the span is set beside the
-// one before it from the first verification on.
+// one before it from the first verification on, with a change only when
+// that span begins no earlier than the first verification.
 func TestPlatformTrendsComparesNewVerifiedCustomers(t *testing.T) {
 	env := setupTest(t)
 	for _, email := range []string{"a@example.com", "b@example.com", "c@example.com", "d@example.com", "e@example.com"} {
@@ -184,7 +203,8 @@ func TestPlatformTrendsComparesNewVerifiedCustomers(t *testing.T) {
 	setCustomerVerifiedAt(t, env, "d@example.com", time.Date(2026, 6, 26, 15, 0, 0, 0, time.UTC))
 	setCustomerVerifiedAt(t, env, "e@example.com", time.Date(2026, 6, 27, 15, 0, 0, 0, time.UTC))
 
-	trends := readPlatformTrends(t, env, operatorSession(t, env, "operator@example.com"), "?span=7d")
+	operatorSessionID := operatorSession(t, env, "operator@example.com")
+	trends := readPlatformTrends(t, env, operatorSessionID, "?span=7d")
 	figure := trends.Figures.NewVerifiedCustomers
 	series := countSeries(t, "new_verified_customers", figure)
 
@@ -193,7 +213,8 @@ func TestPlatformTrendsComparesNewVerifiedCustomers(t *testing.T) {
 			t.Fatalf("%s = %d, want %d", day, got, want)
 		}
 	}
-	assertCompared(t, "new_verified_customers", figure, 3, 2, 0.5)
+	// 2026-06-23..2026-06-29 begins before the first verification.
+	assertPartlyCompared(t, "new_verified_customers", figure, 3, 2)
 	assertDataSince(t, "new_verified_customers", figure, "2026-06-26")
 	if bucket := comparisonOn(t, series, "2026-06-25"); bucket != nil {
 		t.Fatalf("comparison bucket on 2026-06-25 = %+v, want it absent before the first verification", bucket)
@@ -201,6 +222,10 @@ func TestPlatformTrendsComparesNewVerifiedCustomers(t *testing.T) {
 	if bucket := comparisonOn(t, series, "2026-06-27"); bucket == nil || bucket.Value != 1 {
 		t.Fatalf("comparison bucket on 2026-06-27 = %+v, want 1", bucket)
 	}
+
+	// 2026-07-05..2026-07-06 against 2026-07-03..2026-07-04, all measured.
+	covered := readPlatformTrends(t, env, operatorSessionID, "?span=custom&from=2026-07-05&to=2026-07-06")
+	assertCompared(t, "new_verified_customers", covered.Figures.NewVerifiedCustomers, 2, 1, 1)
 }
 
 // TestPlatformTrendsCountsAnOrganizationOnItsCreationDay: Organizations
@@ -236,8 +261,13 @@ func TestPlatformTrendsCountsAnOrganizationOnItsCreationDay(t *testing.T) {
 	if got := todayValue(t, series); got != 1 {
 		t.Fatalf("today = %d, want the 1 Organization created today", got)
 	}
-	assertCompared(t, "new_organizations", figure, 3, 1, 2)
+	// 2026-06-23..2026-06-29 begins before the first Organization.
+	assertPartlyCompared(t, "new_organizations", figure, 3, 1)
 	assertDataSince(t, "new_organizations", figure, "2026-06-26")
+
+	// 2026-07-03..2026-07-06 against 2026-06-29..2026-07-02, all measured.
+	covered := readPlatformTrends(t, env, operatorSessionID, "?span=custom&from=2026-07-03&to=2026-07-06")
+	assertCompared(t, "new_organizations", covered.Figures.NewOrganizations, 2, 1, 1)
 }
 
 // TestPlatformTrendsSumsPageViewsAcrossEvents: a day's Page Views are the
@@ -275,7 +305,8 @@ func TestPlatformTrendsSumsPageViewsAcrossEvents(t *testing.T) {
 		t.Fatalf("stored counts on 2026-07-06 = %d, want 11: 9 loads and the 2 Clicks stored beside them", stored)
 	}
 
-	trends := readPlatformTrends(t, env, operatorSession(t, env, "operator@example.com"), "?span=7d")
+	operatorSessionID := operatorSession(t, env, "operator@example.com")
+	trends := readPlatformTrends(t, env, operatorSessionID, "?span=7d")
 	figure := trends.Figures.PageViews
 	series := countSeries(t, "page_views", figure)
 
@@ -285,11 +316,17 @@ func TestPlatformTrendsSumsPageViewsAcrossEvents(t *testing.T) {
 	if got := todayValue(t, series); got != 5 {
 		t.Fatalf("today = %d, want 5", got)
 	}
-	assertCompared(t, "page_views", figure, 9, 2, 3.5)
+	// 2026-06-23..2026-06-29 begins before the first Page View.
+	assertPartlyCompared(t, "page_views", figure, 9, 2)
 	assertDataSince(t, "page_views", figure, "2026-06-27")
 	if bucket := comparisonOn(t, series, "2026-06-26"); bucket != nil {
 		t.Fatalf("comparison bucket on 2026-06-26 = %+v, want it absent before the first Page View", bucket)
 	}
+
+	// 2026-07-02..2026-07-06 against 2026-06-27..2026-07-01, which begins on
+	// the day of the first Page View.
+	covered := readPlatformTrends(t, env, operatorSessionID, "?span=custom&from=2026-07-02&to=2026-07-06")
+	assertCompared(t, "page_views", covered.Figures.PageViews, 9, 2, 3.5)
 }
 
 // TestPlatformTrendsPutsAPageViewOnItsPlatformDay: the hourly buckets are

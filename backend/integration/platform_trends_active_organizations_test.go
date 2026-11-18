@@ -405,6 +405,42 @@ func TestActiveOrganizationsStatesTheMeanTheDistinctCountsAndTheComparison(t *te
 	}
 }
 
+// TestActiveOrganizationsStatesNoChangeAgainstAPartlyFrozenComparison: a
+// comparison span that begins before the first frozen day is drawn from that
+// day on, with its mean, and no change is stated against it (#826). One that
+// begins on the first frozen day states its change.
+func TestActiveOrganizationsStatesNoChangeAgainstAPartlyFrozenComparison(t *testing.T) {
+	env := setupTest(t)
+	org := newSellingOrganization(t, env, "young-org")
+	// The first sale the platform ever recorded, inside 2026-06-23..2026-06-29.
+	org.recordImport(t, env, platformNoon(2026, 6, 26), "2026-06-26T15:00:00Z")
+	org.recordImport(t, env, platformNoon(2026, 7, 1), "2026-07-01T15:00:00Z")
+	org.recordImport(t, env, platformNoon(2026, 7, 3), "2026-07-03T15:00:00Z")
+
+	closeDaysAt(t, env, env.fixedClock)
+	figure := readActiveOrganizations(t, env, "?span=7d")
+	if shown(figure.DataSince) != "2026-06-26" {
+		t.Fatalf("data_since = %v, want 2026-06-26", shown(figure.DataSince))
+	}
+	assertNear(t, "mean", figure.Mean, 2.0/7)
+	// The four frozen days of the comparison span, one of them active.
+	assertNear(t, "comparison_mean", figure.ComparisonMean, 1.0/4)
+	for i, bucket := range figure.ComparisonBuckets {
+		if wantPresent := i >= 3; (bucket != nil) != wantPresent {
+			t.Fatalf("comparison bucket %d = %+v; want present=%v, the first frozen day being 2026-06-26", i, shown(bucket), wantPresent)
+		}
+	}
+	if figure.Change != nil {
+		t.Fatalf("change = %v; want none against a comparison span frozen in part", *figure.Change)
+	}
+
+	// 2026-07-01..2026-07-05 against 2026-06-26..2026-06-30, frozen whole.
+	figure = readActiveOrganizations(t, env, "?span=custom&from=2026-07-01&to=2026-07-05")
+	assertNear(t, "covered mean", figure.Mean, 2.0/5)
+	assertNear(t, "covered comparison_mean", figure.ComparisonMean, 1.0/5)
+	assertNear(t, "covered change", figure.Change, 1)
+}
+
 // TestTheDistinctCountsReachExactlySevenAndThirtyDaysBack: the 7 days ending
 // on 2026-07-06 begin on 2026-06-30 and the 30 days on 2026-06-07. An
 // Organization active on the first day of a run is in its count, and one

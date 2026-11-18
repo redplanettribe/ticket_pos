@@ -240,7 +240,11 @@ func TestPlatformTrendsChangeIsAbsentWithNothingToCompare(t *testing.T) {
 }
 
 // TestPlatformTrendsComparisonStartsWhereTheDataDoes: a comparison span that
-// straddles the first day of data has buckets from that day on only.
+// straddles the first day of data has buckets from that day on only, and a
+// total over them, but no change (#826): the total is of fewer days than the
+// span's, and their ratio would state growth that never happened. A
+// comparison span that begins on the first day of data is covered whole and
+// states its change.
 func TestPlatformTrendsComparisonStartsWhereTheDataDoes(t *testing.T) {
 	env := setupTest(t)
 	sales := newImportedSales(t, env)
@@ -263,7 +267,31 @@ func TestPlatformTrendsComparisonStartsWhereTheDataDoes(t *testing.T) {
 	if imported.ComparisonTotal == nil || *imported.ComparisonTotal != 2 {
 		t.Fatalf("comparison total = %v, want 2", intOrNil(imported.ComparisonTotal))
 	}
-	wantChange(t, "straddled", imported.Change, -0.5)
+	if imported.Change != nil {
+		t.Fatalf("straddled change = %v; want it absent, 30 days set against the 18 that have data", *imported.Change)
+	}
+	figure := trends.Figures.TicketsSold
+	if figure.ComparisonTotal == nil || *figure.ComparisonTotal != 2 || figure.Change != nil {
+		t.Fatalf("figure comparison total %v change %v; want 2 and no change", intOrNil(figure.ComparisonTotal), figure.Change)
+	}
+
+	// 2026-06-07..2026-06-24 is compared with 2026-05-20..2026-06-06, which
+	// begins on the first day of data: every day of it is measured.
+	trends = readPlatformTrends(t, env, operatorSessionID, "?span=custom&from=2026-06-07&to=2026-06-24&compare=previous")
+	if trends.Comparison.FirstDay != "2026-05-20" || trends.Comparison.LastDay != "2026-06-06" {
+		t.Fatalf("comparison = %+v; want 2026-05-20..2026-06-06", trends.Comparison)
+	}
+	imported = seriesFor(t, trends, "import")
+	for i, compared := range imported.ComparisonBuckets {
+		if compared == nil {
+			t.Fatalf("comparison bucket %d is absent in a comparison span that begins with the data", i)
+		}
+	}
+	if imported.Total != 1 || imported.ComparisonTotal == nil || *imported.ComparisonTotal != 2 {
+		t.Fatalf("totals = %d against %v; want 1 against 2", imported.Total, intOrNil(imported.ComparisonTotal))
+	}
+	wantChange(t, "covered", imported.Change, -0.5)
+	wantChange(t, "covered figure", trends.Figures.TicketsSold.Change, -0.5)
 
 	// A shorter custom range: 2026-05-27..2026-07-06 is compared with
 	// 2026-04-16..2026-05-26, of which only the last seven days have data.
@@ -284,17 +312,22 @@ func TestPlatformTrendsComparisonStartsWhereTheDataDoes(t *testing.T) {
 	if present != 7 || imported.ComparisonBuckets[len(imported.ComparisonBuckets)-7].FirstDay != "2026-05-20" {
 		t.Fatalf("comparison buckets = %+v; want the seven days from 2026-05-20", imported.ComparisonBuckets)
 	}
+	if imported.ComparisonTotal == nil || *imported.ComparisonTotal != 2 || imported.Change != nil {
+		t.Fatalf("comparison total %v change %v; want 2 and no change, 41 days set against 7", intOrNil(imported.ComparisonTotal), imported.Change)
+	}
 }
 
 // TestPlatformTrendsWeeklyComparisonBucketIsCutAtTheFirstDayOfData: in a
 // yearly reading, the comparison week holding the first day of data starts on
-// that day, and every week before it is absent.
+// that day, and every week before it is absent. The weeks that have data are
+// totalled, and no change is stated against them.
 func TestPlatformTrendsWeeklyComparisonBucketIsCutAtTheFirstDayOfData(t *testing.T) {
 	env := setupTest(t)
 	sales := newImportedSales(t, env)
 	// The comparison of 12m is 2024-07-09..2025-07-07, whose weeks run
 	// Tuesday to Monday: 2024-12-31..2025-01-06 holds 2025-01-01.
 	sales.sell(t, "2025-01-01", 3)
+	sales.sell(t, "2026-03-01", 6) // in the span, so there is a total to set against it
 	operatorSessionID := operatorSession(t, env, "operator@example.com")
 
 	trends := readPlatformTrends(t, env, operatorSessionID, "?span=12m&compare=year_earlier")
@@ -323,6 +356,10 @@ func TestPlatformTrendsWeeklyComparisonBucketIsCutAtTheFirstDayOfData(t *testing
 		if imported.ComparisonBuckets[i] == nil {
 			t.Fatalf("comparison bucket %d is absent after the data began", i)
 		}
+	}
+	if imported.Total != 6 || imported.ComparisonTotal == nil || *imported.ComparisonTotal != 3 || imported.Change != nil {
+		t.Fatalf("total %d comparison total %v change %v; want 6, 3 and no change against a year begun in January",
+			imported.Total, intOrNil(imported.ComparisonTotal), imported.Change)
 	}
 }
 

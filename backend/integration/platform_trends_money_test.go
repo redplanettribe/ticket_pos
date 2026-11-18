@@ -145,8 +145,11 @@ func TestPlatformTrendsStatesMoneyPerCurrency(t *testing.T) {
 	if usdSold.ComparisonTotal == nil || *usdSold.ComparisonTotal != feeTestAllInCents {
 		t.Fatalf("USD money sold comparison_total = %v, want %d", intOrNil(usdSold.ComparisonTotal), feeTestAllInCents)
 	}
-	wantChange(t, "USD money sold", usdSold.Change,
-		float64(usdSold.Total-feeTestAllInCents)/float64(feeTestAllInCents))
+	// 2026-06-23..2026-06-29 begins before the first sale: the comparison
+	// total is of the days from it on, and no change is stated against it.
+	if usdSold.Change != nil {
+		t.Fatalf("USD money sold change = %v; want none against a comparison span the data covers in part", *usdSold.Change)
+	}
 	if len(usdSold.ComparisonBuckets) != len(usdSold.Buckets) {
 		t.Fatalf("USD money sold has %d comparison buckets beside %d buckets", len(usdSold.ComparisonBuckets), len(usdSold.Buckets))
 	}
@@ -165,7 +168,9 @@ func TestPlatformTrendsStatesMoneyPerCurrency(t *testing.T) {
 	if usdFee.ComparisonTotal == nil || *usdFee.ComparisonTotal != feeTestFeeCents {
 		t.Fatalf("USD Platform Fee earned comparison_total = %v, want %d", intOrNil(usdFee.ComparisonTotal), feeTestFeeCents)
 	}
-	wantChange(t, "USD Platform Fee earned", usdFee.Change, 1)
+	if usdFee.Change != nil {
+		t.Fatalf("USD Platform Fee earned change = %v; want none against a comparison span the data covers in part", *usdFee.Change)
+	}
 
 	eurSold, eurFee := moneySeries(t, sold, "EUR"), moneySeries(t, fee, "EUR")
 	if got := bucketOn(t, eurSold, "2026-07-04").Value; got != feeTestAllInCents || eurSold.Total != feeTestAllInCents {
@@ -179,6 +184,17 @@ func TestPlatformTrendsStatesMoneyPerCurrency(t *testing.T) {
 	if eurSold.ComparisonTotal == nil || *eurSold.ComparisonTotal != 0 || eurSold.Change != nil {
 		t.Fatalf("EUR money sold comparison_total=%v change=%v; want 0 and no change", intOrNil(eurSold.ComparisonTotal), eurSold.Change)
 	}
+
+	// 2026-07-01..2026-07-06 against 2026-06-25..2026-06-30, which begins on
+	// the day of the first sale: the same totals, and each currency's change.
+	covered := readPlatformTrends(t, env, operatorSessionID, "?span=custom&from=2026-07-01&to=2026-07-06")
+	coveredSold := moneySeries(t, covered.Figures.MoneySold, "USD")
+	if coveredSold.Total != usdSold.Total || coveredSold.ComparisonTotal == nil || *coveredSold.ComparisonTotal != feeTestAllInCents {
+		t.Fatalf("USD money sold = %d against %v; want %d against %d", coveredSold.Total, intOrNil(coveredSold.ComparisonTotal), usdSold.Total, feeTestAllInCents)
+	}
+	wantChange(t, "USD money sold", coveredSold.Change,
+		float64(usdSold.Total-feeTestAllInCents)/float64(feeTestAllInCents))
+	wantChange(t, "USD Platform Fee earned", moneySeries(t, covered.Figures.PlatformFeeEarned, "USD").Change, 1)
 }
 
 // TestPlatformTrendsMoneyFollowsAReversal: a reversed Ticket Sale drops out of
