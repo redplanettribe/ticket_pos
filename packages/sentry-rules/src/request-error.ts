@@ -1,5 +1,5 @@
 import { digestOf } from "./caught-error.ts";
-import { REQUEST_ID_HEADER, readReferenceCode } from "./reference-code.ts";
+import { REFERENCE_CODE_HEADER, REQUEST_ID_HEADER, mintedRequestId } from "./reference-code.ts";
 
 /**
  * Next's onRequestError arguments, restated rather than imported so this module
@@ -32,30 +32,20 @@ function headerValue(value: string | string[] | undefined): string | null {
 }
 
 /**
- * The reference code the browser held when it sent this request: the id of
- * the page it was on, from the cookie (reference-code.ts). For a client
- * navigation that is the code its error screen shows, as a navigation never
- * sets the cookie itself (#791); for a page load it is the page before, if any.
- */
-function referenceCodeSent(cookie: string | null | undefined): string | null {
-  return cookie ? readReferenceCode(cookie) : null;
-}
-
-/**
  * Builds a Next app's onRequestError: an error Next caught in a server
  * render, route handler, server action or middleware.
  *
  * It writes one structured line to stdout, which Cloud Logging indexes, with the
- * request's id (forwarded by the middleware, reference-code.ts), the reference
- * code the browser sent in its cookie, Next's digest for the error, and the
- * route pattern. The error screen shows the request's id for a failed page load
- * or server action, and the page's code for a failed client navigation, so the
- * code a person quotes finds the failure in Cloud Logging either way, as
- * `request_id` or as `reference_code`, whether or not Sentry is on; the digest
- * finds Next's own line with the stack beside it. Never the error's text or the raw path: either can name a
- * person, and Next already prints the error.
+ * request's own id, which its API calls carry, the reference code its error
+ * screen shows (both forwarded by the middleware, reference-code.ts), Next's
+ * digest for the error, and the route pattern. For a page load or a server
+ * action the two are the same; a client navigation keeps the page's code, so
+ * there they differ. So a reference code a person quotes finds the failure in
+ * Cloud Logging whether or not Sentry is on, and the digest finds Next's own
+ * line with the stack beside it. Never the error's text or the raw path: either
+ * can name a person, and Next already prints the error.
  *
- * Then it reports the error; tagRequestId puts the id on the event. Except an
+ * Then it reports the error; tagRequestId puts both on the event. Except an
  * error from server-rendering a client component ("server-rendering"): the
  * browser renders that component again, and if it fails there too the error
  * screen reports it, so reporting it here as well would make one crash two
@@ -73,7 +63,7 @@ export function createOnRequestError(deps: {
         severity: "ERROR",
         message: "request failed",
         request_id: requestId,
-        reference_code: referenceCodeSent(headerValue(request.headers.cookie)),
+        reference_code: mintedRequestId(headerValue(request.headers[REFERENCE_CODE_HEADER])),
         digest: digestOf(error),
         route: context.routePath,
         route_type: context.routeType,
@@ -95,11 +85,10 @@ type ServerEvent = {
 };
 
 /**
- * Tags a server event with the id of the request it happened in, read from the
- * request headers the SDK holds for it (the middleware forwarded the id there),
- * and with the reference code the browser sent in its cookie, so the event is
- * found by whichever of the two the error screen showed (createOnRequestError).
- * Only the code is read from the cookie header, never kept on the event.
+ * Tags a server event with the id of the request it happened in and the
+ * reference code its error screen shows, read from the request headers the SDK
+ * holds for it (the middleware forwarded both there). A code not of the shape
+ * the middleware mints is left off.
  *
  * An event processor rather than a tag set where the error is reported, because
  * a crash in a page or layout is captured first by the SDK's own server
@@ -113,7 +102,7 @@ export function tagRequestId<T extends ServerEvent>(event: T): T {
   if (requestId && event.tags?.request_id === undefined) {
     event.tags = { ...event.tags, request_id: requestId };
   }
-  const referenceCode = referenceCodeSent(headers?.cookie);
+  const referenceCode = mintedRequestId(headers?.[REFERENCE_CODE_HEADER]);
   if (referenceCode && event.tags?.reference_code === undefined) {
     event.tags = { ...event.tags, reference_code: referenceCode };
   }
