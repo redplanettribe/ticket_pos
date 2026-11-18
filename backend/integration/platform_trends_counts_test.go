@@ -2,6 +2,7 @@ package integration
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -66,6 +67,18 @@ func comparisonOn(t *testing.T, series platformTrendsSeries, day string) *platfo
 	return nil
 }
 
+// assertDataSince checks the first day a figure states it has data.
+func assertDataSince(t *testing.T, name string, figure platformTrendsFigure, day string) {
+	t.Helper()
+	if figure.DataSince == nil || *figure.DataSince != day {
+		t.Fatalf("%s data_since = %v, want %s", name, figure.DataSince, day)
+	}
+}
+
+// setCustomerVerifiedAt restages when a Verified Customer was verified. A
+// sign-in verifies at the fixed clock, which is today, and no route backdates
+// a verification; a span is made of closed days, so the suite moves it in
+// SQL, as it moves an Online Sale's sold_at.
 func setCustomerVerifiedAt(t *testing.T, env *testEnv, email string, at time.Time) {
 	t.Helper()
 	res, err := env.db.Exec(`UPDATE customers SET verified_at = $1 WHERE email = $2 AND verified_at IS NOT NULL`, at, email)
@@ -77,6 +90,9 @@ func setCustomerVerifiedAt(t *testing.T, env *testEnv, email string, at time.Tim
 	}
 }
 
+// setOrganizationCreatedAt restages when an Organization was created, in SQL
+// for the reason setCustomerVerifiedAt is: creation is stamped at the fixed
+// clock, and by the wall clock for the seeded one, and no route backdates it.
 func setOrganizationCreatedAt(t *testing.T, env *testEnv, slug string, at time.Time) {
 	t.Helper()
 	res, err := env.db.Exec(`UPDATE organizations SET created_at = $1 WHERE slug = $2`, at, slug)
@@ -102,13 +118,15 @@ func recordPageViews(t *testing.T, env *testEnv, at time.Time, orgSlug, eventSlu
 
 // TestPlatformTrendsCountsACustomerOnTheDayTheyVerified: a passcode, a Google
 // Sign-In and an accepted Assignment Link each make one Verified Customer
-// today. The Customers two of them are were minted by an import days
-// earlier, which counts on no day, and so does an imported Customer who
-// never verifies.
+// today. One of them was minted, unverified, by an import days earlier, and
+// that day counts nobody; an imported Customer who never verifies counts on
+// no day at all.
 func TestPlatformTrendsCountsACustomerOnTheDayTheyVerified(t *testing.T) {
 	env := setupTest(t)
 	// The fixture imports sales for ana@ and bruno@, minting both Customers
-	// unverified. Their records are staged as minted on 2026-07-03.
+	// unverified. Their records are staged as minted on 2026-07-03, in SQL
+	// because an import mints its Customers when it is committed, whatever day
+	// its sales say they were sold, and no route backdates a record.
 	f := newBuyerAnswersFixture(t, env)
 	enableTicketAssignment(t)
 	if _, err := env.db.Exec(`UPDATE customers SET created_at = $1`, time.Date(2026, 7, 3, 15, 0, 0, 0, time.UTC)); err != nil {
@@ -140,9 +158,7 @@ func TestPlatformTrendsCountsACustomerOnTheDayTheyVerified(t *testing.T) {
 	if figure.Total == nil || *figure.Total != 0 {
 		t.Fatalf("total = %v, want 0 with today in no total", figure.Total)
 	}
-	if figure.DataSince == nil || *figure.DataSince != "2026-07-07" {
-		t.Fatalf("data_since = %v, want 2026-07-07, the day of the first verification", figure.DataSince)
-	}
+	assertDataSince(t, "new_verified_customers", figure, "2026-07-07")
 
 	// Signing in again verifies nobody anew.
 	customerSignIn(t, env, "ana@example.com")
@@ -178,9 +194,7 @@ func TestPlatformTrendsComparesNewVerifiedCustomers(t *testing.T) {
 		}
 	}
 	assertCompared(t, "new_verified_customers", figure, 3, 2, 0.5)
-	if figure.DataSince == nil || *figure.DataSince != "2026-06-26" {
-		t.Fatalf("data_since = %v, want 2026-06-26", figure.DataSince)
-	}
+	assertDataSince(t, "new_verified_customers", figure, "2026-06-26")
 	if bucket := comparisonOn(t, series, "2026-06-25"); bucket != nil {
 		t.Fatalf("comparison bucket on 2026-06-25 = %+v, want it absent before the first verification", bucket)
 	}
@@ -208,11 +222,7 @@ func TestPlatformTrendsCountsAnOrganizationOnItsCreationDay(t *testing.T) {
 	setOrganizationCreatedAt(t, env, "south-org", time.Date(2026, 7, 2, 15, 0, 0, 0, time.UTC))
 
 	operatorSessionID := operatorSession(t, env, "operator@example.com")
-	var testOrgID string
-	if err := env.db.QueryRow(`SELECT id FROM organizations WHERE slug = 'test-org'`).Scan(&testOrgID); err != nil {
-		t.Fatalf("read Organization: %v", err)
-	}
-	designateHouseOrganization(t, env, operatorSessionID, testOrgID)
+	designateHouseOrganization(t, env, operatorSessionID, operatorOrgIDBySlug(t, env, "test-org"))
 
 	trends := readPlatformTrends(t, env, operatorSessionID, "?span=7d")
 	figure := trends.Figures.NewOrganizations
@@ -227,9 +237,7 @@ func TestPlatformTrendsCountsAnOrganizationOnItsCreationDay(t *testing.T) {
 		t.Fatalf("today = %d, want the 1 Organization created today", got)
 	}
 	assertCompared(t, "new_organizations", figure, 3, 1, 2)
-	if figure.DataSince == nil || *figure.DataSince != "2026-06-26" {
-		t.Fatalf("data_since = %v, want 2026-06-26, the day the first Organization was created", figure.DataSince)
-	}
+	assertDataSince(t, "new_organizations", figure, "2026-06-26")
 }
 
 // TestPlatformTrendsSumsPageViewsAcrossEvents: a day's Page Views are the
@@ -255,6 +263,9 @@ func TestPlatformTrendsSumsPageViewsAcrossEvents(t *testing.T) {
 	recordPageViews(t, env, before, "test-org", "view-fest", code, 1)
 	recordPageViews(t, env, env.fixedClock, "other-org", "other-fest", "", 5)
 
+	// What is stored, read in SQL because no read states the whole-page and
+	// link rows of two Events together: the day holds more counts than loads,
+	// which is what the figure must not add up.
 	var stored int
 	if err := env.db.QueryRow(`SELECT SUM(view_count) FROM event_page_views WHERE hour >= $1 AND hour < $2`,
 		time.Date(2026, 7, 6, 5, 0, 0, 0, time.UTC), time.Date(2026, 7, 7, 5, 0, 0, 0, time.UTC)).Scan(&stored); err != nil {
@@ -275,9 +286,7 @@ func TestPlatformTrendsSumsPageViewsAcrossEvents(t *testing.T) {
 		t.Fatalf("today = %d, want 5", got)
 	}
 	assertCompared(t, "page_views", figure, 9, 2, 3.5)
-	if figure.DataSince == nil || *figure.DataSince != "2026-06-27" {
-		t.Fatalf("data_since = %v, want 2026-06-27, the day of the first Page View", figure.DataSince)
-	}
+	assertDataSince(t, "page_views", figure, "2026-06-27")
 	if bucket := comparisonOn(t, series, "2026-06-26"); bucket != nil {
 		t.Fatalf("comparison bucket on 2026-06-26 = %+v, want it absent before the first Page View", bucket)
 	}
@@ -308,7 +317,8 @@ func TestPlatformTrendsPutsAPageViewOnItsPlatformDay(t *testing.T) {
 
 // TestPlatformTrendsCountsWithNoHistoryHaveNoComparison: with nothing ever
 // verified or viewed, the figures are zeros with nothing to compare against,
-// never a zero comparison.
+// never a zero comparison. New Organizations is not here: the harness seeds
+// an Organization, so the platform is never without one.
 func TestPlatformTrendsCountsWithNoHistoryHaveNoComparison(t *testing.T) {
 	env := setupTest(t)
 	trends := readPlatformTrends(t, env, operatorSession(t, env, "operator@example.com"), "?span=7d")
@@ -344,9 +354,11 @@ func TestPlatformTrendsStatesNoRate(t *testing.T) {
 			t.Fatalf("figure %q is a rate; Platform Trends states none", name)
 		}
 	}
+	// And no field anywhere in it is named as one. The words are looked for
+	// as JSON keys, so a value that merely contains one is not mistaken.
 	for _, word := range []string{"rate", "conversion", "per_view", "per_page_view"} {
-		if strings.Contains(strings.ToLower(string(raw)), word) {
-			t.Fatalf("the response contains %q; Platform Trends states no rate built on Page Views", word)
+		if regexp.MustCompile(`"[a-z_]*` + word + `[a-z_]*":`).MatchString(string(raw)) {
+			t.Fatalf("the response has a field named with %q; Platform Trends states no rate built on Page Views", word)
 		}
 	}
 }

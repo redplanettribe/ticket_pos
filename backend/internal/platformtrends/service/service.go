@@ -250,15 +250,15 @@ func (s *Service) Trends(ctx context.Context, span Span) (*PlatformTrends, error
 	if err != nil {
 		return nil, err
 	}
-	newVerifiedCustomers, err := count(ctx, span, s.customers.PlatformFirstVerifiedCustomerDay, s.customers.PlatformNewVerifiedCustomersByDay)
+	newVerifiedCustomers, err := dailyCount(ctx, span, s.customers.PlatformFirstVerifiedCustomerDay, s.customers.PlatformNewVerifiedCustomersByDay)
 	if err != nil {
 		return nil, err
 	}
-	newOrganizations, err := count(ctx, span, s.organizations.PlatformFirstOrganizationDay, s.organizations.PlatformNewOrganizationsByDay)
+	newOrganizations, err := dailyCount(ctx, span, s.organizations.PlatformFirstOrganizationDay, s.organizations.PlatformNewOrganizationsByDay)
 	if err != nil {
 		return nil, err
 	}
-	pageViews, err := count(ctx, span, s.pageViews.PlatformFirstPageViewDay, s.pageViews.PlatformPageViewsByDay)
+	pageViews, err := dailyCount(ctx, span, s.pageViews.PlatformFirstPageViewDay, s.pageViews.PlatformPageViewsByDay)
 	if err != nil {
 		return nil, err
 	}
@@ -310,12 +310,12 @@ func firstDay(ctx context.Context, read func(ctx context.Context, timezone strin
 	return &day, nil
 }
 
-// count reads a figure that is one plain count per platform day, in one
+// dailyCount reads a figure that is one plain count per platform day, in one
 // series: new Verified Customers, new Organizations, Page Views. Each is read
 // off rows the platform has kept since the figure's first day, so it is
 // always exact and has no recording-began day; first names that first day
 // and byDay the counts over a window.
-func count(
+func dailyCount(
 	ctx context.Context,
 	span Span,
 	first func(ctx context.Context, timezone string) (string, bool, error),
