@@ -7073,10 +7073,12 @@ components:
       type: object
     service.PlatformTrendFigure:
       description: |-
-        PageViews is the loads of every Event's storefront page, in one
-        series, "all". It counts loads and not people, and a load that came
-        through an Affiliate Link is counted once. Nothing here is divided
-        into it: Platform Trends states no rate built on Page Views.
+        EventsPublished is the Events put up, each counted once, on the day it
+        first became published, in one series, "all". An Event cancelled
+        afterwards stays counted, a draft never counts, and an Event with
+        External Registration counts like any other. Before exact_since an
+        Event is counted on its creation day, as a stand-in, and one cancelled
+        before then is not counted at all.
       properties:
         change:
           description: |-
@@ -7127,6 +7129,8 @@ components:
     service.PlatformTrendFigures:
       description: Figures carries one entry per figure of Platform Trends.
       properties:
+        events_published:
+          $ref: '#/components/schemas/service.PlatformTrendFigure'
         money_sold:
           $ref: '#/components/schemas/service.PlatformTrendFigure'
         new_organizations:
@@ -15954,7 +15958,13 @@ paths:
         included. Page Views is the loads of every Event''s storefront page: it counts
         loads and not people, and a load that arrived through an Affiliate Link is
         counted once. No figure is divided into Page Views; the response carries no
-        rate. Platform Operator only.'
+        rate. Events Published is one count in one series keyed all, like those three:
+        each Event once, on the day it first became published, across every Organization.
+        An Event cancelled afterwards stays counted on that day, a draft never counts,
+        and an Event with External Registration counts like any other. Its exact_since
+        is the day the platform began recording the instant of publication: an Event
+        published before that day is counted on its creation day as a stand-in, and
+        one already cancelled by then is not counted at all. Platform Operator only.'
       parameters:
       - description: Span
         in: query

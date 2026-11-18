@@ -816,7 +816,9 @@ func (s *Service) PublishEvent(ctx context.Context, actor ActorContext, eventID 
 		return nil, catalog.ErrEventPublishRequirementsNotMet(missing)
 	}
 
-	updated, err := s.repo.UpdateEventStatus(ctx, actor.OrganizationID, eventID, repository.EventStatusPublished)
+	// The first publication is stamped with the instant, which Platform
+	// Trends counts the Event on (#814); the repository never moves it.
+	updated, err := s.repo.PublishEvent(ctx, actor.OrganizationID, eventID, s.now())
 	if err != nil {
 		return nil, err
 	}

@@ -55,6 +55,15 @@ type PageViews interface {
 	PlatformFirstPageViewDay(ctx context.Context, timezone string) (string, bool, error)
 }
 
+// Events is what Platform Trends needs from catalog: how many Events were
+// first published per day, the first day any was, and the day exact
+// recording of that instant began.
+type Events interface {
+	PlatformEventsPublishedByDay(ctx context.Context, from, until time.Time, timezone string) ([]platform.DayCount, error)
+	PlatformFirstEventPublishedDay(ctx context.Context, timezone string) (string, bool, error)
+	PlatformEventsPublishedExactSince(ctx context.Context) (string, bool, error)
+}
+
 // salesChannels is every Sales Channel, in the order the series are stated;
 // the ticket_sales CHECK constraint admits no other.
 // Each is always present, zero or not, so the page's legend never changes
@@ -71,12 +80,13 @@ type Service struct {
 	customers     Customers
 	organizations Organizations
 	pageViews     PageViews
+	events        Events
 	now           func() time.Time
 }
 
 // New returns a Platform Trends service reading through the given modules.
-func New(sales TicketSales, customers Customers, organizations Organizations, pageViews PageViews) *Service {
-	return &Service{sales: sales, customers: customers, organizations: organizations, pageViews: pageViews, now: time.Now}
+func New(sales TicketSales, customers Customers, organizations Organizations, pageViews PageViews, events Events) *Service {
+	return &Service{sales: sales, customers: customers, organizations: organizations, pageViews: pageViews, events: events, now: time.Now}
 }
 
 // WithClock overrides the clock today is read from (tests).
@@ -160,6 +170,13 @@ type PlatformTrendFigures struct {
 	// through an Affiliate Link is counted once. Nothing here is divided
 	// into it: Platform Trends states no rate built on Page Views.
 	PageViews PlatformTrendFigure `json:"page_views"`
+	// EventsPublished is the Events put up, each counted once, on the day it
+	// first became published, in one series, "all". An Event cancelled
+	// afterwards stays counted, a draft never counts, and an Event with
+	// External Registration counts like any other. Before exact_since an
+	// Event is counted on its creation day, as a stand-in, and one cancelled
+	// before then is not counted at all.
+	EventsPublished PlatformTrendFigure `json:"events_published"`
 }
 
 // PlatformTrendFigure is one figure for the span: its series, its total, whether it is
@@ -262,6 +279,10 @@ func (s *Service) Trends(ctx context.Context, span Span) (*PlatformTrends, error
 	if err != nil {
 		return nil, err
 	}
+	eventsPublished, err := s.eventsPublished(ctx, span)
+	if err != nil {
+		return nil, err
+	}
 
 	compared := span.compared()
 	return &PlatformTrends{
@@ -285,6 +306,7 @@ func (s *Service) Trends(ctx context.Context, span Span) (*PlatformTrends, error
 			NewVerifiedCustomers: newVerifiedCustomers,
 			NewOrganizations:     newOrganizations,
 			PageViews:            pageViews,
+			EventsPublished:      eventsPublished,
 		},
 	}, nil
 }
@@ -311,10 +333,11 @@ func firstDay(ctx context.Context, read func(ctx context.Context, timezone strin
 }
 
 // dailyCount reads a figure that is one plain count per platform day, in one
-// series: new Verified Customers, new Organizations, Page Views. Each is read
-// off rows the platform has kept since the figure's first day, so it is
-// always exact and has no recording-began day; first names that first day
-// and byDay the counts over a window.
+// series: new Verified Customers, new Organizations, Page Views, Events
+// Published. It is stated as always exact, with no recording-began day,
+// which holds for a figure read off rows the platform has kept since its
+// first day; one that is not sets ExactSince itself. first names the
+// figure's first day and byDay the counts over a window.
 func dailyCount(
 	ctx context.Context,
 	span Span,
@@ -336,6 +359,25 @@ func dailyCount(
 		}
 	}
 	return figureOf(span, dataSince, []string{countSeriesKey}, map[string]map[string]int{countSeriesKey: perDay}, true), nil
+}
+
+// eventsPublished reads Events Published: a plain count like the others, but
+// exact only from the day the platform began stamping the instant an Event
+// is first published. Events published before that day are counted on their
+// creation day, so the figure says which day it is exact from.
+func (s *Service) eventsPublished(ctx context.Context, span Span) (PlatformTrendFigure, error) {
+	figure, err := dailyCount(ctx, span, s.events.PlatformFirstEventPublishedDay, s.events.PlatformEventsPublishedByDay)
+	if err != nil {
+		return PlatformTrendFigure{}, err
+	}
+	exactSince, ok, err := s.events.PlatformEventsPublishedExactSince(ctx)
+	if err != nil {
+		return PlatformTrendFigure{}, err
+	}
+	if ok {
+		figure.ExactSince = &exactSince
+	}
+	return figure, nil
 }
 
 // ticketsSold reads Tickets Sold, one series per Sales Channel.

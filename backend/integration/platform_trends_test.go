@@ -37,6 +37,7 @@ type platformTrends struct {
 		NewVerifiedCustomers platformTrendsFigure `json:"new_verified_customers"`
 		NewOrganizations     platformTrendsFigure `json:"new_organizations"`
 		PageViews            platformTrendsFigure `json:"page_views"`
+		EventsPublished      platformTrendsFigure `json:"events_published"`
 	} `json:"figures"`
 }
 

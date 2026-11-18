@@ -717,9 +717,10 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 
 	// Platform Trends owns no tables: it reads Tickets Sold and money through
 	// sales, new Verified Customers through customers, new Organizations
-	// through identity and Page Views through affiliates, which keeps their
-	// hourly buckets, all on the platform clock.
-	platformTrendsService := platformtrendssvc.New(salesService, customersService, identityService, affiliatesService)
+	// through identity, Page Views through affiliates, which keeps their
+	// hourly buckets, and Events Published through catalog, all on the
+	// platform clock.
+	platformTrendsService := platformtrendssvc.New(salesService, customersService, identityService, affiliatesService, catalogService)
 	if options.clock != nil {
 		platformTrendsService = platformTrendsService.WithClock(options.clock)
 	}
