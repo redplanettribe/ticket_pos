@@ -288,7 +288,7 @@ export function formatTrendChange(ratio: number, locale: AppLocale): string {
       .format(ratio)
       // Some locales sign a negative with U+2212; the tile's "-" is the plain
       // hyphen everywhere.
-      .replace("−", "-")
+      .replace("\u2212", "-")
   );
 }
 
@@ -356,7 +356,8 @@ export function comparisonSeriesId(key: string): string {
  * span's own stack height. */
 export const STACK_COMPARISON_ID = "comparison:stack";
 
-type BucketLabel = (bucket: PlatformTrendBucket) => string;
+/** How the section names a bucket on the axis and in the hover card. */
+export type BucketLabel = (bucket: PlatformTrendBucket) => string;
 
 /**
  * seriesChartData turns series into line chart buckets: each series' value in
@@ -481,20 +482,42 @@ export function markerBucketKey(buckets: readonly DrawnBucket[], day: string | n
 }
 
 /**
+ * Whether every bucket a chart draws lies before the day exact recording
+ * began, so the chart has no marker to say it and the section says it in
+ * words. False for a figure that was always exact (`exactSince` null) and for
+ * a chart with no buckets.
+ */
+export function allBeforeMarker(exactSince: string | null, buckets: readonly DrawnBucket[]): boolean {
+  const last = buckets.at(-1);
+  return exactSince !== null && last !== undefined && exactSince > last.lastDay;
+}
+
+/**
  * Whether every bucket of the Active Organizations chart counts sales alone:
  * the backend says no day was ever frozen with a Member's work in it, or the
- * day that began is after the last bucket drawn. The chart then has no marker
- * to say it, so the section says it in words.
+ * day that began is after the last bucket drawn.
  */
 export function salesOnlyThroughout(
   figure: PlatformTrendActivityFigure,
   buckets: readonly DrawnBucket[],
 ): boolean {
-  const last = buckets.at(-1);
-  if (last === undefined) {
+  if (buckets.length === 0) {
     return false;
   }
-  return figure.sale_half_only || figure.exact_since === null || figure.exact_since > last.lastDay;
+  return figure.sale_half_only || figure.exact_since === null || allBeforeMarker(figure.exact_since, buckets);
+}
+
+/**
+ * Whether the comparison span of Active Organizations reaches days that
+ * count sales alone: it begins before the day a Member's work was first
+ * counted. The change then sets fuller days against them, which the section
+ * says beside the chart.
+ */
+export function comparisonReachesSalesOnly(
+  figure: PlatformTrendActivityFigure,
+  comparison: PlatformTrendDays,
+): boolean {
+  return figure.exact_since === null || comparison.first_day < figure.exact_since;
 }
 
 /**
@@ -521,29 +544,40 @@ export function trendChartYMax(data: readonly (TrendChartDatum & { total?: numbe
 // Response to tile input
 // ---------------------------------------------------------------------------
 
-/** One reading of a tile, structurally the shared `TrendTileReading`. */
+/**
+ * Why a tile has no number to state, as a token the section puts into words
+ * (lib/ returns tokens and is never handed copy): the figure is not recorded
+ * at all, which is not a zero, or it is recorded and the span has nothing to
+ * state.
+ */
+export type TrendTileAbsence = "notRecorded" | "noFigure";
+
+/** One reading of a tile, before the section words it. */
 export type TrendTileReadingInput = {
   id: string;
-  caption?: string;
-  value: string;
+  /** The figure as spelled, or null, and then `absence` says why. */
+  value: string | null;
+  absence?: TrendTileAbsence;
+  /** A currency code beside a money reading. Data, not copy. */
+  currency?: string;
+  /** True when the figure is a mean a day, which the section says beside it. */
+  dailyMean?: boolean;
   /** Null is nothing to compare against. Left out, the tile states no change. */
   change?: number | null;
   trend?: (number | null)[];
 };
 
-export type TrendTileSecondaryInput = { id: string; label: string; value: string };
+/** A lesser figure of a tile, named by its id: a series' key (a Sales
+ * Channel), or `distinct_7d` and `distinct_30d`. The section owns the words. */
+export type TrendTileSecondaryInput = { id: string; value: string };
 
 export type TrendTileInput = {
   readings: TrendTileReadingInput[];
   secondary?: TrendTileSecondaryInput[];
 };
 
-/** The words a tile needs where it has no number to state. */
-export type TrendTileCopy = {
-  /** The figure is not recorded at all, which is not a zero. */
-  notRecorded: string;
-  /** The figure is recorded and the span has nothing to state. */
-  noFigure: string;
+const NOT_RECORDED_TILE: TrendTileInput = {
+  readings: [{ id: "all", value: null, absence: "notRecorded" }],
 };
 
 /**
@@ -552,17 +586,16 @@ export type TrendTileCopy = {
  * no total and is left out of the trend line too.
  *
  * A figure split into several series (Tickets Sold by Sales Channel) draws
- * the height of its stack as the line, and names each series' own total
- * beneath when `seriesLabel` is given.
+ * the height of its stack as the line, and with `splitBySeries` states each
+ * series' own total beneath.
  */
 export function countTile(
   figure: PlatformTrendFigure,
   format: (value: number) => string,
-  copy: TrendTileCopy,
-  seriesLabel?: (key: string) => string,
+  { splitBySeries = false }: { splitBySeries?: boolean } = {},
 ): TrendTileInput {
   if (!figure.recorded) {
-    return { readings: [{ id: "all", value: copy.notRecorded }] };
+    return NOT_RECORDED_TILE;
   }
   const length = figure.series[0]?.buckets.length ?? 0;
   const trend = Array.from({ length }, (_, index) =>
@@ -572,45 +605,40 @@ export function countTile(
     readings: [
       {
         id: "all",
-        value: figure.total === null ? copy.noFigure : format(figure.total),
+        ...(figure.total === null
+          ? { value: null, absence: "noFigure" as const }
+          : { value: format(figure.total) }),
         change: figure.change,
         trend,
       },
     ],
-    ...(seriesLabel === undefined
-      ? {}
-      : {
-          secondary: figure.series.map((entry) => ({
-            id: entry.key,
-            label: seriesLabel(entry.key),
-            value: format(entry.total),
-          })),
-        }),
+    ...(splitBySeries
+      ? { secondary: figure.series.map((entry) => ({ id: entry.key, value: format(entry.total) })) }
+      : {}),
   };
 }
 
 /**
  * moneyTile is the tile of a money figure: one reading per currency, each
- * with its own total, change and line, captioned by its currency code. No
- * currency is converted or added to another, so the tile has no figure across
- * them. Before any Organization exists there is no currency, and the tile
- * says it has no figure.
+ * with its own total, change and line, beside its currency code. No currency
+ * is converted or added to another, so the tile has no figure across them.
+ * Before any Organization exists there is no currency, and the tile has no
+ * figure.
  */
 export function moneyTile(
   figure: PlatformTrendFigure,
   format: (cents: number, currency: string) => string,
-  copy: TrendTileCopy,
 ): TrendTileInput {
   if (!figure.recorded) {
-    return { readings: [{ id: "all", value: copy.notRecorded }] };
+    return NOT_RECORDED_TILE;
   }
   if (figure.series.length === 0) {
-    return { readings: [{ id: "none", value: copy.noFigure }] };
+    return { readings: [{ id: "none", value: null, absence: "noFigure" }] };
   }
   return {
     readings: figure.series.map((entry) => ({
       id: entry.key,
-      caption: entry.key,
+      currency: entry.key,
       value: format(entry.total, entry.key),
       change: entry.change,
       trend: entry.buckets.map((bucket) => bucket.value),
@@ -630,24 +658,24 @@ export function moneyTile(
 export function activityTile(
   figure: PlatformTrendActivityFigure,
   format: { mean: (value: number) => string; count: (value: number) => string },
-  copy: TrendTileCopy,
-  labels: { mean: string; distinct7Days: string; distinct30Days: string },
 ): TrendTileInput {
   if (!figure.recorded) {
-    return { readings: [{ id: "all", value: copy.notRecorded }] };
+    return NOT_RECORDED_TILE;
   }
   const secondary: TrendTileSecondaryInput[] = [];
   if (figure.distinct_7d !== null) {
-    secondary.push({ id: "distinct_7d", label: labels.distinct7Days, value: format.count(figure.distinct_7d) });
+    secondary.push({ id: "distinct_7d", value: format.count(figure.distinct_7d) });
   }
   if (figure.distinct_30d !== null) {
-    secondary.push({ id: "distinct_30d", label: labels.distinct30Days, value: format.count(figure.distinct_30d) });
+    secondary.push({ id: "distinct_30d", value: format.count(figure.distinct_30d) });
   }
   return {
     readings: [
       {
         id: "all",
-        ...(figure.mean === null ? { value: copy.noFigure } : { caption: labels.mean, value: format.mean(figure.mean) }),
+        ...(figure.mean === null
+          ? { value: null, absence: "noFigure" as const }
+          : { value: format.mean(figure.mean), dailyMean: true }),
         change: figure.change,
         trend: figure.buckets.map((bucket) => bucket?.value ?? null),
       },

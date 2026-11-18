@@ -144,6 +144,10 @@ Channel, source, Payment Method and reversal-actor words from `sales`. An
 organizer and an operator on the phone about one payout must be saying one word
 for its state, and the operator's screen is the second reader of every term the
 organizer's screen coined — never a second coiner of it.
+
+Platform Trends (#821) is a section of the Overview and not a screen of its own, so its keys are prefixed `trends…` inside `operator`, as the Sale Import's are inside `sales`.
+It reads the Sales Channel words from `sales` like the rest of the surface.
+Its copy holds no em dash and says Active Customer and Active Organization in full, which `lib/messages.test.ts` checks.
 `shell` also owns the **role names** (`roleOrgAdmin`, `roleEventOwner`,
 `roleEventStaff`) even though the team screen renders them too — they are coined
 once in `CONTEXT.md` and named once here, because a role translated per screen is

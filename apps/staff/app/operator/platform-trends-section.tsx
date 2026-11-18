@@ -8,6 +8,7 @@ import {
   Alert,
   AlertDescription,
   AlertTitle,
+  Button,
   CHART_PLOT_INSET,
   Card,
   CardContent,
@@ -38,6 +39,8 @@ import {
   STACK_COMPARISON_ID,
   activityChartData,
   activityTile,
+  allBeforeMarker,
+  comparisonReachesSalesOnly,
   comparisonSeriesId,
   countTile,
   fetchPlatformTrends,
@@ -55,15 +58,17 @@ import {
   spanBuckets,
   stackedChartData,
   trendChartYMax,
+  type BucketLabel,
   type PlatformTrendBucket,
   type PlatformTrendComparison,
   type PlatformTrendFigure,
+  type PlatformTrendSeries,
   type PlatformTrendSpan,
   type PlatformTrends,
   type PlatformTrendsView,
   type TrendChartDatum,
   type TrendStackDatum,
-  type TrendTileCopy,
+  type TrendTileInput,
 } from "@/lib/platform-trends";
 import { cumulativePlotWidth, formatTakingsTick, trendsYTicks } from "@/lib/sales-trends";
 import { useElementWidth } from "@/lib/use-element-width";
@@ -75,20 +80,22 @@ const SELECT_CLASS =
   "flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
 const SPAN_KEYS = {
-  "7d": "span7d",
-  "30d": "span30d",
-  "90d": "span90d",
-  "12m": "span12m",
-  custom: "spanCustom",
+  "7d": "trendsSpan7d",
+  "30d": "trendsSpan30d",
+  "90d": "trendsSpan90d",
+  "12m": "trendsSpan12m",
+  custom: "trendsSpanCustom",
 } as const satisfies Record<PlatformTrendSpan, string>;
 
 const COMPARISON_KEYS = {
-  previous: "comparePrevious",
-  year_earlier: "compareYearEarlier",
+  previous: "trendsComparePrevious",
+  year_earlier: "trendsCompareYearEarlier",
 } as const satisfies Record<PlatformTrendComparison, string>;
 
-/** The Sales Channels Tickets Sold is split by, by catalog key. A channel the
- * API adds before this app names it is shown by its own key. */
+/** The Sales Channels Tickets Sold is split by, by their keys in `sales`,
+ * which coined the words: the operator's screen reads them and never coins a
+ * second. A channel the API adds before this app names it is shown by its own
+ * key. */
 const CHANNEL_KEYS: Record<string, "channelOnline" | "channelInPerson" | "channelImport"> = {
   online: "channelOnline",
   in_person: "channelInPerson",
@@ -121,7 +128,7 @@ const CHART_HEIGHT = 220;
  * controls on screen to put it right with.
  */
 export function PlatformTrendsSection({ view }: { view: PlatformTrendsView }) {
-  const t = useTranslations("platformTrends");
+  const t = useTranslations("operator");
   const errorCopy = useMessages().errors;
   const locale = toAppLocale(useLocale());
   const router = useRouter();
@@ -148,7 +155,7 @@ export function PlatformTrendsSection({ view }: { view: PlatformTrendsView }) {
           // old one is not left standing under a new address.
           setTrends(null);
           setLoadError(
-            (error instanceof ApiError ? apiErrorMessage(errorCopy, error) : null) ?? t("loadFailed"),
+            (error instanceof ApiError ? apiErrorMessage(errorCopy, error) : null) ?? t("trendsLoadFailed"),
           );
         }
       })
@@ -173,18 +180,18 @@ export function PlatformTrendsSection({ view }: { view: PlatformTrendsView }) {
     <section aria-labelledby="platform-trends-title" className="space-y-4">
       <div className="space-y-1">
         <h2 id="platform-trends-title" className="text-lg font-semibold tracking-tight">
-          {t("title")}
+          {t("trendsTitle")}
         </h2>
         <p className="text-sm text-muted-foreground">
           {/* The clock the reading says it was read on, and the platform's
               own until a reading has arrived. */}
-          {t("description", { timezone: trends?.timezone ?? PLATFORM_TIME_ZONE })}
+          {t("trendsDescription", { timezone: trends?.timezone ?? PLATFORM_TIME_ZONE })}
         </p>
       </div>
 
       <div className="grid gap-3 rounded-md border p-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="flex flex-col gap-1">
-          <Label htmlFor="platform-trends-span">{t("spanLabel")}</Label>
+          <Label htmlFor="platform-trends-span">{t("trendsSpanLabel")}</Label>
           <select
             id="platform-trends-span"
             className={SELECT_CLASS}
@@ -194,44 +201,27 @@ export function PlatformTrendsSection({ view }: { view: PlatformTrendsView }) {
             }
           >
             {PLATFORM_TREND_SPANS.map((span) => (
-              // Custom starts from the span on screen, so it waits for one.
-              <option key={span} value={span} disabled={span === "custom" && trends === null && view.span !== "custom"}>
+              // Custom starts from the span on screen, so it waits for the
+              // reading the address names to be the one on screen.
+              <option
+                key={span}
+                value={span}
+                disabled={span === "custom" && view.span !== "custom" && (trends === null || loading)}
+              >
                 {t(SPAN_KEYS[span])}
               </option>
             ))}
           </select>
         </div>
         {view.span === "custom" ? (
-          <>
-            {/* Applied on change, as the Tax Invoices list applies its dates:
-                a date input commits a whole day at once. Each bounds the
-                other; what else a range may be is the API's to refuse. */}
-            <div className="flex flex-col gap-1">
-              <Label htmlFor="platform-trends-from">{t("fromLabel")}</Label>
-              <Input
-                id="platform-trends-from"
-                type="date"
-                value={view.from}
-                max={view.to}
-                onChange={(event) => show(platformTrendsViewAfterRangeChange(view, { from: event.target.value }))}
-                className="h-9"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <Label htmlFor="platform-trends-to">{t("toLabel")}</Label>
-              <Input
-                id="platform-trends-to"
-                type="date"
-                value={view.to}
-                min={view.from}
-                onChange={(event) => show(platformTrendsViewAfterRangeChange(view, { to: event.target.value }))}
-                className="h-9"
-              />
-            </div>
-          </>
+          <CustomRangeForm
+            from={view.from}
+            to={view.to}
+            onApply={(range) => show(platformTrendsViewAfterRangeChange(view, range))}
+          />
         ) : null}
         <div className="flex flex-col gap-1">
-          <Label htmlFor="platform-trends-compare">{t("compareLabel")}</Label>
+          <Label htmlFor="platform-trends-compare">{t("trendsCompareLabel")}</Label>
           <select
             id="platform-trends-compare"
             className={SELECT_CLASS}
@@ -251,11 +241,11 @@ export function PlatformTrendsSection({ view }: { view: PlatformTrendsView }) {
 
       {loadError ? (
         <Alert variant="destructive">
-          <AlertTitle>{t("loadFailedTitle")}</AlertTitle>
+          <AlertTitle>{t("trendsLoadFailedTitle")}</AlertTitle>
           <AlertDescription>{loadError}</AlertDescription>
         </Alert>
       ) : trends === null ? (
-        <div role="status" aria-label={t("loading")}>
+        <div role="status" aria-label={t("trendsLoading")}>
           <Skeleton className="h-80 w-full" />
         </div>
       ) : (
@@ -271,6 +261,71 @@ export function PlatformTrendsSection({ view }: { view: PlatformTrendsView }) {
 }
 
 /**
+ * The two days of a custom range.
+ *
+ * Applied by its button and not as a day changes, the rule the Tax Invoices
+ * search box follows: a year typed into a date input passes through whole,
+ * valid days on its way (the year 2, the year 20), and each would be a new
+ * address, a history entry and a request. The days in the inputs are the
+ * form's own until applied, and are set again whenever the address moves
+ * under it (the back button, a shared link).
+ */
+function CustomRangeForm({
+  from,
+  to,
+  onApply,
+}: {
+  from: string;
+  to: string;
+  onApply: (range: { from: string; to: string }) => void;
+}) {
+  const t = useTranslations("operator");
+  const [range, setRange] = useState({ from, to });
+  useEffect(() => {
+    setRange({ from, to });
+  }, [from, to]);
+  return (
+    <form
+      className="grid gap-3 sm:col-span-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onApply(range);
+      }}
+    >
+      {/* Each day bounds the other. What else a range may be is the API's to
+          refuse, and its refusal is shown below with this form still here. */}
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="platform-trends-from">{t("trendsFromLabel")}</Label>
+        <Input
+          id="platform-trends-from"
+          type="date"
+          required
+          value={range.from}
+          max={range.to || undefined}
+          onChange={(event) => setRange((current) => ({ ...current, from: event.target.value }))}
+          className="h-9"
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="platform-trends-to">{t("trendsToLabel")}</Label>
+        <Input
+          id="platform-trends-to"
+          type="date"
+          required
+          value={range.to}
+          min={range.from || undefined}
+          onChange={(event) => setRange((current) => ({ ...current, to: event.target.value }))}
+          className="h-9"
+        />
+      </div>
+      <Button type="submit" variant="outline" size="sm" className="h-9">
+        {t("trendsApplyRange")}
+      </Button>
+    </form>
+  );
+}
+
+/**
  * One reading, drawn: the tiles, then a chart per figure.
  *
  * Active Customers and Page Views are neighbours in both, since one is read
@@ -278,45 +333,58 @@ export function PlatformTrendsSection({ view }: { view: PlatformTrendsView }) {
  * the first counts people and the second counts loads.
  */
 function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; locale: AppLocale }) {
-  const t = useTranslations("platformTrends");
+  const t = useTranslations("operator");
+  const tSales = useTranslations("sales");
   const { figures } = trends;
 
   const count = (value: number) => formatNumber(value, locale);
   const mean = (value: number) => formatTrendMean(value, locale);
-  const tileCopy: TrendTileCopy = { notRecorded: t("notRecorded"), noFigure: t("noFigure") };
   const changeCopy: TrendTileChangeCopy = {
     format: (ratio) => formatTrendChange(ratio, locale),
-    growth: t("changeGrowth"),
-    decline: t("changeDecline"),
-    unchanged: t("changeUnchanged"),
-    nothingToCompare: t("nothingToCompare"),
-  };
-  const activityLabels = {
-    mean: t("meanADay"),
-    distinct7Days: t("distinct7Days"),
-    distinct30Days: t("distinct30Days"),
+    growth: t("trendsChangeGrowth"),
+    decline: t("trendsChangeDecline"),
+    unchanged: t("trendsChangeUnchanged"),
+    nothingToCompare: t("trendsNothingToCompare"),
   };
   const channelName = (key: string) => {
     const messageKey = CHANNEL_KEYS[key];
-    return messageKey === undefined ? key : t(messageKey);
+    return messageKey === undefined ? key : tSales(messageKey);
   };
   const money = (cents: number, currency: string) => formatMoney(cents, currency, locale);
 
+  // The helpers say what each tile states, in tokens; the words are put on
+  // here, where the catalog is.
+  const absenceWords = { notRecorded: t("trendsNotRecorded"), noFigure: t("trendsNoFigure") };
+  const secondaryLabel = (id: string) =>
+    id === "distinct_7d" ? t("trendsDistinct7Days") : id === "distinct_30d" ? t("trendsDistinct30Days") : channelName(id);
+  const tile = (id: string, label: string, input: TrendTileInput) => ({
+    id,
+    label,
+    readings: input.readings.map((reading) => ({
+      id: reading.id,
+      value: reading.value ?? absenceWords[reading.absence ?? "noFigure"],
+      caption: reading.dailyMean ? t("trendsMeanADay") : reading.currency,
+      change: reading.change,
+      trend: reading.trend,
+    })),
+    secondary: input.secondary?.map((entry) => ({ ...entry, label: secondaryLabel(entry.id) })),
+  });
+  const activityFormat = { mean, count };
   const tiles = [
-    { id: "active_customers", label: t("activeCustomers"), ...activityTile(figures.active_customers, { mean, count }, tileCopy, activityLabels) },
-    { id: "page_views", label: t("pageViews"), ...countTile(figures.page_views, count, tileCopy) },
-    { id: "active_organizations", label: t("activeOrganizations"), ...activityTile(figures.active_organizations, { mean, count }, tileCopy, activityLabels) },
-    { id: "events_published", label: t("eventsPublished"), ...countTile(figures.events_published, count, tileCopy) },
-    { id: "tickets_sold", label: t("ticketsSold"), ...countTile(figures.tickets_sold, count, tileCopy, channelName) },
-    { id: "money_sold", label: t("moneySold"), ...moneyTile(figures.money_sold, money, tileCopy) },
-    { id: "platform_fee_earned", label: t("platformFeeEarned"), ...moneyTile(figures.platform_fee_earned, money, tileCopy) },
-    { id: "new_verified_customers", label: t("newVerifiedCustomers"), ...countTile(figures.new_verified_customers, count, tileCopy) },
-    { id: "new_organizations", label: t("newOrganizations"), ...countTile(figures.new_organizations, count, tileCopy) },
+    tile("active_customers", t("trendsActiveCustomers"), activityTile(figures.active_customers, activityFormat)),
+    tile("page_views", t("trendsPageViews"), countTile(figures.page_views, count)),
+    tile("active_organizations", t("trendsActiveOrganizations"), activityTile(figures.active_organizations, activityFormat)),
+    tile("events_published", t("trendsEventsPublished"), countTile(figures.events_published, count)),
+    tile("tickets_sold", t("trendsTicketsSold"), countTile(figures.tickets_sold, count, { splitBySeries: true })),
+    tile("money_sold", t("trendsMoneySold"), moneyTile(figures.money_sold, money)),
+    tile("platform_fee_earned", t("trendsPlatformFeeEarned"), moneyTile(figures.platform_fee_earned, money)),
+    tile("new_verified_customers", t("trendsNewVerifiedCustomers"), countTile(figures.new_verified_customers, count)),
+    tile("new_organizations", t("trendsNewOrganizations"), countTile(figures.new_organizations, count)),
   ];
 
   const label = useCallback((bucket: PlatformTrendBucket) => formatTrendBucket(bucket, locale), [locale]);
   const span = spanBuckets(trends);
-  const comparisonName = t(COMPARISON_KEYS[trends.comparison.kind] ?? "comparePrevious");
+  const comparisonName = t(COMPARISON_KEYS[trends.comparison.kind] ?? "trendsComparePrevious");
   const shared: SharedChartProps = {
     granularity: trends.granularity,
     comparisonName,
@@ -331,7 +399,7 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
   return (
     <>
       <p className="text-sm text-muted-foreground">
-        {t("reading", {
+        {t("trendsReading", {
           from: formatCalendarDay(trends.span.first_day, locale),
           to: formatCalendarDay(trends.span.last_day, locale),
           granularity: trends.granularity,
@@ -340,102 +408,107 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
         })}
       </p>
 
-      <div role="group" aria-label={t("tilesLabel")} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {tiles.map((tile) => (
+      <div role="group" aria-label={t("trendsTilesLabel")} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {tiles.map((entry) => (
           <TrendTile
-            key={tile.id}
-            label={tile.label}
-            readings={tile.readings}
-            secondary={tile.secondary}
+            key={entry.id}
+            label={entry.label}
+            readings={entry.readings}
+            secondary={entry.secondary}
             changeCopy={changeCopy}
           />
         ))}
       </div>
 
       <div className="space-y-1 text-xs text-muted-foreground">
-        <p>{t("notFinalNote")}</p>
-        <p>{t("comparisonNote")}</p>
+        <p>{t("trendsNotFinalNote")}</p>
+        <p>{t("trendsComparisonNote")}</p>
       </div>
 
-      <div role="group" aria-label={t("chartsLabel")} className="grid gap-4 lg:grid-cols-2">
-        <FigureCard title={t("activeCustomers")} description={t("activeCustomersDescription")}>
+      <div role="group" aria-label={t("trendsChartsLabel")} className="grid gap-4 lg:grid-cols-2">
+        <FigureCard title={t("trendsActiveCustomers")} description={t("trendsActiveCustomersDescription")}>
           <LineFigureChart
             {...shared}
-            figure={t("activeCustomers")}
+            figure={t("trendsActiveCustomers")}
             data={activeCustomers}
             seriesId={ACTIVITY_SERIES_ID}
             formatValue={mean}
-            marker={customersMarker === null ? undefined : { key: customersMarker, label: t("markerRecordingBegan") }}
+            marker={customersMarker === null ? undefined : { key: customersMarker, label: t("trendsMarkerRecordingBegan") }}
             // Not recorded at all is said in its own words. A recorded figure
             // can still have no frozen day in the span, which is not a zero
             // either.
             notRecordedLabel={
-              figures.active_customers.recorded ? t("chartNotRecorded") : t("activeCustomersNotRecorded")
+              figures.active_customers.recorded ? t("trendsChartNotRecorded") : t("trendsActiveCustomersNotRecorded")
             }
           />
         </FigureCard>
 
-        <FigureCard title={t("pageViews")} description={t("pageViewsDescription")}>
-          <CountFigureChart {...shared} figure={t("pageViews")} source={figures.page_views} label={label} />
+        <FigureCard title={t("trendsPageViews")} description={t("trendsPageViewsDescription")}>
+          <CountFigureChart {...shared} figure={t("trendsPageViews")} source={figures.page_views} label={label} />
         </FigureCard>
 
-        <FigureCard title={t("activeOrganizations")} description={t("activeOrganizationsDescription")}>
+        <FigureCard title={t("trendsActiveOrganizations")} description={t("trendsActiveOrganizationsDescription")}>
           <LineFigureChart
             {...shared}
-            figure={t("activeOrganizations")}
+            figure={t("trendsActiveOrganizations")}
             data={activeOrganizations}
             seriesId={ACTIVITY_SERIES_ID}
             formatValue={mean}
-            marker={organizationsMarker === null ? undefined : { key: organizationsMarker, label: t("markerSalesOnly") }}
-            notRecordedLabel={t("chartNotRecorded")}
+            marker={organizationsMarker === null ? undefined : { key: organizationsMarker, label: t("trendsMarkerSalesOnly") }}
+            notRecordedLabel={t("trendsChartNotRecorded")}
           />
           {/* Without a marker on the chart to say it, the days shown are said
               to be sales only in words. */}
           {salesOnlyThroughout(figures.active_organizations, activeOrganizations) ? (
-            <p className="text-xs text-muted-foreground">{t("salesOnlyThroughout")}</p>
+            <p className="text-xs text-muted-foreground">{t("trendsSalesOnlyThroughout")}</p>
+          ) : comparisonReachesSalesOnly(figures.active_organizations, trends.comparison) ? (
+            // The days shown are full ones and the comparison's are not all:
+            // the change on the tile sets one against the other.
+            <p className="text-xs text-muted-foreground">{t("trendsComparisonSalesOnly")}</p>
           ) : null}
         </FigureCard>
 
-        <FigureCard title={t("eventsPublished")} description={t("eventsPublishedDescription")}>
+        <FigureCard title={t("trendsEventsPublished")} description={t("trendsEventsPublishedDescription")}>
           <CountFigureChart
             {...shared}
-            figure={t("eventsPublished")}
+            figure={t("trendsEventsPublished")}
             source={figures.events_published}
             label={label}
-            markerLabel={t("markerExact")}
+            markerLabel={t("trendsMarkerExact")}
+            beforeMarkerNote={t("trendsStandInThroughout")}
           />
         </FigureCard>
 
-        <FigureCard title={t("ticketsSold")} description={t("ticketsSoldDescription")}>
+        <FigureCard title={t("trendsTicketsSold")} description={t("trendsTicketsSoldDescription")}>
           <TicketsSoldChart {...shared} source={figures.tickets_sold} label={label} channelName={channelName} />
         </FigureCard>
 
-        <FigureCard title={t("moneySold")} description={t("moneySoldDescription")}>
-          <MoneyFigureCharts {...shared} figure={t("moneySold")} source={figures.money_sold} label={label} />
+        <FigureCard title={t("trendsMoneySold")} description={t("trendsMoneySoldDescription")}>
+          <MoneyFigureCharts {...shared} figure={t("trendsMoneySold")} source={figures.money_sold} label={label} />
         </FigureCard>
 
-        <FigureCard title={t("platformFeeEarned")} description={t("platformFeeEarnedDescription")}>
+        <FigureCard title={t("trendsPlatformFeeEarned")} description={t("trendsPlatformFeeEarnedDescription")}>
           <MoneyFigureCharts
             {...shared}
-            figure={t("platformFeeEarned")}
+            figure={t("trendsPlatformFeeEarned")}
             source={figures.platform_fee_earned}
             label={label}
           />
         </FigureCard>
 
-        <FigureCard title={t("newVerifiedCustomers")} description={t("newVerifiedCustomersDescription")}>
+        <FigureCard title={t("trendsNewVerifiedCustomers")} description={t("trendsNewVerifiedCustomersDescription")}>
           <CountFigureChart
             {...shared}
-            figure={t("newVerifiedCustomers")}
+            figure={t("trendsNewVerifiedCustomers")}
             source={figures.new_verified_customers}
             label={label}
           />
         </FigureCard>
 
-        <FigureCard title={t("newOrganizations")} description={t("newOrganizationsDescription")}>
+        <FigureCard title={t("trendsNewOrganizations")} description={t("trendsNewOrganizationsDescription")}>
           <CountFigureChart
             {...shared}
-            figure={t("newOrganizations")}
+            figure={t("trendsNewOrganizations")}
             source={figures.new_organizations}
             label={label}
           />
@@ -452,8 +525,6 @@ type SharedChartProps = {
   comparisonName: string;
   locale: AppLocale;
 };
-
-type BucketLabel = (bucket: PlatformTrendBucket) => string;
 
 function FigureCard({ title, description, children }: { title: string; description: string; children: ReactNode }) {
   return (
@@ -473,12 +544,12 @@ function FigureCard({ title, description, children }: { title: string; descripti
  * is. A card narrower than the floor scrolls sideways instead of squeezing.
  */
 function ChartWindow({ figure, children }: { figure: string; children: (plotWidth: number) => ReactNode }) {
-  const t = useTranslations("platformTrends");
+  const t = useTranslations("operator");
   const [scrollArea, setScrollArea] = useState<HTMLDivElement | null>(null);
   const availableWidth = useElementWidth(scrollArea);
   const plotWidth = cumulativePlotWidth(availableWidth > 0 ? availableWidth - CHART_PLOT_INSET : 0);
   return (
-    <ChartScrollArea ref={setScrollArea} ariaLabel={t("scrollLabel", { figure })}>
+    <ChartScrollArea ref={setScrollArea} ariaLabel={t("trendsScrollLabel", { figure })}>
       {children(plotWidth)}
     </ChartScrollArea>
   );
@@ -512,7 +583,7 @@ function LineFigureChart({
   marker?: ChartMarker;
   notRecordedLabel?: string;
 }) {
-  const t = useTranslations("platformTrends");
+  const t = useTranslations("operator");
   const series: StackedSeries[] = [{ id: seriesId, name: currency ?? figure, color: chartSeriesColor(0) }];
   const comparisonSeries: StackedSeries[] = [
     { id: comparisonSeriesId(seriesId), name: comparisonName, color: chartSeriesColor(0) },
@@ -535,14 +606,14 @@ function LineFigureChart({
           // A day nothing happened on is a finding here, and is named as a
           // zero beside a comparison that may not be one.
           zeroIsMeasured
-          nothingCountedLabel={t("nothingCounted")}
-          partialLabel={t("partialToday")}
+          nothingCountedLabel={t("trendsNothingCounted")}
+          partialLabel={t("trendsPartialToday")}
           marker={marker}
           notRecordedLabel={notRecordedLabel}
           ariaLabel={
             currency === undefined
-              ? t("chartLabel", { figure, granularity })
-              : t("chartLabelCurrency", { figure, currency, granularity })
+              ? t("trendsChartLabel", { figure, granularity })
+              : t("trendsChartLabelCurrency", { figure, currency, granularity })
           }
         />
       )}
@@ -550,24 +621,52 @@ function LineFigureChart({
   );
 }
 
+/**
+ * What a figure's card says in place of its chart while the backend says the
+ * figure is not recorded at all: its series would draw as zeros, and "not
+ * recorded" is not a zero.
+ */
+function FigureNotRecorded() {
+  const t = useTranslations("operator");
+  return <p className="text-sm text-muted-foreground">{t("trendsChartNotRecorded")}</p>;
+}
+
 /** A figure that is one count in one series. */
 function CountFigureChart({
   source,
   label,
   markerLabel,
+  beforeMarkerNote,
   ...rest
-}: SharedChartProps & { figure: string; source: PlatformTrendFigure; label: BucketLabel; markerLabel?: string }) {
+}: SharedChartProps & {
+  figure: string;
+  source: PlatformTrendFigure;
+  label: BucketLabel;
+  /** What the recording-began marker is called, for a figure that has one. */
+  markerLabel?: string;
+  /** Said under the chart when every bucket shown is before that marker, so
+   * the chart has no mark to say it. */
+  beforeMarkerNote?: string;
+}) {
   const data = useMemo(() => seriesChartData(source.series.slice(0, 1), label), [source, label]);
+  if (!source.recorded) {
+    return <FigureNotRecorded />;
+  }
   const seriesId = source.series[0]?.key ?? ACTIVITY_SERIES_ID;
   const markerKey = markerLabel === undefined ? null : markerBucketKey(data, source.exact_since);
   return (
-    <LineFigureChart
-      {...rest}
-      data={data}
-      seriesId={seriesId}
-      formatValue={(value) => formatNumber(value, rest.locale)}
-      marker={markerKey === null || markerLabel === undefined ? undefined : { key: markerKey, label: markerLabel }}
-    />
+    <>
+      <LineFigureChart
+        {...rest}
+        data={data}
+        seriesId={seriesId}
+        formatValue={(value) => formatNumber(value, rest.locale)}
+        marker={markerKey === null || markerLabel === undefined ? undefined : { key: markerKey, label: markerLabel }}
+      />
+      {beforeMarkerNote !== undefined && allBeforeMarker(source.exact_since, data) ? (
+        <p className="text-xs text-muted-foreground">{beforeMarkerNote}</p>
+      ) : null}
+    </>
   );
 }
 
@@ -582,27 +681,41 @@ function MoneyFigureCharts({
   figure,
   ...rest
 }: SharedChartProps & { figure: string; source: PlatformTrendFigure; label: BucketLabel }) {
-  const t = useTranslations("platformTrends");
+  const t = useTranslations("operator");
+  if (!source.recorded) {
+    return <FigureNotRecorded />;
+  }
   if (source.series.length === 0) {
-    return <p className="text-sm text-muted-foreground">{t("noFigure")}</p>;
+    return <p className="text-sm text-muted-foreground">{t("trendsNoFigure")}</p>;
   }
   return (
     <>
       {source.series.map((entry) => (
         <div key={entry.key} className="space-y-1">
           {source.series.length > 1 ? <p className="text-xs font-medium text-muted-foreground">{entry.key}</p> : null}
-          <LineFigureChart
-            {...rest}
-            figure={figure}
-            currency={entry.key}
-            data={seriesChartData([entry], label)}
-            seriesId={entry.key}
-            formatValue={(cents) => formatMoney(cents, entry.key, rest.locale)}
-            formatTickValue={(cents) => formatTakingsTick(cents, entry.key, rest.locale)}
-          />
+          <MoneyCurrencyChart {...rest} figure={figure} series={entry} label={label} />
         </div>
       ))}
     </>
+  );
+}
+
+/** One currency of a money figure, every amount in that currency's own units. */
+function MoneyCurrencyChart({
+  series,
+  label,
+  ...rest
+}: SharedChartProps & { figure: string; series: PlatformTrendSeries; label: BucketLabel }) {
+  const data = useMemo(() => seriesChartData([series], label), [series, label]);
+  return (
+    <LineFigureChart
+      {...rest}
+      currency={series.key}
+      data={data}
+      seriesId={series.key}
+      formatValue={(cents) => formatMoney(cents, series.key, rest.locale)}
+      formatTickValue={(cents) => formatTakingsTick(cents, series.key, rest.locale)}
+    />
   );
 }
 
@@ -618,8 +731,8 @@ function TicketsSoldChart({
   comparisonName,
   locale,
 }: SharedChartProps & { source: PlatformTrendFigure; label: BucketLabel; channelName: (key: string) => string }) {
-  const t = useTranslations("platformTrends");
-  const figure = t("ticketsSold");
+  const t = useTranslations("operator");
+  const figure = t("trendsTicketsSold");
   const data: TrendStackDatum[] = useMemo(() => stackedChartData(source.series, label), [source, label]);
   const series: StackedSeries[] = source.series.map((entry, index) => ({
     id: entry.key,
@@ -628,10 +741,13 @@ function TicketsSoldChart({
   }));
   const yMax = useMemo(() => trendChartYMax(data), [data]);
   const yTicks = useMemo(() => trendsYTicks(yMax), [yMax]);
+  if (!source.recorded) {
+    return <FigureNotRecorded />;
+  }
   return (
     <>
       {/* A plain key, not the chips of Sales Trends: nothing here is toggled. */}
-      <ul aria-label={t("channelsLabel")} className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+      <ul aria-label={t("trendsChannelsLabel")} className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
         {series.map((entry) => (
           <li key={entry.id} className="flex items-center gap-1.5">
             <span aria-hidden className="size-2.5 rounded-sm" style={{ backgroundColor: entry.color }} />
@@ -650,9 +766,9 @@ function TicketsSoldChart({
             plotWidth={plotWidth}
             height={CHART_HEIGHT}
             formatValue={(value) => formatNumber(value, locale)}
-            totalLabel={t("ticketsTotal")}
-            partialLabel={t("partialToday")}
-            ariaLabel={t("chartLabel", { figure, granularity })}
+            totalLabel={t("trendsTicketsTotal")}
+            partialLabel={t("trendsPartialToday")}
+            ariaLabel={t("trendsChartLabel", { figure, granularity })}
           />
         )}
       </ChartWindow>

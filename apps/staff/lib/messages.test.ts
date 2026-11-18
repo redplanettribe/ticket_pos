@@ -103,3 +103,35 @@ test("no message is empty", () => {
     `\n${problems.join("\n")}\nAn untranslated message is the English one, never "".\n`,
   );
 });
+
+/**
+ * Platform Trends (#821) is a section of the Operator Dashboard's Overview, so
+ * its copy is the `operator.trends...` keys. Two things are asked of it that
+ * the catalogs at large do not yet meet: no em dash, and the full terms Active
+ * Customer and Active Organization, since Active Event and Active Member mean
+ * something else.
+ */
+function platformTrendsCopy(locale: (typeof LOCALES)[number]): [string, string][] {
+  return [...catalogs.get(locale)!].filter(([key]) => key.startsWith("operator.trends"));
+}
+
+test("the Platform Trends copy holds no em dash", () => {
+  for (const locale of LOCALES) {
+    const copy = platformTrendsCopy(locale);
+    assert.ok(copy.length > 0, `${locale}.json has no Platform Trends copy`);
+    for (const [key, message] of copy) {
+      assert.ok(!message.includes("\u2014"), `${locale}.json ${key}`);
+    }
+  }
+});
+
+test("the Platform Trends copy says Active Customer and Active Organization in full", () => {
+  const copy = new Map(platformTrendsCopy(reference));
+  assert.equal(copy.get("operator.trendsActiveCustomers"), "Active Customers");
+  assert.equal(copy.get("operator.trendsActiveOrganizations"), "Active Organizations");
+  for (const [key, message] of copy) {
+    // "Active" is always followed by the thing that is active.
+    const bare = /\bactive\b(?!\s+(customers?|organizations?))/i.exec(message);
+    assert.equal(bare, null, `${key} says "active" without Customer or Organization: ${message}`);
+  }
+});
