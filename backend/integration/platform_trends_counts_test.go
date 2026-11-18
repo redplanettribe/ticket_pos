@@ -61,6 +61,8 @@ func assertPartlyCompared(t *testing.T, name string, figure platformTrendsFigure
 	}
 }
 
+// assertComparedTotals checks a count figure's total and comparison total, on
+// the figure and on its one series alike.
 func assertComparedTotals(t *testing.T, name string, figure platformTrendsFigure, total, comparison int) {
 	t.Helper()
 	series := countSeries(t, name, figure)
@@ -223,7 +225,7 @@ func TestPlatformTrendsComparesNewVerifiedCustomers(t *testing.T) {
 		t.Fatalf("comparison bucket on 2026-06-27 = %+v, want 1", bucket)
 	}
 
-	// 2026-07-05..2026-07-06 against 2026-07-03..2026-07-04, all measured.
+	// 2026-07-05..2026-07-06 against 2026-07-03..2026-07-04, covered whole.
 	covered := readPlatformTrends(t, env, operatorSessionID, "?span=custom&from=2026-07-05&to=2026-07-06")
 	assertCompared(t, "new_verified_customers", covered.Figures.NewVerifiedCustomers, 2, 1, 1)
 }
@@ -265,7 +267,7 @@ func TestPlatformTrendsCountsAnOrganizationOnItsCreationDay(t *testing.T) {
 	assertPartlyCompared(t, "new_organizations", figure, 3, 1)
 	assertDataSince(t, "new_organizations", figure, "2026-06-26")
 
-	// 2026-07-03..2026-07-06 against 2026-06-29..2026-07-02, all measured.
+	// 2026-07-03..2026-07-06 against 2026-06-29..2026-07-02, covered whole.
 	covered := readPlatformTrends(t, env, operatorSessionID, "?span=custom&from=2026-07-03&to=2026-07-06")
 	assertCompared(t, "new_organizations", covered.Figures.NewOrganizations, 2, 1, 1)
 }

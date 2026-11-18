@@ -548,9 +548,10 @@ func readWindows(span Span, dataSince *time.Time) []readWindow {
 // key and then by day: each series over the span and beside its comparison,
 // in the order keys gives, each always present. It is how every figure is
 // built, so each gets the comparison, the change and the absent history the
-// same way: no change is stated unless comparisonCovered. A summable figure, one whose series share a unit, also states its
-// totals across every series. The figure is stated as recorded and always
-// exact; a figure that is not sets Recorded and ExactSince itself.
+// same way: no change is stated unless comparisonCovered. A summable figure,
+// one whose series share a unit, also states its totals across every series.
+// The figure is stated as recorded and always exact; a figure that is not
+// sets Recorded and ExactSince itself.
 func figureOf(span Span, dataSince *time.Time, keys []string, perSeries map[string]map[string]int, summable bool) PlatformTrendFigure {
 	figure := PlatformTrendFigure{Recorded: true, Series: make([]PlatformTrendSeries, 0, len(keys))}
 	if dataSince != nil {

@@ -239,6 +239,50 @@ func TestASignedInCustomerBrowsingIsActiveWithoutBuying(t *testing.T) {
 	}
 }
 
+// TestActiveCustomersStatesNoChangeAgainstAComparisonFromBeforeRecordingBegan:
+// a comparison span that begins before the day recording began is drawn from
+// that day on, with its mean, and no change is stated against it (#826). One
+// that begins on that day states its change.
+func TestActiveCustomersStatesNoChangeAgainstAComparisonFromBeforeRecordingBegan(t *testing.T) {
+	env := setupTest(t)
+	recordCustomerActivity(t)
+
+	// Active: the 7th 1, the 8th 1, the 9th 0, the 10th 2, the 11th 1, the
+	// 12th 0.
+	ana := customerSignIn(t, env, "ana@example.com")
+	for _, day := range []int{8, 10, 11} {
+		browseOn(t, env, ana, platformNoon(2026, 7, day))
+	}
+	actingOn(t, env, platformNoon(2026, 7, 10), func() {
+		customerSignIn(t, env, "bea@example.com")
+	})
+	closeDaysAt(t, env, platformNoon(2026, 7, 13))
+	operator := trendsOperator(t, env)
+
+	// 2026-07-09..2026-07-12 against 2026-07-05..2026-07-08, of which the
+	// 7th and the 8th have a figure.
+	figure := activeCustomersAs(t, env, operator, "?span=custom&from=2026-07-09&to=2026-07-12")
+	if shown(figure.DataSince) != "2026-07-07" {
+		t.Fatalf("data_since = %v, want 2026-07-07", shown(figure.DataSince))
+	}
+	assertNear(t, "mean", figure.Mean, 3.0/4)
+	assertNear(t, "comparison_mean", figure.ComparisonMean, 1)
+	for i, bucket := range figure.ComparisonBuckets {
+		if wantPresent := i >= 2; (bucket != nil) != wantPresent {
+			t.Fatalf("comparison bucket %d = %+v; want present=%v, recording having begun on 2026-07-07", i, shown(bucket), wantPresent)
+		}
+	}
+	if figure.Change != nil {
+		t.Fatalf("change = %v; want none against a comparison span that begins before recording did", *figure.Change)
+	}
+
+	// 2026-07-10..2026-07-12 against 2026-07-07..2026-07-09, recorded whole.
+	figure = activeCustomersAs(t, env, operator, "?span=custom&from=2026-07-10&to=2026-07-12")
+	assertNear(t, "covered mean", figure.Mean, 1)
+	assertNear(t, "covered comparison_mean", figure.ComparisonMean, 2.0/3)
+	assertNear(t, "covered change", figure.Change, 0.5)
+}
+
 // TestACustomerActingManyTimesInADayIsCountedOnce, and after their first
 // act of a platform day no further write reaches the marker store. The
 // first act of the next day is one more.

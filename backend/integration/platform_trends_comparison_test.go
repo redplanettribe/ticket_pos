@@ -272,11 +272,11 @@ func TestPlatformTrendsComparisonStartsWhereTheDataDoes(t *testing.T) {
 	}
 	figure := trends.Figures.TicketsSold
 	if figure.ComparisonTotal == nil || *figure.ComparisonTotal != 2 || figure.Change != nil {
-		t.Fatalf("figure comparison total %v change %v; want 2 and no change", intOrNil(figure.ComparisonTotal), figure.Change)
+		t.Fatalf("figure comparison total %v change %v; want 2 and no change", intOrNil(figure.ComparisonTotal), shown(figure.Change))
 	}
 
 	// 2026-06-07..2026-06-24 is compared with 2026-05-20..2026-06-06, which
-	// begins on the first day of data: every day of it is measured.
+	// begins on the first day of data: the data covers every day of it.
 	trends = readPlatformTrends(t, env, operatorSessionID, "?span=custom&from=2026-06-07&to=2026-06-24&compare=previous")
 	if trends.Comparison.FirstDay != "2026-05-20" || trends.Comparison.LastDay != "2026-06-06" {
 		t.Fatalf("comparison = %+v; want 2026-05-20..2026-06-06", trends.Comparison)
@@ -313,7 +313,7 @@ func TestPlatformTrendsComparisonStartsWhereTheDataDoes(t *testing.T) {
 		t.Fatalf("comparison buckets = %+v; want the seven days from 2026-05-20", imported.ComparisonBuckets)
 	}
 	if imported.ComparisonTotal == nil || *imported.ComparisonTotal != 2 || imported.Change != nil {
-		t.Fatalf("comparison total %v change %v; want 2 and no change, 41 days set against 7", intOrNil(imported.ComparisonTotal), imported.Change)
+		t.Fatalf("comparison total %v change %v; want 2 and no change, 41 days set against 7", intOrNil(imported.ComparisonTotal), shown(imported.Change))
 	}
 }
 
@@ -359,7 +359,7 @@ func TestPlatformTrendsWeeklyComparisonBucketIsCutAtTheFirstDayOfData(t *testing
 	}
 	if imported.Total != 6 || imported.ComparisonTotal == nil || *imported.ComparisonTotal != 3 || imported.Change != nil {
 		t.Fatalf("total %d comparison total %v change %v; want 6, 3 and no change against a year begun in January",
-			imported.Total, intOrNil(imported.ComparisonTotal), imported.Change)
+			imported.Total, intOrNil(imported.ComparisonTotal), shown(imported.Change))
 	}
 }
 
