@@ -203,6 +203,9 @@ func operatorRoutes(orgID string) []struct {
 		// thing whose gate must be a property of the address rather than of
 		// whoever remembered to check.
 		{http.MethodGet, "/api/v1/operator/legal/access-log"},
+		// Platform Trends (#810): its own module on this namespace, behind the
+		// same gate. Followed through in platform_trends_test.go.
+		{http.MethodGet, "/api/v1/operator/platform-trends"},
 	}
 }
 

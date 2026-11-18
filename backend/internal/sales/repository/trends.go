@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 )
 
 // SalesTrendBucket is one (day, Ticket Type) cell of the Sales Trends matrix:
@@ -74,6 +75,63 @@ func (r *Repository) SalesTrends(ctx context.Context, orgID, eventID, timezone s
 			return nil, err
 		}
 		out = append(out, bucket)
+	}
+	return out, rows.Err()
+}
+
+// PlatformTicketsSoldDay is one (day, Sales Channel) cell of the platform's
+// Tickets Sold: how many tickets every Organization together sold on that
+// channel on that day. Day is a calendar date on the clock the caller named,
+// formatted YYYY-MM-DD, for the reason SalesTrendBucket's is.
+type PlatformTicketsSoldDay struct {
+	Day      string
+	Channel  string
+	Quantity int
+}
+
+// PlatformTicketsSoldByDay totals every active Ticket Sale Line on the
+// platform per day and Sales Channel, for Platform Trends (#810, ADR 0080).
+// It is the platform-wide sibling of SalesTrends and keeps its rules: the
+// quantity of active sales only, bucketed by sold_at (the day the sale was
+// MADE, so a Sale Import lands on its historical day and not on the day it
+// was typed in), with no channel filter and no Organization filter - House
+// Organizations included, so the figure agrees with every other platform
+// total.
+//
+// The day is read on the zone the caller passes, which is the platform's own
+// clock and never an Event's: a sale belongs to the platform day it happened
+// on, wherever its Event is held. Only sales sold in [from, until) are read;
+// the caller bounds that window to whole days on the same clock.
+//
+// No index is added for it. The read is operator-only and bounded by the
+// span, and a platform-wide window over ticket_sales is a large fraction of
+// the table for any span worth reading, which a sequential scan serves as
+// well as an index would; the figure is read live, as Sales Trends is, with
+// no rollup table.
+func (r *Repository) PlatformTicketsSoldByDay(ctx context.Context, from, until time.Time, timezone string) ([]PlatformTicketsSoldDay, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT
+			to_char((ts.sold_at AT TIME ZONE $3)::date, 'YYYY-MM-DD') AS day,
+			ts.channel,
+			SUM(tsl.quantity)::bigint
+		FROM ticket_sales ts
+		JOIN ticket_sale_lines tsl ON tsl.ticket_sale_id = ts.id
+		WHERE ts.status = 'active' AND ts.sold_at >= $1 AND ts.sold_at < $2
+		GROUP BY 1, 2
+		ORDER BY 1, 2
+	`, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PlatformTicketsSoldDay
+	for rows.Next() {
+		var day PlatformTicketsSoldDay
+		if err := rows.Scan(&day.Day, &day.Channel, &day.Quantity); err != nil {
+			return nil, err
+		}
+		out = append(out, day)
 	}
 	return out, rows.Err()
 }

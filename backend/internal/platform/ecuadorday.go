@@ -35,3 +35,13 @@ func StartOfEcuadorDay(instant time.Time) time.Time {
 func EcuadorDate(instant time.Time) string {
 	return instant.In(ecuadorLocation()).Format("2006-01-02")
 }
+
+// StartOfEcuadorDate is midnight, Ecuador time, on a named calendar date: the
+// instant that day begins on the platform clock. It is EcuadorDate's reverse,
+// for a reader that holds a day and needs the window of instants it covers, as
+// Platform Trends does (#810). Only the date's year, month and day are read;
+// its location and time of day are ignored, because a civil date is commonly
+// carried as midnight UTC and must not be shifted by that carrier.
+func StartOfEcuadorDate(date time.Time) time.Time {
+	return time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, ecuadorLocation())
+}

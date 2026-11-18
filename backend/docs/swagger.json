@@ -2916,6 +2916,20 @@
                 },
                 "type": "object"
             },
+            "openapi.EnvelopePlatformTrends": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.PlatformTrends"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopePrivacyPolicy": {
                 "properties": {
                     "data": {
@@ -7821,6 +7835,141 @@
                 },
                 "type": "object"
             },
+            "service.PlatformTrendBucket": {
+                "description": "Today is today's bucket, flagged partial and in no total. Present only\nwhen the span ends yesterday, which every preset does; a custom range\nthat ends earlier has no today beside it.",
+                "properties": {
+                    "first_day": {
+                        "example": "2026-07-06",
+                        "type": "string"
+                    },
+                    "last_day": {
+                        "example": "2026-07-06",
+                        "type": "string"
+                    },
+                    "partial": {
+                        "description": "Partial is true on today's bucket alone: a day still running.",
+                        "type": "boolean"
+                    },
+                    "value": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.PlatformTrendFigure": {
+                "description": "TicketsSold is the quantity over active Ticket Sales, by the instant\nsold, one series per Sales Channel.",
+                "properties": {
+                    "exact_since": {
+                        "description": "ExactSince is the platform day exact recording of this figure began.\nBuckets before it are a stand-in or partial. Null when the figure has\nalways been exact.",
+                        "example": "2026-07-07",
+                        "type": "string"
+                    },
+                    "recorded": {
+                        "description": "Recorded is false while the platform does not record this figure at\nall, which the page states as \"not yet recorded\" rather than drawing a\nzero that means \"not measured\".",
+                        "type": "boolean"
+                    },
+                    "series": {
+                        "description": "Series is the figure's series in a stable order, each always present.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.PlatformTrendSeries"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "total": {
+                        "description": "Total is the figure's total for the span, today excluded. Null when its\nseries are not in one unit (money, per currency) and cannot be summed.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.PlatformTrendFigures": {
+                "description": "Figures carries one entry per figure of Platform Trends.",
+                "properties": {
+                    "tickets_sold": {
+                        "$ref": "#/components/schemas/service.PlatformTrendFigure"
+                    }
+                },
+                "type": "object"
+            },
+            "service.PlatformTrendGranularity": {
+                "description": "Granularity is the length of every bucket: day for a span of up to 90\ndays, week beyond.",
+                "enum": [
+                    "day",
+                    "week"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "GranularityDay",
+                    "GranularityWeek"
+                ]
+            },
+            "service.PlatformTrendSeries": {
+                "properties": {
+                    "buckets": {
+                        "description": "Buckets is every bucket of the span, oldest first, the last one ending\non the span's last day. A bucket with nothing in it is zero, never\nabsent.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.PlatformTrendBucket"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "key": {
+                        "description": "Key names the series: for Tickets Sold, the Sales Channel.",
+                        "example": "online",
+                        "type": "string"
+                    },
+                    "today": {
+                        "$ref": "#/components/schemas/service.PlatformTrendBucket"
+                    },
+                    "total": {
+                        "description": "Total is the series' total for the span, today excluded.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.PlatformTrendSpan": {
+                "description": "Span is the span the figures cover, as resolved: a custom range that\nreached today or later is stated here ending at yesterday.",
+                "properties": {
+                    "first_day": {
+                        "example": "2026-06-07",
+                        "type": "string"
+                    },
+                    "last_day": {
+                        "example": "2026-07-06",
+                        "type": "string"
+                    },
+                    "preset": {
+                        "$ref": "#/components/schemas/service.SpanPreset"
+                    }
+                },
+                "type": "object"
+            },
+            "service.PlatformTrends": {
+                "properties": {
+                    "figures": {
+                        "$ref": "#/components/schemas/service.PlatformTrendFigures"
+                    },
+                    "granularity": {
+                        "$ref": "#/components/schemas/service.PlatformTrendGranularity"
+                    },
+                    "span": {
+                        "$ref": "#/components/schemas/service.PlatformTrendSpan"
+                    },
+                    "timezone": {
+                        "description": "Timezone names the platform clock every day here is read on.",
+                        "example": "America/Guayaquil",
+                        "type": "string"
+                    },
+                    "today": {
+                        "description": "Today is the platform day the reading was taken on, which is never\ninside the span.",
+                        "example": "2026-07-07",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.PolicyView": {
                 "properties": {
                     "body_markdown": {
@@ -9009,6 +9158,23 @@
                     }
                 },
                 "type": "object"
+            },
+            "service.SpanPreset": {
+                "enum": [
+                    "7d",
+                    "30d",
+                    "90d",
+                    "12m",
+                    "custom"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "Preset7Days",
+                    "Preset30Days",
+                    "Preset90Days",
+                    "Preset12Months",
+                    "PresetCustom"
+                ]
             },
             "service.StaffAcceptancePage": {
                 "properties": {
@@ -17480,6 +17646,96 @@
                     }
                 ],
                 "summary": "Mark a Payout Request as processing — the transfer is submitted, the bank has not confirmed it",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/platform-trends": {
+            "get": {
+                "description": "Returns the platform-wide figures of Platform Trends, House Organizations included, over a span of whole days on the platform clock (America/Guayaquil), never an Event's timezone. span is 7d, 30d, 90d, 12m (52 whole weeks) or custom, defaulting to 30d; a custom span takes from and to (YYYY-MM-DD, both included), which the other spans ignore. Every span ends at the close of yesterday: a custom range reaching today or later is cut at yesterday, and one with no day before today is refused. Buckets are days for a span of up to 90 days and weeks beyond, as granularity states; a weekly bucket is seven days counted back from the span's last day, so the oldest may be a shorter stub, and every bucket states its first and last day. Days with nothing in them are zero, never absent. Today is returned on each series as a separate bucket flagged partial, in no total, whenever the span ends yesterday. Each figure states whether it is recorded at all and the day exact recording began (null when always exact). Tickets Sold is the quantity over active Ticket Sales by the day sold, one series per Sales Channel. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Span",
+                        "in": "query",
+                        "name": "span",
+                        "schema": {
+                            "default": "30d",
+                            "enum": [
+                                "7d",
+                                "30d",
+                                "90d",
+                                "12m",
+                                "custom"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "First day of a custom span (YYYY-MM-DD)",
+                        "in": "query",
+                        "name": "from",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Last day of a custom span (YYYY-MM-DD)",
+                        "in": "query",
+                        "name": "to",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopePlatformTrends"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Get Platform Trends for a span",
                 "tags": [
                     "operator"
                 ]

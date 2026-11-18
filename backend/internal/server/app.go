@@ -43,6 +43,8 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/platform/migrate"
 	"github.com/peter/ticket_pos/backend/internal/platform/otp"
 	"github.com/peter/ticket_pos/backend/internal/platform/storage"
+	platformtrendshandler "github.com/peter/ticket_pos/backend/internal/platformtrends/handler"
+	platformtrendssvc "github.com/peter/ticket_pos/backend/internal/platformtrends/service"
 	"github.com/peter/ticket_pos/backend/internal/sales"
 	saleshandler "github.com/peter/ticket_pos/backend/internal/sales/handler"
 	salesrepo "github.com/peter/ticket_pos/backend/internal/sales/repository"
@@ -99,6 +101,11 @@ type App struct {
 	InvoicingRepo    *invoicingrepo.Repository
 	InvoicingService *invoicingsvc.Service
 	InvoicingHandler *invoicinghandler.Handler
+	// Platform Trends (#808, ADR 0080): whether the platform as a whole is
+	// growing. Like the operator surface it owns no table for the figures it
+	// reads live; it composes the modules that own the data.
+	PlatformTrendsService *platformtrendssvc.Service
+	PlatformTrendsHandler *platformtrendshandler.Handler
 }
 
 // Option customizes application wiring (tests and local overrides).
@@ -708,6 +715,13 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// read (#639), tied here for the same reason.
 	catalogService = catalogService.WithDossierSaleDocuments(invoicingService)
 
+	// Platform Trends reads Tickets Sold through sales, on the platform clock.
+	platformTrendsService := platformtrendssvc.New(salesService)
+	if options.clock != nil {
+		platformTrendsService = platformTrendsService.WithClock(options.clock)
+	}
+	platformTrendsHandler := platformtrendshandler.New(platformTrendsService)
+
 	return &App{
 		Config:            cfg,
 		Logger:            logger,
@@ -742,6 +756,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		InvoicingRepo:     invoicingRepo,
 		InvoicingService:  invoicingService,
 		InvoicingHandler:  invoicingHandler,
+
+		PlatformTrendsService: platformTrendsService,
+		PlatformTrendsHandler: platformTrendsHandler,
 	}, nil
 }
 

@@ -251,6 +251,9 @@ func setupTest(t *testing.T) *testEnv {
 	// Page View buckets are stamped by the affiliates clock: the hour-boundary
 	// tests move it, so every other test must get it back.
 	sharedApp.AffiliatesService.WithClock(func() time.Time { return fixedClock })
+	// Platform Trends reads today off its own clock: what is partial, and
+	// where every span ends, is decided there.
+	sharedApp.PlatformTrendsService.WithClock(func() time.Time { return fixedClock })
 	// No provider spacing between sends. The drain paces itself to the email
 	// provider's rate limit in production, which is real time and not the fixed
 	// clock, so a suite that drives whole weeks through it would spend that

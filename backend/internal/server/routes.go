@@ -469,6 +469,12 @@ func registerOperatorRoutes(mux Router, app *App) {
 	// up, keyed on the record of people being looked up.
 	mux.Handle("GET /api/v1/operator/legal/access-log", operator(http.HandlerFunc(h.GetLegalAccessLog)))
 
+	// Platform Trends (#808, ADR 0080): the platform-wide growth reading at
+	// the top of the Overview. Its own module on this namespace, behind the
+	// same gate, with no Active Member: the figures are the platform's, House
+	// Organizations included, and belong to no Organization.
+	mux.Handle("GET /api/v1/operator/platform-trends", operator(http.HandlerFunc(app.PlatformTrendsHandler.GetPlatformTrends)))
+
 	// Tax invoicing (#450, ADR 0059): the platform's Issuer with each country's
 	// Tax Authority, and — from #454 — the Tax Invoices it issues by hand. The
 	// platform is the sole Issuer, so this is operator-only by construction and

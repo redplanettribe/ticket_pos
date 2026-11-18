@@ -192,3 +192,29 @@ func dayOf(instant time.Time, loc *time.Location) time.Time {
 	local := instant.In(loc)
 	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
 }
+
+// PlatformTicketsSoldDay is how many tickets the whole platform sold on one
+// Sales Channel on one day, the day being a YYYY-MM-DD calendar date on the
+// clock the caller asked for.
+type PlatformTicketsSoldDay struct {
+	Day      string
+	Channel  string
+	Quantity int
+}
+
+// PlatformTicketsSoldByDay is the platform's Tickets Sold per day and Sales
+// Channel over the active Ticket Sales sold in [from, until), every
+// Organization included, read for Platform Trends (#810). The days are read in
+// the named timezone, which Platform Trends passes as the platform's own clock;
+// days that sold nothing have no entry, and filling them is the caller's.
+func (s *Service) PlatformTicketsSoldByDay(ctx context.Context, from, until time.Time, timezone string) ([]PlatformTicketsSoldDay, error) {
+	rows, err := s.repo.PlatformTicketsSoldByDay(ctx, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PlatformTicketsSoldDay, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, PlatformTicketsSoldDay{Day: row.Day, Channel: row.Channel, Quantity: row.Quantity})
+	}
+	return out, nil
+}

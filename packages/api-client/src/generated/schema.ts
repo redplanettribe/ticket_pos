@@ -7430,6 +7430,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/platform-trends": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Platform Trends for a span
+         * @description Returns the platform-wide figures of Platform Trends, House Organizations included, over a span of whole days on the platform clock (America/Guayaquil), never an Event's timezone. span is 7d, 30d, 90d, 12m (52 whole weeks) or custom, defaulting to 30d; a custom span takes from and to (YYYY-MM-DD, both included), which the other spans ignore. Every span ends at the close of yesterday: a custom range reaching today or later is cut at yesterday, and one with no day before today is refused. Buckets are days for a span of up to 90 days and weeks beyond, as granularity states; a weekly bucket is seven days counted back from the span's last day, so the oldest may be a shorter stub, and every bucket states its first and last day. Days with nothing in them are zero, never absent. Today is returned on each series as a separate bucket flagged partial, in no total, whenever the span ends yesterday. Each figure states whether it is recorded at all and the day exact recording began (null when always exact). Tickets Sold is the quantity over active Ticket Sales by the day sold, one series per Sales Channel. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Span */
+                    span?: "7d" | "30d" | "90d" | "12m" | "custom";
+                    /** @description First day of a custom span (YYYY-MM-DD) */
+                    from?: string;
+                    /** @description Last day of a custom span (YYYY-MM-DD) */
+                    to?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopePlatformTrends"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/question-reviews": {
         parameters: {
             query?: never;
@@ -16056,6 +16129,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopePlatformTrends": {
+            data?: components["schemas"]["service.PlatformTrends"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopePrivacyPolicy": {
             data?: components["schemas"]["service.PolicyView"];
             error?: components["schemas"]["platform.APIError"];
@@ -19586,6 +19664,99 @@ export interface components {
              */
             total_owed_cents?: number;
         };
+        /**
+         * @description Today is today's bucket, flagged partial and in no total. Present only
+         *     when the span ends yesterday, which every preset does; a custom range
+         *     that ends earlier has no today beside it.
+         */
+        "service.PlatformTrendBucket": {
+            /** @example 2026-07-06 */
+            first_day?: string;
+            /** @example 2026-07-06 */
+            last_day?: string;
+            /** @description Partial is true on today's bucket alone: a day still running. */
+            partial?: boolean;
+            value?: number;
+        };
+        /**
+         * @description TicketsSold is the quantity over active Ticket Sales, by the instant
+         *     sold, one series per Sales Channel.
+         */
+        "service.PlatformTrendFigure": {
+            /**
+             * @description ExactSince is the platform day exact recording of this figure began.
+             *     Buckets before it are a stand-in or partial. Null when the figure has
+             *     always been exact.
+             * @example 2026-07-07
+             */
+            exact_since?: string;
+            /**
+             * @description Recorded is false while the platform does not record this figure at
+             *     all, which the page states as "not yet recorded" rather than drawing a
+             *     zero that means "not measured".
+             */
+            recorded?: boolean;
+            /** @description Series is the figure's series in a stable order, each always present. */
+            series?: components["schemas"]["service.PlatformTrendSeries"][];
+            /**
+             * @description Total is the figure's total for the span, today excluded. Null when its
+             *     series are not in one unit (money, per currency) and cannot be summed.
+             */
+            total?: number;
+        };
+        /** @description Figures carries one entry per figure of Platform Trends. */
+        "service.PlatformTrendFigures": {
+            tickets_sold?: components["schemas"]["service.PlatformTrendFigure"];
+        };
+        /**
+         * @description Granularity is the length of every bucket: day for a span of up to 90
+         *     days, week beyond.
+         * @enum {string}
+         */
+        "service.PlatformTrendGranularity": "day" | "week";
+        "service.PlatformTrendSeries": {
+            /**
+             * @description Buckets is every bucket of the span, oldest first, the last one ending
+             *     on the span's last day. A bucket with nothing in it is zero, never
+             *     absent.
+             */
+            buckets?: components["schemas"]["service.PlatformTrendBucket"][];
+            /**
+             * @description Key names the series: for Tickets Sold, the Sales Channel.
+             * @example online
+             */
+            key?: string;
+            today?: components["schemas"]["service.PlatformTrendBucket"];
+            /** @description Total is the series' total for the span, today excluded. */
+            total?: number;
+        };
+        /**
+         * @description Span is the span the figures cover, as resolved: a custom range that
+         *     reached today or later is stated here ending at yesterday.
+         */
+        "service.PlatformTrendSpan": {
+            /** @example 2026-06-07 */
+            first_day?: string;
+            /** @example 2026-07-06 */
+            last_day?: string;
+            preset?: components["schemas"]["service.SpanPreset"];
+        };
+        "service.PlatformTrends": {
+            figures?: components["schemas"]["service.PlatformTrendFigures"];
+            granularity?: components["schemas"]["service.PlatformTrendGranularity"];
+            span?: components["schemas"]["service.PlatformTrendSpan"];
+            /**
+             * @description Timezone names the platform clock every day here is read on.
+             * @example America/Guayaquil
+             */
+            timezone?: string;
+            /**
+             * @description Today is the platform day the reading was taken on, which is never
+             *     inside the span.
+             * @example 2026-07-07
+             */
+            today?: string;
+        };
         "service.PolicyView": {
             /** @description BodyMarkdown is the full Privacy Policy, markdown. */
             body_markdown?: string;
@@ -20595,6 +20766,8 @@ export interface components {
              */
             terms_outstanding?: boolean;
         };
+        /** @enum {string} */
+        "service.SpanPreset": "7d" | "30d" | "90d" | "12m" | "custom";
         "service.StaffAcceptancePage": {
             next_cursor?: string;
             rows?: components["schemas"]["service.StaffAcceptanceRow"][];
