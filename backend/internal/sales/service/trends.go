@@ -261,3 +261,35 @@ func (s *Service) PlatformCurrencies(ctx context.Context) ([]string, error) {
 func (s *Service) PlatformFirstTicketSoldDay(ctx context.Context, timezone string) (string, bool, error) {
 	return s.repo.PlatformFirstTicketSoldDay(ctx, timezone)
 }
+
+// PlatformSaleRecordedDay says a Ticket Sale was recorded for an Organization
+// on a day, the day being a YYYY-MM-DD calendar date on the clock the caller
+// asked for.
+type PlatformSaleRecordedDay struct {
+	Day            string
+	OrganizationID string
+}
+
+// PlatformOrganizationsWithSalesRecordedByDay is every (day, Organization)
+// for which a Ticket Sale was recorded in [from, until), each once, on any
+// Sales Channel and reversed or not: the sale half of Active Organizations,
+// read by the daily close (#815). The day is the one the sale reached the
+// platform, in the named timezone, never the day it says it was sold.
+func (s *Service) PlatformOrganizationsWithSalesRecordedByDay(ctx context.Context, from, until time.Time, timezone string) ([]PlatformSaleRecordedDay, error) {
+	rows, err := s.repo.PlatformOrganizationsWithSalesRecordedByDay(ctx, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PlatformSaleRecordedDay, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, PlatformSaleRecordedDay{Day: row.Day, OrganizationID: row.OrganizationID})
+	}
+	return out, nil
+}
+
+// PlatformFirstSaleRecordedDay is the day, YYYY-MM-DD on the named clock,
+// the platform's earliest Ticket Sale, reversed or not, was recorded, and
+// false when it has none: the first day the daily close freezes (#815).
+func (s *Service) PlatformFirstSaleRecordedDay(ctx context.Context, timezone string) (string, bool, error) {
+	return s.repo.PlatformFirstSaleRecordedDay(ctx, timezone)
+}

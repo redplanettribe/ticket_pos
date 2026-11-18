@@ -171,6 +171,13 @@ module "ticket_pos" {
   holder_address_purge_schedule                 = var.holder_address_purge_schedule
   holder_address_purge_attempt_deadline_seconds = var.holder_address_purge_attempt_deadline_seconds
 
+  # The daily close (#815, spec #808, ADR 0080). Threaded through like every
+  # job: it ships false, and unpausing it is a reviewable diff in this
+  # directory, made after the endpoint's first run by hand has been read.
+  daily_close_enabled                  = var.daily_close_enabled
+  daily_close_schedule                 = var.daily_close_schedule
+  daily_close_attempt_deadline_seconds = var.daily_close_attempt_deadline_seconds
+
   # Ticket Question authoring (#309, ADR 0045). Threaded through the root for a
   # different reason than the two above: this one is not an incident lever but a
   # gate somebody must deliberately open, and declaring it here is what makes

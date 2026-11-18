@@ -44,6 +44,7 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/platform/otp"
 	"github.com/peter/ticket_pos/backend/internal/platform/storage"
 	platformtrendshandler "github.com/peter/ticket_pos/backend/internal/platformtrends/handler"
+	platformtrendsrepo "github.com/peter/ticket_pos/backend/internal/platformtrends/repository"
 	platformtrendssvc "github.com/peter/ticket_pos/backend/internal/platformtrends/service"
 	"github.com/peter/ticket_pos/backend/internal/sales"
 	saleshandler "github.com/peter/ticket_pos/backend/internal/sales/handler"
@@ -715,12 +716,13 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// read (#639), tied here for the same reason.
 	catalogService = catalogService.WithDossierSaleDocuments(invoicingService)
 
-	// Platform Trends owns no tables: it reads Tickets Sold and money through
-	// sales, new Verified Customers through customers, new Organizations
-	// through identity, Page Views through affiliates, which keeps their
-	// hourly buckets, and Events Published through catalog, all on the
-	// platform clock.
-	platformTrendsService := platformtrendssvc.New(salesService, customersService, identityService, affiliatesService, catalogService)
+	// Platform Trends owns one table, the activity totals its daily close
+	// freezes. Everything else it reads: Tickets Sold, money and the sale
+	// half of Active Organizations through sales, new Verified Customers
+	// through customers, new Organizations through identity, Page Views
+	// through affiliates, which keeps their hourly buckets, and Events
+	// Published through catalog, all on the platform clock.
+	platformTrendsService := platformtrendssvc.New(platformtrendsrepo.New(db), salesService, customersService, identityService, affiliatesService, catalogService)
 	if options.clock != nil {
 		platformTrendsService = platformTrendsService.WithClock(options.clock)
 	}

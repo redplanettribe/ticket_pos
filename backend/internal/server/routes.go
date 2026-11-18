@@ -175,6 +175,17 @@ func registerInternalRoutes(mux Router, app *App) {
 	// could take the holder address off every future Event on the platform in
 	// one request.
 	mux.HandleFunc("POST /api/v1/internal/holder-addresses/purge", app.CatalogHandler.PurgeUnacceptedHolderAddresses)
+
+	// The daily close (#815, spec #808, ADR 0080): freezes each closed
+	// platform day's activity into totals Platform Trends reads and never
+	// recomputes. Served by the PLATFORM TRENDS handler, whose table the
+	// totals are.
+	//
+	// It obeys this namespace's rule: the caller cannot name a day. WHICH
+	// days are closed comes from the backend's clock, and which of them
+	// still need freezing from the database. A caller able to name the day
+	// could freeze today half-lived, and a frozen day is never rewritten.
+	mux.HandleFunc("POST /api/v1/internal/platform-trends/close", app.PlatformTrendsHandler.CloseDays)
 }
 
 // registerOperatorRoutes wires the Platform Operator's namespace.

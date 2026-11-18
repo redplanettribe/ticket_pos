@@ -1,7 +1,8 @@
 // Package service implements Platform Trends: the Operator Dashboard's reading
 // of whether the platform as a whole is growing (#808, ADR 0080).
 //
-// It owns no tables. Every figure is read through the module that owns the
+// It owns one table, the activity totals the daily close freezes (activity.go).
+// Every other figure is read through the module that owns the
 // data it counts, each exposing a platform-wide operation, and composed here
 // into the one payload the page draws. The page derives nothing: bucketing,
 // totals, the partial flag on today, the comparison series aligned bucket to
@@ -24,13 +25,16 @@ import (
 
 // TicketSales is what Platform Trends needs from sales: the platform's Tickets
 // Sold per day and Sales Channel, its money sold and Platform Fee earned per
-// day and currency, the currencies it sells in, and the first day it sold
-// anything.
+// day and currency, the currencies it sells in, the first day it sold
+// anything, and, for the daily close, which Organizations a Ticket Sale was
+// recorded for on which day and the first day one was.
 type TicketSales interface {
 	PlatformTicketsSoldByDay(ctx context.Context, from, until time.Time, timezone string) ([]salessvc.PlatformTicketsSoldDay, error)
 	PlatformMoneyByDay(ctx context.Context, from, until time.Time, timezone string) ([]salessvc.PlatformMoneyDay, error)
 	PlatformCurrencies(ctx context.Context) ([]string, error)
 	PlatformFirstTicketSoldDay(ctx context.Context, timezone string) (string, bool, error)
+	PlatformOrganizationsWithSalesRecordedByDay(ctx context.Context, from, until time.Time, timezone string) ([]salessvc.PlatformSaleRecordedDay, error)
+	PlatformFirstSaleRecordedDay(ctx context.Context, timezone string) (string, bool, error)
 }
 
 // Customers is what Platform Trends needs from customers: how many Customers
@@ -76,6 +80,7 @@ const countSeriesKey = "all"
 
 // Service reads Platform Trends.
 type Service struct {
+	totals        ActivityTotals
 	sales         TicketSales
 	customers     Customers
 	organizations Organizations
@@ -84,9 +89,10 @@ type Service struct {
 	now           func() time.Time
 }
 
-// New returns a Platform Trends service reading through the given modules.
-func New(sales TicketSales, customers Customers, organizations Organizations, pageViews PageViews, events Events) *Service {
-	return &Service{sales: sales, customers: customers, organizations: organizations, pageViews: pageViews, events: events, now: time.Now}
+// New returns a Platform Trends service keeping its frozen activity totals in
+// totals and reading every other figure through the given modules.
+func New(totals ActivityTotals, sales TicketSales, customers Customers, organizations Organizations, pageViews PageViews, events Events) *Service {
+	return &Service{totals: totals, sales: sales, customers: customers, organizations: organizations, pageViews: pageViews, events: events, now: time.Now}
 }
 
 // WithClock overrides the clock today is read from (tests).
@@ -177,6 +183,12 @@ type PlatformTrendFigures struct {
 	// Event is counted on its creation day, as a stand-in, and one cancelled
 	// before then is not counted at all.
 	EventsPublished PlatformTrendFigure `json:"events_published"`
+	// ActiveOrganizations is the Organizations active per day: those a
+	// Ticket Sale was recorded for that day, by the day the sale reached
+	// the platform and not the day it says it was sold, on any Sales
+	// Channel, reversed or not. It is read from the totals the daily close
+	// froze, never live.
+	ActiveOrganizations PlatformTrendActivityFigure `json:"active_organizations"`
 }
 
 // PlatformTrendFigure is one figure for the span: its series, its total, whether it is
@@ -284,6 +296,11 @@ func (s *Service) Trends(ctx context.Context, span Span) (*PlatformTrends, error
 		return nil, err
 	}
 
+	activeOrganizations, err := s.activeOrganizations(ctx, span)
+	if err != nil {
+		return nil, err
+	}
+
 	compared := span.compared()
 	return &PlatformTrends{
 		Timezone: platform.EcuadorTimeZone,
@@ -307,6 +324,7 @@ func (s *Service) Trends(ctx context.Context, span Span) (*PlatformTrends, error
 			NewOrganizations:     newOrganizations,
 			PageViews:            pageViews,
 			EventsPublished:      eventsPublished,
+			ActiveOrganizations:  activeOrganizations,
 		},
 	}, nil
 }

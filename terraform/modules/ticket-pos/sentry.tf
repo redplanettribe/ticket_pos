@@ -416,6 +416,7 @@ locals {
     sentry_cron_monitor.assignment_reminder[*].id,
     sentry_cron_monitor.owed_assignment_mail[*].id,
     sentry_cron_monitor.holder_address_purge[*].id,
+    sentry_cron_monitor.daily_close[*].id,
   )
 
   sentry_uptime_monitor_ids = concat(

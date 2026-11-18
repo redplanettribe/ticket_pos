@@ -89,6 +89,12 @@ override_resource {
 }
 
 override_resource {
+  target          = sentry_cron_monitor.daily_close
+  override_during = plan
+  values          = { id = "cron-daily-close" }
+}
+
+override_resource {
   target          = sentry_uptime_monitor.storefront
   override_during = plan
   values          = { id = "uptime-storefront" }
@@ -130,6 +136,7 @@ run "every_job_paused_declares_no_cron_monitor" {
       sentry_cron_monitor.assignment_reminder,
       sentry_cron_monitor.owed_assignment_mail,
       sentry_cron_monitor.holder_address_purge,
+      sentry_cron_monitor.daily_close,
     )) == 0
     error_message = "A paused job must have no cron monitor, or it would alert forever."
   }
@@ -137,6 +144,13 @@ run "every_job_paused_declares_no_cron_monitor" {
   assert {
     condition     = length(sentry_alert.job_check_in) == 0
     error_message = "With no cron monitor there must be no check-in alert."
+  }
+
+  # The daily close ships paused too, on the platform clock its day is a
+  # day of.
+  assert {
+    condition     = google_cloud_scheduler_job.daily_close.paused && google_cloud_scheduler_job.daily_close.time_zone == "America/Guayaquil"
+    error_message = "The daily close must ship paused and be scheduled on the platform clock."
   }
 }
 
@@ -193,7 +207,7 @@ run "unpausing_one_job_creates_its_monitor_only" {
   }
 }
 
-# Every job unpaused: nine monitors, one per job, with the backend's slugs.
+# Every job unpaused: ten monitors, one per job, with the backend's slugs.
 run "every_job_unpaused_has_its_monitor" {
   command = plan
 
@@ -208,6 +222,7 @@ run "every_job_unpaused_has_its_monitor" {
     assignment_reminder_enabled   = true
     owed_assignment_mail_enabled  = true
     holder_address_purge_enabled  = true
+    daily_close_enabled           = true
 
     # Every schedule moved off its default, so a monitor holding a copy of
     # the default rather than a reference to its job is caught.
@@ -220,10 +235,11 @@ run "every_job_unpaused_has_its_monitor" {
     assignment_reminder_schedule   = "31 10 * * *"
     owed_assignment_mail_schedule  = "*/2 * * * *"
     holder_address_purge_schedule  = "41 3 * * *"
+    daily_close_schedule           = "11 0 * * *"
   }
 
   # The slug Sentry gives a cron monitor is its name; the names must be the
-  # nine the backend checks in with, read from the backend's own list.
+  # ten the backend checks in with, read from the backend's own list.
   assert {
     condition = toset([for m in concat(
       sentry_cron_monitor.reversal_reconciler,
@@ -235,8 +251,9 @@ run "every_job_unpaused_has_its_monitor" {
       sentry_cron_monitor.assignment_reminder,
       sentry_cron_monitor.owed_assignment_mail,
       sentry_cron_monitor.holder_address_purge,
-    ) : m.name]) == toset([for m in regexall("\"POST [^\"]+\":\\s+\"([a-z0-9-]+)\"", file("../../../backend/internal/server/jobs.go")) : m[0]]) && length(regexall("\"POST [^\"]+\":\\s+\"([a-z0-9-]+)\"", file("../../../backend/internal/server/jobs.go"))) == 9
-    error_message = "The cron monitors' names must be exactly the nine job names in backend/internal/server/jobs.go."
+      sentry_cron_monitor.daily_close,
+    ) : m.name]) == toset([for m in regexall("\"POST [^\"]+\":\\s+\"([a-z0-9-]+)\"", file("../../../backend/internal/server/jobs.go")) : m[0]]) && length(regexall("\"POST [^\"]+\":\\s+\"([a-z0-9-]+)\"", file("../../../backend/internal/server/jobs.go"))) == 10
+    error_message = "The cron monitors' names must be exactly the ten job names in backend/internal/server/jobs.go."
   }
 
   # Each slug is its scheduler job's name without the environment prefix.
@@ -251,6 +268,7 @@ run "every_job_unpaused_has_its_monitor" {
       sentry_cron_monitor.assignment_reminder[0].name == "ticket-pos-assignment-reminder" && google_cloud_scheduler_job.assignment_reminder.name == "prod-ticket-pos-assignment-reminder",
       sentry_cron_monitor.owed_assignment_mail[0].name == "ticket-pos-owed-assignment-mail" && google_cloud_scheduler_job.owed_assignment_mail.name == "prod-ticket-pos-owed-assignment-mail",
       sentry_cron_monitor.holder_address_purge[0].name == "ticket-pos-holder-address-purge" && google_cloud_scheduler_job.holder_address_purge.name == "prod-ticket-pos-holder-address-purge",
+      sentry_cron_monitor.daily_close[0].name == "ticket-pos-daily-close" && google_cloud_scheduler_job.daily_close.name == "prod-ticket-pos-daily-close",
     ])
     error_message = "Each monitor must sit beside its own scheduler job, named as the job without its environment prefix."
   }
@@ -266,6 +284,7 @@ run "every_job_unpaused_has_its_monitor" {
       sentry_cron_monitor.assignment_reminder[0].schedule.crontab == google_cloud_scheduler_job.assignment_reminder.schedule && sentry_cron_monitor.assignment_reminder[0].timezone == google_cloud_scheduler_job.assignment_reminder.time_zone,
       sentry_cron_monitor.owed_assignment_mail[0].schedule.crontab == google_cloud_scheduler_job.owed_assignment_mail.schedule && sentry_cron_monitor.owed_assignment_mail[0].timezone == google_cloud_scheduler_job.owed_assignment_mail.time_zone,
       sentry_cron_monitor.holder_address_purge[0].schedule.crontab == google_cloud_scheduler_job.holder_address_purge.schedule && sentry_cron_monitor.holder_address_purge[0].timezone == google_cloud_scheduler_job.holder_address_purge.time_zone,
+      sentry_cron_monitor.daily_close[0].schedule.crontab == google_cloud_scheduler_job.daily_close.schedule && sentry_cron_monitor.daily_close[0].timezone == google_cloud_scheduler_job.daily_close.time_zone,
     ])
     error_message = "Every monitor's schedule and time zone must be its scheduler job's."
   }
@@ -283,13 +302,14 @@ run "every_job_unpaused_has_its_monitor" {
       sentry_cron_monitor.assignment_reminder,
       sentry_cron_monitor.owed_assignment_mail,
       sentry_cron_monitor.holder_address_purge,
+      sentry_cron_monitor.daily_close,
     ) : m.project == "ticket-pos-api" && m.owner.team_id == "1001" && m.checkin_margin_minutes >= 1 && m.max_runtime_minutes >= 2 && m.failure_issue_threshold >= 1 && m.recovery_threshold >= 1])
     error_message = "Every cron monitor must be in ticket-pos-api, owned by the team, with a margin and a runtime past its deadline."
   }
 
   assert {
-    condition     = length(sentry_alert.job_check_in[0].monitor_ids) == 9
-    error_message = "The check-in alert must watch all nine monitors."
+    condition     = length(sentry_alert.job_check_in[0].monitor_ids) == 10
+    error_message = "The check-in alert must watch all ten monitors."
   }
 
   # Failed, missed and timed-out check-ins all open the monitor's issue: one

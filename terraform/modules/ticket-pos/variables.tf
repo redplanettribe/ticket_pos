@@ -767,6 +767,36 @@ variable "holder_address_purge_attempt_deadline_seconds" {
   }
 }
 
+# --- The daily close (daily_close.tf, ADR 0080, #815) ---------------------------
+
+variable "daily_close_enabled" {
+  description = "Whether the daily close tick actually fires. False leaves the job, its identity and its run.invoker grant in place but paused, which is how it ships. The job freezes each closed platform day's activity into the totals Platform Trends reads; while it is paused nothing is frozen and Platform Trends states Active Organizations as absent, never as zero. Turning it on late loses nothing: the first run freezes every day back to the first recorded Ticket Sale. The endpoint can be run by hand at any time, paused or not."
+  type        = bool
+  default     = false
+}
+
+variable "daily_close_schedule" {
+  description = "Unix cron for the daily close tick, read in America/Guayaquil, the platform clock the closed day is a day of. Daily at 00:10: ten minutes into the new day, so a Ticket Sale whose recording began just before midnight has been committed before yesterday is frozen, since a frozen day is never rewritten. Running it later only delays when yesterday appears on Platform Trends; running it more than once a day is harmless, as a day already frozen is left alone."
+  type        = string
+  default     = "10 0 * * *"
+
+  validation {
+    condition     = can(regex("^\\S+( \\S+){4}$", var.daily_close_schedule))
+    error_message = "daily_close_schedule must be five space-separated cron fields, e.g. \"10 0 * * *\"."
+  }
+}
+
+variable "daily_close_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one daily close before abandoning it. A nightly run reads thirty days of Ticket Sales and writes one row; the first run writes one row per day of the platform's history, and a run cut off keeps what it froze for the next to carry on from. It must stay below api_request_timeout_seconds, as every job's deadline does."
+  type        = number
+  default     = 120
+
+  validation {
+    condition     = var.daily_close_attempt_deadline_seconds >= 60 && var.daily_close_attempt_deadline_seconds <= 1800
+    error_message = "daily_close_attempt_deadline_seconds must be between 60 and 1800: at least 60 so the run has room to finish, and at most 1800 because Cloud Scheduler rejects more for an HTTP target."
+  }
+}
+
 # --- Sentry (sentry.tf, ADR 0079, #777) ---------------------------------------
 #
 # One switch per deployable, all off. Off, the deployable's Cloud Run service

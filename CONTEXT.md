@@ -116,6 +116,13 @@ A Sale Reversal does not undo it: the sale happened, and activity is not money, 
 A figure about a day, like Active Customer, and unrelated to Active Event and Active Member.
 _Avoid_: Active organizer, active account, active tenant, live organization
 
+**Daily Close**:
+The nightly act that freezes each closed day of the platform clock into activity totals: how many were active that day, and how many different ones across the 7 and the 30 days ending on it.
+A frozen day is never rewritten, so a sale that turns up for it afterwards changes nothing and last month reads the same next year.
+A night that was missed is made good by the next run, which freezes every closed day still unfrozen, oldest first, back to the first recorded Ticket Sale.
+Until a day is frozen Platform Trends leaves it out of an activity figure, which is different from stating a zero.
+_Avoid_: Rollup, snapshot, end-of-day batch, aggregation job
+
 **Staff Locale**:
 The language the staff app is written in, and the language staff mail is written in, for the person signed in. English or Ecuadorian Spanish, the two the Storefront serves, and its Spanish is written in usted as Customer mail is (ADR 0033).
 A property of a person rather than of a page or of a Membership, keyed on the email address staff identity already runs on, so it follows somebody across devices and across Organizations, and a Platform Operator who is a Member of nowhere holds one too. Chosen from a switcher in the app shell — a control about you, not about the Organization — and absent, rather than English, until somebody has stated one.

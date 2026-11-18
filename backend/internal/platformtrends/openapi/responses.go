@@ -15,3 +15,11 @@ type EnvelopePlatformTrends struct {
 	Error     *platform.APIError     `json:"error"`
 	RequestID string                 `json:"request_id"`
 }
+
+// EnvelopeDailyClose documents POST /internal/platform-trends/close success
+// responses.
+type EnvelopeDailyClose struct {
+	Data      service.DailyCloseResult `json:"data"`
+	Error     *platform.APIError       `json:"error"`
+	RequestID string                   `json:"request_id"`
+}

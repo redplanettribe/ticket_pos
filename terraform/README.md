@@ -674,6 +674,7 @@ After the first apply that creates a monitor, check in Sentry (Crons) that its s
 | Assignment Reminder | `google_cloud_scheduler_job.assignment_reminder` | `ticket-pos-assignment-reminder` |
 | Owed Assignment Mail | `google_cloud_scheduler_job.owed_assignment_mail` | `ticket-pos-owed-assignment-mail` |
 | Holder Address Purge | `google_cloud_scheduler_job.holder_address_purge` | `ticket-pos-holder-address-purge` |
+| Daily close | `google_cloud_scheduler_job.daily_close` | `ticket-pos-daily-close` |
 
 How much each monitor tolerates follows how often its job runs (`local.sentry_cron_tolerance`):
 
@@ -681,7 +682,7 @@ How much each monitor tolerates follows how often its job runs (`local.sentry_cr
 | --- | --- | --- | --- | --- |
 | Every minute | Reversal Reconciler, Follow Digest drain, Owed Assignment Mail | 1 minute | 5 bad runs in a row | 2 good runs |
 | Every five minutes | Sale Invoice Drainer | 2 minutes | 2 bad runs in a row | 1 good run |
-| Daily or weekly | Follow Digest enqueue, the two purges, the two reminders | 15 minutes | the first bad run | 1 good run |
+| Daily or weekly | Follow Digest enqueue, the two purges, the two reminders, the daily close | 15 minutes | the first bad run | 1 good run |
 
 A bad run is a failed check-in (the route answered a 5xx or panicked), a missed one (none within the grace) or a timed-out one.
 The cadence is chosen per job in its file from its default schedule; moving a `<job>_schedule` to another cadence (every minute to hourly, say) means moving that job's `local.sentry_cron_tolerance` key with it.
@@ -700,7 +701,7 @@ Each probes every minute, passes on a 2xx answer only, waits 10 seconds (longer 
 Two alert rules email the `ticket-pos` team, in production, when a monitor's issue opens or comes back, at most every 30 minutes per issue: `sentry_alert.job_check_in` watches every cron monitor (a failed, missed or timed-out check-in), and `sentry_alert.uptime` both uptime monitors.
 Each exists only while there is a monitor for it to watch.
 
-**What a full apply creates**, with every switch on and every job unpaused, on top of the 22 above: 9 cron monitors, 2 uptime monitors and the 2 alert rules.
+**What a full apply creates**, with every switch on and every job unpaused, on top of the 22 above: 10 cron monitors, 2 uptime monitors and the 2 alert rules.
 The free Developer plan allows one cron monitor and one uptime monitor, so the full set needs a paid plan with pay-as-you-go for the other eight cron monitors and the second uptime monitor; upgrade before switching on the API (seven cron monitors at once in production, above) or both Next apps.
 Nothing in the code depends on the plan: every job checks in whether or not its monitor exists.
 
@@ -731,7 +732,7 @@ The deployables are independent, and the API may be switched on alone first.
 
 - **Do:** in Sentry, Settings, Subscription, move `redplanettribe` from the free Developer plan to a paid plan with pay-as-you-go for monitors.
   Check the monitor prices first (spec #761 noted $0.78 per extra cron monitor and $1.00 per extra uptime monitor a month).
-- **Makes true:** room for the nine cron monitors and two uptime monitors of a full apply (the Developer plan has one of each).
+- **Makes true:** room for the ten cron monitors and two uptime monitors of a full apply (the Developer plan has one of each).
   The organization's 5,000 errors a month are shared with the other product either way.
 - **Check:** Settings, Subscription names the paid plan.
 - **Undo:** downgrade the plan after switching the API and both Next apps off (step 5's undo), so no monitor is left over the free plan's one of each.

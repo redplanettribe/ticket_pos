@@ -3006,6 +3006,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/internal/platform-trends/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run the daily close
+         * @description Freezes the activity of every closed platform day (America/Guayaquil) that has no totals yet, oldest first, from the day the first Ticket Sale was recorded through yesterday: the Organizations active that day, and the different Organizations active across the 7 and the 30 days ending that day. An Organization is active on a day a Ticket Sale was recorded for it, by the instant the sale reached the platform and not the instant it says it was sold, on any Sales Channel, reversed or not. A day nobody was active on is frozen as zeros. A frozen day is never rewritten, so the run is idempotent, and a missed night is frozen by the next run. Platform Trends reads Active Organizations from these totals alone. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. The days cannot be named by the caller; they are taken from the clock. The response states how many days the run froze, the first and last of them, and the day it closed through; it names no Organization.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeDailyClose"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/internal/reversals/drain": {
         parameters: {
             query?: never;
@@ -7439,7 +7487,7 @@ export interface paths {
         };
         /**
          * Get Platform Trends for a span
-         * @description Returns the platform-wide figures of Platform Trends, House Organizations included, over a span of whole days on the platform clock (America/Guayaquil), never an Event's timezone. span is 7d, 30d, 90d, 12m (52 whole weeks) or custom, defaulting to 30d; a custom span takes from and to (YYYY-MM-DD, both included), which the other spans ignore. Every span ends at the close of yesterday: a custom range reaching today or later is cut at yesterday, and one with no day before today is refused. Buckets are days for a span of up to 90 days and weeks beyond, as granularity states; a weekly bucket is seven days counted back from the span's last day, so the oldest may be a shorter stub, and every bucket states its first and last day. Days with nothing in them are zero, never absent. Today is returned on each series as a separate bucket flagged partial, in no total, whenever the span ends yesterday. Each figure states whether it is recorded at all and the day exact recording began (null when always exact). compare is previous (the default), the span of the same length ending the day before the span starts, or year_earlier, the span moved back 52 weeks so every day sits beside the same weekday; comparison states it. Every series carries comparison_buckets, one entry per bucket at the same index and as long as it, its comparison_total and its change; a summable figure carries them across its series too. change is a signed ratio (0.5 for half as much again), null, never zero or infinite, when the comparison total is zero or null. Each figure states data_since, the first day it has data: a comparison bucket wholly before it is null and one holding it starts on it, so missing history is absent, never zero, and a comparison with no data has a null total. Today has no comparison bucket and is in no total. Tickets Sold is the quantity over active Ticket Sales by the day sold, one series per Sales Channel; its data begins on the day the earliest Ticket Sale, reversed or not, was sold, as the money figures' does. Money sold and Platform Fee earned are stated per currency, one series per currency an Organization is in, keyed by the currency code, every value in that currency's minor units; no currency is converted or added to another, so both figures have a null total and each series carries its own total, comparison_total and change. Money sold is the buyer price times the quantity, before the Platform Fee and Fee IVA are withheld, over active Ticket Sales on every Sales Channel by the day sold. Platform Fee earned is the Platform Fee, excluding Fee IVA, on active Online Sales and on reversed ones whose fee the platform kept, by the day sold; over every day up to today, today's bucket included, it equals the Platform Fee the operator summary states per currency. New Verified Customers, new Organizations and Page Views are each one count in one series keyed all, with a total, comparison_total and change of their own, always exact, their data beginning on the day of the first verification, the first Organization and the first Page View. New Verified Customers counts a Customer on the day they first proved their email, by One-time Passcode, Google Sign-In or an accepted link, never on the day a sale created their record; a Customer never verified counts on no day. New Organizations counts an Organization on the day it was created, House Organizations included. Page Views is the loads of every Event's storefront page: it counts loads and not people, and a load that arrived through an Affiliate Link is counted once. No figure is divided into Page Views; the response carries no rate. Events Published is one count in one series keyed all, like those three: each Event once, on the day it first became published, across every Organization. An Event cancelled afterwards stays counted on that day, a draft never counts, and an Event with External Registration counts like any other. Its exact_since is the day the platform began recording the instant of publication: an Event published before that day is counted on its creation day as a stand-in, and one already cancelled by then is not counted at all. Platform Operator only.
+         * @description Returns the platform-wide figures of Platform Trends, House Organizations included, over a span of whole days on the platform clock (America/Guayaquil), never an Event's timezone. span is 7d, 30d, 90d, 12m (52 whole weeks) or custom, defaulting to 30d; a custom span takes from and to (YYYY-MM-DD, both included), which the other spans ignore. Every span ends at the close of yesterday: a custom range reaching today or later is cut at yesterday, and one with no day before today is refused. Buckets are days for a span of up to 90 days and weeks beyond, as granularity states; a weekly bucket is seven days counted back from the span's last day, so the oldest may be a shorter stub, and every bucket states its first and last day. Days with nothing in them are zero, never absent, except in an activity figure. Today is returned on each series as a separate bucket flagged partial, in no total, whenever the span ends yesterday. Each figure states whether it is recorded at all and the day exact recording began (null when always exact). compare is previous (the default), the span of the same length ending the day before the span starts, or year_earlier, the span moved back 52 weeks so every day sits beside the same weekday; comparison states it. Every series carries comparison_buckets, one entry per bucket at the same index and as long as it, its comparison_total and its change; a summable figure carries them across its series too. change is a signed ratio (0.5 for half as much again), null, never zero or infinite, when the comparison total is zero or null. Each figure states data_since, the first day it has data: a comparison bucket wholly before it is null and one holding it starts on it, so missing history is absent, never zero, and a comparison with no data has a null total. Today has no comparison bucket and is in no total. Tickets Sold is the quantity over active Ticket Sales by the day sold, one series per Sales Channel; its data begins on the day the earliest Ticket Sale, reversed or not, was sold, as the money figures' does. Money sold and Platform Fee earned are stated per currency, one series per currency an Organization is in, keyed by the currency code, every value in that currency's minor units; no currency is converted or added to another, so both figures have a null total and each series carries its own total, comparison_total and change. Money sold is the buyer price times the quantity, before the Platform Fee and Fee IVA are withheld, over active Ticket Sales on every Sales Channel by the day sold. Platform Fee earned is the Platform Fee, excluding Fee IVA, on active Online Sales and on reversed ones whose fee the platform kept, by the day sold; over every day up to today, today's bucket included, it equals the Platform Fee the operator summary states per currency. New Verified Customers, new Organizations and Page Views are each one count in one series keyed all, with a total, comparison_total and change of their own, always exact, their data beginning on the day of the first verification, the first Organization and the first Page View. New Verified Customers counts a Customer on the day they first proved their email, by One-time Passcode, Google Sign-In or an accepted link, never on the day a sale created their record; a Customer never verified counts on no day. New Organizations counts an Organization on the day it was created, House Organizations included. Page Views is the loads of every Event's storefront page: it counts loads and not people, and a load that arrived through an Affiliate Link is counted once. No figure is divided into Page Views; the response carries no rate. Events Published is one count in one series keyed all, like those three: each Event once, on the day it first became published, across every Organization. An Event cancelled afterwards stays counted on that day, a draft never counts, and an Event with External Registration counts like any other. Its exact_since is the day the platform began recording the instant of publication: an Event published before that day is counted on its creation day as a stand-in, and one already cancelled by then is not counted at all. Active Organizations is an activity figure and is shaped apart: an Organization is active on the day a Ticket Sale was recorded for it, by the day the sale reached the platform and not the day it says it was sold, on any Sales Channel, reversed or not. It is read only from the totals the daily close froze, which never change afterwards, so it has no bucket for today, and a bucket the close has frozen no day of is null: absent, never zero. Because a count of different Organizations cannot be added across days, the figure states no total: mean is the mean daily count over the frozen days of the span, a weekly bucket's value is the mean of its frozen days, whose first and last it states, and change is mean against comparison_mean. distinct_7d and distinct_30d are the different Organizations active across the 7 and the 30 days ending on the span's last day, each counted once, null while that day is not frozen. Its data_since is the first frozen day, the day the first Ticket Sale was recorded. sale_half_only is true and exact_since null while a Member working in an Organization is not yet recorded as activity. Platform Operator only.
          */
         get: {
             parameters: {
@@ -15881,6 +15929,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeDailyClose": {
+            data?: components["schemas"]["service.DailyCloseResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeEcuadorIssuer": {
             data?: components["schemas"]["service.EcuadorIssuer"];
             error?: components["schemas"]["platform.APIError"];
@@ -17366,6 +17419,32 @@ export interface components {
             networking_consent?: string;
             policy?: components["schemas"]["service.CustomerGateStanding"];
             terms?: components["schemas"]["service.CustomerGateStanding"];
+        };
+        "service.DailyCloseResult": {
+            /**
+             * @description ClosedThrough is the last closed platform day on the clock the run
+             *     read: yesterday. Every day up to it is frozen once the run answers.
+             * @example 2026-07-06
+             */
+            closed_through?: string;
+            /**
+             * @description DaysFrozen is how many platform days this run froze. Zero is the
+             *     answer of a second run the same night, and of a platform that has
+             *     never recorded a Ticket Sale.
+             */
+            days_frozen?: number;
+            /**
+             * @description FirstDayFrozen is the oldest day this run froze. Null when it froze
+             *     none.
+             * @example 2026-07-06
+             */
+            first_day_frozen?: string;
+            /**
+             * @description LastDayFrozen is the newest day this run froze. Null when it froze
+             *     none.
+             * @example 2026-07-06
+             */
+            last_day_frozen?: string;
         };
         "service.DigestSubscriptionView": {
             digest_enabled?: boolean;
@@ -19668,6 +19747,95 @@ export interface components {
              */
             total_owed_cents?: number;
         };
+        "service.PlatformTrendActivityBucket": {
+            /**
+             * @description FirstDay and LastDay are the first and last frozen day of the bucket,
+             *     which for a weekly bucket the close has only partly frozen are not
+             *     the bucket's own ends.
+             * @example 2026-07-06
+             */
+            first_day?: string;
+            /** @example 2026-07-06 */
+            last_day?: string;
+            /**
+             * @description Value is the count of the day, or for a weekly bucket the mean of its
+             *     frozen days' counts.
+             */
+            value?: number;
+        };
+        /**
+         * @description ActiveOrganizations is the Organizations active per day: those a
+         *     Ticket Sale was recorded for that day, by the day the sale reached
+         *     the platform and not the day it says it was sold, on any Sales
+         *     Channel, reversed or not. It is read from the totals the daily close
+         *     froze, never live.
+         */
+        "service.PlatformTrendActivityFigure": {
+            /**
+             * @description Buckets has one entry per bucket of the span, oldest first. An entry
+             *     is null where the daily close has frozen no day of its bucket: absent,
+             *     never zero.
+             */
+            buckets?: components["schemas"]["service.PlatformTrendActivityBucket"][];
+            /**
+             * @description Change is Mean against ComparisonMean as a signed ratio. Null, never
+             *     zero or infinite, when either is null or ComparisonMean is zero.
+             * @example 0.25
+             */
+            change?: number;
+            /**
+             * @description ComparisonBuckets has one entry per entry of Buckets, at the same
+             *     index, null on the same terms.
+             */
+            comparison_buckets?: components["schemas"]["service.PlatformTrendActivityBucket"][];
+            /**
+             * @description ComparisonMean is the mean daily count over the frozen days of the
+             *     comparison span. Null when it has none.
+             * @example 2.8
+             */
+            comparison_mean?: number;
+            /**
+             * @description DataSince is the first platform day the daily close froze. Null when
+             *     it has frozen none.
+             * @example 2026-01-15
+             */
+            data_since?: string;
+            /**
+             * @description Distinct7Days is how many different subjects were active across the 7
+             *     days ending on the span's last day, each counted once. Null while that
+             *     day is not frozen.
+             */
+            distinct_7d?: number;
+            /**
+             * @description Distinct30Days is the same across the 30 days ending on the span's
+             *     last day.
+             */
+            distinct_30d?: number;
+            /**
+             * @description ExactSince is the platform day the figure began to be recorded in
+             *     full. Null while no such day exists.
+             * @example 2026-07-07
+             */
+            exact_since?: string;
+            /**
+             * @description Mean is the mean daily count over the frozen days of the span. Null
+             *     when the span has no frozen day.
+             * @example 3.5
+             */
+            mean?: number;
+            /**
+             * @description Recorded is false while the platform does not record this figure at
+             *     all, which the page states as "not yet recorded" rather than drawing a
+             *     zero that means "not measured".
+             */
+            recorded?: boolean;
+            /**
+             * @description SaleHalfOnly is true while Active Organizations is counted from
+             *     recorded Ticket Sales alone on every day: a Member working in an
+             *     Organization that recorded no sale is not yet seen.
+             */
+            sale_half_only?: boolean;
+        };
         /**
          * @description Today is today's bucket, flagged partial and in no total. Present only
          *     when the span ends yesterday, which every preset does; a custom range
@@ -19749,6 +19917,7 @@ export interface components {
         };
         /** @description Figures carries one entry per figure of Platform Trends. */
         "service.PlatformTrendFigures": {
+            active_organizations?: components["schemas"]["service.PlatformTrendActivityFigure"];
             events_published?: components["schemas"]["service.PlatformTrendFigure"];
             money_sold?: components["schemas"]["service.PlatformTrendFigure"];
             new_organizations?: components["schemas"]["service.PlatformTrendFigure"];

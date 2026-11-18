@@ -21,7 +21,7 @@ import (
 // server.CheckInJobs, the Router registerInternalRoutes registers through.
 // These tests register a tenth route through it, as a new internal route
 // would be, and serve it behind the real request pipeline: no handler here
-// has a line of check-in code. The nine real routes are driven over HTTP in
+// has a line of check-in code. The ten real routes are driven over HTTP in
 // integration/job_checkins_test.go.
 
 const (

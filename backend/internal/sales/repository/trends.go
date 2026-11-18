@@ -240,3 +240,67 @@ func (r *Repository) PlatformFirstTicketSoldDay(ctx context.Context, timezone st
 	}
 	return day.String, day.Valid, nil
 }
+
+// PlatformSaleRecordedDay says a Ticket Sale was recorded for an Organization
+// on a day. Day is a calendar date on the clock the caller named, formatted
+// YYYY-MM-DD.
+type PlatformSaleRecordedDay struct {
+	Day            string
+	OrganizationID string
+}
+
+// PlatformOrganizationsWithSalesRecordedByDay is every (day, Organization)
+// for which a Ticket Sale was recorded in [from, until), each once: the sale
+// half of Active Organizations, which the daily close freezes (#815, ADR
+// 0080).
+//
+// It is the one Platform Trends read that goes by created_at, the instant
+// the sale reached the platform, and not by sold_at: an old sale imported
+// today is the Organization working today. The status is not read, so a sale
+// reversed since still counts, and neither is the Sales Channel. Whoever
+// caused the sale, a Customer, a Member or an Integration Partner, it is the
+// Organization's.
+//
+// The day is read on the zone the caller passes, the platform's own clock.
+// No index is added: the close reads it once a night over thirty days, or
+// once over the whole table on its first run.
+func (r *Repository) PlatformOrganizationsWithSalesRecordedByDay(ctx context.Context, from, until time.Time, timezone string) ([]PlatformSaleRecordedDay, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT DISTINCT
+			to_char((created_at AT TIME ZONE $3)::date, 'YYYY-MM-DD') AS day,
+			organization_id
+		FROM ticket_sales
+		WHERE created_at >= $1 AND created_at < $2
+		ORDER BY 1, 2
+	`, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PlatformSaleRecordedDay
+	for rows.Next() {
+		var day PlatformSaleRecordedDay
+		if err := rows.Scan(&day.Day, &day.OrganizationID); err != nil {
+			return nil, err
+		}
+		out = append(out, day)
+	}
+	return out, rows.Err()
+}
+
+// PlatformFirstSaleRecordedDay is the day, on the clock the caller names,
+// the platform's earliest Ticket Sale was recorded, formatted YYYY-MM-DD,
+// and false when there is none: the first day the daily close freezes.
+// Reversed sales count, as in PlatformOrganizationsWithSalesRecordedByDay.
+func (r *Repository) PlatformFirstSaleRecordedDay(ctx context.Context, timezone string) (string, bool, error) {
+	var day sql.NullString
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT to_char((MIN(created_at) AT TIME ZONE $1)::date, 'YYYY-MM-DD')
+		FROM ticket_sales
+	`, timezone).Scan(&day)
+	if err != nil {
+		return "", false, err
+	}
+	return day.String, day.Valid, nil
+}
