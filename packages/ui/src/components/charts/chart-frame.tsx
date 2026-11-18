@@ -217,7 +217,17 @@ export function StackedChartShell({
   return (
     <div className={cn("relative flex w-max", className)} style={{ height }}>
       <PinnedYAxisStrip yMax={yMax} yTicks={yTicks} formatTick={formatTick} height={height} />
-      <div role="img" aria-label={ariaLabel} className="shrink-0" style={{ width, height }}>
+      {/* Recharts draws its marks in layers it makes focusable by script
+          (tabindex -1), so a click on a bar leaves the browser's focus
+          outline boxed around every bar of the chart. No key reaches such a
+          layer, so the outline marks nothing a reader can use: the keyboard's
+          place is shown by the scroll area and the bucket listbox. */}
+      <div
+        role="img"
+        aria-label={ariaLabel}
+        className="shrink-0 [&_g[tabindex='-1']]:outline-none"
+        style={{ width, height }}
+      >
         {children(width)}
       </div>
       {overlay}
