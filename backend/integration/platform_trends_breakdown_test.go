@@ -275,6 +275,13 @@ func TestPlatformTrendBreakdownFollowsAReversal(t *testing.T) {
 	tickets := readBreakdown(t, env, operatorSessionID, "?figure=tickets_sold&first_day=2026-07-03")
 	assertEvents(t, tickets, event(standingID, "Standing Fest", "all", 1))
 	assertOrganizations(t, tickets, breakdownOrganization{OrganizationID: testOrgID, Name: testOrgName, Key: "all", Value: 1})
+	stated := 0
+	for _, channel := range []string{"online", "in_person", "import"} {
+		stated += bucketOn(t, seriesFor(t, trends, channel), "2026-07-03").Value
+	}
+	if got := breakdownTotal(t, tickets, "all"); got != 1 || got != stated {
+		t.Fatalf("tickets_sold total = %d, want 1 and the %d the first read states", got, stated)
+	}
 
 	sold := readBreakdown(t, env, operatorSessionID, "?figure=money_sold&first_day=2026-07-03")
 	assertEvents(t, sold, event(standingID, "Standing Fest", "USD", feeTestAllInCents))
@@ -500,6 +507,7 @@ func TestPlatformTrendBreakdownRefusesAnUnknownFigureOrAMalformedBucket(t *testi
 		{"?figure=tickets_sold&first_day=2026-07-06&granularity=month", "granularity", "INVALID_ENUM"},
 		{"?figure=tickets_sold&first_day=2026-07-08", "first_day", "INVALID_START_AFTER_END"},
 		{"?figure=tickets_sold&first_day=2026-07-01&granularity=week", "first_day", "INVALID_START_AFTER_END"},
+		{"?figure=tickets_sold&first_day=2026-07-05&granularity=week&last_day=2026-07-07", "last_day", "INVALID_START_AFTER_END"},
 		{"?figure=tickets_sold&first_day=2026-06-01&granularity=week&last_day=soon", "last_day", "INVALID_DATE"},
 		{"?figure=tickets_sold&first_day=2026-06-01&granularity=week&last_day=2026-05-31", "last_day", "INVALID_END_BEFORE_START"},
 		{"?figure=tickets_sold&first_day=2026-06-01&granularity=week&last_day=2026-06-08", "last_day", "TOO_MANY_ITEMS"},

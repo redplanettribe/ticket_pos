@@ -28,9 +28,9 @@ import (
 // TicketSales is what Platform Trends needs from sales: the platform's Tickets
 // Sold per day and Sales Channel, its money sold and Platform Fee earned per
 // day and currency, the currencies it sells in, the first day it sold
-// anything, what each Event sold over a window, and, for the daily close, which Organizations a Ticket Sale was
-// recorded for on which day, the first day one was, and which Customers own
-// an Online Sale sold on which day.
+// anything, what each Event sold over a window, and, for the daily close,
+// which Organizations a Ticket Sale was recorded for on which day, the first
+// day one was, and which Customers own an Online Sale sold on which day.
 type TicketSales interface {
 	PlatformTicketsSoldByDay(ctx context.Context, from, until time.Time, timezone string) ([]salessvc.PlatformTicketsSoldDay, error)
 	PlatformMoneyByDay(ctx context.Context, from, until time.Time, timezone string) ([]salessvc.PlatformMoneyDay, error)
