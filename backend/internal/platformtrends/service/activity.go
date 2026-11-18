@@ -81,8 +81,7 @@ type DailyCloseResult struct {
 // hold the sale half alone and stay that way.
 //
 // Markers are deleted last, and only by a run that froze everything it
-// meant to: a marker is never deleted while a day it counts towards is
-// still unfrozen, unless the close has been failing for thirteen months.
+// meant to, so a run that fails deletes nothing.
 func (s *Service) CloseDays(ctx context.Context) (*DailyCloseResult, error) {
 	now := s.now()
 	today := civilDate(now)
@@ -93,7 +92,7 @@ func (s *Service) CloseDays(ctx context.Context) (*DailyCloseResult, error) {
 		return nil, err
 	}
 
-	deleted, err := s.markers.store.DeleteOrganizationMarkersBefore(ctx, today.AddDate(0, -markerRetentionMonths, 0).Format(dayFormat))
+	deleted, err := s.markers.DeleteOrganizationMarkersBefore(ctx, monthsBefore(today, markerRetentionMonths).Format(dayFormat))
 	if err != nil {
 		return nil, err
 	}
@@ -139,24 +138,24 @@ func (s *Service) freezeDays(ctx context.Context, now, yesterday time.Time, resu
 	if err != nil {
 		return err
 	}
-	_, markersBegan, err := s.markers.store.OrganizationMarkersBeganOn(ctx)
+	_, markersBegan, err := s.markers.OrganizationMarkersBeganOn(ctx)
 	if err != nil {
 		return err
 	}
 
 	for _, day := range unfrozen {
 		stated := day.Format(dayFormat)
-		if !markersBegan && active.marked[stated] {
-			if err := s.markers.store.RecordOrganizationMarkersBegan(ctx, stated); err != nil {
+		if !markersBegan && active.hasMarker[stated] {
+			if err := s.markers.RecordOrganizationMarkersBegan(ctx, stated); err != nil {
 				return err
 			}
 			markersBegan = true
 		}
 		wrote, err := s.totals.FreezeActivityTotals(ctx, repository.ActivityTotals{
 			Day:                       stated,
-			ActiveOrganizations:       len(active.on[stated]),
-			ActiveOrganizations7Days:  distinctOver(active.on, day, distinctShortDays),
-			ActiveOrganizations30Days: distinctOver(active.on, day, distinctLongDays),
+			ActiveOrganizations:       len(active.organizations[stated]),
+			ActiveOrganizations7Days:  distinctOver(active.organizations, day, distinctShortDays),
+			ActiveOrganizations30Days: distinctOver(active.organizations, day, distinctLongDays),
 		}, now)
 		if err != nil {
 			return err
@@ -174,35 +173,41 @@ func (s *Service) freezeDays(ctx context.Context, now, yesterday time.Time, resu
 	return nil
 }
 
-// firstActiveDay is the first platform day any Organization was active on:
-// the earlier of the day the first Ticket Sale was recorded and the day of
-// the oldest marker still kept. Nil when there is neither. Every day from it
-// on is one the close freezes; once the oldest markers are deleted it may
-// name a later day, by which time the days before it are long frozen.
+// firstActiveDay is the first platform day the close answers for: the
+// earliest of the day the first Ticket Sale was recorded, the day of the
+// oldest marker still kept and the first day already frozen. Nil when there
+// is none of them. Every day from it on is one the close freezes. The first
+// frozen day is what holds it in place once the oldest markers are deleted:
+// without it a platform with no sale would lose its first day with its last
+// marker, and the days after it would never be frozen.
 func (s *Service) firstActiveDay(ctx context.Context) (*time.Time, error) {
-	first, err := firstDay(ctx, s.sales.PlatformFirstSaleRecordedDay)
-	if err != nil {
-		return nil, err
+	var earliest *time.Time
+	for _, read := range []func(context.Context, string) (string, bool, error){
+		s.sales.PlatformFirstSaleRecordedDay,
+		func(ctx context.Context, _ string) (string, bool, error) {
+			return s.markers.FirstOrganizationMarkerDay(ctx)
+		},
+		func(ctx context.Context, _ string) (string, bool, error) { return s.totals.FirstFrozenActivityDay(ctx) },
+	} {
+		day, err := firstDay(ctx, read)
+		if err != nil {
+			return nil, err
+		}
+		if day != nil && (earliest == nil || day.Before(*earliest)) {
+			earliest = day
+		}
 	}
-	marked, err := firstDay(ctx, func(ctx context.Context, _ string) (string, bool, error) {
-		return s.markers.store.FirstOrganizationMarkerDay(ctx)
-	})
-	if err != nil {
-		return nil, err
-	}
-	if first == nil || (marked != nil && marked.Before(*first)) {
-		return marked, nil
-	}
-	return first, nil
+	return earliest, nil
 }
 
 // activeOrganizationsByDay is the Organizations active on each of a run of
 // platform days.
 type activeOrganizationsByDay struct {
-	// on is keyed by day and then by Organization.
-	on map[string]map[string]struct{}
-	// marked holds the days on which a Member worked in any Organization.
-	marked map[string]bool
+	// organizations is keyed by day and then by Organization.
+	organizations map[string]map[string]struct{}
+	// hasMarker holds the days on which a Member worked in any
+	// Organization.
+	hasMarker map[string]bool
 }
 
 // organizationsActiveByDay is the Organizations active on each platform day
@@ -210,12 +215,12 @@ type activeOrganizationsByDay struct {
 // Organization active: a Ticket Sale was recorded for it that day, or a
 // Member worked in it that day, and one that did both is there once.
 func (s *Service) organizationsActiveByDay(ctx context.Context, firstDay, lastDay time.Time) (activeOrganizationsByDay, error) {
-	active := activeOrganizationsByDay{on: map[string]map[string]struct{}{}, marked: map[string]bool{}}
+	active := activeOrganizationsByDay{organizations: map[string]map[string]struct{}{}, hasMarker: map[string]bool{}}
 	add := func(day, organizationID string) {
-		if active.on[day] == nil {
-			active.on[day] = map[string]struct{}{}
+		if active.organizations[day] == nil {
+			active.organizations[day] = map[string]struct{}{}
 		}
-		active.on[day][organizationID] = struct{}{}
+		active.organizations[day][organizationID] = struct{}{}
 	}
 
 	recorded, err := s.sales.PlatformOrganizationsWithSalesRecordedByDay(ctx,
@@ -227,13 +232,13 @@ func (s *Service) organizationsActiveByDay(ctx context.Context, firstDay, lastDa
 		add(sale.Day, sale.OrganizationID)
 	}
 
-	markers, err := s.markers.store.OrganizationMarkersBetween(ctx, firstDay.Format(dayFormat), lastDay.Format(dayFormat))
+	markers, err := s.markers.OrganizationMarkersBetween(ctx, firstDay.Format(dayFormat), lastDay.Format(dayFormat))
 	if err != nil {
 		return active, err
 	}
 	for _, marker := range markers {
 		add(marker.Day, marker.OrganizationID)
-		active.marked[marker.Day] = true
+		active.hasMarker[marker.Day] = true
 	}
 	return active, nil
 }
@@ -344,7 +349,7 @@ func (s *Service) activeOrganizations(ctx context.Context, span Span) (PlatformT
 	figure := activityFigureOf(span, dataSince, frozen)
 	// The figure is whole from the first day the close froze with markers.
 	// Until it has frozen one, every day holds the sale half alone.
-	began, ok, err := s.markers.store.OrganizationMarkersBeganOn(ctx)
+	began, ok, err := s.markers.OrganizationMarkersBeganOn(ctx)
 	if err != nil {
 		return PlatformTrendActivityFigure{}, err
 	}

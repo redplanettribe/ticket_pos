@@ -31,50 +31,65 @@ type OrganizationMarkerStore interface {
 // full year-over-year recheck of a frozen figure (ADR 0080).
 const markerRetentionMonths = 13
 
-// organizationMarkers is the marker store and this process's memory of the
-// last day it marked each Organization on, which is what keeps a Member's
-// every request from costing a write: at most one write per Organization per
-// day reaches the store from a process. The memory holds one day per
-// Organization, so it grows with the Organizations worked in and not with
-// time.
-type organizationMarkers struct {
-	store OrganizationMarkerStore
+// markerWriteTimeout bounds the one write a day a request may carry, so a
+// store that hangs holds a Member's request up for no longer than this.
+const markerWriteTimeout = 2 * time.Second
 
-	mu     sync.Mutex
-	marked map[string]string
+// monthsBefore is the same day of the month the given number of calendar
+// months earlier, or that month's last day where it has no such day: one
+// month before the 31st of March is the last day of February. It never
+// spills into the following month, as time.AddDate does.
+func monthsBefore(day time.Time, months int) time.Time {
+	firstOfMonth := time.Date(day.Year(), day.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, -months, 0)
+	lastOfMonth := firstOfMonth.AddDate(0, 1, -1)
+	if day.Day() > lastOfMonth.Day() {
+		return lastOfMonth
+	}
+	return firstOfMonth.AddDate(0, 0, day.Day()-1)
 }
 
-func newOrganizationMarkers(store OrganizationMarkerStore) *organizationMarkers {
-	return &organizationMarkers{store: store, marked: map[string]string{}}
+// markedOrganizations is this process's memory of the last platform day it
+// marked each Organization on, which is what keeps a Member's every request
+// from costing a write: at most one write per Organization per day reaches
+// the store from a process. It holds one day per Organization, so it grows
+// with the Organizations worked in and not with time.
+type markedOrganizations struct {
+	mu      sync.Mutex
+	lastDay map[string]string
+}
+
+func newMarkedOrganizations() *markedOrganizations {
+	return &markedOrganizations{lastDay: map[string]string{}}
 }
 
 // claim reports whether this process has yet to mark the Organization on
 // the day, and remembers it as marked. Of the requests that arrive together
 // only the first is told true, so only one of them writes.
-func (m *organizationMarkers) claim(organizationID, day string) bool {
+func (m *markedOrganizations) claim(organizationID, day string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.marked[organizationID] == day {
+	if m.lastDay[organizationID] == day {
 		return false
 	}
-	m.marked[organizationID] = day
+	m.lastDay[organizationID] = day
 	return true
 }
 
 // release forgets a claim whose write did not land, so that the next request
 // of the day tries again.
-func (m *organizationMarkers) release(organizationID, day string) {
+func (m *markedOrganizations) release(organizationID, day string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.marked[organizationID] == day {
-		delete(m.marked, organizationID)
+	if m.lastDay[organizationID] == day {
+		delete(m.lastDay, organizationID)
 	}
 }
 
 // WithOrganizationMarkerStore replaces the marker store and forgets which
 // Organizations this process has marked (tests).
 func (s *Service) WithOrganizationMarkerStore(store OrganizationMarkerStore) *Service {
-	s.markers = newOrganizationMarkers(store)
+	s.markers = store
+	s.marked = newMarkedOrganizations()
 	return s
 }
 
@@ -86,18 +101,25 @@ func (s *Service) WithOrganizationMarkerStore(store OrganizationMarkerStore) *Se
 //
 // The first call of a day for an Organization writes its marker and every
 // later one returns without touching the store. It returns nothing: a
-// marker that cannot be written is reported and the request it rode on goes
-// ahead, and the next request of the day writes it instead.
+// marker that cannot be written, or not within markerWriteTimeout, is
+// reported and the request it rode on goes ahead, and the next request of
+// the day writes it instead.
+//
+// Requests stamped either side of midnight that arrive out of order may
+// each write their day more than once. The store takes a marker that exists
+// as a no-op, so that costs a write and nothing else.
 func (s *Service) MarkOrganizationActive(ctx context.Context, organizationID string, at time.Time) {
-	markers := s.markers
+	store, marked := s.markers, s.marked
 	day := civilDate(at).Format(dayFormat)
-	if !markers.claim(organizationID, day) {
+	if !marked.claim(organizationID, day) {
 		return
 	}
 	// The marker outlives the request that happened to carry it: a client
 	// that hangs up early must not cost the Organization its day.
-	if err := markers.store.MarkOrganizationActive(context.WithoutCancel(ctx), organizationID, day); err != nil {
-		markers.release(organizationID, day)
+	writing, cancel := context.WithTimeout(context.WithoutCancel(ctx), markerWriteTimeout)
+	defer cancel()
+	if err := store.MarkOrganizationActive(writing, organizationID, day); err != nil {
+		marked.release(organizationID, day)
 		s.logger.Error(ctx, "organization activity marker not written",
 			"organization_id", organizationID, "day", day, "error", err)
 	}

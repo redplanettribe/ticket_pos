@@ -348,4 +348,17 @@ func TestTheDailyCloseDeletesMarkersOlderThanThirteenMonths(t *testing.T) {
 	if shown(after.ExactSince) != "2026-07-03" {
 		t.Fatalf("exact_since = %v after the purge, want it still 2026-07-03", shown(after.ExactSince))
 	}
+
+	// Nothing was ever sold and no marker is left, and the close still
+	// knows where it got to: a Member working three days later does not
+	// leave the quiet days between unfrozen.
+	workingAt(t, env, platformNoon(2027, 8, 7), func() {
+		if status := loadStaffPage(t, env, verifyOTP(t, env, "long-ago-org@example.com")); status != http.StatusOK {
+			t.Fatalf("GET %s status=%d, want 200", staffMePath, status)
+		}
+	})
+	result = closeDaysAt(t, env, platformNoon(2027, 8, 9))
+	if result.DaysFrozen != 4 || shown(result.FirstDayFrozen) != "2027-08-05" || shown(result.LastDayFrozen) != "2027-08-08" {
+		t.Fatalf("close = %+v; want the 4 days from 2027-08-05 through 2027-08-08, quiet ones included", result)
+	}
 }

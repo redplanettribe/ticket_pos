@@ -82,7 +82,8 @@ const countSeriesKey = "all"
 // Service reads Platform Trends.
 type Service struct {
 	totals        ActivityTotalsStore
-	markers       *organizationMarkers
+	markers       OrganizationMarkerStore
+	marked        *markedOrganizations
 	logger        platform.Logger
 	sales         TicketSales
 	customers     Customers
@@ -97,7 +98,7 @@ type Service struct {
 // figure through the given modules.
 func New(totals ActivityTotalsStore, markers OrganizationMarkerStore, logger platform.Logger, sales TicketSales, customers Customers, organizations Organizations, pageViews PageViews, events Events) *Service {
 	return &Service{
-		totals: totals, markers: newOrganizationMarkers(markers), logger: logger,
+		totals: totals, markers: markers, marked: newMarkedOrganizations(), logger: logger,
 		sales: sales, customers: customers, organizations: organizations, pageViews: pageViews, events: events,
 		now: time.Now,
 	}
