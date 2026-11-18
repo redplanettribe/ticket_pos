@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { LOCALES } from "@ticket-pos/locale";
+import { LOCALES, type AppLocale } from "@ticket-pos/locale";
 
 /**
  * The catalogs are held to the same shape, because nothing else is holding them.
@@ -111,7 +111,7 @@ test("no message is empty", () => {
  * Customer and Active Organization, since Active Event and Active Member mean
  * something else.
  */
-function platformTrendsCopy(locale: (typeof LOCALES)[number]): [string, string][] {
+function platformTrendsCopy(locale: AppLocale): [string, string][] {
   return [...catalogs.get(locale)!].filter(([key]) => key.startsWith("operator.trends"));
 }
 
@@ -131,10 +131,7 @@ test("the Platform Trends copy holds no em dash", () => {
  * is the language's own. Keyed by locale, so a new catalog does not compile
  * until it says what its full terms are.
  */
-const ACTIVE_TERMS: Record<
-  (typeof LOCALES)[number],
-  { customers: string; organizations: string; bare: RegExp }
-> = {
+const ACTIVE_TERMS: Record<AppLocale, { customers: string; organizations: string; bare: RegExp }> = {
   en: {
     customers: "Active Customers",
     organizations: "Active Organizations",
@@ -144,15 +141,17 @@ const ACTIVE_TERMS: Record<
   es: {
     customers: "Clientes activos",
     organizations: "Organizaciones activas",
-    // "activo" always follows the thing that is active, and agrees with it.
-    // The word's end is spelled out because \b does not know an accented
-    // letter for a letter.
-    bare: /(?<!\bclientes?\s+)\bactivos?(?![\p{L}\p{N}])|(?<!\borganizaci(?:ón|ones)\s+)\bactivas?(?![\p{L}\p{N}])/iu,
+    // "activo" follows the thing that is active, with nothing between them,
+    // and agrees with it. The rule is strict on purpose: a word in between
+    // ("clientes más activos") or the verb ("esto activa...") fails too, and
+    // is reworded. The word's two ends are spelled out because \b does not
+    // know an accented letter for a letter.
+    bare: /(?<!\bclientes?\s+)(?<![\p{L}\p{N}])activos?(?![\p{L}\p{N}])|(?<!\borganizaci(?:ón|ones)\s+)(?<![\p{L}\p{N}])activas?(?![\p{L}\p{N}])/iu,
   },
 };
 
 /** The bare "active" in a message, or null when every use names what is active. */
-function bareActive(locale: (typeof LOCALES)[number], message: string): string | null {
+function bareActive(locale: AppLocale, message: string): string | null {
   return ACTIVE_TERMS[locale].bare.exec(message)?.[0] ?? null;
 }
 
@@ -175,6 +174,7 @@ test("a bare active is found in each language, and the full terms are not", () =
     "Una organización activa vendió.",
     "Un cliente activo",
     "Las cifras de actividad quedan fijas.",
+    "Se activó el registro.",
   ]) {
     assert.equal(bareActive("es", full), null, full);
   }
@@ -184,6 +184,7 @@ test("a bare active is found in each language, and the full terms are not", () =
     "Eventos activos",
     "Activa ese día",
     "Miembros activos",
+    "Clientes más activos",
     // The adjective of the other term: it does not agree, so it is not the term.
     "Organizaciones activos",
     "Clientes activas",
@@ -211,7 +212,9 @@ test("the Platform Trends copy says Active Customer and Active Organization in f
 /**
  * House Organization is "Organización propia" wherever the Spanish catalog
  * names one (operator.houseTitle and the rest). Platform Trends reads that
- * term and does not coin a second one (messages/README.md).
+ * term and does not coin a second one (messages/README.md). This holds the
+ * one message that names one to the term, and every message of the section
+ * clear of the coinage it once carried; it cannot know a coinage not yet made.
  */
 test("the Spanish Platform Trends copy names a House Organization as the rest of the catalog does", () => {
   const copy = new Map(platformTrendsCopy("es"));

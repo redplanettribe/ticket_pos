@@ -148,7 +148,7 @@ organizer's screen coined — never a second coiner of it.
 Platform Trends (#821) is a section of the Overview and not a screen of its own, so its keys are prefixed `trends…` inside `operator`, as the Sale Import's are inside `sales`.
 It reads the Sales Channel words from `sales` like the rest of the surface.
 Its copy holds no em dash and says Active Customer and Active Organization in full, which `lib/messages.test.ts` checks in both catalogs, each by its own word order ("Active Customers", "Clientes activos").
-Its Spanish names a House Organization "organización propia", the term `houseTitle` coined, which the same test holds.
+Its Spanish names a House Organization "organización propia", the term `houseTitle` coined: the same test holds `trendsDescription` to it and the section clear of "de la casa".
 The breakdown of a bucket (#822) opens beneath a chart of that section, so its keys are `trendsBreakdown…` in the same namespace, and the same two checks hold it.
 `shell` also owns the **role names** (`roleOrgAdmin`, `roleEventOwner`,
 `roleEventStaff`) even though the team screen renders them too — they are coined
