@@ -24,20 +24,35 @@ type platformTrendBreakdown struct {
 	FirstDay    string `json:"first_day"`
 	LastDay     string `json:"last_day"`
 	Partial     bool   `json:"partial"`
-	Available   bool   `json:"available"`
-	Totals      []struct {
+	// Recorded is false only for an Active Customers bucket with no figure,
+	// and SaleHalfOnly true only for an Active Organizations bucket with a
+	// day whose markers cannot be read (#819).
+	Recorded     bool `json:"recorded"`
+	SaleHalfOnly bool `json:"sale_half_only"`
+	Totals       []struct {
 		Key   string `json:"key"`
 		Value int    `json:"value"`
 	} `json:"totals"`
 	Organizations []breakdownOrganization `json:"organizations"`
 	Events        []breakdownEvent        `json:"events"`
+	CustomerKinds *breakdownCustomerKinds `json:"customer_kinds"`
 }
 
+// breakdownOrganization is one Organization of a breakdown. Cause is empty
+// where the response states null, which is for every figure but Active
+// Organizations.
 type breakdownOrganization struct {
 	OrganizationID string `json:"organization_id"`
 	Name           string `json:"name"`
 	Key            string `json:"key"`
 	Value          int    `json:"value"`
+	Cause          string `json:"cause"`
+}
+
+type breakdownCustomerKinds struct {
+	New             int `json:"new"`
+	Returning       int `json:"returning"`
+	ReturningBought int `json:"returning_bought"`
 }
 
 type breakdownEvent struct {
@@ -53,8 +68,8 @@ func readBreakdown(t *testing.T, env *testEnv, sessionID, query string) platform
 	t.Helper()
 	var out platformTrendBreakdown
 	operatorGetOK(t, env, sessionID, platformTrendBreakdownPath+query, &out)
-	if !out.Available {
-		t.Fatalf("breakdown %s is not available", query)
+	if out.Totals == nil || out.Organizations == nil || out.Events == nil {
+		t.Fatalf("breakdown %s = %+v; want every list an array, never null", query, out)
 	}
 	return out
 }
@@ -191,6 +206,9 @@ func TestPlatformTrendBreakdownRanksTicketsSoldAndMoney(t *testing.T) {
 		event(euroID, "Euro Fest", "all", 2),
 	)
 	assertSumsToTotals(t, tickets)
+	if !tickets.Recorded || tickets.SaleHalfOnly || tickets.CustomerKinds != nil {
+		t.Fatalf("tickets_sold breakdown = %+v; want recorded, no sale half and no Customer kinds: those are the activity figures'", tickets)
+	}
 	stated := 0
 	for _, channel := range []string{"online", "in_person", "import"} {
 		stated += bucketOn(t, seriesFor(t, trends, channel), "2026-07-06").Value
@@ -420,9 +438,10 @@ func TestPlatformTrendBreakdownOfNewVerifiedCustomersIsACountAlone(t *testing.T)
 	assertOrganizations(t, verified)
 	assertEvents(t, verified)
 
-	// The figure's own name aside, the word is in no field or value.
+	// The figure's own name and the null where Active Customers states its
+	// counts by kind aside, the word is in no field or value.
 	raw := string(body.Data)
-	if strings.Contains(strings.ReplaceAll(raw, `"figure":"new_verified_customers"`, ""), "customer") {
+	if strings.Contains(strings.NewReplacer(`"figure":"new_verified_customers"`, "", `"customer_kinds":null`, "").Replace(raw), "customer") {
 		t.Fatalf("the breakdown carries a customer field: %s", raw)
 	}
 	for _, email := range emails {
@@ -519,26 +538,6 @@ func TestPlatformTrendBreakdownRefusesAnUnknownFigureOrAMalformedBucket(t *testi
 		}
 		if got := fieldErrorsByName(t, body)[tc.field]; got.Code != tc.code {
 			t.Fatalf("%q %s refusal = %+v, want %s", tc.query, tc.field, got, tc.code)
-		}
-	}
-}
-
-// TestPlatformTrendBreakdownOfAnActivityFigureIsNotAvailableYet: the two
-// activity figures are known figures, so asking for one is not a refusal;
-// the answer says the breakdown is not available and states nothing.
-func TestPlatformTrendBreakdownOfAnActivityFigureIsNotAvailableYet(t *testing.T) {
-	env := setupTest(t)
-	operatorSessionID := operatorSession(t, env, "operator@example.com")
-
-	for _, figure := range []string{"active_organizations", "active_customers"} {
-		var breakdown platformTrendBreakdown
-		operatorGetOK(t, env, operatorSessionID, platformTrendBreakdownPath+"?figure="+figure+"&first_day=2026-07-06", &breakdown)
-		if breakdown.Available || breakdown.Figure != figure || breakdown.FirstDay != "2026-07-06" {
-			t.Fatalf("%s breakdown = %+v; want it named, for 2026-07-06, and not available", figure, breakdown)
-		}
-		if breakdown.Totals == nil || breakdown.Organizations == nil || breakdown.Events == nil ||
-			len(breakdown.Totals)+len(breakdown.Organizations)+len(breakdown.Events) != 0 {
-			t.Fatalf("%s breakdown = %+v; want empty lists, never null", figure, breakdown)
 		}
 	}
 }

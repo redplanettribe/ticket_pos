@@ -111,21 +111,37 @@ type PlatformTrendBreakdown struct {
 	LastDay  string `json:"last_day" example:"2026-07-06"`
 	// Partial is true when the bucket is today, a day still running.
 	Partial bool `json:"partial"`
-	// Available is false for a figure whose breakdown is not available yet,
-	// the two activity figures. Totals, Organizations and Events are then
-	// empty, which says nothing about the bucket.
-	Available bool `json:"available"`
+	// Recorded is false when the bucket has no figure to break down, which
+	// is not a zero: an Active Customers bucket no day of which the daily
+	// close froze with an Active Customers figure, because Customer recording
+	// was off when it was closed, had not begun, or the day is not closed
+	// yet. Totals is then empty and CustomerKinds null. True for every other
+	// figure.
+	Recorded bool `json:"recorded"`
+	// SaleHalfOnly is true when the Organizations listed for Active
+	// Organizations are, for at least one day of the bucket, those a Ticket
+	// Sale was recorded for and no others: a day before the daily close first
+	// froze with a Member's work counted, or one whose markers are past their
+	// thirteen months and deleted. An Organization active on such a day by a
+	// Member alone is not listed, though the frozen figure of a day whose
+	// markers were deleted since counted it. False for every other figure.
+	SaleHalfOnly bool `json:"sale_half_only"`
 	// Totals is what the first read states for the bucket: one total keyed
 	// "all" for a count, summed across Sales Channels for Tickets Sold, and
 	// one per currency an Organization is in for a money figure, in the
 	// currency's minor units, zero or not. The contributors keyed the same
-	// add up to it.
+	// add up to it. For an activity figure the total keyed "all" is the
+	// daily counts of the bucket added up: the count the first read states
+	// for a day, and for a week the Organization-days or Customer-days its
+	// mean is taken over.
 	Totals []PlatformTrendBreakdownTotal `json:"totals"`
 	// Organizations is the Organizations that contributed, ranked, largest
 	// first within each key. It is stated for Tickets Sold and the money
-	// figures, and for new Organizations, where it is the list of the
-	// Organizations created, oldest first, each counting one. Empty for
-	// every other figure.
+	// figures; for new Organizations, where it is the list of the
+	// Organizations created, oldest first, each counting one; and for Active
+	// Organizations, where it is the Organizations active in the bucket, each
+	// with its cause and counting the days of the bucket it was active on.
+	// Empty for every other figure.
 	Organizations []PlatformTrendBreakdownOrganization `json:"organizations"`
 	// Events is the Events that contributed, ranked, largest first within
 	// each key. It is stated for Tickets Sold, the money figures and Page
@@ -134,7 +150,37 @@ type PlatformTrendBreakdown struct {
 	// figure. New Verified Customers states its total alone: nothing here
 	// names a Customer.
 	Events []PlatformTrendBreakdownEvent `json:"events"`
+	// CustomerKinds is the Active Customers of the bucket counted by kind,
+	// as the daily close froze them. Null for every other figure, and for a
+	// bucket that is not recorded.
+	CustomerKinds *PlatformTrendBreakdownCustomerKinds `json:"customer_kinds"`
 }
+
+// PlatformTrendBreakdownCustomerKinds is the Active Customers of a bucket
+// counted by kind: counts, and nobody. For a week each is the sum of its
+// days' counts, a Customer active on two days counting twice.
+type PlatformTrendBreakdownCustomerKinds struct {
+	// New is those who became Verified Customers on the day they were
+	// active, and Returning every other one: the two add up to the total.
+	New       int `json:"new"`
+	Returning int `json:"returning"`
+	// ReturningBought is those of Returning who own an Online Sale sold on
+	// the day they were active. It is a part of Returning, not a third kind
+	// beside it.
+	ReturningBought int `json:"returning_bought"`
+}
+
+// ActivityCause says what made an Organization active in a bucket.
+type ActivityCause string
+
+const (
+	// CauseSale: a Ticket Sale was recorded for it.
+	CauseSale ActivityCause = "sale"
+	// CauseMember: a Member worked in it through a Staff Session.
+	CauseMember ActivityCause = "member"
+	// CauseBoth: both, on the same day or on different days of the bucket.
+	CauseBoth ActivityCause = "both"
+)
 
 // PlatformTrendBreakdownTotal is one total of a bucket.
 type PlatformTrendBreakdownTotal struct {
@@ -153,6 +199,9 @@ type PlatformTrendBreakdownOrganization struct {
 	// Organization's currency for a money figure.
 	Key   string `json:"key" example:"USD"`
 	Value int    `json:"value"`
+	// Cause is what made the Organization active, stated for Active
+	// Organizations and null for every other figure.
+	Cause *ActivityCause `json:"cause"`
 }
 
 // PlatformTrendBreakdownEvent is one Event's part of a bucket.
@@ -172,7 +221,8 @@ type PlatformTrendBreakdownEvent struct {
 // Breakdown reads what one bucket of one figure was made of. Each figure is
 // read by the definition the first read counts it by, over the instants of
 // the bucket's days, so its contributors add up to what Trends states for
-// the bucket.
+// the bucket. The two activity figures are read apart
+// (activitybreakdown.go).
 func (s *Service) Breakdown(ctx context.Context, figure BreakdownFigure, bucket Bucket) (*PlatformTrendBreakdown, error) {
 	breakdown := &PlatformTrendBreakdown{
 		Timezone:      platform.EcuadorTimeZone,
@@ -181,7 +231,7 @@ func (s *Service) Breakdown(ctx context.Context, figure BreakdownFigure, bucket 
 		FirstDay:      bucket.FirstDay.Format(dayFormat),
 		LastDay:       bucket.LastDay.Format(dayFormat),
 		Partial:       bucket.Partial,
-		Available:     true,
+		Recorded:      true,
 		Totals:        []PlatformTrendBreakdownTotal{},
 		Organizations: []PlatformTrendBreakdownOrganization{},
 		Events:        []PlatformTrendBreakdownEvent{},
@@ -232,9 +282,10 @@ func (s *Service) Breakdown(ctx context.Context, figure BreakdownFigure, bucket 
 			}
 			breakdown.Totals = []PlatformTrendBreakdownTotal{{Key: countSeriesKey, Value: total}}
 		}
-	default:
-		// Active Organizations and Active Customers: not available yet.
-		breakdown.Available = false
+	case FigureActiveOrganizations:
+		err = s.breakDownActiveOrganizations(ctx, breakdown, bucket)
+	case FigureActiveCustomers:
+		err = s.breakDownActiveCustomers(ctx, breakdown, bucket)
 	}
 	if err != nil {
 		return nil, err

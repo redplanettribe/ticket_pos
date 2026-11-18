@@ -21,8 +21,11 @@ import (
 // only while Customer recording is switched on, which it is not by default
 // (ADR 0045).
 //
-// Markers are written here and read by the daily close alone (activity.go).
-// No read of Platform Trends touches them.
+// Markers are written here and read by the daily close (activity.go). The
+// one read of Platform Trends that touches a marker is the breakdown of
+// Active Organizations (activitybreakdown.go), which reads Organization
+// markers for a bucket still inside the thirteen months. No read touches a
+// Customer marker.
 
 // OrganizationMarkerStore keeps the Organization markers and the day the
 // daily close first froze with them.

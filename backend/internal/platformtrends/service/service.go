@@ -52,9 +52,10 @@ type Customers interface {
 }
 
 // Organizations is what Platform Trends needs from identity: how many
-// Organizations were created per day, the first day any was, and which were
-// created over a window.
+// Organizations were created per day, the first day any was, which were
+// created over a window, and the names of Organizations known by id.
 type Organizations interface {
+	PlatformOrganizationNames(ctx context.Context, organizationIDs []string) (map[string]string, error)
 	PlatformNewOrganizations(ctx context.Context, from, until time.Time) ([]platform.OrganizationCount, error)
 	PlatformNewOrganizationsByDay(ctx context.Context, from, until time.Time, timezone string) ([]platform.DayCount, error)
 	PlatformFirstOrganizationDay(ctx context.Context, timezone string) (string, bool, error)

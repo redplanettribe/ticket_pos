@@ -3553,6 +3553,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.ActivityCause": {
+                "description": "Cause is what made the Organization active, stated for Active\nOrganizations and null for every other figure.",
+                "enum": [
+                    "sale",
+                    "member",
+                    "both"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "CauseSale",
+                    "CauseMember",
+                    "CauseBoth"
+                ]
+            },
             "service.AdditionalFieldView": {
                 "properties": {
                     "name": {
@@ -8033,9 +8047,8 @@ const docTemplate = `{
             },
             "service.PlatformTrendBreakdown": {
                 "properties": {
-                    "available": {
-                        "description": "Available is false for a figure whose breakdown is not available yet,\nthe two activity figures. Totals, Organizations and Events are then\nempty, which says nothing about the bucket.",
-                        "type": "boolean"
+                    "customer_kinds": {
+                        "$ref": "#/components/schemas/service.PlatformTrendBreakdownCustomerKinds"
                     },
                     "events": {
                         "description": "Events is the Events that contributed, ranked, largest first within\neach key. It is stated for Tickets Sold, the money figures and Page\nViews, and for Events Published, where it is the list of the Events\npublished, oldest first, each counting one. Empty for every other\nfigure. New Verified Customers states its total alone: nothing here\nnames a Customer.",
@@ -8061,7 +8074,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "organizations": {
-                        "description": "Organizations is the Organizations that contributed, ranked, largest\nfirst within each key. It is stated for Tickets Sold and the money\nfigures, and for new Organizations, where it is the list of the\nOrganizations created, oldest first, each counting one. Empty for\nevery other figure.",
+                        "description": "Organizations is the Organizations that contributed, ranked, largest\nfirst within each key. It is stated for Tickets Sold and the money\nfigures; for new Organizations, where it is the list of the\nOrganizations created, oldest first, each counting one; and for Active\nOrganizations, where it is the Organizations active in the bucket, each\nwith its cause and counting the days of the bucket it was active on.\nEmpty for every other figure.",
                         "items": {
                             "$ref": "#/components/schemas/service.PlatformTrendBreakdownOrganization"
                         },
@@ -8072,18 +8085,43 @@ const docTemplate = `{
                         "description": "Partial is true when the bucket is today, a day still running.",
                         "type": "boolean"
                     },
+                    "recorded": {
+                        "description": "Recorded is false when the bucket has no figure to break down, which\nis not a zero: an Active Customers bucket no day of which the daily\nclose froze with an Active Customers figure, because Customer recording\nwas off when it was closed, had not begun, or the day is not closed\nyet. Totals is then empty and CustomerKinds null. True for every other\nfigure.",
+                        "type": "boolean"
+                    },
+                    "sale_half_only": {
+                        "description": "SaleHalfOnly is true when the Organizations listed for Active\nOrganizations are, for at least one day of the bucket, those a Ticket\nSale was recorded for and no others: a day before the daily close first\nfroze with a Member's work counted, or one whose markers are past their\nthirteen months and deleted. An Organization active on such a day by a\nMember alone is not listed, though the frozen figure of a day whose\nmarkers were deleted since counted it. False for every other figure.",
+                        "type": "boolean"
+                    },
                     "timezone": {
                         "description": "Timezone names the platform clock the bucket's days are read on.",
                         "example": "America/Guayaquil",
                         "type": "string"
                     },
                     "totals": {
-                        "description": "Totals is what the first read states for the bucket: one total keyed\n\"all\" for a count, summed across Sales Channels for Tickets Sold, and\none per currency an Organization is in for a money figure, in the\ncurrency's minor units, zero or not. The contributors keyed the same\nadd up to it.",
+                        "description": "Totals is what the first read states for the bucket: one total keyed\n\"all\" for a count, summed across Sales Channels for Tickets Sold, and\none per currency an Organization is in for a money figure, in the\ncurrency's minor units, zero or not. The contributors keyed the same\nadd up to it. For an activity figure the total keyed \"all\" is the\ndaily counts of the bucket added up: the count the first read states\nfor a day, and for a week the Organization-days or Customer-days its\nmean is taken over.",
                         "items": {
                             "$ref": "#/components/schemas/service.PlatformTrendBreakdownTotal"
                         },
                         "type": "array",
                         "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "service.PlatformTrendBreakdownCustomerKinds": {
+                "description": "CustomerKinds is the Active Customers of the bucket counted by kind,\nas the daily close froze them. Null for every other figure, and for a\nbucket that is not recorded.",
+                "properties": {
+                    "new": {
+                        "description": "New is those who became Verified Customers on the day they were\nactive, and Returning every other one: the two add up to the total.",
+                        "type": "integer"
+                    },
+                    "returning": {
+                        "type": "integer"
+                    },
+                    "returning_bought": {
+                        "description": "ReturningBought is those of Returning who own an Online Sale sold on\nthe day they were active. It is a part of Returning, not a third kind\nbeside it.",
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -8116,6 +8154,9 @@ const docTemplate = `{
             },
             "service.PlatformTrendBreakdownOrganization": {
                 "properties": {
+                    "cause": {
+                        "$ref": "#/components/schemas/service.ActivityCause"
+                    },
                     "key": {
                         "description": "Key names the total this part counts toward: \"all\", or the\nOrganization's currency for a money figure.",
                         "example": "USD",
@@ -18176,7 +18217,7 @@ const docTemplate = `{
         },
         "/api/v1/operator/platform-trends/breakdown": {
             "get": {
-                "description": "Returns the breakdown of one figure of Platform Trends for one bucket: the Organizations and Events that contributed, ranked, each with the ids the page links on. figure is the figure's name in the Platform Trends response. A bucket is named by its first day (first_day, YYYY-MM-DD on the platform clock, America/Guayaquil) and its length (granularity, day by default, or week, as the Platform Trends response states for the span). A day may be today, which is answered with partial true; a day after today is refused. Today is always named as a day, whatever the span is drawn in, as Platform Trends states it: one day beside the span. A week is the seven days from first_day and must end before today, as every weekly bucket of a span does; the one weekly bucket shorter than seven days, the stub a custom range may begin with, is named with its last_day too, which a day ignores. totals states what Platform Trends states for the bucket and the contributors keyed the same add up to it: one total keyed all for a count, and for a money figure one per currency an Organization is in, keyed by the currency code, in its minor units, never converted or added together. Every figure is broken down by the definition Platform Trends counts it by. Tickets Sold is the quantity over active Ticket Sales by the day sold, summed across Sales Channels, by Organization and by Event. Money sold and Platform Fee earned are stated by Organization and by Event, each keyed by its Organization's currency and ranked within it; a reversed Ticket Sale is in neither Tickets Sold nor money sold, and a reversed Online Sale whose fee the platform kept stays in Platform Fee earned. Page Views is ranked by Event. Events Published lists the Events first published in the bucket and new Organizations the Organizations created in it, oldest first, each with value 1. New Verified Customers states its total alone: no field of this response, and no parameter of this route, returns or takes a Customer. A contributor with nothing for the figure is left out, and a figure not broken down by Organization or by Event states an empty list there. An Event carries its Organization's id and name: there is no operator page for an Event, so it links to its Organization's. Ranked lists are ordered by key, then largest first, then by name. The breakdown of the two activity figures, Active Organizations and Active Customers, is not available yet: it is answered with available false and empty lists. Platform Operator only.",
+                "description": "Returns the breakdown of one figure of Platform Trends for one bucket: the Organizations and Events that contributed, ranked, each with the ids the page links on. figure is the figure's name in the Platform Trends response. A bucket is named by its first day (first_day, YYYY-MM-DD on the platform clock, America/Guayaquil) and its length (granularity, day by default, or week, as the Platform Trends response states for the span). A day may be today, which is answered with partial true; a day after today is refused. Today is always named as a day, whatever the span is drawn in, as Platform Trends states it: one day beside the span. A week is the seven days from first_day and must end before today, as every weekly bucket of a span does; the one weekly bucket shorter than seven days, the stub a custom range may begin with, is named with its last_day too, which a day ignores. totals states what Platform Trends states for the bucket and the contributors keyed the same add up to it: one total keyed all for a count, and for a money figure one per currency an Organization is in, keyed by the currency code, in its minor units, never converted or added together. Every figure is broken down by the definition Platform Trends counts it by. Tickets Sold is the quantity over active Ticket Sales by the day sold, summed across Sales Channels, by Organization and by Event. Money sold and Platform Fee earned are stated by Organization and by Event, each keyed by its Organization's currency and ranked within it; a reversed Ticket Sale is in neither Tickets Sold nor money sold, and a reversed Online Sale whose fee the platform kept stays in Platform Fee earned. Page Views is ranked by Event. Events Published lists the Events first published in the bucket and new Organizations the Organizations created in it, oldest first, each with value 1. New Verified Customers states its total alone: no field of this response, and no parameter of this route, returns or takes a Customer. A contributor with nothing for the figure is left out, and a figure not broken down by Organization or by Event states an empty list there. An Event carries its Organization's id and name: there is no operator page for an Event, so it links to its Organization's. Ranked lists are ordered by key, then largest first, then by name. Active Organizations lists the Organizations active in the bucket, each with its cause: sale when a Ticket Sale was recorded for it, member when a Member worked in it through a Staff Session, both when both. Each counts the days of the bucket it was active on, 1 for a day, and the total keyed all is their sum: the count Platform Trends states for a day, and for a week the Organization-days its mean is taken over. It is read from the Ticket Sales recorded and the Organization markers, the one place a marker is read at request time, so today is answered too. Markers are kept thirteen months and exist from the day the daily close first froze with a Member's work counted: a bucket with a day before either lists, for that day, the Organizations a Ticket Sale was recorded for and no others, and says so with sale_half_only true; an Organization active on such a day by a Member alone is not listed, though the frozen figure of a day whose markers were deleted since counted it. cause is null and sale_half_only false for every other figure. Active Customers is never listed: customer_kinds states the counts the daily close froze, new (verified on the day they were active), returning (every other one) and returning_bought (the part of returning that owns an Online Sale sold that day), the total keyed all being new plus returning, and for a week each is the sum of its days. They are read from the frozen totals alone, so they do not change when a Customer's markers are deleted. A bucket no day of which has an Active Customers figure, closed while Customer recording was off, before it began or not closed yet, is answered with recorded false, no total and customer_kinds null: not recorded, never zero. recorded is true for every other figure. No route, parameter or field of Platform Trends returns a Customer for a day. Platform Operator only.",
                 "parameters": [
                     {
                         "description": "Figure",

@@ -165,8 +165,9 @@ func customerIDOf(t *testing.T, env *testEnv, email string) string {
 
 // frozenCustomerTotals reads what the daily close froze for one day's
 // Active Customers, nil when the day has no such figure. It asks the store
-// Platform Trends keeps its totals in, because the split by kind has no
-// route until the breakdown read (#819) serves it from these same totals.
+// Platform Trends keeps its totals in, which holds the 7-day and 30-day
+// counts beside the split by kind; the breakdown read serves the split from
+// these same totals, and is asserted over HTTP with the breakdowns (#819).
 func frozenCustomerTotals(t *testing.T, day string) *platformtrendsrepo.CustomerActivityTotals {
 	t.Helper()
 	days, err := platformTrendsStore().ActivityTotalsBetween(context.Background(), day, day)

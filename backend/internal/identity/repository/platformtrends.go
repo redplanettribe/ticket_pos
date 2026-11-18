@@ -83,3 +83,30 @@ func (r *Repository) PlatformNewOrganizations(ctx context.Context, from, until t
 	}
 	return out, rows.Err()
 }
+
+// PlatformOrganizationNames is the name of each of the given Organizations,
+// keyed by id, for the breakdown of Platform Trends' Active Organizations
+// (#819, ADR 0080), which knows the Organizations active on a day by id. An
+// id no Organization has is absent from the answer.
+func (r *Repository) PlatformOrganizationNames(ctx context.Context, organizationIDs []string) (map[string]string, error) {
+	names := make(map[string]string, len(organizationIDs))
+	if len(organizationIDs) == 0 {
+		return names, nil
+	}
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT id, name FROM organizations WHERE id = ANY($1::uuid[])
+	`, organizationIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		names[id] = name
+	}
+	return names, rows.Err()
+}

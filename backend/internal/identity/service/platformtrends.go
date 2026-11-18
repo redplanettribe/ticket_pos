@@ -28,3 +28,10 @@ func (s *Service) PlatformFirstOrganizationDay(ctx context.Context, timezone str
 func (s *Service) PlatformNewOrganizations(ctx context.Context, from, until time.Time) ([]platform.OrganizationCount, error) {
 	return s.repo.PlatformNewOrganizations(ctx, from, until)
 }
+
+// PlatformOrganizationNames is the name of each of the given Organizations,
+// keyed by id, read for the breakdown of Platform Trends' Active
+// Organizations (#819). An id no Organization has is absent from the answer.
+func (s *Service) PlatformOrganizationNames(ctx context.Context, organizationIDs []string) (map[string]string, error) {
+	return s.repo.PlatformOrganizationNames(ctx, organizationIDs)
+}
