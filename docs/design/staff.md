@@ -130,6 +130,11 @@ Usable on phone in a pinch; tablet landscape is the primary target.
   A figure read as a trajectory is a line; Tickets Sold is bars stacked by Sales Channel.
   Money is one chart per currency, never two currencies on one axis.
   Each chart is drawn at its card's width, and scrolls sideways only in a card narrower than the plot's floor.
+- **Breakdown of a bucket** (#822): choosing a day or a week on a Platform Trends chart opens what it was made of in a bordered panel beneath that chart, inside its card, and the page is not left.
+  One panel is open at a time: a bucket chosen on another chart moves it there, and its Close button lets the selection go and returns focus to the chart.
+  Ranked contributors are a numbered list, a plain list is not numbered, and money is one group per currency, each under its own total.
+  Every row links to an Organization's operator page; an Event names its Organization beside it.
+  A breakdown of today says it is partial, one of sales alone says so, and one not recorded says that in place of a zero.
 
 ## Copy tone
 

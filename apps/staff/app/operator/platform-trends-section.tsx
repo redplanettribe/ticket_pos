@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { toAppLocale, type AppLocale } from "@ticket-pos/locale";
 import {
@@ -23,6 +23,7 @@ import {
   StackedBarChart,
   TrendTile,
   chartSeriesColor,
+  type ChartBucketSelection,
   type ChartMarker,
   type StackedSeries,
   type TrendTileChangeCopy,
@@ -70,8 +71,15 @@ import {
   type TrendStackDatum,
   type TrendTileInput,
 } from "@/lib/platform-trends";
+import {
+  bucketSelectionIn,
+  type PlatformTrendFigureId,
+  type TrendBucketSelection,
+} from "@/lib/platform-trends-breakdown";
 import { cumulativePlotWidth, formatTakingsTick, trendsYTicks } from "@/lib/sales-trends";
 import { useElementWidth } from "@/lib/use-element-width";
+
+import { PlatformTrendBreakdownPanel } from "./platform-trends-breakdown";
 
 /** The Overview's own path: the reading's address is this plus its query. */
 const OVERVIEW_PATH = "/operator";
@@ -337,6 +345,22 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
   const tSales = useTranslations("sales");
   const { figures } = trends;
 
+  // The bucket whose breakdown is open (#822): one for the whole section, so
+  // choosing a bucket on another chart moves the panel there. It is held with
+  // the reading it was chosen on and let go when another reading arrives: a
+  // new span draws other buckets, and a day chosen on the one before is not
+  // left open under them.
+  const [chosen, setChosen] = useState<{ trends: PlatformTrends; selection: TrendBucketSelection } | null>(null);
+  const selected = chosen !== null && chosen.trends === trends ? chosen.selection : null;
+  const onSelect = useCallback(
+    (selection: TrendBucketSelection) => setChosen({ trends, selection }),
+    [trends],
+  );
+  const breakdownOf = (figure: PlatformTrendFigureId): FigureBreakdown | undefined =>
+    selected?.figure === figure
+      ? { selection: selected, granularity: trends.granularity, locale, onClose: () => setChosen(null) }
+      : undefined;
+
   const count = (value: number) => formatNumber(value, locale);
   const mean = (value: number) => formatTrendMean(value, locale);
   const changeCopy: TrendTileChangeCopy = {
@@ -385,11 +409,14 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
   const label = useCallback((bucket: PlatformTrendBucket) => formatTrendBucket(bucket, locale), [locale]);
   const span = spanBuckets(trends);
   const comparisonName = t(COMPARISON_KEYS[trends.comparison.kind] ?? "trendsComparePrevious");
-  const shared: SharedChartProps = {
+  const chartProps = (figureId: PlatformTrendFigureId): SharedChartProps => ({
     granularity: trends.granularity,
     comparisonName,
     locale,
-  };
+    figureId,
+    selected,
+    onSelect,
+  });
 
   const activeCustomers = activityChartData(figures.active_customers, span, label);
   const activeOrganizations = activityChartData(figures.active_organizations, span, label);
@@ -423,12 +450,17 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
       <div className="space-y-1 text-xs text-muted-foreground">
         <p>{t("trendsNotFinalNote")}</p>
         <p>{t("trendsComparisonNote")}</p>
+        <p>{t("trendsSelectNote")}</p>
       </div>
 
       <div role="group" aria-label={t("trendsChartsLabel")} className="grid gap-4 lg:grid-cols-2">
-        <FigureCard title={t("trendsActiveCustomers")} description={t("trendsActiveCustomersDescription")}>
+        <FigureCard
+          title={t("trendsActiveCustomers")}
+          description={t("trendsActiveCustomersDescription")}
+          breakdown={breakdownOf("active_customers")}
+        >
           <LineFigureChart
-            {...shared}
+            {...chartProps("active_customers")}
             figure={t("trendsActiveCustomers")}
             data={activeCustomers}
             seriesId={ACTIVITY_SERIES_ID}
@@ -443,13 +475,26 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
           />
         </FigureCard>
 
-        <FigureCard title={t("trendsPageViews")} description={t("trendsPageViewsDescription")}>
-          <CountFigureChart {...shared} figure={t("trendsPageViews")} source={figures.page_views} label={label} />
+        <FigureCard
+          title={t("trendsPageViews")}
+          description={t("trendsPageViewsDescription")}
+          breakdown={breakdownOf("page_views")}
+        >
+          <CountFigureChart
+            {...chartProps("page_views")}
+            figure={t("trendsPageViews")}
+            source={figures.page_views}
+            label={label}
+          />
         </FigureCard>
 
-        <FigureCard title={t("trendsActiveOrganizations")} description={t("trendsActiveOrganizationsDescription")}>
+        <FigureCard
+          title={t("trendsActiveOrganizations")}
+          description={t("trendsActiveOrganizationsDescription")}
+          breakdown={breakdownOf("active_organizations")}
+        >
           <LineFigureChart
-            {...shared}
+            {...chartProps("active_organizations")}
             figure={t("trendsActiveOrganizations")}
             data={activeOrganizations}
             seriesId={ACTIVITY_SERIES_ID}
@@ -468,9 +513,13 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
           ) : null}
         </FigureCard>
 
-        <FigureCard title={t("trendsEventsPublished")} description={t("trendsEventsPublishedDescription")}>
+        <FigureCard
+          title={t("trendsEventsPublished")}
+          description={t("trendsEventsPublishedDescription")}
+          breakdown={breakdownOf("events_published")}
+        >
           <CountFigureChart
-            {...shared}
+            {...chartProps("events_published")}
             figure={t("trendsEventsPublished")}
             source={figures.events_published}
             label={label}
@@ -479,35 +528,60 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
           />
         </FigureCard>
 
-        <FigureCard title={t("trendsTicketsSold")} description={t("trendsTicketsSoldDescription")}>
-          <TicketsSoldChart {...shared} source={figures.tickets_sold} label={label} channelName={channelName} />
+        <FigureCard
+          title={t("trendsTicketsSold")}
+          description={t("trendsTicketsSoldDescription")}
+          breakdown={breakdownOf("tickets_sold")}
+        >
+          <TicketsSoldChart {...chartProps("tickets_sold")} source={figures.tickets_sold} label={label} channelName={channelName} />
         </FigureCard>
 
-        <FigureCard title={t("trendsMoneySold")} description={t("trendsMoneySoldDescription")}>
-          <MoneyFigureCharts {...shared} figure={t("trendsMoneySold")} source={figures.money_sold} label={label} />
-        </FigureCard>
-
-        <FigureCard title={t("trendsPlatformFeeEarned")} description={t("trendsPlatformFeeEarnedDescription")}>
+        <FigureCard
+          title={t("trendsMoneySold")}
+          description={t("trendsMoneySoldDescription")}
+          breakdown={breakdownOf("money_sold")}
+        >
           <MoneyFigureCharts
-            {...shared}
+            {...chartProps("money_sold")}
+            figure={t("trendsMoneySold")}
+            source={figures.money_sold}
+            label={label}
+          />
+        </FigureCard>
+
+        <FigureCard
+          title={t("trendsPlatformFeeEarned")}
+          description={t("trendsPlatformFeeEarnedDescription")}
+          breakdown={breakdownOf("platform_fee_earned")}
+        >
+          <MoneyFigureCharts
+            {...chartProps("platform_fee_earned")}
             figure={t("trendsPlatformFeeEarned")}
             source={figures.platform_fee_earned}
             label={label}
           />
         </FigureCard>
 
-        <FigureCard title={t("trendsNewVerifiedCustomers")} description={t("trendsNewVerifiedCustomersDescription")}>
+        <FigureCard
+          title={t("trendsNewVerifiedCustomers")}
+          description={t("trendsNewVerifiedCustomersDescription")}
+          breakdown={breakdownOf("new_verified_customers")}
+        >
           <CountFigureChart
-            {...shared}
+            {...chartProps("new_verified_customers")}
             figure={t("trendsNewVerifiedCustomers")}
             source={figures.new_verified_customers}
             label={label}
           />
         </FigureCard>
 
-        <FigureCard title={t("trendsNewOrganizations")} description={t("trendsNewOrganizationsDescription")}>
+        <FigureCard
+          title={t("trendsNewOrganizations")}
+          description={t("trendsNewOrganizationsDescription")}
+          breakdown={breakdownOf("new_organizations")}
+        >
           <CountFigureChart
-            {...shared}
+            {...chartProps("new_organizations")}
             figure={t("trendsNewOrganizations")}
             source={figures.new_organizations}
             label={label}
@@ -524,18 +598,98 @@ type SharedChartProps = {
   /** What the comparison line is called in a hover card. */
   comparisonName: string;
   locale: AppLocale;
+  /** The figure's name in the API, which its breakdown is asked for by. */
+  figureId: PlatformTrendFigureId;
+  /** The bucket whose breakdown is open, on whichever chart it was chosen. */
+  selected: TrendBucketSelection | null;
+  onSelect: (selection: TrendBucketSelection) => void;
 };
 
-function FigureCard({ title, description, children }: { title: string; description: string; children: ReactNode }) {
+/** The open breakdown of a figure, as its card draws it beneath the chart. */
+type FigureBreakdown = {
+  selection: TrendBucketSelection;
+  granularity: PlatformTrends["granularity"];
+  locale: AppLocale;
+  onClose: () => void;
+};
+
+/**
+ * One figure's card: its chart, and beneath it the breakdown of the bucket
+ * chosen on that chart, while one is.
+ */
+function FigureCard({
+  title,
+  description,
+  breakdown,
+  children,
+}: {
+  title: string;
+  description: string;
+  breakdown?: FigureBreakdown;
+  children: ReactNode;
+}) {
+  const content = useRef<HTMLDivElement>(null);
   return (
     <Card className="min-w-0">
       <CardHeader>
         <CardTitle className="text-base">{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">{children}</CardContent>
+      <CardContent ref={content} className="space-y-3">
+        {children}
+        {breakdown === undefined ? null : (
+          <PlatformTrendBreakdownPanel
+            selection={breakdown.selection}
+            figure={title}
+            granularity={breakdown.granularity}
+            locale={breakdown.locale}
+            onClose={() => {
+              // The Close button goes with the panel. Focus returns to the
+              // chart the bucket was chosen on, so a keyboard reader is not
+              // dropped at the top of the page.
+              content.current?.querySelector<HTMLElement>('[role="listbox"]')?.focus();
+              breakdown.onClose();
+            }}
+          />
+        )}
+      </CardContent>
     </Card>
   );
+}
+
+/**
+ * What lets a chart's buckets be chosen (#822): which of them is selected,
+ * what a choice opens, and how each is read aloud. Choosing the selected
+ * bucket again keeps it open; the panel is closed by its own button.
+ */
+function chartSelection<Datum extends TrendChartDatum>(
+  figureId: PlatformTrendFigureId,
+  data: readonly Datum[],
+  { selected, onSelect }: Pick<SharedChartProps, "selected" | "onSelect">,
+  label: string,
+  describe: (datum: Datum) => string,
+): ChartBucketSelection {
+  const find = (key: string) => data.find((datum) => datum.key === key);
+  return {
+    selectedKey: bucketSelectionIn(selected, figureId, data),
+    onSelect: (key) => {
+      const datum = find(key);
+      if (datum !== undefined) {
+        onSelect({
+          figure: figureId,
+          key,
+          firstDay: datum.firstDay,
+          lastDay: datum.lastDay,
+          partial: datum.partial === true,
+        });
+      }
+    },
+    label,
+    describeBucket: (key) => {
+      const datum = find(key);
+      return datum === undefined ? key : describe(datum);
+    },
+  };
 }
 
 /**
@@ -562,6 +716,7 @@ function ChartWindow({ figure, children }: { figure: string; children: (plotWidt
  */
 function LineFigureChart({
   figure,
+  figureId,
   currency,
   data,
   seriesId,
@@ -571,6 +726,8 @@ function LineFigureChart({
   notRecordedLabel,
   granularity,
   comparisonName,
+  selected,
+  onSelect,
 }: SharedChartProps & {
   /** The figure's name, for the chart's accessible name and hover card. */
   figure: string;
@@ -590,6 +747,24 @@ function LineFigureChart({
   ];
   const yMax = useMemo(() => trendChartYMax(data), [data]);
   const yTicks = useMemo(() => trendsYTicks(yMax), [yMax]);
+  const selection = chartSelection(
+    figureId,
+    data,
+    { selected, onSelect },
+    currency === undefined
+      ? t("trendsSelectBucket", { figure, granularity })
+      : t("trendsSelectBucketCurrency", { figure, currency, granularity }),
+    (datum) => {
+      const value = datum.values[seriesId];
+      if (value === null || value === undefined) {
+        return t("trendsBucketNoFigure", { bucket: datum.label });
+      }
+      return t(datum.partial ? "trendsBucketPartial" : "trendsBucketReading", {
+        bucket: datum.label,
+        value: formatValue(value),
+      });
+    },
+  );
   return (
     <ChartWindow figure={figure}>
       {(plotWidth) => (
@@ -609,6 +784,7 @@ function LineFigureChart({
           nothingCountedLabel={t("trendsNothingCounted")}
           partialLabel={t("trendsPartialToday")}
           marker={marker}
+          selection={selection}
           notRecordedLabel={notRecordedLabel}
           ariaLabel={
             currency === undefined
@@ -680,7 +856,11 @@ function MoneyFigureCharts({
   label,
   figure,
   ...rest
-}: SharedChartProps & { figure: string; source: PlatformTrendFigure; label: BucketLabel }) {
+}: SharedChartProps & {
+  figure: string;
+  source: PlatformTrendFigure;
+  label: BucketLabel;
+}) {
   const t = useTranslations("operator");
   if (!source.recorded) {
     return <FigureNotRecorded />;
@@ -705,7 +885,11 @@ function MoneyCurrencyChart({
   series,
   label,
   ...rest
-}: SharedChartProps & { figure: string; series: PlatformTrendSeries; label: BucketLabel }) {
+}: SharedChartProps & {
+  figure: string;
+  series: PlatformTrendSeries;
+  label: BucketLabel;
+}) {
   const data = useMemo(() => seriesChartData([series], label), [series, label]);
   return (
     <LineFigureChart
@@ -730,6 +914,9 @@ function TicketsSoldChart({
   granularity,
   comparisonName,
   locale,
+  figureId,
+  selected,
+  onSelect,
 }: SharedChartProps & { source: PlatformTrendFigure; label: BucketLabel; channelName: (key: string) => string }) {
   const t = useTranslations("operator");
   const figure = t("trendsTicketsSold");
@@ -744,6 +931,19 @@ function TicketsSoldChart({
   if (!source.recorded) {
     return <FigureNotRecorded />;
   }
+  const selection = chartSelection(
+    figureId,
+    data,
+    { selected, onSelect },
+    t("trendsSelectBucket", { figure, granularity }),
+    // A stack is read by its height: the bucket's tickets on every Sales
+    // Channel, which is what its breakdown adds up to.
+    (datum) =>
+      t(datum.partial ? "trendsBucketPartial" : "trendsBucketReading", {
+        bucket: datum.label,
+        value: formatNumber(datum.total, locale),
+      }),
+  );
   return (
     <>
       {/* A plain key, not the chips of Sales Trends: nothing here is toggled. */}
@@ -768,6 +968,7 @@ function TicketsSoldChart({
             formatValue={(value) => formatNumber(value, locale)}
             totalLabel={t("trendsTicketsTotal")}
             partialLabel={t("trendsPartialToday")}
+            selection={selection}
             ariaLabel={t("trendsChartLabel", { figure, granularity })}
           />
         )}
