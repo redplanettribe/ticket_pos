@@ -175,8 +175,8 @@ type PlatformTrendComparison struct {
 }
 
 // PlatformTrendFigures is every figure Platform Trends states: the eight the
-// page draws (#808), money being two of them here, money sold and Platform
-// Fee earned.
+// page draws (#808) in nine fields, money, one of the eight, being two here,
+// money sold and Platform Fee earned.
 type PlatformTrendFigures struct {
 	// TicketsSold is the quantity over active Ticket Sales, by the instant
 	// sold, one series per Sales Channel.
@@ -216,8 +216,8 @@ type PlatformTrendFigures struct {
 	// ActiveOrganizations is the Active Organizations per day: those a
 	// Ticket Sale was recorded for that day, by the day the sale reached
 	// the platform and not the day it says it was sold, on any Sales
-	// Channel, reversed or not, or a Member worked in through a Staff
-	// Session that day, each counted once. A day before exact_since, the
+	// Channel, reversed or not, and those a Member worked in through a
+	// Staff Session that day, each counted once. A day before exact_since, the
 	// day exact recording of Active Organizations began, holds the sale
 	// half only: the Organizations a Ticket Sale was recorded for. It is
 	// read from the totals the Daily Close froze, never live.
