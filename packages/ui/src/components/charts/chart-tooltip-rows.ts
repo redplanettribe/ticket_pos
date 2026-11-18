@@ -70,6 +70,44 @@ export function tooltipRows(
 }
 
 /**
+ * The rows a bucket's hover card shows on a bar chart, in the order the chart
+ * draws the series.
+ *
+ * Bars read a bucket differently from lines. Every drawn series is a row and
+ * a zero is stated, not left out: the reader asked about the bucket, and "it
+ * came to none" is an answer. A value left out of the bucket is that same
+ * zero, as it has always been. Only a stated null is "not recorded": it has no
+ * figure, so it has no row, and a zero there would invent one.
+ *
+ * `nothingCounted` and `notRecorded` are true together, when the chart draws
+ * series and every one of them was not recorded in the bucket. A chart with
+ * no series at all shows an empty card, as before, and neither is true.
+ */
+export function barTooltipRows(
+  series: readonly StackedSeries[],
+  values: Readonly<Record<string, number | null | undefined>>,
+  formatValue: (value: number) => string,
+  formatDetail: (seriesId: string) => string | null,
+): { rows: ChartTooltipRow[]; nothingCounted: boolean; notRecorded: boolean } {
+  const rows: ChartTooltipRow[] = [];
+  for (const entry of series) {
+    const value = values[entry.id];
+    if (value === null) {
+      continue;
+    }
+    rows.push({
+      id: entry.id,
+      name: entry.name,
+      color: entry.color,
+      value: formatValue(value ?? 0),
+      detail: formatDetail(entry.id),
+    });
+  }
+  const unrecorded = series.length > 0 && rows.length === 0;
+  return { rows, nothingCounted: unrecorded, notRecorded: unrecorded };
+}
+
+/**
  * The one muted line a hover card says in place of its rows, or undefined when
  * it has rows to show or the chart was given no words for having none.
  *

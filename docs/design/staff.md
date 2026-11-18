@@ -111,6 +111,21 @@ Usable on phone in a pinch; tablet landscape is the primary target.
   Copy link stays a visible button; Rename / Deactivate / Delete sit behind a ⋯ menu. Create opens a dialog so
   the toolbar holds one text input.
 
+## Trend readings
+
+- A trend reading is drawn with the shared charts and the shared `TrendTile` (#820), never with a chart forked for one page.
+- **Comparison span**: a thin, dashed, half-transparent line over the chart's own series, aligned bucket to bucket.
+  Where the comparison has no data the line has a gap, never a zero.
+- **Partial bucket** (today): on a line, a dashed stretch ending in a ring; on bars, a faint bar in a dashed outline.
+  The hover card says it is partial before any figure.
+- **Recording-began marker**: a dashed vertical mark with its label written toward the middle of the chart.
+- **Selecting a bucket**: by a click anywhere in its column, or by keyboard through one tab stop on the plot (arrows, Home and End move; Enter and Space choose).
+  The selected bucket is a solid mark, the keyboard's a dashed one, and the bucket the keyboard is on is shown as a chip at the plot's corner.
+- **Not recorded** is not zero: a figure with no recorded value draws no axis and no grid, only the room the chart would take and the words for why.
+- **Tile**: label, figure, change, small trend line, then lesser readings under a rule; a money tile stacks one reading per currency.
+  The four states of a change are an arrow up with "+", an arrow down with "-", a dash, and the sentence "nothing to compare against" with no icon.
+  Colour repeats the icon and never carries the state alone.
+
 ## Copy tone
 
 Direct and operational.

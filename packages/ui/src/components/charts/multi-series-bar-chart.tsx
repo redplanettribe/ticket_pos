@@ -22,7 +22,7 @@ import {
   useBucketSelection,
   type ChartReadingProps,
 } from "./chart-reading-marks";
-import { comparisonTooltipRows, tooltipEmptyLabel, tooltipNotes } from "./chart-tooltip-rows";
+import { barTooltipRows, comparisonTooltipRows, tooltipEmptyLabel, tooltipNotes } from "./chart-tooltip-rows";
 
 /**
  * The widest a single grouped bar is drawn. Narrower than the stacked chart's
@@ -120,6 +120,7 @@ export function MultiSeriesBarChart({
   const unrecorded = nothingRecorded(
     data,
     series.map((entry) => entry.id),
+    { absentIsZero: true },
   );
   return (
     <StackedChartShell
@@ -203,10 +204,10 @@ type MultiSeriesChartTooltipProps = {
  * the caller's series order, zeros stated rather than omitted — and no total
  * row, for the reason `MultiSeriesDatum` has no total.
  *
- * A series that was not recorded in the bucket (a null) has no row, since it
- * has no figure and a zero would invent one; when that leaves the card with
- * nothing, it says so in the chart's words for it. A partial bucket says so
- * first, and the comparison series' rows follow the series' own.
+ * A series that was not recorded in the bucket (a null) has no row; when that
+ * leaves the card with nothing, it says so in the chart's words for it (see
+ * `barTooltipRows`). A partial bucket says so first, and the comparison
+ * series' rows follow the series' own.
  */
 export function MultiSeriesChartTooltip({
   series,
@@ -223,31 +224,21 @@ export function MultiSeriesChartTooltip({
   if (!active || !datum) {
     return null;
   }
-  const rows = series
-    // An absent value is the zero it always was; only a stated null is "not
-    // recorded".
-    .filter((entry) => datum.values[entry.id] !== null)
-    .map((entry) => ({
-      id: entry.id,
-      name: entry.name,
-      color: entry.color,
-      value: formatValue(datum.values[entry.id] ?? 0),
-      detail: formatSeriesDetail?.(entry.id, datum) ?? null,
-    }));
+  const reading = barTooltipRows(
+    series,
+    datum.values,
+    formatValue,
+    (seriesId) => formatSeriesDetail?.(seriesId, datum) ?? null,
+  );
   const comparisonRows = comparisonTooltipRows(comparisonSeries, datum, formatValue);
   return (
     <ChartTooltipCard
       label={datum.label}
       chartHeight={chartHeight}
-      rows={[...rows, ...comparisonRows]}
+      rows={[...reading.rows, ...comparisonRows]}
       notes={tooltipNotes(datum, { partialLabel })}
       emptyLabel={
-        comparisonRows.length === 0
-          ? tooltipEmptyLabel(
-              { nothingCounted: rows.length === 0, notRecorded: series.length > 0 },
-              { notRecordedLabel },
-            )
-          : undefined
+        comparisonRows.length === 0 ? tooltipEmptyLabel(reading, { notRecordedLabel }) : undefined
       }
     />
   );

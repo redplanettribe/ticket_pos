@@ -458,8 +458,8 @@ export function ChartTooltipCard({
       style={{ transform: `translate(${shift.x}px, ${shift.y}px)` }}
     >
       <p className="mb-1 text-xs font-medium">{label}</p>
-      {notes.map((note) => (
-        <p key={note} className="mb-1 text-xs text-muted-foreground italic">
+      {notes.map((note, index) => (
+        <p key={index} className="mb-1 text-xs text-muted-foreground italic">
           {note}
         </p>
       ))}

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   bucketKeyTarget,
+  bucketAxisValue,
   bucketIndexAt,
   comparisonValue,
   initialBucketIndex,
@@ -202,4 +203,24 @@ test("only the drawn series decide whether the chart was recorded", () => {
 test("a chart with no buckets or no series is empty, not unrecorded", () => {
   assert.equal(nothingRecorded([], ["a"]), false);
   assert.equal(nothingRecorded([{ values: { a: null } }], []), false);
+});
+
+test("on bars a value left out is a zero, and only a stated null is not recorded", () => {
+  const absent = [{ values: {} }, { values: {} }];
+  assert.equal(nothingRecorded(absent, ["a"], { absentIsZero: true }), false);
+  const stated = [{ values: { a: null } }, { values: { a: null } }];
+  assert.equal(nothingRecorded(stated, ["a"], { absentIsZero: true }), true);
+});
+
+// --- what a mark names its bucket by ------------------------------------------
+
+test("a mark names its bucket by its label, as the axis does", () => {
+  assert.equal(bucketAxisValue(["1 jul", "2 jul", "3 jul"], 1), "2 jul");
+});
+
+test("when two buckets share a label the axis counts them, and so does the mark", () => {
+  // A span longer than a year labelled without the year: recharts scales such
+  // an axis by index, and a mark named by label would land nowhere.
+  assert.equal(bucketAxisValue(["1 jul", "2 jul", "1 jul"], 2), 2);
+  assert.equal(bucketAxisValue(["1 jul", "2 jul", "1 jul"], 1), 1);
 });

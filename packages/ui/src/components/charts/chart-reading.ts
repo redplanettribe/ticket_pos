@@ -49,16 +49,16 @@ export function comparisonValue(bucket: ChartBucketReading, comparisonId: string
  */
 export function partialLineValues(
   values: readonly (number | null)[],
-  partial: readonly boolean[],
+  isPartial: readonly boolean[],
 ): { closed: (number | null)[]; partial: (number | null)[] } {
   const closed: (number | null)[] = [];
   const stretch: (number | null)[] = [];
   values.forEach((value, index) => {
-    const isPartial = partial[index] === true;
+    const partial = isPartial[index] === true;
     const next = values[index + 1] ?? null;
-    const leadsToPartial = partial[index + 1] === true && next !== null;
-    closed.push(isPartial ? null : value);
-    stretch.push(isPartial || leadsToPartial ? value : null);
+    const leadsToPartial = isPartial[index + 1] === true && next !== null;
+    closed.push(partial ? null : value);
+    stretch.push(partial || leadsToPartial ? value : null);
   });
   return { closed, partial: stretch };
 }
@@ -167,13 +167,37 @@ export function bucketIndexAt(
  *
  * Only the drawn series are asked. A chart with no buckets or no series is
  * empty for its own reasons and is left to draw as it always has.
+ *
+ * What a value left out of a bucket means is the chart's to say. On a line it
+ * is a gap, the same as a null. On bars it is the zero it has always been
+ * (`absentIsZero`), and only a stated null is "not recorded".
  */
 export function nothingRecorded(
   data: readonly { values: Readonly<Record<string, number | null | undefined>> }[],
   seriesIds: readonly string[],
+  { absentIsZero = false }: { absentIsZero?: boolean } = {},
 ): boolean {
   if (data.length === 0 || seriesIds.length === 0) {
     return false;
   }
-  return data.every((datum) => seriesIds.every((id) => (datum.values[id] ?? null) === null));
+  return data.every((datum) =>
+    seriesIds.every((id) => {
+      const value = datum.values[id];
+      return value === null || (value === undefined && !absentIsZero);
+    }),
+  );
+}
+
+/**
+ * What a mark names a bucket by on the X axis: its label, or its index when
+ * two buckets of the chart share a label.
+ *
+ * The axis is a category axis keyed by label, and recharts places a reference
+ * mark by the category it is given. When labels repeat (a day label without
+ * its year, in a span longer than a year) recharts gives up on the labels and
+ * scales the axis by index, and a mark placed by label would not be drawn. So
+ * the mark follows the axis.
+ */
+export function bucketAxisValue(labels: readonly string[], index: number): string | number {
+  return new Set(labels).size === labels.length ? labels[index]! : index;
 }

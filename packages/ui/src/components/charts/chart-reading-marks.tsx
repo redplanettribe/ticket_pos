@@ -4,7 +4,9 @@ import * as React from "react";
 import { Cell, Line, ReferenceArea, ReferenceLine } from "recharts";
 
 import { CHART_MARGIN, X_AXIS_HEIGHT, Y_AXIS_WIDTH, xAxisEdgePadding } from "./chart-geometry";
+import type { StackedSeries } from "./chart-frame";
 import {
+  bucketAxisValue,
   bucketIndexAt,
   bucketKeyTarget,
   comparisonValue,
@@ -33,10 +35,6 @@ import {
  * Colours that are not a series' own are the theme's variables, so every mark
  * reads in light and dark alike.
  */
-
-/** One drawn series, as every chart on a surface spells it. Restated here and
- * not imported from `chart-frame`, which imports this module. */
-type Series = { id: string; name: string; color: string };
 
 /** A labelled vertical mark at one bucket: where exact recording began. */
 export type ChartMarker = {
@@ -78,7 +76,7 @@ export type ChartReadingProps = {
    * `id`, and a bucket with none is a gap in the line. The caller's `yMax`
    * must make room for them, as it does for the series.
    */
-  comparisonSeries?: Series[];
+  comparisonSeries?: StackedSeries[];
   /** What the hover card says of a bucket marked `partial`. */
   partialLabel?: string;
   marker?: ChartMarker;
@@ -162,7 +160,7 @@ const PARTIAL_DASH = "3 3";
  * that line out of a datum.
  */
 export function partialStretchLines<Datum>(
-  series: readonly Series[],
+  series: readonly StackedSeries[],
   stretchOf: (datum: Datum, seriesId: string) => number | null,
 ) {
   return series.map((entry) => (
@@ -220,7 +218,7 @@ export function partialBarCells(data: readonly Bucket[], color: string) {
  * In a bar chart recharts places its points at the middle of each band, which
  * is what aligns the comparison bucket to bucket with the bars.
  */
-export function comparisonLines(comparisonSeries: readonly Series[] | undefined) {
+export function comparisonLines(comparisonSeries: readonly StackedSeries[] | undefined) {
   return (comparisonSeries ?? []).map((entry) => (
     <Line
       key={`comparison:${entry.id}`}
@@ -243,6 +241,18 @@ export function comparisonLines(comparisonSeries: readonly Series[] | undefined)
 /** How faint a comparison line is drawn, and the swatch of its hover row. */
 export const COMPARISON_OPACITY = 0.5;
 
+/** What a mark names the bucket at `index` by on the X axis, or undefined when
+ * the chart has no such bucket (see `bucketAxisValue`). */
+function axisValueOf(data: readonly Bucket[], index: number): string | number | undefined {
+  if (data[index] === undefined) {
+    return undefined;
+  }
+  return bucketAxisValue(
+    data.map((datum) => datum.label),
+    index,
+  );
+}
+
 /**
  * The labelled vertical mark at the marker's bucket, or null when there is no
  * marker or the chart does not draw its bucket. On bars it stands at the start
@@ -263,7 +273,7 @@ export function markerLine(data: readonly Bucket[], marker: ChartMarker | undefi
   return (
     <ReferenceLine
       key="marker"
-      x={data[placement.index]!.label}
+      x={axisValueOf(data, placement.index)}
       position={shape === "band" ? "start" : "middle"}
       stroke="var(--muted-foreground)"
       strokeDasharray="2 3"
@@ -292,15 +302,15 @@ export function selectionMarks(
   { selectedIndex, cursorIndex }: { selectedIndex: number | null; cursorIndex: number | null },
   shape: BucketShape,
 ) {
-  const selected = selectedIndex === null ? undefined : data[selectedIndex];
-  const cursor = cursorIndex === null ? undefined : data[cursorIndex];
+  const selected = selectedIndex === null ? undefined : axisValueOf(data, selectedIndex);
+  const cursor = cursorIndex === null ? undefined : axisValueOf(data, cursorIndex);
   if (shape === "band") {
     return [
       selected === undefined ? null : (
         <ReferenceArea
           key="selected"
-          x1={selected.label}
-          x2={selected.label}
+          x1={selected}
+          x2={selected}
           fill="var(--foreground)"
           fillOpacity={0.08}
           stroke="var(--foreground)"
@@ -310,8 +320,8 @@ export function selectionMarks(
       cursor === undefined ? null : (
         <ReferenceArea
           key="cursor"
-          x1={cursor.label}
-          x2={cursor.label}
+          x1={cursor}
+          x2={cursor}
           fill="none"
           stroke="var(--ring)"
           strokeWidth={2}
@@ -322,10 +332,10 @@ export function selectionMarks(
   }
   return [
     selected === undefined ? null : (
-      <ReferenceLine key="selected" x={selected.label} stroke="var(--foreground)" strokeWidth={1.5} />
+      <ReferenceLine key="selected" x={selected} stroke="var(--foreground)" strokeWidth={1.5} />
     ),
     cursor === undefined ? null : (
-      <ReferenceLine key="cursor" x={cursor.label} stroke="var(--ring)" strokeWidth={2} strokeDasharray="4 3" />
+      <ReferenceLine key="cursor" x={cursor} stroke="var(--ring)" strokeWidth={2} strokeDasharray="4 3" />
     ),
   ];
 }
@@ -350,7 +360,8 @@ export type ChartClickHandler = (state: unknown, event: React.MouseEvent<Element
  * sighted reader moving by keyboard sees the figure they are on, which the
  * hover card would have told a pointer. The list lets every pointer event
  * through to the chart beneath it, which is where a click is read from and
- * placed by `bucketIndexAt`.
+ * placed by `bucketIndexAt`; only an option takes a click of its own, which is
+ * how a touch screen reader chooses the bucket it is reading.
  *
  * It sits beside the plot and not inside it, because the plot is an image to
  * assistive technology and what is inside an image is not read.
@@ -421,13 +432,16 @@ export function useBucketSelection(
             id={optionId(index)}
             role="option"
             aria-selected={index === selectedAt}
+            // A touch screen reader chooses by a click on the option it is
+            // reading, which is why the option, alone in the list, takes one.
+            onClick={() => choose(key)}
             className={
               // The chip: pinned to the visible start of the plot, clear of
               // the Y axis pinned over it, so it stays in view however far the
               // plot has scrolled.
               focused && index === activeIndex
-                ? "sticky mt-1 w-max max-w-full rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
-                : "sr-only"
+                ? "pointer-events-auto sticky mt-1 w-max max-w-full rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
+                : "pointer-events-auto sr-only"
             }
             style={focused && index === activeIndex ? { left: Y_AXIS_WIDTH + 4 } : undefined}
           >

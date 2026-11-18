@@ -87,16 +87,20 @@ export type TrendTileProps = {
  */
 export function TrendTile({ label, readings, changeCopy, secondary, color, className }: TrendTileProps) {
   const stroke = color ?? chartSeriesColor(0);
+  // Named by its visible label, so the name is read once and not twice.
+  const labelId = React.useId();
   return (
     <div
       role="group"
-      aria-label={label}
+      aria-labelledby={labelId}
       className={cn(
         "flex min-w-0 flex-col gap-3 rounded-lg border bg-card p-4 text-card-foreground shadow-sm",
         className,
       )}
     >
-      <p className="text-sm font-medium text-muted-foreground">{label}</p>
+      <p id={labelId} className="text-sm font-medium text-muted-foreground">
+        {label}
+      </p>
       {readings.map((reading) => (
         <div key={reading.id} className="min-w-0 space-y-1">
           <p className="flex min-w-0 flex-wrap items-baseline gap-x-2">

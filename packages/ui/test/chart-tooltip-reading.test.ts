@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  barTooltipRows,
   comparisonTooltipRows,
   tooltipEmptyLabel,
   tooltipNotes,
@@ -101,4 +102,39 @@ test("a closed bucket carries no note", () => {
 
 test("a chart with no words for it says nothing of a partial bucket", () => {
   assert.deepEqual(tooltipNotes({ partial: true }, {}), []);
+});
+
+// --- a bar chart's hover card -------------------------------------------------
+
+test("a bar chart states every drawn series, a zero and a value left out included", () => {
+  const { rows, nothingCounted, notRecorded } = barTooltipRows(series, { a: 0 }, formatValue, (id) => `detail ${id}`);
+  assert.deepEqual(rows, [
+    { id: "a", name: "Online", color: "#111", value: "v0", detail: "detail a" },
+    { id: "b", name: "In person", color: "#222", value: "v0", detail: "detail b" },
+  ]);
+  assert.equal(nothingCounted, false);
+  assert.equal(notRecorded, false);
+});
+
+test("a series not recorded in the bucket has no row on a bar chart, and the others keep theirs", () => {
+  const { rows, notRecorded } = barTooltipRows(series, { a: null, b: 4 }, formatValue, noDetail);
+  assert.deepEqual(
+    rows.map((row) => [row.id, row.value]),
+    [["b", "v4"]],
+  );
+  assert.equal(notRecorded, false);
+});
+
+test("a bar chart bucket in which no series was recorded says so", () => {
+  const reading = barTooltipRows(series, { a: null, b: null }, formatValue, noDetail);
+  assert.deepEqual(reading.rows, []);
+  assert.equal(tooltipEmptyLabel(reading, { notRecordedLabel: "Not recorded" }), "Not recorded");
+  // Without the words the card is as empty as it would have been.
+  assert.equal(tooltipEmptyLabel(reading, {}), undefined);
+});
+
+test("a bar chart drawing no series has an empty card and nothing to say of it", () => {
+  const reading = barTooltipRows([], {}, formatValue, noDetail);
+  assert.equal(reading.nothingCounted, false);
+  assert.equal(reading.notRecorded, false);
 });
