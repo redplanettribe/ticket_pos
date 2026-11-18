@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 
 import type { AppLocale } from "@ticket-pos/locale";
 import { Alert, AlertDescription, AlertTitle, Button, Skeleton } from "@ticket-pos/ui";
@@ -64,6 +64,9 @@ export function PlatformTrendBreakdownPanel({
   const errorCopy = useMessages().errors;
   const titleId = useId();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  // Counted up by "Try again": a read that failed is asked for again under
+  // the same path, which alone would not run the effect.
+  const [attempt, setAttempt] = useState(0);
 
   const path = breakdownRequestPath(selection, granularity);
   useEffect(() => {
@@ -85,8 +88,10 @@ export function PlatformTrendBreakdownPanel({
     return () => {
       cancelled = true;
     };
+    // The path names the whole request, and the attempt asks for it again.
+    // The copy read inside is the same for every render of one locale.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path]);
+  }, [path, attempt]);
 
   // What was read for another bucket is not this bucket's: until this one
   // arrives the panel is loading.
@@ -105,7 +110,7 @@ export function PlatformTrendBreakdownPanel({
       </div>
       {/* Announced as it changes: a reader who chose the bucket by keyboard
           is still on the chart above. */}
-      <div aria-live="polite" aria-busy={current === null} className="space-y-3">
+      <div aria-live="polite" className="space-y-3">
         {current === null ? (
           <div role="status" aria-label={t("trendsBreakdownLoading")}>
             <Skeleton className="h-24 w-full" />
@@ -113,7 +118,20 @@ export function PlatformTrendBreakdownPanel({
         ) : "error" in current ? (
           <Alert variant="destructive">
             <AlertTitle>{t("trendsBreakdownFailedTitle")}</AlertTitle>
-            <AlertDescription>{current.error}</AlertDescription>
+            <AlertDescription className="space-y-2">
+              <p>{current.error}</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setLoaded(null);
+                  setAttempt((count) => count + 1);
+                }}
+              >
+                {t("trendsBreakdownRetry")}
+              </Button>
+            </AlertDescription>
           </Alert>
         ) : (
           <BreakdownReading view={breakdownView(current.breakdown)} locale={locale} />
@@ -268,24 +286,38 @@ function BreakdownList({
       {/* A long day has many contributors, none of them cut: the list scrolls
           inside the panel and the chart stays in view. */}
       <List aria-labelledby={titleId} className={`max-h-64 space-y-1 overflow-y-auto text-sm ${ranked ? "list-decimal pl-6" : ""}`}>
-        {rows.map((row) => (
-          <li key={row.id}>
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="min-w-0 break-words">
-                <Link href={row.href} className="font-medium hover:underline">
-                  {row.name}
-                </Link>
-                {row.organizationName === null ? null : (
-                  <span className="text-muted-foreground"> {t("trendsBreakdownEventOf", { organization: row.organizationName })}</span>
-                )}
-                {row.cause === null ? null : (
-                  <span className="text-muted-foreground"> {t(CAUSE_KEYS[row.cause])}</span>
-                )}
-              </span>
-              {row.value === null ? null : <span className="shrink-0 tabular-nums">{spell(row.value)}</span>}
-            </div>
-          </li>
-        ))}
+        {rows.map((row) => {
+          const link = (name: ReactNode) => (
+            <Link href={row.href} className="font-medium hover:underline">
+              {name}
+            </Link>
+          );
+          return (
+            <li key={row.id}>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="min-w-0 break-words">
+                  {row.organizationName === null ? (
+                    link(row.name)
+                  ) : (
+                    // One sentence, worded by the catalog: where the
+                    // Organization stands beside its Event is the language's.
+                    t.rich("trendsBreakdownEventRow", {
+                      name: row.name,
+                      organization: row.organizationName,
+                      event: link,
+                      owner: (chunks) => <span className="text-muted-foreground">{chunks}</span>,
+                    })
+                  )}
+                  {/* A label of its own under the name, not part of a sentence. */}
+                  {row.cause === null ? null : (
+                    <span className="block text-xs text-muted-foreground">{t(CAUSE_KEYS[row.cause])}</span>
+                  )}
+                </span>
+                {row.value === null ? null : <span className="shrink-0 tabular-nums">{spell(row.value)}</span>}
+              </div>
+            </li>
+          );
+        })}
       </List>
     </div>
   );

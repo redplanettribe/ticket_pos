@@ -115,6 +115,10 @@ const CHANNEL_KEYS: Record<string, "channelOnline" | "channelInPerson" | "channe
  * theirs: the text colour, which follows the theme. */
 const STACK_COMPARISON_COLOR = "var(--foreground)";
 
+/** The keyboard surface the shared charts lay over a plot whose buckets can
+ * be chosen. */
+const BUCKET_LISTBOX = '[role="listbox"]';
+
 /** How tall each chart is drawn. Shorter than a chart that has a card to
  * itself: there are nine, two to a row, above the rest of the Overview. */
 const CHART_HEIGHT = 220;
@@ -629,13 +633,37 @@ function FigureCard({
   children: ReactNode;
 }) {
   const content = useRef<HTMLDivElement>(null);
+  // The listbox of the chart a bucket was last chosen on. A money card draws
+  // a chart per currency, and Close returns to the one the reader was on.
+  const chosenOn = useRef<HTMLElement | null>(null);
+  const remember = (target: EventTarget) => {
+    // Up from what was clicked or keyed to the first thing that holds a
+    // listbox, short of the card itself: the panel holds none and is passed
+    // over, so its own buttons do not move the place.
+    for (
+      let element = target as Element | null;
+      element !== null && element !== content.current;
+      element = element.parentElement
+    ) {
+      const listbox = element.matches(BUCKET_LISTBOX) ? element : element.querySelector(BUCKET_LISTBOX);
+      if (listbox !== null) {
+        chosenOn.current = listbox as HTMLElement;
+        return;
+      }
+    }
+  };
   return (
     <Card className="min-w-0">
       <CardHeader>
         <CardTitle className="text-base">{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
-      <CardContent ref={content} className="space-y-3">
+      <CardContent
+        ref={content}
+        className="space-y-3"
+        onClickCapture={(event) => remember(event.target)}
+        onKeyDownCapture={(event) => remember(event.target)}
+      >
         {children}
         {breakdown === undefined ? null : (
           <PlatformTrendBreakdownPanel
@@ -647,7 +675,10 @@ function FigureCard({
               // The Close button goes with the panel. Focus returns to the
               // chart the bucket was chosen on, so a keyboard reader is not
               // dropped at the top of the page.
-              content.current?.querySelector<HTMLElement>('[role="listbox"]')?.focus();
+              const chart = chosenOn.current?.isConnected
+                ? chosenOn.current
+                : content.current?.querySelector<HTMLElement>(BUCKET_LISTBOX);
+              chart?.focus();
               breakdown.onClose();
             }}
           />
