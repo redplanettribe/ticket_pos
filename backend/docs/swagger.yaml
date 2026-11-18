@@ -3444,6 +3444,16 @@ components:
         unswept_count:
           type: integer
       type: object
+    service.ComparisonKind:
+      enum:
+      - previous
+      - year_earlier
+      - previous
+      - year_earlier
+      type: string
+      x-enum-varnames:
+      - ComparePrevious
+      - CompareYearEarlier
     service.ConfirmCheckoutResult:
       properties:
         client_transaction_id:
@@ -7044,11 +7054,45 @@ components:
         value:
           type: integer
       type: object
+    service.PlatformTrendComparison:
+      description: |-
+        Comparison is the span every figure is set beside, as many days long
+        as Span and bucketed the same way.
+      properties:
+        first_day:
+          example: "2026-05-08"
+          type: string
+        kind:
+          $ref: '#/components/schemas/service.ComparisonKind'
+        last_day:
+          example: "2026-06-06"
+          type: string
+      type: object
     service.PlatformTrendFigure:
       description: |-
         TicketsSold is the quantity over active Ticket Sales, by the instant
         sold, one series per Sales Channel.
       properties:
+        change:
+          description: |-
+            Change is Total against ComparisonTotal as a signed ratio, 0.5 for half
+            as much again and -0.5 for half as much. Null, never zero or infinite,
+            when ComparisonTotal is null or zero.
+          example: 0.25
+          type: number
+        comparison_total:
+          description: |-
+            ComparisonTotal is the figure's total over the comparison span from
+            DataSince on. Null when Total is, or when the comparison span has no
+            data.
+          type: integer
+        data_since:
+          description: |-
+            DataSince is the first platform day this figure has data: no bucket
+            before it is stated in a comparison, since missing history is absent
+            and never zero. Null when the figure has no data at all.
+          example: "2026-01-15"
+          type: string
         exact_since:
           description: |-
             ExactSince is the platform day exact recording of this figure began.
@@ -7103,6 +7147,27 @@ components:
             $ref: '#/components/schemas/service.PlatformTrendBucket'
           type: array
           uniqueItems: false
+        change:
+          description: |-
+            Change is Total against ComparisonTotal as a signed ratio. Null, never
+            zero or infinite, when ComparisonTotal is null or zero.
+          example: -0.1
+          type: number
+        comparison_buckets:
+          description: |-
+            ComparisonBuckets has one entry per entry of Buckets, at the same
+            index: the comparison span's bucket of the same length. An entry is
+            null where its bucket lies wholly before the figure's data_since, and a
+            bucket holding data_since starts on it. Today has no counterpart.
+          items:
+            $ref: '#/components/schemas/service.PlatformTrendBucket'
+          type: array
+          uniqueItems: false
+        comparison_total:
+          description: |-
+            ComparisonTotal is the series' total over the comparison span from the
+            figure's data_since on. Null when the comparison span has no data.
+          type: integer
         key:
           description: 'Key names the series: for Tickets Sold, the Sales Channel.'
           example: online
@@ -7129,6 +7194,8 @@ components:
       type: object
     service.PlatformTrends:
       properties:
+        comparison:
+          $ref: '#/components/schemas/service.PlatformTrendComparison'
         figures:
           $ref: '#/components/schemas/service.PlatformTrendFigures'
         granularity:
@@ -15834,8 +15901,20 @@ paths:
         never absent. Today is returned on each series as a separate bucket flagged
         partial, in no total, whenever the span ends yesterday. Each figure states
         whether it is recorded at all and the day exact recording began (null when
-        always exact). Tickets Sold is the quantity over active Ticket Sales by the
-        day sold, one series per Sales Channel. Platform Operator only.'
+        always exact). compare is previous (the default), the span of the same length
+        ending the day before the span starts, or year_earlier, the span moved back
+        52 weeks so every day sits beside the same weekday; comparison states it.
+        Every series carries comparison_buckets, one entry per bucket at the same
+        index and as long as it, its comparison_total and its change; a summable figure
+        carries them across its series too. change is a signed ratio (0.5 for half
+        as much again), null, never zero or infinite, when the comparison total is
+        zero or null. Each figure states data_since, the first day it has data: a
+        comparison bucket wholly before it is null and one holding it starts on it,
+        so missing history is absent, never zero, and a comparison with no data has
+        a null total. Today has no comparison bucket and is in no total. Tickets Sold
+        is the quantity over active Ticket Sales by the day sold, one series per Sales
+        Channel; its data begins on the day the earliest active Ticket Sale was sold.
+        Platform Operator only.'
       parameters:
       - description: Span
         in: query
@@ -15858,6 +15937,15 @@ paths:
         in: query
         name: to
         schema:
+          type: string
+      - description: Comparison span
+        in: query
+        name: compare
+        schema:
+          default: previous
+          enum:
+          - previous
+          - year_earlier
           type: string
       responses:
         "200":

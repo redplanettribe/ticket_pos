@@ -22,6 +22,11 @@ type platformTrends struct {
 		FirstDay string `json:"first_day"`
 		LastDay  string `json:"last_day"`
 	} `json:"span"`
+	Comparison struct {
+		Kind     string `json:"kind"`
+		FirstDay string `json:"first_day"`
+		LastDay  string `json:"last_day"`
+	} `json:"comparison"`
 	Granularity string `json:"granularity"`
 	Today       string `json:"today"`
 	Figures     struct {
@@ -30,10 +35,13 @@ type platformTrends struct {
 }
 
 type platformTrendsFigure struct {
-	Recorded   bool                   `json:"recorded"`
-	ExactSince *string                `json:"exact_since"`
-	Total      *int                   `json:"total"`
-	Series     []platformTrendsSeries `json:"series"`
+	Recorded        bool                   `json:"recorded"`
+	ExactSince      *string                `json:"exact_since"`
+	DataSince       *string                `json:"data_since"`
+	Total           *int                   `json:"total"`
+	ComparisonTotal *int                   `json:"comparison_total"`
+	Change          *float64               `json:"change"`
+	Series          []platformTrendsSeries `json:"series"`
 }
 
 type platformTrendsSeries struct {
@@ -41,6 +49,10 @@ type platformTrendsSeries struct {
 	Total   int                    `json:"total"`
 	Buckets []platformTrendsBucket `json:"buckets"`
 	Today   *platformTrendsBucket  `json:"today"`
+
+	ComparisonTotal   *int                    `json:"comparison_total"`
+	Change            *float64                `json:"change"`
+	ComparisonBuckets []*platformTrendsBucket `json:"comparison_buckets"`
 }
 
 type platformTrendsBucket struct {
@@ -347,6 +359,7 @@ func TestPlatformTrendsRefusesAMalformedSpan(t *testing.T) {
 		{"?span=custom&from=2026-06-05&to=2026-06-03", "from", "INVALID_START_AFTER_END"},
 		{"?span=custom&from=2026-07-07&to=2026-07-09", "from", "INVALID_START_AFTER_END"},
 		{"?span=custom&from=2010-01-01&to=2026-07-01", "from", "TOO_MANY_ITEMS"},
+		{"?compare=last_year", "compare", "INVALID_ENUM"},
 	}
 	for _, tc := range cases {
 		resp, body := env.get(t, platformTrendsPath+tc.query, authHeader(operatorSessionID))

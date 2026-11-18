@@ -57,23 +57,46 @@ const (
 	GranularityWeek PlatformTrendGranularity = "week"
 )
 
+// ComparisonKind is the span a span is set beside: the one of the same length
+// that ends the day before it starts, or the one of the same length 52 weeks
+// earlier.
+type ComparisonKind string
+
+const (
+	ComparePrevious    ComparisonKind = "previous"
+	CompareYearEarlier ComparisonKind = "year_earlier"
+)
+
+// Comparisons is every comparison a caller may name, the default first.
+var Comparisons = []ComparisonKind{ComparePrevious, CompareYearEarlier}
+
+// yearEarlierDays is how far back the year-earlier comparison reaches: 52
+// whole weeks, not a calendar year, so every day is set beside the same
+// weekday (a Saturday beside a Saturday) and the yearly span, itself 52
+// weeks, is compared with the 52 weeks before it.
+const yearEarlierDays = 364
+
 // SpanQuery is a span as the caller asked for it, already checked for shape
 // by the handler. From and To are set for a custom span alone, as the first
-// and last day asked for, both included and From never after To.
+// and last day asked for, both included and From never after To. An empty
+// Compare is the default, the previous span.
 type SpanQuery struct {
-	Preset SpanPreset
-	From   time.Time
-	To     time.Time
+	Preset  SpanPreset
+	From    time.Time
+	To      time.Time
+	Compare ComparisonKind
 }
 
 // Span is a resolved span: its whole days on the platform clock, the bucket
-// length chosen for them, and today, which lies outside it.
+// length chosen for them, today, which lies outside it, and the comparison
+// span it is set beside.
 type Span struct {
 	Preset      SpanPreset
 	FirstDay    time.Time
 	LastDay     time.Time
 	Today       time.Time
 	Granularity PlatformTrendGranularity
+	Comparison  ComparisonKind
 }
 
 // days is how many days the span covers, both ends included.
@@ -100,12 +123,16 @@ func ResolveSpan(query SpanQuery, now time.Time) (Span, bool) {
 	today := civilDate(now)
 	yesterday := today.AddDate(0, 0, -1)
 
+	compare := query.Compare
+	if compare == "" {
+		compare = ComparePrevious
+	}
 	preset := query.Preset
 	if preset == "" {
 		preset = Preset30Days
 	}
 	if length, ok := presetDays[preset]; ok {
-		return newSpan(preset, yesterday.AddDate(0, 0, -(length-1)), yesterday, today), true
+		return newSpan(preset, yesterday.AddDate(0, 0, -(length-1)), yesterday, today, compare), true
 	}
 
 	if query.From.After(yesterday) {
@@ -115,15 +142,34 @@ func ResolveSpan(query SpanQuery, now time.Time) (Span, bool) {
 	if to.After(yesterday) {
 		to = yesterday
 	}
-	return newSpan(PresetCustom, query.From, to, today), true
+	return newSpan(PresetCustom, query.From, to, today, compare), true
 }
 
-func newSpan(preset SpanPreset, first, last, today time.Time) Span {
-	span := Span{Preset: preset, FirstDay: first, LastDay: last, Today: today, Granularity: GranularityDay}
+func newSpan(preset SpanPreset, first, last, today time.Time, compare ComparisonKind) Span {
+	span := Span{Preset: preset, FirstDay: first, LastDay: last, Today: today, Granularity: GranularityDay, Comparison: compare}
 	if span.days() > maxDailySpanDays {
 		span.Granularity = GranularityWeek
 	}
 	return span
+}
+
+// compared is the comparison span: as many days as the span, bucketed the
+// same way, so its buckets line up with the span's one for one. The previous
+// span ends the day before the span starts; the year-earlier span is the span
+// moved back 52 weeks, which a custom range longer than that overlaps. It has
+// no today beside it.
+func (s Span) compared() Span {
+	last := s.FirstDay.AddDate(0, 0, -1)
+	if s.Comparison == CompareYearEarlier {
+		last = s.LastDay.AddDate(0, 0, -yearEarlierDays)
+	}
+	return Span{
+		Preset:      s.Preset,
+		FirstDay:    last.AddDate(0, 0, -(s.days() - 1)),
+		LastDay:     last,
+		Granularity: s.Granularity,
+		Comparison:  s.Comparison,
+	}
 }
 
 // civilDate is the platform day an instant falls on, carried as midnight UTC.

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
@@ -134,4 +135,25 @@ func (r *Repository) PlatformTicketsSoldByDay(ctx context.Context, from, until t
 		out = append(out, day)
 	}
 	return out, rows.Err()
+}
+
+// PlatformFirstTicketSoldDay is the day, on the clock the caller names, the
+// platform's earliest active Ticket Sale was sold, formatted YYYY-MM-DD, and
+// false when there is none: the first day Platform Trends' Tickets Sold has
+// data, before which a comparison has no history to read (#811). It keeps
+// PlatformTicketsSoldByDay's rules (active sales, by sold_at, every
+// Organization), so the first day stated is the first day that figure can
+// carry anything, and like it adds no index: it is one aggregate over the
+// table, read by operators alone.
+func (r *Repository) PlatformFirstTicketSoldDay(ctx context.Context, timezone string) (string, bool, error) {
+	var day sql.NullString
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT to_char((MIN(sold_at) AT TIME ZONE $1)::date, 'YYYY-MM-DD')
+		FROM ticket_sales
+		WHERE status = 'active'
+	`, timezone).Scan(&day)
+	if err != nil {
+		return "", false, err
+	}
+	return day.String, day.Valid, nil
 }

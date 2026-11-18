@@ -7439,7 +7439,7 @@ export interface paths {
         };
         /**
          * Get Platform Trends for a span
-         * @description Returns the platform-wide figures of Platform Trends, House Organizations included, over a span of whole days on the platform clock (America/Guayaquil), never an Event's timezone. span is 7d, 30d, 90d, 12m (52 whole weeks) or custom, defaulting to 30d; a custom span takes from and to (YYYY-MM-DD, both included), which the other spans ignore. Every span ends at the close of yesterday: a custom range reaching today or later is cut at yesterday, and one with no day before today is refused. Buckets are days for a span of up to 90 days and weeks beyond, as granularity states; a weekly bucket is seven days counted back from the span's last day, so the oldest may be a shorter stub, and every bucket states its first and last day. Days with nothing in them are zero, never absent. Today is returned on each series as a separate bucket flagged partial, in no total, whenever the span ends yesterday. Each figure states whether it is recorded at all and the day exact recording began (null when always exact). Tickets Sold is the quantity over active Ticket Sales by the day sold, one series per Sales Channel. Platform Operator only.
+         * @description Returns the platform-wide figures of Platform Trends, House Organizations included, over a span of whole days on the platform clock (America/Guayaquil), never an Event's timezone. span is 7d, 30d, 90d, 12m (52 whole weeks) or custom, defaulting to 30d; a custom span takes from and to (YYYY-MM-DD, both included), which the other spans ignore. Every span ends at the close of yesterday: a custom range reaching today or later is cut at yesterday, and one with no day before today is refused. Buckets are days for a span of up to 90 days and weeks beyond, as granularity states; a weekly bucket is seven days counted back from the span's last day, so the oldest may be a shorter stub, and every bucket states its first and last day. Days with nothing in them are zero, never absent. Today is returned on each series as a separate bucket flagged partial, in no total, whenever the span ends yesterday. Each figure states whether it is recorded at all and the day exact recording began (null when always exact). compare is previous (the default), the span of the same length ending the day before the span starts, or year_earlier, the span moved back 52 weeks so every day sits beside the same weekday; comparison states it. Every series carries comparison_buckets, one entry per bucket at the same index and as long as it, its comparison_total and its change; a summable figure carries them across its series too. change is a signed ratio (0.5 for half as much again), null, never zero or infinite, when the comparison total is zero or null. Each figure states data_since, the first day it has data: a comparison bucket wholly before it is null and one holding it starts on it, so missing history is absent, never zero, and a comparison with no data has a null total. Today has no comparison bucket and is in no total. Tickets Sold is the quantity over active Ticket Sales by the day sold, one series per Sales Channel; its data begins on the day the earliest active Ticket Sale was sold. Platform Operator only.
          */
         get: {
             parameters: {
@@ -7450,6 +7450,8 @@ export interface paths {
                     from?: string;
                     /** @description Last day of a custom span (YYYY-MM-DD) */
                     to?: string;
+                    /** @description Comparison span */
+                    compare?: "previous" | "year_earlier";
                 };
                 header?: never;
                 path?: never;
@@ -16936,6 +16938,8 @@ export interface components {
             month?: string;
             unswept_count?: number;
         };
+        /** @enum {string} */
+        "service.ComparisonKind": "previous" | "year_earlier" | "previous" | "year_earlier";
         "service.ConfirmCheckoutResult": {
             client_transaction_id?: string;
             confirmation_ref?: string;
@@ -19679,10 +19683,41 @@ export interface components {
             value?: number;
         };
         /**
+         * @description Comparison is the span every figure is set beside, as many days long
+         *     as Span and bucketed the same way.
+         */
+        "service.PlatformTrendComparison": {
+            /** @example 2026-05-08 */
+            first_day?: string;
+            kind?: components["schemas"]["service.ComparisonKind"];
+            /** @example 2026-06-06 */
+            last_day?: string;
+        };
+        /**
          * @description TicketsSold is the quantity over active Ticket Sales, by the instant
          *     sold, one series per Sales Channel.
          */
         "service.PlatformTrendFigure": {
+            /**
+             * @description Change is Total against ComparisonTotal as a signed ratio, 0.5 for half
+             *     as much again and -0.5 for half as much. Null, never zero or infinite,
+             *     when ComparisonTotal is null or zero.
+             * @example 0.25
+             */
+            change?: number;
+            /**
+             * @description ComparisonTotal is the figure's total over the comparison span from
+             *     DataSince on. Null when Total is, or when the comparison span has no
+             *     data.
+             */
+            comparison_total?: number;
+            /**
+             * @description DataSince is the first platform day this figure has data: no bucket
+             *     before it is stated in a comparison, since missing history is absent
+             *     and never zero. Null when the figure has no data at all.
+             * @example 2026-01-15
+             */
+            data_since?: string;
             /**
              * @description ExactSince is the platform day exact recording of this figure began.
              *     Buckets before it are a stand-in or partial. Null when the figure has
@@ -19722,6 +19757,24 @@ export interface components {
              */
             buckets?: components["schemas"]["service.PlatformTrendBucket"][];
             /**
+             * @description Change is Total against ComparisonTotal as a signed ratio. Null, never
+             *     zero or infinite, when ComparisonTotal is null or zero.
+             * @example -0.1
+             */
+            change?: number;
+            /**
+             * @description ComparisonBuckets has one entry per entry of Buckets, at the same
+             *     index: the comparison span's bucket of the same length. An entry is
+             *     null where its bucket lies wholly before the figure's data_since, and a
+             *     bucket holding data_since starts on it. Today has no counterpart.
+             */
+            comparison_buckets?: components["schemas"]["service.PlatformTrendBucket"][];
+            /**
+             * @description ComparisonTotal is the series' total over the comparison span from the
+             *     figure's data_since on. Null when the comparison span has no data.
+             */
+            comparison_total?: number;
+            /**
              * @description Key names the series: for Tickets Sold, the Sales Channel.
              * @example online
              */
@@ -19742,6 +19795,7 @@ export interface components {
             preset?: components["schemas"]["service.SpanPreset"];
         };
         "service.PlatformTrends": {
+            comparison?: components["schemas"]["service.PlatformTrendComparison"];
             figures?: components["schemas"]["service.PlatformTrendFigures"];
             granularity?: components["schemas"]["service.PlatformTrendGranularity"];
             span?: components["schemas"]["service.PlatformTrendSpan"];
