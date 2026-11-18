@@ -3,8 +3,6 @@ package service
 import (
 	"testing"
 	"time"
-
-	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // 2026-07-08T03:00Z is still 2026-07-07 on the platform clock (22:00 in
@@ -29,9 +27,9 @@ func TestResolveSpanPresetsEndYesterday(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(string(tc.preset), func(t *testing.T) {
 			t.Parallel()
-			span, fields := ResolveSpan(SpanQuery{Preset: tc.preset}, spanNow)
-			if len(fields) != 0 {
-				t.Fatalf("refused: %+v", fields)
+			span, ok := ResolveSpan(SpanQuery{Preset: tc.preset}, spanNow)
+			if !ok {
+				t.Fatal("refused a preset")
 			}
 			if got := span.FirstDay.Format(dayFormat); got != tc.first {
 				t.Fatalf("first day = %s, want %s", got, tc.first)
@@ -49,12 +47,26 @@ func TestResolveSpanPresetsEndYesterday(t *testing.T) {
 	}
 }
 
+func day(t *testing.T, raw string) time.Time {
+	t.Helper()
+	parsed, err := time.Parse(dayFormat, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parsed
+}
+
+func custom(t *testing.T, from, to string) SpanQuery {
+	t.Helper()
+	return SpanQuery{Preset: PresetCustom, From: day(t, from), To: day(t, to)}
+}
+
 func TestResolveSpanCustomRangeIsCutAtYesterday(t *testing.T) {
 	t.Parallel()
 
-	span, fields := ResolveSpan(SpanQuery{Preset: PresetCustom, From: "2026-07-01", To: "2026-07-20"}, spanNow)
-	if len(fields) != 0 {
-		t.Fatalf("refused: %+v", fields)
+	span, ok := ResolveSpan(custom(t, "2026-07-01", "2026-07-20"), spanNow)
+	if !ok {
+		t.Fatal("refused a range with closed days in it")
 	}
 	if span.FirstDay.Format(dayFormat) != "2026-07-01" || span.LastDay.Format(dayFormat) != "2026-07-06" {
 		t.Fatalf("span = %s..%s, want 2026-07-01..2026-07-06", span.FirstDay.Format(dayFormat), span.LastDay.Format(dayFormat))
@@ -63,43 +75,24 @@ func TestResolveSpanCustomRangeIsCutAtYesterday(t *testing.T) {
 		t.Fatal("a range cut at yesterday ends yesterday")
 	}
 
-	past, fields := ResolveSpan(SpanQuery{Preset: PresetCustom, From: "2026-06-01", To: "2026-06-03"}, spanNow)
-	if len(fields) != 0 {
-		t.Fatalf("refused: %+v", fields)
+	past, ok := ResolveSpan(custom(t, "2026-06-01", "2026-06-03"), spanNow)
+	if !ok {
+		t.Fatal("refused a past range")
 	}
 	if past.endsYesterday() {
 		t.Fatal("a range ending before yesterday has no today beside it")
 	}
 }
 
-func TestResolveSpanRefusals(t *testing.T) {
+// A custom range starting today, on the platform clock, has no closed day.
+func TestResolveSpanRefusesARangeWithNoClosedDay(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name  string
-		query SpanQuery
-		field string
-		code  string
-	}{
-		{"unknown preset", SpanQuery{Preset: "14d"}, "span", platform.CodeInvalidEnum},
-		{"custom without from", SpanQuery{Preset: PresetCustom, To: "2026-07-01"}, "from", platform.CodeRequired},
-		{"custom without to", SpanQuery{Preset: PresetCustom, From: "2026-07-01"}, "to", platform.CodeRequired},
-		{"malformed from", SpanQuery{Preset: PresetCustom, From: "07/01/2026", To: "2026-07-02"}, "from", platform.CodeInvalidDate},
-		{"start after end", SpanQuery{Preset: PresetCustom, From: "2026-07-03", To: "2026-07-02"}, "from", platform.CodeStartAfterEnd},
-		{"no closed day", SpanQuery{Preset: PresetCustom, From: "2026-07-07", To: "2026-07-09"}, "from", platform.CodeStartAfterEnd},
-		{"too long", SpanQuery{Preset: PresetCustom, From: "2010-01-01", To: "2026-07-01"}, "from", platform.CodeTooManyItems},
+	if _, ok := ResolveSpan(custom(t, "2026-07-07", "2026-07-09"), spanNow); ok {
+		t.Fatal("accepted a range starting today; a span ends at the close of yesterday")
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			_, fields := ResolveSpan(tc.query, spanNow)
-			if len(fields) == 0 {
-				t.Fatal("accepted; want a refusal")
-			}
-			if fields[0].Field != tc.field || fields[0].Code != tc.code {
-				t.Fatalf("refusal = %+v, want %s on %s", fields[0], tc.code, tc.field)
-			}
-		})
+	if _, ok := ResolveSpan(custom(t, "2026-07-06", "2026-07-09"), spanNow); !ok {
+		t.Fatal("refused a range starting yesterday, which has one closed day")
 	}
 }
 
@@ -108,9 +101,9 @@ func TestResolveSpanRefusals(t *testing.T) {
 func TestWeeklyBucketsCountBackFromTheLastDay(t *testing.T) {
 	t.Parallel()
 
-	span, fields := ResolveSpan(SpanQuery{Preset: PresetCustom, From: "2026-03-25", To: "2026-07-06"}, spanNow)
-	if len(fields) != 0 {
-		t.Fatalf("refused: %+v", fields)
+	span, ok := ResolveSpan(custom(t, "2026-03-25", "2026-07-06"), spanNow)
+	if !ok {
+		t.Fatal("refused")
 	}
 	if span.Granularity != GranularityWeek {
 		t.Fatalf("a %d-day span is drawn in %s; want weeks", span.days(), span.Granularity)

@@ -1,7 +1,6 @@
 package service
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/platform"
@@ -43,9 +42,12 @@ var presetDays = map[SpanPreset]int{
 // in weeks.
 const maxDailySpanDays = 90
 
-// maxCustomSpanDays bounds a custom range, so a typo in a year cannot ask for
+// MaxCustomSpanDays bounds a custom range, so a typo in a year cannot ask for
 // a century of buckets. Ten years is far beyond any history the platform has.
-const maxCustomSpanDays = 3660
+const MaxCustomSpanDays = 3660
+
+// DayFormat is the layout a day travels in on the wire, YYYY-MM-DD.
+const DayFormat = dayFormat
 
 // PlatformTrendGranularity is the length of a bucket.
 type PlatformTrendGranularity string
@@ -55,13 +57,13 @@ const (
 	GranularityWeek PlatformTrendGranularity = "week"
 )
 
-// SpanQuery is a span as the caller asked for it, before it is resolved
-// against today. From and To are read only for a custom span; each is the
-// raw YYYY-MM-DD text, empty when absent.
+// SpanQuery is a span as the caller asked for it, already checked for shape
+// by the handler. From and To are set for a custom span alone, as the first
+// and last day asked for, both included and From never after To.
 type SpanQuery struct {
 	Preset SpanPreset
-	From   string
-	To     string
+	From   time.Time
+	To     time.Time
 }
 
 // Span is a resolved span: its whole days on the platform clock, the bucket
@@ -85,63 +87,35 @@ func (s Span) endsYesterday() bool {
 	return s.LastDay.Equal(s.Today.AddDate(0, 0, -1))
 }
 
-// ResolveSpan turns a query into the span it names on the platform clock, or
-// the field errors that refuse it.
+// ResolveSpan turns a query into the span it names on the platform clock, and
+// reports false for a custom range with no closed day in it.
 //
 // A span ends at the close of yesterday: today is never inside one, because a
 // day still running would read as a collapse beside the days before it. A
-// preset runs back its length from yesterday. A custom range keeps its first
-// day and is cut at yesterday when it reaches today or later; a range whose
-// first day is after its last, or after yesterday, has no closed day in it and
-// is refused.
-func ResolveSpan(query SpanQuery, now time.Time) (Span, []platform.FieldError) {
+// preset runs back its length from yesterday, and an empty preset is the
+// default, 30 days. A custom range keeps its first day and is cut at yesterday
+// when it reaches today or later; one whose first day is today or later has
+// nothing left once cut, which is the one refusal that depends on the clock.
+func ResolveSpan(query SpanQuery, now time.Time) (Span, bool) {
 	today := civilDate(now)
 	yesterday := today.AddDate(0, 0, -1)
 
 	preset := query.Preset
 	if preset == "" {
-		preset = Preset30Days // the default span
+		preset = Preset30Days
 	}
-
 	if length, ok := presetDays[preset]; ok {
-		return newSpan(preset, yesterday.AddDate(0, 0, -(length-1)), yesterday, today), nil
-	}
-	if preset != PresetCustom {
-		return Span{}, []platform.FieldError{{
-			Field:   "span",
-			Code:    platform.CodeInvalidEnum,
-			Message: fmt.Sprintf("must be one of %s", presetList()),
-		}}
+		return newSpan(preset, yesterday.AddDate(0, 0, -(length-1)), yesterday, today), true
 	}
 
-	var fields []platform.FieldError
-	from, fromOK := parseDay("from", query.From, &fields)
-	to, toOK := parseDay("to", query.To, &fields)
-	if !fromOK || !toOK {
-		return Span{}, fields
+	if query.From.After(yesterday) {
+		return Span{}, false
 	}
-	if from.After(to) {
-		return Span{}, []platform.FieldError{{Field: "from", Code: platform.CodeStartAfterEnd, Message: "must be on or before to"}}
-	}
-	if from.After(yesterday) {
-		return Span{}, []platform.FieldError{{
-			Field:   "from",
-			Code:    platform.CodeStartAfterEnd,
-			Message: "must be before today: a span ends at the close of yesterday",
-		}}
-	}
+	to := query.To
 	if to.After(yesterday) {
 		to = yesterday
 	}
-	span := newSpan(PresetCustom, from, to, today)
-	if span.days() > maxCustomSpanDays {
-		return Span{}, []platform.FieldError{{
-			Field:   "from",
-			Code:    platform.CodeTooManyItems,
-			Message: fmt.Sprintf("the range must cover at most %d days", maxCustomSpanDays),
-		}}
-	}
-	return span, nil
+	return newSpan(PresetCustom, query.From, to, today), true
 }
 
 func newSpan(preset SpanPreset, first, last, today time.Time) Span {
@@ -150,31 +124,6 @@ func newSpan(preset SpanPreset, first, last, today time.Time) Span {
 		span.Granularity = GranularityWeek
 	}
 	return span
-}
-
-// parseDay reads one end of a custom range, appending its refusal to fields.
-func parseDay(field, raw string, fields *[]platform.FieldError) (time.Time, bool) {
-	if raw == "" {
-		*fields = append(*fields, platform.FieldError{Field: field, Code: platform.CodeRequired, Message: "is required for a custom span"})
-		return time.Time{}, false
-	}
-	day, err := time.Parse(dayFormat, raw)
-	if err != nil {
-		*fields = append(*fields, platform.FieldError{Field: field, Code: platform.CodeInvalidDate, Message: "must be a date (YYYY-MM-DD)"})
-		return time.Time{}, false
-	}
-	return day, true
-}
-
-func presetList() string {
-	out := ""
-	for i, p := range Presets {
-		if i > 0 {
-			out += ", "
-		}
-		out += string(p)
-	}
-	return out
 }
 
 // civilDate is the platform day an instant falls on, carried as midnight UTC.

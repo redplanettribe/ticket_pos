@@ -49,8 +49,9 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 	return s
 }
 
-// ResolveSpan resolves a span query against today on the service clock.
-func (s *Service) ResolveSpan(query SpanQuery) (Span, []platform.FieldError) {
+// ResolveSpan resolves a span query against today on the service clock, and
+// reports false for a custom range with no closed day in it.
+func (s *Service) ResolveSpan(query SpanQuery) (Span, bool) {
 	return ResolveSpan(query, s.now())
 }
 
@@ -181,15 +182,15 @@ func (s *Service) Trends(ctx context.Context, span Span) (*PlatformTrends, error
 func seriesOf(key string, span Span, perDay map[string]int) PlatformTrendSeries {
 	ranges := span.buckets()
 	series := PlatformTrendSeries{Key: key, Buckets: make([]PlatformTrendBucket, 0, len(ranges))}
-	for _, r := range ranges {
+	for _, bucket := range ranges {
 		value := 0
-		for day := r.first; !day.After(r.last); day = day.AddDate(0, 0, 1) {
+		for day := bucket.first; !day.After(bucket.last); day = day.AddDate(0, 0, 1) {
 			value += perDay[day.Format(dayFormat)]
 		}
 		series.Total += value
 		series.Buckets = append(series.Buckets, PlatformTrendBucket{
-			FirstDay: r.first.Format(dayFormat),
-			LastDay:  r.last.Format(dayFormat),
+			FirstDay: bucket.first.Format(dayFormat),
+			LastDay:  bucket.last.Format(dayFormat),
 			Value:    value,
 		})
 	}

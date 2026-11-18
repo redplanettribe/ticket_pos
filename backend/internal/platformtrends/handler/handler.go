@@ -7,8 +7,12 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/platformtrends/service"
@@ -42,14 +46,18 @@ func New(svc *service.Service) *Handler {
 func (h *Handler) GetPlatformTrends(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
 
-	query := r.URL.Query()
-	span, fields := h.svc.ResolveSpan(service.SpanQuery{
-		Preset: service.SpanPreset(strings.TrimSpace(query.Get("span"))),
-		From:   strings.TrimSpace(query.Get("from")),
-		To:     strings.TrimSpace(query.Get("to")),
-	})
+	query, fields := parseSpanQuery(r.URL.Query())
 	if len(fields) > 0 {
 		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+	span, ok := h.svc.ResolveSpan(query)
+	if !ok {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{
+			Field:   "from",
+			Code:    platform.CodeStartAfterEnd,
+			Message: "must be before today: a span ends at the close of yesterday",
+		}})
 		return
 	}
 
@@ -59,4 +67,63 @@ func (h *Handler) GetPlatformTrends(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, trends)
+}
+
+// parseSpanQuery checks the span's shape: a known preset (30d when absent)
+// and, for a custom span, two well-formed days with the first not after the
+// last, covering at most service.MaxCustomSpanDays. Every field error is
+// returned at once, and an inverted or overlong range only when both days
+// parsed. Where the span falls against today is the service's to resolve.
+func parseSpanQuery(values url.Values) (service.SpanQuery, []platform.FieldError) {
+	preset := service.SpanPreset(strings.TrimSpace(values.Get("span")))
+	if preset == "" {
+		return service.SpanQuery{}, nil
+	}
+	if !slices.Contains(service.Presets, preset) {
+		names := make([]string, 0, len(service.Presets))
+		for _, p := range service.Presets {
+			names = append(names, string(p))
+		}
+		return service.SpanQuery{}, []platform.FieldError{{
+			Field:   "span",
+			Code:    platform.CodeInvalidEnum,
+			Message: "must be one of " + strings.Join(names, ", "),
+		}}
+	}
+	if preset != service.PresetCustom {
+		return service.SpanQuery{Preset: preset}, nil
+	}
+
+	var fields []platform.FieldError
+	from, fromOK := parseDay("from", values.Get("from"), &fields)
+	to, toOK := parseDay("to", values.Get("to"), &fields)
+	if !fromOK || !toOK {
+		return service.SpanQuery{}, fields
+	}
+	if from.After(to) {
+		return service.SpanQuery{}, []platform.FieldError{{Field: "from", Code: platform.CodeStartAfterEnd, Message: "must be on or before to"}}
+	}
+	if to.Sub(from) >= service.MaxCustomSpanDays*24*time.Hour {
+		return service.SpanQuery{}, []platform.FieldError{{
+			Field:   "from",
+			Code:    platform.CodeTooManyItems,
+			Message: fmt.Sprintf("the range must cover at most %d days", service.MaxCustomSpanDays),
+		}}
+	}
+	return service.SpanQuery{Preset: preset, From: from, To: to}, nil
+}
+
+// parseDay reads one end of a custom range, appending its refusal to fields.
+func parseDay(field, raw string, fields *[]platform.FieldError) (time.Time, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		*fields = append(*fields, platform.FieldError{Field: field, Code: platform.CodeRequired, Message: "is required for a custom span"})
+		return time.Time{}, false
+	}
+	day, err := time.Parse(service.DayFormat, raw)
+	if err != nil {
+		*fields = append(*fields, platform.FieldError{Field: field, Code: platform.CodeInvalidDate, Message: "must be a date (YYYY-MM-DD)"})
+		return time.Time{}, false
+	}
+	return day, true
 }

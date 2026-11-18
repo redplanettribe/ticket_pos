@@ -346,6 +346,7 @@ func TestPlatformTrendsRefusesAMalformedSpan(t *testing.T) {
 		{"?span=custom&from=yesterday&to=2026-06-03", "from", "INVALID_DATE"},
 		{"?span=custom&from=2026-06-05&to=2026-06-03", "from", "INVALID_START_AFTER_END"},
 		{"?span=custom&from=2026-07-07&to=2026-07-09", "from", "INVALID_START_AFTER_END"},
+		{"?span=custom&from=2010-01-01&to=2026-07-01", "from", "TOO_MANY_ITEMS"},
 	}
 	for _, tc := range cases {
 		resp, body := env.get(t, platformTrendsPath+tc.query, authHeader(operatorSessionID))
