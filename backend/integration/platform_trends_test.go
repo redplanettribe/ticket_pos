@@ -33,6 +33,10 @@ type platformTrends struct {
 		TicketsSold       platformTrendsFigure `json:"tickets_sold"`
 		MoneySold         platformTrendsFigure `json:"money_sold"`
 		PlatformFeeEarned platformTrendsFigure `json:"platform_fee_earned"`
+
+		NewVerifiedCustomers platformTrendsFigure `json:"new_verified_customers"`
+		NewOrganizations     platformTrendsFigure `json:"new_organizations"`
+		PageViews            platformTrendsFigure `json:"page_views"`
 	} `json:"figures"`
 }
 

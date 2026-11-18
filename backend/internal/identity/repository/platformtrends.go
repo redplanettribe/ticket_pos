@@ -1,0 +1,58 @@
+package repository
+
+import (
+	"context"
+	"database/sql"
+	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/platform"
+)
+
+// PlatformNewOrganizationsByDay counts the Organizations created on each day,
+// for Platform Trends (#813, ADR 0080), over the creations in [from, until).
+// Every Organization counts, House Organizations included, so the figure
+// agrees with the Organizations the Operator Dashboard lists.
+//
+// The day is read on the zone the caller passes, the platform's own clock.
+// No index is added: organizations is a small table read by operators alone.
+func (r *Repository) PlatformNewOrganizationsByDay(ctx context.Context, from, until time.Time, timezone string) ([]platform.DayCount, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT
+			to_char((created_at AT TIME ZONE $3)::date, 'YYYY-MM-DD') AS day,
+			COUNT(*)::bigint
+		FROM organizations
+		WHERE created_at >= $1 AND created_at < $2
+		GROUP BY 1
+		ORDER BY 1
+	`, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []platform.DayCount
+	for rows.Next() {
+		var day platform.DayCount
+		if err := rows.Scan(&day.Day, &day.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, day)
+	}
+	return out, rows.Err()
+}
+
+// PlatformFirstOrganizationDay is the day, on the clock the caller names, the
+// platform's first Organization was created, formatted YYYY-MM-DD, and false
+// when there is none: the first day Platform Trends' new Organizations has
+// data.
+func (r *Repository) PlatformFirstOrganizationDay(ctx context.Context, timezone string) (string, bool, error) {
+	var day sql.NullString
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT to_char((MIN(created_at) AT TIME ZONE $1)::date, 'YYYY-MM-DD')
+		FROM organizations
+	`, timezone).Scan(&day)
+	if err != nil {
+		return "", false, err
+	}
+	return day.String, day.Valid, nil
+}

@@ -715,8 +715,11 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// read (#639), tied here for the same reason.
 	catalogService = catalogService.WithDossierSaleDocuments(invoicingService)
 
-	// Platform Trends reads Tickets Sold through sales, on the platform clock.
-	platformTrendsService := platformtrendssvc.New(salesService)
+	// Platform Trends owns no tables: it reads Tickets Sold and money through
+	// sales, new Verified Customers through customers, new Organizations
+	// through identity and Page Views through affiliates, which keeps their
+	// hourly buckets, all on the platform clock.
+	platformTrendsService := platformtrendssvc.New(salesService, customersService, identityService, affiliatesService)
 	if options.clock != nil {
 		platformTrendsService = platformTrendsService.WithClock(options.clock)
 	}

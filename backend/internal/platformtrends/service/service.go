@@ -33,21 +33,50 @@ type TicketSales interface {
 	PlatformFirstTicketSoldDay(ctx context.Context, timezone string) (string, bool, error)
 }
 
+// Customers is what Platform Trends needs from customers: how many Customers
+// became Verified Customers per day, and the first day any did.
+type Customers interface {
+	PlatformNewVerifiedCustomersByDay(ctx context.Context, from, until time.Time, timezone string) ([]platform.DayCount, error)
+	PlatformFirstVerifiedCustomerDay(ctx context.Context, timezone string) (string, bool, error)
+}
+
+// Organizations is what Platform Trends needs from identity: how many
+// Organizations were created per day, and the first day any was.
+type Organizations interface {
+	PlatformNewOrganizationsByDay(ctx context.Context, from, until time.Time, timezone string) ([]platform.DayCount, error)
+	PlatformFirstOrganizationDay(ctx context.Context, timezone string) (string, bool, error)
+}
+
+// PageViews is what Platform Trends needs from affiliates, which keeps the
+// hourly Page View buckets: the platform's Page Views per day, and the first
+// day any was counted.
+type PageViews interface {
+	PlatformPageViewsByDay(ctx context.Context, from, until time.Time, timezone string) ([]platform.DayCount, error)
+	PlatformFirstPageViewDay(ctx context.Context, timezone string) (string, bool, error)
+}
+
 // salesChannels is every Sales Channel, in the order the series are stated;
 // the ticket_sales CHECK constraint admits no other.
 // Each is always present, zero or not, so the page's legend never changes
 // shape with the data.
 var salesChannels = []string{"online", "in_person", "import"}
 
+// countSeriesKey keys the one series of a figure that is a plain count with
+// nothing to split it by.
+const countSeriesKey = "all"
+
 // Service reads Platform Trends.
 type Service struct {
-	sales TicketSales
-	now   func() time.Time
+	sales         TicketSales
+	customers     Customers
+	organizations Organizations
+	pageViews     PageViews
+	now           func() time.Time
 }
 
 // New returns a Platform Trends service reading through the given modules.
-func New(sales TicketSales) *Service {
-	return &Service{sales: sales, now: time.Now}
+func New(sales TicketSales, customers Customers, organizations Organizations, pageViews PageViews) *Service {
+	return &Service{sales: sales, customers: customers, organizations: organizations, pageViews: pageViews, now: time.Now}
 }
 
 // WithClock overrides the clock today is read from (tests).
@@ -118,6 +147,19 @@ type PlatformTrendFigures struct {
 	// operator summary states. It has no total of
 	// its own, as MoneySold has none.
 	PlatformFeeEarned PlatformTrendFigure `json:"platform_fee_earned"`
+	// NewVerifiedCustomers is the Customers who became Verified Customers,
+	// by the instant they first proved their email and never the instant
+	// their record was created, in one series, "all". A Customer never
+	// verified is in no bucket.
+	NewVerifiedCustomers PlatformTrendFigure `json:"new_verified_customers"`
+	// NewOrganizations is the Organizations created, by the instant of
+	// creation, House Organizations included, in one series, "all".
+	NewOrganizations PlatformTrendFigure `json:"new_organizations"`
+	// PageViews is the loads of every Event's storefront page, in one
+	// series, "all". It counts loads and not people, and a load that came
+	// through an Affiliate Link is counted once. Nothing here is divided
+	// into it: Platform Trends states no rate built on Page Views.
+	PageViews PlatformTrendFigure `json:"page_views"`
 }
 
 // PlatformTrendFigure is one figure for the span: its series, its total, whether it is
@@ -151,11 +193,12 @@ type PlatformTrendFigure struct {
 }
 
 // PlatformTrendSeries is one line of a figure: a Sales Channel for Tickets
-// Sold, a currency for a money figure.
+// Sold, a currency for a money figure, the whole of a plain count.
 type PlatformTrendSeries struct {
 	// Key names the series: for Tickets Sold, the Sales Channel; for a money
 	// figure, the currency code, whose minor units every value of the series
-	// is in.
+	// is in; "all" for a figure that is one count with nothing to split it
+	// by.
 	Key string `json:"key" example:"online"`
 	// Total is the series' total for the span, today excluded.
 	Total int `json:"total"`
@@ -207,6 +250,18 @@ func (s *Service) Trends(ctx context.Context, span Span) (*PlatformTrends, error
 	if err != nil {
 		return nil, err
 	}
+	newVerifiedCustomers, err := count(ctx, span, s.customers.PlatformFirstVerifiedCustomerDay, s.customers.PlatformNewVerifiedCustomersByDay)
+	if err != nil {
+		return nil, err
+	}
+	newOrganizations, err := count(ctx, span, s.organizations.PlatformFirstOrganizationDay, s.organizations.PlatformNewOrganizationsByDay)
+	if err != nil {
+		return nil, err
+	}
+	pageViews, err := count(ctx, span, s.pageViews.PlatformFirstPageViewDay, s.pageViews.PlatformPageViewsByDay)
+	if err != nil {
+		return nil, err
+	}
 
 	compared := span.compared()
 	return &PlatformTrends{
@@ -224,9 +279,12 @@ func (s *Service) Trends(ctx context.Context, span Span) (*PlatformTrends, error
 		Granularity: span.Granularity,
 		Today:       span.Today.Format(dayFormat),
 		Figures: PlatformTrendFigures{
-			TicketsSold:       ticketsSold,
-			MoneySold:         moneySold,
-			PlatformFeeEarned: platformFeeEarned,
+			TicketsSold:          ticketsSold,
+			MoneySold:            moneySold,
+			PlatformFeeEarned:    platformFeeEarned,
+			NewVerifiedCustomers: newVerifiedCustomers,
+			NewOrganizations:     newOrganizations,
+			PageViews:            pageViews,
 		},
 	}, nil
 }
@@ -235,7 +293,13 @@ func (s *Service) Trends(ctx context.Context, span Span) (*PlatformTrends, error
 // was sold, and nil when there is none: the first day every figure read off
 // Ticket Sales has data, the counts and the money alike.
 func (s *Service) salesSince(ctx context.Context) (*time.Time, error) {
-	first, ok, err := s.sales.PlatformFirstTicketSoldDay(ctx, platform.EcuadorTimeZone)
+	return firstDay(ctx, s.sales.PlatformFirstTicketSoldDay)
+}
+
+// firstDay reads the first platform day a figure has data, through the
+// owning module's read of it, and is nil when the figure has none.
+func firstDay(ctx context.Context, read func(ctx context.Context, timezone string) (string, bool, error)) (*time.Time, error) {
+	first, ok, err := read(ctx, platform.EcuadorTimeZone)
 	if err != nil || !ok {
 		return nil, err
 	}
@@ -244,6 +308,34 @@ func (s *Service) salesSince(ctx context.Context) (*time.Time, error) {
 		return nil, err
 	}
 	return &day, nil
+}
+
+// count reads a figure that is one plain count per platform day, in one
+// series: new Verified Customers, new Organizations, Page Views. Each is read
+// off rows the platform has kept since the figure's first day, so it is
+// always exact and has no recording-began day; first names that first day
+// and byDay the counts over a window.
+func count(
+	ctx context.Context,
+	span Span,
+	first func(ctx context.Context, timezone string) (string, bool, error),
+	byDay func(ctx context.Context, from, until time.Time, timezone string) ([]platform.DayCount, error),
+) (PlatformTrendFigure, error) {
+	dataSince, err := firstDay(ctx, first)
+	if err != nil {
+		return PlatformTrendFigure{}, err
+	}
+	perDay := map[string]int{}
+	for _, window := range readWindows(span, dataSince) {
+		days, err := byDay(ctx, window.from, window.until, platform.EcuadorTimeZone)
+		if err != nil {
+			return PlatformTrendFigure{}, err
+		}
+		for _, day := range days {
+			perDay[day.Day] += day.Count
+		}
+	}
+	return figureOf(span, dataSince, []string{countSeriesKey}, map[string]map[string]int{countSeriesKey: perDay}, true), nil
 }
 
 // ticketsSold reads Tickets Sold, one series per Sales Channel.
