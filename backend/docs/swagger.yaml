@@ -7052,6 +7052,9 @@ components:
           description: 'Partial is true on today''s bucket alone: a day still running.'
           type: boolean
         value:
+          description: |-
+            Value is a count, or for a money figure an amount in the minor units
+            of the series' currency.
           type: integer
       type: object
     service.PlatformTrendComparison:
@@ -7070,8 +7073,11 @@ components:
       type: object
     service.PlatformTrendFigure:
       description: |-
-        TicketsSold is the quantity over active Ticket Sales, by the instant
-        sold, one series per Sales Channel.
+        PlatformFeeEarned is the Platform Fee, excluding Fee IVA, on active
+        Online Sales and on reversed ones whose fee the platform kept, by the
+        instant sold, in minor units, one series per currency. Over all time
+        it is the Platform Fee the operator summary states. It has no total of
+        its own, as MoneySold has none.
       properties:
         change:
           description: |-
@@ -7122,6 +7128,10 @@ components:
     service.PlatformTrendFigures:
       description: Figures carries one entry per figure of Platform Trends.
       properties:
+        money_sold:
+          $ref: '#/components/schemas/service.PlatformTrendFigure'
+        platform_fee_earned:
+          $ref: '#/components/schemas/service.PlatformTrendFigure'
         tickets_sold:
           $ref: '#/components/schemas/service.PlatformTrendFigure'
       type: object
@@ -7169,7 +7179,10 @@ components:
             figure's data_since on. Null when the comparison span has no data.
           type: integer
         key:
-          description: 'Key names the series: for Tickets Sold, the Sales Channel.'
+          description: |-
+            Key names the series: for Tickets Sold, the Sales Channel; for a money
+            figure, the currency code, whose minor units every value of the series
+            is in.
           example: online
           type: string
         today:
@@ -15914,7 +15927,16 @@ paths:
         a null total. Today has no comparison bucket and is in no total. Tickets Sold
         is the quantity over active Ticket Sales by the day sold, one series per Sales
         Channel; its data begins on the day the earliest Ticket Sale, reversed or
-        not, was sold. Platform Operator only.'
+        not, was sold, as the money figures'' does. Money sold and Platform Fee earned
+        are stated per currency, one series per currency an Organization is in, keyed
+        by the currency code, every value in that currency''s minor units; no currency
+        is converted or added to another, so both figures have a null total and each
+        series carries its own total, comparison_total and change. Money sold is the
+        ticket price times the quantity, before any fee, over active Ticket Sales
+        on every Sales Channel by the day sold. Platform Fee earned is the Platform
+        Fee, excluding Fee IVA, on active Online Sales and on reversed ones whose
+        fee the platform kept, by the day sold; over all time it equals the Platform
+        Fee the operator summary states per currency. Platform Operator only.'
       parameters:
       - description: Span
         in: query

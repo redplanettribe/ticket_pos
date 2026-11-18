@@ -137,6 +137,88 @@ func (r *Repository) PlatformTicketsSoldByDay(ctx context.Context, from, until t
 	return out, rows.Err()
 }
 
+// PlatformMoneyDay is one (day, currency) cell of the platform's money: what
+// every Organization in that currency together sold on that day, and the
+// Platform Fee the platform earned on it, both in the currency's minor units.
+// Day is a calendar date on the clock the caller named, formatted YYYY-MM-DD.
+type PlatformMoneyDay struct {
+	Day              string
+	Currency         string
+	SoldCents        int
+	PlatformFeeCents int
+}
+
+// PlatformMoneyByDay totals the platform's money per day and currency over
+// the Ticket Sales sold in [from, until), for Platform Trends (#812, ADR
+// 0080). The currency is the selling Organization's, and currencies are never
+// added together or converted, as on the operator summary (ADR 0015).
+//
+// Money sold is lineGrossPriceSQL, the ticket price times the quantity before
+// any fee is taken out, over active Ticket Sales on every Sales Channel: a
+// reversed sale drops out of its sold day.
+//
+// Platform Fee earned is the operator summary's own definition, the fragments
+// orgMoneySQL is written with: the fee of every line of a sale whose fee
+// stands, which is an active Online Sale or a reversed one whose fee the
+// platform kept, excluding Fee IVA. Summed over all time it is therefore the
+// Platform Fee PlatformCurrencyTotals states, per currency. Import and
+// in-person sales add nothing to it.
+//
+// Days are read as PlatformTicketsSoldByDay reads them, on the zone the
+// caller passes and by sold_at, and like it this adds no index.
+func (r *Repository) PlatformMoneyByDay(ctx context.Context, from, until time.Time, timezone string) ([]PlatformMoneyDay, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT
+			to_char((ts.sold_at AT TIME ZONE $3)::date, 'YYYY-MM-DD') AS day,
+			org.currency,
+			COALESCE(SUM(`+lineGrossPriceSQL+`) FILTER (WHERE ts.status = 'active'), 0)::bigint,
+			COALESCE(SUM(`+linePlatformFeeSQL+`) FILTER (WHERE (`+feeStandingSaleSQL+`) OR (`+feeKeptSaleSQL+`)), 0)::bigint
+		FROM ticket_sales ts
+		JOIN ticket_sale_lines tsl ON tsl.ticket_sale_id = ts.id
+		JOIN organizations org ON org.id = ts.organization_id
+		WHERE ts.sold_at >= $1 AND ts.sold_at < $2
+		  AND (ts.status = 'active' OR (`+feeKeptSaleSQL+`))
+		GROUP BY 1, 2
+		ORDER BY 1, 2
+	`, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PlatformMoneyDay
+	for rows.Next() {
+		var day PlatformMoneyDay
+		if err := rows.Scan(&day.Day, &day.Currency, &day.SoldCents, &day.PlatformFeeCents); err != nil {
+			return nil, err
+		}
+		out = append(out, day)
+	}
+	return out, rows.Err()
+}
+
+// PlatformCurrencies is every currency an Organization on the platform is
+// in, in the order the operator summary lists them (PlatformCurrencyTotals
+// groups the same column): the series Platform Trends states its money
+// figures in, whether or not a currency sold anything in the span.
+func (r *Repository) PlatformCurrencies(ctx context.Context) ([]string, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `SELECT DISTINCT currency FROM organizations ORDER BY currency ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []string{}
+	for rows.Next() {
+		var currency string
+		if err := rows.Scan(&currency); err != nil {
+			return nil, err
+		}
+		out = append(out, currency)
+	}
+	return out, rows.Err()
+}
+
 // PlatformFirstTicketSoldDay is the day, on the clock the caller names, the
 // platform's earliest Ticket Sale was sold, formatted YYYY-MM-DD, and false
 // when there is none: the first day Platform Trends' Tickets Sold has data,

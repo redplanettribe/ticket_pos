@@ -219,6 +219,42 @@ func (s *Service) PlatformTicketsSoldByDay(ctx context.Context, from, until time
 	return out, nil
 }
 
+// PlatformMoneyDay is the platform's money in one currency on one day, in the
+// currency's minor units: what was sold, and the Platform Fee earned on it.
+// Day is a YYYY-MM-DD calendar date on the clock the caller asked for.
+type PlatformMoneyDay struct {
+	Day              string
+	Currency         string
+	SoldCents        int
+	PlatformFeeCents int
+}
+
+// PlatformMoneyByDay is the platform's money sold and Platform Fee earned per
+// day and currency over the Ticket Sales sold in [from, until), every
+// Organization included, read for Platform Trends (#812). Money sold is the
+// ticket price times the quantity, before any fee, over active Ticket Sales
+// on every Sales Channel. Platform Fee earned is the fee the operator summary
+// totals (PlatformCurrencyTotals), by the same definition: active Online
+// Sales plus reversed ones whose fee the platform kept, excluding Fee IVA.
+// Days with no money have no entry, and no currency is converted.
+func (s *Service) PlatformMoneyByDay(ctx context.Context, from, until time.Time, timezone string) ([]PlatformMoneyDay, error) {
+	rows, err := s.repo.PlatformMoneyByDay(ctx, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PlatformMoneyDay, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, PlatformMoneyDay{Day: row.Day, Currency: row.Currency, SoldCents: row.SoldCents, PlatformFeeCents: row.PlatformFeeCents})
+	}
+	return out, nil
+}
+
+// PlatformCurrencies is every currency an Organization on the platform is in,
+// in the order the operator summary lists them.
+func (s *Service) PlatformCurrencies(ctx context.Context) ([]string, error) {
+	return s.repo.PlatformCurrencies(ctx)
+}
+
 // PlatformFirstTicketSoldDay is the day, YYYY-MM-DD on the named clock, the
 // platform's earliest Ticket Sale, reversed or not, was sold, and false when it has none:
 // where Platform Trends' Tickets Sold begins to have data (#811).

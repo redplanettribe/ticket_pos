@@ -30,7 +30,9 @@ type platformTrends struct {
 	Granularity string `json:"granularity"`
 	Today       string `json:"today"`
 	Figures     struct {
-		TicketsSold platformTrendsFigure `json:"tickets_sold"`
+		TicketsSold       platformTrendsFigure `json:"tickets_sold"`
+		MoneySold         platformTrendsFigure `json:"money_sold"`
+		PlatformFeeEarned platformTrendsFigure `json:"platform_fee_earned"`
 	} `json:"figures"`
 }
 

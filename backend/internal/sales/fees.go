@@ -107,6 +107,13 @@ func (r FeeRates) NetProceedsUnitCents(handling FeeHandling, baseCents int) int 
 // definition is what keeps the figure the same wherever it is shown (ADR 0014).
 const LineNetProceedsSQL = `tsl.quantity * (tsl.unit_price_cents - tsl.fee_cents - tsl.fee_iva_cents)`
 
+// LineGrossPriceSQL is what the Customer paid for one Ticket Sale Line (aliased
+// tsl) as SQL: quantity x the unit price the line froze, before the Platform
+// Fee and the Fee IVA are taken out of it. It is LineNetProceedsSQL without
+// the subtraction, and it lives beside it for the same reason: a sale's amount
+// and Platform Trends' money sold are the same arithmetic and must stay so.
+const LineGrossPriceSQL = `tsl.quantity * tsl.unit_price_cents`
+
 // FeeSnapshot is the per-unit economics of one checkout line, frozen at
 // begin-checkout: the price the Organization set, the buyer price the Event's
 // Fee Handling turns it into, the withholding the platform takes from it, and

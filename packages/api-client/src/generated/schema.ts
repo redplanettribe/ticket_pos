@@ -7439,7 +7439,7 @@ export interface paths {
         };
         /**
          * Get Platform Trends for a span
-         * @description Returns the platform-wide figures of Platform Trends, House Organizations included, over a span of whole days on the platform clock (America/Guayaquil), never an Event's timezone. span is 7d, 30d, 90d, 12m (52 whole weeks) or custom, defaulting to 30d; a custom span takes from and to (YYYY-MM-DD, both included), which the other spans ignore. Every span ends at the close of yesterday: a custom range reaching today or later is cut at yesterday, and one with no day before today is refused. Buckets are days for a span of up to 90 days and weeks beyond, as granularity states; a weekly bucket is seven days counted back from the span's last day, so the oldest may be a shorter stub, and every bucket states its first and last day. Days with nothing in them are zero, never absent. Today is returned on each series as a separate bucket flagged partial, in no total, whenever the span ends yesterday. Each figure states whether it is recorded at all and the day exact recording began (null when always exact). compare is previous (the default), the span of the same length ending the day before the span starts, or year_earlier, the span moved back 52 weeks so every day sits beside the same weekday; comparison states it. Every series carries comparison_buckets, one entry per bucket at the same index and as long as it, its comparison_total and its change; a summable figure carries them across its series too. change is a signed ratio (0.5 for half as much again), null, never zero or infinite, when the comparison total is zero or null. Each figure states data_since, the first day it has data: a comparison bucket wholly before it is null and one holding it starts on it, so missing history is absent, never zero, and a comparison with no data has a null total. Today has no comparison bucket and is in no total. Tickets Sold is the quantity over active Ticket Sales by the day sold, one series per Sales Channel; its data begins on the day the earliest Ticket Sale, reversed or not, was sold. Platform Operator only.
+         * @description Returns the platform-wide figures of Platform Trends, House Organizations included, over a span of whole days on the platform clock (America/Guayaquil), never an Event's timezone. span is 7d, 30d, 90d, 12m (52 whole weeks) or custom, defaulting to 30d; a custom span takes from and to (YYYY-MM-DD, both included), which the other spans ignore. Every span ends at the close of yesterday: a custom range reaching today or later is cut at yesterday, and one with no day before today is refused. Buckets are days for a span of up to 90 days and weeks beyond, as granularity states; a weekly bucket is seven days counted back from the span's last day, so the oldest may be a shorter stub, and every bucket states its first and last day. Days with nothing in them are zero, never absent. Today is returned on each series as a separate bucket flagged partial, in no total, whenever the span ends yesterday. Each figure states whether it is recorded at all and the day exact recording began (null when always exact). compare is previous (the default), the span of the same length ending the day before the span starts, or year_earlier, the span moved back 52 weeks so every day sits beside the same weekday; comparison states it. Every series carries comparison_buckets, one entry per bucket at the same index and as long as it, its comparison_total and its change; a summable figure carries them across its series too. change is a signed ratio (0.5 for half as much again), null, never zero or infinite, when the comparison total is zero or null. Each figure states data_since, the first day it has data: a comparison bucket wholly before it is null and one holding it starts on it, so missing history is absent, never zero, and a comparison with no data has a null total. Today has no comparison bucket and is in no total. Tickets Sold is the quantity over active Ticket Sales by the day sold, one series per Sales Channel; its data begins on the day the earliest Ticket Sale, reversed or not, was sold, as the money figures' does. Money sold and Platform Fee earned are stated per currency, one series per currency an Organization is in, keyed by the currency code, every value in that currency's minor units; no currency is converted or added to another, so both figures have a null total and each series carries its own total, comparison_total and change. Money sold is the ticket price times the quantity, before any fee, over active Ticket Sales on every Sales Channel by the day sold. Platform Fee earned is the Platform Fee, excluding Fee IVA, on active Online Sales and on reversed ones whose fee the platform kept, by the day sold; over all time it equals the Platform Fee the operator summary states per currency. Platform Operator only.
          */
         get: {
             parameters: {
@@ -19680,6 +19680,10 @@ export interface components {
             last_day?: string;
             /** @description Partial is true on today's bucket alone: a day still running. */
             partial?: boolean;
+            /**
+             * @description Value is a count, or for a money figure an amount in the minor units
+             *     of the series' currency.
+             */
             value?: number;
         };
         /**
@@ -19694,8 +19698,11 @@ export interface components {
             last_day?: string;
         };
         /**
-         * @description TicketsSold is the quantity over active Ticket Sales, by the instant
-         *     sold, one series per Sales Channel.
+         * @description PlatformFeeEarned is the Platform Fee, excluding Fee IVA, on active
+         *     Online Sales and on reversed ones whose fee the platform kept, by the
+         *     instant sold, in minor units, one series per currency. Over all time
+         *     it is the Platform Fee the operator summary states. It has no total of
+         *     its own, as MoneySold has none.
          */
         "service.PlatformTrendFigure": {
             /**
@@ -19741,6 +19748,8 @@ export interface components {
         };
         /** @description Figures carries one entry per figure of Platform Trends. */
         "service.PlatformTrendFigures": {
+            money_sold?: components["schemas"]["service.PlatformTrendFigure"];
+            platform_fee_earned?: components["schemas"]["service.PlatformTrendFigure"];
             tickets_sold?: components["schemas"]["service.PlatformTrendFigure"];
         };
         /**
@@ -19775,7 +19784,9 @@ export interface components {
              */
             comparison_total?: number;
             /**
-             * @description Key names the series: for Tickets Sold, the Sales Channel.
+             * @description Key names the series: for Tickets Sold, the Sales Channel; for a money
+             *     figure, the currency code, whose minor units every value of the series
+             *     is in.
              * @example online
              */
             key?: string;

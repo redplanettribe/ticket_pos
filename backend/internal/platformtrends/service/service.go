@@ -23,9 +23,13 @@ import (
 )
 
 // TicketSales is what Platform Trends needs from sales: the platform's Tickets
-// Sold per day and Sales Channel, and the first day it sold anything.
+// Sold per day and Sales Channel, its money sold and Platform Fee earned per
+// day and currency, the currencies it sells in, and the first day it sold
+// anything.
 type TicketSales interface {
 	PlatformTicketsSoldByDay(ctx context.Context, from, until time.Time, timezone string) ([]salessvc.PlatformTicketsSoldDay, error)
+	PlatformMoneyByDay(ctx context.Context, from, until time.Time, timezone string) ([]salessvc.PlatformMoneyDay, error)
+	PlatformCurrencies(ctx context.Context) ([]string, error)
 	PlatformFirstTicketSoldDay(ctx context.Context, timezone string) (string, bool, error)
 }
 
@@ -102,6 +106,17 @@ type PlatformTrendFigures struct {
 	// TicketsSold is the quantity over active Ticket Sales, by the instant
 	// sold, one series per Sales Channel.
 	TicketsSold PlatformTrendFigure `json:"tickets_sold"`
+	// MoneySold is the ticket price times the quantity, before any fee, over
+	// active Ticket Sales on every Sales Channel, by the instant sold, in
+	// minor units, one series per currency. Currencies are never converted or
+	// added together, so the figure has no total of its own.
+	MoneySold PlatformTrendFigure `json:"money_sold"`
+	// PlatformFeeEarned is the Platform Fee, excluding Fee IVA, on active
+	// Online Sales and on reversed ones whose fee the platform kept, by the
+	// instant sold, in minor units, one series per currency. Over all time
+	// it is the Platform Fee the operator summary states. It has no total of
+	// its own, as MoneySold has none.
+	PlatformFeeEarned PlatformTrendFigure `json:"platform_fee_earned"`
 }
 
 // PlatformTrendFigure is one figure for the span: its series, its total, whether it is
@@ -134,9 +149,12 @@ type PlatformTrendFigure struct {
 	Series []PlatformTrendSeries `json:"series"`
 }
 
-// PlatformTrendSeries is one line of a figure: a Sales Channel for Tickets Sold.
+// PlatformTrendSeries is one line of a figure: a Sales Channel for Tickets
+// Sold, a currency for a money figure.
 type PlatformTrendSeries struct {
-	// Key names the series: for Tickets Sold, the Sales Channel.
+	// Key names the series: for Tickets Sold, the Sales Channel; for a money
+	// figure, the currency code, whose minor units every value of the series
+	// is in.
 	Key string `json:"key" example:"online"`
 	// Total is the series' total for the span, today excluded.
 	Total int `json:"total"`
@@ -166,7 +184,9 @@ type PlatformTrendSeries struct {
 type PlatformTrendBucket struct {
 	FirstDay string `json:"first_day" example:"2026-07-06"`
 	LastDay  string `json:"last_day" example:"2026-07-06"`
-	Value    int    `json:"value"`
+	// Value is a count, or for a money figure an amount in the minor units
+	// of the series' currency.
+	Value int `json:"value"`
 	// Partial is true on today's bucket alone: a day still running.
 	Partial bool `json:"partial"`
 }
@@ -174,7 +194,15 @@ type PlatformTrendBucket struct {
 // Trends reads every figure of Platform Trends for a resolved span and its
 // comparison.
 func (s *Service) Trends(ctx context.Context, span Span) (*PlatformTrends, error) {
-	ticketsSold, err := s.ticketsSold(ctx, span)
+	salesSince, err := s.salesSince(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ticketsSold, err := s.ticketsSold(ctx, span, salesSince)
+	if err != nil {
+		return nil, err
+	}
+	moneySold, platformFeeEarned, err := s.money(ctx, span, salesSince)
 	if err != nil {
 		return nil, err
 	}
@@ -194,25 +222,31 @@ func (s *Service) Trends(ctx context.Context, span Span) (*PlatformTrends, error
 		},
 		Granularity: span.Granularity,
 		Today:       span.Today.Format(dayFormat),
-		Figures:     PlatformTrendFigures{TicketsSold: ticketsSold},
+		Figures: PlatformTrendFigures{
+			TicketsSold:       ticketsSold,
+			MoneySold:         moneySold,
+			PlatformFeeEarned: platformFeeEarned,
+		},
 	}, nil
 }
 
-// ticketsSold reads Tickets Sold, one series per Sales Channel.
-func (s *Service) ticketsSold(ctx context.Context, span Span) (PlatformTrendFigure, error) {
+// salesSince is the platform day the earliest Ticket Sale, reversed or not,
+// was sold, and nil when there is none: the first day every figure read off
+// Ticket Sales has data, the counts and the money alike.
+func (s *Service) salesSince(ctx context.Context) (*time.Time, error) {
 	first, ok, err := s.sales.PlatformFirstTicketSoldDay(ctx, platform.EcuadorTimeZone)
+	if err != nil || !ok {
+		return nil, err
+	}
+	day, err := time.Parse(dayFormat, first)
 	if err != nil {
-		return PlatformTrendFigure{}, err
+		return nil, err
 	}
-	var dataSince *time.Time
-	if ok {
-		day, err := time.Parse(dayFormat, first)
-		if err != nil {
-			return PlatformTrendFigure{}, err
-		}
-		dataSince = &day
-	}
+	return &day, nil
+}
 
+// ticketsSold reads Tickets Sold, one series per Sales Channel.
+func (s *Service) ticketsSold(ctx context.Context, span Span, dataSince *time.Time) (PlatformTrendFigure, error) {
 	byChannel := make(map[string]map[string]int, len(salesChannels))
 	for _, window := range readWindows(span, dataSince) {
 		days, err := s.sales.PlatformTicketsSoldByDay(ctx, window.from, window.until, platform.EcuadorTimeZone)
@@ -227,6 +261,43 @@ func (s *Service) ticketsSold(ctx context.Context, span Span) (PlatformTrendFigu
 		}
 	}
 	return figureOf(span, dataSince, salesChannels, byChannel, true), nil
+}
+
+// money reads the two money figures, money sold and Platform Fee earned, one
+// series per currency each. Every currency an Organization is in has a series
+// in both, sold in or not, so the two figures and the operator summary list
+// the same currencies; their series are never summed, since no currency is
+// converted into another.
+func (s *Service) money(ctx context.Context, span Span, dataSince *time.Time) (sold, feeEarned PlatformTrendFigure, err error) {
+	currencies, err := s.sales.PlatformCurrencies(ctx)
+	if err != nil {
+		return PlatformTrendFigure{}, PlatformTrendFigure{}, err
+	}
+
+	soldByCurrency := make(map[string]map[string]int, len(currencies))
+	feeByCurrency := make(map[string]map[string]int, len(currencies))
+	for _, currency := range currencies {
+		soldByCurrency[currency] = map[string]int{}
+		feeByCurrency[currency] = map[string]int{}
+	}
+	for _, window := range readWindows(span, dataSince) {
+		days, err := s.sales.PlatformMoneyByDay(ctx, window.from, window.until, platform.EcuadorTimeZone)
+		if err != nil {
+			return PlatformTrendFigure{}, PlatformTrendFigure{}, err
+		}
+		for _, day := range days {
+			// A sale's currency is its Organization's, so it is one of
+			// currencies; an Organization created between the two reads is
+			// stated from the next read on.
+			if soldByCurrency[day.Currency] == nil {
+				continue
+			}
+			soldByCurrency[day.Currency][day.Day] += day.SoldCents
+			feeByCurrency[day.Currency][day.Day] += day.PlatformFeeCents
+		}
+	}
+	return figureOf(span, dataSince, currencies, soldByCurrency, false),
+		figureOf(span, dataSince, currencies, feeByCurrency, false), nil
 }
 
 // readWindow is one run of instants a figure is read over, [from, until).
