@@ -285,9 +285,9 @@ func resetDatabase(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("truncate tables: %w", err)
 	}
 
-	// `events_published_recording` is deliberately absent from that list too:
-	// it holds the day migration 137 ran, a fact of the deployment the
-	// migration writes once, and Platform Trends states it on every read.
+	// `events_published_recording` is deliberately absent from that list: it
+	// holds the day migration 137 ran, a fact of the deployment the migration
+	// writes once, and Platform Trends states it on every read.
 	//
 	// `policy_versions` is deliberately absent from that list, for the reason
 	// Preset Tags are: the seeded editions are migrations (060 and 066), and the

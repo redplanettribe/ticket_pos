@@ -255,6 +255,20 @@ func (r *Repository) UpdateEventStatus(ctx context.Context, orgID, eventID strin
 	return scanEvent(row)
 }
 
+// PublishEvent moves an Event to `published` and, the first time only,
+// stamps the instant it was first published (#814). An Event that already
+// carries that instant keeps it, so the instant is never moved; nothing else
+// writes the column, so it is never cleared, cancellation included.
+func (r *Repository) PublishEvent(ctx context.Context, orgID, eventID string, at time.Time) (*Event, error) {
+	row := r.db.Pool.QueryRowContext(ctx, `
+		UPDATE events
+		SET status = $3, first_published_at = COALESCE(first_published_at, $4)
+		WHERE id = $1 AND organization_id = $2
+		RETURNING `+eventColumns+`
+	`, eventID, orgID, string(EventStatusPublished), at)
+	return scanEvent(row)
+}
+
 // SetEventDiscoverable sets the discoverable flag on an Event.
 func (r *Repository) SetEventDiscoverable(ctx context.Context, orgID, eventID string, discoverable bool) (*Event, error) {
 	row := r.db.Pool.QueryRowContext(ctx, `

@@ -269,10 +269,10 @@ func TestTheEventsPublishedMigrationStandsInCreationForWhatIsPublished(t *testin
 		postEventOK(t, env, sessionID, draft, "publish")
 	})
 
-	for _, when := range []string{"after a publication", "after a replay"} {
+	assertPublished := func(when string) {
+		t.Helper()
 		figure := assertBackfilled(when)
-		series := figure.Series[0]
-		if got := bucketOn(t, series, "2026-07-06").Value; got != 1 {
+		if got := bucketOn(t, figure.Series[0], "2026-07-06").Value; got != 1 {
 			t.Fatalf("%s: 2026-07-06 = %d, want the draft on the day it was really published", when, got)
 		}
 		if figure.Total == nil || *figure.Total != 2 {
@@ -281,8 +281,12 @@ func TestTheEventsPublishedMigrationStandsInCreationForWhatIsPublished(t *testin
 		if got := *figure.ExactSince; got != "2026-07-04" {
 			t.Fatalf("%s: exact_since = %s, want the recorded day 2026-07-04", when, got)
 		}
-		executeMigration(t, env, eventsPublishedMigration)
 	}
+	assertPublished("after a publication")
+
+	// A replay moves neither a real instant nor the recorded day.
+	executeMigration(t, env, eventsPublishedMigration)
+	assertPublished("after a replay")
 }
 
 // TestPlatformTrendsEventsPublishedWithNoHistoryHasNoComparison: with no

@@ -165,6 +165,7 @@ Measures organizers putting Events up, not Events surviving: an Event cancelled 
 A `draft` never counts, however long ago it was created.
 An Event with External Registration counts like any other: its organizer put it up, though it will never show in Tickets Sold or in money.
 The day is the platform's, not the Event's: one clock for the whole platform, whatever timezone the Event is held in.
+Exact from the day the platform began recording the instant of publication: an Event published before that day is counted on its creation day as a stand-in, and one already cancelled by then is not counted, since nobody can say it was ever published.
 _Avoid_: Events posted, events created, new events, listings
 
 **Discoverable**:

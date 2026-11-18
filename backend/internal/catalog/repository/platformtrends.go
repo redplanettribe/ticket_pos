@@ -9,20 +9,6 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
-// PublishEvent moves an Event to `published` and, the first time only,
-// stamps the instant it was first published (#814). An Event that already
-// carries that instant keeps it, so the instant is never moved; nothing else
-// writes the column, so it is never cleared, cancellation included.
-func (r *Repository) PublishEvent(ctx context.Context, orgID, eventID string, at time.Time) (*Event, error) {
-	row := r.db.Pool.QueryRowContext(ctx, `
-		UPDATE events
-		SET status = $3, first_published_at = COALESCE(first_published_at, $4)
-		WHERE id = $1 AND organization_id = $2
-		RETURNING `+eventColumns+`
-	`, eventID, orgID, string(EventStatusPublished), at)
-	return scanEvent(row)
-}
-
 // PlatformEventsPublishedByDay counts the Events first published on each
 // day, across every Organization, for Platform Trends' Events Published
 // (#814, ADR 0080), over the publications in [from, until).
