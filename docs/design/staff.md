@@ -133,7 +133,7 @@ Usable on phone in a pinch; tablet landscape is the primary target.
   Each chart is drawn at its card's width, and scrolls sideways only in a card narrower than the plot's floor.
 - **Breakdown of a bucket** (#822): choosing a day or a week on a Platform Trends chart opens what it was made of in a bordered panel beneath that chart, inside its card, and the page is not left.
   One panel is open at a time: a bucket chosen on another chart moves it there, and its Close button lets the selection go and returns focus to the chart.
-  The panel's title is one heading level beneath its chart card's title (an `h4` under the card's `h3`), and the headings of its lists one beneath that, so a reader moving by heading meets the breakdown as part of its chart.
+  The panel's title is one heading level beneath its chart card's title (an `h4` under the card's `h3`), and the headings of its lists one beneath that (an `h5`, the one exception to the foundation's `h1` to `h4`), so a reader moving by heading meets the breakdown as part of its chart.
   Ranked contributors are a numbered list, a plain list is not numbered, and money is one group per currency, each under its own total.
   Every row links to an Organization's operator page; an Event names its Organization beside it.
   A breakdown of today says it is partial, one of sales alone says so, and one not recorded says that in place of a zero.
