@@ -621,7 +621,8 @@ If the plan shows any change to a Cloud Run service while every switch is off, s
 The projects are created without Sentry's default key and default alert rule, so the only key and rules are the ones above.
 The three alert rules on each project email the `ticket-pos` team, at most every 30 minutes per issue for a new issue or a regression and every 60 for a spike.
 No key is rate limited: per-key rate limits need a higher Sentry plan than Team, and the module does not use them (#783).
-What bounds the Storefront's noise is its own before-send filtering, the three inbound filters above, the organization's error quota and Sentry's spike protection.
+What bounds the Storefront's noise is its own before-send filtering, its five inbound filters, the organization's error quota and Sentry's spike protection.
+The five inbound filters are the three above, and `react-hydration-errors` and `chunk-load-error`, which the module leaves at Sentry's default of on for a `javascript-nextjs` project (#805).
 The legacy browser filter takes every current subfilter (Internet Explorer, and Edge, Chrome and Firefox up to 110, Safari up to 15, Opera up to 99, Opera Mini up to 34, Android up to 3).
 
 **What the provider cannot declare**, for the operator's checklist:
@@ -633,6 +634,10 @@ The legacy browser filter takes every current subfilter (Internet Explorer, and 
   `--dry-run` prints the request without a token.
   Run it again whenever the script changes.
   The organization's own scrubbing settings are left as they are, because they would apply to the other product's projects too.
+- **The Storefront's hydration and chunk load filters.**
+  `react-hydration-errors` and `chunk-load-error` are on by Sentry's default and stay on (`sentry.tf` says why).
+  The provider cannot declare them: Sentry's inbound filter endpoint answers 404 for both, and they are project options only the project details endpoint sets, which `sentry_project` does not expose (#805).
+  So a plan never shows them; check once in Sentry (`ticket-pos-storefront`, Settings, Inbound Filters) that both are still on, and turn neither off without first recording the decision in `sentry.tf`, where the reason for keeping both on is written.
 - **Team membership.**
   The alerts go to the members of `ticket-pos`.
   Whoever should receive them joins the team in Sentry (Settings, Teams); a person's email is not something to commit here.

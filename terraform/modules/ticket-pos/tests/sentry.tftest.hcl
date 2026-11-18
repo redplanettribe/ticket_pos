@@ -223,4 +223,20 @@ run "alerts_filters_and_no_rate_limit" {
     condition     = sentry_project_inbound_data_filter.storefront_browser_extensions.active && sentry_project_inbound_data_filter.storefront_web_crawlers.active && length(sentry_project_inbound_data_filter.storefront_legacy_browsers.subfilters) == 8
     error_message = "The Storefront's browser extension, crawler and legacy browser filters must be on."
   }
+
+  # The Storefront's other two inbound filters, react-hydration-errors and
+  # chunk-load-error, stay at Sentry's default of on (#805), and no plan can
+  # see them: Sentry's filter endpoint, the only one
+  # sentry_project_inbound_data_filter reaches, answers 404 for both, so a
+  # resource for either would fail the apply. This pins the three declared
+  # filters to the ids Sentry's filter endpoint knows; it cannot see a fourth
+  # resource someone adds, so the reason is in sentry.tf as well.
+  assert {
+    condition = toset([
+      sentry_project_inbound_data_filter.storefront_browser_extensions.filter_id,
+      sentry_project_inbound_data_filter.storefront_web_crawlers.filter_id,
+      sentry_project_inbound_data_filter.storefront_legacy_browsers.filter_id,
+    ]) == toset(["browser-extensions", "web-crawlers", "legacy-browsers"])
+    error_message = "The Storefront's declared inbound filters must be browser-extensions, web-crawlers and legacy-browsers; react-hydration-errors and chunk-load-error cannot be declared through the filter endpoint (#805)."
+  }
 }

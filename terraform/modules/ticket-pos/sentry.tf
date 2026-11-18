@@ -23,6 +23,10 @@
 #
 #   - Team, project, key, inbound data filter: sentry_team, sentry_project,
 #     sentry_key, sentry_project_inbound_data_filter.
+#   - The react-hydration-errors and chunk-load-error inbound filters: nothing.
+#     They are project options Sentry sets only through the project details
+#     endpoint, which sentry_project does not expose, and
+#     sentry_project_inbound_data_filter cannot reach them (#805, below).
 #   - A per-key rate limit: rate_limit_count and rate_limit_window on
 #     sentry_key. Not used: the organization's Team plan lacks the feature, and
 #     Sentry refuses to create a key that sets one there (#783).
@@ -48,9 +52,11 @@ locals {
   # No key is rate limited: the Team plan has no per-key rate limits (#783).
   # The Storefront is the public one, where a crawler, a bot or a release that
   # throws in every browser makes noise. What bounds that noise is the
-  # Storefront's own before-send filtering (ADR 0079), its three inbound data
-  # filters below, the organization's error quota and Sentry's spike
-  # protection. The API and the Staff app are covered by the last two.
+  # Storefront's own before-send filtering (ADR 0079), its five inbound data
+  # filters (the three declared below, and react-hydration-errors and
+  # chunk-load-error, left at Sentry's default of on), the organization's error
+  # quota and Sentry's spike protection. The API and the Staff app are covered
+  # by the last two.
   sentry_projects = {
     api = {
       slug     = "ticket-pos-api"
@@ -135,6 +141,33 @@ resource "sentry_key" "deployable" {
 # before-send already drops events with no frame from our bundles and known bot
 # user agents (ADR 0079); these are the server-side half. The API and the Staff
 # app have no browser crowd to filter.
+#
+# The Storefront has five inbound filters on: the three declared here, and two
+# that Sentry turns on by default for a javascript-nextjs project and that this
+# file cannot declare (#798, #805):
+#
+#   - react-hydration-errors: on. It drops React's hydration errors (#418, #419,
+#     #421 to #423, #425). The browser SDK loads after hydration, in an idle
+#     callback (components/sentry-loader.tsx), so a real first-load hydration
+#     error mostly never reaches Sentry anyway, and what does arrive is mostly
+#     a browser extension rewriting the page.
+#   - chunk-load-error: on. It drops ChunkLoadError ("Loading chunk ...",
+#     "Failed to load chunk ..."), which a browser still holding the previous
+#     release's page throws after a deploy when it asks for a chunk that is
+#     gone: expected noise, over with the next full page load.
+#
+# Neither can be a sentry_project_inbound_data_filter. That resource writes
+# through Sentry's filter endpoint and reads back from its filter list, and
+# both know only browser-extensions, localhost, legacy-browsers, web-crawlers
+# and filtered-transaction: a PUT to either id answers 404. Sentry keeps the
+# two as the project options filters:react-hydration-errors and
+# filters:chunk-load-error, set only by the project details endpoint, and
+# sentry_project has no argument for them (checked against the source of
+# jianyuan/sentry 0.16.0, the version prod pins, 0.16.1's schema and the
+# provider's main branch, 2026-11-17). Both
+# stay at Sentry's default of on, outside this file; turning either off is a
+# decision for here and the operator's checklist (terraform/README.md,
+# "Sentry"), not a click in Sentry's settings.
 
 resource "sentry_project_inbound_data_filter" "storefront_browser_extensions" {
   organization = var.sentry_organization
