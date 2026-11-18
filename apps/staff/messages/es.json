@@ -2290,7 +2290,7 @@
       "retentionNote": "Nada de esto se elimina nunca y no hay exportación: el registro se lee donde vive."
     },
     "trendsTitle": "Tendencias de la plataforma",
-    "trendsDescription": "Cómo se mueve toda la plataforma, incluidas las organizaciones de la casa. Cada día es un día del reloj de la plataforma ({timezone}).",
+    "trendsDescription": "Cómo se mueve toda la plataforma, incluidas las organizaciones propias. Cada día es un día del reloj de la plataforma ({timezone}).",
     "trendsSpanLabel": "Periodo",
     "trendsSpan7d": "Últimos 7 días",
     "trendsSpan30d": "Últimos 30 días",

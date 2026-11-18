@@ -125,13 +125,98 @@ test("the Platform Trends copy holds no em dash", () => {
   }
 });
 
-test("the Platform Trends copy says Active Customer and Active Organization in full", () => {
-  const copy = new Map(platformTrendsCopy(reference));
-  assert.equal(copy.get("operator.trendsActiveCustomers"), "Active Customers");
-  assert.equal(copy.get("operator.trendsActiveOrganizations"), "Active Organizations");
-  for (const [key, message] of copy) {
+/**
+ * The full term in each language, and the place a bare "active" would stand.
+ * English puts the adjective before its noun and Spanish after it, so the rule
+ * is the language's own. Keyed by locale, so a new catalog does not compile
+ * until it says what its full terms are.
+ */
+const ACTIVE_TERMS: Record<
+  (typeof LOCALES)[number],
+  { customers: string; organizations: string; bare: RegExp }
+> = {
+  en: {
+    customers: "Active Customers",
+    organizations: "Active Organizations",
     // "Active" is always followed by the thing that is active.
-    const bare = /\bactive\b(?!\s+(customers?|organizations?))/i.exec(message);
-    assert.equal(bare, null, `${key} says "active" without Customer or Organization: ${message}`);
+    bare: /\bactive\b(?!\s+(?:customers?|organizations?))/i,
+  },
+  es: {
+    customers: "Clientes activos",
+    organizations: "Organizaciones activas",
+    // "activo" always follows the thing that is active, and agrees with it.
+    // The word's end is spelled out because \b does not know an accented
+    // letter for a letter.
+    bare: /(?<!\bclientes?\s+)\bactivos?(?![\p{L}\p{N}])|(?<!\borganizaci(?:ón|ones)\s+)\bactivas?(?![\p{L}\p{N}])/iu,
+  },
+};
+
+/** The bare "active" in a message, or null when every use names what is active. */
+function bareActive(locale: (typeof LOCALES)[number], message: string): string | null {
+  return ACTIVE_TERMS[locale].bare.exec(message)?.[0] ?? null;
+}
+
+test("a bare active is found in each language, and the full terms are not", () => {
+  for (const full of [
+    "Active Customers",
+    "An Active Organization sold or had a Member working.",
+    "Activity figures are frozen.",
+  ]) {
+    assert.equal(bareActive("en", full), null, full);
+  }
+  for (const bare of ["Days active", "Active that day", "Active Events", "Customers active"]) {
+    assert.notEqual(bareActive("en", bare), null, bare);
+  }
+
+  for (const full of [
+    "Clientes activos",
+    "Los clientes activos aún no se registran.",
+    "Organizaciones activas",
+    "Una organización activa vendió.",
+    "Un cliente activo",
+    "Las cifras de actividad quedan fijas.",
+  ]) {
+    assert.equal(bareActive("es", full), null, full);
+  }
+  for (const bare of [
+    "Días activos",
+    "Activos ese día",
+    "Eventos activos",
+    "Activa ese día",
+    "Miembros activos",
+    // The adjective of the other term: it does not agree, so it is not the term.
+    "Organizaciones activos",
+    "Clientes activas",
+  ]) {
+    assert.notEqual(bareActive("es", bare), null, bare);
+  }
+});
+
+test("the Platform Trends copy says Active Customer and Active Organization in full", () => {
+  for (const locale of LOCALES) {
+    const copy = new Map(platformTrendsCopy(locale));
+    const terms = ACTIVE_TERMS[locale];
+    assert.equal(copy.get("operator.trendsActiveCustomers"), terms.customers);
+    assert.equal(copy.get("operator.trendsActiveOrganizations"), terms.organizations);
+    for (const [key, message] of copy) {
+      assert.equal(
+        bareActive(locale, message),
+        null,
+        `${locale}.json ${key} says "active" without Customer or Organization: ${message}`,
+      );
+    }
+  }
+});
+
+/**
+ * House Organization is "Organización propia" wherever the Spanish catalog
+ * names one (operator.houseTitle and the rest). Platform Trends reads that
+ * term and does not coin a second one (messages/README.md).
+ */
+test("the Spanish Platform Trends copy names a House Organization as the rest of the catalog does", () => {
+  const copy = new Map(platformTrendsCopy("es"));
+  assert.match(copy.get("operator.trendsDescription") ?? "", /organizaciones propias/);
+  for (const [key, message] of copy) {
+    assert.ok(!/de la casa/i.test(message), `es.json ${key}: ${message}`);
   }
 });
