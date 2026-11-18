@@ -9,10 +9,19 @@ import {
   StackedChartTooltip,
   TOOLTIP_PROPS,
   Y_AXIS_PROPS,
+  selectableChartProps,
   xAxisProps,
   type StackedChartProps,
   type StackedDatum,
 } from "./chart-frame";
+import {
+  comparisonLines,
+  markerLine,
+  partialBarCells,
+  selectionMarks,
+  useBucketSelection,
+  type ChartReadingProps,
+} from "./chart-reading-marks";
 
 /**
  * The widest a single bar is drawn, however much room its bucket has.
@@ -25,7 +34,13 @@ import {
  */
 const MAX_BAR_SIZE = 48;
 
-export type StackedBarChartProps = StackedChartProps;
+/**
+ * A stacked bar chart takes what a trend reading adds (`ChartReadingProps`)
+ * but for `notRecordedLabel`: a stack is parts of a whole that was counted,
+ * and a bucket of it always has a total, so it has no reading that is "not
+ * recorded". Its comparison series is compared with the height of the stack.
+ */
+export type StackedBarChartProps = StackedChartProps & Omit<ChartReadingProps, "notRecordedLabel">;
 
 /**
  * StackedBarChart draws one bar per bucket, segmented by series in the order
@@ -59,9 +74,18 @@ export function StackedBarChart({
   height = 320,
   ariaLabel,
   className,
+  comparisonSeries,
+  partialLabel,
+  marker,
+  selection,
 }: StackedBarChartProps) {
   const formatTick = formatTickValue ?? formatValue;
   const labels = data.map((datum) => datum.label);
+  const { overlay, selectedIndex, cursorIndex, onChartClick } = useBucketSelection(data, selection, {
+    plotWidth,
+    height,
+    shape: "band",
+  });
   return (
     <StackedChartShell
       plotWidth={plotWidth}
@@ -71,9 +95,17 @@ export function StackedBarChart({
       formatTick={formatTick}
       ariaLabel={ariaLabel}
       className={className}
+      overlay={overlay}
     >
       {(width) => (
-        <BarChart width={width} height={height} data={data} syncId={syncId} margin={CHART_MARGIN}>
+        <BarChart
+          width={width}
+          height={height}
+          data={data}
+          syncId={syncId}
+          margin={CHART_MARGIN}
+          {...selectableChartProps(onChartClick)}
+        >
           <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
           <XAxis {...xAxisProps(labels, plotWidth)} />
           <YAxis
@@ -93,9 +125,12 @@ export function StackedBarChart({
                 formatValue={formatValue}
                 totalLabel={totalLabel}
                 chartHeight={height}
+                comparisonSeries={comparisonSeries}
+                partialLabel={partialLabel}
               />
             }
           />
+          {selectionMarks(data, { selectedIndex, cursorIndex }, "band")}
           {series.map((entry) => (
             <Bar
               key={entry.id}
@@ -108,8 +143,12 @@ export function StackedBarChart({
               fill={entry.color}
               maxBarSize={MAX_BAR_SIZE}
               isAnimationActive={false}
-            />
+            >
+              {partialBarCells(data, entry.color)}
+            </Bar>
           ))}
+          {comparisonLines(comparisonSeries)}
+          {markerLine(data, marker, "band")}
         </BarChart>
       )}
     </StackedChartShell>

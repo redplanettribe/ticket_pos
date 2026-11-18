@@ -18,6 +18,9 @@ import {
   scrollWindowShift,
   tooltipColumnLayout,
 } from "./chart-geometry";
+import type { ChartBucketReading } from "./chart-reading";
+import { COMPARISON_OPACITY, type ChartClickHandler } from "./chart-reading-marks";
+import { comparisonTooltipRows, tooltipNotes } from "./chart-tooltip-rows";
 
 /**
  * The geometry, the axis and the hover card every stacked chart on a surface
@@ -52,8 +55,11 @@ export type StackedSeries = {
  * categories out hands over a datum without them, so filtering is genuinely a
  * filter and not a hidden segment. `total` is the caller's own sum for the
  * tooltip, kept beside the values so the two can never disagree about rounding.
+ *
+ * It may also carry what any bucket of a trend reading may (`partial`,
+ * `comparison`): see `ChartBucketReading`.
  */
-export type StackedDatum = {
+export type StackedDatum = ChartBucketReading & {
   key: string;
   label: string;
   values: Record<string, number>;
@@ -173,6 +179,8 @@ export function StackedChartShell({
   formatTick,
   ariaLabel,
   className,
+  overlay,
+  notRecordedLabel,
   children,
 }: {
   plotWidth: number;
@@ -182,6 +190,12 @@ export function StackedChartShell({
   formatTick: (value: number) => string;
   ariaLabel: string;
   className?: string;
+  /** Laid over the plot, outside the image: the keyboard surface of a chart
+   * whose buckets can be chosen (see `useBucketSelection`). */
+  overlay?: React.ReactNode;
+  /** Given when the chart has nothing recorded to draw: said in place of the
+   * plot, which is then not drawn at all (see `ChartNotRecorded`). */
+  notRecordedLabel?: string;
   /** The recharts root, drawn at the width the shell works out for it. */
   children: (width: number) => React.ReactNode;
 }) {
@@ -189,11 +203,87 @@ export function StackedChartShell({
   // right of it, so the drawing is wider than the plot the caller asked for.
   // Adding them here keeps `plotWidth` an honest statement about the buckets.
   const width = Y_AXIS_WIDTH + plotWidth + CHART_MARGIN.right;
+  if (notRecordedLabel !== undefined) {
+    return (
+      <ChartNotRecorded
+        label={notRecordedLabel}
+        ariaLabel={ariaLabel}
+        width={width}
+        height={height}
+        className={className}
+      />
+    );
+  }
   return (
     <div className={cn("relative flex w-max", className)} style={{ height }}>
       <PinnedYAxisStrip yMax={yMax} yTicks={yTicks} formatTick={formatTick} height={height} />
       <div role="img" aria-label={ariaLabel} className="shrink-0" style={{ width, height }}>
         {children(width)}
+      </div>
+      {overlay}
+    </div>
+  );
+}
+
+/**
+ * What a chart's recharts root is told when its buckets can be chosen, and
+ * nothing at all when they cannot, so a chart without a selection is handed
+ * exactly the props it always was.
+ *
+ * The click is read off the root, so a bucket is chosen anywhere in its
+ * column and not only on a mark. Recharts' own keyboard layer
+ * is switched off: the chart's listbox is the keyboard surface (see
+ * `useBucketSelection`), and a second tab stop that moves a hover card and
+ * can choose nothing would be a stop a reader has to learn to skip.
+ */
+export function selectableChartProps(onChartClick: ChartClickHandler | undefined) {
+  if (onChartClick === undefined) {
+    return {};
+  }
+  return {
+    onClick: onChartClick,
+    accessibilityLayer: false,
+    style: { cursor: "pointer" },
+  } as const;
+}
+
+/**
+ * What stands where a chart would be when its figure was not recorded.
+ *
+ * Not an empty plot, because an empty plot over a scale is a chart of zeros
+ * and that is precisely the reading this must not give: there is no axis, no
+ * grid and no baseline here, only the room the chart would have taken (so the
+ * surface does not jump when recording begins) and the caller's words for why
+ * it is empty. The words are text and not part of an image, so they are read;
+ * the group carries the chart's name so a reader knows what was not recorded.
+ * They hold to the start of the scroll area, where a reader of a plot wider
+ * than its card would otherwise have to scroll to find them.
+ */
+function ChartNotRecorded({
+  label,
+  ariaLabel,
+  width,
+  height,
+  className,
+}: {
+  label: string;
+  ariaLabel: string;
+  width: number;
+  height: number;
+  className?: string;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={ariaLabel}
+      className={cn("flex w-max", className)}
+      style={{ height, paddingTop: CHART_MARGIN.top, paddingBottom: CHART_MARGIN.bottom }}
+    >
+      <div
+        className="flex shrink-0 items-center rounded-md border border-dashed"
+        style={{ width }}
+      >
+        <p className="sticky left-0 max-w-xs px-4 text-sm text-muted-foreground">{label}</p>
       </div>
     </div>
   );
@@ -307,6 +397,9 @@ export type ChartTooltipRow = {
   color: string;
   value: string;
   detail?: string | null;
+  /** A comparison series' row: its swatch is drawn hollow and faint, the way
+   * the chart draws its line, so the row is not taken for a series' own. */
+  faint?: boolean;
 };
 
 /**
@@ -330,6 +423,7 @@ export function ChartTooltipCard({
   chartHeight,
   footer,
   emptyLabel,
+  notes = NO_NOTES,
 }: {
   label: string;
   rows: ChartTooltipRow[];
@@ -340,12 +434,16 @@ export function ChartTooltipCard({
    * so an empty card never looks like a rendering fault. Without it an empty
    * list is drawn, which is what a chart that always has rows expects. */
   emptyLabel?: string;
+  /** Muted lines under the label and above the rows: what must be known about
+   * the bucket before its figures are read, such as that it is partial. */
+  notes?: readonly string[];
 }) {
   const hasDetail = rows.some((row) => row.detail != null);
   const available =
     chartHeight -
     2 * CHART_MARGIN.top -
     TOOLTIP_CHROME_HEIGHT -
+    notes.length * TOOLTIP_ROW_HEIGHT -
     (footer === undefined ? 0 : TOOLTIP_FOOTER_HEIGHT);
   const { rowsPerColumn } = tooltipColumnLayout(
     rows.length,
@@ -360,6 +458,11 @@ export function ChartTooltipCard({
       style={{ transform: `translate(${shift.x}px, ${shift.y}px)` }}
     >
       <p className="mb-1 text-xs font-medium">{label}</p>
+      {notes.map((note) => (
+        <p key={note} className="mb-1 text-xs text-muted-foreground italic">
+          {note}
+        </p>
+      ))}
       {rows.length === 0 && emptyLabel !== undefined ? (
         <p className="text-xs text-muted-foreground">{emptyLabel}</p>
       ) : (
@@ -370,11 +473,19 @@ export function ChartTooltipCard({
           {rows.map((row) => (
             <li key={row.id} className="text-xs">
               <div className="flex items-center gap-2">
-                <span
-                  aria-hidden
-                  className="size-2 shrink-0 rounded-[2px]"
-                  style={{ backgroundColor: row.color }}
-                />
+                {row.faint === true ? (
+                  <span
+                    aria-hidden
+                    className="size-2 shrink-0 rounded-[2px] border border-dashed"
+                    style={{ borderColor: row.color, opacity: COMPARISON_OPACITY }}
+                  />
+                ) : (
+                  <span
+                    aria-hidden
+                    className="size-2 shrink-0 rounded-[2px]"
+                    style={{ backgroundColor: row.color }}
+                  />
+                )}
                 <span className="text-muted-foreground">{row.name}</span>
                 <span className="ml-auto pl-2 tabular-nums">{row.value}</span>
               </div>
@@ -389,6 +500,8 @@ export function ChartTooltipCard({
     </div>
   );
 }
+
+const NO_NOTES: readonly string[] = [];
 
 /**
  * Where a card must move to be inside the visible part of the scroll area it
@@ -466,6 +579,10 @@ type StackedChartTooltipProps = {
   totalLabel: string;
   /** The chart's height, handed on so the card can fit itself to it. */
   chartHeight: number;
+  /** Comparison series, stated under the total they are compared with. */
+  comparisonSeries?: StackedSeries[];
+  /** What the card says of a bucket marked `partial`. */
+  partialLabel?: string;
   /** Injected by recharts when it clones this element. */
   active?: boolean;
   payload?: { payload?: StackedDatum }[];
@@ -485,6 +602,8 @@ export function StackedChartTooltip({
   formatValue,
   totalLabel,
   chartHeight,
+  comparisonSeries,
+  partialLabel,
   active,
   payload,
 }: StackedChartTooltipProps) {
@@ -492,10 +611,14 @@ export function StackedChartTooltip({
   if (!active || !datum) {
     return null;
   }
+  // A stack's comparison is compared with its total, so it is stated under
+  // the total and not among the parts.
+  const comparisonRows = comparisonTooltipRows(comparisonSeries, datum, formatValue);
   return (
     <ChartTooltipCard
       label={datum.label}
-      chartHeight={chartHeight}
+      chartHeight={chartHeight - comparisonRows.length * TOOLTIP_ROW_HEIGHT}
+      notes={tooltipNotes(datum, { partialLabel })}
       rows={series.map((entry) => ({
         id: entry.id,
         name: entry.name,
@@ -503,10 +626,18 @@ export function StackedChartTooltip({
         value: formatValue(datum.values[entry.id] ?? 0),
       }))}
       footer={
-        <p className="mt-1 flex items-center gap-4 border-t pt-1 text-xs font-medium">
-          <span>{totalLabel}</span>
-          <span className="ml-auto tabular-nums">{formatValue(datum.total)}</span>
-        </p>
+        <>
+          <p className="mt-1 flex items-center gap-4 border-t pt-1 text-xs font-medium">
+            <span>{totalLabel}</span>
+            <span className="ml-auto tabular-nums">{formatValue(datum.total)}</span>
+          </p>
+          {comparisonRows.map((row) => (
+            <p key={row.id} className="flex items-center gap-4 text-xs text-muted-foreground">
+              <span>{row.name}</span>
+              <span className="ml-auto tabular-nums">{row.value}</span>
+            </p>
+          ))}
+        </>
       }
     />
   );
