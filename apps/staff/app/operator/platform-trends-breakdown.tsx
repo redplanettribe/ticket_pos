@@ -101,9 +101,12 @@ export function PlatformTrendBreakdownPanel({
   return (
     <section aria-labelledby={titleId} className="space-y-3 rounded-md border bg-muted/30 p-3">
       <div className="flex items-start justify-between gap-3">
-        <h3 id={titleId} className="text-sm font-semibold">
+        {/* One level beneath the chart card's title (a CardTitle, an h3): the
+            breakdown is part of the chart it opens under, not its sibling.
+            The lists within are one level beneath this. */}
+        <h4 id={titleId} className="text-sm font-semibold">
           {t("trendsBreakdownTitle", { figure, bucket })}
-        </h3>
+        </h4>
         <Button type="button" variant="outline" size="sm" onClick={onClose}>
           {t("trendsBreakdownClose")}
         </Button>
@@ -280,9 +283,9 @@ function BreakdownList({
   const List = ranked ? "ol" : "ul";
   return (
     <div className="min-w-0 space-y-1">
-      <h4 id={titleId} className="text-xs font-medium text-muted-foreground">
+      <h5 id={titleId} className="text-xs font-medium text-muted-foreground">
         {title}
-      </h4>
+      </h5>
       {/* A long day has many contributors, none of them cut: the list scrolls
           inside the panel and the chart stays in view. */}
       <List aria-labelledby={titleId} className={`max-h-64 space-y-1 overflow-y-auto text-sm ${ranked ? "list-decimal pl-6" : ""}`}>
