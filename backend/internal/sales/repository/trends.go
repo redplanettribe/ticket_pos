@@ -138,19 +138,19 @@ func (r *Repository) PlatformTicketsSoldByDay(ctx context.Context, from, until t
 }
 
 // PlatformFirstTicketSoldDay is the day, on the clock the caller names, the
-// platform's earliest active Ticket Sale was sold, formatted YYYY-MM-DD, and
-// false when there is none: the first day Platform Trends' Tickets Sold has
-// data, before which a comparison has no history to read (#811). It keeps
-// PlatformTicketsSoldByDay's rules (active sales, by sold_at, every
-// Organization), so the first day stated is the first day that figure can
-// carry anything, and like it adds no index: it is one aggregate over the
-// table, read by operators alone.
+// platform's earliest Ticket Sale was sold, formatted YYYY-MM-DD, and false
+// when there is none: the first day Platform Trends' Tickets Sold has data,
+// before which a comparison has no history to read (#811). It reads sold_at
+// over every Organization as PlatformTicketsSoldByDay does, but counts
+// reversed sales too: the platform was recording sales from that day, so
+// reversing the earliest one does not turn the days after it from a measured
+// zero into missing history. Like its sibling it adds no index: it is one
+// aggregate over the table, read by operators alone.
 func (r *Repository) PlatformFirstTicketSoldDay(ctx context.Context, timezone string) (string, bool, error) {
 	var day sql.NullString
 	err := r.db.Pool.QueryRowContext(ctx, `
 		SELECT to_char((MIN(sold_at) AT TIME ZONE $1)::date, 'YYYY-MM-DD')
 		FROM ticket_sales
-		WHERE status = 'active'
 	`, timezone).Scan(&day)
 	if err != nil {
 		return "", false, err

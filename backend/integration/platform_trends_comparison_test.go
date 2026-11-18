@@ -13,8 +13,8 @@ import (
 // 2026-07-07, so the default 30-day span is 2026-06-07..2026-07-06 and the
 // span before it 2026-05-08..2026-06-06.
 
-// importedSales is an Event every Organization-agnostic test imports its sales
-// into, so a test states only the days and quantities it is about.
+// importedSales is one Event the comparison tests import their sales into, so
+// a test states only the days and quantities it is about.
 type importedSales struct {
 	env       *testEnv
 	sessionID string
@@ -76,6 +76,10 @@ func TestPlatformTrendsComparesWithThePreviousSpan(t *testing.T) {
 	sales := newImportedSales(t, env)
 	sales.sell(t, "2026-05-08", 4) // the previous span's first day
 	sales.sell(t, "2026-06-20", 6)
+	// Today, 01:00 in Guayaquil: drawn as partial, in neither total.
+	commitBatch(t, env, sales.sessionID, sales.eventID, "today", []map[string]any{
+		importSale("today@example.com", sales.gaID, 50, "2026-07-07T06:00:00Z"),
+	})
 
 	operatorSessionID := operatorSession(t, env, "operator@example.com")
 	trends := readPlatformTrends(t, env, operatorSessionID, "")
@@ -91,6 +95,9 @@ func TestPlatformTrendsComparesWithThePreviousSpan(t *testing.T) {
 	}
 	wantChange(t, "growth", figure.Change, 0.5)
 	imported := seriesFor(t, trends, "import")
+	if imported.Today == nil || imported.Today.Value != 50 || imported.Total != 6 {
+		t.Fatalf("today %+v total %d; want today's 50 drawn apart and a total of 6", imported.Today, imported.Total)
+	}
 	if imported.ComparisonTotal == nil || *imported.ComparisonTotal != 4 {
 		t.Fatalf("import comparison total = %v, want 4", intOrNil(imported.ComparisonTotal))
 	}
@@ -171,7 +178,11 @@ func TestPlatformTrendsComparisonIsAlignedBucketToBucket(t *testing.T) {
 		}
 		imported := seriesFor(t, trends, "import")
 		lastCompared := imported.ComparisonBuckets[len(imported.ComparisonBuckets)-1]
-		if wantLast := map[bool]int{true: 2, false: 0}[tc.last == "2025-07-07"]; lastCompared.Value != wantLast {
+		wantLast := 0
+		if tc.last == "2025-07-07" {
+			wantLast = 2
+		}
+		if lastCompared.Value != wantLast {
 			t.Fatalf("%q last comparison bucket = %+v, want %d", tc.query, lastCompared, wantLast)
 		}
 	}
@@ -312,5 +323,27 @@ func TestPlatformTrendsWeeklyComparisonBucketIsCutAtTheFirstDayOfData(t *testing
 		if imported.ComparisonBuckets[i] == nil {
 			t.Fatalf("comparison bucket %d is absent after the data began", i)
 		}
+	}
+}
+
+// TestPlatformTrendsHistoryBeginsAtTheFirstSaleEvenIfReversed: reversing the
+// platform's earliest sale leaves the days after it measured, so the
+// comparison is a zero there rather than absent.
+func TestPlatformTrendsHistoryBeginsAtTheFirstSaleEvenIfReversed(t *testing.T) {
+	env := setupTest(t)
+	sales := newImportedSales(t, env)
+	first := commitBatch(t, env, sales.sessionID, sales.eventID, "first", []map[string]any{
+		importSale("first@example.com", sales.gaID, 2, "2026-04-01T15:00:00Z"),
+	})
+	undoBatch(t, env, sales.sessionID, sales.eventID, first)
+	sales.sell(t, "2026-07-01", 3)
+
+	operatorSessionID := operatorSession(t, env, "operator@example.com")
+	figure := readPlatformTrends(t, env, operatorSessionID, "").Figures.TicketsSold
+	if figure.DataSince == nil || *figure.DataSince != "2026-04-01" {
+		t.Fatalf("data_since = %v, want 2026-04-01, the first sale's day though it was reversed", figure.DataSince)
+	}
+	if figure.ComparisonTotal == nil || *figure.ComparisonTotal != 0 || figure.Change != nil {
+		t.Fatalf("comparison total %v change %v; want a measured zero and no change", intOrNil(figure.ComparisonTotal), figure.Change)
 	}
 }

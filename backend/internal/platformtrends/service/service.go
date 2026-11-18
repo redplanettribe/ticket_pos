@@ -280,19 +280,19 @@ func figureOf(span Span, dataSince *time.Time, keys []string, perSeries map[stri
 		figure.DataSince = &since
 	}
 
-	total, comparisonTotal, compared := 0, 0, false
+	total, comparisonTotal, hasComparison := 0, 0, false
 	for _, key := range keys {
 		series := seriesOf(key, span, dataSince, perSeries[key])
 		total += series.Total
 		if series.ComparisonTotal != nil {
 			comparisonTotal += *series.ComparisonTotal
-			compared = true
+			hasComparison = true
 		}
 		figure.Series = append(figure.Series, series)
 	}
 	if summable {
 		figure.Total = &total
-		if compared {
+		if hasComparison {
 			figure.ComparisonTotal = &comparisonTotal
 			figure.Change = change(total, comparisonTotal)
 		}
@@ -309,11 +309,7 @@ func seriesOf(key string, span Span, dataSince *time.Time, perDay map[string]int
 	for _, bucket := range ranges {
 		value := sumDays(perDay, bucket)
 		series.Total += value
-		series.Buckets = append(series.Buckets, PlatformTrendBucket{
-			FirstDay: bucket.first.Format(dayFormat),
-			LastDay:  bucket.last.Format(dayFormat),
-			Value:    value,
-		})
+		series.Buckets = append(series.Buckets, bucket.stated(value))
 	}
 	if span.endsYesterday() {
 		today := span.Today.Format(dayFormat)
@@ -322,7 +318,7 @@ func seriesOf(key string, span Span, dataSince *time.Time, perDay map[string]int
 
 	comparisonRanges := span.compared().buckets()
 	series.ComparisonBuckets = make([]*PlatformTrendBucket, 0, len(comparisonRanges))
-	comparisonTotal, compared := 0, false
+	comparisonTotal, hasComparison := 0, false
 	for _, bucket := range comparisonRanges {
 		if dataSince == nil || bucket.last.Before(*dataSince) {
 			series.ComparisonBuckets = append(series.ComparisonBuckets, nil)
@@ -333,18 +329,20 @@ func seriesOf(key string, span Span, dataSince *time.Time, perDay map[string]int
 		}
 		value := sumDays(perDay, bucket)
 		comparisonTotal += value
-		compared = true
-		series.ComparisonBuckets = append(series.ComparisonBuckets, &PlatformTrendBucket{
-			FirstDay: bucket.first.Format(dayFormat),
-			LastDay:  bucket.last.Format(dayFormat),
-			Value:    value,
-		})
+		hasComparison = true
+		stated := bucket.stated(value)
+		series.ComparisonBuckets = append(series.ComparisonBuckets, &stated)
 	}
-	if compared {
+	if hasComparison {
 		series.ComparisonTotal = &comparisonTotal
 		series.Change = change(series.Total, comparisonTotal)
 	}
 	return series
+}
+
+// stated is a whole bucket as the response states it, carrying value.
+func (b bucketRange) stated(value int) PlatformTrendBucket {
+	return PlatformTrendBucket{FirstDay: b.first.Format(dayFormat), LastDay: b.last.Format(dayFormat), Value: value}
 }
 
 // sumDays is the total of the days a bucket covers.

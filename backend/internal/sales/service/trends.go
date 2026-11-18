@@ -220,7 +220,7 @@ func (s *Service) PlatformTicketsSoldByDay(ctx context.Context, from, until time
 }
 
 // PlatformFirstTicketSoldDay is the day, YYYY-MM-DD on the named clock, the
-// platform's earliest active Ticket Sale was sold, and false when it has none:
+// platform's earliest Ticket Sale, reversed or not, was sold, and false when it has none:
 // where Platform Trends' Tickets Sold begins to have data (#811).
 func (s *Service) PlatformFirstTicketSoldDay(ctx context.Context, timezone string) (string, bool, error) {
 	return s.repo.PlatformFirstTicketSoldDay(ctx, timezone)

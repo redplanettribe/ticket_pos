@@ -15913,8 +15913,8 @@ paths:
         so missing history is absent, never zero, and a comparison with no data has
         a null total. Today has no comparison bucket and is in no total. Tickets Sold
         is the quantity over active Ticket Sales by the day sold, one series per Sales
-        Channel; its data begins on the day the earliest active Ticket Sale was sold.
-        Platform Operator only.'
+        Channel; its data begins on the day the earliest Ticket Sale, reversed or
+        not, was sold. Platform Operator only.'
       parameters:
       - description: Span
         in: query
