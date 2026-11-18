@@ -199,11 +199,11 @@ func (s *Service) freezeDays(ctx context.Context, now, yesterday time.Time, resu
 // firstActiveDay is the first platform day the close answers for: the
 // earliest of the day the first Ticket Sale was recorded, the day of the
 // oldest marker still kept, an Organization's or a Customer's, and the first
-// day already frozen. Nil when there
-// is none of them. Every day from it on is one the close freezes. The first
-// frozen day is what holds it in place once the oldest markers are deleted:
-// without it a platform with no sale would lose its first day with its last
-// marker, and the days after it would never be frozen.
+// day already frozen. Nil when there is none of them. Every day from it on
+// is one the close freezes. The first frozen day is what holds it in place
+// once the oldest markers are deleted: without it a platform with no sale
+// would lose its first day with its last marker, and the days after it
+// would never be frozen.
 func (s *Service) firstActiveDay(ctx context.Context) (*time.Time, error) {
 	var earliest *time.Time
 	for _, read := range []func(context.Context, string) (string, bool, error){

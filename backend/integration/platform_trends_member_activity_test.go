@@ -83,7 +83,7 @@ func (m *markerWrites) MarkOrganizationActive(ctx context.Context, organizationI
 // next setupTest, which puts the real one back.
 func watchMarkerWrites(t *testing.T) *markerWrites {
 	t.Helper()
-	watched := &markerWrites{OrganizationMarkerStore: organizationMarkerStore()}
+	watched := &markerWrites{OrganizationMarkerStore: platformTrendsStore()}
 	sharedApp.PlatformTrendsService.WithOrganizationMarkerStore(watched)
 	return watched
 }

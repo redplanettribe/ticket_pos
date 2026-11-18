@@ -56,7 +56,7 @@ type CustomerActivityTotals struct {
 }
 
 // customerTotalsColumns is the six Active Customers columns of a totals row,
-// in the order customerTotalsArgs and scanTotals take them.
+// in the order customerTotalsArgs and ActivityTotalsBetween take them.
 const customerTotalsColumns = `active_customers, active_customers_7d, active_customers_30d,
 	active_customers_new, active_customers_returning, active_customers_returning_bought`
 
@@ -110,16 +110,16 @@ func (r *Repository) ActivityTotalsBetween(ctx context.Context, firstDay, lastDa
 	var out []ActivityTotals
 	for rows.Next() {
 		var totals ActivityTotals
-		var active, active7Days, active30Days, fresh, returning, returningBought sql.NullInt64
+		var active, active7Days, active30Days, newCustomers, returning, returningBought sql.NullInt64
 		if err := rows.Scan(&totals.Day, &totals.ActiveOrganizations, &totals.ActiveOrganizations7Days, &totals.ActiveOrganizations30Days,
-			&active, &active7Days, &active30Days, &fresh, &returning, &returningBought); err != nil {
+			&active, &active7Days, &active30Days, &newCustomers, &returning, &returningBought); err != nil {
 			return nil, err
 		}
 		// The six are NULL together or not at all (migration 140).
 		if active.Valid {
 			totals.Customers = &CustomerActivityTotals{
 				Active: int(active.Int64), Active7Days: int(active7Days.Int64), Active30Days: int(active30Days.Int64),
-				New: int(fresh.Int64), Returning: int(returning.Int64), ReturningBought: int(returningBought.Int64),
+				New: int(newCustomers.Int64), Returning: int(returning.Int64), ReturningBought: int(returningBought.Int64),
 			}
 		}
 		out = append(out, totals)

@@ -259,13 +259,13 @@ func setupTest(t *testing.T) *testEnv {
 	// in memory, so that a Member's later requests cost no write. The tables
 	// were just emptied, so that memory is emptied with them, and a store a
 	// test put in front of the real one is taken away.
-	sharedApp.PlatformTrendsService.WithOrganizationMarkerStore(organizationMarkerStore())
+	sharedApp.PlatformTrendsService.WithOrganizationMarkerStore(platformTrendsStore())
 	// The same for Customers, and Customer recording starts OFF, which is
 	// how it ships (#817, ADR 0045): the tests of Active Customers switch it
 	// on for themselves through recordCustomerActivity, and this line
 	// switches it off again so the rest of the suite runs against the
 	// deployment as it is deployed.
-	sharedApp.PlatformTrendsService.WithCustomerMarkerStore(organizationMarkerStore())
+	sharedApp.PlatformTrendsService.WithCustomerMarkerStore(platformTrendsStore())
 	sharedApp.PlatformTrendsService.WithCustomerActivityRecording(false)
 	// No provider spacing between sends. The drain paces itself to the email
 	// provider's rate limit in production, which is real time and not the fixed
@@ -290,9 +290,10 @@ func setupTest(t *testing.T) *testEnv {
 	return sharedEnv
 }
 
-// organizationMarkerStore is the store Organization markers, and Customer
-// markers, are kept in outside a test that watches or fails their writes.
-func organizationMarkerStore() *platformtrendsrepo.Repository {
+// platformTrendsStore is the store Platform Trends keeps its frozen totals
+// and its Organization and Customer markers in, outside a test that watches
+// or fails the marker writes.
+func platformTrendsStore() *platformtrendsrepo.Repository {
 	return platformtrendsrepo.New(sharedApp.DB)
 }
 

@@ -145,7 +145,7 @@ func (m *customerMarkerWrites) MarkCustomerActive(ctx context.Context, customerI
 // until the next setupTest, which puts the real one back.
 func watchCustomerMarkerWrites(t *testing.T) *customerMarkerWrites {
 	t.Helper()
-	watched := &customerMarkerWrites{CustomerMarkerStore: organizationMarkerStore()}
+	watched := &customerMarkerWrites{CustomerMarkerStore: platformTrendsStore()}
 	sharedApp.PlatformTrendsService.WithCustomerMarkerStore(watched)
 	return watched
 }
@@ -169,7 +169,7 @@ func customerIDOf(t *testing.T, env *testEnv, email string) string {
 // route until the breakdown read (#819) serves it from these same totals.
 func frozenCustomerTotals(t *testing.T, day string) *platformtrendsrepo.CustomerActivityTotals {
 	t.Helper()
-	days, err := organizationMarkerStore().ActivityTotalsBetween(context.Background(), day, day)
+	days, err := platformTrendsStore().ActivityTotalsBetween(context.Background(), day, day)
 	if err != nil {
 		t.Fatalf("read the frozen totals of %s: %v", day, err)
 	}
@@ -225,7 +225,7 @@ func TestASignedInCustomerBrowsingIsActiveWithoutBuying(t *testing.T) {
 	assertCount(t, "distinct_30d", figure.Distinct30Days, 2)
 
 	// Neither read of the day names who it was.
-	resp, body := env.get(t, platformTrendsPath+"?span=7d", authHeader(operatorSession(t, env, "operator@example.com")))
+	resp, body := env.get(t, platformTrendsPath+"?span=7d", authHeader(trendsOperator(t, env)))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET %s status=%d, want 200", platformTrendsPath, resp.StatusCode)
 	}
@@ -267,7 +267,7 @@ func TestACustomerActingManyTimesInADayIsCountedOnce(t *testing.T) {
 }
 
 // TestAcceptingATicketAssignmentIsActiveAndAForwardedLinkOrAStaffSaleIsNot:
-// with recording on, the only Customers active are the buyer who signed in
+// with recording on, the only Customers active are the Customer who signed in
 // and the Holder who accepted a Ticket Assignment without ever signing in.
 // The Customers an import and a sale typed by staff were recorded for, and
 // the one whose Confirmation Link was opened and used, are active on no day.
@@ -306,11 +306,14 @@ func TestAcceptingATicketAssignmentIsActiveAndAForwardedLinkOrAStaffSaleIsNot(t 
 		// People click twice.
 		acceptAssignmentOK(t, env, token)
 	})
+	// The link opened again the day after accepts nothing new: by then it
+	// may be a mail client's prefetch or in somebody else's hands.
+	actingOn(t, env, platformNoon(2026, 7, 10), func() { acceptAssignmentOK(t, env, token) })
 	if got := writes.writes.Load(); got != 2 {
 		t.Fatalf("%d marker writes, want 2: Ana signing in and Carla accepting", got)
 	}
 
-	closeDaysAt(t, env, platformNoon(2026, 7, 10))
+	closeDaysAt(t, env, platformNoon(2026, 7, 12))
 
 	figure := readActiveCustomers(t, env, "?span=7d")
 	// The 7th was closed with recording on and nobody counted yet: it is
@@ -318,6 +321,7 @@ func TestAcceptingATicketAssignmentIsActiveAndAForwardedLinkOrAStaffSaleIsNot(t 
 	assertNoActivityOn(t, figure, "2026-07-07")
 	assertActivityOn(t, figure, "2026-07-08", 1)
 	assertActivityOn(t, figure, "2026-07-09", 1)
+	assertActivityOn(t, figure, "2026-07-10", 0)
 	if shown(figure.ExactSince) != "2026-07-08" {
 		t.Fatalf("exact_since = %v, want 2026-07-08, the first day a Customer was counted", shown(figure.ExactSince))
 	}
