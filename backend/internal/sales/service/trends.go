@@ -293,3 +293,28 @@ func (s *Service) PlatformOrganizationsWithSalesRecordedByDay(ctx context.Contex
 func (s *Service) PlatformFirstSaleRecordedDay(ctx context.Context, timezone string) (string, bool, error) {
 	return s.repo.PlatformFirstSaleRecordedDay(ctx, timezone)
 }
+
+// PlatformCustomerSaleDay says a Customer owns an Online Sale sold on a day,
+// the day being a YYYY-MM-DD calendar date on the clock the caller asked for.
+type PlatformCustomerSaleDay struct {
+	Day        string
+	CustomerID string
+}
+
+// PlatformCustomersWithOnlineSalesSoldByDay is every (day, Customer) for
+// which the Customer owns an Online Sale sold in [from, until), each once,
+// reversed since or not, in the named timezone. It is for the daily close,
+// which reads "returning who bought" off it (#817) and freezes a count;
+// nothing that answers a request may read it, since no route returns a
+// Customer for a day (ADR 0080).
+func (s *Service) PlatformCustomersWithOnlineSalesSoldByDay(ctx context.Context, from, until time.Time, timezone string) ([]PlatformCustomerSaleDay, error) {
+	rows, err := s.repo.PlatformCustomersWithOnlineSalesSoldByDay(ctx, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PlatformCustomerSaleDay, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, PlatformCustomerSaleDay{Day: row.Day, CustomerID: row.CustomerID})
+	}
+	return out, nil
+}

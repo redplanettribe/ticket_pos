@@ -106,6 +106,11 @@ Opening a Confirmation Link does not count, since it may have been forwarded, an
 A figure about a day, not a kind of Customer: nobody is an Active Customer in general, and the word shares nothing with Active Event or Active Member.
 Counts people, which Page View never does; the two are stated side by side and never combined.
 Read per day and as the number of different Customers active across the last 7 and 30 days.
+What records it is a marker holding the Customer and the day and nothing else: not what they looked at, not when, not from where, not how often.
+The marker is personal data, so recording it is switched off until a Privacy Policy edition describes it, and until a day has been closed with it on the figure reads as not yet recorded, which is different from zero.
+A day closed while recording was off has no figure and never gains one.
+Each day's count is frozen split by kind: new (became a Verified Customer that day) and returning, and of the returning how many bought, which is owning an Online Sale sold that day.
+No reading of it, anywhere, says which Customers were active on a day.
 _Avoid_: Active user, DAU, visitor, engaged customer, Verified Customer (which is a standing fact, not a day's activity)
 
 **Active Organization**:
@@ -123,7 +128,8 @@ The nightly act that freezes each closed day of the platform clock into activity
 A frozen day is never rewritten, so a sale that turns up for it afterwards changes nothing and last month reads the same next year.
 A night that was missed is made good by the next run, which freezes every closed day still unfrozen, oldest first, back to the first day an Organization was active.
 The first day it freezes with a Member's work counted in it is the day exact recording of Active Organizations began; the days frozen before it hold the Organizations a Ticket Sale was recorded for and stay that way.
-The same run deletes the activity markers older than thirteen months, which the frozen totals outlive.
+While Customer recording is switched on it freezes Active Customers on the same terms, with the day's count split by kind, and the first day it freezes with a Customer counted in it is the day recording of Active Customers began.
+The same run deletes the activity markers older than thirteen months, an Organization's and a Customer's alike, which the frozen totals outlive.
 Until a day is frozen Platform Trends leaves it out of an activity figure, which is different from stating a zero.
 _Avoid_: Rollup, snapshot, end-of-day batch, aggregation job
 

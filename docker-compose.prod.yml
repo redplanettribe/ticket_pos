@@ -107,6 +107,10 @@ services:
       # the parity stack is where the House flow is walked against the SRI's
       # test environment before production opens the flag.
       SALE_INVOICING_ENABLED: "true"
+      # Customer activity recording (#817, ADR 0080): off unless the root .env
+      # sets CUSTOMER_ACTIVITY_RECORDING_ENABLED=true, as in production, where
+      # it waits on a Privacy Policy edition describing it (ADR 0045).
+      CUSTOMER_ACTIVITY_RECORDING_ENABLED: ${CUSTOMER_ACTIVITY_RECORDING_ENABLED:-}
       # Where the parity Storefront answers, so Confirmation Links are followable.
       STOREFRONT_BASE_URL: http://localhost:64603
       # Where the parity staff app answers, so the Certificate Expiry Warning's Issuer-page link is followable.

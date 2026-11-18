@@ -304,3 +304,47 @@ func (r *Repository) PlatformFirstSaleRecordedDay(ctx context.Context, timezone 
 	}
 	return day.String, day.Valid, nil
 }
+
+// PlatformCustomerSaleDay says a Customer owns an Online Sale sold on a day,
+// YYYY-MM-DD on the clock the caller named.
+type PlatformCustomerSaleDay struct {
+	Day        string
+	CustomerID string
+}
+
+// PlatformCustomersWithOnlineSalesSoldByDay is every (day, Customer) for
+// which the Customer owns an Online Sale sold in [from, until), each once:
+// what "bought" means in the daily close's split of Active Customers (#817,
+// ADR 0080).
+//
+// It goes by sold_at, which for an Online Sale is the instant the Customer
+// bought, and by the online Sales Channel alone: an import or a sale typed
+// at the door is staff acting, not the Customer. The status is not read, as
+// in PlatformOrganizationsWithSalesRecordedByDay: a sale reversed since was
+// still bought that day, and activity is not money.
+//
+// Read by the close once a night over the days it freezes. No index is
+// added, for the reason given there.
+func (r *Repository) PlatformCustomersWithOnlineSalesSoldByDay(ctx context.Context, from, until time.Time, timezone string) ([]PlatformCustomerSaleDay, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT DISTINCT
+			to_char((sold_at AT TIME ZONE $3)::date, 'YYYY-MM-DD') AS day,
+			customer_id
+		FROM ticket_sales
+		WHERE sold_at >= $1 AND sold_at < $2 AND channel = 'online'
+	`, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PlatformCustomerSaleDay
+	for rows.Next() {
+		var day PlatformCustomerSaleDay
+		if err := rows.Scan(&day.Day, &day.CustomerID); err != nil {
+			return nil, err
+		}
+		out = append(out, day)
+	}
+	return out, rows.Err()
+}

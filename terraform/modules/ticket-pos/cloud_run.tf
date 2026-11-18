@@ -304,6 +304,16 @@ resource "google_cloud_run_v2_service" "api" {
         value = var.ticket_questions_enabled ? "true" : "false"
       }
 
+      # The Customer activity recording switch (#817, ADR 0080). A plain env
+      # var on the same terms as the flag above: a decision whose change
+      # should be a reviewable diff, and anything the API cannot parse as true
+      # leaves it off. Off, no Customer marker is written and Platform Trends
+      # says Active Customers is not yet recorded.
+      env {
+        name  = "CUSTOMER_ACTIVITY_RECORDING_ENABLED"
+        value = var.customer_activity_recording_enabled ? "true" : "false"
+      }
+
       # The Ticket Assignment flag (#324, parent #322). Its OWN env var, fed by
       # its OWN variable, and deliberately not `var.ticket_questions_enabled`
       # reused: the operational property the second flag buys is that assignment

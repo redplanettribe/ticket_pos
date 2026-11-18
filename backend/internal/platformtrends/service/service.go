@@ -2,7 +2,7 @@
 // of whether the platform as a whole is growing (#808, ADR 0080).
 //
 // It owns the activity totals the daily close freezes (activity.go) and the
-// Organization markers a Member working leaves (markers.go).
+// markers a Member working and a Customer acting leave (markers.go).
 // Every other figure is read through the module that owns the
 // data it counts, each exposing a platform-wide operation, and composed here
 // into the one payload the page draws. The page derives nothing: bucketing,
@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	customerssvc "github.com/peter/ticket_pos/backend/internal/customers/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	salessvc "github.com/peter/ticket_pos/backend/internal/sales/service"
 )
@@ -28,19 +29,23 @@ import (
 // Sold per day and Sales Channel, its money sold and Platform Fee earned per
 // day and currency, the currencies it sells in, the first day it sold
 // anything, and, for the daily close, which Organizations a Ticket Sale was
-// recorded for on which day and the first day one was.
+// recorded for on which day, the first day one was, and which Customers own
+// an Online Sale sold on which day.
 type TicketSales interface {
 	PlatformTicketsSoldByDay(ctx context.Context, from, until time.Time, timezone string) ([]salessvc.PlatformTicketsSoldDay, error)
 	PlatformMoneyByDay(ctx context.Context, from, until time.Time, timezone string) ([]salessvc.PlatformMoneyDay, error)
 	PlatformCurrencies(ctx context.Context) ([]string, error)
 	PlatformFirstTicketSoldDay(ctx context.Context, timezone string) (string, bool, error)
 	PlatformOrganizationsWithSalesRecordedByDay(ctx context.Context, from, until time.Time, timezone string) ([]salessvc.PlatformSaleRecordedDay, error)
+	PlatformCustomersWithOnlineSalesSoldByDay(ctx context.Context, from, until time.Time, timezone string) ([]salessvc.PlatformCustomerSaleDay, error)
 	PlatformFirstSaleRecordedDay(ctx context.Context, timezone string) (string, bool, error)
 }
 
 // Customers is what Platform Trends needs from customers: how many Customers
-// became Verified Customers per day, and the first day any did.
+// became Verified Customers per day, the first day any did, and, for the
+// daily close, which Customers did on which day.
 type Customers interface {
+	PlatformCustomersVerifiedByDay(ctx context.Context, from, until time.Time, timezone string) ([]customerssvc.PlatformCustomerDay, error)
 	PlatformNewVerifiedCustomersByDay(ctx context.Context, from, until time.Time, timezone string) ([]platform.DayCount, error)
 	PlatformFirstVerifiedCustomerDay(ctx context.Context, timezone string) (string, bool, error)
 }
@@ -81,24 +86,33 @@ const countSeriesKey = "all"
 
 // Service reads Platform Trends.
 type Service struct {
-	totals        ActivityTotalsStore
-	markers       OrganizationMarkerStore
-	marked        *markedOrganizations
-	logger        platform.Logger
-	sales         TicketSales
-	customers     Customers
-	organizations Organizations
-	pageViews     PageViews
-	events        Events
-	now           func() time.Time
+	totals  ActivityTotalsStore
+	markers OrganizationMarkerStore
+	marked  *markedSubjects
+	// customerMarkers and markedCustomers are the Customer side of markers
+	// and marked, and customerRecording the switch they sit behind
+	// (WithCustomerActivityRecording), off unless it is set.
+	customerMarkers   CustomerMarkerStore
+	markedCustomers   *markedSubjects
+	customerRecording bool
+	logger            platform.Logger
+	sales             TicketSales
+	customers         Customers
+	organizations     Organizations
+	pageViews         PageViews
+	events            Events
+	now               func() time.Time
 }
 
 // New returns a Platform Trends service keeping its frozen activity totals in
-// totals and its Organization markers in markers, and reading every other
-// figure through the given modules.
-func New(totals ActivityTotalsStore, markers OrganizationMarkerStore, logger platform.Logger, sales TicketSales, customers Customers, organizations Organizations, pageViews PageViews, events Events) *Service {
+// totals, its Organization markers in markers and its Customer markers in
+// customerMarkers, and reading every other figure through the given modules.
+// Customer recording is off until WithCustomerActivityRecording switches it
+// on.
+func New(totals ActivityTotalsStore, markers OrganizationMarkerStore, customerMarkers CustomerMarkerStore, logger platform.Logger, sales TicketSales, customers Customers, organizations Organizations, pageViews PageViews, events Events) *Service {
 	return &Service{
-		totals: totals, markers: markers, marked: newMarkedOrganizations(), logger: logger,
+		totals: totals, markers: markers, marked: newMarkedSubjects(), logger: logger,
+		customerMarkers: customerMarkers, markedCustomers: newMarkedSubjects(),
 		sales: sales, customers: customers, organizations: organizations, pageViews: pageViews, events: events,
 		now: time.Now,
 	}
@@ -198,6 +212,18 @@ type PlatformTrendFigures struct {
 	// Channel, reversed or not. It is read from the totals the daily close
 	// froze, never live.
 	ActiveOrganizations PlatformTrendActivityFigure `json:"active_organizations"`
+	// ActiveCustomers is the Customers active per day: those who acted as
+	// themselves that day, through a Customer Session or by accepting a
+	// Ticket Assignment, each counted once however often they acted. Opening
+	// a Confirmation Link does not count and neither does a sale staff
+	// recorded for the Customer. It is read from the totals the daily close
+	// froze, never live, and states counts alone: nothing here or anywhere
+	// names a Customer for a day. recorded is false while Customer recording
+	// is switched off and no day has a figure, which is "not yet recorded"
+	// and not zero; exact_since and data_since are both the day recording
+	// began, and no day before it has a bucket. sale_half_only is always
+	// false, the figure having no sale half.
+	ActiveCustomers PlatformTrendActivityFigure `json:"active_customers"`
 }
 
 // PlatformTrendFigure is one figure for the span: its series, its total, whether it is
@@ -305,7 +331,15 @@ func (s *Service) Trends(ctx context.Context, span Span) (*PlatformTrends, error
 		return nil, err
 	}
 
-	activeOrganizations, err := s.activeOrganizations(ctx, span)
+	frozen, err := s.frozenDays(ctx, span)
+	if err != nil {
+		return nil, err
+	}
+	activeOrganizations, err := s.activeOrganizations(ctx, span, frozen)
+	if err != nil {
+		return nil, err
+	}
+	activeCustomers, err := s.activeCustomers(ctx, span, frozen)
 	if err != nil {
 		return nil, err
 	}
@@ -334,6 +368,7 @@ func (s *Service) Trends(ctx context.Context, span Span) (*PlatformTrends, error
 			PageViews:            pageViews,
 			EventsPublished:      eventsPublished,
 			ActiveOrganizations:  activeOrganizations,
+			ActiveCustomers:      activeCustomers,
 		},
 	}, nil
 }

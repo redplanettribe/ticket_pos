@@ -19,10 +19,13 @@ import (
 
 // Service implements customers business rules.
 type Service struct {
-	repo   *repository.Repository
-	otp    *otp.Service
-	logger platform.Logger
-	now    func() time.Time
+	// activity is told when a Customer acts as themselves (#817). Nil until
+	// WithCustomerActivity sets it.
+	activity CustomerActivity
+	repo     *repository.Repository
+	otp      *otp.Service
+	logger   platform.Logger
+	now      func() time.Time
 	// links is the Confirmation Link signing key and the Storefront origin those
 	// links point at. Both are configuration; see confirmationlink.go.
 	links ConfirmationLinkConfig
@@ -171,6 +174,34 @@ func (s *Service) WithReversalRequests(resolver ReversalRequestResolver) *Servic
 func (s *Service) WithEmailSender(sender platform.EmailSender) *Service {
 	s.email = sender
 	return s
+}
+
+// CustomerActivity is the one thing customers tells Platform Trends: that a
+// Customer acted as themselves at an instant (#817, ADR 0080). It returns
+// nothing, because nothing about recording it may fail or slow the request
+// that carried it; whoever implements it keeps its own failures to itself,
+// and decides for itself whether anything is recorded at all.
+type CustomerActivity interface {
+	MarkCustomerActive(ctx context.Context, customerID string, at time.Time)
+}
+
+// WithCustomerActivity sets who is told when a Customer acts as themselves.
+// Platform Trends is built after customers, which it reads, so this is set
+// once both exist.
+func (s *Service) WithCustomerActivity(activity CustomerActivity) *Service {
+	s.activity = activity
+	return s
+}
+
+// markActive tells Platform Trends the Customer acted as themselves at an
+// instant. It has exactly two callers and must keep to them: authenticate,
+// for a full Customer Session, and mintSession, for the sign-in that makes
+// one. A Confirmation Link session must never reach it, since the link may
+// have been forwarded and proves nothing about who holds it.
+func (s *Service) markActive(ctx context.Context, customerID string, at time.Time) {
+	if s.activity != nil {
+		s.activity.MarkCustomerActive(ctx, customerID, at)
+	}
 }
 
 // WithClock overrides the clock (tests). Passcode expiry is measured by the OTP

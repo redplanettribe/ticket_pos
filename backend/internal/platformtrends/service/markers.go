@@ -13,6 +13,14 @@ import (
 // through a Staff Session, and what records that is one marker holding the
 // Organization and the day: no Member, no time of day, no count.
 //
+// Customer markers: Active Customer (#817). A Customer is active on a
+// platform day they acted as themselves, through a full Customer Session or
+// by accepting a Ticket Assignment, and what records that is one marker
+// holding the Customer and the day: no page, no time of day, no IP, no
+// count. Unlike an Organization marker it is personal data, so it is written
+// only while Customer recording is switched on, which it is not by default
+// (ADR 0045).
+//
 // Markers are written here and read by the daily close alone (activity.go).
 // No read of Platform Trends touches them.
 
@@ -48,40 +56,50 @@ func monthsBefore(day time.Time, months int) time.Time {
 	return firstOfMonth.AddDate(0, 0, day.Day()-1)
 }
 
-// markedOrganizations is this process's memory of the last platform day it
-// marked each Organization on, which is what keeps a Member's every request
-// from costing a write: at most one write per Organization per day reaches
-// the store from a process. It holds one day per Organization, so it grows
-// with the Organizations worked in and not with time.
-type markedOrganizations struct {
+// CustomerMarkerStore keeps the Customer markers. The day recording began
+// is not kept beside them, as it is for Organizations: the frozen totals say
+// it themselves (ActivityTotalsStore.FirstActiveCustomersDay).
+type CustomerMarkerStore interface {
+	MarkCustomerActive(ctx context.Context, customerID, day string) error
+	CustomerMarkersBetween(ctx context.Context, firstDay, lastDay string) ([]repository.CustomerMarker, error)
+	FirstCustomerMarkerDay(ctx context.Context) (string, bool, error)
+	DeleteCustomerMarkersBefore(ctx context.Context, day string) (int, error)
+}
+
+// markedSubjects is this process's memory of the last platform day it marked
+// each subject on, an Organization or a Customer, which is what keeps every
+// request from costing a write: at most one write per subject per day
+// reaches the store from a process. It holds one day per subject, so it
+// grows with the subjects seen and not with time.
+type markedSubjects struct {
 	mu      sync.Mutex
 	lastDay map[string]string
 }
 
-func newMarkedOrganizations() *markedOrganizations {
-	return &markedOrganizations{lastDay: map[string]string{}}
+func newMarkedSubjects() *markedSubjects {
+	return &markedSubjects{lastDay: map[string]string{}}
 }
 
-// claim reports whether this process has yet to mark the Organization on
-// the day, and remembers it as marked. Of the requests that arrive together
-// only the first is told true, so only one of them writes.
-func (m *markedOrganizations) claim(organizationID, day string) bool {
+// claim reports whether this process has yet to mark the subject on the day,
+// and remembers it as marked. Of the requests that arrive together only the
+// first is told true, so only one of them writes.
+func (m *markedSubjects) claim(subjectID, day string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.lastDay[organizationID] == day {
+	if m.lastDay[subjectID] == day {
 		return false
 	}
-	m.lastDay[organizationID] = day
+	m.lastDay[subjectID] = day
 	return true
 }
 
 // release forgets a claim whose write did not land, so that the next request
 // of the day tries again.
-func (m *markedOrganizations) release(organizationID, day string) {
+func (m *markedSubjects) release(subjectID, day string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.lastDay[organizationID] == day {
-		delete(m.lastDay, organizationID)
+	if m.lastDay[subjectID] == day {
+		delete(m.lastDay, subjectID)
 	}
 }
 
@@ -89,7 +107,7 @@ func (m *markedOrganizations) release(organizationID, day string) {
 // Organizations this process has marked (tests).
 func (s *Service) WithOrganizationMarkerStore(store OrganizationMarkerStore) *Service {
 	s.markers = store
-	s.marked = newMarkedOrganizations()
+	s.marked = newMarkedSubjects()
 	return s
 }
 
@@ -122,5 +140,61 @@ func (s *Service) MarkOrganizationActive(ctx context.Context, organizationID str
 		marked.release(organizationID, day)
 		s.logger.Error(ctx, "organization activity marker not written",
 			"organization_id", organizationID, "day", day, "error", err)
+	}
+}
+
+// WithCustomerMarkerStore replaces the Customer marker store and forgets
+// which Customers this process has marked (tests).
+func (s *Service) WithCustomerMarkerStore(store CustomerMarkerStore) *Service {
+	s.customerMarkers = store
+	s.markedCustomers = newMarkedSubjects()
+	return s
+}
+
+// WithCustomerActivityRecording switches the recording of Customer markers
+// on or off. It is off unless CUSTOMER_ACTIVITY_RECORDING_ENABLED says
+// otherwise, and stays off until a Privacy Policy edition describing the
+// recording is published (ADR 0045, ADR 0080): deploying this starts no
+// collection.
+//
+// The one switch decides three things. While it is off no marker is
+// written, the daily close freezes no Active Customers figure for the days
+// it closes, and the read says the figure is not yet recorded for as long as
+// no day has one.
+func (s *Service) WithCustomerActivityRecording(enabled bool) *Service {
+	s.customerRecording = enabled
+	return s
+}
+
+// MarkCustomerActive records that a Customer acted as themselves at an
+// instant: they are active on the platform day that instant falls on. It is
+// called where a request is authenticated by a full Customer Session, where
+// a sign-in mints one, and where a Ticket Assignment is accepted through an
+// Assignment Link, and nowhere else. A Confirmation Link session is never
+// passed here, since the link may have been forwarded, and neither is the
+// Customer of a sale staff recorded.
+//
+// While Customer recording is off it does nothing at all. While it is on it
+// behaves as MarkOrganizationActive does: the first call of a day for a
+// Customer writes their marker, every later one returns without touching the
+// store, and it returns nothing, a write that fails or outlasts
+// markerWriteTimeout being reported and left to the next request of the day.
+//
+// What is reported names the day and not the Customer: the report leaves
+// the platform, and a Customer beside a day is what ADR 0080 keeps inside.
+func (s *Service) MarkCustomerActive(ctx context.Context, customerID string, at time.Time) {
+	if !s.customerRecording {
+		return
+	}
+	store, marked := s.customerMarkers, s.markedCustomers
+	day := civilDate(at).Format(dayFormat)
+	if !marked.claim(customerID, day) {
+		return
+	}
+	writing, cancel := context.WithTimeout(context.WithoutCancel(ctx), markerWriteTimeout)
+	defer cancel()
+	if err := store.MarkCustomerActive(writing, customerID, day); err != nil {
+		marked.release(customerID, day)
+		s.logger.Error(ctx, "customer activity marker not written", "day", day, "error", err)
 	}
 }

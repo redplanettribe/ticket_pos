@@ -374,6 +374,18 @@ func (s *Service) acceptAssignment(
 		return nil, holder, catalog.ErrAssignmentLinkInvalid()
 	}
 
+	// ACCEPTING IS THE HOLDER ACTING AS THEMSELVES (#817, ADR 0080), though
+	// no Customer Session is anywhere near this route: the click is the
+	// proof. Told only once the acceptance is written, so a link that lost
+	// the race above marks nobody, and told by every route behind this
+	// gate, a second click and a name or an Answer given later included,
+	// since each is the same person holding the same proof and each accepts
+	// first. The buyer's side of an assignment is not here: it happens
+	// inside a Customer Session, which marks for itself.
+	if s.customerActivity != nil {
+		s.customerActivity.MarkCustomerActive(ctx, customerID, s.now())
+	}
+
 	return ticket, acceptedHolder{CustomerID: customerID, FirstName: firstName, LastName: lastName}, nil
 }
 

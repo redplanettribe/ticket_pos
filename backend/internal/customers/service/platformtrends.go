@@ -22,3 +22,28 @@ func (s *Service) PlatformNewVerifiedCustomersByDay(ctx context.Context, from, u
 func (s *Service) PlatformFirstVerifiedCustomerDay(ctx context.Context, timezone string) (string, bool, error) {
 	return s.repo.PlatformFirstVerifiedCustomerDay(ctx, timezone)
 }
+
+// PlatformCustomerDay names a Customer and a day, YYYY-MM-DD on the clock the
+// caller asked for.
+type PlatformCustomerDay struct {
+	Day        string
+	CustomerID string
+}
+
+// PlatformCustomersVerifiedByDay is every Customer who became a Verified
+// Customer in [from, until) with the day they did, in the named timezone. It
+// is for the daily close, which splits the Customers active on a day into
+// new and returning with it (#817) and freezes counts alone; nothing that
+// answers a request may read it, since no route returns a Customer for a
+// day (ADR 0080).
+func (s *Service) PlatformCustomersVerifiedByDay(ctx context.Context, from, until time.Time, timezone string) ([]PlatformCustomerDay, error) {
+	rows, err := s.repo.PlatformCustomersVerifiedByDay(ctx, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PlatformCustomerDay, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, PlatformCustomerDay{Day: row.Day, CustomerID: row.CustomerID})
+	}
+	return out, nil
+}

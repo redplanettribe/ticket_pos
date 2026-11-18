@@ -717,13 +717,13 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	catalogService = catalogService.WithDossierSaleDocuments(invoicingService)
 
 	// Platform Trends owns the activity totals its daily close freezes and
-	// the Organization markers it counts them from. Everything else it reads: Tickets Sold, money and the sale
+	// the Organization and Customer markers it counts them from. Everything else it reads: Tickets Sold, money and the sale
 	// half of Active Organizations through sales, new Verified Customers
 	// through customers, new Organizations through identity, Page Views
 	// through affiliates, which keeps their hourly buckets, and Events
 	// Published through catalog, all on the platform clock.
 	platformTrendsRepository := platformtrendsrepo.New(db)
-	platformTrendsService := platformtrendssvc.New(platformTrendsRepository, platformTrendsRepository, platformLogger, salesService, customersService, identityService, affiliatesService, catalogService)
+	platformTrendsService := platformtrendssvc.New(platformTrendsRepository, platformTrendsRepository, platformTrendsRepository, platformLogger, salesService, customersService, identityService, affiliatesService, catalogService)
 	if options.clock != nil {
 		platformTrendsService = platformTrendsService.WithClock(options.clock)
 	}
@@ -731,6 +731,17 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// identity says so where it loads a request's Active Member, on its own
 	// clock, and Platform Trends keeps the marker.
 	identityService.WithOrganizationActivity(platformTrendsService)
+	// A Customer acting as themselves marks their own day (#817, ADR 0080):
+	// customers says so where a request is authenticated by a full Customer
+	// Session and where a sign-in mints one, and catalog where a Ticket
+	// Assignment is accepted through an Assignment Link, each on its own
+	// clock. Platform Trends keeps the marker, and only while Customer
+	// recording is switched on, which it is not unless
+	// CUSTOMER_ACTIVITY_RECORDING_ENABLED says so (ADR 0045): both modules
+	// call it always and know nothing of the switch.
+	platformTrendsService = platformTrendsService.WithCustomerActivityRecording(cfg.CustomerActivityRecordingEnabled)
+	customersService.WithCustomerActivity(platformTrendsService)
+	catalogService.WithCustomerActivity(platformTrendsService)
 	platformTrendsHandler := platformtrendshandler.New(platformTrendsService)
 
 	return &App{

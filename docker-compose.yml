@@ -96,6 +96,13 @@ services:
       # decision ADR 0045 was written to prevent being taken casually: it must
       # wait for a Policy Version that describes the collection.
       TICKET_QUESTIONS_ENABLED: ${TICKET_QUESTIONS_ENABLED:-}
+      # Customer activity recording (#817, ADR 0080). Empty by default, which
+      # writes no Customer marker and leaves Platform Trends saying Active
+      # Customers is not yet recorded - the shipped state. Set
+      # CUSTOMER_ACTIVITY_RECORDING_ENABLED=true in the root .env to work on
+      # the figure locally. In production it waits on a Privacy Policy edition
+      # describing the recording (ADR 0045).
+      CUSTOMER_ACTIVITY_RECORDING_ENABLED: ${CUSTOMER_ACTIVITY_RECORDING_ENABLED:-}
       # Ticket Assignment (#324, parent #322). ITS OWN VARIABLE, separate from
       # the one above: assignment can be worked on, or killed, without taking
       # Ticket Questions with it. Empty by default, which leaves the buyer's

@@ -35,6 +35,7 @@ type dailyCloseResult struct {
 	ClosedThrough  string  `json:"closed_through"`
 
 	OrganizationMarkersDeleted int `json:"organization_markers_deleted"`
+	CustomerMarkersDeleted     int `json:"customer_markers_deleted"`
 }
 
 type platformTrendsActivityFigure struct {

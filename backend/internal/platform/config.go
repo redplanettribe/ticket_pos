@@ -124,6 +124,22 @@ type Config struct {
 	// surface changes, and no export changes — the staff endpoints answer 404 as
 	// a build without the feature does.
 	TicketQuestionsEnabled bool
+	// CustomerActivityRecordingEnabled switches on the recording of Customer
+	// activity markers, from CUSTOMER_ACTIVITY_RECORDING_ENABLED (#817, ADR
+	// 0080): one row per Customer per platform day they acted as themselves,
+	// which Platform Trends' Active Customers is counted from.
+	//
+	// IT STARTS FALSE. The marker is personal data and the first record the
+	// platform keeps of what a person did on a day, so under ADR 0045 it is
+	// written only once a Privacy Policy edition describing it is published,
+	// in every language the policy is published in. Deploying the code
+	// starts no collection.
+	//
+	// With it off no marker is written, the daily close freezes no Active
+	// Customers figure, and Platform Trends says the figure is not yet
+	// recorded. It is its own switch and no other feature's: Organization
+	// markers name no person and are always written.
+	CustomerActivityRecordingEnabled bool
 	// TicketAssignmentEnabled opens Ticket Assignment — the buyer naming an
 	// email address for one of their Tickets — from TICKET_ASSIGNMENT_ENABLED
 	// (#324, parent #322).
@@ -681,6 +697,11 @@ func LoadConfig() (Config, error) {
 		// leaves Ticket Question authoring closed. A typo in this setting must
 		// never be what opens it (ADR 0045).
 		TicketQuestionsEnabled: envIsTrue("TICKET_QUESTIONS_ENABLED"),
+
+		// Read the same permissive way round: unset, empty or misspelt leaves
+		// Customer activity unrecorded, and a typo can never be what starts
+		// the collection (ADR 0045, ADR 0080).
+		CustomerActivityRecordingEnabled: envIsTrue("CUSTOMER_ACTIVITY_RECORDING_ENABLED"),
 
 		// Read the same permissive way round as its neighbour, and read from
 		// its OWN variable: a deployment that opened Ticket Questions has said

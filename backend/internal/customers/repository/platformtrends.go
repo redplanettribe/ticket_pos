@@ -63,3 +63,37 @@ func (r *Repository) PlatformFirstVerifiedCustomerDay(ctx context.Context, timez
 	}
 	return day.String, day.Valid, nil
 }
+
+// PlatformCustomerDay names a Customer and a day, YYYY-MM-DD on the clock the
+// caller named. It is read by the daily close alone, which counts with it
+// and keeps no Customer (#817, ADR 0080).
+type PlatformCustomerDay struct {
+	Day        string
+	CustomerID string
+}
+
+// PlatformCustomersVerifiedByDay is every Customer who became a Verified
+// Customer in [from, until) with the day they did, for the daily close's
+// split of Active Customers into new and returning (#817). The instant is
+// verified_at, as in PlatformNewVerifiedCustomersByDay.
+func (r *Repository) PlatformCustomersVerifiedByDay(ctx context.Context, from, until time.Time, timezone string) ([]PlatformCustomerDay, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT to_char((verified_at AT TIME ZONE $3)::date, 'YYYY-MM-DD'), id
+		FROM customers
+		WHERE verified_at >= $1 AND verified_at < $2
+	`, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PlatformCustomerDay
+	for rows.Next() {
+		var day PlatformCustomerDay
+		if err := rows.Scan(&day.Day, &day.CustomerID); err != nil {
+			return nil, err
+		}
+		out = append(out, day)
+	}
+	return out, rows.Err()
+}

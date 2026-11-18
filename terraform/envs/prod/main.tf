@@ -192,6 +192,12 @@ module "ticket_pos" {
   # so it is false until somebody writes one.
   ticket_assignment_enabled = var.ticket_assignment_enabled
 
+  # Customer activity recording (#817, ADR 0080). Threaded through on the two
+  # lines above's terms: a gate somebody must open on purpose, after the
+  # Privacy Policy edition describing the recording is published. It has no
+  # entry in terraform.tfvars, so it is false until somebody writes one.
+  customer_activity_recording_enabled = var.customer_activity_recording_enabled
+
   # Sentry reporting, one switch per deployable (ADR 0079, #777). All three are
   # off, which is how the integration ships: the Sentry projects, keys and alert
   # rules exist, and no service has a DSN. Each is a gate to open after the

@@ -260,6 +260,10 @@ func (s *Service) mintSession(ctx context.Context, customer *repository.Customer
 	if err := s.repo.CreateSession(ctx, session); err != nil {
 		return repository.CustomerSession{}, nil, err
 	}
+	// The sign-in that mints a Customer Session is the Customer acting as
+	// themselves (#817): they have just proven the address, by passcode or
+	// Google Sign-In, neither of which passes through authenticate.
+	s.markActive(ctx, customer.ID, now)
 	return session, s.sessionView(customer, &session, outstanding), nil
 }
 
@@ -373,6 +377,12 @@ func (s *Service) authenticate(ctx context.Context, token string) (*repository.C
 			return nil, nil, err
 		}
 		session.ExpiresAt = newExpiry
+		// And only a full Customer Session is the Customer acting as
+		// themselves (#817, ADR 0080). Every request authenticated by one
+		// passes here, the middleware's and the direct callers' alike. A
+		// sale-scoped session passes here too and marks nobody: the
+		// Confirmation Link behind it may have been forwarded.
+		s.markActive(ctx, customer.ID, now)
 	}
 
 	return session, customer, nil

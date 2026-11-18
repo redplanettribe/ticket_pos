@@ -326,6 +326,9 @@ type Service struct {
 	// service that accepts nothing: the accept route reports the link
 	// unavailable rather than accepting a Ticket on behalf of nobody.
 	holders HolderCustomers
+	// customerActivity is told when a Ticket Assignment is accepted through
+	// an Assignment Link (#817). Nil until WithCustomerActivity sets it.
+	customerActivity CustomerActivity
 	// assignmentMailLimits rations the Assignment mail (#332, parent #322): a
 	// hard per-Ticket cap and a per-buyer rate limit.
 	//
@@ -514,6 +517,24 @@ func (s *Service) WithRevocationMail(mailer RevocationMailer, recipients Revocat
 
 func (s *Service) WithHolderCustomers(holders HolderCustomers) *Service {
 	s.holders = holders
+	return s
+}
+
+// CustomerActivity is the one thing catalog tells Platform Trends: that a
+// Customer acted as themselves at an instant, which here is a Holder
+// accepting a Ticket Assignment through an Assignment Link (#817, ADR 0080).
+// It returns nothing, because nothing about recording it may fail or slow
+// the acceptance; whoever implements it keeps its own failures to itself,
+// and decides for itself whether anything is recorded at all.
+type CustomerActivity interface {
+	MarkCustomerActive(ctx context.Context, customerID string, at time.Time)
+}
+
+// WithCustomerActivity sets who is told when a Ticket Assignment is
+// accepted. Platform Trends is built after catalog, which it reads, so this
+// is set once both exist.
+func (s *Service) WithCustomerActivity(activity CustomerActivity) *Service {
+	s.customerActivity = activity
 	return s
 }
 
