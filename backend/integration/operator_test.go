@@ -206,6 +206,7 @@ func operatorRoutes(orgID string) []struct {
 		// Platform Trends (#810): its own module on this namespace, behind the
 		// same gate. Followed through in platform_trends_test.go.
 		{http.MethodGet, "/api/v1/operator/platform-trends"},
+		{http.MethodGet, "/api/v1/operator/platform-trends/breakdown?figure=tickets_sold&first_day=2026-07-06"},
 	}
 }
 

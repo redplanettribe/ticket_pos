@@ -29,3 +29,11 @@ func (s *Service) PlatformFirstEventPublishedDay(ctx context.Context, timezone s
 func (s *Service) PlatformEventsPublishedExactSince(ctx context.Context) (string, bool, error) {
 	return s.repo.PlatformEventsPublishedExactSince(ctx)
 }
+
+// PlatformEventsPublished is every Event first published in [from, until),
+// oldest publication first, every Organization included, read for the
+// breakdown of Platform Trends (#818): the Events
+// PlatformEventsPublishedByDay counts, each once.
+func (s *Service) PlatformEventsPublished(ctx context.Context, from, until time.Time) ([]platform.EventCount, error) {
+	return s.repo.PlatformEventsPublished(ctx, from, until)
+}

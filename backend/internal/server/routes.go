@@ -485,6 +485,7 @@ func registerOperatorRoutes(mux Router, app *App) {
 	// same gate, with no Active Member: the figures are the platform's, House
 	// Organizations included, and belong to no Organization.
 	mux.Handle("GET /api/v1/operator/platform-trends", operator(http.HandlerFunc(app.PlatformTrendsHandler.GetPlatformTrends)))
+	mux.Handle("GET /api/v1/operator/platform-trends/breakdown", operator(http.HandlerFunc(app.PlatformTrendsHandler.GetPlatformTrendBreakdown)))
 
 	// Tax invoicing (#450, ADR 0059): the platform's Issuer with each country's
 	// Tax Authority, and — from #454 — the Tax Invoices it issues by hand. The

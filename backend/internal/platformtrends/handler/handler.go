@@ -135,3 +135,106 @@ func parseDay(field, raw string, fields *[]platform.FieldError) (time.Time, bool
 	}
 	return day, true
 }
+
+// GetPlatformTrendBreakdown returns what one bucket of one figure was made of.
+//
+// @Summary      Get what a bucket of a Platform Trends figure was made of
+// @Description  Returns the breakdown of one figure of Platform Trends for one bucket: the Organizations and Events that contributed, ranked, each with the ids the page links on. figure is the figure's name in the Platform Trends response. A bucket is named by its first day (first_day, YYYY-MM-DD on the platform clock, America/Guayaquil) and its length (granularity, day by default, or week, as the Platform Trends response states for the span). A day may be today, which is answered with partial true; a day after today is refused. A week is the seven days from first_day and must end before today, as every weekly bucket of a span does; the one weekly bucket shorter than seven days, the stub a custom range may begin with, is named with its last_day too, which a day ignores. totals states what Platform Trends states for the bucket and the contributors keyed the same add up to it: one total keyed all for a count, and for a money figure one per currency an Organization is in, keyed by the currency code, in its minor units, never converted or added together. Every figure is broken down by the definition Platform Trends counts it by. Tickets Sold is the quantity over active Ticket Sales by the day sold, summed across Sales Channels, by Organization and by Event. Money sold and Platform Fee earned are stated by Organization and by Event, each keyed by its Organization's currency and ranked within it; a reversed Ticket Sale is in neither Tickets Sold nor money sold, and a reversed Online Sale whose fee the platform kept stays in Platform Fee earned. Page Views is ranked by Event. Events Published lists the Events first published in the bucket and new Organizations the Organizations created in it, oldest first, each with value 1. New Verified Customers states its total alone: no field of this response, and no parameter of this route, returns or takes a Customer. A contributor with nothing for the figure is left out, and a figure not broken down by Organization or by Event states an empty list there. An Event carries its Organization's id and name: there is no operator page for an Event, so it links to its Organization's. Ranked lists are ordered by key, then largest first, then by name. The breakdown of the two activity figures, Active Organizations and Active Customers, is not available yet: it is answered with available false and empty lists. Platform Operator only.
+// @Tags         operator
+// @Produce      json
+// @Security     BearerAuth
+// @Param        figure       query  string  true   "Figure"  Enums(tickets_sold, money_sold, platform_fee_earned, new_verified_customers, new_organizations, page_views, events_published, active_organizations, active_customers)
+// @Param        first_day    query  string  true   "First day of the bucket (YYYY-MM-DD)"
+// @Param        granularity  query  string  false  "Length of the bucket"  Enums(day, week)  default(day)
+// @Param        last_day     query  string  false  "Last day of a weekly bucket shorter than seven days (YYYY-MM-DD)"
+// @Success      200  {object}  openapi.EnvelopePlatformTrendBreakdown
+// @Failure      400  {object}  platform.Envelope
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Router       /api/v1/operator/platform-trends/breakdown [get]
+func (h *Handler) GetPlatformTrendBreakdown(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	figure, query, fields := parseBreakdownQuery(r.URL.Query())
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+	bucket, ok := h.svc.ResolveBucket(query)
+	if !ok {
+		message := "must not be after today"
+		if query.Granularity == service.GranularityWeek {
+			message = "a weekly bucket must end before today: a span ends at the close of yesterday"
+		}
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "first_day", Code: platform.CodeStartAfterEnd, Message: message}})
+		return
+	}
+
+	breakdown, err := h.svc.Breakdown(r.Context(), figure, bucket)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, breakdown)
+}
+
+// parseBreakdownQuery checks the shape of a breakdown request: a known
+// figure, a known granularity (day when absent), a well-formed first day
+// and, for a week alone, an optional last day within the seven days from the
+// first. Every field error is returned at once. Where the bucket falls
+// against today is the service's to resolve.
+func parseBreakdownQuery(values url.Values) (service.BreakdownFigure, service.BucketQuery, []platform.FieldError) {
+	var fields []platform.FieldError
+
+	figure := service.BreakdownFigure(strings.TrimSpace(values.Get("figure")))
+	switch {
+	case figure == "":
+		fields = append(fields, platform.FieldError{Field: "figure", Code: platform.CodeRequired, Message: "is required"})
+	case !slices.Contains(service.BreakdownFigures, figure):
+		fields = append(fields, invalidEnum("figure", service.BreakdownFigures))
+	}
+
+	granularity := service.PlatformTrendGranularity(strings.TrimSpace(values.Get("granularity")))
+	if granularity == "" {
+		granularity = service.GranularityDay
+	}
+	if !slices.Contains(service.Granularities, granularity) {
+		fields = append(fields, invalidEnum("granularity", service.Granularities))
+	}
+
+	query := service.BucketQuery{Granularity: granularity}
+	firstDay, firstOK := parseBucketDay("first_day", values.Get("first_day"), &fields)
+	query.FirstDay = firstDay
+	if granularity == service.GranularityWeek && strings.TrimSpace(values.Get("last_day")) != "" {
+		lastDay, lastOK := parseBucketDay("last_day", values.Get("last_day"), &fields)
+		switch {
+		case !firstOK || !lastOK:
+		case lastDay.Before(firstDay):
+			fields = append(fields, platform.FieldError{Field: "last_day", Code: platform.CodeEndBeforeStart, Message: "must be on or after first_day"})
+		case lastDay.Sub(firstDay) >= service.WeekDays*24*time.Hour:
+			fields = append(fields, platform.FieldError{
+				Field:   "last_day",
+				Code:    platform.CodeTooManyItems,
+				Message: fmt.Sprintf("a weekly bucket covers at most %d days", service.WeekDays),
+			})
+		default:
+			query.LastDay = &lastDay
+		}
+	}
+	return figure, query, fields
+}
+
+// parseBucketDay reads one day of a bucket, appending its refusal to fields.
+func parseBucketDay(field, raw string, fields *[]platform.FieldError) (time.Time, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		*fields = append(*fields, platform.FieldError{Field: field, Code: platform.CodeRequired, Message: "is required"})
+		return time.Time{}, false
+	}
+	day, err := time.Parse(service.DayFormat, raw)
+	if err != nil {
+		*fields = append(*fields, platform.FieldError{Field: field, Code: platform.CodeInvalidDate, Message: "must be a date (YYYY-MM-DD)"})
+		return time.Time{}, false
+	}
+	return day, true
+}

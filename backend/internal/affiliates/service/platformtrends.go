@@ -22,3 +22,12 @@ func (s *Service) PlatformPageViewsByDay(ctx context.Context, from, until time.T
 func (s *Service) PlatformFirstPageViewDay(ctx context.Context, timezone string) (string, bool, error) {
 	return s.repo.PlatformFirstPageViewDay(ctx, timezone)
 }
+
+// PlatformPageViewsByEvent is each Event's Page Views over the hourly
+// buckets in [from, until), every Organization included, read for the
+// breakdown of Platform Trends (#818). A load that came through an Affiliate
+// Link is one Page View, as in PlatformPageViewsByDay; an Event nobody
+// loaded is not returned.
+func (s *Service) PlatformPageViewsByEvent(ctx context.Context, from, until time.Time) ([]platform.EventCount, error) {
+	return s.repo.PlatformPageViewsByEvent(ctx, from, until)
+}

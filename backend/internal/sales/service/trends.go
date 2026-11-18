@@ -318,3 +318,35 @@ func (s *Service) PlatformCustomersWithOnlineSalesSoldByDay(ctx context.Context,
 	}
 	return out, nil
 }
+
+// PlatformEventSales is what one Event sold over a window: its Tickets Sold,
+// its money sold and the Platform Fee earned on it, the money in the minor
+// units of Currency, its Organization's.
+type PlatformEventSales struct {
+	OrganizationID   string
+	OrganizationName string
+	EventID          string
+	EventName        string
+	Currency         string
+	Quantity         int
+	SoldCents        int
+	PlatformFeeCents int
+}
+
+// PlatformSalesByEvent is what each Event sold over the Ticket Sales sold in
+// [from, until), every Organization included, read for the breakdown of
+// Platform Trends (#818). Each total goes by the definition of its figure
+// (PlatformTicketsSoldByDay, PlatformMoneyByDay), so an Event may be
+// returned with a Platform Fee and nothing sold: a reversed sale whose fee
+// the platform kept.
+func (s *Service) PlatformSalesByEvent(ctx context.Context, from, until time.Time) ([]PlatformEventSales, error) {
+	rows, err := s.repo.PlatformSalesByEvent(ctx, from, until)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PlatformEventSales, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, PlatformEventSales(row))
+	}
+	return out, nil
+}

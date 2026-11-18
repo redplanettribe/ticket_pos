@@ -348,3 +348,69 @@ func (r *Repository) PlatformCustomersWithOnlineSalesSoldByDay(ctx context.Conte
 	}
 	return out, rows.Err()
 }
+
+// PlatformEventSales is what one Event sold over a window: its Tickets Sold,
+// its money sold and the Platform Fee the platform earned on it, the money in
+// the minor units of Currency, its Organization's. It carries the names an
+// operator page states beside the ids.
+type PlatformEventSales struct {
+	OrganizationID   string
+	OrganizationName string
+	EventID          string
+	EventName        string
+	Currency         string
+	Quantity         int
+	SoldCents        int
+	PlatformFeeCents int
+}
+
+// PlatformSalesByEvent totals the Ticket Sales sold in [from, until) per
+// Event, for the breakdown of Platform Trends' Tickets Sold, money sold and
+// Platform Fee earned (#818, ADR 0080): what a bucket of those figures was
+// made of.
+//
+// Each total is the figure's own definition over the same sales, so the
+// Events of a window add up to what PlatformTicketsSoldByDay and
+// PlatformMoneyByDay state for its days: the quantity and lineBuyerPriceSQL
+// over active Ticket Sales on every Sales Channel, and linePlatformFeeSQL
+// over the sales whose fee is earned (feeEarnedSaleSQL), a reversed one whose
+// fee the platform kept among them. An Event whose only sale in the window
+// was reversed with its fee kept is therefore returned with a fee and
+// nothing sold; the caller leaves out whatever is zero for the figure it
+// states.
+//
+// The window is one of instants, bounded by the caller to whole days on the
+// platform clock, and nothing is grouped by day, so no timezone is passed.
+// No index is added, for the reason PlatformTicketsSoldByDay gives.
+func (r *Repository) PlatformSalesByEvent(ctx context.Context, from, until time.Time) ([]PlatformEventSales, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT
+			org.id, org.name, e.id, e.name, org.currency,
+			COALESCE(SUM(tsl.quantity) FILTER (WHERE ts.status = 'active'), 0)::bigint,
+			COALESCE(SUM(`+lineBuyerPriceSQL+`) FILTER (WHERE ts.status = 'active'), 0)::bigint,
+			COALESCE(SUM(`+linePlatformFeeSQL+`) FILTER (WHERE `+feeEarnedSaleSQL+`), 0)::bigint
+		FROM ticket_sales ts
+		JOIN ticket_sale_lines tsl ON tsl.ticket_sale_id = ts.id
+		JOIN organizations org ON org.id = ts.organization_id
+		JOIN events e ON e.id = ts.event_id
+		WHERE ts.sold_at >= $1 AND ts.sold_at < $2
+		  AND (ts.status = 'active' OR `+feeEarnedSaleSQL+`)
+		GROUP BY org.id, e.id
+		ORDER BY org.id, e.id
+	`, from, until)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PlatformEventSales
+	for rows.Next() {
+		var event PlatformEventSales
+		if err := rows.Scan(&event.OrganizationID, &event.OrganizationName, &event.EventID, &event.EventName, &event.Currency,
+			&event.Quantity, &event.SoldCents, &event.PlatformFeeCents); err != nil {
+			return nil, err
+		}
+		out = append(out, event)
+	}
+	return out, rows.Err()
+}

@@ -56,3 +56,30 @@ func (r *Repository) PlatformFirstOrganizationDay(ctx context.Context, timezone 
 	}
 	return day.String, day.Valid, nil
 }
+
+// PlatformNewOrganizations is every Organization created in [from, until),
+// oldest first, House Organizations included, for the breakdown of Platform
+// Trends' new Organizations (#818, ADR 0080): the Organizations
+// PlatformNewOrganizationsByDay counts, each once.
+func (r *Repository) PlatformNewOrganizations(ctx context.Context, from, until time.Time) ([]platform.OrganizationCount, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT id, name
+		FROM organizations
+		WHERE created_at >= $1 AND created_at < $2
+		ORDER BY created_at, id
+	`, from, until)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []platform.OrganizationCount
+	for rows.Next() {
+		organization := platform.OrganizationCount{Count: 1}
+		if err := rows.Scan(&organization.OrganizationID, &organization.OrganizationName); err != nil {
+			return nil, err
+		}
+		out = append(out, organization)
+	}
+	return out, rows.Err()
+}

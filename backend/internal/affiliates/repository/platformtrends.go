@@ -64,3 +64,35 @@ func (r *Repository) PlatformFirstPageViewDay(ctx context.Context, timezone stri
 	}
 	return day.String, day.Valid, nil
 }
+
+// PlatformPageViewsByEvent totals the Page Views of each Event over the
+// hourly buckets in [from, until), for the breakdown of Platform Trends'
+// Page Views (#818, ADR 0080). It sums the whole-page rows alone, as
+// PlatformPageViewsByDay does, so the Events of a window add up to what that
+// read states for its days. An Event nobody loaded in the window is not
+// returned. The range is served by event_page_views_whole_page_hour.
+func (r *Repository) PlatformPageViewsByEvent(ctx context.Context, from, until time.Time) ([]platform.EventCount, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT e.id, e.name, org.id, org.name, SUM(v.view_count)::bigint
+		FROM event_page_views v
+		JOIN events e ON e.id = v.event_id
+		JOIN organizations org ON org.id = e.organization_id
+		WHERE v.affiliate_link_id IS NULL AND v.hour >= $1 AND v.hour < $2
+		GROUP BY e.id, org.id
+		ORDER BY e.id
+	`, from, until)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []platform.EventCount
+	for rows.Next() {
+		var event platform.EventCount
+		if err := rows.Scan(&event.EventID, &event.EventName, &event.OrganizationID, &event.OrganizationName, &event.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, event)
+	}
+	return out, rows.Err()
+}

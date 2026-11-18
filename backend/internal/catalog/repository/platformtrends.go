@@ -81,3 +81,33 @@ func (r *Repository) PlatformEventsPublishedExactSince(ctx context.Context) (str
 	}
 	return day, true, nil
 }
+
+// PlatformEventsPublished is every Event first published in [from, until),
+// oldest publication first, for the breakdown of Platform Trends' Events
+// Published (#818, ADR 0080). It goes by first_published_at alone, as
+// PlatformEventsPublishedByDay does, so it lists exactly the Events that
+// read counts: one cancelled since is listed, a `draft` is not. Each counts
+// once.
+func (r *Repository) PlatformEventsPublished(ctx context.Context, from, until time.Time) ([]platform.EventCount, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT e.id, e.name, org.id, org.name
+		FROM events e
+		JOIN organizations org ON org.id = e.organization_id
+		WHERE e.first_published_at >= $1 AND e.first_published_at < $2
+		ORDER BY e.first_published_at, e.id
+	`, from, until)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []platform.EventCount
+	for rows.Next() {
+		event := platform.EventCount{Count: 1}
+		if err := rows.Scan(&event.EventID, &event.EventName, &event.OrganizationID, &event.OrganizationName); err != nil {
+			return nil, err
+		}
+		out = append(out, event)
+	}
+	return out, rows.Err()
+}

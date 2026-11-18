@@ -20,3 +20,11 @@ func (s *Service) PlatformNewOrganizationsByDay(ctx context.Context, from, until
 func (s *Service) PlatformFirstOrganizationDay(ctx context.Context, timezone string) (string, bool, error) {
 	return s.repo.PlatformFirstOrganizationDay(ctx, timezone)
 }
+
+// PlatformNewOrganizations is every Organization created in [from, until),
+// oldest first, House Organizations included, read for the breakdown of
+// Platform Trends (#818): the Organizations PlatformNewOrganizationsByDay
+// counts, each once.
+func (s *Service) PlatformNewOrganizations(ctx context.Context, from, until time.Time) ([]platform.OrganizationCount, error) {
+	return s.repo.PlatformNewOrganizations(ctx, from, until)
+}

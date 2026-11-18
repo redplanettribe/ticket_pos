@@ -7553,6 +7553,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/platform-trends/breakdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get what a bucket of a Platform Trends figure was made of
+         * @description Returns the breakdown of one figure of Platform Trends for one bucket: the Organizations and Events that contributed, ranked, each with the ids the page links on. figure is the figure's name in the Platform Trends response. A bucket is named by its first day (first_day, YYYY-MM-DD on the platform clock, America/Guayaquil) and its length (granularity, day by default, or week, as the Platform Trends response states for the span). A day may be today, which is answered with partial true; a day after today is refused. A week is the seven days from first_day and must end before today, as every weekly bucket of a span does; the one weekly bucket shorter than seven days, the stub a custom range may begin with, is named with its last_day too, which a day ignores. totals states what Platform Trends states for the bucket and the contributors keyed the same add up to it: one total keyed all for a count, and for a money figure one per currency an Organization is in, keyed by the currency code, in its minor units, never converted or added together. Every figure is broken down by the definition Platform Trends counts it by. Tickets Sold is the quantity over active Ticket Sales by the day sold, summed across Sales Channels, by Organization and by Event. Money sold and Platform Fee earned are stated by Organization and by Event, each keyed by its Organization's currency and ranked within it; a reversed Ticket Sale is in neither Tickets Sold nor money sold, and a reversed Online Sale whose fee the platform kept stays in Platform Fee earned. Page Views is ranked by Event. Events Published lists the Events first published in the bucket and new Organizations the Organizations created in it, oldest first, each with value 1. New Verified Customers states its total alone: no field of this response, and no parameter of this route, returns or takes a Customer. A contributor with nothing for the figure is left out, and a figure not broken down by Organization or by Event states an empty list there. An Event carries its Organization's id and name: there is no operator page for an Event, so it links to its Organization's. Ranked lists are ordered by key, then largest first, then by name. The breakdown of the two activity figures, Active Organizations and Active Customers, is not available yet: it is answered with available false and empty lists. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query: {
+                    /** @description Figure */
+                    figure: "tickets_sold" | "money_sold" | "platform_fee_earned" | "new_verified_customers" | "new_organizations" | "page_views" | "events_published" | "active_organizations" | "active_customers";
+                    /** @description First day of the bucket (YYYY-MM-DD) */
+                    first_day: string;
+                    /** @description Length of the bucket */
+                    granularity?: "day" | "week";
+                    /** @description Last day of a weekly bucket shorter than seven days (YYYY-MM-DD) */
+                    last_day?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopePlatformTrendBreakdown"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/question-reviews": {
         parameters: {
             query?: never;
@@ -16184,6 +16259,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopePlatformTrendBreakdown": {
+            data?: components["schemas"]["service.PlatformTrendBreakdown"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopePlatformTrends": {
             data?: components["schemas"]["service.PlatformTrends"];
             error?: components["schemas"]["platform.APIError"];
@@ -16913,6 +16993,11 @@ export interface components {
              */
             status?: "pending" | "approved";
         };
+        /**
+         * @description Figure is the figure broken down.
+         * @enum {string}
+         */
+        "service.BreakdownFigure": "tickets_sold" | "money_sold" | "platform_fee_earned" | "page_views" | "events_published" | "new_organizations" | "new_verified_customers" | "active_organizations" | "active_customers" | "tickets_sold" | "money_sold" | "platform_fee_earned" | "new_verified_customers" | "new_organizations" | "page_views" | "events_published" | "active_organizations" | "active_customers";
         "service.BuyerTicketAnswersView": {
             accepted_at?: string;
             /**
@@ -19864,6 +19949,93 @@ export interface components {
              */
             sale_half_only?: boolean;
         };
+        "service.PlatformTrendBreakdown": {
+            /**
+             * @description Available is false for a figure whose breakdown is not available yet,
+             *     the two activity figures. Totals, Organizations and Events are then
+             *     empty, which says nothing about the bucket.
+             */
+            available?: boolean;
+            /**
+             * @description Events is the Events that contributed, ranked, largest first within
+             *     each key. It is stated for Tickets Sold, the money figures and Page
+             *     Views, and for Events Published, where it is the list of the Events
+             *     published, oldest first, each counting one. Empty for every other
+             *     figure. New Verified Customers states its total alone: nothing here
+             *     names a Customer.
+             */
+            events?: components["schemas"]["service.PlatformTrendBreakdownEvent"][];
+            figure?: components["schemas"]["service.BreakdownFigure"];
+            /**
+             * @description FirstDay and LastDay are the days the bucket covers, both included.
+             * @example 2026-07-06
+             */
+            first_day?: string;
+            granularity?: components["schemas"]["service.PlatformTrendGranularity"];
+            /** @example 2026-07-06 */
+            last_day?: string;
+            /**
+             * @description Organizations is the Organizations that contributed, ranked, largest
+             *     first within each key. It is stated for Tickets Sold and the money
+             *     figures, and for new Organizations, where it is the list of the
+             *     Organizations created, oldest first, each counting one. Empty for
+             *     every other figure.
+             */
+            organizations?: components["schemas"]["service.PlatformTrendBreakdownOrganization"][];
+            /** @description Partial is true when the bucket is today, a day still running. */
+            partial?: boolean;
+            /**
+             * @description Timezone names the platform clock the bucket's days are read on.
+             * @example America/Guayaquil
+             */
+            timezone?: string;
+            /**
+             * @description Totals is what the first read states for the bucket: one total keyed
+             *     "all" for a count, summed across Sales Channels for Tickets Sold, and
+             *     one per currency an Organization is in for a money figure, in the
+             *     currency's minor units, zero or not. The contributors keyed the same
+             *     add up to it.
+             */
+            totals?: components["schemas"]["service.PlatformTrendBreakdownTotal"][];
+        };
+        "service.PlatformTrendBreakdownEvent": {
+            event_id?: string;
+            /**
+             * @description Key names the total this part counts toward: "all", or the currency
+             *     of the Event's Organization for a money figure.
+             * @example USD
+             */
+            key?: string;
+            name?: string;
+            /**
+             * @description OrganizationID is the Event's Organization, whose operator page an
+             *     Event links to: there is no operator page for an Event.
+             */
+            organization_id?: string;
+            organization_name?: string;
+            value?: number;
+        };
+        "service.PlatformTrendBreakdownOrganization": {
+            /**
+             * @description Key names the total this part counts toward: "all", or the
+             *     Organization's currency for a money figure.
+             * @example USD
+             */
+            key?: string;
+            name?: string;
+            /** @description OrganizationID is what the Organization's operator page is linked on. */
+            organization_id?: string;
+            value?: number;
+        };
+        "service.PlatformTrendBreakdownTotal": {
+            /**
+             * @description Key is "all" for a count and the currency code for a money figure.
+             * @example USD
+             */
+            key?: string;
+            /** @description Value is a count, or an amount in the minor units of the currency. */
+            value?: number;
+        };
         /**
          * @description Today is today's bucket, flagged partial and in no total. Present only
          *     when the span ends yesterday, which every preset does; a custom range
@@ -19956,8 +20128,7 @@ export interface components {
             tickets_sold?: components["schemas"]["service.PlatformTrendFigure"];
         };
         /**
-         * @description Granularity is the length of every bucket: day for a span of up to 90
-         *     days, week beyond.
+         * @description Granularity is the bucket's length.
          * @enum {string}
          */
         "service.PlatformTrendGranularity": "day" | "week";

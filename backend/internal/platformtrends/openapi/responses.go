@@ -16,6 +16,14 @@ type EnvelopePlatformTrends struct {
 	RequestID string                 `json:"request_id"`
 }
 
+// EnvelopePlatformTrendBreakdown documents GET
+// /operator/platform-trends/breakdown success responses.
+type EnvelopePlatformTrendBreakdown struct {
+	Data      service.PlatformTrendBreakdown `json:"data"`
+	Error     *platform.APIError             `json:"error"`
+	RequestID string                         `json:"request_id"`
+}
+
 // EnvelopeDailyClose documents POST /internal/platform-trends/close success
 // responses.
 type EnvelopeDailyClose struct {

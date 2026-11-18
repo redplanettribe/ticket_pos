@@ -28,7 +28,7 @@ import (
 // TicketSales is what Platform Trends needs from sales: the platform's Tickets
 // Sold per day and Sales Channel, its money sold and Platform Fee earned per
 // day and currency, the currencies it sells in, the first day it sold
-// anything, and, for the daily close, which Organizations a Ticket Sale was
+// anything, what each Event sold over a window, and, for the daily close, which Organizations a Ticket Sale was
 // recorded for on which day, the first day one was, and which Customers own
 // an Online Sale sold on which day.
 type TicketSales interface {
@@ -36,6 +36,7 @@ type TicketSales interface {
 	PlatformMoneyByDay(ctx context.Context, from, until time.Time, timezone string) ([]salessvc.PlatformMoneyDay, error)
 	PlatformCurrencies(ctx context.Context) ([]string, error)
 	PlatformFirstTicketSoldDay(ctx context.Context, timezone string) (string, bool, error)
+	PlatformSalesByEvent(ctx context.Context, from, until time.Time) ([]salessvc.PlatformEventSales, error)
 	PlatformOrganizationsWithSalesRecordedByDay(ctx context.Context, from, until time.Time, timezone string) ([]salessvc.PlatformSaleRecordedDay, error)
 	PlatformCustomersWithOnlineSalesSoldByDay(ctx context.Context, from, until time.Time, timezone string) ([]salessvc.PlatformCustomerSaleDay, error)
 	PlatformFirstSaleRecordedDay(ctx context.Context, timezone string) (string, bool, error)
@@ -51,24 +52,28 @@ type Customers interface {
 }
 
 // Organizations is what Platform Trends needs from identity: how many
-// Organizations were created per day, and the first day any was.
+// Organizations were created per day, the first day any was, and which were
+// created over a window.
 type Organizations interface {
+	PlatformNewOrganizations(ctx context.Context, from, until time.Time) ([]platform.OrganizationCount, error)
 	PlatformNewOrganizationsByDay(ctx context.Context, from, until time.Time, timezone string) ([]platform.DayCount, error)
 	PlatformFirstOrganizationDay(ctx context.Context, timezone string) (string, bool, error)
 }
 
 // PageViews is what Platform Trends needs from affiliates, which keeps the
-// hourly Page View buckets: the platform's Page Views per day, and the first
-// day any was counted.
+// hourly Page View buckets: the platform's Page Views per day, the first day
+// any was counted, and each Event's Page Views over a window.
 type PageViews interface {
+	PlatformPageViewsByEvent(ctx context.Context, from, until time.Time) ([]platform.EventCount, error)
 	PlatformPageViewsByDay(ctx context.Context, from, until time.Time, timezone string) ([]platform.DayCount, error)
 	PlatformFirstPageViewDay(ctx context.Context, timezone string) (string, bool, error)
 }
 
 // Events is what Platform Trends needs from catalog: how many Events were
-// first published per day, the first day any was, and the day exact
-// recording of that instant began.
+// first published per day, the first day any was, the day exact recording of
+// that instant began, and which Events were first published over a window.
 type Events interface {
+	PlatformEventsPublished(ctx context.Context, from, until time.Time) ([]platform.EventCount, error)
 	PlatformEventsPublishedByDay(ctx context.Context, from, until time.Time, timezone string) ([]platform.DayCount, error)
 	PlatformFirstEventPublishedDay(ctx context.Context, timezone string) (string, bool, error)
 	PlatformEventsPublishedExactSince(ctx context.Context) (string, bool, error)

@@ -2937,6 +2937,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopePlatformTrendBreakdown": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.PlatformTrendBreakdown"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopePlatformTrends": {
                 "properties": {
                     "data": {
@@ -4245,6 +4259,41 @@ const docTemplate = `{
                     }
                 },
                 "type": "object"
+            },
+            "service.BreakdownFigure": {
+                "description": "Figure is the figure broken down.",
+                "enum": [
+                    "tickets_sold",
+                    "money_sold",
+                    "platform_fee_earned",
+                    "page_views",
+                    "events_published",
+                    "new_organizations",
+                    "new_verified_customers",
+                    "active_organizations",
+                    "active_customers",
+                    "tickets_sold",
+                    "money_sold",
+                    "platform_fee_earned",
+                    "new_verified_customers",
+                    "new_organizations",
+                    "page_views",
+                    "events_published",
+                    "active_organizations",
+                    "active_customers"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "FigureTicketsSold",
+                    "FigureMoneySold",
+                    "FigurePlatformFeeEarned",
+                    "FigurePageViews",
+                    "FigureEventsPublished",
+                    "FigureNewOrganizations",
+                    "FigureNewVerifiedCustomers",
+                    "FigureActiveOrganizations",
+                    "FigureActiveCustomers"
+                ]
             },
             "service.BuyerTicketAnswersView": {
                 "properties": {
@@ -7982,6 +8031,123 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.PlatformTrendBreakdown": {
+                "properties": {
+                    "available": {
+                        "description": "Available is false for a figure whose breakdown is not available yet,\nthe two activity figures. Totals, Organizations and Events are then\nempty, which says nothing about the bucket.",
+                        "type": "boolean"
+                    },
+                    "events": {
+                        "description": "Events is the Events that contributed, ranked, largest first within\neach key. It is stated for Tickets Sold, the money figures and Page\nViews, and for Events Published, where it is the list of the Events\npublished, oldest first, each counting one. Empty for every other\nfigure. New Verified Customers states its total alone: nothing here\nnames a Customer.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.PlatformTrendBreakdownEvent"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "figure": {
+                        "$ref": "#/components/schemas/service.BreakdownFigure"
+                    },
+                    "first_day": {
+                        "description": "FirstDay and LastDay are the days the bucket covers, both included.",
+                        "example": "2026-07-06",
+                        "type": "string"
+                    },
+                    "granularity": {
+                        "$ref": "#/components/schemas/service.PlatformTrendGranularity"
+                    },
+                    "last_day": {
+                        "example": "2026-07-06",
+                        "type": "string"
+                    },
+                    "organizations": {
+                        "description": "Organizations is the Organizations that contributed, ranked, largest\nfirst within each key. It is stated for Tickets Sold and the money\nfigures, and for new Organizations, where it is the list of the\nOrganizations created, oldest first, each counting one. Empty for\nevery other figure.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.PlatformTrendBreakdownOrganization"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "partial": {
+                        "description": "Partial is true when the bucket is today, a day still running.",
+                        "type": "boolean"
+                    },
+                    "timezone": {
+                        "description": "Timezone names the platform clock the bucket's days are read on.",
+                        "example": "America/Guayaquil",
+                        "type": "string"
+                    },
+                    "totals": {
+                        "description": "Totals is what the first read states for the bucket: one total keyed\n\"all\" for a count, summed across Sales Channels for Tickets Sold, and\none per currency an Organization is in for a money figure, in the\ncurrency's minor units, zero or not. The contributors keyed the same\nadd up to it.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.PlatformTrendBreakdownTotal"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "service.PlatformTrendBreakdownEvent": {
+                "properties": {
+                    "event_id": {
+                        "type": "string"
+                    },
+                    "key": {
+                        "description": "Key names the total this part counts toward: \"all\", or the currency\nof the Event's Organization for a money figure.",
+                        "example": "USD",
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "description": "OrganizationID is the Event's Organization, whose operator page an\nEvent links to: there is no operator page for an Event.",
+                        "type": "string"
+                    },
+                    "organization_name": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.PlatformTrendBreakdownOrganization": {
+                "properties": {
+                    "key": {
+                        "description": "Key names the total this part counts toward: \"all\", or the\nOrganization's currency for a money figure.",
+                        "example": "USD",
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "description": "OrganizationID is what the Organization's operator page is linked on.",
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.PlatformTrendBreakdownTotal": {
+                "properties": {
+                    "key": {
+                        "description": "Key is \"all\" for a count and the currency code for a money figure.",
+                        "example": "USD",
+                        "type": "string"
+                    },
+                    "value": {
+                        "description": "Value is a count, or an amount in the minor units of the currency.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "service.PlatformTrendBucket": {
                 "description": "Today is today's bucket, flagged partial and in no total. Present only\nwhen the span ends yesterday, which every preset does; a custom range\nthat ends earlier has no today beside it.",
                 "properties": {
@@ -8096,7 +8262,7 @@ const docTemplate = `{
                 "type": "object"
             },
             "service.PlatformTrendGranularity": {
-                "description": "Granularity is the length of every bucket: day for a span of up to 90\ndays, week beyond.",
+                "description": "Granularity is the bucket's length.",
                 "enum": [
                     "day",
                     "week"
@@ -18003,6 +18169,114 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Get Platform Trends for a span",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/platform-trends/breakdown": {
+            "get": {
+                "description": "Returns the breakdown of one figure of Platform Trends for one bucket: the Organizations and Events that contributed, ranked, each with the ids the page links on. figure is the figure's name in the Platform Trends response. A bucket is named by its first day (first_day, YYYY-MM-DD on the platform clock, America/Guayaquil) and its length (granularity, day by default, or week, as the Platform Trends response states for the span). A day may be today, which is answered with partial true; a day after today is refused. A week is the seven days from first_day and must end before today, as every weekly bucket of a span does; the one weekly bucket shorter than seven days, the stub a custom range may begin with, is named with its last_day too, which a day ignores. totals states what Platform Trends states for the bucket and the contributors keyed the same add up to it: one total keyed all for a count, and for a money figure one per currency an Organization is in, keyed by the currency code, in its minor units, never converted or added together. Every figure is broken down by the definition Platform Trends counts it by. Tickets Sold is the quantity over active Ticket Sales by the day sold, summed across Sales Channels, by Organization and by Event. Money sold and Platform Fee earned are stated by Organization and by Event, each keyed by its Organization's currency and ranked within it; a reversed Ticket Sale is in neither Tickets Sold nor money sold, and a reversed Online Sale whose fee the platform kept stays in Platform Fee earned. Page Views is ranked by Event. Events Published lists the Events first published in the bucket and new Organizations the Organizations created in it, oldest first, each with value 1. New Verified Customers states its total alone: no field of this response, and no parameter of this route, returns or takes a Customer. A contributor with nothing for the figure is left out, and a figure not broken down by Organization or by Event states an empty list there. An Event carries its Organization's id and name: there is no operator page for an Event, so it links to its Organization's. Ranked lists are ordered by key, then largest first, then by name. The breakdown of the two activity figures, Active Organizations and Active Customers, is not available yet: it is answered with available false and empty lists. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Figure",
+                        "in": "query",
+                        "name": "figure",
+                        "required": true,
+                        "schema": {
+                            "enum": [
+                                "tickets_sold",
+                                "money_sold",
+                                "platform_fee_earned",
+                                "new_verified_customers",
+                                "new_organizations",
+                                "page_views",
+                                "events_published",
+                                "active_organizations",
+                                "active_customers"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "First day of the bucket (YYYY-MM-DD)",
+                        "in": "query",
+                        "name": "first_day",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Length of the bucket",
+                        "in": "query",
+                        "name": "granularity",
+                        "schema": {
+                            "default": "day",
+                            "enum": [
+                                "day",
+                                "week"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Last day of a weekly bucket shorter than seven days (YYYY-MM-DD)",
+                        "in": "query",
+                        "name": "last_day",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopePlatformTrendBreakdown"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Get what a bucket of a Platform Trends figure was made of",
                 "tags": [
                     "operator"
                 ]
