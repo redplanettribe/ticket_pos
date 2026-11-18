@@ -88,6 +88,34 @@ A whole surface, not a single screen: what it holds is spread across pages of it
 Does not exist for non-operators.
 _Avoid_: Admin panel, back office, console
 
+**Platform Trends**:
+The part of the Operator Dashboard for reading whether the platform is growing: Active Customers, Active Organizations, Page Views, Events Published, Tickets Sold by Sales Channel, money sold and Platform Fee earned per currency, new Verified Customers and new Organizations, each read over a chosen span of time and against the span before it.
+A growth watch and nothing else: it does not say whether the platform is healthy today, and it carries no rate built on Page Views, because a figure that counts loads cannot be divided into a figure that counts people or sales without lying when crawler traffic moves.
+States the platform as a whole, House Organizations included, so its figures agree with the totals the Operator Dashboard states elsewhere.
+Every day on it is the platform's day, one clock for the whole platform, whatever timezone an Event is held in or a Customer buys from.
+Today is shown but marked partial and left out of every total and comparison: a span ends at the close of yesterday.
+Compared against the span before it by default, or against the same span a year earlier.
+Any day or week on it opens into what it was made of - the Organizations and Events that contributed, ranked - which is a reading of the platform figure and not a page per Organization.
+Active Customers opens differently, because a Customer Session belongs to no Organization: by kind of Customer (new that day, returning, returning and bought), and never by name.
+_Avoid_: KPI dashboard, analytics, metrics, statistics, insights, platform dashboard
+
+**Active Customer**:
+A Customer who acted as themselves on a given day: used a Customer Session in any way, or accepted a Ticket Assignment.
+Both are acts by a person proven to be that Customer, which is the whole test.
+Opening a Confirmation Link does not count, since it may have been forwarded, and neither does a sale staff recorded on the Customer's behalf, since that is the staff acting.
+A figure about a day, not a kind of Customer: nobody is an Active Customer in general, and the word shares nothing with Active Event or Active Member.
+Counts people, which Page View never does; the two are stated side by side and never combined.
+Read per day and as the number of different Customers active across the last 7 and 30 days.
+_Avoid_: Active user, DAU, visitor, engaged customer, Verified Customer (which is a standing fact, not a day's activity)
+
+**Active Organization**:
+An Organization that was alive on the platform on a given day: a Ticket Sale was recorded for it on any Sales Channel, or a Member worked in it through a Staff Session.
+The day is the one the sale reached the platform, not the day it says it was sold: an old sale imported today is the Organization working today.
+A sale counts whoever caused it, so an Organization whose Customers bought online, or whose Integration Partner recorded sales, is active though no Member signed in.
+A Sale Reversal does not undo it: the sale happened, and activity is not money, so the day stays counted while the Tickets Sold and money of that same day drop.
+A figure about a day, like Active Customer, and unrelated to Active Event and Active Member.
+_Avoid_: Active organizer, active account, active tenant, live organization
+
 **Staff Locale**:
 The language the staff app is written in, and the language staff mail is written in, for the person signed in. English or Ecuadorian Spanish, the two the Storefront serves, and its Spanish is written in usted as Customer mail is (ADR 0033).
 A property of a person rather than of a page or of a Membership, keyed on the email address staff identity already runs on, so it follows somebody across devices and across Organizations, and a Platform Operator who is a Member of nowhere holds one too. Chosen from a switcher in the app shell — a control about you, not about the Organization — and absent, rather than English, until somebody has stated one.
@@ -130,6 +158,14 @@ _Avoid_: Upcoming (false of an Event mid-run and of a dateless draft), live, ope
 An Event that is over and was not cancelled — it is finished, which is not the same as saying it happened. A draft dated last March and never published is Past, because being over is judged on the clock alone and publishing has no say in it.
 The complement of Active Event within the Events that were never cancelled; together with Cancelled they partition every Event an Organization has.
 _Avoid_: Archived, expired, completed, historical, finished
+
+**Events Published**:
+How many Events were put up in a span of time, across every Organization: each Event counted once, on the day it first became `published`.
+Measures organizers putting Events up, not Events surviving: an Event cancelled afterwards stays counted on the day it was published.
+A `draft` never counts, however long ago it was created.
+An Event with External Registration counts like any other: its organizer put it up, though it will never show in Tickets Sold or in money.
+The day is the platform's, not the Event's: one clock for the whole platform, whatever timezone the Event is held in.
+_Avoid_: Events posted, events created, new events, listings
 
 **Discoverable**:
 A per-Event flag controlling whether a `published` Event appears in public listings — the Organization page and the global explorer — or is reachable by direct link only.
