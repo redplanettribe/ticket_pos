@@ -80,7 +80,7 @@ const countSeriesKey = "all"
 
 // Service reads Platform Trends.
 type Service struct {
-	totals        ActivityTotals
+	totals        ActivityTotalsStore
 	sales         TicketSales
 	customers     Customers
 	organizations Organizations
@@ -91,7 +91,7 @@ type Service struct {
 
 // New returns a Platform Trends service keeping its frozen activity totals in
 // totals and reading every other figure through the given modules.
-func New(totals ActivityTotals, sales TicketSales, customers Customers, organizations Organizations, pageViews PageViews, events Events) *Service {
+func New(totals ActivityTotalsStore, sales TicketSales, customers Customers, organizations Organizations, pageViews PageViews, events Events) *Service {
 	return &Service{totals: totals, sales: sales, customers: customers, organizations: organizations, pageViews: pageViews, events: events, now: time.Now}
 }
 

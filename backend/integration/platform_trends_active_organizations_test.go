@@ -402,6 +402,34 @@ func TestActiveOrganizationsStatesTheMeanTheDistinctCountsAndTheComparison(t *te
 	}
 }
 
+// TestTheDistinctCountsReachExactlySevenAndThirtyDaysBack: the 7 days ending
+// on 2026-07-06 begin on 2026-06-30 and the 30 days on 2026-06-07. An
+// Organization active on the first day of a run is in its count, and one
+// active the day before is not.
+func TestTheDistinctCountsReachExactlySevenAndThirtyDaysBack(t *testing.T) {
+	env := setupTest(t)
+	for slug, day := range map[string]time.Time{
+		"day-31-org": platformNoon(2026, 6, 6),
+		"day-30-org": platformNoon(2026, 6, 7),
+		"day-8-org":  platformNoon(2026, 6, 29),
+		"day-7-org":  platformNoon(2026, 6, 30),
+	} {
+		newSellingOrganization(t, env, slug).recordImport(t, env, day, "2026-06-01T15:00:00Z")
+	}
+
+	closeDaysAt(t, env, env.fixedClock)
+	figure := readActiveOrganizations(t, env, "?span=7d")
+	assertCount(t, "distinct_7d", figure.Distinct7Days, 1)
+	assertCount(t, "distinct_30d", figure.Distinct30Days, 3)
+
+	// A night closed on its own reads the same thirty days as a catch-up.
+	sharedApp.SalesService.WithClock(func() time.Time { return env.fixedClock })
+	closeDaysAt(t, env, platformNoon(2026, 7, 8))
+	figure = readActiveOrganizations(t, env, "?span=7d")
+	assertCount(t, "distinct_7d as of 2026-07-07", figure.Distinct7Days, 0)
+	assertCount(t, "distinct_30d as of 2026-07-07", figure.Distinct30Days, 2)
+}
+
 // TestTheFirstDailyCloseFreezesEveryDayBackToTheFirstRecordedSale, and a
 // weekly bucket is the mean of its frozen days: the week holding the first
 // day starts on it, and the weeks before it are absent.

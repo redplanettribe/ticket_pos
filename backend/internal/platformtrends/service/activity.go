@@ -23,9 +23,9 @@ import (
 // 7-day and 30-day distinct counts, which the close froze as of each day,
 // ride beside it as of the span's last day.
 
-// ActivityTotals is what Platform Trends keeps for itself: the totals the
-// daily close freezes per platform day.
-type ActivityTotals interface {
+// ActivityTotalsStore is what Platform Trends keeps for itself: the totals
+// the daily close freezes per platform day.
+type ActivityTotalsStore interface {
 	FreezeActivityTotals(ctx context.Context, totals repository.ActivityTotals, frozenAt time.Time) (bool, error)
 	ActivityTotalsBetween(ctx context.Context, firstDay, lastDay string) ([]repository.ActivityTotals, error)
 	FirstFrozenActivityDay(ctx context.Context) (string, bool, error)

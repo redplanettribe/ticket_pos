@@ -702,7 +702,7 @@ Two alert rules email the `ticket-pos` team, in production, when a monitor's iss
 Each exists only while there is a monitor for it to watch.
 
 **What a full apply creates**, with every switch on and every job unpaused, on top of the 22 above: 10 cron monitors, 2 uptime monitors and the 2 alert rules.
-The free Developer plan allows one cron monitor and one uptime monitor, so the full set needs a paid plan with pay-as-you-go for the other eight cron monitors and the second uptime monitor; upgrade before switching on the API (seven cron monitors at once in production, above) or both Next apps.
+The free Developer plan allows one cron monitor and one uptime monitor, so the full set needs a paid plan with pay-as-you-go for the other nine cron monitors and the second uptime monitor; upgrade before switching on the API (seven cron monitors at once in production, above) or both Next apps.
 Nothing in the code depends on the plan: every job checks in whether or not its monitor exists.
 
 **Testing the switches.**
