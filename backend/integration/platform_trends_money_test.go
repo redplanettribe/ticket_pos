@@ -21,7 +21,8 @@ import (
 const importedPriceCents = 1500
 
 // moveSaleSoldAtByRef restages when one Online Sale was made, as
-// moveSaleSoldAt does for an Event with a single one.
+// moveSaleSoldAt does for an Event with a single one: a checkout is sold at
+// the fixed clock, which is today, and no route backdates one.
 func moveSaleSoldAtByRef(t *testing.T, env *testEnv, confirmationRef string, soldAt time.Time) {
 	t.Helper()
 	res, err := env.db.Exec(`UPDATE ticket_sales SET sold_at = $1 WHERE confirmation_ref = $2`, soldAt, confirmationRef)
@@ -205,10 +206,10 @@ func TestPlatformTrendsMoneyFollowsAReversal(t *testing.T) {
 	}
 
 	operatorReverseOK(t, env, operatorSessionID, keptRef, operatorReversalBody{
-		RefundedAmountCents: intPtr(paidRefund(1)), PlatformFeeKept: boolPtr(true), Note: strPtr("commission kept"),
+		RefundedAmountCents: intPtr(paidRefund(1)), PlatformFeeKept: boolPtr(true), Note: strPtr("fee kept"),
 	})
 	operatorReverseOK(t, env, operatorSessionID, returnedRef, operatorReversalBody{
-		RefundedAmountCents: intPtr(paidRefund(1)), PlatformFeeKept: boolPtr(false), Note: strPtr("commission returned"),
+		RefundedAmountCents: intPtr(paidRefund(1)), PlatformFeeKept: boolPtr(false), Note: strPtr("fee returned"),
 	})
 	undoBatch(t, env, adminSessionID, eventID, undone)
 
@@ -246,13 +247,13 @@ func TestPlatformTrendsPlatformFeeEarnedOverAllTimeIsTheOperatorSummarys(t *test
 
 	operatorSessionID := operatorSession(t, env, "operator@example.com")
 	operatorReverseOK(t, env, operatorSessionID, keptRef, operatorReversalBody{
-		RefundedAmountCents: intPtr(paidRefund(2)), PlatformFeeKept: boolPtr(true), Note: strPtr("commission kept"),
+		RefundedAmountCents: intPtr(paidRefund(2)), PlatformFeeKept: boolPtr(true), Note: strPtr("fee kept"),
 	})
 	operatorReverseOK(t, env, operatorSessionID, returnedRef, operatorReversalBody{
-		RefundedAmountCents: intPtr(paidRefund(1)), PlatformFeeKept: boolPtr(false), Note: strPtr("commission returned"),
+		RefundedAmountCents: intPtr(paidRefund(1)), PlatformFeeKept: boolPtr(false), Note: strPtr("fee returned"),
 	})
 	operatorReverseOK(t, env, operatorSessionID, euroKeptRef, operatorReversalBody{
-		RefundedAmountCents: intPtr(paidRefund(1)), PlatformFeeKept: boolPtr(true), Note: strPtr("commission kept"),
+		RefundedAmountCents: intPtr(paidRefund(1)), PlatformFeeKept: boolPtr(true), Note: strPtr("fee kept"),
 	})
 
 	var summary operatorSummary

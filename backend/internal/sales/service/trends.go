@@ -232,8 +232,8 @@ type PlatformMoneyDay struct {
 // PlatformMoneyByDay is the platform's money sold and Platform Fee earned per
 // day and currency over the Ticket Sales sold in [from, until), every
 // Organization included, read for Platform Trends (#812). Money sold is the
-// ticket price times the quantity, before any fee, over active Ticket Sales
-// on every Sales Channel. Platform Fee earned is the fee the operator summary
+// buyer price times the quantity, before any fee is withheld, over active
+// Ticket Sales on every Sales Channel. Platform Fee earned is the fee the operator summary
 // totals (PlatformCurrencyTotals), by the same definition: active Online
 // Sales plus reversed ones whose fee the platform kept, excluding Fee IVA.
 // Days with no money have no entry, and no currency is converted.

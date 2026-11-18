@@ -153,15 +153,16 @@ type PlatformMoneyDay struct {
 // 0080). The currency is the selling Organization's, and currencies are never
 // added together or converted, as on the operator summary (ADR 0015).
 //
-// Money sold is lineGrossPriceSQL, the ticket price times the quantity before
-// any fee is taken out, over active Ticket Sales on every Sales Channel: a
+// Money sold is lineBuyerPriceSQL, the buyer price times the quantity before
+// any fee is withheld, over active Ticket Sales on every Sales Channel: a
 // reversed sale drops out of its sold day.
 //
 // Platform Fee earned is the operator summary's own definition, the fragments
-// orgMoneySQL is written with: the fee of every line of a sale whose fee
-// stands, which is an active Online Sale or a reversed one whose fee the
-// platform kept, excluding Fee IVA. Summed over all time it is therefore the
-// Platform Fee PlatformCurrencyTotals states, per currency. Import and
+// orgMoneySQL is written with: the fee of every line of a sale whose fee is
+// earned (feeEarnedSaleSQL), which is an active Online Sale or a reversed one
+// whose fee the platform kept, excluding Fee IVA. Summed over every sold_at
+// it is therefore the Platform Fee PlatformCurrencyTotals states, per
+// currency. Import and
 // in-person sales add nothing to it.
 //
 // Days are read as PlatformTicketsSoldByDay reads them, on the zone the
@@ -171,13 +172,13 @@ func (r *Repository) PlatformMoneyByDay(ctx context.Context, from, until time.Ti
 		SELECT
 			to_char((ts.sold_at AT TIME ZONE $3)::date, 'YYYY-MM-DD') AS day,
 			org.currency,
-			COALESCE(SUM(`+lineGrossPriceSQL+`) FILTER (WHERE ts.status = 'active'), 0)::bigint,
-			COALESCE(SUM(`+linePlatformFeeSQL+`) FILTER (WHERE (`+feeStandingSaleSQL+`) OR (`+feeKeptSaleSQL+`)), 0)::bigint
+			COALESCE(SUM(`+lineBuyerPriceSQL+`) FILTER (WHERE ts.status = 'active'), 0)::bigint,
+			COALESCE(SUM(`+linePlatformFeeSQL+`) FILTER (WHERE `+feeEarnedSaleSQL+`), 0)::bigint
 		FROM ticket_sales ts
 		JOIN ticket_sale_lines tsl ON tsl.ticket_sale_id = ts.id
 		JOIN organizations org ON org.id = ts.organization_id
 		WHERE ts.sold_at >= $1 AND ts.sold_at < $2
-		  AND (ts.status = 'active' OR (`+feeKeptSaleSQL+`))
+		  AND (ts.status = 'active' OR `+feeEarnedSaleSQL+`)
 		GROUP BY 1, 2
 		ORDER BY 1, 2
 	`, from, until, timezone)

@@ -106,15 +106,16 @@ type PlatformTrendFigures struct {
 	// TicketsSold is the quantity over active Ticket Sales, by the instant
 	// sold, one series per Sales Channel.
 	TicketsSold PlatformTrendFigure `json:"tickets_sold"`
-	// MoneySold is the ticket price times the quantity, before any fee, over
-	// active Ticket Sales on every Sales Channel, by the instant sold, in
+	// MoneySold is the buyer price times the quantity, before any fee is
+	// withheld, over active Ticket Sales on every Sales Channel, by the instant sold, in
 	// minor units, one series per currency. Currencies are never converted or
 	// added together, so the figure has no total of its own.
 	MoneySold PlatformTrendFigure `json:"money_sold"`
 	// PlatformFeeEarned is the Platform Fee, excluding Fee IVA, on active
 	// Online Sales and on reversed ones whose fee the platform kept, by the
-	// instant sold, in minor units, one series per currency. Over all time
-	// it is the Platform Fee the operator summary states. It has no total of
+	// instant sold, in minor units, one series per currency. Over every
+	// day up to today, today's bucket included, it is the Platform Fee the
+	// operator summary states. It has no total of
 	// its own, as MoneySold has none.
 	PlatformFeeEarned PlatformTrendFigure `json:"platform_fee_earned"`
 }

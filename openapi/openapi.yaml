@@ -7075,8 +7075,9 @@ components:
       description: |-
         PlatformFeeEarned is the Platform Fee, excluding Fee IVA, on active
         Online Sales and on reversed ones whose fee the platform kept, by the
-        instant sold, in minor units, one series per currency. Over all time
-        it is the Platform Fee the operator summary states. It has no total of
+        instant sold, in minor units, one series per currency. Over every
+        day up to today, today's bucket included, it is the Platform Fee the
+        operator summary states. It has no total of
         its own, as MoneySold has none.
       properties:
         change:
@@ -15932,11 +15933,12 @@ paths:
         by the currency code, every value in that currency''s minor units; no currency
         is converted or added to another, so both figures have a null total and each
         series carries its own total, comparison_total and change. Money sold is the
-        ticket price times the quantity, before any fee, over active Ticket Sales
-        on every Sales Channel by the day sold. Platform Fee earned is the Platform
-        Fee, excluding Fee IVA, on active Online Sales and on reversed ones whose
-        fee the platform kept, by the day sold; over all time it equals the Platform
-        Fee the operator summary states per currency. Platform Operator only.'
+        buyer price times the quantity, before the Platform Fee and Fee IVA are withheld,
+        over active Ticket Sales on every Sales Channel by the day sold. Platform
+        Fee earned is the Platform Fee, excluding Fee IVA, on active Online Sales
+        and on reversed ones whose fee the platform kept, by the day sold; over every
+        day up to today, today''s bucket included, it equals the Platform Fee the
+        operator summary states per currency. Platform Operator only.'
       parameters:
       - description: Span
         in: query
