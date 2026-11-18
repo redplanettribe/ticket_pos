@@ -52,7 +52,7 @@ export {
   type TrendTileReading,
   type TrendTileSecondary,
 } from "./components/charts/trend-tile";
-export { roundedTrendChange, trendDirection, type TrendDirection } from "./components/charts/trend-tile-reading";
+export { trendDirection, type TrendDirection } from "./components/charts/trend-tile-reading";
 export { ErrorScreen, type ErrorScreenLabels, type ErrorScreenLayout } from "./components/error-screen";
 export { NotFoundScreen, type NotFoundScreenLabels } from "./components/not-found-screen";
 export { EventShell, type EventShellLabels } from "./components/event-shell";

@@ -188,6 +188,17 @@ test("a change is a signed percentage in the reader's marks", () => {
   assert.match(formatTrendChange(-0.1, "es"), /^-10\s?%$/);
 });
 
+test("the smallest change the tile draws an arrow for prints as more than 0%", () => {
+  // The tile rounds a change to a thousandth of the ratio and reads its
+  // direction from that (roundedTrendChange in the UI package). Printed any
+  // coarser than one decimal of a percent, the smallest step would be an
+  // arrow beside "0%" again.
+  assert.equal(formatTrendChange(0.001, "en"), "+0.1%");
+  assert.equal(formatTrendChange(-0.001, "en"), "-0.1%");
+  assert.match(formatTrendChange(0.001, "es"), /^\+0,1\s?%$/);
+  assert.match(formatTrendChange(-0.001, "es"), /^-0,1\s?%$/);
+});
+
 test("a mean keeps one decimal at most", () => {
   assert.equal(formatTrendMean(3.5, "en"), "3.5");
   assert.equal(formatTrendMean(3, "en"), "3");
