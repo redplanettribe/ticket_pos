@@ -199,21 +199,20 @@ export function StackedChartShell({
   /** The recharts root, drawn at the width the shell works out for it. */
   children: (width: number) => React.ReactNode;
 }) {
-  // The Y axis sits to the left of the plot area and the right margin to the
-  // right of it, so the drawing is wider than the plot the caller asked for.
-  // Adding them here keeps `plotWidth` an honest statement about the buckets.
-  const width = Y_AXIS_WIDTH + plotWidth + CHART_MARGIN.right;
   if (notRecordedLabel !== undefined) {
     return (
       <ChartNotRecorded
         label={notRecordedLabel}
         ariaLabel={ariaLabel}
-        width={width}
         height={height}
         className={className}
       />
     );
   }
+  // The Y axis sits to the left of the plot area and the right margin to the
+  // right of it, so the drawing is wider than the plot the caller asked for.
+  // Adding them here keeps `plotWidth` an honest statement about the buckets.
+  const width = Y_AXIS_WIDTH + plotWidth + CHART_MARGIN.right;
   return (
     <div className={cn("relative flex w-max", className)} style={{ height }}>
       <PinnedYAxisStrip yMax={yMax} yTicks={yTicks} formatTick={formatTick} height={height} />
@@ -262,23 +261,24 @@ export function selectableChartProps(onChartClick: ChartClickHandler | undefined
  *
  * Not an empty plot, because an empty plot over a scale is a chart of zeros
  * and that is precisely the reading this must not give: there is no axis, no
- * grid and no baseline here, only the room the chart would have taken (so the
- * surface does not jump when recording begins) and the caller's words for why
- * it is empty. The words are text and not part of an image, so they are read;
- * the group carries the chart's name so a reader knows what was not recorded.
- * They hold to the start of the scroll area, where a reader of a plot wider
- * than its card would otherwise have to scroll to find them.
+ * grid and no baseline here, only the chart's height (so the surface does not
+ * jump when recording begins) and the caller's words for why it is empty. The
+ * words are text and not part of an image, so they are read; the group
+ * carries the chart's name so a reader knows what was not recorded.
+ *
+ * It fills the visible width of the scroll area it stands in and no more,
+ * never the chart's minimum plot width: there are no days to scroll through,
+ * and a box as wide as the plot overflowed a narrow card, losing its right
+ * border and cutting its words mid-word (#833). The words wrap inside it.
  */
 function ChartNotRecorded({
   label,
   ariaLabel,
-  width,
   height,
   className,
 }: {
   label: string;
   ariaLabel: string;
-  width: number;
   height: number;
   className?: string;
 }) {
@@ -286,14 +286,11 @@ function ChartNotRecorded({
     <div
       role="group"
       aria-label={ariaLabel}
-      className={cn("flex w-max", className)}
+      className={cn("flex w-full", className)}
       style={{ height, paddingTop: CHART_MARGIN.top, paddingBottom: CHART_MARGIN.bottom }}
     >
-      <div
-        className="flex shrink-0 items-center rounded-md border border-dashed"
-        style={{ width }}
-      >
-        <p className="sticky left-0 max-w-xs px-4 text-sm text-muted-foreground">{label}</p>
+      <div className="flex min-w-0 flex-1 items-center rounded-md border border-dashed">
+        <p className="min-w-0 max-w-xs px-4 text-sm break-words text-muted-foreground">{label}</p>
       </div>
     </div>
   );
