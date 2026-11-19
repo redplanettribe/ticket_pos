@@ -121,9 +121,11 @@ Usable on phone in a pinch; tablet landscape is the primary target.
 - **Recording-began marker**: a dashed vertical mark with its label written toward the middle of the chart.
 - **Selecting a bucket**: by a click anywhere in its column, or by keyboard through one tab stop on the plot (arrows, Home and End move; Enter and Space choose).
   The selected bucket is a solid mark, the keyboard's a dashed one, and the bucket the keyboard is on is shown as a chip at the plot's corner.
-- **Not recorded** is not zero: a figure with no recorded value draws no axis and no grid, only the room the chart would take and the words for why.
+- **Not recorded** is not zero: a figure with no recorded value draws no axis and no grid, only a box as tall as the chart and the words for why.
+  The box fits the visible width of its card, never the chart's minimum plot width, since there are no days to scroll through (#833); its words wrap inside it, between words.
 - **Tile**: label, figure, change, small trend line, then lesser readings under a rule; a money tile stacks one reading per currency.
-  The four states of a change are an arrow up with "+", an arrow down with "-", a dash, and the sentence "nothing to compare against" with no icon.
+  The four states of a change are an arrow up with "+", an arrow down with "-", a dash, and a sentence saying why no change is stated, with no icon.
+  That sentence gives one of three reasons (#837): "nothing to compare against" when there is no comparison figure or the comparison lies wholly before recording began; "comparison only partly recorded" when the comparison starts before recording began, even if what was recorded of it is zero; and "none in the span compared" when the comparison is wholly recorded and its figure is zero.
   The direction is that of the percentage printed, to one decimal: a change that prints as 0% is the dash, never an arrow.
   Colour repeats the icon and never carries the state alone.
   Nothing on a tile wraps by the width of its figures (#840): a reading's caption (a currency, "a day") has its own line under the figure, and the lesser readings sit one to a row, so a tile is as tall for 3 as for 1,234,567 and a new span does not move the row; only a figure too wide for the tile on its own still breaks inside its line.
