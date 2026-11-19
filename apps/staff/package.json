@@ -6,7 +6,7 @@
     "build": "next build",
     "start": "next start --port 3001",
     "lint": "next lint",
-    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"lib/*.test.ts\"",
+    "test": "node --import ./test/support/register-tsx.mjs --experimental-strip-types --disable-warning=ExperimentalWarning --test \"lib/*.test.ts\" \"test/*.test.ts\"",
     "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {

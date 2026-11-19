@@ -99,7 +99,9 @@ export function PlatformTrendBreakdownPanel({
   const bucket = formatTrendBucket({ first_day: selection.firstDay, last_day: selection.lastDay }, locale);
 
   return (
-    <section aria-labelledby={titleId} className="space-y-3 rounded-md border bg-muted/30 p-3">
+    // The panel is a size container: what is laid out inside it follows how
+    // wide the panel is, not the viewport, since charts may sit two to a row.
+    <section aria-labelledby={titleId} className="@container space-y-3 rounded-md border bg-muted/30 p-3">
       <div className="flex items-start justify-between gap-3">
         {/* One level beneath the chart card's title (a CardTitle, an h3): the
             breakdown is part of the chart it opens under, not its sibling.
@@ -144,8 +146,9 @@ export function PlatformTrendBreakdownPanel({
   );
 }
 
-/** One breakdown, drawn in its figure's shape. */
-function BreakdownReading({ view, locale }: { view: BreakdownView; locale: AppLocale }) {
+/** One breakdown, drawn in its figure's shape. Exported for its component
+ * test; the page draws it through the panel. */
+export function BreakdownReading({ view, locale }: { view: BreakdownView; locale: AppLocale }) {
   const t = useTranslations("operator");
   const count = (value: number) => formatNumber(value, locale);
   const { body } = view;
@@ -191,10 +194,12 @@ function BreakdownReading({ view, locale }: { view: BreakdownView; locale: AppLo
   );
 }
 
-/** Counts stated as a short list of terms: a total, the kinds of Customer. */
+/** Counts stated as a short list of terms: a total, the kinds of Customer.
+ * A lone total takes the panel's width; several terms pair up where the
+ * panel is wide enough for two. */
 function Figures({ entries }: { entries: { id: string; label: string; value: string }[] }) {
   return (
-    <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+    <dl className={`grid gap-x-6 gap-y-1 text-sm ${entries.length > 1 ? "@md:grid-cols-2" : ""}`}>
       {entries.map((entry) => (
         <div key={entry.id} className="flex items-baseline justify-between gap-3">
           <dt className="text-muted-foreground">{entry.label}</dt>
@@ -219,6 +224,22 @@ function BreakdownGroupLists({ group, unit, locale }: { group: BreakdownGroup; u
   // The total of days is a count of days, said as a number under its own
   // label, and every other total is in the unit of its rows.
   const total = unit === "days" ? formatNumber(group.total, locale) : spell(group.total);
+  const lists = [
+    {
+      key: "organizations",
+      title:
+        group.currency === null
+          ? t("trendsBreakdownOrganizations")
+          : t("trendsBreakdownOrganizationsCurrency", { currency: group.currency }),
+      rows: group.organizations,
+    },
+    {
+      key: "events",
+      title:
+        group.currency === null ? t("trendsBreakdownEvents") : t("trendsBreakdownEventsCurrency", { currency: group.currency }),
+      rows: group.events,
+    },
+  ].filter((list) => list.rows.length > 0);
   return (
     <div className="space-y-2">
       <p className="flex items-baseline justify-between gap-3 text-sm">
@@ -229,27 +250,12 @@ function BreakdownGroupLists({ group, unit, locale }: { group: BreakdownGroup; u
         </span>
         <span className="font-medium tabular-nums">{total}</span>
       </p>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <BreakdownList
-          title={
-            group.currency === null
-              ? t("trendsBreakdownOrganizations")
-              : t("trendsBreakdownOrganizationsCurrency", { currency: group.currency })
-          }
-          rows={group.organizations}
-          spell={spell}
-          ranked={unit !== "none"}
-        />
-        <BreakdownList
-          title={
-            group.currency === null
-              ? t("trendsBreakdownEvents")
-              : t("trendsBreakdownEventsCurrency", { currency: group.currency })
-          }
-          rows={group.events}
-          spell={spell}
-          ranked={unit !== "none"}
-        />
+      {/* Only the lists with rows are drawn. One takes the panel's width;
+          two sit side by side only where the panel is wide enough for both. */}
+      <div className={`grid gap-3 ${lists.length > 1 ? "@lg:grid-cols-2" : ""}`}>
+        {lists.map((list) => (
+          <BreakdownList key={list.key} title={list.title} rows={list.rows} spell={spell} ranked={unit !== "none"} />
+        ))}
       </div>
     </div>
   );
@@ -262,7 +268,7 @@ function BreakdownGroupLists({ group, unit, locale }: { group: BreakdownGroup; u
  *
  * A ranked list is numbered; a plain list (Events Published, new
  * Organizations) is not, as its order is not a ranking. A figure not broken
- * down this way hands no rows and draws nothing.
+ * down this way hands no rows and is not drawn.
  */
 function BreakdownList({
   title,
@@ -277,9 +283,6 @@ function BreakdownList({
 }) {
   const t = useTranslations("operator");
   const titleId = useId();
-  if (rows.length === 0) {
-    return null;
-  }
   const List = ranked ? "ol" : "ul";
   return (
     <div className="min-w-0 space-y-1">
