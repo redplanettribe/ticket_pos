@@ -39,6 +39,8 @@ and `test/*.test.ts`, and nothing else.
 `test/` holds component tests, which render a component with `react-dom/server`
 under `node --test`; `test/support/register-tsx.mjs` lets them import `.tsx`
 and the `@/` alias (#834).
+A layout rule held in a class string is tested by compiling it with
+`tailwindcss`'s `compile()` and reading the CSS (#839).
 
 **The whole application is translated** — the organizer-facing screens and the
 Operator Dashboard alike (#281, landed one surface at a time from #286 to #292).

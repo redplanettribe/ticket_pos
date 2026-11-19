@@ -1,6 +1,7 @@
 /**
- * The Operator Dashboard Overview's one heading scale and one grid gap (#838),
- * shared by Platform Trends and the cards beneath it so the page reads as one.
+ * The Operator Dashboard Overview's layout values: its one heading scale and
+ * one grid gap (#838), shared by Platform Trends and the cards beneath it so
+ * the page reads as one, and the Platform Trends charts' columns (#839).
  *
  * A section title is never smaller than the headings of the cards under it:
  * the section is text-lg (18px) and each card's CardTitle text-base (16px),
