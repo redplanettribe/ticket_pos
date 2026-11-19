@@ -42,7 +42,7 @@ function barChart(value: number | null): string {
       plotWidth: PLOT_WIDTH,
       formatValue: String,
       notRecordedLabel: NOT_RECORDED,
-      ariaLabel: "Page views by day",
+      ariaLabel: "Page Views by day",
     }),
   );
 }
@@ -68,6 +68,8 @@ for (const [shape, render] of [
     // plot it stands in for: in a card narrower than that it would overflow
     // the scroll area, and its right border and its words would be cut off.
     assert.doesNotMatch(markup, new RegExp(`width:\\s*${CHART_WIDTH}px`));
+    assert.doesNotMatch(markup, /(?:^|[;"\s])(?:min-)?width:/, "no width in pixels at all");
+    assert.doesNotMatch(markup, /\bmin-w-(?!0\b)/);
     assert.doesNotMatch(markup, /\bw-max\b/);
     assert.doesNotMatch(markup, /\bsticky\b/);
   });

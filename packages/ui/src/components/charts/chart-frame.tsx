@@ -269,7 +269,8 @@ export function selectableChartProps(onChartClick: ChartClickHandler | undefined
  * It fills the visible width of the scroll area it stands in and no more,
  * never the chart's minimum plot width: there are no days to scroll through,
  * and a box as wide as the plot overflowed a narrow card, losing its right
- * border and cutting its words mid-word (#833). The words wrap inside it.
+ * border and cutting its words mid-word (#833). The words wrap inside it,
+ * between words.
  */
 function ChartNotRecorded({
   label,
@@ -290,7 +291,7 @@ function ChartNotRecorded({
       style={{ height, paddingTop: CHART_MARGIN.top, paddingBottom: CHART_MARGIN.bottom }}
     >
       <div className="flex min-w-0 flex-1 items-center rounded-md border border-dashed">
-        <p className="min-w-0 max-w-xs px-4 text-sm break-words text-muted-foreground">{label}</p>
+        <p className="min-w-0 max-w-xs px-4 text-sm text-muted-foreground">{label}</p>
       </div>
     </div>
   );
