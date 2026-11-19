@@ -34,8 +34,11 @@ the provider in `app/layout.tsx`. Before sign-in the ladder is cookie, then
 through `lib/staff-locale.ts`. The stored Staff Locale outranks both once there
 is a session to read one from.
 
-Locale logic that needs a test goes in `lib/`: the runner globs `lib/*.test.ts`
-and sees nothing else.
+Locale logic that needs a test goes in `lib/`. The runner globs `lib/*.test.ts`
+and `test/*.test.ts`, and nothing else.
+`test/` holds component tests, which render a component with `react-dom/server`
+under `node --test`; `test/support/register-tsx.mjs` lets them import `.tsx`
+and the `@/` alias (#834).
 
 **The whole application is translated** — the organizer-facing screens and the
 Operator Dashboard alike (#281, landed one surface at a time from #286 to #292).

@@ -60,10 +60,15 @@ function render(reading: PlatformTrendBreakdown): string {
 /** The class lists of every element in the markup. */
 const classesOf = (markup: string) => [...markup.matchAll(/class="([^"]*)"/g)].map((match) => match[1].split(/\s+/));
 
-/** Whether any element is told to lay itself out in two columns, at any
- * breakpoint of the viewport or of a container. */
-const twoColumns = (markup: string) =>
-  classesOf(markup).some((classes) => classes.some((name) => /(^|:)grid-cols-2$/.test(name)));
+/** The two-column classes among `classes`, at any breakpoint of the
+ * viewport or of a container. */
+const twoColumnClasses = (classes: string[]) => classes.filter((name) => /(^|:)grid-cols-2$/.test(name));
+
+/** Whether any element is told to lay itself out in two columns. */
+const twoColumns = (markup: string) => classesOf(markup).some((classes) => twoColumnClasses(classes).length > 0);
+
+/** A container query of the panel, as `@lg:`, not a viewport one, as `sm:`. */
+const CONTAINER_QUERY = /^@[a-z0-9]+:/;
 
 // --- the lists follow the panel and what is in it, not the viewport (#834) --
 
@@ -76,10 +81,13 @@ test("Page Views' single Events list takes the panel's whole width", () => {
 
 test("two lists sit side by side only where the panel is wide enough, never by the viewport", () => {
   const markup = render(breakdown({ organizations: [organization("o1", 7)], events: [event("e1", 7)] }));
-  const grids = classesOf(markup).filter((classes) => classes.some((name) => name.endsWith("grid-cols-2")));
+  const grids = classesOf(markup).map(twoColumnClasses).filter((columns) => columns.length > 0);
   assert.equal(grids.length, 1, "the lists' grid pairs them up");
-  const [columns] = grids[0].filter((name) => name.endsWith("grid-cols-2"));
-  assert.match(columns, /^@[a-z0-9]+:grid-cols-2$/, `a container query of the panel, not a viewport breakpoint: ${columns}`);
+  assert.deepEqual(
+    grids[0].map((name) => CONTAINER_QUERY.test(name)),
+    [true],
+    `a container query of the panel, not a viewport breakpoint: ${grids[0].join(" ")}`,
+  );
 });
 
 test("a lone total of a count takes the panel's whole width", () => {
@@ -101,7 +109,7 @@ test("the kinds of Active Customers pair up by the panel's width, not the viewpo
   const dl = markup.match(/<dl class="([^"]*)"/)?.[1].split(/\s+/) ?? [];
   assert.ok(dl.includes("grid"), `the terms are a grid: ${dl.join(" ")}`);
   assert.deepEqual(
-    dl.filter((name) => name.endsWith("grid-cols-2")).map((name) => /^@[a-z0-9]+:/.test(name)),
+    twoColumnClasses(dl).map((name) => CONTAINER_QUERY.test(name)),
     [true],
     `a container query of the panel, not a viewport breakpoint: ${dl.join(" ")}`,
   );
