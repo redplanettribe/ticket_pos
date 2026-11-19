@@ -444,8 +444,6 @@ test("an absent change stays absent: null, never a zero", () => {
 // Why a tile states no change (#837). The change itself is the backend's and
 // stays absent; the tile says which of three reasons holds.
 
-const comparedBucket = (day: string, value: number) => bucket(day, value);
-
 test("a count tile with no comparison data says there is nothing to compare against", () => {
   // The comparison span ends before the data begins: no comparison bucket.
   const tile = countTile(
@@ -466,7 +464,7 @@ test("a count tile compared with a span the data covers in part says the compari
         [
           series("all", [4, 1], {
             comparison_total: comparisonTotal,
-            comparison_buckets: [null, comparedBucket("2026-06-20", comparisonTotal)],
+            comparison_buckets: [null, bucket("2026-06-20", comparisonTotal)],
           }),
         ],
         { data_since: "2026-06-15", comparison_total: comparisonTotal, change: null },
@@ -487,7 +485,7 @@ test("a count tile compared with a fully recorded span that came to zero says th
       [
         series("all", [4, 1], {
           comparison_total: 0,
-          comparison_buckets: [comparedBucket("2026-06-01", 0), comparedBucket("2026-06-02", 0)],
+          comparison_buckets: [bucket("2026-06-01", 0), bucket("2026-06-02", 0)],
         }),
       ],
       { comparison_total: 0, change: null },

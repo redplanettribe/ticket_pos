@@ -385,7 +385,7 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
   // here, where the catalog is.
   const absenceWords = { notRecorded: t("trendsNotRecorded"), noFigure: t("trendsNoFigure") };
   const noChangeWords = {
-    nothingToCompare: t("trendsNothingToCompare"),
+    nothingToCompare: changeCopy.nothingToCompare,
     partlyRecorded: t("trendsComparisonPartlyRecorded"),
     noneCompared: t("trendsNoneCompared"),
   };
