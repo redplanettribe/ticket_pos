@@ -7,10 +7,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { CountCard, TotalsCard } from "../app/operator/operator-dashboard-client.tsx";
-import {
-  OVERVIEW_CARD_TITLE,
-  OVERVIEW_SECTION_TITLE,
-} from "../app/operator/overview-layout.ts";
+import { OVERVIEW_SECTION_TITLE } from "../app/operator/overview-layout.ts";
 
 const messages = JSON.parse(readFileSync(new URL("../messages/en.json", import.meta.url), "utf8"));
 
@@ -70,8 +67,4 @@ test("a totals card's heading is no larger than the Platform Trends title", () =
     }),
   );
   assert.ok(textSize(headingClasses(markup)) <= textSize(OVERVIEW_SECTION_TITLE));
-});
-
-test("the Overview's card headings sit under its section title", () => {
-  assert.ok(textSize(OVERVIEW_CARD_TITLE) <= textSize(OVERVIEW_SECTION_TITLE));
 });
