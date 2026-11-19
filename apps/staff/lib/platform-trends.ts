@@ -536,7 +536,7 @@ export function salesOnlyThroughout(
  * which the section says beside the chart.
  *
  * With no change stated there is nothing for that note to qualify, and the
- * answer is no: the tile already says there is nothing to compare against.
+ * answer is no: the tile already says why it states no change.
  */
 export function comparisonReachesSalesOnly(
   figure: PlatformTrendActivityFigure,
@@ -580,6 +580,44 @@ export function trendChartYMax(data: readonly (TrendChartDatum & { total?: numbe
  */
 export type TrendTileAbsence = "notRecorded" | "noFigure";
 
+/**
+ * Why a reading states no change, as a token the section puts into words
+ * (#837). The change is the backend's and is never worked out here; this only
+ * says which of its reasons for leaving it out holds, read from what the
+ * response already states:
+ *
+ * - `nothingToCompare`: the comparison span has no data at all (no comparison
+ *   bucket, so no comparison total or mean), or nothing else below holds.
+ * - `partlyRecorded`: the comparison span begins before the figure's
+ *   data_since, so only its later buckets have data and the backend states no
+ *   change from them (#826), whatever they come to.
+ * - `noneCompared`: the comparison is recorded throughout and came to zero,
+ *   and a change from zero has no ratio.
+ */
+export type TrendNoChange = "nothingToCompare" | "partlyRecorded" | "noneCompared";
+
+/**
+ * The reason a change is absent, or nothing when one is stated. `compared` is
+ * the comparison's total, or an activity figure's comparison mean, as stated.
+ */
+function noChangeOf(
+  change: number | null,
+  compared: number | null,
+  dataSince: string | null,
+  comparison: PlatformTrendDays,
+): { change: number | null; noChange?: TrendNoChange } {
+  if (change !== null) {
+    return { change };
+  }
+  if (compared === null || dataSince === null) {
+    return { change, noChange: "nothingToCompare" };
+  }
+  if (comparison.first_day < dataSince) {
+    return { change, noChange: "partlyRecorded" };
+  }
+  return { change, noChange: compared === 0 ? "noneCompared" : "nothingToCompare" };
+}
+
 /** One reading of a tile, before the section words it. */
 export type TrendTileReadingInput = {
   id: string;
@@ -590,8 +628,10 @@ export type TrendTileReadingInput = {
   currency?: string;
   /** True when the figure is a mean a day, which the section says beside it. */
   dailyMean?: boolean;
-  /** Null is nothing to compare against. Left out, the tile states no change. */
+  /** Null states no change, and then `noChange` says why. Left out, the tile
+   * states nothing about a change at all. */
   change?: number | null;
+  noChange?: TrendNoChange;
   trend?: (number | null)[];
 };
 
@@ -619,6 +659,7 @@ const NOT_RECORDED_TILE: TrendTileInput = {
  */
 export function countTile(
   figure: PlatformTrendFigure,
+  comparison: PlatformTrendDays,
   format: (value: number) => string,
   { splitBySeries = false }: { splitBySeries?: boolean } = {},
 ): TrendTileInput {
@@ -636,7 +677,7 @@ export function countTile(
         ...(figure.total === null
           ? { value: null, absence: "noFigure" as const }
           : { value: format(figure.total) }),
-        change: figure.change,
+        ...noChangeOf(figure.change, figure.comparison_total, figure.data_since, comparison),
         trend,
       },
     ],
@@ -655,6 +696,7 @@ export function countTile(
  */
 export function moneyTile(
   figure: PlatformTrendFigure,
+  comparison: PlatformTrendDays,
   format: (cents: number, currency: string) => string,
 ): TrendTileInput {
   if (!figure.recorded) {
@@ -668,7 +710,7 @@ export function moneyTile(
       id: entry.key,
       currency: entry.key,
       value: format(entry.total, entry.key),
-      change: entry.change,
+      ...noChangeOf(entry.change, entry.comparison_total, figure.data_since, comparison),
       trend: entry.buckets.map((bucket) => bucket.value),
     })),
   };
@@ -685,6 +727,7 @@ export function moneyTile(
  */
 export function activityTile(
   figure: PlatformTrendActivityFigure,
+  comparison: PlatformTrendDays,
   format: { mean: (value: number) => string; count: (value: number) => string },
 ): TrendTileInput {
   if (!figure.recorded) {
@@ -704,7 +747,7 @@ export function activityTile(
         ...(figure.mean === null
           ? { value: null, absence: "noFigure" as const }
           : { value: format.mean(figure.mean), dailyMean: true }),
-        change: figure.change,
+        ...noChangeOf(figure.change, figure.comparison_mean, figure.data_since, comparison),
         trend: figure.buckets.map((bucket) => bucket?.value ?? null),
       },
     ],

@@ -2337,6 +2337,8 @@
     "trendsChangeDecline": "Baja",
     "trendsChangeUnchanged": "Sin cambio",
     "trendsNothingToCompare": "Nada con qué comparar",
+    "trendsComparisonPartlyRecorded": "La comparación solo está registrada en parte",
+    "trendsNoneCompared": "Nada en el periodo comparado",
     "trendsPartialToday": "Hoy hasta ahora, fuera de todo total",
     "trendsNothingCounted": "Nada contado",
     "trendsChartNotRecorded": "No se registró ninguna cifra en estos días. Esto no es un cero.",

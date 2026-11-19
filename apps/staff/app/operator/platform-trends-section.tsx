@@ -384,6 +384,11 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
   // The helpers say what each tile states, in tokens; the words are put on
   // here, where the catalog is.
   const absenceWords = { notRecorded: t("trendsNotRecorded"), noFigure: t("trendsNoFigure") };
+  const noChangeWords = {
+    nothingToCompare: t("trendsNothingToCompare"),
+    partlyRecorded: t("trendsComparisonPartlyRecorded"),
+    noneCompared: t("trendsNoneCompared"),
+  };
   const secondaryLabel = (id: string) =>
     id === "distinct_7d" ? t("trendsDistinct7Days") : id === "distinct_30d" ? t("trendsDistinct30Days") : channelName(id);
   const tile = (id: string, label: string, input: TrendTileInput) => ({
@@ -394,21 +399,22 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
       value: reading.value ?? absenceWords[reading.absence ?? "noFigure"],
       caption: reading.dailyMean ? t("trendsMeanADay") : reading.currency,
       change: reading.change,
+      noChange: reading.noChange === undefined ? undefined : noChangeWords[reading.noChange],
       trend: reading.trend,
     })),
     secondary: input.secondary?.map((entry) => ({ ...entry, label: secondaryLabel(entry.id) })),
   });
   const activityFormat = { mean, count };
   const tiles = [
-    tile("active_customers", t("trendsActiveCustomers"), activityTile(figures.active_customers, activityFormat)),
-    tile("page_views", t("trendsPageViews"), countTile(figures.page_views, count)),
-    tile("active_organizations", t("trendsActiveOrganizations"), activityTile(figures.active_organizations, activityFormat)),
-    tile("events_published", t("trendsEventsPublished"), countTile(figures.events_published, count)),
-    tile("tickets_sold", t("trendsTicketsSold"), countTile(figures.tickets_sold, count, { splitBySeries: true })),
-    tile("money_sold", t("trendsMoneySold"), moneyTile(figures.money_sold, money)),
-    tile("platform_fee_earned", t("trendsPlatformFeeEarned"), moneyTile(figures.platform_fee_earned, money)),
-    tile("new_verified_customers", t("trendsNewVerifiedCustomers"), countTile(figures.new_verified_customers, count)),
-    tile("new_organizations", t("trendsNewOrganizations"), countTile(figures.new_organizations, count)),
+    tile("active_customers", t("trendsActiveCustomers"), activityTile(figures.active_customers, trends.comparison, activityFormat)),
+    tile("page_views", t("trendsPageViews"), countTile(figures.page_views, trends.comparison, count)),
+    tile("active_organizations", t("trendsActiveOrganizations"), activityTile(figures.active_organizations, trends.comparison, activityFormat)),
+    tile("events_published", t("trendsEventsPublished"), countTile(figures.events_published, trends.comparison, count)),
+    tile("tickets_sold", t("trendsTicketsSold"), countTile(figures.tickets_sold, trends.comparison, count, { splitBySeries: true })),
+    tile("money_sold", t("trendsMoneySold"), moneyTile(figures.money_sold, trends.comparison, money)),
+    tile("platform_fee_earned", t("trendsPlatformFeeEarned"), moneyTile(figures.platform_fee_earned, trends.comparison, money)),
+    tile("new_verified_customers", t("trendsNewVerifiedCustomers"), countTile(figures.new_verified_customers, trends.comparison, count)),
+    tile("new_organizations", t("trendsNewOrganizations"), countTile(figures.new_organizations, trends.comparison, count)),
   ];
 
   const label = useCallback((bucket: PlatformTrendBucket) => formatTrendBucket(bucket, locale), [locale]);

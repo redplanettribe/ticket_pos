@@ -421,9 +421,14 @@ test("the axis makes room for the comparison and for the stack", () => {
 
 const count = (value: number) => `#${value}`;
 
+/** The comparison span most tiles here are read against: wholly after every
+ * fixture's data_since (2026-01-01). */
+const COMPARED = { first_day: "2026-06-01", last_day: "2026-06-30" };
+
 test("a count tile states the figure's total, its change and the shape of the span", () => {
   const tile = countTile(
     figure([series("all", [4, 0, 7], { today: bucket("2026-07-04", 99, true) })], { change: 0.25 }),
+    COMPARED,
     count,
   );
   // Today is in no total and not in the trend line either.
@@ -432,12 +437,167 @@ test("a count tile states the figure's total, its change and the shape of the sp
 });
 
 test("an absent change stays absent: null, never a zero", () => {
-  const tile = countTile(figure([series("all", [4])], { change: null }), count);
+  const tile = countTile(figure([series("all", [4])], { change: null }), COMPARED, count);
   assert.equal(tile.readings[0]!.change, null);
 });
 
+// Why a tile states no change (#837). The change itself is the backend's and
+// stays absent; the tile says which of three reasons holds.
+
+const comparedBucket = (day: string, value: number) => bucket(day, value);
+
+test("a count tile with no comparison data says there is nothing to compare against", () => {
+  // The comparison span ends before the data begins: no comparison bucket.
+  const tile = countTile(
+    figure([series("all", [4, 1])], { data_since: "2026-07-01", comparison_total: null, change: null }),
+    COMPARED,
+    count,
+  );
+  assert.equal(tile.readings[0]!.change, null);
+  assert.equal(tile.readings[0]!.noChange, "nothingToCompare");
+});
+
+test("a count tile compared with a span the data covers in part says the comparison is only partly recorded", () => {
+  // Events Published: data begins mid-comparison, so the buckets from that day
+  // are drawn and the change is absent (#826), whatever their total.
+  for (const comparisonTotal of [3, 0]) {
+    const tile = countTile(
+      figure(
+        [
+          series("all", [4, 1], {
+            comparison_total: comparisonTotal,
+            comparison_buckets: [null, comparedBucket("2026-06-20", comparisonTotal)],
+          }),
+        ],
+        { data_since: "2026-06-15", comparison_total: comparisonTotal, change: null },
+      ),
+      COMPARED,
+      count,
+    );
+    assert.equal(tile.readings[0]!.change, null);
+    assert.equal(tile.readings[0]!.noChange, "partlyRecorded", `comparison total ${comparisonTotal}`);
+  }
+});
+
+test("a count tile compared with a fully recorded span that came to zero says there was none in it", () => {
+  // Page Views: the comparison is recorded throughout and is a real zero, and
+  // a change from zero has no ratio.
+  const tile = countTile(
+    figure(
+      [
+        series("all", [4, 1], {
+          comparison_total: 0,
+          comparison_buckets: [comparedBucket("2026-06-01", 0), comparedBucket("2026-06-02", 0)],
+        }),
+      ],
+      { comparison_total: 0, change: null },
+    ),
+    COMPARED,
+    count,
+  );
+  assert.equal(tile.readings[0]!.change, null);
+  assert.equal(tile.readings[0]!.noChange, "noneCompared");
+});
+
+test("a comparison that begins on the day the data begins is fully recorded", () => {
+  const tile = countTile(
+    figure([series("all", [4])], { data_since: COMPARED.first_day, comparison_total: 0, change: null }),
+    COMPARED,
+    count,
+  );
+  assert.equal(tile.readings[0]!.noChange, "noneCompared");
+});
+
+test("a figure with no data at all has nothing to compare against", () => {
+  const tile = countTile(
+    figure([series("all", [0])], { data_since: null, comparison_total: null, change: null }),
+    COMPARED,
+    count,
+  );
+  assert.equal(tile.readings[0]!.noChange, "nothingToCompare");
+});
+
+test("a stated change has no reason for its absence, and neither has a figure that is not recorded", () => {
+  const stated = countTile(figure([series("all", [4])], { comparison_total: 2, change: 1 }), COMPARED, count);
+  assert.equal(stated.readings[0]!.change, 1);
+  assert.equal("noChange" in stated.readings[0]!, false);
+  const notRecorded = countTile(figure([series("all", [4])], { recorded: false }), COMPARED, count);
+  assert.equal("noChange" in notRecorded.readings[0]!, false);
+  assert.equal("change" in notRecorded.readings[0]!, false);
+});
+
+test("a money reading says why its own currency states no change", () => {
+  const tile = moneyTile(
+    figure(
+      [
+        series("USD", [100], { comparison_total: 0, change: null }),
+        series("EUR", [100], { comparison_total: null, change: null }),
+        series("COP", [100], { comparison_total: 50, change: 1 }),
+      ],
+      { total: null },
+    ),
+    COMPARED,
+    (cents) => String(cents),
+  );
+  assert.deepEqual(
+    tile.readings.map((reading) => [reading.id, reading.change, reading.noChange]),
+    [
+      ["USD", null, "noneCompared"],
+      ["EUR", null, "nothingToCompare"],
+      ["COP", 1, undefined],
+    ],
+  );
+});
+
+test("an activity tile with no frozen day in the comparison says there is nothing to compare against", () => {
+  const tile = activityTile(
+    activity({ data_since: "2026-07-01", comparison_mean: null, change: null, comparison_buckets: [null] }),
+    COMPARED,
+    { mean: String, count },
+  );
+  assert.equal(tile.readings[0]!.change, null);
+  assert.equal(tile.readings[0]!.noChange, "nothingToCompare");
+});
+
+test("an activity tile compared with a span its data covers in part says the comparison is only partly recorded", () => {
+  for (const comparisonMean of [2, 0]) {
+    const tile = activityTile(
+      activity({
+        data_since: "2026-06-15",
+        comparison_mean: comparisonMean,
+        change: null,
+        comparison_buckets: [null, { first_day: "2026-06-15", last_day: "2026-06-21", value: comparisonMean }],
+      }),
+      COMPARED,
+      { mean: String, count },
+    );
+    assert.equal(tile.readings[0]!.change, null);
+    assert.equal(tile.readings[0]!.noChange, "partlyRecorded", `comparison mean ${comparisonMean}`);
+  }
+});
+
+test("an activity tile compared with a fully recorded span whose mean is zero says there was none in it", () => {
+  const tile = activityTile(
+    activity({
+      comparison_mean: 0,
+      change: null,
+      comparison_buckets: [{ first_day: "2026-06-01", last_day: "2026-06-07", value: 0 }],
+    }),
+    COMPARED,
+    { mean: String, count },
+  );
+  assert.equal(tile.readings[0]!.change, null);
+  assert.equal(tile.readings[0]!.noChange, "noneCompared");
+});
+
+test("an activity tile with a stated change has no reason for its absence", () => {
+  const tile = activityTile(activity(), COMPARED, { mean: String, count });
+  assert.equal(tile.readings[0]!.change, 0.25);
+  assert.equal("noChange" in tile.readings[0]!, false);
+});
+
 test("Tickets Sold draws the height of its stack and states each Sales Channel beneath", () => {
-  const tile = countTile(figure([series("online", [3, 1]), series("in_person", [2, 0])], { change: -0.5 }), count, {
+  const tile = countTile(figure([series("online", [3, 1]), series("in_person", [2, 0])], { change: -0.5 }), COMPARED, count, {
     splitBySeries: true,
   });
   assert.deepEqual(tile.readings, [{ id: "all", value: "#6", change: -0.5, trend: [5, 1] }]);
@@ -448,7 +608,7 @@ test("Tickets Sold draws the height of its stack and states each Sales Channel b
 });
 
 test("a figure that is not recorded says so, with no change and no line", () => {
-  const tile = countTile(figure([series("all", [0, 0])], { recorded: false }), count);
+  const tile = countTile(figure([series("all", [0, 0])], { recorded: false }), COMPARED, count);
   assert.deepEqual(tile.readings, [{ id: "all", value: null, absence: "notRecorded" }]);
   assert.equal(tile.secondary, undefined);
 });
@@ -456,16 +616,17 @@ test("a figure that is not recorded says so, with no change and no line", () => 
 test("a money tile states each currency on its own, never a sum", () => {
   const tile = moneyTile(
     figure([series("USD", [1000, 250], { change: 0.1 }), series("EUR", [0, 900], { change: null })], { total: null }),
+    COMPARED,
     (cents, currency) => `${currency} ${cents / 100}`,
   );
   assert.deepEqual(tile.readings, [
     { id: "USD", currency: "USD", value: "USD 12.5", change: 0.1, trend: [1000, 250] },
-    { id: "EUR", currency: "EUR", value: "EUR 9", change: null, trend: [0, 900] },
+    { id: "EUR", currency: "EUR", value: "EUR 9", change: null, noChange: "nothingToCompare", trend: [0, 900] },
   ]);
 });
 
 test("a money tile with no currency yet has no figure", () => {
-  const tile = moneyTile(figure([], { total: null }), () => "never");
+  const tile = moneyTile(figure([], { total: null }), COMPARED, () => "never");
   assert.deepEqual(tile.readings, [{ id: "none", value: null, absence: "noFigure" }]);
 });
 
@@ -474,6 +635,7 @@ test("an activity tile states the mean a day, its change, and the 7-day and 30-d
     activity({
       buckets: [null, { first_day: "2026-07-02", last_day: "2026-07-02", value: 3 }],
     }),
+    COMPARED,
     { mean: (value) => `~${value}`, count },
   );
   assert.deepEqual(tile.readings, [
@@ -499,6 +661,7 @@ test("Active Customers is not recorded while recording is off: no figure, no cha
       buckets: [null, null],
       comparison_buckets: [null, null],
     }),
+    COMPARED,
     { mean: String, count },
   );
   assert.deepEqual(tile.readings, [{ id: "all", value: null, absence: "notRecorded" }]);
@@ -508,10 +671,11 @@ test("Active Customers is not recorded while recording is off: no figure, no cha
 test("a recorded activity figure with no frozen day in the span has no figure and no counts", () => {
   const tile = activityTile(
     activity({ mean: null, change: null, distinct_7d: null, distinct_30d: null, buckets: [null] }),
+    COMPARED,
     { mean: String, count },
   );
   assert.deepEqual(tile.readings, [
-    { id: "all", value: null, absence: "noFigure", change: null, trend: [null] },
+    { id: "all", value: null, absence: "noFigure", change: null, noChange: "nothingToCompare", trend: [null] },
   ]);
   assert.equal(tile.secondary, undefined);
 });

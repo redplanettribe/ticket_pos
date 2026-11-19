@@ -2337,6 +2337,8 @@
     "trendsChangeDecline": "Down",
     "trendsChangeUnchanged": "No change",
     "trendsNothingToCompare": "Nothing to compare against",
+    "trendsComparisonPartlyRecorded": "Comparison only partly recorded",
+    "trendsNoneCompared": "None in the span compared",
     "trendsPartialToday": "Today so far, in no total",
     "trendsNothingCounted": "Nothing counted",
     "trendsChartNotRecorded": "No figure was recorded for these days. This is not a zero.",

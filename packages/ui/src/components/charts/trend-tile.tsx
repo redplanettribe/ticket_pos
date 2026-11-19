@@ -27,6 +27,12 @@ export type TrendTileReading = {
    * figure that is not recorded.
    */
   change?: number | null;
+  /**
+   * What is said in place of a null change, when the caller knows why it is
+   * absent (e.g. the comparison came to zero). Left out, the tile says
+   * `changeCopy.nothingToCompare`.
+   */
+  noChange?: string;
   /** The figure bucket by bucket, oldest first, for the small trend line.
    * A null is a bucket with no value and breaks the line. */
   trend?: readonly (number | null)[];
@@ -59,7 +65,8 @@ export type TrendTileChangeCopy = {
   /** What a change that prints as zero is called where the dash cannot be
    * seen. */
   unchanged: string;
-  /** What is said when there is no change to state. */
+  /** What is said when there is no change to state, unless the reading says
+   * why in its own `noChange`. */
   nothingToCompare: string;
 };
 
@@ -119,7 +126,7 @@ export function TrendTile({ label, readings, changeCopy, secondary, color, class
             )}
           </p>
           {reading.change === undefined ? null : (
-            <TrendTileChange change={reading.change} copy={changeCopy} />
+            <TrendTileChange change={reading.change} noChange={reading.noChange} copy={changeCopy} />
           )}
           {reading.trend === undefined ? null : <TrendTileSparkline values={reading.trend} stroke={stroke} />}
         </div>
@@ -152,12 +159,20 @@ const DIRECTION_TONE: Record<Exclude<TrendDirection, "nothing">, string> = {
   unchanged: "text-muted-foreground",
 };
 
-function TrendTileChange({ change, copy }: { change: number | null; copy: TrendTileChangeCopy }) {
+function TrendTileChange({
+  change,
+  noChange,
+  copy,
+}: {
+  change: number | null;
+  noChange: string | undefined;
+  copy: TrendTileChangeCopy;
+}) {
   // One rounding for both: the direction is the sign of the number printed.
   const stated = roundedTrendChange(change);
   const direction = trendDirection(stated);
   if (direction === "nothing" || stated === null) {
-    return <p className="text-xs text-muted-foreground">{copy.nothingToCompare}</p>;
+    return <p className="text-xs text-muted-foreground">{noChange ?? copy.nothingToCompare}</p>;
   }
   const Icon = DIRECTION_ICON[direction];
   return (
