@@ -318,7 +318,7 @@ export const HOVER_CARD_SHIFT_TOLERANCE = 0.01;
  * noise, a strict comparison would set state on every pass until React gave up
  * (error #185). Chrome reports a transformed box in single precision, edge by
  * edge, so even its width moves with its translation: that is what took the
- * Operator Overview down at a scale factor of 1.8 (#831), after #418 had taken
+ * Operator Dashboard down at a scale factor of 1.8 (#831), after #418 had taken
  * the position off the card for the same reason.
  */
 export function hoverCardShift(

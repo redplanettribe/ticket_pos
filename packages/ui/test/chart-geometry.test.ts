@@ -220,7 +220,7 @@ function chromeTranslatedRect(left: number, width: number, shift: number) {
   return { left: start, width: end - start };
 }
 
-// The card that took the Operator Overview down at a scale factor of 1.8,
+// The card that took the Operator Dashboard down at a scale factor of 1.8,
 // as measured in Chrome: a 162.7px card past the end of a 368px window.
 const window831 = {
   left: 45.507816314697266 + Y_AXIS_WIDTH,
@@ -270,11 +270,17 @@ test("re-measuring the card after each shift settles within two passes, at any s
     const window = { left: windowStart + Y_AXIS_WIDTH, right: windowStart + snap(200 + random() * 600), top: 0, bottom: 220 };
     const left = snap(windowStart + random() * 4000);
     const width = snap(80 + random() * 200);
+    // Placed low enough that the card often overhangs the window's foot, so
+    // the vertical shift is exercised under the same rounding.
+    const top = snap(random() * 200);
+    const height = snap(60 + random() * 120);
     let shift = { x: 0, y: 0 };
     for (let passes = 0; ; passes += 1) {
-      assert.ok(passes <= 2, `did not settle: ${JSON.stringify({ scale, window, left, width })}`);
-      const measured = chromeTranslatedRect(left, width, shift.x);
-      const next = hoverCardShift(shift, { left, top: 0, width: measured.width, height: 120 }, window, TOOLTIP_CURSOR_GAP);
+      assert.ok(passes <= 2, `did not settle: ${JSON.stringify({ scale, window, left, width, top, height })}`);
+      const across = chromeTranslatedRect(left, width, shift.x);
+      const down = chromeTranslatedRect(top, height, shift.y);
+      const measured = { left, top, width: across.width, height: down.width };
+      const next = hoverCardShift(shift, measured, window, TOOLTIP_CURSOR_GAP);
       if (next === shift) {
         break;
       }

@@ -550,9 +550,7 @@ function useKeptInScrollWindow() {
     if (!card || !frame || !area) {
       return;
     }
-    // The frame, not the card: the frame is where the card sits before any
-    // shift, and it is exactly the card's size, so nothing measured here moves
-    // with the shift this effect applies.
+    // The frame, never the card: see above.
     const placed = frame.getBoundingClientRect();
     const seen = area.getBoundingClientRect();
     const next = hoverCardShift(
