@@ -405,9 +405,13 @@ test("the axis makes room for the comparison and for the stack", () => {
     [series("all", [4, 3], { comparison_buckets: [bucket("2026-06-01", 18), null] })],
     label,
   );
-  assert.equal(trendChartYMax(lines), 20);
+  assert.equal(trendChartYMax(lines), 18);
   const stack = stackedChartData([series("online", [30, 1]), series("import", [40, 1])], label);
-  assert.equal(trendChartYMax(stack), 100);
+  assert.equal(trendChartYMax(stack), 70);
+  // Tickets Sold reads the height of the whole stack: 1,014 across its Sales
+  // Channels tops the axis at 1,200, not the 2,000 the old ladder gave (#836).
+  const busy = stackedChartData([series("online", [900]), series("import", [114])], label);
+  assert.equal(trendChartYMax(busy), 1_200);
   assert.equal(trendChartYMax([]), 1);
 });
 

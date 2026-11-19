@@ -298,9 +298,20 @@ export function cumulativePlotWidth(availableWidth = 0): number {
   return Math.max(availableWidth, TRENDS_MIN_PLOT_WIDTH);
 }
 
-/** The tick steps a Y axis is allowed to round up to, per decade. Chosen so the
- * axis lands on numbers a person reads without counting: 1, 2, 5, 10, 20 … */
-const NICE_STEPS = [1, 2, 2.5, 5, 10];
+/**
+ * The tops a Y axis is allowed to round up to, per decade, in tenths: 1, 1.2,
+ * 1.5, 1.8, 2, 2.5 … 8, 10 times a power of ten.
+ *
+ * No rung is more than a quarter above the one below it, so the tallest drawn
+ * value always reaches at least four fifths of the plot. The old ladder (1, 2,
+ * 2.5, 5, 10) jumped from 1,000 straight to 2,000, so a 1,014-ticket day left
+ * half the plot empty (#836). Every rung still divides into whole, evenly
+ * spaced labels by `trendsYTicks`: 1.8 in thirds, 3.5 and 7 in sevenths.
+ *
+ * In tenths so that a rung times a decade is an exact integer: 1.2 × 10 is
+ * 12, but 1.8 × 10 ** 4 is not quite 18000 in floating point.
+ */
+const AXIS_TOP_TENTHS = [10, 12, 15, 18, 20, 25, 30, 35, 40, 50, 60, 70, 80, 100];
 
 /**
  * trendsYMax is the top of the Y axis for a set of drawn bars: the tallest
@@ -326,8 +337,8 @@ export function axisTopFor(tallest: number): number {
     return 1;
   }
   const decade = 10 ** Math.floor(Math.log10(tallest));
-  for (const step of NICE_STEPS) {
-    const candidate = step * decade;
+  for (const tenths of AXIS_TOP_TENTHS) {
+    const candidate = (tenths * decade) / 10;
     if (tallest <= candidate) {
       return candidate;
     }
@@ -335,8 +346,30 @@ export function axisTopFor(tallest: number): number {
   return 10 * decade;
 }
 
-/** How many gaps the Y axis is divided into, best first. */
-const Y_TICK_DIVISIONS = [5, 4, 2];
+/**
+ * How many gaps the Y axis is divided into, best first. Seven is for the 3.5
+ * and 7 rungs, which divide by nothing else into whole steps; eight labels
+ * still sit apart on the shortest trends chart.
+ */
+const Y_TICK_DIVISIONS = [5, 4, 3, 6, 7, 2];
+
+/** The leading figure of a step, in tenths: 25 for 250, 36 for 360. */
+function leadingTenths(step: number): number {
+  return Math.round((step / 10 ** Math.floor(Math.log10(step))) * 10);
+}
+
+/** roundTickStep says whether a step is one a reader counts in: 1, 2, 2.5 or
+ * 5 times a power of ten (2, 5, 20, 25, 50, 200 ...). */
+function roundTickStep(step: number): boolean {
+  const tenths = leadingTenths(step);
+  return tenths === 10 || tenths === 20 || tenths === 25 || tenths === 50;
+}
+
+/** singleFigureStep says whether a step is one figure followed by zeros
+ * (300, 600), which still reads at a glance where 360 does not. */
+function singleFigureStep(step: number): boolean {
+  return leadingTenths(step) % 10 === 0;
+}
 
 /**
  * trendsYTicks is where the Y axis puts its labels: evenly spaced, ending
@@ -347,16 +380,24 @@ const Y_TICK_DIVISIONS = [5, 4, 2];
  * is labelled 0, 15, 30, 45, 50, with the last two almost touching and the gaps
  * unequal. A scale a reader has to check twice is worse than no scale.
  *
- * `trendsYMax` has already rounded the top to a readable number, so dividing it
- * evenly lands on readable numbers too. A top too small to divide into whole
- * steps — a one-ticket day — is labelled at its ends alone rather than in
- * fractions of a ticket.
+ * `axisTopFor` has already rounded the top to a readable number, so dividing
+ * it evenly lands on readable numbers too. The division taken is the first
+ * whose step a reader counts in (`roundTickStep`): 1,200 in two hundreds, 150
+ * in fifties, 20 in fives. A top no division gives such a step (1,800) takes
+ * one whose step is a single figure (`singleFigureStep`), in six hundreds, and
+ * failing that the first even division. A top too small to divide
+ * into whole steps - a one-ticket day - is labelled at its ends alone rather
+ * than in fractions of a ticket.
  */
 export function trendsYTicks(yMax: number): number[] {
   if (!Number.isFinite(yMax) || yMax <= 0) {
     return [0];
   }
-  const divisions = Y_TICK_DIVISIONS.find((count) => Number.isInteger(yMax / count));
+  const whole = Y_TICK_DIVISIONS.filter((count) => Number.isInteger(yMax / count));
+  const divisions =
+    whole.find((count) => roundTickStep(yMax / count)) ??
+    whole.find((count) => singleFigureStep(yMax / count)) ??
+    whole[0];
   if (!divisions) {
     return [0, yMax];
   }
