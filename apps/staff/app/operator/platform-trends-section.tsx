@@ -53,6 +53,7 @@ import {
   platformTrendsQuery,
   platformTrendsViewAfterComparisonChange,
   platformTrendsViewAfterRangeChange,
+  platformTrendsScrollAnchor,
   platformTrendsViewAfterSpanChange,
   salesOnlyThroughout,
   seriesChartData,
@@ -413,8 +414,10 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
   const label = useCallback((bucket: PlatformTrendBucket) => formatTrendBucket(bucket, locale), [locale]);
   const span = spanBuckets(trends);
   const comparisonName = t(COMPARISON_KEYS[trends.comparison.kind] ?? "trendsComparePrevious");
+  const scrollAnchor = platformTrendsScrollAnchor(trends);
   const chartProps = (figureId: PlatformTrendFigureId): SharedChartProps => ({
     granularity: trends.granularity,
+    scrollAnchor,
     comparisonName,
     locale,
     figureId,
@@ -599,6 +602,11 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
 /** What every chart of a reading is told alike. */
 type SharedChartProps = {
   granularity: PlatformTrends["granularity"];
+  /**
+   * Names the data drawn, so the chart opens at its newest end once per
+   * reading (`platformTrendsScrollAnchor`).
+   */
+  scrollAnchor: string;
   /** What the comparison line is called in a hover card. */
   comparisonName: string;
   locale: AppLocale;
@@ -726,15 +734,28 @@ function chartSelection<Datum extends TrendChartDatum>(
 /**
  * The window one chart is drawn in, and the width it is drawn at: the card's
  * own, so a span is looked at whole, as the Cumulative view of Sales Trends
- * is. A card narrower than the floor scrolls sideways instead of squeezing.
+ * is. A card narrower than the floor scrolls sideways instead of squeezing,
+ * and opens on its latest days, once per `scrollAnchor` (#835).
  */
-function ChartWindow({ figure, children }: { figure: string; children: (plotWidth: number) => ReactNode }) {
+function ChartWindow({
+  figure,
+  scrollAnchor,
+  children,
+}: {
+  figure: string;
+  scrollAnchor: string;
+  children: (plotWidth: number) => ReactNode;
+}) {
   const t = useTranslations("operator");
   const [scrollArea, setScrollArea] = useState<HTMLDivElement | null>(null);
   const availableWidth = useElementWidth(scrollArea);
   const plotWidth = cumulativePlotWidth(availableWidth > 0 ? availableWidth - CHART_PLOT_INSET : 0);
   return (
-    <ChartScrollArea ref={setScrollArea} ariaLabel={t("trendsScrollLabel", { figure })}>
+    <ChartScrollArea
+      ref={setScrollArea}
+      ariaLabel={t("trendsScrollLabel", { figure })}
+      openAtNewestEnd={{ key: scrollAnchor, contentWidth: plotWidth }}
+    >
       {children(plotWidth)}
     </ChartScrollArea>
   );
@@ -757,6 +778,7 @@ function LineFigureChart({
   notRecordedLabel,
   granularity,
   comparisonName,
+  scrollAnchor,
   selected,
   onSelect,
 }: SharedChartProps & {
@@ -797,7 +819,7 @@ function LineFigureChart({
     },
   );
   return (
-    <ChartWindow figure={figure}>
+    <ChartWindow figure={figure} scrollAnchor={scrollAnchor}>
       {(plotWidth) => (
         <MultiSeriesLineChart
           data={data}
@@ -946,6 +968,7 @@ function TicketsSoldChart({
   comparisonName,
   locale,
   figureId,
+  scrollAnchor,
   selected,
   onSelect,
 }: SharedChartProps & { source: PlatformTrendFigure; label: BucketLabel; channelName: (key: string) => string }) {
@@ -986,7 +1009,7 @@ function TicketsSoldChart({
           </li>
         ))}
       </ul>
-      <ChartWindow figure={figure}>
+      <ChartWindow figure={figure} scrollAnchor={scrollAnchor}>
         {(plotWidth) => (
           <StackedBarChart
             data={data}

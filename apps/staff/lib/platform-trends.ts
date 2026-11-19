@@ -437,6 +437,23 @@ export function spanBuckets(trends: PlatformTrends): PlatformTrendBucket[] {
   return trends.figures.page_views.series[0]?.buckets ?? [];
 }
 
+/**
+ * platformTrendsScrollAnchor names the data a reading draws, for its charts'
+ * scroll areas to open at their newest end once per name (`openAtNewestEnd`
+ * on `ChartScrollArea`). It is made of the span's days, the comparison's kind
+ * and days, and the granularity, so another span, comparison or custom range
+ * opens the charts on their latest days again, while the same reading
+ * fetched again leaves a chart the operator scrolled where they left it.
+ */
+export function platformTrendsScrollAnchor(trends: PlatformTrends): string {
+  const { span, comparison, granularity } = trends;
+  return [
+    `${span.first_day}..${span.last_day}`,
+    `${comparison.kind}:${comparison.first_day}..${comparison.last_day}`,
+    granularity,
+  ].join("|");
+}
+
 /** The one series an activity figure is drawn as. */
 export const ACTIVITY_SERIES_ID = "all";
 

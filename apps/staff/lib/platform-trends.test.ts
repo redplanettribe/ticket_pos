@@ -19,6 +19,7 @@ import {
   parsePlatformTrendsParams,
   platformTrendsQuery,
   platformTrendsRequestPath,
+  platformTrendsScrollAnchor,
   platformTrendsViewAfterComparisonChange,
   platformTrendsViewAfterRangeChange,
   platformTrendsViewAfterSpanChange,
@@ -527,3 +528,31 @@ function activity(extra: Partial<PlatformTrendActivityFigure> = {}): PlatformTre
     ...extra,
   };
 }
+
+test("platformTrendsScrollAnchor changes with the span, the comparison and a custom range, and with nothing else", () => {
+  const reading = (span: Partial<PlatformTrends["span"]>, comparison: Partial<PlatformTrends["comparison"]> = {}) =>
+    ({
+      timezone: "America/Montevideo",
+      span: { preset: "30d", first_day: "2026-10-21", last_day: "2026-11-19", ...span },
+      comparison: { kind: "previous", first_day: "2026-09-21", last_day: "2026-10-20", ...comparison },
+      granularity: "day",
+      today: "2026-11-19",
+      figures: {},
+    }) as unknown as PlatformTrends;
+  const anchor = platformTrendsScrollAnchor(reading({}));
+
+  // The same reading fetched again is the same data: a hand-scrolled chart stays put.
+  assert.equal(platformTrendsScrollAnchor(reading({})), anchor);
+
+  // Another span, comparison or custom range is new data, opened at its newest end again.
+  assert.notEqual(platformTrendsScrollAnchor(reading({ preset: "90d", first_day: "2026-08-22" })), anchor);
+  assert.notEqual(
+    platformTrendsScrollAnchor(reading({}, { kind: "year_earlier", first_day: "2025-10-21", last_day: "2025-11-19" })),
+    anchor,
+  );
+  const custom = reading({ preset: "custom", first_day: "2026-10-01", last_day: "2026-10-31" });
+  assert.notEqual(
+    platformTrendsScrollAnchor(reading({ preset: "custom", first_day: "2026-10-01", last_day: "2026-11-05" })),
+    platformTrendsScrollAnchor(custom),
+  );
+});
