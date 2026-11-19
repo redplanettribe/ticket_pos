@@ -351,17 +351,16 @@ function windowStart(
 /**
  * The tick steps a Y axis is allowed to round up to, per decade.
  *
- * A finer ladder than Sales Trends' 1, 2, 2.5, 5, 10. A stack of bars is read
- * against its neighbours, so a coarse top costs it little; a line is read
- * against the axis, and a week whose busiest day drew 56 views was drawn under
- * a 100 axis with the whole upper half of the plot empty. This ladder tops
- * that day at 60, and never draws the tallest point below half the axis.
+ * Made finer than Sales Trends' ladder of the time (1, 2, 2.5, 5, 10): a line
+ * is read against the axis, and a week whose busiest day drew 56 views was
+ * drawn under a 100 axis with the whole upper half of the plot empty. This
+ * ladder tops that day at 60, and never draws the tallest point below half
+ * the axis. (Sales Trends' own ladder, `axisTopFor`, has since become finer
+ * still, #836.)
  *
- * Every rung must still divide into whole, even ticks by `trendsYTicks`'
- * divisions (5, 4, 2): 3 and 6 divide by 2 in the tens and above, and in the
- * ones decade a top of 3 is labelled at its ends alone, which is what a
- * three-view day deserves. 2.5 has no place here — it would put a tick at
- * 0.5 of a page view.
+ * Every rung must still divide into whole, even ticks by `countYTicks`'
+ * divisions (`Y_DIVISIONS`: 5, 4, 3, 2): 3 and 6 divide by 3, 8 by 4. 2.5 has
+ * no place here - it would put a tick at 0.5 of a page view.
  */
 const NICE_STEPS = [1, 2, 3, 4, 5, 6, 8, 10];
 
