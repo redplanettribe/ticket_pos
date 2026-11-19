@@ -117,12 +117,15 @@ export function TrendTile({ label, readings, changeCopy, secondary, color, class
       </p>
       {readings.map((reading) => (
         <div key={reading.id} className="min-w-0 space-y-1">
-          <p className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-            <span className="text-2xl font-semibold leading-tight tabular-nums break-words">
+          {/* The caption has a line of its own, under the figure: beside it,
+              it would drop under a wide figure and not under a narrow one, so
+              the tile's height would follow the figure (#840). */}
+          <p className="min-w-0">
+            <span className="block text-2xl font-semibold leading-tight tabular-nums break-words">
               {reading.value}
             </span>
             {reading.caption === undefined ? null : (
-              <span className="text-xs font-medium text-muted-foreground">{reading.caption}</span>
+              <span className="block text-xs font-medium text-muted-foreground">{reading.caption}</span>
             )}
           </p>
           {reading.change === undefined ? null : (
@@ -132,7 +135,10 @@ export function TrendTile({ label, readings, changeCopy, secondary, color, class
         </div>
       ))}
       {secondary === undefined || secondary.length === 0 ? null : (
-        <dl className="mt-auto flex flex-wrap gap-x-4 gap-y-1 border-t pt-3 text-xs">
+        // One to a row, whatever the figures: side by side, two short ones
+        // fit on a row and two long ones do not, and the tile's height would
+        // change with the span (#840).
+        <dl className="mt-auto grid gap-y-1 border-t pt-3 text-xs">
           {secondary.map((entry) => (
             <div key={entry.id} className="flex items-baseline gap-1.5">
               <dt className="text-muted-foreground">{entry.label}</dt>

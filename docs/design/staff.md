@@ -126,6 +126,7 @@ Usable on phone in a pinch; tablet landscape is the primary target.
   The four states of a change are an arrow up with "+", an arrow down with "-", a dash, and the sentence "nothing to compare against" with no icon.
   The direction is that of the percentage printed, to one decimal: a change that prints as 0% is the dash, never an arrow.
   Colour repeats the icon and never carries the state alone.
+  Nothing on a tile wraps by the width of its figures (#840): a reading's caption (a currency, "a day") has its own line under the figure, and the lesser readings sit one to a row, so a tile is as tall for 3 as for 1,234,567 and a new span does not move the row.
 - **Platform Trends** (#821) opens the Operator Dashboard's Overview, above the queues and totals: its controls, the tiles three to a row, then one chart per figure two to a row.
   The span and the comparison live in the page's address, and choosing either draws the new reading in place, with the one before dimmed until it arrives.
   A figure read as a trajectory is a line; Tickets Sold is bars stacked by Sales Channel.

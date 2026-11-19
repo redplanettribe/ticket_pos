@@ -3,6 +3,7 @@ import test from "node:test";
 
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { compile } from "tailwindcss";
 
 import { TrendTile, type TrendTileReading } from "../src/components/charts/trend-tile.tsx";
 
@@ -43,4 +44,57 @@ test("a stated change is stated, whatever reason a reading carries", () => {
 test("a reading that states nothing about a change says nothing about one", () => {
   const markup = tile({ noChange: "None in the span compared" });
   assert.doesNotMatch(markup, /None in the span compared|Nothing to compare against/);
+});
+
+/** A tile with a caption and two lesser figures, whose figures are `figure`. */
+function tileWith(figure: string): string {
+  return renderToStaticMarkup(
+    React.createElement(TrendTile, {
+      label: "Active Organizations",
+      readings: [{ id: "all", value: figure, caption: "a day", change: 0.5, trend: [1, 2, 3] }],
+      secondary: [
+        { id: "distinct_7d", label: "Different over 7 days", value: figure },
+        { id: "distinct_30d", label: "Different over 30 days", value: figure },
+      ],
+      changeCopy,
+    }),
+  );
+}
+
+/** Every class the markup names, once. */
+function classesOf(markup: string): string[] {
+  const classes = new Set<string>();
+  for (const [, list] of markup.matchAll(/class="([^"]*)"/g)) {
+    for (const name of list!.split(/\s+/)) if (name !== "") classes.add(name);
+  }
+  return [...classes];
+}
+
+/** The class list of the first element of `tag` in the markup. */
+function classOf(markup: string, tag: string): string[] {
+  const match = new RegExp(`<${tag}[^>]*class="([^"]*)"`).exec(markup);
+  assert.ok(match, `no <${tag}> with a class in ${markup}`);
+  return match[1]!.split(/\s+/);
+}
+
+async function css(classes: string[]): Promise<string> {
+  const compiler = await compile("@tailwind utilities;", {});
+  return compiler.build(classes);
+}
+
+test("a tile lays its lines out the same way for short and long figures (#840)", () => {
+  const short = tileWith("3");
+  const long = tileWith("1,234,567");
+  assert.equal(long.replaceAll("1,234,567", "3"), short);
+});
+
+test("nothing on a tile wraps onto another row because a figure is wider (#840)", async () => {
+  const built = await css(classesOf(tileWith("1,234,567")));
+  assert.doesNotMatch(built, /flex-wrap:\s*wrap/, built);
+});
+
+test("a tile's lesser figures sit one to a row (#840)", async () => {
+  const built = await css(classOf(tileWith("3"), "dl"));
+  assert.match(built, /display:\s*grid/, built);
+  assert.doesNotMatch(built, /grid-template-columns|flex-direction:\s*row|display:\s*flex/, built);
 });
