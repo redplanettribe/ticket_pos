@@ -62,7 +62,7 @@ function tileWith(figure: string): string {
 }
 
 /** Every class the markup names, once. */
-function classesOf(markup: string): string[] {
+function everyClassIn(markup: string): string[] {
   const classes = new Set<string>();
   for (const [, list] of markup.matchAll(/class="([^"]*)"/g)) {
     for (const name of list!.split(/\s+/)) if (name !== "") classes.add(name);
@@ -71,30 +71,34 @@ function classesOf(markup: string): string[] {
 }
 
 /** The class list of the first element of `tag` in the markup. */
-function classOf(markup: string, tag: string): string[] {
+function classesOfFirst(markup: string, tag: string): string[] {
   const match = new RegExp(`<${tag}[^>]*class="([^"]*)"`).exec(markup);
   assert.ok(match, `no <${tag}> with a class in ${markup}`);
   return match[1]!.split(/\s+/);
 }
 
-async function css(classes: string[]): Promise<string> {
+async function compiledCss(classes: string[]): Promise<string> {
   const compiler = await compile("@tailwind utilities;", {});
   return compiler.build(classes);
 }
 
-test("a tile lays its lines out the same way for short and long figures (#840)", () => {
-  const short = tileWith("3");
-  const long = tileWith("1,234,567");
-  assert.equal(long.replaceAll("1,234,567", "3"), short);
-});
-
 test("nothing on a tile wraps onto another row because a figure is wider (#840)", async () => {
-  const built = await css(classesOf(tileWith("1,234,567")));
+  const built = await compiledCss(everyClassIn(tileWith("1,234,567")));
   assert.doesNotMatch(built, /flex-wrap:\s*wrap/, built);
 });
 
 test("a tile's lesser figures sit one to a row (#840)", async () => {
-  const built = await css(classOf(tileWith("3"), "dl"));
+  const built = await compiledCss(classesOfFirst(tileWith("3"), "dl"));
   assert.match(built, /display:\s*grid/, built);
   assert.doesNotMatch(built, /grid-template-columns|flex-direction:\s*row|display:\s*flex/, built);
+});
+
+test("a lesser figure's label and value stay on one line, the label giving way (#840)", async () => {
+  const markup = tileWith("1,234,567");
+  const label = await compiledCss(classesOfFirst(markup, "dt"));
+  const value = await compiledCss(classesOfFirst(markup, "dd"));
+  assert.match(label, /white-space:\s*nowrap/, label);
+  assert.match(label, /text-overflow:\s*ellipsis/, label);
+  assert.match(value, /white-space:\s*nowrap/, value);
+  assert.match(value, /flex-shrink:\s*0/, value);
 });

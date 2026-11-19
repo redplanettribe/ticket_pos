@@ -140,9 +140,12 @@ export function TrendTile({ label, readings, changeCopy, secondary, color, class
         // change with the span (#840).
         <dl className="mt-auto grid gap-y-1 border-t pt-3 text-xs">
           {secondary.map((entry) => (
-            <div key={entry.id} className="flex items-baseline gap-1.5">
-              <dt className="text-muted-foreground">{entry.label}</dt>
-              <dd className="font-medium tabular-nums">{entry.value}</dd>
+            // Each on one line: the figure keeps its width and the label
+            // gives way with an ellipsis, so a wide figure never pushes the
+            // label onto a second line.
+            <div key={entry.id} className="flex min-w-0 items-baseline gap-1.5">
+              <dt className="min-w-0 truncate text-muted-foreground">{entry.label}</dt>
+              <dd className="shrink-0 whitespace-nowrap font-medium tabular-nums">{entry.value}</dd>
             </div>
           ))}
         </dl>
