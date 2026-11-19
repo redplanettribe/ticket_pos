@@ -297,3 +297,45 @@ export function scrollWindowShift(
   }
   return 0;
 }
+
+/**
+ * The smallest change of a hover card's shift worth another render, in CSS
+ * pixels. Far below anything a reader could see at any scale factor, and far
+ * above the single-precision noise in Chrome's rects (a few
+ * hundred-thousandths of a pixel at the widths a chart reaches).
+ */
+export const HOVER_CARD_SHIFT_TOLERANCE = 0.01;
+
+/**
+ * Where a hover card must be moved to sit inside the visible part of its
+ * scroll area, given where recharts placed it and the shift it already has.
+ *
+ * Returns `current` itself when the new shift is within
+ * `HOVER_CARD_SHIFT_TOLERANCE` of it, so a caller that sets state only on a
+ * new object settles. That is the guarantee the layout effect measuring the
+ * card relies on (see `useKeptInScrollWindow`): it re-measures after every
+ * shift it applies, and if any measurement moved with the shift by rounding
+ * noise, a strict comparison would set state on every pass until React gave up
+ * (error #185). Chrome reports a transformed box in single precision, edge by
+ * edge, so even its width moves with its translation: that is what took the
+ * Operator Overview down at a scale factor of 1.8 (#831), after #418 had taken
+ * the position off the card for the same reason.
+ */
+export function hoverCardShift(
+  current: { x: number; y: number },
+  placed: { left: number; top: number; width: number; height: number },
+  window: { left: number; right: number; top: number; bottom: number },
+  cursorGap?: number,
+): { x: number; y: number } {
+  const next = {
+    x: scrollWindowShift({ start: placed.left, size: placed.width }, { start: window.left, end: window.right }, cursorGap),
+    y: scrollWindowShift({ start: placed.top, size: placed.height }, { start: window.top, end: window.bottom }),
+  };
+  if (
+    Math.abs(next.x - current.x) < HOVER_CARD_SHIFT_TOLERANCE &&
+    Math.abs(next.y - current.y) < HOVER_CARD_SHIFT_TOLERANCE
+  ) {
+    return current;
+  }
+  return next;
+}

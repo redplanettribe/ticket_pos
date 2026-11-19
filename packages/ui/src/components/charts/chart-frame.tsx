@@ -15,7 +15,7 @@ import {
   TOOLTIP_ROW_HEIGHT,
   X_AXIS_HEIGHT,
   Y_AXIS_WIDTH,
-  scrollWindowShift,
+  hoverCardShift,
   tooltipColumnLayout,
 } from "./chart-geometry";
 import type { ChartBucketReading } from "./chart-reading";
@@ -525,17 +525,19 @@ const NO_NOTES: readonly string[] = [];
  * it keeps to starts after the pinned Y axis, which sits over the plot and
  * would otherwise sit over the card.
  *
- * The position is read off the card's frame — the wrapper recharts positions,
- * which is exactly where the card sits before any shift — and never off the
- * shifted card itself. Reading the card and subtracting the shift back out
- * looks equivalent and is not: Chrome reports a transformed box in single
- * precision, so `left - shift` misses the frame's position by a few
- * hundred-thousandths, the next shift differs from the last by that much, and
- * the effect re-renders itself until React gives up (error #185) — a crash on
- * hover at any sub-pixel geometry, which a high-DPI screen makes routine.
- * Measured from the frame, the answer is the same on every pass, so the effect
- * settles after one. Only the size is the card's own: a transform does not
- * change it. Recharts must not animate the frame (see `TOOLTIP_PROPS`): a box
+ * Both the position and the size are read off the card's frame - the wrapper
+ * recharts positions and sizes to the card, which is exactly where the card
+ * sits before any shift - and never off the shifted card itself. Chrome
+ * reports a transformed box in single precision, edge by edge, so the shifted
+ * card's left edge misses the frame's by a few hundred-thousandths of a pixel
+ * (#418) and so does its width, which is the difference of two rounded edges
+ * (#831). Either way the next shift differs from the last by that much and the
+ * effect re-renders itself until React gives up (error #185): a crash on hover
+ * at any sub-pixel geometry, which a fractional scale factor makes routine.
+ * Measured from the frame, nothing read here moves with the shift, and
+ * `hoverCardShift` holds the shift still within a hundredth of a pixel in
+ * case anything ever does, so the effect settles after one pass. Recharts must
+ * not animate the frame (see `TOOLTIP_PROPS`): a box
  * mid-transition measures as wherever it happens to be that frame.
  */
 function useKeptInScrollWindow() {
@@ -548,21 +550,23 @@ function useKeptInScrollWindow() {
     if (!card || !frame || !area) {
       return;
     }
+    // The frame, not the card: the frame is where the card sits before any
+    // shift, and it is exactly the card's size, so nothing measured here moves
+    // with the shift this effect applies.
     const placed = frame.getBoundingClientRect();
-    const size = card.getBoundingClientRect();
     const seen = area.getBoundingClientRect();
-    const next = {
-      x: scrollWindowShift(
-        { start: placed.left, size: size.width },
-        { start: seen.left + Y_AXIS_WIDTH, end: seen.left + area.clientWidth },
-        TOOLTIP_CURSOR_GAP,
-      ),
-      y: scrollWindowShift(
-        { start: placed.top, size: size.height },
-        { start: seen.top, end: seen.top + area.clientHeight },
-      ),
-    };
-    if (next.x !== shift.x || next.y !== shift.y) {
+    const next = hoverCardShift(
+      shift,
+      placed,
+      {
+        left: seen.left + Y_AXIS_WIDTH,
+        right: seen.left + area.clientWidth,
+        top: seen.top,
+        bottom: seen.top + area.clientHeight,
+      },
+      TOOLTIP_CURSOR_GAP,
+    );
+    if (next !== shift) {
       setShift(next);
     }
   });
