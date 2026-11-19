@@ -13,3 +13,12 @@
 export const OVERVIEW_SECTION_TITLE = "text-lg";
 export const OVERVIEW_CARD_TITLE = "text-base";
 export const OVERVIEW_GRID_GAP = "gap-4";
+
+/**
+ * The Platform Trends charts' columns (#839): two to a row from lg up, and
+ * one alone on the last row spans it, so no chart sits beside an empty cell.
+ * The rule is read from the grid's children (the last child and an odd one),
+ * not from which figure comes last, so it holds for any number of charts.
+ * Below lg every chart is one to a row, as before.
+ */
+export const OVERVIEW_CHART_COLUMNS = "lg:grid-cols-2 lg:*:last:odd:col-span-2";

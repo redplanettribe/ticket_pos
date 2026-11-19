@@ -80,7 +80,7 @@ import {
 import { cumulativePlotWidth, formatTakingsTick, trendsYTicks } from "@/lib/sales-trends";
 import { useElementWidth } from "@/lib/use-element-width";
 
-import { OVERVIEW_CARD_TITLE, OVERVIEW_GRID_GAP, OVERVIEW_SECTION_TITLE } from "./overview-layout";
+import { OVERVIEW_CARD_TITLE, OVERVIEW_CHART_COLUMNS, OVERVIEW_GRID_GAP, OVERVIEW_SECTION_TITLE } from "./overview-layout";
 import { PlatformTrendBreakdownPanel } from "./platform-trends-breakdown";
 
 /** The Overview's own path: the reading's address is this plus its query. */
@@ -467,7 +467,7 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
         <p>{t("trendsSelectNote")}</p>
       </div>
 
-      <div role="group" aria-label={t("trendsChartsLabel")} className={`grid ${OVERVIEW_GRID_GAP} lg:grid-cols-2`}>
+      <div role="group" aria-label={t("trendsChartsLabel")} className={`grid ${OVERVIEW_GRID_GAP} ${OVERVIEW_CHART_COLUMNS}`}>
         <FigureCard
           title={t("trendsActiveCustomers")}
           description={t("trendsActiveCustomersDescription")}

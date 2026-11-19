@@ -131,6 +131,7 @@ Usable on phone in a pinch; tablet landscape is the primary target.
   A figure read as a trajectory is a line; Tickets Sold is bars stacked by Sales Channel.
   Money is one chart per currency, never two currencies on one axis.
   Each chart is drawn at its card's width, and scrolls sideways only in a card narrower than the plot's floor.
+  With an odd number of charts, the last spans the full row at two columns (#839), so no chart sits beside an empty cell; the rule reads the grid's last child, not a named figure.
   The Overview reads as one page (#838): its section title (`text-lg`) is never smaller than the headings of the cards under it, which are `text-base`, and every grid of cards on it shares one gap (`gap-4`), so two-column grids line up edge to edge.
   Both live in `apps/staff/app/operator/overview-layout.ts`; `CardTitle`'s own default is left for pages with no section title above their cards.
 - **Breakdown of a bucket** (#822): choosing a day or a week on a Platform Trends chart opens what it was made of in a bordered panel beneath that chart, inside its card, and the page is not left.
