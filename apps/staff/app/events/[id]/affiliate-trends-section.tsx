@@ -569,7 +569,14 @@ function RateChart({
   );
 
   return (
-    <ChartScrollArea ref={setScrollArea} ariaLabel={t("rateScrollLabel")}>
+    <ChartScrollArea
+      ref={setScrollArea}
+      ariaLabel={t("rateScrollLabel")}
+      // Fitted to the card, it still scrolls on a card narrower than the
+      // minimum plot width (a 375px phone), so it opens on the latest days
+      // like the counting views, again when the range or view changes (#835).
+      openAtNewestEnd={{ key: `${range}:${view}`, contentWidth: plotWidth }}
+    >
       <MultiSeriesLineChart
         data={data}
         series={series}

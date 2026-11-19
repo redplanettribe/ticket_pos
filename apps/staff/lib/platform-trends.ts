@@ -443,7 +443,8 @@ export function spanBuckets(trends: PlatformTrends): PlatformTrendBucket[] {
  * on `ChartScrollArea`). It is made of the span's days, the comparison's kind
  * and days, and the granularity, so another span, comparison or custom range
  * opens the charts on their latest days again, while the same reading
- * fetched again leaves a chart the operator scrolled where they left it.
+ * fetched again leaves a chart the Platform Operator scrolled where they
+ * left it.
  */
 export function platformTrendsScrollAnchor(trends: PlatformTrends): string {
   const { span, comparison, granularity } = trends;

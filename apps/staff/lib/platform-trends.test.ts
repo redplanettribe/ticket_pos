@@ -541,8 +541,11 @@ test("platformTrendsScrollAnchor changes with the span, the comparison and a cus
     }) as unknown as PlatformTrends;
   const anchor = platformTrendsScrollAnchor(reading({}));
 
-  // The same reading fetched again is the same data: a hand-scrolled chart stays put.
+  // The same reading fetched again is the same data, even with today's figures
+  // moved on: a hand-scrolled chart stays put.
   assert.equal(platformTrendsScrollAnchor(reading({})), anchor);
+  const refetched = { ...reading({}), figures: { page_views: {} } } as unknown as PlatformTrends;
+  assert.equal(platformTrendsScrollAnchor(refetched), anchor);
 
   // Another span, comparison or custom range is new data, opened at its newest end again.
   assert.notEqual(platformTrendsScrollAnchor(reading({ preset: "90d", first_day: "2026-08-22" })), anchor);
