@@ -80,6 +80,7 @@ import {
 import { cumulativePlotWidth, formatTakingsTick, trendsYTicks } from "@/lib/sales-trends";
 import { useElementWidth } from "@/lib/use-element-width";
 
+import { OVERVIEW_CARD_TITLE, OVERVIEW_GRID_GAP, OVERVIEW_SECTION_TITLE } from "./overview-layout";
 import { PlatformTrendBreakdownPanel } from "./platform-trends-breakdown";
 
 /** The Overview's own path: the reading's address is this plus its query. */
@@ -192,7 +193,7 @@ export function PlatformTrendsSection({ view }: { view: PlatformTrendsView }) {
   return (
     <section aria-labelledby="platform-trends-title" className="space-y-4">
       <div className="space-y-1">
-        <h2 id="platform-trends-title" className="text-lg font-semibold tracking-tight">
+        <h2 id="platform-trends-title" className={`${OVERVIEW_SECTION_TITLE} font-semibold tracking-tight`}>
           {t("trendsTitle")}
         </h2>
         <p className="text-sm text-muted-foreground">
@@ -448,7 +449,7 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
         })}
       </p>
 
-      <div role="group" aria-label={t("trendsTilesLabel")} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div role="group" aria-label={t("trendsTilesLabel")} className={`grid ${OVERVIEW_GRID_GAP} sm:grid-cols-2 lg:grid-cols-3`}>
         {tiles.map((entry) => (
           <TrendTile
             key={entry.id}
@@ -466,7 +467,7 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
         <p>{t("trendsSelectNote")}</p>
       </div>
 
-      <div role="group" aria-label={t("trendsChartsLabel")} className="grid gap-4 lg:grid-cols-2">
+      <div role="group" aria-label={t("trendsChartsLabel")} className={`grid ${OVERVIEW_GRID_GAP} lg:grid-cols-2`}>
         <FigureCard
           title={t("trendsActiveCustomers")}
           description={t("trendsActiveCustomersDescription")}
@@ -669,7 +670,7 @@ function FigureCard({
   return (
     <Card className="min-w-0">
       <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
+        <CardTitle className={OVERVIEW_CARD_TITLE}>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent

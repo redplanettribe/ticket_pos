@@ -35,6 +35,7 @@ import type { PlatformTrendsView } from "@/lib/platform-trends";
 
 import { CertificateExpiryBanner } from "./invoicing/certificate-expiry-warning";
 import { ClosingSweepBanner } from "./invoicing/closing-sweep-banner";
+import { OVERVIEW_CARD_TITLE, OVERVIEW_GRID_GAP } from "./overview-layout";
 import { PlatformTrendsSection } from "./platform-trends-section";
 
 /**
@@ -67,13 +68,13 @@ function KeptFeeNote({ totals, locale }: { totals: OperatorCurrencyTotals; local
  * title is the currency code itself and the amounts are drawn in it; the Staff
  * Locale decides only the marks around the numbers (ADR 0041).
  */
-function TotalsCard({ totals, locale }: { totals: OperatorCurrencyTotals; locale: AppLocale }) {
+export function TotalsCard({ totals, locale }: { totals: OperatorCurrencyTotals; locale: AppLocale }) {
   const t = useTranslations("operator");
   const money = (cents: number) => formatMoney(cents, totals.currency, locale);
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{totals.currency}</CardTitle>
+        <CardTitle className={OVERVIEW_CARD_TITLE}>{totals.currency}</CardTitle>
         <CardDescription>{t("totalsDescription", { currency: totals.currency })}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -100,7 +101,7 @@ function TotalsCard({ totals, locale }: { totals: OperatorCurrencyTotals; locale
 }
 
 /** A count on the Overview that exists to be walked through to the work (#193). */
-function CountCard({
+export function CountCard({
   title,
   description,
   count,
@@ -116,7 +117,7 @@ function CountCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
+        <CardTitle className={OVERVIEW_CARD_TITLE}>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -268,7 +269,7 @@ export function OperatorDashboardClient({ trendsView }: { trendsView: PlatformTr
       */}
       <ClosingSweepBanner />
 
-      <div className="grid gap-6 sm:grid-cols-2">
+      <div className={`grid ${OVERVIEW_GRID_GAP} sm:grid-cols-2`}>
         {/*
           Payout requests first: it is the one figure here that somebody is
           WAITING on, while the organization count is a standing fact.
