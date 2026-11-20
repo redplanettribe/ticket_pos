@@ -486,12 +486,12 @@ type activityDay struct {
 // the span's last day, which say how much of each distinct count's run of
 // days is recorded. A span shorter than 30 days is read back that far.
 func (s *Service) frozenDays(ctx context.Context, span Span) ([]repository.ActivityTotals, error) {
-	read := span
-	if windowFirst := span.LastDay.AddDate(0, 0, -(distinctLongDays - 1)); windowFirst.Before(read.FirstDay) {
-		read.FirstDay = windowFirst
+	widened := span
+	if windowFirst := span.LastDay.AddDate(0, 0, -(distinctLongDays - 1)); windowFirst.Before(widened.FirstDay) {
+		widened.FirstDay = windowFirst
 	}
 	var frozen []repository.ActivityTotals
-	for _, read := range []Span{read, span.compared()} {
+	for _, read := range []Span{widened, span.compared()} {
 		days, err := s.totals.ActivityTotalsBetween(ctx, read.FirstDay.Format(dayFormat), read.LastDay.Format(dayFormat))
 		if err != nil {
 			return nil, err

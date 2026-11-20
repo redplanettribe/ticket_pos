@@ -685,6 +685,11 @@ export type TrendTileInput = {
   secondary?: TrendTileSecondaryInput[];
 };
 
+/** The runs of days the distinct counts are over, as the backend's daily
+ * close freezes them. */
+const DISTINCT_SHORT_DAYS = 7;
+const DISTINCT_LONG_DAYS = 30;
+
 const NOT_RECORDED_TILE: TrendTileInput = {
   readings: [{ id: "all", value: null, absence: "notRecorded" }],
 };
@@ -789,8 +794,8 @@ export function activityTile(
       ...(recordedDays !== null && recordedDays < windowDays ? { recordedDays } : {}),
     });
   };
-  distinct("distinct_7d", figure.distinct_7d, figure.distinct_7d_days, 7);
-  distinct("distinct_30d", figure.distinct_30d, figure.distinct_30d_days, 30);
+  distinct("distinct_7d", figure.distinct_7d, figure.distinct_7d_days, DISTINCT_SHORT_DAYS);
+  distinct("distinct_30d", figure.distinct_30d, figure.distinct_30d_days, DISTINCT_LONG_DAYS);
   return {
     readings: [
       {

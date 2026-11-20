@@ -391,18 +391,16 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
     partlyRecorded: t("trendsComparisonPartlyRecorded"),
     noneCompared: t("trendsNoneCompared"),
   };
+  const distinctLabels = {
+    distinct_7d: { whole: "trendsDistinct7Days", partly: "trendsDistinct7DaysPartlyRecorded" },
+    distinct_30d: { whole: "trendsDistinct30Days", partly: "trendsDistinct30DaysPartlyRecorded" },
+  } as const;
   const secondaryLabel = ({ id, recordedDays }: TrendTileSecondaryInput) => {
-    if (id === "distinct_7d") {
-      return recordedDays === undefined
-        ? t("trendsDistinct7Days")
-        : t("trendsDistinct7DaysPartlyRecorded", { days: recordedDays });
+    const keys = distinctLabels[id as keyof typeof distinctLabels];
+    if (keys === undefined) {
+      return channelName(id);
     }
-    if (id === "distinct_30d") {
-      return recordedDays === undefined
-        ? t("trendsDistinct30Days")
-        : t("trendsDistinct30DaysPartlyRecorded", { days: recordedDays });
-    }
-    return channelName(id);
+    return recordedDays === undefined ? t(keys.whole) : t(keys.partly, { days: recordedDays });
   };
   const tile = (id: string, label: string, input: TrendTileInput) => ({
     id,

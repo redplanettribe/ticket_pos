@@ -415,8 +415,9 @@ func TestWithRecordingOffNothingIsWrittenAndActiveCustomersIsNotYetRecorded(t *t
 	off := activeCustomersAs(t, env, operator, "?span=7d")
 	if off.Recorded || off.ExactSince != nil || off.DataSince != nil || off.Mean != nil || off.Distinct7Days != nil || off.Distinct30Days != nil ||
 		off.Distinct7DaysRecorded != nil || off.Distinct30DaysRecorded != nil {
-		t.Fatalf("with recording off: recorded=%v exact_since=%v data_since=%v mean=%v distinct_7d=%v distinct_30d=%v; want not recorded and nothing stated",
-			off.Recorded, shown(off.ExactSince), shown(off.DataSince), shown(off.Mean), shown(off.Distinct7Days), shown(off.Distinct30Days))
+		t.Fatalf("with recording off: recorded=%v exact_since=%v data_since=%v mean=%v distinct_7d=%v distinct_30d=%v over %v / %v days; want not recorded and nothing stated",
+			off.Recorded, shown(off.ExactSince), shown(off.DataSince), shown(off.Mean), shown(off.Distinct7Days), shown(off.Distinct30Days),
+			shown(off.Distinct7DaysRecorded), shown(off.Distinct30DaysRecorded))
 	}
 	for i, bucket := range off.Buckets {
 		if bucket != nil {

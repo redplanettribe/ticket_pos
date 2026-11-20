@@ -16459,25 +16459,25 @@ paths:
         those 7 and 30 days are recorded, frozen with the figure in them, null exactly
         when their count is and otherwise from 1 to the run''s length: a run reaching
         back before data_since, or for Active Customers holding a day closed while
-        recording was off, is below its length, and its count is of the recorded days
-        alone. Its data_since is the first frozen day. Its exact_since is the first
-        day the daily close froze with a Member''s work counted in it: a day frozen
-        before it holds the Organizations a Ticket Sale was recorded for and nothing
-        else, and stays so. sale_half_only is true and exact_since null while no day
-        has been frozen with a Member''s work in it. Active Customers is the same
-        shape and read the same way, from frozen totals alone: a Customer is active
-        on a day they acted as themselves, through a Customer Session in any way or
-        by accepting a Ticket Assignment, and is counted once however often they acted;
-        opening a Confirmation Link does not count, since it may have been forwarded,
-        and neither does a sale staff recorded for the Customer. Recording it is switched
-        off until the Privacy Policy describes it: while it is off and no day has
-        a figure, recorded is false and every bucket is null, which is not yet recorded
-        and not zero. Once a day has been closed with recording on and a Customer
-        counted, recorded is true, exact_since and data_since both state that day,
-        the day recording began, and no day before it has a bucket; a day closed while
-        recording was off has none either. sale_half_only is always false for it.
-        The figure states counts alone: no field of this response, and no route or
-        parameter anywhere, returns a Customer for a day. Platform Operator only.'
+        recording was off, is below its length. Its data_since is the first frozen
+        day. Its exact_since is the first day the daily close froze with a Member''s
+        work counted in it: a day frozen before it holds the Organizations a Ticket
+        Sale was recorded for and nothing else, and stays so. sale_half_only is true
+        and exact_since null while no day has been frozen with a Member''s work in
+        it. Active Customers is the same shape and read the same way, from frozen
+        totals alone: a Customer is active on a day they acted as themselves, through
+        a Customer Session in any way or by accepting a Ticket Assignment, and is
+        counted once however often they acted; opening a Confirmation Link does not
+        count, since it may have been forwarded, and neither does a sale staff recorded
+        for the Customer. Recording it is switched off until the Privacy Policy describes
+        it: while it is off and no day has a figure, recorded is false and every bucket
+        is null, which is not yet recorded and not zero. Once a day has been closed
+        with recording on and a Customer counted, recorded is true, exact_since and
+        data_since both state that day, the day recording began, and no day before
+        it has a bucket; a day closed while recording was off has none either. sale_half_only
+        is always false for it. The figure states counts alone: no field of this response,
+        and no route or parameter anywhere, returns a Customer for a day. Platform
+        Operator only.'
       parameters:
       - description: Span
         in: query
